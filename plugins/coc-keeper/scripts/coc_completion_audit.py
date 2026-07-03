@@ -606,7 +606,9 @@ def _malformed_relative_files(base: Path, relative_paths: list[str], display_pre
 def _source_structure_findings(run_id: str, run_dir: Path) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
     missing_evidence: list[str] = []
+    incomplete_files: list[str] = []
 
     has_keeper_turn = any(
         row.get("role") == "keeper_under_test"
@@ -624,15 +626,34 @@ def _source_structure_findings(run_id: str, run_dir: Path) -> list[dict[str, Any
         missing_evidence.append("keeper_under_test turn")
     if not has_player_turn:
         missing_evidence.append("player_simulator turn")
+    if not has_keeper_turn or not has_player_turn:
+        incomplete_files.append("transcript.jsonl")
+
+    has_feedback_score = any(
+        isinstance(row.get("score"), (int, float))
+        and not isinstance(row.get("score"), bool)
+        for row in feedback
+    )
+    has_feedback_text = any(
+        isinstance(row.get("text"), str)
+        and bool(row["text"].strip())
+        for row in feedback
+    )
+    if not has_feedback_score:
+        missing_evidence.append("feedback score")
+    if not has_feedback_text:
+        missing_evidence.append("feedback text")
+    if not has_feedback_score or not has_feedback_text:
+        incomplete_files.append("player-feedback.jsonl")
 
     if missing_evidence:
         findings.append(_finding(
             "active_run_source_files_incomplete",
             "test_gap",
-            f"{run_id} transcript.jsonl lacks required source evidence: {', '.join(missing_evidence)}.",
-            "Regenerate the active run so transcript.jsonl contains structured Keeper and player simulator turns with visible text before completion audit.",
+            f"{run_id} source files {', '.join(incomplete_files)} lack required evidence: {', '.join(missing_evidence)}.",
+            "Regenerate the active run so transcript.jsonl and player-feedback.jsonl contain structured Keeper, player, rating, and feedback text evidence before completion audit.",
             run_id=run_id,
-            incomplete_files=["transcript.jsonl"],
+            incomplete_files=incomplete_files,
             missing_evidence=missing_evidence,
         ))
     return findings
