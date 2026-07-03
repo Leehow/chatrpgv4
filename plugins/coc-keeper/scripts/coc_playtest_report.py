@@ -494,11 +494,12 @@ def generate_evaluation_report(run_dir: Path) -> Path:
     fix_lines = [f"- {fix}" for fix in metadata.get("recommended_fixes", [])]
     regression_lines = [f"- {item}" for item in metadata.get("regression_tests", [])]
 
-    def notes_for(category: str) -> list[str]:
+    def notes_for(*categories: str) -> list[str]:
+        accepted = set(categories)
         return [
             f"- [{note.get('severity', 'unknown')}] {note.get('category', 'general')}: {note.get('text', '')}"
             for note in notes
-            if note.get("category") == category
+            if note.get("category") in accepted
         ]
 
     body = [
@@ -536,7 +537,7 @@ def generate_evaluation_report(run_dir: Path) -> Path:
         *_list_lines(notes_for("immersion"), "- No immersion findings recorded."),
         "",
         "## Meta-Game Findings",
-        *_list_lines(notes_for("meta"), "- No meta-game findings recorded."),
+        *_list_lines(notes_for("meta", "meta_quality"), "- No meta-game findings recorded."),
         "",
         "## Reproducible Bugs",
         *_list_lines(notes_for("bug"), "- No reproducible bugs recorded."),

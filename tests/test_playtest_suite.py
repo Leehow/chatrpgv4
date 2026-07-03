@@ -40,6 +40,8 @@ def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     assert index["coverage"]["chase"]["runs"] == ["v3-chase-drill"]
     assert index["coverage"]["sanity"]["status"] == "covered"
     assert index["coverage"]["sanity"]["runs"] == ["v2-haunting-module"]
+    assert index["coverage"]["meta_game"]["status"] == "covered"
+    assert index["coverage"]["meta_game"]["runs"] == ["v2-haunting-module"]
     assert index["coverage"]["player_feedback"]["status"] == "covered"
     assert index["gaps"] == []
     assert index["non_passing_runs"] == []
@@ -59,6 +61,7 @@ def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     assert "combat: covered" in report_text
     assert "chase: covered" in report_text
     assert "sanity: covered" in report_text
+    assert "meta_game: covered" in report_text
     assert "player_feedback: covered" in report_text
     assert "## Non-Passing Runs" in report_text
     assert "- No non-passing runs in this suite." in report_text
@@ -96,6 +99,10 @@ class FixtureSemanticEvaluator:
             "sanity": {
                 "covered": False,
                 "reason": "Semantic evaluator found no SAN loss or bout handling.",
+            },
+            "meta_game": {
+                "covered": True,
+                "reason": "Semantic evaluator found an out-of-character rules question and Keeper answer.",
             },
             "player_feedback": {
                 "covered": True,

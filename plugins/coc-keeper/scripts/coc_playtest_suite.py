@@ -14,6 +14,7 @@ CORE_COVERAGE = {
     "combat": "Combat",
     "chase": "Chase",
     "sanity": "Sanity",
+    "meta_game": "Meta-game rules discussion",
     "player_feedback": "Player feedback",
 }
 
@@ -77,6 +78,11 @@ class StructuredSourceCoverageEvaluator:
         subsystems = set(context.metadata.get("subsystems_covered", []))
         transcript_roles = {event.get("role") for event in context.transcript}
         transcript_speakers = {event.get("speaker") for event in context.transcript}
+        meta_roles = {
+            event.get("role")
+            for event in context.transcript
+            if event.get("mode") == "meta"
+        }
         return {
             "character_dossier": self._result(
                 bool(context.characters),
@@ -100,6 +106,15 @@ class StructuredSourceCoverageEvaluator:
             "combat": self._subsystem_result("combat", subsystems),
             "chase": self._subsystem_result("chase", subsystems),
             "sanity": self._subsystem_result("sanity", subsystems),
+            "meta_game": self._result(
+                (
+                    "keeper_under_test" in meta_roles
+                    and "player_simulator" in meta_roles
+                )
+                or "meta_game" in subsystems,
+                "Found structured meta-mode question and Keeper response.",
+                "No structured meta-mode Keeper/player exchange was found.",
+            ),
             "player_feedback": self._result(
                 bool(context.player_feedback),
                 f"Found {len(context.player_feedback)} structured player feedback entries.",
@@ -458,6 +473,7 @@ def _coverage_key_contracts() -> list[dict[str, str]]:
         "combat": "Does the evidence semantically include a Call of Cthulhu combat exchange with order, opposed or attack rolls, damage or resolution, and state impact?",
         "chase": "Does the evidence semantically include a Call of Cthulhu chase with speed setup, locations, movement actions, obstacles or conflict, and an ending?",
         "sanity": "Does the evidence semantically include sanity checks or sanity loss with rule consequence such as temporary insanity or recovery?",
+        "meta_game": "Does the evidence include an out-of-character player rules/system question and a Keeper answer that pauses or separates ordinary in-character narration?",
         "player_feedback": "Does the evidence include a player-facing assessment of Keeper clarity, immersion, rules readability, or pacing?",
     }
     return [

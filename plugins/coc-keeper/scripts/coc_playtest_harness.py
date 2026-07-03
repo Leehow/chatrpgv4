@@ -542,6 +542,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "sanity",
             "damage",
             "combat",
+            "meta_game",
         ],
         "scores": {
             "immersion": 4,
@@ -686,7 +687,9 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"turn": 5, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "persuade_regular", "text": "Arty Wilmot 挡在 morgue 门口，不想让陌生人翻档案。你的目标是说服他放行，做 Persuade，Regular difficulty。"},
         {"turn": 6, "role": "system", "speaker": "system", "mode": "roll", "text": "Persuade 72 vs 55 -> failure."},
         {"turn": 7, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "push Arty social access", "text": "我把 Mr. Knott 的钥匙亮出来，压低声音说这可能阻止下一场悲剧；我接受失败时 Arty 会叫维护工把我赶出去。"},
-        {"turn": 8, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_persuade", "text": "这构成 pushed Persuade。失败的话，Arty 会叫来强壮的维护工，你今天彻底失去查档机会。"},
+        {"turn": "7a", "role": "player_simulator", "speaker": "Ada King", "mode": "meta", "intent": "ask pushed-roll ruling", "text": "[meta] 我想确认一下：为什么这里可以 pushed roll？失败后果是不是要先说清楚？[/meta]"},
+        {"turn": "7b", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "pushed_roll_explanation", "text": "[meta] 可以，因为你不是重掷同一个动作，而是改变策略：亮出钥匙、强调可能阻止悲剧。失败后果会先摆明：阿蒂会叫维护工，你今天失去查档机会。确认后我们回到场景。[/meta]"},
+        {"turn": 8, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_persuade", "text": "这构成 pushed Persuade。失败后果是，Arty 会叫来强壮的维护工，你今天彻底失去查档机会。"},
         {"turn": 9, "role": "system", "speaker": "system", "mode": "roll", "text": "Pushed Persuade 38 vs 55 -> regular_success."},
         {"turn": 10, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Arty 终于让开。Ruth Blake 带你进满是灰尘的 morgue，Handout 2 写着事故、疾病、自杀，以及 Macario 一家仓皇逃离。"},
         {"turn": 11, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "follow public record trail", "text": "我把剪报收好，下午去 Hall of Records，查 Walter Corbitt、遗嘱和任何教会记录。"},
@@ -802,6 +805,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"severity": "low", "category": "rules_accuracy", "text": "Pushed rolls state changed tactics and foreshadowed consequences."},
         {"severity": "low", "category": "rules_accuracy", "text": "The Floating Knife uses opposed POW versus Dodge and a Fighting Maneuver to grab it."},
         {"severity": "low", "category": "state_integrity", "text": "HP, SAN, clues, scenes, combat, final status, memory, and feedback are recorded."},
+        {"severity": "low", "category": "meta_quality", "text": "A meta-mode pushed-roll question pauses narration, explains the ruling, and returns to play."},
         {"severity": "medium", "category": "immersion", "text": "The scripted test compresses a full scenario and should later be replaced by an LLM-vs-KP interactive transcript."},
     ])
 

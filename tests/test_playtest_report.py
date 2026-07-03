@@ -129,6 +129,7 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
         {"severity": "low", "category": "immersion", "text": "Good opening."},
         {"severity": "low", "category": "state_integrity", "text": "Campaign validation returned no errors."},
         {"severity": "low", "category": "spoiler_safety", "text": "No leaks observed."},
+        {"severity": "low", "category": "meta_quality", "text": "Meta question paused play and returned cleanly."},
     ])
     write_json(run_dir / "playtest.json", {
         "run_id": "run-1",
@@ -196,4 +197,5 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "- spoiler_warning" in evaluation_text
     assert "[low] state_integrity: Campaign validation returned no errors." in evaluation_text
     assert "[low] spoiler_safety: No leaks observed." in evaluation_text
+    assert "[low] meta_quality: Meta question paused play and returned cleanly." in evaluation_text
     assert "- Populate spoiler warning transcript checks." in evaluation_text

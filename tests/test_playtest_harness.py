@@ -30,6 +30,16 @@ def visible_play_texts(run_dir: Path) -> list[str]:
     ]
 
 
+def transcript_events(run_dir: Path) -> list[dict]:
+    import json
+
+    return [
+        json.loads(line)
+        for line in (run_dir / "transcript.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+
+
 def playtest_metadata(run_dir: Path) -> dict:
     import json
 
@@ -135,6 +145,16 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_visible_terms_localized(actual_play, zh_terms)
     assert "诺特先生把一枚旧钥匙" in actual_play
+    meta_events = [
+        event
+        for event in transcript_events(run_dir)
+        if event.get("mode") == "meta" and event.get("role") in {"keeper_under_test", "player_simulator"}
+    ]
+    assert {event["role"] for event in meta_events} == {"keeper_under_test", "player_simulator"}
+    assert "[meta]" in actual_play
+    assert "[/meta]" in actual_play
+    assert "为什么这里可以 pushed roll" in actual_play
+    assert "失败后果" in actual_play
     assert all("Ada King" not in text for text in visible_play_texts(run_dir))
     assert all("Mr. Knott" not in text for text in visible_play_texts(run_dir))
     assert all("Walter Corbitt" not in text for text in visible_play_texts(run_dir))

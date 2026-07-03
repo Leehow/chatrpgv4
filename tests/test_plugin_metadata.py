@@ -172,6 +172,7 @@ def test_coc_playtest_skill_documents_suite_report_index():
         "character_dossier",
         "kp_player_transcript",
         "mechanical_rolls",
+        "meta_game",
         "player_feedback",
     ]
     for term in required_terms:
