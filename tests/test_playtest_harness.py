@@ -840,9 +840,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "个人兴趣技能点: INT × 2 = 140" in creation_section
     assert "信用评级: 40（规则书职业范围 30-70）" in creation_section
     assert "技能分配: 职业 300/300，个人兴趣 140/140，未分配 0/0" in creation_section
-    assert "信用评级: base 0 + 职业 40 + 个人兴趣 0 = 40" in creation_section
-    assert "图书馆使用: base 20 + 职业 40 + 个人兴趣 0 = 60" in creation_section
-    assert "格斗（斗殴）: base 25 + 职业 0 + 个人兴趣 15 = 40" in creation_section
+    assert "信用评级: 基础 0 + 职业 40 + 个人兴趣 0 = 40" in creation_section
+    assert "图书馆使用: 基础 20 + 职业 40 + 个人兴趣 0 = 60" in creation_section
+    assert "格斗（斗殴）: 基础 25 + 职业 0 + 个人兴趣 15 = 40" in creation_section
+    assert "base " not in creation_section
     assert "装备: 裂柄铜放大镜; 笔记本; 钢笔; 左轮" in creation_section
     assert "Call of Cthulhu Keeper Rulebook Chapter 3" not in creation_section
     assert investigator_jsonl(run_dir, "ada-king-haunting", "history.jsonl")

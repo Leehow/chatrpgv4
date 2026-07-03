@@ -859,6 +859,7 @@ def _format_skill_allocation(
     unallocated_personal = allocation.get("unallocated_personal_interest_points", "?")
     skill_allocation_label = _creation_label(language_profile, "Skill Allocation")
     occupation_label = _creation_label(language_profile, "Occupation")
+    base_label = _creation_label(language_profile, "Base")
     personal_label = _creation_label(language_profile, "Personal Interest")
     unallocated_label = _creation_label(language_profile, "Unallocated")
     if play_language == "zh-Hans":
@@ -908,7 +909,7 @@ def _format_skill_allocation(
             continue
         display_skill = _display_skill_name(skill, localized_terms)
         lines.append(
-            f"    - {display_skill}: base {entry.get('base', '?')} + "
+            f"    - {display_skill}: {base_label} {entry.get('base', '?')} + "
             f"{occupation_label} {entry.get('occupation_points', 0)} + "
             f"{personal_label} {entry.get('personal_interest_points', 0)} = "
             f"{entry.get('final', '?')}"

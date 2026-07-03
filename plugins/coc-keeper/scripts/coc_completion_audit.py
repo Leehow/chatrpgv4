@@ -703,6 +703,7 @@ def _creation_required_texts(creation: dict[str, Any], metadata: dict[str, Any])
     allocation = creation.get("skill_allocation", {})
     if isinstance(allocation, dict) and allocation:
         occupation_label = _creation_label(metadata, "Occupation")
+        base_label = _creation_label(metadata, "Base")
         personal_label = _creation_label(metadata, "Personal Interest")
         unallocated_label = _creation_label(metadata, "Unallocated")
         occupation_available = creation.get("occupation", {}).get("skill_points_available", "?")
@@ -729,7 +730,7 @@ def _creation_required_texts(creation: dict[str, Any], metadata: dict[str, Any])
                     continue
                 display_skill = _localize_text(str(skill), localized_terms)
                 required_texts.append(
-                    f"{display_skill}: base {entry.get('base', '?')} + "
+                    f"{display_skill}: {base_label} {entry.get('base', '?')} + "
                     f"{occupation_label} {entry.get('occupation_points', 0)} + "
                     f"{personal_label} {entry.get('personal_interest_points', 0)} = "
                     f"{entry['final']}"

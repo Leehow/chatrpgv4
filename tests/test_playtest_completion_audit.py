@@ -171,7 +171,7 @@ def battle_report_investigator_creation_fixture_text() -> str:
         "- Personal Interest Skill Points: INT x 2 = 140",
         "- Credit Rating: 40 (Rulebook Occupation Range 30-70)",
         "- Skill Allocation: Occupation 300/300; Personal Interest 140/140; Unallocated 0/0",
-        "  - Spot Hidden: base 25 + Occupation 30 + Personal Interest 0 = 55",
+        "  - Spot Hidden: Base 25 + Occupation 30 + Personal Interest 0 = 55",
         "- Equipment: fixture magnifier; fixture notebook",
     ])
 
@@ -2321,7 +2321,38 @@ def test_completion_audit_fails_when_battle_report_omits_investigator_creation_r
     assert finding["run_id"] == "v2-haunting-module"
     assert "STR 60" in finding["missing_creation_samples"]
     assert "EDU x 4 = 300" in finding["missing_creation_samples"]
-    assert "Spot Hidden: base 25 + Occupation 30 + Personal Interest 0 = 55" in finding["missing_creation_samples"]
+    assert "Spot Hidden: Base 25 + Occupation 30 + Personal Interest 0 = 55" in finding["missing_creation_samples"]
+
+
+def test_completion_audit_accepts_localized_creation_allocation_labels(tmp_path):
+    creation = {
+        "skill_allocation": {
+            "skills": {
+                "Spot Hidden": {
+                    "base": 25,
+                    "occupation_points": 30,
+                    "personal_interest_points": 0,
+                    "final": 55,
+                },
+            },
+        },
+    }
+    metadata = {
+        "play_language": "zh-Hans",
+        "localized_terms": {"zh-Hans": {"Spot Hidden": "侦查"}},
+        "language_profile": {
+            "creation_labels": {
+                "Occupation": "职业",
+                "Base": "基础",
+                "Personal Interest": "个人兴趣",
+            },
+        },
+    }
+
+    required = coc_completion_audit._creation_required_texts(creation, metadata)
+
+    assert "侦查: 基础 25 + 职业 30 + 个人兴趣 0 = 55" in required
+    assert "Spot Hidden: base 25 + Occupation 30 + Personal Interest 0 = 55" not in required
 
 
 def test_completion_audit_fails_when_creation_records_are_outside_creation_section(tmp_path):
