@@ -1015,7 +1015,7 @@ The audit loop is:
 5. Apply the smallest fix named in `## Next Loop Fix Target`.
 6. Regenerate reports and rerun the audit until it passes or exposes the next highest-priority gap.
 
-`rulebook-audit.md` must contain `## Root Cause Classification`, `## Blueprint Cross-Check`, and `## Next Loop Fix Target`.
+`rulebook-audit.md` must contain `## Positive Rulebook Evidence`, `## Root Cause Classification`, `## Blueprint Cross-Check`, and `## Next Loop Fix Target`.
 
 The baseline audit should reject a run when the battle report omits a pushed roll, session ending, mechanical detail such as roll goals and difficulty rationale, or when report text leaks raw payload dictionaries instead of player-readable prose.
 

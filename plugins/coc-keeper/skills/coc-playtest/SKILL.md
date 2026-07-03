@@ -106,6 +106,7 @@ Every serious playtest follows this loop:
 
 1. Generate `battle-report.md` and `evaluation-report.md`.
 2. Run `coc_playtest_audit.py <run-dir>` and read `rulebook-audit.md`.
+   - Passing audits should include `## Positive Rulebook Evidence` with structured counts for transcript turns, roll protocol, pushed rolls, sanity/Bout of Madness, subsystems, and profile-specific module or chase evidence.
 3. If the audit fails, classify the first blocker before changing files:
    - `test_gap`: the simulated test did not actually exercise enough COC play.
    - `system_gap`: the Keeper system did not record or execute a rulebook-required behavior.

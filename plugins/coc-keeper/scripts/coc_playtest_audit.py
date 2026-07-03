@@ -383,6 +383,60 @@ def _has_bout_of_madness_event(events: list[dict[str, Any]]) -> bool:
     return any(event.get("type") == "bout_of_madness" for event in events)
 
 
+def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
+    metadata = context["metadata"]
+    transcript = context["transcript"]
+    rolls = context["rolls"]
+    events = context["events"]
+    covered_subsystems = sorted(set(metadata.get("subsystems_covered", [])))
+    pushed_rolls = [
+        event for event in rolls
+        if event.get("payload", {}).get("pushed") is True
+    ]
+    skill_checks = [
+        event for event in rolls
+        if event.get("payload", {}).get("skill_check_earned") is True
+    ]
+    sanity_rolls = [event for event in rolls if event.get("type") == "sanity"]
+    temporary_insanity_markers = [
+        event for event in rolls
+        if event.get("payload", {}).get("temporary_insanity_triggered") is True
+    ]
+    lines = [
+        (
+            f"Transcript turns: {len(transcript)}; player intents: {_player_intent_count(transcript)}; "
+            f"Keeper rulings: {_keeper_ruling_count(transcript)}."
+        ),
+        f"Roll protocol: {len(rolls)} roll log entries; protocol gaps: {len(_roll_protocol_gaps(rolls))}.",
+        f"Pushed rolls: {len(pushed_rolls)}; skill checks earned: {len(skill_checks)}.",
+        (
+            f"Sanity procedure: {len(sanity_rolls)} SAN roll entries; "
+            f"temporary_insanity_triggered markers: {len(temporary_insanity_markers)}; "
+            f"Bout of Madness events: {_event_type_count(events, 'bout_of_madness')}."
+        ),
+        f"Subsystems covered: {', '.join(covered_subsystems) if covered_subsystems else 'none'}.",
+    ]
+    if metadata.get("audit_profile") == "haunting_module":
+        module_coverage = set(metadata.get("module_coverage", []))
+        covered_count = sum(1 for item in HAUNTING_MODULE_COVERAGE if item in module_coverage)
+        lines.append(f"Module coverage: {covered_count}/{len(HAUNTING_MODULE_COVERAGE)} required The Haunting beats recorded.")
+        lines.append(
+            f"Combat evidence: {_event_type_count(events, 'combat')} combat events; "
+            f"{sum(1 for event in rolls if event.get('type') == 'combat')} combat roll entries."
+        )
+    if metadata.get("audit_profile") == "chase_drill":
+        chase_state = context["chase_state"]
+        state_fields = [
+            field for field in ["participants", "location_chain", "rounds", "outcome"]
+            if chase_state.get(field) not in (None, "", [], {})
+        ]
+        lines.append(
+            f"Chase evidence: {_event_type_count(events, 'chase')} chase events; "
+            f"save/chase.json fields present: {', '.join(state_fields) if state_fields else 'none'}."
+        )
+    return lines
+
+
 def _report_contains_all(text: str, markers: list[str]) -> list[str]:
     return [marker for marker in markers if marker not in text]
 
@@ -875,6 +929,7 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
         "run_dir": str(run_dir),
         "result": "fail" if findings else "pass",
         "findings": findings,
+        "positive_rulebook_evidence": _positive_rulebook_evidence(context),
     }
 
 
@@ -907,6 +962,9 @@ def generate_rulebook_audit(run_dir: Path) -> Path:
         "",
         "## Overall Result",
         audit["result"].upper(),
+        "",
+        "## Positive Rulebook Evidence",
+        *[f"- {line}" for line in audit.get("positive_rulebook_evidence", [])],
         "",
         "## Root Cause Classification",
     ]

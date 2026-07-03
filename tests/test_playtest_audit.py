@@ -334,9 +334,15 @@ def test_rulebook_audit_accepts_rulebook_shaped_run(tmp_path):
     create_final_rulebook_run(run_dir)
 
     audit = coc_playtest_audit.audit_run(run_dir)
+    artifact = coc_playtest_audit.generate_rulebook_audit(run_dir)
+    text = artifact.read_text()
 
     assert audit["result"] == "pass"
     assert audit["findings"] == []
+    assert "## Positive Rulebook Evidence" in text
+    assert "Transcript turns:" in text
+    assert "Roll protocol:" in text
+    assert "Pushed rolls:" in text
 
 
 def test_final_audit_requires_pushed_roll_session_end_and_mechanical_detail(tmp_path):

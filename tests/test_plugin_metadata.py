@@ -151,6 +151,7 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "pushed roll",
         "temporary_insanity_bout_missing",
         "Bout of Madness",
+        "Positive Rulebook Evidence",
         "session ending",
         "mechanical detail",
         "raw payload",

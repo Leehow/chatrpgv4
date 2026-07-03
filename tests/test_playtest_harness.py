@@ -176,6 +176,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
 
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
+    assert "## Positive Rulebook Evidence" in audit_text
+    assert "Module coverage: 10/10" in audit_text
+    assert "Bout of Madness events: 1" in audit_text
+    assert "temporary_insanity_triggered markers: 1" in audit_text
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
