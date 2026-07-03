@@ -712,7 +712,7 @@ def _character_actor_ids(characters: list[dict[str, Any]]) -> list[str]:
 def _report_actor_id_leaks(battle_report: str, characters: list[dict[str, Any]]) -> list[str]:
     actor_ids = _character_actor_ids(characters)
     leaks: list[str] = []
-    for heading in PLAYER_READABLE_REPORT_SECTIONS:
+    for heading in PLAYER_READABLE_STATE_SECTIONS:
         section = _section_text(battle_report, heading)
         if not section:
             continue
