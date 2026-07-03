@@ -436,6 +436,83 @@ def _semantic_request_contract_findings(run_id: str, semantic_request: dict[str,
     )]
 
 
+def _semantic_payloads(root: Path, active_runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    payloads: dict[str, dict[str, Any]] = {}
+    for run in active_runs:
+        run_id = str(run.get("run_id"))
+        semantic = _read_json(_playtests_dir(root) / run_id / "artifacts" / "semantic-eval-result.json", {})
+        if isinstance(semantic, dict) and semantic:
+            payloads[run_id] = semantic
+    return payloads
+
+
+def _semantic_quality_passes(value: Any) -> bool:
+    if not isinstance(value, dict) or value.get("passed") is not True:
+        return False
+    try:
+        score = int(value.get("score", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    return score >= 4
+
+
+def _semantic_support_findings(
+    root: Path,
+    index: dict[str, Any],
+    active_runs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    payloads = _semantic_payloads(root, active_runs)
+    active_ids = [str(run.get("run_id")) for run in active_runs]
+
+    for dimension in REQUIRED_COVERAGE_DIMENSIONS:
+        coverage_entry = index.get("coverage", {}).get(dimension, {})
+        if coverage_entry.get("status") != "covered":
+            continue
+        supporting_runs = [
+            run_id
+            for run_id, semantic in payloads.items()
+            if isinstance(semantic.get("coverage"), dict)
+            and isinstance(semantic["coverage"].get(dimension), dict)
+            and semantic["coverage"][dimension].get("covered") is True
+        ]
+        if supporting_runs:
+            continue
+        findings.append(_finding(
+            "semantic_artifacts_do_not_support_coverage",
+            "test_gap",
+            f"{dimension} is covered in index but no active semantic artifact marks it covered.",
+            "Regenerate semantic-eval-result.json and suite index from the same active runs.",
+            key=dimension,
+            active_runs=active_ids,
+            index_runs=coverage_entry.get("runs", []),
+        ))
+
+    for dimension in REQUIRED_QUALITY_DIMENSIONS:
+        quality_entry = index.get("quality", {}).get(dimension, {})
+        if quality_entry.get("status") != "passed":
+            continue
+        supporting_runs = [
+            run_id
+            for run_id, semantic in payloads.items()
+            if isinstance(semantic.get("quality"), dict)
+            and _semantic_quality_passes(semantic["quality"].get(dimension))
+        ]
+        if supporting_runs:
+            continue
+        findings.append(_finding(
+            "semantic_artifacts_do_not_support_quality",
+            "test_gap",
+            f"{dimension} is passed in index but no active semantic artifact has passed=true with score >= 4.",
+            "Regenerate semantic-eval-result.json and suite index from the same active runs.",
+            key=dimension,
+            active_runs=active_ids,
+            index_runs=quality_entry.get("runs", []),
+        ))
+
+    return findings
+
+
 def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     run_id = str(run.get("run_id"))
@@ -822,6 +899,7 @@ def generate_completion_audit(root: Path, automation_path: Path | None = None) -
     loop_decision = _read_json(base / "loop-decision.json", {})
     active_runs = _active_runs(index, loop_decision)
     findings = _suite_findings(index, loop_decision, active_runs, _read_text(base / "suite-report.md"))
+    findings.extend(_semantic_support_findings(root, index, active_runs))
     for run in active_runs:
         findings.extend(_run_artifact_findings(root, run))
 

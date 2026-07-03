@@ -432,6 +432,73 @@ def test_completion_audit_fails_when_required_coverage_dimension_missing_from_in
     )
 
 
+def test_completion_audit_fails_when_index_coverage_is_not_supported_by_semantic_artifacts(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+        semantic_path = tmp_path / ".coc" / "playtests" / run["run_id"] / "artifacts" / "semantic-eval-result.json"
+        semantic = json.loads(semantic_path.read_text())
+        semantic["coverage"]["combat"]["covered"] = False
+        semantic["coverage"]["combat"]["reason"] = "Fixture no longer supports combat coverage."
+        write_json(semantic_path, semantic)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(
+        finding["code"] == "semantic_artifacts_do_not_support_coverage"
+        and finding["key"] == "combat"
+        for finding in audit["findings"]
+    )
+
+
+def test_completion_audit_fails_when_index_quality_is_not_supported_by_semantic_artifacts(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+        semantic_path = tmp_path / ".coc" / "playtests" / run["run_id"] / "artifacts" / "semantic-eval-result.json"
+        semantic = json.loads(semantic_path.read_text())
+        semantic["quality"]["report_completeness"]["score"] = 3
+        semantic["quality"]["report_completeness"]["passed"] = True
+        semantic["quality"]["report_completeness"]["reason"] = "Fixture score is below the completion threshold."
+        write_json(semantic_path, semantic)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(
+        finding["code"] == "semantic_artifacts_do_not_support_quality"
+        and finding["key"] == "report_completeness"
+        for finding in audit["findings"]
+    )
+
+
 def test_completion_audit_fails_without_multi_profile_pressure(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
