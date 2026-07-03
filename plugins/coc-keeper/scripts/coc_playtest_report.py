@@ -838,8 +838,11 @@ def _format_transcript_event(
     rendered_text: str | None = None,
     profile_labels: dict[str, str] | None = None,
     language_profile: dict[str, Any] | None = None,
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
 ) -> list[str]:
     speaker = _display_transcript_speaker(event, profile_labels, language_profile)
+    terms = localized_terms or {}
 
     turn = event.get("turn", "?")
     text = rendered_text if rendered_text is not None else event.get("text", "")
@@ -847,7 +850,11 @@ def _format_transcript_event(
     if event.get("mode"):
         lines.append(f"  - {_transcript_label(language_profile, 'mode', 'Mode')}: {event['mode']}")
     if event.get("intent"):
-        lines.append(f"  - {_transcript_label(language_profile, 'intent', 'Intent')}: {event['intent']}")
+        intent = _localized_field(event, "intent", terms, play_language) or str(event["intent"])
+        lines.append(f"  - {_transcript_label(language_profile, 'intent', 'Intent')}: {intent}")
+    if event.get("ruling"):
+        ruling = _localized_field(event, "ruling", terms, play_language) or str(event["ruling"])
+        lines.append(f"  - {_transcript_label(language_profile, 'ruling', 'Ruling')}: {ruling}")
     return lines
 
 
@@ -856,9 +863,12 @@ def _format_actual_play_event(
     rendered_text: str | None = None,
     profile_labels: dict[str, str] | None = None,
     language_profile: dict[str, Any] | None = None,
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
 ) -> list[str]:
     role = event.get("role", "unknown")
     speaker = _display_transcript_speaker(event, profile_labels, language_profile)
+    terms = localized_terms or {}
 
     turn = event.get("turn", "?")
     text = rendered_text if rendered_text is not None else event.get("text", "")
@@ -867,9 +877,11 @@ def _format_actual_play_event(
     else:
         lines = [f"- {_transcript_turn_label(language_profile, turn)} {speaker}: {text}"]
     if event.get("intent"):
-        lines.append(f"  - {_transcript_label(language_profile, 'intent', 'Intent')}: {event['intent']}")
+        intent = _localized_field(event, "intent", terms, play_language) or str(event["intent"])
+        lines.append(f"  - {_transcript_label(language_profile, 'intent', 'Intent')}: {intent}")
     if event.get("ruling"):
-        lines.append(f"  - {_transcript_label(language_profile, 'ruling', 'Ruling')}: {event['ruling']}")
+        ruling = _localized_field(event, "ruling", terms, play_language) or str(event["ruling"])
+        lines.append(f"  - {_transcript_label(language_profile, 'ruling', 'Ruling')}: {ruling}")
     if event.get("mode") == "roll":
         lines.append(f"  - {_transcript_label(language_profile, 'mode', 'Mode')}: roll")
     return lines
@@ -1043,8 +1055,22 @@ def generate_battle_report(run_dir: Path) -> Path:
             recaps = roll_recap_lines[roll_cursor: roll_cursor + roll_count]
             rendered_text = _format_roll_transcript_text(event, recaps)
             roll_cursor += roll_count
-        transcript_lines.extend(_format_transcript_event(event, rendered_text, profile_labels, language_profile))
-        actual_play_lines.extend(_format_actual_play_event(event, rendered_text, profile_labels, language_profile))
+        transcript_lines.extend(_format_transcript_event(
+            event,
+            rendered_text,
+            profile_labels,
+            language_profile,
+            localized_terms,
+            str(play_language),
+        ))
+        actual_play_lines.extend(_format_actual_play_event(
+            event,
+            rendered_text,
+            profile_labels,
+            language_profile,
+            localized_terms,
+            str(play_language),
+        ))
     roll_lines = [_format_roll(event) for event in rolls]
     state_lines = [
         _format_state_event(event, localized_terms, str(play_language))

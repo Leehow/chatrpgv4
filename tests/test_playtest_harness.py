@@ -170,6 +170,13 @@ def assert_localized_transcript_chrome(text: str) -> None:
     assert "\n  - Mode:" not in text
 
 
+def assert_transcript_detail_values_localized(text: str, expected: list[str], forbidden: list[str]) -> None:
+    for value in expected:
+        assert value in text
+    for value in forbidden:
+        assert value not in text
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -304,6 +311,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_visible_terms_localized(actual_play, zh_terms)
     assert_localized_transcript_chrome(actual_play)
+    assert_transcript_detail_values_localized(
+        actual_play,
+        ["询问委托条件和近期线索", "无需检定", "推骰说明"],
+        ["ask terms and immediate leads", "no_roll_needed", "pushed_roll_explanation"],
+    )
     assert "诺特先生把一枚旧钥匙" in actual_play
     assert "第 6 轮 system: Persuade：艾达·金掷出 72 / 55，结果失败。" in actual_play
     assert "第 42 轮 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；Dodge：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
@@ -312,6 +324,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Corbitt POW 34 vs 90" not in actual_play
     session_transcript = section_text(battle_text, "## Session Transcript")
     assert_localized_transcript_chrome(session_transcript)
+    assert_transcript_detail_values_localized(
+        session_transcript,
+        ["询问委托条件和近期线索", "无需检定", "推骰说明"],
+        ["ask terms and immediate leads", "no_roll_needed", "pushed_roll_explanation"],
+    )
     assert "第 6 轮 system: Persuade：艾达·金掷出 72 / 55，结果失败。" in session_transcript
     assert "第 42 轮 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；Dodge：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in session_transcript
     assert "Persuade 72 vs 55" not in session_transcript
@@ -534,6 +551,11 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_visible_terms_localized(actual_play, zh_terms)
     assert_localized_transcript_chrome(actual_play)
+    assert_transcript_detail_values_localized(
+        actual_play,
+        ["确认被偷走的账本", "推骰确认账本", "建立追逐", "通过障碍并躲藏"],
+        ["spot the stolen ledger", "push ledger confirmation", "chase_setup", "pass barrier and hide"],
+    )
     assert "第 4 轮 system: Spot Hidden：艾达·金掷出 82 / 55，结果失败。" in actual_play
     assert "第 9 轮 system: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in actual_play
     assert "第 18 轮 system: Dodge：艾达·金掷出 19 / 35，结果普通成功；Fighting (Brawl)：内森尼尔·克劳掷出 62 / 45，结果失败。内森尼尔·克劳的短棍攻击落空。" in actual_play
@@ -543,6 +565,11 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "extreme_success" not in actual_play
     session_transcript = section_text(battle_text, "## Session Transcript")
     assert_localized_transcript_chrome(session_transcript)
+    assert_transcript_detail_values_localized(
+        session_transcript,
+        ["确认被偷走的账本", "推骰确认账本", "建立追逐", "通过障碍并躲藏"],
+        ["spot the stolen ledger", "push ledger confirmation", "chase_setup", "pass barrier and hide"],
+    )
     assert "第 4 轮 system: Spot Hidden：艾达·金掷出 82 / 55，结果失败。" in session_transcript
     assert "第 9 轮 system: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in session_transcript
     assert "Pushed Spot Hidden 33" not in session_transcript
@@ -685,6 +712,11 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     }
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_localized_transcript_chrome(actual_play)
+    assert_transcript_detail_values_localized(
+        actual_play,
+        ["请求谨慎调查路线", "鲁莽闯入危险", "质疑 KP 裁定", "收束本轮"],
+        ["request careful research route", "rush into danger", "challenge keeper ruling", "session_wrap"],
+    )
     assert "玩家[谨慎调查员]" in actual_play
     assert "玩家[鲁莽调查员]" in actual_play
     assert "玩家[规则质疑玩家]" in actual_play

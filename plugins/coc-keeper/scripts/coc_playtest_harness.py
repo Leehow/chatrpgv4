@@ -263,6 +263,60 @@ ZH_HANS_ROLL_TEXT = {
     "The quarry escapes.": "被追者逃脱。",
 }
 
+ZH_HANS_TRANSCRIPT_DETAIL_TEXT = {
+    "ask terms and recent incidents": "询问委托条件和近期事件",
+    "ask terms and immediate leads": "询问委托条件和近期线索",
+    "attack Corbitt with his own weapon": "用科比特自己的武器攻击他",
+    "basement_spot_hidden": "地下室 Spot Hidden 检定",
+    "bed_attack_dodge": "床铺袭击 Dodge 检定",
+    "bed_attack_sanity": "床铺袭击理智检定",
+    "bed_attack_spot_hidden": "床铺袭击前的 Spot Hidden 检定",
+    "challenge keeper ruling": "质疑 KP 裁定",
+    "chase_setup": "建立追逐",
+    "check sanitarium clue": "调查疗养院线索",
+    "choose first research route": "选择先查公开记录",
+    "combined_dex_climb": "DEX 或 Climb 联合检定",
+    "conflict": "追逐冲突",
+    "continue to basement despite injury": "受伤后继续前往地下室",
+    "corbitt_combat_round": "科比特战斗轮",
+    "corbitt_sanity": "科比特现身理智检定",
+    "cross hazard": "穿过危险点",
+    "cut_to_chase": "切入追逐场面",
+    "enter the Old Corbitt Place": "进入科比特老宅",
+    "floating_knife_combat": "浮空匕首战斗",
+    "follow public record trail": "追查公开记录线索",
+    "grab the floating knife": "抓住浮空匕首",
+    "haunting_scene": "鬼屋场景",
+    "hazard_dodge": "危险点 Dodge 检定",
+    "investigate Chapel of Contemplation": "调查沉思教堂",
+    "library_use_regular": "Library Use 普通难度",
+    "location_chain": "位置链说明",
+    "movement_actions": "移动行动说明",
+    "no_roll_needed": "无需检定",
+    "pass barrier and hide": "通过障碍并躲藏",
+    "persuade_regular": "Persuade 普通难度",
+    "profile_pressure_explanation": "多玩家画像裁定说明",
+    "push Arty social access": "推骰争取阿蒂放行",
+    "push basement descent": "推骰通过地下室楼梯",
+    "push basement search": "推骰搜索地下室",
+    "push failed search": "推骰失败的搜索",
+    "push ledger confirmation": "推骰确认账本",
+    "push reckless entry": "鲁莽进屋前推骰",
+    "pushed_dex_climb": "推骰 DEX 或 Climb",
+    "pushed_persuade": "推骰 Persuade",
+    "pushed_roll_explanation": "推骰说明",
+    "pushed_spot_hidden": "推骰 Spot Hidden",
+    "request careful research route": "请求谨慎调查路线",
+    "roleplay_no_roll": "角色扮演处理，无需检定",
+    "rush into danger": "鲁莽闯入危险",
+    "san_roll": "SAN 检定",
+    "search basement clutter": "搜索地下室杂物",
+    "session_wrap": "收束本轮",
+    "spot the stolen ledger": "确认被偷走的账本",
+    "spot_hidden_regular": "Spot Hidden 普通难度",
+    "use clue to shape plan": "用线索调整计划",
+}
+
 
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -314,6 +368,20 @@ def _write_transcript_jsonl_localized(path: Path, events: list[dict[str, Any]], 
             for key in ("speaker", "text"):
                 if isinstance(localized.get(key), str):
                     localized[key] = _localize_text(localized[key], glossary)
+        localized_text = dict(localized.get("localized_text", {}))
+        zh_hans = dict(localized_text.get("zh-Hans", {}))
+        for key in ("intent", "ruling"):
+            value = localized.get(key)
+            if not isinstance(value, str):
+                continue
+            detail = ZH_HANS_TRANSCRIPT_DETAIL_TEXT.get(value)
+            if detail is None:
+                detail = _localize_text(value, glossary)
+            if detail != value:
+                zh_hans.setdefault(key, detail)
+        if zh_hans:
+            localized_text["zh-Hans"] = zh_hans
+            localized["localized_text"] = localized_text
         localized_events.append(localized)
     _write_jsonl(path, localized_events)
 

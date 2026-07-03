@@ -592,6 +592,30 @@ def _transcript_label_gaps(battle_report: str, metadata: dict[str, Any]) -> list
     return sorted(set(gaps))
 
 
+def _transcript_detail_value_gaps(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("transcript_labels", {})
+    if not isinstance(labels, dict):
+        return []
+    actual_play = _section_text(battle_report, "Actual Play Replay")
+    transcript = _section_text(battle_report, "Session Transcript")
+    gaps: list[str] = []
+    for key, fallback in {"intent": "Intent", "ruling": "Ruling"}.items():
+        label = str(labels.get(key) or fallback)
+        prefix = f"- {label}: "
+        for line in f"{actual_play}\n{transcript}".splitlines():
+            stripped = line.strip()
+            if not stripped.startswith(prefix):
+                continue
+            value = stripped[len(prefix):].strip()
+            if value and not _has_cjk(value):
+                gaps.append(key)
+    return sorted(set(gaps))
+
+
 def _character_dossier_term_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
     play_language = str(metadata.get("play_language") or "")
     if play_language in {"", "en-US"}:
@@ -1049,6 +1073,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Active localized transcript sections lack localized labels: " + ", ".join(transcript_label_gaps),
             "Render Actual Play Replay and Session Transcript turn/detail labels from language_profile.transcript_labels.",
+        ))
+    transcript_detail_gaps = _transcript_detail_value_gaps(battle_report, metadata)
+    if active_profile and transcript_detail_gaps:
+        findings.append(_finding(
+            "transcript_detail_values_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized transcript sections expose unlocalized detail values: " + ", ".join(transcript_detail_gaps),
+            "Render intent/ruling display values from localized_text while preserving canonical values in JSON.",
         ))
 
     scene_replay = _section_text(battle_report, "Scene-by-Scene Replay") if active_profile else ""
