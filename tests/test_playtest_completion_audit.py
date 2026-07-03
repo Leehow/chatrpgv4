@@ -341,6 +341,38 @@ def test_completion_audit_fails_when_rulebook_audit_missing_required_sections(tm
     assert "## Next Loop Fix Target" in finding["missing_sections"]
 
 
+def test_completion_audit_fails_when_required_coverage_dimension_missing_from_index(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    index_path = tmp_path / ".coc" / "playtests" / "index.json"
+    index = json.loads(index_path.read_text())
+    index["coverage"].pop("combat")
+    index["gaps"] = []
+    write_json(index_path, index)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(
+        finding["code"] == "required_coverage_not_covered" and finding["key"] == "combat"
+        for finding in audit["findings"]
+    )
+
+
 def test_completion_audit_fails_without_multi_profile_pressure(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

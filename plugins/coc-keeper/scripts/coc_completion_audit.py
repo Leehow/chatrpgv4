@@ -602,6 +602,16 @@ def _suite_findings(
             f"coverage gaps={index.get('gaps')}",
             "Add or repair active runs so the semantic coverage matrix has no gaps.",
         ))
+    for dimension in REQUIRED_COVERAGE_DIMENSIONS:
+        coverage_entry = index.get("coverage", {}).get(dimension)
+        if not coverage_entry or coverage_entry.get("status") != "covered":
+            findings.append(_finding(
+                "required_coverage_not_covered",
+                "test_gap",
+                f"{dimension} status={coverage_entry.get('status') if coverage_entry else 'missing'}",
+                "Use semantic artifacts to prove every required core coverage dimension is covered.",
+                key=dimension,
+            ))
     for gap in index.get("quality_gaps", []):
         findings.append(_finding(
             "quality_gap",
