@@ -95,7 +95,7 @@ Before generating reports, record the run context:
 - `## Story Recap`
 - `## Player Feedback On KP`
 
-`## Scene-by-Scene Replay` should render each significant structured play event from `events.jsonl` before the transcript appendix: scene, clue, damage, sanity, `疯狂发作` (`bout_of_madness`), combat, chase, and session-ending events. This section is a table-readable episode map for the actual play report, not just a list of opening locations.
+`## Scene-by-Scene Replay` should render each significant structured play event from `events.jsonl` before the transcript appendix: scene, clue, damage, sanity, `疯狂发作` (`bout_of_madness`), combat, chase, status, and session-ending events. Status events include final HP, final SAN, rewards, chase outcome, and other durable end-state summaries. This section is a table-readable episode map for the actual play report, not just a list of opening locations.
 
 `## Investigator Chronicle` should render sandbox `history.jsonl` and `development.jsonl`, proving that the playtest can describe what would carry into a later story without writing sandbox changes into the real investigator library.
 
@@ -107,7 +107,7 @@ Rules & Rolls Recap boolean display values such as pushed-roll and skill-check-e
 
 Story Recap entries must render memory summaries without `session_id` or memory id prefixes; otherwise emit `report_memory_ids_not_localized`.
 
-Flag spoiler leaks, state errors, unlogged rolls, poor pacing, incorrect rules, `investigator_chronicle_missing`, `investigator_chronicle_not_rendered`, `investigator_chronicle_labels_not_localized`, `temporary_insanity_bout_missing`, `temporary_insanity_bout_duration_missing`, `temporary_insanity_bout_not_rendered`, `chase_tracker_not_rendered`, `chase_tracker_labels_not_localized`, `report_shell_not_localized`, `run_setup_values_not_localized`, `module_metadata_values_not_localized`, `transcript_labels_not_localized`, `transcript_detail_values_not_localized`, `report_boolean_values_not_localized`, `player_feedback_labels_not_localized`, `player_feedback_voice_missing`, `character_dossier_labels_not_localized`, `character_dossier_derived_labels_not_localized`, `character_dossier_terms_not_localized`, `report_skill_names_not_localized`, `report_actor_ids_not_localized`, `report_state_ids_not_localized`, `report_memory_ids_not_localized`, `report_event_type_labels_not_localized`, `report_actor_label_repeated`, `report_actor_dash_prefix`, `report_actor_colon_prefix`, `localized_empty_placeholders_not_rendered`, and `player_profile_labels_not_localized`.
+Flag spoiler leaks, state errors, unlogged rolls, poor pacing, incorrect rules, `investigator_chronicle_missing`, `investigator_chronicle_not_rendered`, `investigator_chronicle_labels_not_localized`, `temporary_insanity_bout_missing`, `temporary_insanity_bout_duration_missing`, `temporary_insanity_bout_not_rendered`, `status_event_not_rendered`, `chase_tracker_not_rendered`, `chase_tracker_labels_not_localized`, `report_shell_not_localized`, `run_setup_values_not_localized`, `module_metadata_values_not_localized`, `transcript_labels_not_localized`, `transcript_detail_values_not_localized`, `report_boolean_values_not_localized`, `player_feedback_labels_not_localized`, `player_feedback_voice_missing`, `character_dossier_labels_not_localized`, `character_dossier_derived_labels_not_localized`, `character_dossier_terms_not_localized`, `report_skill_names_not_localized`, `report_actor_ids_not_localized`, `report_state_ids_not_localized`, `report_memory_ids_not_localized`, `report_event_type_labels_not_localized`, `report_actor_label_repeated`, `report_actor_dash_prefix`, `report_actor_colon_prefix`, `localized_empty_placeholders_not_rendered`, and `player_profile_labels_not_localized`.
 
 ## Rulebook Audit Loop
 
@@ -125,7 +125,7 @@ Every serious playtest follows this loop:
 5. Apply the smallest targeted fix named in `## Next Loop Fix Target`.
 6. Rerun the playtest reports and rulebook audit.
 
-The baseline audit should reject reports that omit a pushed roll, session ending, mechanical detail such as goals and difficulty rationale, or that leak raw payload dictionaries into player-readable prose.
+The baseline audit should reject reports that omit a pushed roll, status event, session ending, mechanical detail such as goals and difficulty rationale, or that leak raw payload dictionaries into player-readable prose.
 
 For active localized runs, the audit must also reject visible KP/player dialogue or player-readable report sections that leak canonical glossary terms or player-visible skill display names from `localized_terms[play_language]`; use `report_skill_names_not_localized` when Character Dossier, Investigator Chronicle, Actual Play Replay, Session Transcript, Rules & Rolls Recap, or Chase Tracker leak canonical skill names. This exact check is allowed because it uses machine-controlled glossary entries and structured skill keys, not natural-language semantic matching.
 

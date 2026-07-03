@@ -221,6 +221,7 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "feedback_voice_default",
         "feedback_voice_profile",
         "player_feedback_voice_missing",
+        "status_event_not_rendered",
         "Blueprint Cross-Check",
         "Next Loop Fix Target",
     ]

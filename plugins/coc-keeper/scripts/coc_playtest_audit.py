@@ -89,7 +89,17 @@ TRANSCRIPT_DETAIL_ALLOWED_ASCII_TOKENS = {
     "Use",
 }
 
-SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "bout_of_madness", "combat", "chase", "session_ending"}
+SCENE_REPLAY_EVENT_TYPES = {
+    "scene",
+    "clue",
+    "damage",
+    "sanity",
+    "bout_of_madness",
+    "combat",
+    "chase",
+    "status",
+    "session_ending",
+}
 ACTIVE_AUDIT_PROFILES = {"haunting_module", "chase_drill", "multi_profile_pressure"}
 REQUIRED_BACKSTORY_FIELDS = [
     "description",
@@ -1358,6 +1368,34 @@ def _payload_summaries(events: list[dict[str, Any]], event_type: str) -> list[st
     return summaries
 
 
+def _normalize_report_text(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _localize_summary_from_terms(summary: str, terms: dict[str, str]) -> str:
+    localized = summary
+    for canonical, replacement in sorted(terms.items(), key=lambda item: len(item[0]), reverse=True):
+        localized = localized.replace(canonical, replacement)
+    return localized
+
+
+def _status_event_render_gaps(
+    battle_report: str,
+    events: list[dict[str, Any]],
+    terms: dict[str, str],
+) -> list[str]:
+    scene_replay = _normalize_report_text(_section_text(battle_report, "Scene-by-Scene Replay"))
+    gaps: list[str] = []
+    for summary in _payload_summaries(events, "status"):
+        if not summary:
+            continue
+        source_summary = _normalize_report_text(summary)
+        localized_summary = _normalize_report_text(_localize_summary_from_terms(summary, terms))
+        if source_summary not in scene_replay and localized_summary not in scene_replay:
+            gaps.append(localized_summary or source_summary)
+    return gaps
+
+
 def audit_run(run_dir: Path) -> dict[str, Any]:
     context = _load_context(run_dir)
     findings: list[Finding] = []
@@ -1657,7 +1695,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "report_gap",
             "medium",
             f"Scene-by-Scene Replay renders {scene_replay_bullets} bullets for {significant_scene_events} significant play events.",
-            "Render each significant scene, clue, damage, sanity, combat, chase, and session-ending event in the scene replay before the transcript appendix.",
+            "Render each significant scene, clue, damage, sanity, combat, chase, status, and session-ending event in the scene replay before the transcript appendix.",
+        ))
+    status_render_gaps = _status_event_render_gaps(battle_report, context["events"], locale_terms)
+    if active_profile and status_render_gaps:
+        findings.append(_finding(
+            "status_event_not_rendered",
+            "report_gap",
+            "medium",
+            "Scene-by-Scene Replay omits status event summaries: " + "; ".join(status_render_gaps),
+            "Render status events such as final HP, final SAN, rewards, and chase outcome in Scene-by-Scene Replay before the transcript appendix.",
         ))
 
     non_chinese_report_sections = _player_report_sections_without_chinese(battle_report) if active_profile else []

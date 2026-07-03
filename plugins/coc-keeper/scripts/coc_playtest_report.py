@@ -14,7 +14,17 @@ if str(SCRIPT_DIR) not in sys.path:
 from coc_language import language_profile as build_language_profile
 
 
-SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "bout_of_madness", "combat", "chase", "session_ending"}
+SCENE_REPLAY_EVENT_TYPES = {
+    "scene",
+    "clue",
+    "damage",
+    "sanity",
+    "bout_of_madness",
+    "combat",
+    "chase",
+    "status",
+    "session_ending",
+}
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
 DAMAGE_SUMMARY_RE = re.compile(r"^(?P<cause>.+?)造成伤害: (?P<amount>[^；。]+)(?P<tail>[；。].*)$")
 

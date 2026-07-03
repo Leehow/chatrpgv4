@@ -74,7 +74,17 @@ def investigator_jsonl(run_dir: Path, investigator_id: str, filename: str) -> li
 
 
 def significant_scene_replay_count(run_dir: Path) -> int:
-    significant_types = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
+    significant_types = {
+        "scene",
+        "clue",
+        "damage",
+        "sanity",
+        "bout_of_madness",
+        "combat",
+        "chase",
+        "status",
+        "session_ending",
+    }
     return sum(1 for event in campaign_state_events(run_dir) if event.get("type") in significant_types)
 
 
@@ -435,6 +445,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "以其人之物反制的线索" in scene_replay
     assert "床铺袭击造成艾达·金 5 HP 伤害；HP 12 -> 7。" in scene_replay
     assert "推骰地下室搜索失败造成艾达·金 4 HP 伤害；HP 7 -> 3。" in scene_replay
+    assert "最终 HP: 3；最终 SAN: 49；奖励: +4 SAN、30 美元奖金，并可选择保留虫蛀书。" in scene_replay
     assert "DEX 检定" in scene_replay
     assert "ada-king-haunting -" not in scene_replay
     assert "艾达·金 - 艾达·金" not in scene_replay
@@ -741,6 +752,9 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "艾达·金的闪避成功，穿过湿滑天窗且没有损失移动行动。" in scene_replay
     assert "艾达·金用锁匠通过上锁屋顶门障碍，到达晾衣屋顶。" in scene_replay
     assert "艾达·金的潜行胜过内森尼尔·克劳失败的侦查，带着账本结束追逐。" in scene_replay
+    assert "最终追逐状态：艾达·金保持 HP 12、SAN 55、MOV 8，并带走邪教账本；内森尼尔·克劳落后一处位置。" in scene_replay
+    assert "Final 追逐状态" not in scene_replay
+    assert "location" not in scene_replay
     assert "湿滑天窗" in scene_replay
     assert_terms_absent(scene_replay, ["print shop roof", "print-shop roof", "rain gutter", "locked roof door barrier", "slick 天窗"])
     assert "## Actual Play Replay" in battle_text
@@ -1000,6 +1014,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
         ["knott-office", "deed-note", "fresh-scratches"],
     )
     assert_player_readable_event_prefixes_absent(scene_replay, ["session ending"])
+    assert "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。" in scene_replay
     major_decisions = section_text(battle_text, "## Major Player Decisions")
     assert "规则质疑玩家以超游模式要求 KP 解释不同玩家风格对应的检定和风险" in major_decisions
     assert "meta 模式" not in major_decisions

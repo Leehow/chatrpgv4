@@ -1703,6 +1703,54 @@ def test_active_audit_rejects_unlocalized_player_visible_skill_names(tmp_path):
     assert "report_skill_names_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_missing_status_event_in_scene_replay(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-status-replay"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata_path.write_text(json.dumps(metadata))
+    campaign_events_path = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop" / "logs" / "events.jsonl"
+    events = [
+        json.loads(line)
+        for line in campaign_events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    events.append({
+        "type": "status",
+        "actor": "ada-king",
+        "payload": {"summary": "最终 HP: 9；最终 SAN: 52；艾达·金保留房契线索。"},
+    })
+    write_jsonl(campaign_events_path, events)
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- 诺特先生雇佣艾达调查科比特宅。\n"
+        "- 艾达找到科比特诉讼线索。\n"
+        "- 艾达通过理智检定，没有失去 SAN。\n"
+        "- 本场结束时艾达准备前往科比特宅。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- 第 1 轮 KP: \"诺特先生给出钥匙。\"\n"
+        "  - 模式: 游戏\n\n"
+        "## Session Transcript / 会话记录\n"
+        "- 第 1 轮 KP: 诺特先生给出钥匙。\n"
+        "  - 模式: 游戏\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- KP 清晰度 5/5：玩家反馈：“KP 解释清楚。”\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "status_event_not_rendered" in finding_codes(audit)
+
+
 def test_active_audit_requires_investigator_backstory_fields(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
     create_final_rulebook_run(run_dir)
