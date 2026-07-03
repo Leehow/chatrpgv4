@@ -3,29 +3,19 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from coc_language import language_profile as build_language_profile
 
 
 SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
-ZH_HANS_OUTCOME_LABELS = {
-    "critical": "大成功",
-    "extreme_success": "极难成功",
-    "hard_success": "困难成功",
-    "regular_success": "普通成功",
-    "success": "成功",
-    "failure": "失败",
-    "fumble": "大失败",
-}
-ZH_HANS_DIFFICULTY_LABELS = {
-    "regular": "普通",
-    "hard": "困难",
-    "extreme": "极难",
-    "opposed": "对抗",
-    "combined": "联合",
-    "sanity": "理智",
-}
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -157,18 +147,38 @@ def _localized_rule_value(value: Any, labels: dict[str, str], localized_terms: d
     return labels.get(value_text, _localize_text(value_text, localized_terms))
 
 
+def _localized_field(
+    container: dict[str, Any],
+    key: str,
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> str | None:
+    localized_text = container.get("localized_text", {})
+    if isinstance(localized_text, dict):
+        language_text = localized_text.get(play_language, {})
+        if isinstance(language_text, dict) and language_text.get(key) not in (None, "", [], {}):
+            return _localize_text(language_text[key], localized_terms)
+    return None
+
+
+def _localized_event_text(event: dict[str, Any], localized_terms: dict[str, str], play_language: str) -> str:
+    localized = _localized_field(event, "text", localized_terms, play_language)
+    if localized is not None:
+        return localized
+    return _localize_text(event.get("text", ""), localized_terms)
+
+
 def _localized_payload_text(
     payload: dict[str, Any],
     key: str,
     localized_terms: dict[str, str],
     play_language: str,
+    allow_raw_fallback: bool = False,
 ) -> str | None:
-    localized_text = payload.get("localized_text", {})
-    if isinstance(localized_text, dict):
-        language_text = localized_text.get(play_language, {})
-        if isinstance(language_text, dict) and language_text.get(key) not in (None, "", [], {}):
-            return _localize_text(language_text[key], localized_terms)
-    if play_language == "zh-Hans":
+    localized = _localized_field(payload, key, localized_terms, play_language)
+    if localized is not None:
+        return localized
+    if not allow_raw_fallback:
         return None
     if payload.get(key) not in (None, "", [], {}):
         return _localize_text(payload[key], localized_terms)
@@ -180,43 +190,73 @@ def _format_roll_recap(
     actor_names: dict[str, str],
     localized_terms: dict[str, str],
     play_language: str,
+    language_profile: dict[str, Any],
 ) -> str:
-    if play_language != "zh-Hans":
+    has_language_specific_payload = bool(
+        isinstance(event.get("payload", {}).get("localized_text"), dict)
+        and event.get("payload", {}).get("localized_text", {}).get(play_language)
+    )
+    if play_language == "en-US" and not has_language_specific_payload:
         return _format_roll(event)
 
     payload = event.get("payload", {})
+    report_labels = language_profile.get("report_labels", {})
+    outcome_labels = language_profile.get("outcome_labels", {})
+    difficulty_labels = language_profile.get("difficulty_labels", {})
+    allow_raw_fallback = bool(language_profile.get("raw_payload_fallback"))
     skill = payload.get("skill", "check")
     actor = _display_roll_actor(event.get("actor", "unknown"), actor_names)
     roll = payload.get("roll", "?")
     target = payload.get("effective_target", payload.get("target", "?"))
-    outcome = _localized_rule_value(payload.get("outcome", "unknown"), ZH_HANS_OUTCOME_LABELS, localized_terms)
-    lines = [f"- {skill}：{actor}掷出 {roll} / {target}，结果{outcome}。"]
-    for key, label, labels in [("difficulty", "难度", ZH_HANS_DIFFICULTY_LABELS)]:
+    outcome = _localized_rule_value(payload.get("outcome", "unknown"), outcome_labels, localized_terms)
+    roll_sentence = report_labels.get("roll_sentence", "- {skill}: {actor} rolled {roll} vs {target} -> {outcome}")
+    lines = [
+        roll_sentence.format(
+            skill=skill,
+            actor=actor,
+            roll=roll,
+            target=target,
+            outcome=outcome,
+        )
+    ]
+    for key, label, labels in [("difficulty", report_labels.get("difficulty", "Difficulty"), difficulty_labels)]:
         if payload.get(key) in (None, "", [], {}):
             continue
         value = _localized_rule_value(payload[key], labels, localized_terms)
         lines.append(f"  - {label}：{value}")
     for key, label in [
-        ("goal", "目的"),
-        ("difficulty_rationale", "难度说明"),
-        ("failure_consequence", "失败后果"),
+        ("goal", report_labels.get("goal", "Goal")),
+        ("difficulty_rationale", report_labels.get("difficulty_rationale", "Difficulty Rationale")),
+        ("failure_consequence", report_labels.get("failure_consequence", "Failure Consequence")),
     ]:
-        value = _localized_payload_text(payload, key, localized_terms, play_language)
+        value = _localized_payload_text(payload, key, localized_terms, play_language, allow_raw_fallback)
         if value is not None:
             lines.append(f"  - {label}：{value}")
     if payload.get("pushed"):
-        lines.append("  - 推骰：yes")
-    push_justification = _localized_payload_text(payload, "push_justification", localized_terms, play_language)
+        lines.append(f"  - {report_labels.get('pushed_roll', 'Pushed Roll')}：{report_labels.get('yes', 'yes')}")
+    push_justification = _localized_payload_text(
+        payload,
+        "push_justification",
+        localized_terms,
+        play_language,
+        allow_raw_fallback,
+    )
     if push_justification is not None:
-        lines.append(f"  - 推骰理由：{push_justification}")
-    foreshadowed_failure = _localized_payload_text(payload, "foreshadowed_failure", localized_terms, play_language)
+        lines.append(f"  - {report_labels.get('push_justification', 'Push Justification')}：{push_justification}")
+    foreshadowed_failure = _localized_payload_text(
+        payload,
+        "foreshadowed_failure",
+        localized_terms,
+        play_language,
+        allow_raw_fallback,
+    )
     if foreshadowed_failure is not None:
-        lines.append(f"  - 预告失败后果：{foreshadowed_failure}")
+        lines.append(f"  - {report_labels.get('foreshadowed_failure', 'Foreshadowed Failure')}：{foreshadowed_failure}")
     if "skill_check_earned" in payload:
-        earned = "yes" if payload.get("skill_check_earned") else "no"
-        lines.append(f"  - 成长标记：{earned}")
+        earned = report_labels.get("yes", "yes") if payload.get("skill_check_earned") else report_labels.get("no", "no")
+        lines.append(f"  - {report_labels.get('skill_check_earned', 'Skill Check Earned')}：{earned}")
     if payload.get("san_loss") not in (None, "", [], {}):
-        lines.append(f"  - SAN 损失：{payload['san_loss']}")
+        lines.append(f"  - {report_labels.get('san_loss', 'SAN Loss')}：{payload['san_loss']}")
     return "\n".join(lines)
 
 
@@ -264,16 +304,21 @@ def _display_actor(actor: str) -> str:
     return actor
 
 
-def _format_state_event(event: dict[str, Any]) -> str:
+def _format_state_event(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> str:
+    terms = localized_terms or {}
     event_type = event.get("type", "event")
     event_label = event_type.replace("_", " ")
     payload = event.get("payload", {})
     if event_type == "scene":
         scene_id = payload.get("scene_id", "unknown")
-        summary = payload.get("summary", "")
+        summary = _payload_summary(event, terms, play_language)
         return f"- scene: {scene_id} - {summary}".rstrip()
     actor = _display_actor(event.get("actor", "unknown"))
-    summary = payload.get("summary") or payload.get("text")
+    summary = _payload_summary(event, terms, play_language)
     if event_type == "clue":
         clue_id = payload.get("clue_id", "unknown")
         return f"- clue: {clue_id} - {summary or 'clue recorded'}"
@@ -282,43 +327,95 @@ def _format_state_event(event: dict[str, Any]) -> str:
     return f"- {event_label}: {actor}"
 
 
-def _event_summary(event: dict[str, Any], fallback: str = "") -> str:
+def _payload_summary(
+    event: dict[str, Any],
+    localized_terms: dict[str, str],
+    play_language: str,
+    fallback: str = "",
+) -> str:
     payload = event.get("payload", {})
-    return str(payload.get("summary") or payload.get("text") or fallback).strip()
+    localized = _localized_field(payload, "summary", localized_terms, play_language)
+    if localized is not None:
+        return localized.strip()
+    localized = _localized_field(payload, "text", localized_terms, play_language)
+    if localized is not None:
+        return localized.strip()
+    return _localize_text(payload.get("summary") or payload.get("text") or fallback, localized_terms).strip()
 
 
-def _format_decision(event: dict[str, Any]) -> str:
-    summary = _event_summary(event, "decision recorded")
+def _event_summary(
+    event: dict[str, Any],
+    fallback: str = "",
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> str:
+    terms = localized_terms or {}
+    localized = _localized_field(event, "summary", terms, play_language)
+    if localized is not None:
+        return localized.strip()
+    localized = _localized_field(event, "text", terms, play_language)
+    if localized is not None:
+        return localized.strip()
+    payload = event.get("payload", {})
+    if payload:
+        return _payload_summary(event, terms, play_language, fallback)
+    return _localize_text(event.get("summary") or event.get("text") or fallback, terms).strip()
+
+
+def _format_decision(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> str:
+    summary = _event_summary(event, "decision recorded", localized_terms, play_language)
     return f"- {summary}"
 
 
-def _format_clue(event: dict[str, Any]) -> str:
+def _format_clue(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> str:
     payload = event.get("payload", {})
     clue_id = payload.get("clue_id", "unknown")
-    summary = _event_summary(event, "clue recorded")
+    summary = _event_summary(event, "clue recorded", localized_terms, play_language)
     return f"- {clue_id}: {summary}"
 
 
-def _format_subsystem_event(event: dict[str, Any]) -> str:
+def _format_subsystem_event(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> str:
     actor = _display_actor(event.get("actor", "unknown"))
-    summary = _event_summary(event, f"{event.get('type', 'event')} recorded")
+    summary = _event_summary(
+        event,
+        f"{event.get('type', 'event')} recorded",
+        localized_terms,
+        play_language,
+    )
     return f"- {actor}: {summary}"
 
 
-def _format_scene_replay_event(event: dict[str, Any]) -> str:
+def _format_scene_replay_event(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> str:
+    terms = localized_terms or {}
     event_type = event.get("type", "event")
     payload = event.get("payload", {})
     if event_type == "scene":
         scene_id = payload.get("scene_id") or "scene"
-        summary = _event_summary(event, "scene recorded")
+        summary = _event_summary(event, "scene recorded", terms, play_language)
         return f"- {scene_id}: {summary}"
     if event_type == "clue":
         clue_id = payload.get("clue_id") or "clue"
-        summary = _event_summary(event, "clue recorded")
+        summary = _event_summary(event, "clue recorded", terms, play_language)
         return f"- clue:{clue_id}: {summary}"
     event_label = event_type.replace("_", " ")
     actor = _display_actor(event.get("actor", "unknown"))
-    summary = _event_summary(event, f"{event_label} recorded")
+    summary = _event_summary(event, f"{event_label} recorded", terms, play_language)
     return f"- {event_label}: {actor} - {summary}"
 
 
@@ -335,6 +432,30 @@ def _first_value(default: Any, *values: Any) -> Any:
         if value not in (None, "", [], {}):
             return value
     return default
+
+
+def _merge_language_profile(base: dict[str, Any], override: Any, play_language: str) -> dict[str, Any]:
+    if not isinstance(override, dict) or override.get("language") != play_language:
+        return base
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            nested = dict(merged[key])
+            nested.update(value)
+            merged[key] = nested
+        else:
+            merged[key] = value
+    return merged
+
+
+def _selected_language_profile(
+    play_language: str,
+    metadata: dict[str, Any],
+    campaign: dict[str, Any],
+) -> dict[str, Any]:
+    profile = build_language_profile(play_language)
+    profile = _merge_language_profile(profile, campaign.get("language_profile"), play_language)
+    return _merge_language_profile(profile, metadata.get("language_profile"), play_language)
 
 
 def _localized_terms(metadata: dict[str, Any]) -> dict[str, str]:
@@ -497,18 +618,26 @@ def _format_actual_play_event(event: dict[str, Any], rendered_text: str | None =
     return lines
 
 
-def _format_session_summary(event: dict[str, Any]) -> str:
+def _format_session_summary(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> str:
     session_id = event.get("session_id") or event.get("id") or "session"
-    summary = event.get("summary") or event.get("text") or ""
+    summary = _event_summary(event, "", localized_terms, play_language)
     return f"- {session_id}: {summary}".rstrip()
 
 
-def _format_feedback(event: dict[str, Any]) -> str:
+def _format_feedback(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> str:
     category = event.get("category", "general")
     score = event.get("score", "unscored")
     profile = event.get("player_profile")
     prefix = f"{profile}: " if profile else ""
-    text = event.get("text", "")
+    text = _event_summary(event, "", localized_terms, play_language)
     return f"- {category}: {score} - {prefix}{text}".rstrip()
 
 
@@ -567,18 +696,19 @@ def generate_battle_report(run_dir: Path) -> Path:
         metadata.get("play_language"),
         campaign.get("play_language"),
     )
+    language_profile = _selected_language_profile(str(play_language), metadata, campaign)
 
     actor_names = _localized_actor_names(characters, localized_terms)
     roll_recap_lines = [
-        _format_roll_recap(event, actor_names, localized_terms, str(play_language))
+        _format_roll_recap(event, actor_names, localized_terms, str(play_language), language_profile)
         for event in rolls
     ]
     transcript_lines: list[str] = []
     actual_play_lines: list[str] = []
     roll_cursor = 0
     for event in transcript:
-        rendered_text = None
-        if str(play_language) == "zh-Hans" and event.get("mode") == "roll":
+        rendered_text = _localized_event_text(event, localized_terms, str(play_language))
+        if event.get("mode") == "roll":
             roll_count = _event_roll_count(event, len(roll_recap_lines) - roll_cursor)
             recaps = roll_recap_lines[roll_cursor: roll_cursor + roll_count]
             rendered_text = _format_roll_transcript_text(event, recaps)
@@ -586,39 +716,72 @@ def generate_battle_report(run_dir: Path) -> Path:
         transcript_lines.extend(_format_transcript_event(event, rendered_text))
         actual_play_lines.extend(_format_actual_play_event(event, rendered_text))
     roll_lines = [_format_roll(event) for event in rolls]
-    state_lines = [_format_state_event(event) for event in state_events]
+    state_lines = [
+        _format_state_event(event, localized_terms, str(play_language))
+        for event in state_events
+    ]
     decision_lines = [
-        _format_decision(event)
+        _format_decision(event, localized_terms, str(play_language))
         for event in state_events
         if event.get("type") == "decision"
     ]
-    clue_lines = [_format_clue(event) for event in state_events if event.get("type") == "clue"]
-    scene_replay_lines = [_format_scene_replay_event(event) for event in _scene_replay_events(state_events)]
-    combat_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "combat"]
-    chase_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "chase"]
-    sanity_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "sanity"]
-    ending_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "session_ending"]
+    clue_lines = [
+        _format_clue(event, localized_terms, str(play_language))
+        for event in state_events
+        if event.get("type") == "clue"
+    ]
+    scene_replay_lines = [
+        _format_scene_replay_event(event, localized_terms, str(play_language))
+        for event in _scene_replay_events(state_events)
+    ]
+    combat_lines = [
+        _format_subsystem_event(event, localized_terms, str(play_language))
+        for event in state_events
+        if event.get("type") == "combat"
+    ]
+    chase_lines = [
+        _format_subsystem_event(event, localized_terms, str(play_language))
+        for event in state_events
+        if event.get("type") == "chase"
+    ]
+    sanity_lines = [
+        _format_subsystem_event(event, localized_terms, str(play_language))
+        for event in state_events
+        if event.get("type") == "sanity"
+    ]
+    ending_lines = [
+        _format_subsystem_event(event, localized_terms, str(play_language))
+        for event in state_events
+        if event.get("type") == "session_ending"
+    ]
     character_lines: list[str] = []
     for character in characters:
         character_lines.extend(_format_character(character, localized_terms))
-    recap_lines = [_format_session_summary(event) for event in session_summaries]
-    feedback_lines = [_format_feedback(event) for event in player_feedback]
+    recap_lines = [
+        _format_session_summary(event, localized_terms, str(play_language))
+        for event in session_summaries
+    ]
+    feedback_lines = [
+        _format_feedback(event, localized_terms, str(play_language))
+        for event in player_feedback
+    ]
 
     body = [
         "# Battle Report",
         "",
         "## Run Setup",
         f"- Run ID: {metadata.get('run_id', 'unknown')}",
-        f"- Campaign: {campaign_title}",
+        f"- Campaign: {_localize_text(campaign_title, localized_terms)}",
         f"- Era: {era}",
         f"- Dice Mode: {dice_mode}",
         f"- Spoiler Policy: {spoiler_policy}",
         f"- Play Language: {play_language}",
+        f"- Language Profile: {language_profile.get('display_name', play_language)}",
         f"- Localized Terms: {_format_localized_terms_summary(localized_terms)}",
         f"- Player Profile: {metadata.get('player_profile', 'unknown')}",
         "",
         "## Module",
-        f"- Scenario: {scenario_title}",
+        f"- Scenario: {_localize_text(scenario_title, localized_terms)}",
         f"- Scenario ID: {scenario_id}",
         f"- Source: {module_source}",
         f"- Opening Scene: {_localize_text(scenario.get('opening_scene', 'not recorded'), localized_terms)}",

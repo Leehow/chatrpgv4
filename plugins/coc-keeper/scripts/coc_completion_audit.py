@@ -117,6 +117,32 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
             "Serious localized runs should persist play_language=zh-Hans unless the player explicitly chose another language.",
             run_id=run_id,
         ))
+    play_language = str(metadata.get("play_language") or "")
+    language_profile = metadata.get("language_profile")
+    if not isinstance(language_profile, dict) or not language_profile:
+        findings.append(_finding(
+            "language_profile_missing",
+            "system_gap",
+            f"{run_id} does not contain language_profile.",
+            "Persist language_profile with output instruction, name policy, term policy, and report labels for the selected play_language.",
+            run_id=run_id,
+        ))
+    elif language_profile.get("language") != play_language:
+        findings.append(_finding(
+            "language_profile_mismatch",
+            "system_gap",
+            f"{run_id} language_profile.language={language_profile.get('language')} play_language={play_language}",
+            "Regenerate the run so language_profile.language matches play_language.",
+            run_id=run_id,
+        ))
+    elif f"localized_terms.{play_language}" not in str(language_profile.get("term_policy", "")):
+        findings.append(_finding(
+            "language_profile_term_policy_missing",
+            "system_gap",
+            f"{run_id} term_policy={language_profile.get('term_policy')}",
+            "Record a term_policy that explicitly points to the selected language localized_terms map.",
+            run_id=run_id,
+        ))
     localized_terms = metadata.get("localized_terms", {})
     if not isinstance(localized_terms, dict) or not localized_terms.get("zh-Hans"):
         findings.append(_finding(

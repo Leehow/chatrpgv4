@@ -199,3 +199,147 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "[low] spoiler_safety: No leaks observed." in evaluation_text
     assert "[low] meta_quality: Meta question paused play and returned cleanly." in evaluation_text
     assert "- Populate spoiler warning transcript checks." in evaluation_text
+
+
+def test_battle_report_uses_selected_language_profile_and_localized_text(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-run"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "localized-run"
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king"
+
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "localized-run",
+        "title": "The Haunting",
+        "scenario_id": "the-haunting",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "play_language": "ja-JP",
+    })
+    write_json(campaign_dir / "party.json", {"investigator_ids": ["ada-king"]})
+    write_json(campaign_dir / "scenario" / "scenario.json", {
+        "scenario_id": "the-haunting",
+        "title": "The Haunting",
+        "module_source": "pdf/the-haunting.pdf",
+        "opening_scene": "Ada King arrives at Corbitt House.",
+    })
+    write_json(investigator_dir / "character.json", {
+        "id": "ada-king",
+        "name": "Ada King",
+        "characteristics": {"STR": 60, "CON": 55, "SIZ": 65, "DEX": 50, "APP": 45, "INT": 70, "POW": 55, "EDU": 75},
+        "derived": {"HP": 12, "MP": 11, "SAN": 55, "MOV": 8},
+        "skills": {"Spot Hidden": 55},
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {
+            "turn": 1,
+            "role": "keeper_under_test",
+            "mode": "play",
+            "text": "Ada King arrives at Corbitt House.",
+            "localized_text": {"ja-JP": {"text": "エイダ・キングはコービット屋敷に到着する。"}},
+        },
+        {
+            "turn": 2,
+            "role": "player_simulator",
+            "mode": "play",
+            "intent": "inspect entry",
+            "text": "I inspect the door.",
+            "localized_text": {"ja-JP": {"text": "玄関の扉を調べます。"}},
+        },
+        {
+            "turn": 3,
+            "role": "system",
+            "mode": "roll",
+            "text": "Spot Hidden 22 vs 55 -> hard_success.",
+            "roll_count": 1,
+        },
+    ])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
+        {
+            "type": "roll",
+            "actor": "ada-king",
+            "payload": {
+                "skill": "Spot Hidden",
+                "goal": "notice the scratches on Corbitt House door",
+                "target": 55,
+                "effective_target": 55,
+                "difficulty": "regular",
+                "difficulty_rationale": "The scratches are visible with a careful look.",
+                "roll": 22,
+                "outcome": "hard_success",
+                "failure_consequence": "Ada King misses the warning.",
+                "skill_check_earned": True,
+                "localized_text": {
+                    "ja-JP": {
+                        "goal": "コービット屋敷の扉についた傷に気づく",
+                        "difficulty_rationale": "注意深く見れば傷は見える。",
+                        "failure_consequence": "エイダ・キングは警告を見逃す。",
+                    }
+                },
+            },
+        }
+    ])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {
+            "type": "scene",
+            "actor": "keeper_under_test",
+            "payload": {
+                "scene_id": "front-door",
+                "summary": "Ada King studies Corbitt House before entering.",
+                "localized_text": {"ja-JP": {"summary": "エイダ・キングは入る前にコービット屋敷を観察する。"}},
+            },
+        },
+        {
+            "type": "decision",
+            "actor": "ada-king",
+            "payload": {
+                "summary": "Ada King inspects the door instead of rushing in.",
+                "localized_text": {"ja-JP": {"summary": "エイダ・キングは急いで入らず、扉を調べる。"}},
+            },
+        },
+    ])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [
+        {
+            "session_id": "session-1",
+            "summary": "Ada King reached Corbitt House and inspected the entrance.",
+            "localized_text": {"ja-JP": {"summary": "エイダ・キングはコービット屋敷に着き、入口を調べた。"}},
+        }
+    ])
+    write_jsonl(run_dir / "player-feedback.jsonl", [
+        {
+            "category": "immersion",
+            "score": 5,
+            "text": "KP kept the scene tense.",
+            "localized_text": {"ja-JP": {"text": "KP は緊張感を保ってくれた。"}},
+        }
+    ])
+    write_json(run_dir / "playtest.json", {
+        "run_id": "localized-run",
+        "campaign_id": "localized-run",
+        "scenario": "The Haunting",
+        "play_language": "ja-JP",
+        "language_profile": {
+            "language": "ja-JP",
+            "display_name": "Table Japanese",
+            "report_labels": {"goal": "狙い"},
+        },
+        "localized_terms": {
+            "ja-JP": {
+                "Ada King": "エイダ・キング",
+                "The Haunting": "怪異の家",
+                "Corbitt House": "コービット屋敷",
+            }
+        },
+    })
+
+    battle_path = coc_playtest_report.generate_battle_report(run_dir)
+    battle_text = battle_path.read_text()
+
+    assert "Play Language: ja-JP" in battle_text
+    assert "Language Profile: Table Japanese" in battle_text
+    assert "エイダ・キングはコービット屋敷に到着する。" in battle_text
+    assert "玄関の扉を調べます。" in battle_text
+    assert "狙い：コービット屋敷の扉についた傷に気づく" in battle_text
+    assert "エイダ・キングは急いで入らず、扉を調べる。" in battle_text
+    assert "エイダ・キングはコービット屋敷に着き、入口を調べた。" in battle_text
+    assert "KP は緊張感を保ってくれた。" in battle_text
+    assert "Ada King arrives at Corbitt House." not in battle_text

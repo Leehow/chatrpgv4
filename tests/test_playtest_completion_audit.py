@@ -59,6 +59,11 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         "audit_profile": audit_profile,
         "player_profile": "fixture",
         "play_language": "zh-Hans",
+        "language_profile": {
+            "language": "zh-Hans",
+            "display_name": "Simplified Chinese",
+            "term_policy": "Use localized_terms.zh-Hans for people, places, factions, handouts, scenario titles, and special terms.",
+        },
         "localized_terms": {"zh-Hans": {"Ada King": "艾达·金"}},
     })
     write_text(run_dir / "artifacts" / "battle-report.md", "# Battle Report\n\n## Actual Play Replay\n")
@@ -160,3 +165,31 @@ def test_completion_audit_fails_without_multi_profile_pressure(tmp_path):
     assert audit["result"] == "fail"
     assert any(finding["code"] == "required_profile_missing" for finding in audit["findings"])
     assert any(finding["code"] == "quality_gap" and finding["key"] == "virtual_player_pressure" for finding in audit["findings"])
+
+
+def test_completion_audit_fails_without_language_profile(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    metadata_path = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.pop("language_profile")
+    write_json(metadata_path, metadata)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(finding["code"] == "language_profile_missing" for finding in audit["findings"])

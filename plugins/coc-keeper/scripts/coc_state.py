@@ -3,10 +3,17 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
 
 
 TOP_LEVEL_DIRS = (
@@ -74,7 +81,7 @@ def create_campaign(
     campaign_id: str,
     title: str,
     era: str = "1920s",
-    play_language: str = "zh-Hans",
+    play_language: str = DEFAULT_PLAY_LANGUAGE,
 ) -> Path:
     ensure_workspace(root)
     campaign_dir = coc_root(root) / "campaigns" / campaign_id
@@ -93,6 +100,7 @@ def create_campaign(
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
         "play_language": play_language,
+        "language_profile": language_profile(play_language),
         "localized_terms": {play_language: {}},
         "active_subsystem": "setup",
         "created_at": created_at,

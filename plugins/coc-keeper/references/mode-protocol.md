@@ -15,12 +15,18 @@ Do not ask about COC mode during unrelated Codex work.
 ## Language
 
 At campaign setup, allow the player to choose the visible play language. If
-they do not choose one, set `play_language` to `zh-Hans`.
+they do not choose one, set `play_language` to `zh-Hans`. Persist the matching
+`language_profile` so resumed campaigns keep the same output instruction,
+name policy, term policy, and report labels.
 
 Player-visible narration, NPC speech, player prompts, recaps, and report prose
-follow `play_language`. For `zh-Hans`, foreign names, places, factions,
-handouts, scenario titles, and special terms should use `localized_terms` with
-Chinese transliterations or conventional translated names.
+follow `play_language`. Event-level `localized_text[play_language]` is the
+preferred player-visible rendering when present; otherwise use
+`localized_terms[play_language]` to localize names and setting terms. For
+`zh-Hans`, foreign names, places, factions, handouts, scenario titles, and
+special terms should use `localized_terms` with Chinese transliterations or
+conventional translated names. For other languages, use customary local forms
+for that language.
 
 Keep machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text stable. Do not translate those fields even when ordinary dialogue is Chinese.
 

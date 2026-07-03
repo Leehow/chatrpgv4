@@ -73,9 +73,9 @@ activate COC mode
 
 ## Language And Localized Terms
 
-Each campaign persists `play_language`, defaulting to `zh-Hans`, plus a `localized_terms` map keyed by language. The player may choose another visible play language at setup; if they do not choose, the Keeper uses Chinese for player-visible narration and table dialogue.
+Each campaign persists `play_language`, defaulting to `zh-Hans`, plus a `language_profile` and a `localized_terms` map keyed by language. The player may choose another visible play language at setup; if they do not choose, the Keeper uses Chinese for player-visible narration and table dialogue. The `language_profile` records the output instruction, name policy, term policy, and report labels for that language.
 
-For `zh-Hans`, foreign people, places, factions, handouts, scenario titles, and special terms should use `localized_terms` with Chinese transliterations or conventional translated names. For other languages, the same map holds customary local forms for that language.
+For `zh-Hans`, foreign people, places, factions, handouts, scenario titles, and special terms should use `localized_terms` with Chinese transliterations or conventional translated names. For other languages, the same map holds customary local forms for that language. Event-level `localized_text[play_language]` is preferred for full player-visible prose; if absent, reports fall back to `localized_terms[play_language]` for names and setting terms.
 
 The localization layer applies only to player-visible narration, NPC speech, player prompts, recaps, and reports. Keep machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text stable.
 

@@ -88,6 +88,8 @@ def detail_count(text: str, label: str) -> int:
 
 def assert_zh_hans_locale(metadata: dict, required_terms: dict[str, str]) -> None:
     assert metadata["play_language"] == "zh-Hans"
+    assert metadata["language_profile"]["language"] == "zh-Hans"
+    assert "localized_terms.zh-Hans" in metadata["language_profile"]["term_policy"]
     glossary = metadata["localized_terms"]["zh-Hans"]
     for canonical, localized in required_terms.items():
         assert glossary[canonical] == localized

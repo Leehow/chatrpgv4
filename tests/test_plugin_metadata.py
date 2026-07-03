@@ -76,7 +76,9 @@ def test_mode_protocol_documents_play_language_and_localized_terms():
     required_terms = [
         "play_language",
         "zh-Hans",
+        "language_profile",
         "localized_terms",
+        "localized_text",
         "Chinese transliterations",
         "conventional translated names",
         "machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text",
@@ -90,7 +92,9 @@ def test_design_blueprint_documents_play_language_and_localized_terms():
     required_terms = [
         "play_language",
         "zh-Hans",
+        "language_profile",
         "localized_terms",
+        "localized_text",
         "Chinese transliterations",
         "conventional translated names",
         "machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text",

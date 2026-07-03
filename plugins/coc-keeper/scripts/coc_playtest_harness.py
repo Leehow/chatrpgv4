@@ -15,6 +15,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from coc_playtest_audit import generate_rulebook_audit
 from coc_playtest_report import generate_battle_report, generate_evaluation_report
+from coc_language import language_profile
 
 
 ZH_HANS_BASE_GLOSSARY = {
@@ -308,6 +309,7 @@ def _write_transcript_jsonl_localized(path: Path, events: list[dict[str, Any]], 
 def _with_play_language(payload: dict[str, Any], glossary: dict[str, str]) -> dict[str, Any]:
     localized = dict(payload)
     localized["play_language"] = "zh-Hans"
+    localized["language_profile"] = language_profile("zh-Hans")
     localized["localized_terms"] = {"zh-Hans": glossary}
     return localized
 

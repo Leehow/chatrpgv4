@@ -38,7 +38,7 @@ def test_create_campaign_persists_play_language(tmp_path):
         tmp_path,
         "custom-language",
         "Custom Language",
-        play_language="en-US",
+        play_language="ja-JP",
     )
 
     default_campaign = json.loads(default_campaign_path.read_text())
@@ -46,8 +46,12 @@ def test_create_campaign_persists_play_language(tmp_path):
 
     assert default_campaign["play_language"] == "zh-Hans"
     assert default_campaign["localized_terms"] == {"zh-Hans": {}}
-    assert custom_campaign["play_language"] == "en-US"
-    assert custom_campaign["localized_terms"] == {"en-US": {}}
+    assert default_campaign["language_profile"]["language"] == "zh-Hans"
+    assert "Chinese transliterations" in default_campaign["language_profile"]["name_policy"]
+    assert custom_campaign["play_language"] == "ja-JP"
+    assert custom_campaign["localized_terms"] == {"ja-JP": {}}
+    assert custom_campaign["language_profile"]["language"] == "ja-JP"
+    assert "localized_terms.ja-JP" in custom_campaign["language_profile"]["term_policy"]
 
 
 def test_append_jsonl_and_snapshot(tmp_path):
