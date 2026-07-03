@@ -17,6 +17,16 @@ CORE_COVERAGE = {
     "player_feedback": "Player feedback",
 }
 
+QUALITY_DIMENSIONS = {
+    "module_fidelity": "Module fidelity",
+    "rulebook_procedure": "Rulebook procedure",
+    "immersion_and_pacing": "Immersion and pacing",
+    "state_continuity": "State continuity",
+    "spoiler_safety": "Spoiler safety",
+    "player_agency": "Player agency",
+    "report_completeness": "Report completeness",
+}
+
 SEMANTIC_EVAL_REQUEST = "semantic-eval-request.json"
 SEMANTIC_EVAL_RESULT = "semantic-eval-result.json"
 
@@ -139,6 +149,7 @@ class SemanticArtifactCoverageEvaluator:
             "coverage_evaluator": payload.get("evaluator_id", self.evaluator_id),
             "semantic_eval_result": relative_result,
             "coverage": payload.get("coverage", {}),
+            "quality": payload.get("quality", {}),
             "root_cause_classification": payload.get("root_cause_classification", []),
             "next_loop_fix_target": payload.get("next_loop_fix_target", "none"),
         }
@@ -256,6 +267,27 @@ def _normalize_evaluation(raw: dict[str, Any], default_evaluator_id: str) -> tup
     return evaluator_id, coverage, reasons
 
 
+def _normalize_quality(raw: dict[str, Any]) -> tuple[dict[str, int], dict[str, bool], dict[str, str]]:
+    raw_quality = raw.get("quality", {})
+    scores: dict[str, int] = {}
+    passes: dict[str, bool] = {}
+    reasons: dict[str, str] = {}
+    for key in QUALITY_DIMENSIONS:
+        value = raw_quality.get(key, {})
+        if isinstance(value, dict):
+            score = int(value.get("score", 0) or 0)
+            passed = bool(value.get("passed", score >= 4))
+            reason = str(value.get("reason", "No quality reason recorded."))
+        else:
+            score = 0
+            passed = False
+            reason = "Evaluator did not return a structured quality result."
+        scores[key] = score
+        passes[key] = passed
+        reasons[key] = reason
+    return scores, passes, reasons
+
+
 def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, Any]]:
     base = _playtests_dir(root)
     runs: list[dict[str, Any]] = []
@@ -267,6 +299,7 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
         context = _coverage_context(run_dir, metadata, battle_text, run_id)
         raw_evaluation = evaluator.evaluate_run(context)
         coverage_evaluator, coverage, coverage_reasons = _normalize_evaluation(raw_evaluation, evaluator.evaluator_id)
+        quality_scores, quality_passes, quality_reasons = _normalize_quality(raw_evaluation)
         run = {
             "run_id": run_id,
             "path": str(run_dir),
@@ -279,6 +312,9 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
             "coverage_evaluator": coverage_evaluator,
             "coverage": coverage,
             "coverage_reasons": coverage_reasons,
+            "quality_scores": quality_scores,
+            "quality_passes": quality_passes,
+            "quality_reasons": quality_reasons,
         }
         for optional_key in ("semantic_eval_result", "root_cause_classification", "next_loop_fix_target"):
             if optional_key in raw_evaluation:
@@ -304,8 +340,31 @@ def _coverage_matrix(runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return matrix
 
 
+def _quality_matrix(runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    matrix: dict[str, dict[str, Any]] = {}
+    for key, label in QUALITY_DIMENSIONS.items():
+        passed_runs = [run["run_id"] for run in runs if run["quality_passes"].get(key)]
+        run_scores = {
+            run["run_id"]: run["quality_scores"].get(key, 0)
+            for run in runs
+            if run["quality_scores"].get(key, 0) > 0
+        }
+        matrix[key] = {
+            "label": label,
+            "status": "passed" if passed_runs else "needs_fix",
+            "runs": passed_runs,
+            "scores": run_scores,
+            "reasons": {
+                run["run_id"]: run["quality_reasons"].get(key, "No quality reason recorded.")
+                for run in runs
+                if run["quality_passes"].get(key)
+            },
+        }
+    return matrix
+
+
 def _gaps(matrix: dict[str, dict[str, Any]]) -> list[str]:
-    return [key for key, value in matrix.items() if value["status"] != "covered"]
+    return [key for key, value in matrix.items() if value["status"] not in {"covered", "passed"}]
 
 
 def _non_passing_runs(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -345,6 +404,27 @@ def _coverage_key_contracts() -> list[dict[str, str]]:
     ]
 
 
+def _quality_dimension_contracts() -> list[dict[str, str]]:
+    questions = {
+        "module_fidelity": "Does the playtest preserve the module premise, required beats, clues, scenes, threat logic, and resolution without flattening the scenario into unrelated events?",
+        "rulebook_procedure": "Do Keeper rulings follow Call of Cthulhu procedure for checks, pushed rolls, combat, chase, sanity, consequences, rewards, and when no roll is needed?",
+        "immersion_and_pacing": "Does the transcript read like playable table conversation with scene texture, tension, and pacing rather than a dry checklist?",
+        "state_continuity": "Do HP, SAN, clues, items, injuries, decisions, memories, and final state remain coherent across the run?",
+        "spoiler_safety": "Does the player-facing material avoid Keeper-only secrets unless the report is evaluator-only or explicitly warning-gated?",
+        "player_agency": "Does the virtual player make meaningful choices, ask questions, push rolls, accept stakes, and affect outcomes?",
+        "report_completeness": "Can an evaluator reconstruct campaign setup, module, character parameters, KP/player dialogue, rolls, subsystems, state changes, memory, and feedback from the report?",
+    }
+    return [
+        {
+            "key": key,
+            "label": label,
+            "question": questions[key],
+            "pass_threshold": "score >= 4 and passed is true",
+        }
+        for key, label in QUALITY_DIMENSIONS.items()
+    ]
+
+
 def _semantic_eval_request(context: CoverageContext) -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -372,6 +452,7 @@ def _semantic_eval_request(context: CoverageContext) -> dict[str, Any]:
             ],
         },
         "coverage_keys": _coverage_key_contracts(),
+        "quality_dimensions": _quality_dimension_contracts(),
         "root_cause_labels": ["test_gap", "system_gap", "report_gap", "design_gap"],
         "inputs": {
             "playtest": context.metadata,
@@ -391,12 +472,18 @@ def _semantic_eval_request(context: CoverageContext) -> dict[str, Any]:
                 "run_id",
                 "evaluator_id",
                 "coverage",
+                "quality",
                 "root_cause_classification",
                 "next_loop_fix_target",
             ],
             "coverage_value": {
                 "covered": "boolean",
                 "reason": "short semantic justification based on evidence, not keyword matching",
+            },
+            "quality_value": {
+                "score": "integer from 1 to 5",
+                "passed": "boolean; true only when score is at least 4 and the dimension is table-ready",
+                "reason": "short semantic quality justification",
             },
         },
     }
@@ -450,12 +537,42 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
         else:
             lines.append("  - none")
 
+    lines.extend(["", "## Quality Matrix"])
+    for key, value in index["quality"].items():
+        runs = ", ".join(value["runs"]) if value["runs"] else "none"
+        score_bits = [f"{run_id}: {score}" for run_id, score in value["scores"].items()]
+        scores = "; ".join(score_bits) if score_bits else "none"
+        lines.append(f"- {key}: {value['status']} ({runs}) scores: {scores}")
+
+    lines.extend(["", "## Quality Evidence"])
+    for key, value in index["quality"].items():
+        lines.append(f"- {key}")
+        if value["reasons"]:
+            for run_id, reason in value["reasons"].items():
+                run = next(run for run in index["runs"] if run["run_id"] == run_id)
+                lines.append(f"  - {run_id} [{run['coverage_evaluator']}]: {reason}")
+        else:
+            lines.append("  - none")
+
+    lines.extend(["", "## Repair Targets"])
+    for run in index["runs"]:
+        classifications = run.get("root_cause_classification", [])
+        classification_text = ", ".join(classifications) if classifications else "none"
+        lines.append(f"- {run['run_id']}: {run.get('next_loop_fix_target', 'none')} (root causes: {classification_text})")
+
     lines.extend(["", "## Remaining Gaps"])
     if index["gaps"]:
         for gap in index["gaps"]:
             lines.append(f"- {gap}")
     else:
         lines.append("- No gaps detected across indexed playtest runs.")
+
+    lines.extend(["", "## Remaining Quality Gaps"])
+    if index["quality_gaps"]:
+        for gap in index["quality_gaps"]:
+            lines.append(f"- {gap}")
+    else:
+        lines.append("- No quality gaps detected across indexed playtest runs.")
 
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -466,11 +583,14 @@ def generate_suite_report(root: Path, evaluator: CoverageEvaluator | None = None
     base = _playtests_dir(root)
     runs = _discover_runs(root, evaluator)
     matrix = _coverage_matrix(runs)
+    quality = _quality_matrix(runs)
     index = {
         "schema_version": 1,
         "runs": runs,
         "coverage": matrix,
+        "quality": quality,
         "gaps": _gaps(matrix),
+        "quality_gaps": _gaps(quality),
         "non_passing_runs": _non_passing_runs(runs),
     }
     index_path = base / "index.json"

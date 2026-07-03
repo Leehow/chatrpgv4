@@ -180,3 +180,23 @@ def test_coc_playtest_skill_documents_semantic_eval_artifact_workflow():
     for term in required_terms:
         assert term in skill_text
         assert term in spec_text
+
+
+def test_coc_playtest_skill_documents_semantic_quality_matrix():
+    skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
+    required_terms = [
+        "quality_dimensions",
+        "Quality Matrix",
+        "quality_gaps",
+        "module_fidelity",
+        "rulebook_procedure",
+        "immersion_and_pacing",
+        "state_continuity",
+        "spoiler_safety",
+        "player_agency",
+        "report_completeness",
+    ]
+    for term in required_terms:
+        assert term in skill_text
+        assert term in spec_text

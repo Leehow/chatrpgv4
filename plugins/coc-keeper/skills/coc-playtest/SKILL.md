@@ -49,7 +49,9 @@ Exact matching is allowed only for machine-controlled schema fields, enum values
 
 For semantic review, run `../../scripts/coc_playtest_suite.py --write-semantic-requests --root <repo-root>` to write `artifacts/semantic-eval-request.json` for each playtest run. Codex or another LLM semantic evaluator should read that request and write `artifacts/semantic-eval-result.json`.
 
-`semantic-eval-result.json` must include `schema_version`, `run_id`, `evaluator_id`, `coverage`, `root_cause_classification`, and `next_loop_fix_target`. The `coverage` object uses the same keys as the suite matrix and each value must include `covered` plus a semantic `reason`.
+`semantic-eval-result.json` must include `schema_version`, `run_id`, `evaluator_id`, `coverage`, `quality`, `root_cause_classification`, and `next_loop_fix_target`. The `coverage` object uses the same keys as the suite matrix and each value must include `covered` plus a semantic `reason`.
+
+The request also includes `quality_dimensions`, and the result `quality` object must score `module_fidelity`, `rulebook_procedure`, `immersion_and_pacing`, `state_continuity`, `spoiler_safety`, `player_agency`, and `report_completeness`. Each dimension must include `score`, `passed`, and `reason`; the suite report surfaces these in `## Quality Matrix` and records unresolved `quality_gaps`.
 
 After result files exist, run `../../scripts/coc_playtest_suite.py --evaluator semantic-artifact --root <repo-root>`. The suite must use the result file's `evaluator_id` and reasons instead of fallback structured-source coverage. If the result file is missing, the `semantic-artifact` evaluator should mark coverage missing rather than inventing a natural-language match.
 

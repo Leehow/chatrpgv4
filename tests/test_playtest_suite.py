@@ -150,6 +150,7 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     ]
     request = json.loads(request_paths[0].read_text())
     coverage_keys = {entry["key"] for entry in request["coverage_keys"]}
+    quality_keys = {entry["key"] for entry in request["quality_dimensions"]}
 
     assert request["schema_version"] == 1
     assert request["kind"] == "coc_semantic_coverage_request"
@@ -160,6 +161,7 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     assert "machine-controlled schema fields" in request["constitution"]["allowed_exact_matching"]
     assert "LLM semantic evaluator" in request["instructions"]
     assert coverage_keys == set(coc_playtest_suite.CORE_COVERAGE)
+    assert quality_keys == set(coc_playtest_suite.QUALITY_DIMENSIONS)
     assert "battle_report" in request["inputs"]
     assert "transcript" in request["inputs"]
     assert "state_events" in request["inputs"]
@@ -168,6 +170,7 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
         "run_id",
         "evaluator_id",
         "coverage",
+        "quality",
         "root_cause_classification",
         "next_loop_fix_target",
     ]
@@ -198,6 +201,14 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
             }
             for key in coc_playtest_suite.CORE_COVERAGE
         },
+        "quality": {
+            key: {
+                "score": 4,
+                "passed": True,
+                "reason": f"LLM semantic judge scored {key} as table-ready.",
+            }
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        },
         "root_cause_classification": [],
         "next_loop_fix_target": "none",
     }))
@@ -216,5 +227,17 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
     assert index["coverage"]["chase"]["reasons"] == {
         "semantic-artifact-run": "LLM semantic judge found chase in the run evidence."
     }
+    assert index["quality"]["rulebook_procedure"]["status"] == "passed"
+    assert index["quality"]["rulebook_procedure"]["runs"] == ["semantic-artifact-run"]
+    assert index["quality"]["rulebook_procedure"]["reasons"] == {
+        "semantic-artifact-run": "LLM semantic judge scored rulebook_procedure as table-ready."
+    }
+    assert index["quality_gaps"] == []
     assert "codex-llm-semantic-v1" in report_text
+    assert "## Quality Matrix" in report_text
+    assert "## Remaining Quality Gaps" in report_text
+    assert "- No quality gaps detected across indexed playtest runs." in report_text
+    assert "## Repair Targets" in report_text
+    assert "semantic-artifact-run: none" in report_text
     assert "LLM semantic judge found chase in the run evidence." in report_text
+    assert "LLM semantic judge scored rulebook_procedure as table-ready." in report_text
