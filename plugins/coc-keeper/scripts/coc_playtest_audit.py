@@ -833,6 +833,62 @@ def _feedback_label_leaks(
     return sorted(set(leaks))
 
 
+def _feedback_entry_text(entry: dict[str, Any], play_language: str) -> str:
+    localized = entry.get("localized_text")
+    if isinstance(localized, dict):
+        language_text = localized.get(play_language)
+        if isinstance(language_text, dict) and language_text.get("text") not in (None, "", [], {}):
+            return str(language_text["text"])
+    return str(entry.get("text", ""))
+
+
+def _feedback_voice_gaps(
+    battle_report: str,
+    metadata: dict[str, Any],
+    feedback_entries: list[dict[str, Any]],
+) -> list[str]:
+    section = _section_text(battle_report, "Player Feedback On KP")
+    if not section:
+        return []
+    play_language = str(metadata.get("play_language") or "")
+    profile = _selected_language_profile(metadata)
+    report_labels = profile.get("report_labels", {})
+    feedback_labels = profile.get("feedback_labels", {})
+    if not isinstance(report_labels, dict):
+        report_labels = {}
+    if not isinstance(feedback_labels, dict):
+        feedback_labels = {}
+    profile_labels = metadata.get("player_profile_labels", {})
+    language_profile_labels = profile_labels.get(play_language, {}) if isinstance(profile_labels, dict) else {}
+    if not isinstance(language_profile_labels, dict):
+        language_profile_labels = {}
+    template = str(report_labels.get("feedback_line", '- {category} {score}/5: {voice}: "{text}"'))
+    default_voice = str(report_labels.get("feedback_voice_default", "Player feedback"))
+    profile_template = str(report_labels.get("feedback_voice_profile", "{profile} feedback"))
+
+    gaps: list[str] = []
+    for entry in feedback_entries:
+        if not isinstance(entry, dict):
+            continue
+        category = str(entry.get("category", "general"))
+        category_label = str(feedback_labels.get(category, category))
+        score = entry.get("score", "unscored")
+        entry_profile = entry.get("player_profile")
+        display_profile = ""
+        if entry_profile not in (None, "", [], {}):
+            display_profile = str(language_profile_labels.get(str(entry_profile), str(entry_profile)))
+        voice = profile_template.format(profile=display_profile) if display_profile else default_voice
+        expected = template.format(
+            category=category_label,
+            score=score,
+            voice=voice,
+            text=_feedback_entry_text(entry, play_language),
+        )
+        if expected not in section:
+            gaps.append(f"{category}:{entry_profile or 'player'}")
+    return sorted(set(gaps))
+
+
 def _chase_tracker_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
     play_language = str(metadata.get("play_language") or "")
     if play_language in {"", "en-US"}:
@@ -1572,6 +1628,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Active localized Player Feedback On KP exposes internal feedback category ids: "
             + ", ".join(feedback_label_leaks),
             "Render feedback metric labels from language_profile.feedback_labels while preserving category ids in JSON.",
+        ))
+    feedback_voice_gaps = _feedback_voice_gaps(battle_report, metadata, context["feedback"])
+    if active_profile and feedback_voice_gaps:
+        findings.append(_finding(
+            "player_feedback_voice_missing",
+            "report_gap",
+            "low",
+            "Player Feedback On KP does not render direct virtual-player feedback voice for: "
+            + ", ".join(feedback_voice_gaps),
+            "Render each feedback entry through language_profile.report_labels feedback_voice_default, feedback_voice_profile, and feedback_line so it reads like table feedback rather than only a scorecard.",
         ))
 
     scene_replay = _section_text(battle_report, "Scene-by-Scene Replay") if active_profile else ""

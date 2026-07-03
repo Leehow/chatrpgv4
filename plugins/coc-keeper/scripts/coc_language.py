@@ -21,6 +21,9 @@ BASE_REPORT_LABELS = {
     "yes": "yes",
     "no": "no",
     "localized_terms_summary": "{count} entries (see Localization Appendix)",
+    "feedback_line": "- {category} {score}/5: {voice}: \"{text}\"",
+    "feedback_voice_default": "Player feedback",
+    "feedback_voice_profile": "{profile} feedback",
 }
 
 BASE_EMPTY_REPORT_LINES = {
@@ -199,6 +202,9 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "yes": "是",
             "no": "否",
             "localized_terms_summary": "{count} 条（见本地化附录）",
+            "feedback_line": "- {category} {score}/5：{voice}：“{text}”",
+            "feedback_voice_default": "玩家反馈",
+            "feedback_voice_profile": "{profile}反馈",
         },
         "report_heading_labels": {
             "Battle Report": "跑团战报",
@@ -405,6 +411,9 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "yes": "はい",
             "no": "いいえ",
             "localized_terms_summary": "{count} 件（ローカライズ付録を参照）",
+            "feedback_line": "- {category} {score}/5：{voice}：「{text}」",
+            "feedback_voice_default": "プレイヤー感想",
+            "feedback_voice_profile": "{profile}の感想",
         },
         "report_heading_labels": {
             "Battle Report": "プレイ報告",

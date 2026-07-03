@@ -993,9 +993,18 @@ def _format_feedback(
     score = event.get("score", "unscored")
     profile = event.get("player_profile")
     display_profile = (profile_labels or {}).get(str(profile), str(profile)) if profile else ""
-    prefix = f"{display_profile}: " if display_profile else ""
+    report_labels = (language_profile or {}).get("report_labels", {})
+    default_voice = str(report_labels.get("feedback_voice_default", "Player feedback"))
+    profile_template = str(report_labels.get("feedback_voice_profile", "{profile} feedback"))
+    voice = profile_template.format(profile=display_profile) if display_profile else default_voice
     text = _event_summary(event, "", localized_terms, play_language)
-    return f"- {category_label}: {score} - {prefix}{text}".rstrip()
+    template = str(report_labels.get("feedback_line", '- {category} {score}/5: {voice}: "{text}"'))
+    return template.format(
+        category=category_label,
+        score=score,
+        voice=voice,
+        text=text,
+    ).rstrip()
 
 
 def _format_csv(values: Any) -> str:

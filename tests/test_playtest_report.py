@@ -227,7 +227,7 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "## Story Recap" in battle_text
     assert "Ada searched the cold room" in battle_text
     assert "## Player Feedback On KP" in battle_text
-    assert "kp_clarity: 4 - KP gave clear choices." in battle_text
+    assert 'kp_clarity 4/5: Player feedback: "KP gave clear choices."' in battle_text
     assert "No roll extraction in V1 report" not in battle_text
     assert "No state diff extraction in V1 report" not in battle_text
 

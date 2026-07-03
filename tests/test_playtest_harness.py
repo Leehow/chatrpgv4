@@ -309,7 +309,7 @@ def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     assert "Difficulty Rationale: The clipping files are public but poorly indexed." in battle_text
     assert "Skill Check Earned: yes" in battle_text
     assert "Session ended with Ada planning to visit the Corbitt House next." in battle_text
-    assert "kp_clarity: 5 - KP explained when rolls were needed and what changed in the fiction." in battle_text
+    assert 'kp_clarity 5/5: Player feedback: "KP explained when rolls were needed and what changed in the fiction."' in battle_text
     assert "{'" not in battle_text
     assert "'}" not in battle_text
     assert (run_dir / "sandbox" / ".coc" / "campaigns" / "rulebook-smoke" / "scenario" / "clues.json").exists()
@@ -555,9 +555,16 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert has_cjk(feedback)
     assert_feedback_labels_localized(
         feedback,
-        ["KP 清晰度: 5", "沉浸感: 4", "模组忠实度: 4", "战斗可读性: 4"],
-        ["kp_clarity:", "immersion:", "module_fidelity:", "combat_readability:"],
+        ["KP 清晰度 5/5", "沉浸感 4/5", "模组忠实度 4/5", "战斗可读性 4/5"],
+        [
+            "kp_clarity:",
+            "immersion:",
+            "module_fidelity:",
+            "combat_readability:",
+            "KP 清晰度: 5 -",
+        ],
     )
+    assert "玩家反馈：“KP 在重要检定前说明了目标、风险和后果。”" in feedback
     assert "清单" in feedback
     assert "checklist" not in feedback
     assert "playtest" not in feedback
@@ -613,7 +620,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "最终 HP: 3" in battle_text
     assert "最终 SAN: 49" in battle_text
     assert "Player Feedback On KP" in battle_text
-    assert "模组忠实度: 4" in battle_text
+    assert "模组忠实度 4/5" in battle_text
     assert "No combat summary recorded." not in battle_text
     chase_summary = section_text(battle_text, "## Chase Summary")
     assert "- KP:" not in chase_summary
@@ -847,9 +854,10 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert has_cjk(feedback)
     assert_feedback_labels_localized(
         feedback,
-        ["KP 清晰度: 5", "追逐可读性: 5", "沉浸感: 4"],
-        ["kp_clarity:", "chase_readability:", "immersion:"],
+        ["KP 清晰度 5/5", "追逐可读性 5/5", "沉浸感 4/5"],
+        ["kp_clarity:", "chase_readability:", "immersion:", "KP 清晰度: 5 -"],
     )
+    assert "玩家反馈：“我能看懂每个人在位置链的位置，也知道被追者为什么逃脱。”" in feedback
     assert "规则裁定" in feedback
     assert "rule decisions" not in feedback
     assert "escapes" not in feedback
@@ -1004,12 +1012,12 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert_feedback_labels_localized(
         feedback,
-        ["KP 清晰度: 5", "自主性: 4", "超游质量: 5"],
-        ["kp_clarity:", "agency:", "meta_quality:"],
+        ["KP 清晰度 5/5", "自主性 4/5", "超游质量 5/5"],
+        ["kp_clarity:", "agency:", "meta_quality:", "KP 清晰度: 5 -"],
     )
-    assert "谨慎调查员:" in feedback
-    assert "鲁莽调查员:" in feedback
-    assert "规则质疑玩家:" in feedback
+    assert "谨慎调查员反馈：“KP 允许我先调查" in feedback
+    assert "鲁莽调查员反馈：“KP 没有阻止我冒险" in feedback
+    assert "规则质疑玩家反馈：“KP 清楚解释" in feedback
     assert "careful_investigator:" not in feedback
     assert "reckless_investigator:" not in feedback
     assert "skeptical_rules_lawyer:" not in feedback
