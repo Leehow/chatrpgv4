@@ -463,6 +463,7 @@ def _battle_report_mechanical_log_findings(
     campaign_dir: Path,
     battle_report: str,
 ) -> list[dict[str, Any]]:
+    mechanical_log = _battle_report_anchor_section(battle_report, "Mechanical Log")
     rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
     required_roll_lines = [
         line
@@ -473,7 +474,7 @@ def _battle_report_mechanical_log_findings(
     missing_roll_lines = [
         line
         for line in required_roll_lines
-        if line not in battle_report
+        if line not in mechanical_log
     ]
     if not missing_roll_lines:
         return []
