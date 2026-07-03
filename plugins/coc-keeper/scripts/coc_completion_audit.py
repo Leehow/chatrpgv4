@@ -83,7 +83,7 @@ REQUIRED_QUALITY_DIMENSIONS = [
 ]
 PROFILE_EVENT_TYPE_REQUIREMENTS = {
     "haunting_module": ["combat", "sanity", "status", "session_ending"],
-    "chase_drill": ["chase", "status", "session_ending"],
+    "chase_drill": ["chase", "item_transfer", "status", "session_ending"],
     "multi_profile_pressure": ["decision", "status", "session_ending"],
 }
 PUSHED_ROLL_REQUIRED_PROFILES = {"haunting_module", "chase_drill", "multi_profile_pressure"}

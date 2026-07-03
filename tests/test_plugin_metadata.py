@@ -154,6 +154,8 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "chase_tracker_not_rendered",
         "chase_tracker_labels",
         "chase_tracker_labels_not_localized",
+        "item_transfer",
+        "chase_object_transfer_missing",
         "report_actor_ids_not_localized",
         "report_actor_label_repeated",
         "report_actor_dash_prefix",
@@ -245,6 +247,8 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "investigator_inventory_history_missing",
         "haunting_npc_dialogue_missing",
         "chase_player_profile_pressure_missing",
+        "item_transfer",
+        "chase_object_transfer_missing",
         "Blueprint Cross-Check",
         "Next Loop Fix Target",
     ]
@@ -267,6 +271,8 @@ def test_coc_playtest_skill_documents_chase_drill_profile():
         "barrier",
         "conflict",
         "quarry escapes",
+        "item_transfer",
+        "chase_object_transfer_missing",
     ]
     for term in required_terms:
         assert term in skill_text

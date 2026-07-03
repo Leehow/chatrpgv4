@@ -109,6 +109,7 @@ SCENE_REPLAY_EVENT_TYPES = {
     "bout_of_madness",
     "combat",
     "chase",
+    "item_transfer",
     "status",
     "session_ending",
 }
@@ -1722,6 +1723,35 @@ def _payload_summaries(events: list[dict[str, Any]], event_type: str) -> list[st
     return summaries
 
 
+def _chase_object_transfer_gaps(events: list[dict[str, Any]], chase_state: dict[str, Any]) -> list[str]:
+    transfers = [
+        event
+        for event in events
+        if event.get("type") == "item_transfer"
+    ]
+    if not transfers:
+        return ["no item_transfer event records how the chase prize changed hands before the quarry escaped"]
+
+    required_payload_fields = ["item_id", "from_actor", "to_actor", "source_turn", "chase_id"]
+    chase_id = chase_state.get("chase_id")
+    for transfer in transfers:
+        payload = transfer.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        missing = [
+            field
+            for field in required_payload_fields
+            if payload.get(field) in (None, "", [], {})
+        ]
+        if missing:
+            continue
+        if chase_id not in (None, "", [], {}) and payload.get("chase_id") != chase_id:
+            continue
+        return []
+
+    return ["item_transfer event is present but lacks item_id, from_actor, to_actor, source_turn, or matching chase_id"]
+
+
 def _normalize_report_text(text: str) -> str:
     return " ".join(text.split())
 
@@ -2510,6 +2540,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "Chase events do not show speed rolls, movement actions, and escape/capture resolution.",
                 "Record the chase setup, DEX order, movement action economy, hazards/barriers, conflict, and final outcome.",
+            ))
+
+        object_transfer_gaps = _chase_object_transfer_gaps(context["events"], context["chase_state"])
+        if object_transfer_gaps:
+            findings.append(_finding(
+                "chase_object_transfer_missing",
+                "system_gap",
+                "high",
+                "Chase drill does not prove objective possession continuity: " + "; ".join(object_transfer_gaps),
+                "Record an item_transfer event with item_id, from_actor, to_actor, source_turn, and chase_id before the chase report claims the quarry escaped with a carried objective.",
             ))
 
         missing_chase_moments = _report_contains_required_moments(

@@ -2216,8 +2216,8 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"turn": 5, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "push ledger confirmation", "pushed_roll_protocol": _pushed_roll_transcript_protocol("chase-ledger-confirmation-push", "player_reframes_action"), "text": "我不甘心就这样放过线索。我压低身体，冒险往 skylight 外再探一点，想看清他外套下面是不是那本 ledger。"},
         {"turn": 6, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_spot_hidden", "pushed_roll_protocol": _pushed_roll_transcript_protocol("chase-ledger-confirmation-push", "keeper_foreshadows_failure", {"failure_consequence_source": "keeper"}), "text": "这可以算推骰，因为你换了更危险的观察位置。若失败，Nathaniel 会看见你，追逐开始时双方没有距离差。你确定吗？"},
         {"turn": "6a", "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "pushed_roll_protocol": _pushed_roll_transcript_protocol("chase-ledger-confirmation-push", "player_confirms_risk", {"risk_confirmed": True}), "text": "确定。我赌这一眼。"},
-        {"turn": 7, "role": "system", "speaker": "system", "mode": "roll", "pushed_roll_protocol": _pushed_roll_transcript_protocol("chase-ledger-confirmation-push", "roll_resolved"), "outcome_note": "艾达·金看见账本；内森尼尔·克劳听见屋瓦移动。", "text": "Pushed Spot Hidden 33 vs 55 -> regular_success. Ada sees the ledger, but Nathaniel hears the roof tile shift."},
-        {"turn": 8, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "chase_setup", "text": "Nathaniel 猛地扑向你。你现在是 quarry，他是 pursuer。我们做 speed roll checks 来建立 chase。"},
+        {"turn": 7, "role": "system", "speaker": "system", "mode": "roll", "pushed_roll_protocol": _pushed_roll_transcript_protocol("chase-ledger-confirmation-push", "roll_resolved"), "outcome_note": "艾达·金看见账本从内森尼尔·克劳外套里滑出，抢起账本；内森尼尔·克劳听见屋瓦移动。", "text": "Pushed Spot Hidden 33 vs 55 -> regular_success. Ada sees the cult ledger slip from Nathaniel's coat and snatches it; Nathaniel hears the roof tile shift."},
+        {"turn": 8, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "chase_setup", "text": "Nathaniel 猛地扑向你。你已经拿到 ledger，现在是 quarry，他是 pursuer。我们做 speed roll checks 来建立 chase。"},
         {"turn": 9, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "MOV 保持 8。", "text": "Ada CON speed roll 42 vs 55 -> success; MOV remains 8."},
         {"turn": 10, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "MOV 从 8 升到 9。", "text": "Nathaniel CON speed roll 9 vs 50 -> extreme_success; MOV rises from 8 to 9."},
         {"turn": 11, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "cut_to_chase", "text": "因为 pursuer 的 adjusted MOV 不低于 quarry，chase 成立。我切到追逐场面：Nathaniel 暂时落后你 two locations。"},
@@ -2251,6 +2251,24 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "print-shop-roof", "summary": "Ada 在 print shop roof 发现 Nathaniel Crowe，确认他带着 cult ledger。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 冒着被发现的风险继续观察，确认 Nathaniel 是否带着 ledger。"}},
+        {
+            "type": "item_transfer",
+            "actor": investigator_id,
+            "payload": {
+                "item_id": "cult-ledger",
+                "item_name": "cult ledger",
+                "from_actor": pursuer_id,
+                "to_actor": investigator_id,
+                "source_turn": 7,
+                "chase_id": "rooftop-chase",
+                "summary": "Ada 看见 cult ledger 从 Nathaniel Crowe 外套里滑出，抢起账本后成为 quarry。",
+                "localized_text": {
+                    "zh-Hans": {
+                        "summary": "艾达·金看见邪教账本从内森尼尔·克劳外套里滑出，抢起账本后成为被追者。"
+                    }
+                },
+            },
+        },
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "ledger-clue", "summary": "Ada 确认 cult ledger，并在 chase 后保住这条线索。"}},
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "speed roll setup：Ada CON 成功保持 MOV 8；Nathaniel CON extreme success 让 MOV 8 升到 MOV 9，因此 pursuer 可以 establish the chase。"}},
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "location chain：print-shop roof -> rain gutter -> slick skylight hazard -> locked roof door barrier -> laundry roof；DEX order 是 Nathaniel 60，然后 Ada 50。"}},

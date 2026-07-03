@@ -22,6 +22,7 @@ SCENE_REPLAY_EVENT_TYPES = {
     "bout_of_madness",
     "combat",
     "chase",
+    "item_transfer",
     "status",
     "session_ending",
 }

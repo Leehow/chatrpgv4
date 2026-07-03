@@ -505,6 +505,26 @@ def test_chase_drill_audit_requires_chase_tracker_rendering(tmp_path):
     assert "chase_report_missing_key_moments" not in codes
 
 
+def test_chase_drill_audit_requires_object_transfer_for_carried_chase_prize(tmp_path):
+    run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
+    events_path = run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "logs" / "events.jsonl"
+    events = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    write_jsonl(events_path, [
+        event
+        for event in events
+        if event.get("type") != "item_transfer"
+    ])
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "chase_object_transfer_missing" in finding_codes(audit)
+
+
 def test_active_audit_rejects_unlocalized_chase_tracker_labels(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "chase-tracker-labels"
     create_final_rulebook_run(run_dir)

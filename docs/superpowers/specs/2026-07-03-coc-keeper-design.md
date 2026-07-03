@@ -1053,7 +1053,7 @@ The audit loop is:
 
 `rulebook-audit.md` must contain `## Positive Rulebook Evidence`, `## Root Cause Classification`, `## Blueprint Cross-Check`, and `## Next Loop Fix Target`.
 
-The baseline audit should reject a run when the battle report omits a pushed roll, status event, session ending, mechanical detail such as roll goals and difficulty rationale, or when report text leaks raw payload dictionaries instead of player-readable prose. Active serious runs must also reject missing `player-view.jsonl` / `keeper-view.jsonl` with `view_separation_missing`, reject Keeper secret ids in `player-view.jsonl` with `player_view_secret_leak`, and reject player-visible protocol wrappers in `player-view.jsonl` with `player_view_protocol_wrapper_leak`.
+The baseline audit should reject a run when the battle report omits a pushed roll, status event, session ending, mechanical detail such as roll goals and difficulty rationale, or when report text leaks raw payload dictionaries instead of player-readable prose. Active serious runs must also reject missing `player-view.jsonl` / `keeper-view.jsonl` with `view_separation_missing`, reject Keeper secret ids in `player-view.jsonl` with `player_view_secret_leak`, and reject player-visible protocol wrappers in `player-view.jsonl` with `player_view_protocol_wrapper_leak`. Chase scenarios whose outcome depends on a carried objective must write an `item_transfer` event with stable `item_id`, `from_actor`, `to_actor`, `source_turn`, and matching `chase_id`, plus a player-visible localized summary; otherwise the audit emits `chase_object_transfer_missing`.
 
 When `playtest.json` sets `audit_profile: haunting_module`, the audit should additionally require:
 
@@ -1076,6 +1076,7 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit should additio
 - multi-profile chase pressure from reckless, skeptical-rules, and genre-savvy player profiles, including meta questions about movement actions, pushed-roll boundaries, and spoiler-safe answers; otherwise emit `chase_player_profile_pressure_missing`
 - Chase Summary text that explains speed roll, MOV, movement actions, DEX order, hazards, barriers, conflict, and escape/capture
 - populated `## Chase Tracker` text that renders `save/chase.json` participants, DEX order, location chain, rounds, and outcome; otherwise emit `chase_tracker_not_rendered`
+- carried-object continuity through an `item_transfer` event when the quarry escapes with the chase prize; otherwise emit `chase_object_transfer_missing`
 - player feedback and evaluator notes specific to chase readability
 
 ### Evaluation Report Output

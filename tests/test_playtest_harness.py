@@ -95,6 +95,14 @@ def campaign_audit_events(run_dir: Path) -> list[dict]:
     return events
 
 
+def campaign_events_by_type(run_dir: Path, event_type: str) -> list[dict]:
+    return [
+        event
+        for event in campaign_state_events(run_dir)
+        if event.get("type") == event_type
+    ]
+
+
 def investigator_jsonl(run_dir: Path, investigator_id: str, filename: str) -> list[dict]:
     import json
 
@@ -1341,10 +1349,19 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "最终 SAN: 55" in chronicle
     assert "获得成长标记: 侦查; 闪避; 锁匠; 潜行" in chronicle
     assert "继承备注: 账本线索可带入后续模组" in chronicle
+    transfer_events = campaign_events_by_type(run_dir, "item_transfer")
+    assert len(transfer_events) == 1
+    transfer_payload = transfer_events[0]["payload"]
+    assert transfer_payload["item_id"] == "cult-ledger"
+    assert transfer_payload["from_actor"] == "nathaniel-crowe"
+    assert transfer_payload["to_actor"] == "ada-king-chase"
+    assert transfer_payload["source_turn"] == 7
+    assert transfer_payload["chase_id"] == "rooftop-chase"
     assert "<!-- report-anchor: Scene-by-Scene Replay -->" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
     assert bullet_count(scene_replay) >= significant_scene_replay_count(run_dir)
+    assert transfer_payload["localized_text"]["zh-Hans"]["summary"] in scene_replay
     assert_player_readable_state_ids_absent(scene_replay, ["print-shop-roof", "ledger-clue"])
     assert_player_readable_event_prefixes_absent(scene_replay, ["chase", "session ending"])
     assert "ada-king-chase -" not in scene_replay

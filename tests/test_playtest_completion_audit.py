@@ -136,6 +136,7 @@ def battle_report_event_fixture_text() -> str:
         "fixture status",
         "fixture ending",
         "fixture chase",
+        "fixture item transfer",
         "fixture decision",
     ]
     return "\n".join(f"- {summary}" for summary in event_summaries)
@@ -784,6 +785,18 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     elif audit_profile == "chase_drill":
         event_rows.extend([
             {"type": "chase", "actor": investigator_id, "payload": {"summary": "fixture chase"}},
+            {
+                "type": "item_transfer",
+                "actor": investigator_id,
+                "payload": {
+                    "item_id": "fixture-ledger",
+                    "from_actor": "fixture-pursuer",
+                    "to_actor": investigator_id,
+                    "source_turn": 7,
+                    "chase_id": "fixture-chase",
+                    "summary": "fixture item transfer",
+                },
+            },
             {"type": "status", "actor": investigator_id, "payload": {"summary": "fixture status"}},
             {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "fixture ending"}},
         ])
@@ -1733,6 +1746,7 @@ def test_completion_audit_fails_when_profile_event_logs_lack_required_event_type
     assert "haunting_module event type status" in by_run["v2-haunting-module"]["missing_evidence"]
     assert "haunting_module event type session_ending" in by_run["v2-haunting-module"]["missing_evidence"]
     assert "chase_drill event type chase" in by_run["v3-chase-drill"]["missing_evidence"]
+    assert "chase_drill event type item_transfer" in by_run["v3-chase-drill"]["missing_evidence"]
     assert "chase_drill event type status" in by_run["v3-chase-drill"]["missing_evidence"]
     assert "chase_drill event type session_ending" in by_run["v3-chase-drill"]["missing_evidence"]
     assert "multi_profile_pressure event type decision" in by_run["v4-multi-profile-pressure"]["missing_evidence"]
