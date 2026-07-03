@@ -306,6 +306,7 @@ ZH_HANS_TRANSCRIPT_DETAIL_TEXT = {
     "persuade_regular": "Persuade 普通难度",
     "profile_pressure_explanation": "多玩家画像裁定说明",
     "push Arty social access": "推骰争取阿蒂放行",
+    "ask pushed-roll ruling": "询问推骰裁定",
     "push basement descent": "推骰通过地下室楼梯",
     "push basement search": "推骰搜索地下室",
     "push failed search": "推骰失败的搜索",

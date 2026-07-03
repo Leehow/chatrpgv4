@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,32 @@ CHASE_REPORT_MOMENTS = [
     "conflict",
     "quarry escapes",
 ]
+
+TRANSCRIPT_DETAIL_ALLOWED_ASCII_TOKENS = {
+    "APP",
+    "Brawl",
+    "CON",
+    "Climb",
+    "DEX",
+    "Dodge",
+    "EDU",
+    "Fighting",
+    "HP",
+    "Hidden",
+    "INT",
+    "KP",
+    "Library",
+    "Luck",
+    "MOV",
+    "MP",
+    "POW",
+    "Persuade",
+    "SAN",
+    "SIZ",
+    "STR",
+    "Spot",
+    "Use",
+}
 
 SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "bout_of_madness", "combat", "chase", "session_ending"}
 ACTIVE_AUDIT_PROFILES = {"haunting_module", "chase_drill", "multi_profile_pressure"}
@@ -840,7 +867,12 @@ def _transcript_detail_value_gaps(battle_report: str, metadata: dict[str, Any]) 
             if not stripped.startswith(prefix):
                 continue
             value = stripped[len(prefix):].strip()
-            if value and not _has_cjk(value):
+            untranslated_tokens = [
+                token
+                for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]*", value)
+                if token not in TRANSCRIPT_DETAIL_ALLOWED_ASCII_TOKENS
+            ]
+            if value and (not _has_cjk(value) or untranslated_tokens):
                 gaps.append(key)
     return sorted(set(gaps))
 

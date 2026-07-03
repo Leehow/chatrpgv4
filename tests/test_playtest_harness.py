@@ -401,8 +401,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_localized_transcript_chrome(actual_play)
     assert_transcript_detail_values_localized(
         actual_play,
-        ["询问委托条件和近期线索", "无需检定", "推骰说明"],
-        ["ask terms and immediate leads", "no_roll_needed", "pushed_roll_explanation"],
+        ["询问委托条件和近期线索", "无需检定", "询问推骰裁定", "推骰说明"],
+        ["ask terms and immediate leads", "no_roll_needed", "ask 推骰-roll ruling", "pushed_roll_explanation"],
     )
     assert "诺特先生把一枚旧钥匙" in actual_play
     assert "第 6 轮 system: Persuade：艾达·金掷出 72 / 55，结果失败。" in actual_play
@@ -414,8 +414,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_localized_transcript_chrome(session_transcript)
     assert_transcript_detail_values_localized(
         session_transcript,
-        ["询问委托条件和近期线索", "无需检定", "推骰说明"],
-        ["ask terms and immediate leads", "no_roll_needed", "pushed_roll_explanation"],
+        ["询问委托条件和近期线索", "无需检定", "询问推骰裁定", "推骰说明"],
+        ["ask terms and immediate leads", "no_roll_needed", "ask 推骰-roll ruling", "pushed_roll_explanation"],
     )
     assert "第 6 轮 system: Persuade：艾达·金掷出 72 / 55，结果失败。" in session_transcript
     assert "第 42 轮 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；Dodge：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in session_transcript
