@@ -913,6 +913,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "以其人之物反制的线索" in scene_replay
     assert "疯狂发作第 1 回合" in scene_replay
     assert "疯狂发作第 4 回合" in scene_replay
+    assert scene_replay.count("疯狂发作第 1 回合") == 1
+    assert scene_replay.count("疯狂发作第 2 回合") == 1
+    assert scene_replay.count("疯狂发作第 3 回合") == 1
+    assert scene_replay.count("疯狂发作第 4 回合") == 1
     assert "控制权回到玩家" in scene_replay
     assert "床铺袭击造成艾达·金 5 HP 伤害；HP 12 -> 7。" in scene_replay
     assert "推骰地下室搜索失败造成艾达·金 4 HP 伤害；HP 7 -> 3。" in scene_replay

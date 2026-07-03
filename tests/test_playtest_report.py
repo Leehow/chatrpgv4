@@ -25,6 +25,14 @@ def write_json(path: Path, payload: dict):
     path.write_text(json.dumps(payload))
 
 
+def section_text(markdown: str, heading_anchor: str) -> str:
+    start = markdown.index(f"report-anchor: {heading_anchor}")
+    next_heading = markdown.find("\n## ", start + 1)
+    if next_heading == -1:
+        return markdown[start:]
+    return markdown[start:next_heading]
+
+
 def test_generate_battle_and_evaluation_reports(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "run-1"
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "run-1"
@@ -256,6 +264,72 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "[low] spoiler_safety: No leaks observed." in evaluation_text
     assert "[low] meta_quality: Meta question paused play and returned cleanly." in evaluation_text
     assert "- Populate spoiler warning transcript checks." in evaluation_text
+
+
+def test_scene_replay_expands_bout_of_madness_rounds_as_separate_entries(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "bout-run"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "bout-run"
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king"
+
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "bout-run",
+        "title": "The Haunting",
+        "scenario_id": "the-haunting",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "play_language": "zh-Hans",
+    })
+    write_json(campaign_dir / "party.json", {"investigator_ids": ["ada-king"]})
+    write_json(campaign_dir / "scenario" / "scenario.json", {
+        "scenario_id": "the-haunting",
+        "title": "The Haunting",
+        "module_source": "pdf/the-haunting.pdf",
+        "opening_scene": "Ada King enters the basement.",
+    })
+    write_json(investigator_dir / "character.json", {
+        "id": "ada-king",
+        "name": "Ada King",
+        "characteristics": {"DEX": 50},
+        "derived": {"HP": 3, "SAN": 49},
+        "skills": {},
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {
+            "type": "bout_of_madness",
+            "actor": "ada-king",
+            "payload": {
+                "summary": "疯狂发作：艾达·金短暂失控；持续 1D10 回合；1D10 掷出 2，所以持续 2 回合。",
+                "duration_die": "1D10",
+                "duration_roll": 2,
+                "duration_rounds": 2,
+                "rounds": [
+                    {"round": 1, "control": "keeper", "summary": "疯狂发作第 1 回合：艾达·金尖叫着后退。"},
+                    {"round": 2, "control": "keeper", "summary": "疯狂发作第 2 回合：控制权回到玩家。"},
+                ],
+                "control_returned": True,
+                "recovery_note": "第 2 回合结束后控制权回到玩家。",
+            },
+        }
+    ])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+    write_json(run_dir / "playtest.json", {
+        "run_id": "bout-run",
+        "campaign_id": "bout-run",
+        "scenario": "The Haunting",
+        "play_language": "zh-Hans",
+        "localized_terms": {"zh-Hans": {"Ada King": "艾达·金", "The Haunting": "《鬼屋》"}},
+    })
+
+    battle_path = coc_playtest_report.generate_battle_report(run_dir)
+    scene_replay = section_text(battle_path.read_text(), "Scene-by-Scene Replay")
+
+    assert "- 疯狂发作：艾达·金短暂失控；持续 1D10 回合；1D10 掷出 2，所以持续 2 回合。" in scene_replay
+    assert "- 疯狂发作第 1 回合：艾达·金尖叫着后退。" in scene_replay
+    assert "- 疯狂发作第 2 回合：控制权回到玩家。" in scene_replay
 
 
 def test_evaluation_report_overall_result_passes_without_failed_cases_or_serious_notes(tmp_path):

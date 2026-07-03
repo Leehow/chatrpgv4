@@ -436,6 +436,39 @@ def _format_subsystem_event(
     return f"- {summary}"
 
 
+def _format_bout_of_madness_round_lines(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> list[str]:
+    terms = localized_terms or {}
+    payload = event.get("payload", {})
+    rounds = payload.get("rounds", [])
+    if not isinstance(rounds, list):
+        return []
+
+    lines: list[str] = []
+    for round_entry in rounds:
+        if not isinstance(round_entry, dict):
+            continue
+        summary = _localized_visible_field(round_entry, "summary", terms, play_language)
+        if summary:
+            lines.append(f"- {summary}")
+    return lines
+
+
+def _format_subsystem_event_lines(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+    actor_names: dict[str, str] | None = None,
+) -> list[str]:
+    lines = [_format_subsystem_event(event, localized_terms, play_language, actor_names)]
+    if event.get("type") == "bout_of_madness":
+        lines.extend(_format_bout_of_madness_round_lines(event, localized_terms, play_language))
+    return lines
+
+
 def _naturalize_player_event_summary(event_type: str, actor: str, summary: str) -> str:
     if event_type == "damage" and actor not in {"", "KP", "unknown"} and actor not in summary:
         match = DAMAGE_SUMMARY_RE.match(summary)
@@ -471,6 +504,20 @@ def _format_scene_replay_event(
     summary = _event_summary(event, f"{event_label} recorded", terms, play_language)
     summary = _naturalize_player_event_summary(str(event_type), actor, summary)
     return f"- {summary}"
+
+
+def _format_scene_replay_event_lines(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+    actor_names: dict[str, str] | None = None,
+) -> list[str]:
+    lines = [_format_scene_replay_event(event, localized_terms, play_language, actor_names)]
+    if event.get("type") != "bout_of_madness":
+        return lines
+
+    lines.extend(_format_bout_of_madness_round_lines(event, localized_terms, play_language))
+    return lines
 
 
 def _format_handout(
@@ -1534,8 +1581,14 @@ def generate_battle_report(run_dir: Path) -> Path:
         if event.get("type") == "clue"
     ]
     scene_replay_lines = [
-        _format_scene_replay_event(event, localized_terms, str(play_language), actor_names)
+        line
         for event in _scene_replay_events(state_events)
+        for line in _format_scene_replay_event_lines(
+            event,
+            localized_terms,
+            str(play_language),
+            actor_names,
+        )
     ]
     combat_lines = [
         _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
@@ -1548,9 +1601,15 @@ def generate_battle_report(run_dir: Path) -> Path:
         if event.get("type") == "chase"
     ]
     sanity_lines = [
-        _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
+        line
         for event in state_events
         if event.get("type") in {"sanity", "bout_of_madness"}
+        for line in _format_subsystem_event_lines(
+            event,
+            localized_terms,
+            str(play_language),
+            actor_names,
+        )
     ]
     ending_lines = [
         _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
