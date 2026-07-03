@@ -22,7 +22,8 @@ name policy, term policy, and report labels.
 Player-visible narration, NPC speech, player prompts, player-view transcript
 text, recaps, and report prose follow `play_language`. Event-level
 `localized_text[play_language]` is the preferred player-visible rendering when
-present; otherwise use `localized_terms[play_language]` to localize names,
+present; still pass it through `localized_terms[play_language]` before writing
+player-view or reports. Otherwise use `localized_terms[play_language]` to localize names,
 setting terms, and skill display names. For
 `zh-Hans`, foreign names, places, factions, handouts, campaign titles,
 scenario titles, player-visible module source labels, player-visible skill display names, and special terms should

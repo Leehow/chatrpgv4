@@ -1669,6 +1669,44 @@ def _player_view_speaker_findings(
     )]
 
 
+def _player_view_localized_text_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    localized_terms = _metadata_localized_terms(metadata)
+    play_language = str(metadata.get("play_language") or "")
+    if not play_language or not localized_terms:
+        return []
+
+    localized_strings: list[str] = []
+    for row in _read_jsonl(run_dir / "player-view.jsonl"):
+        if row.get("view") != "player" or row.get("type") != "transcript_turn":
+            continue
+        localized_text = row.get("localized_text", {})
+        language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
+        localized_strings.extend(_nested_string_values(language_text))
+
+    leaked_terms = sorted({
+        canonical
+        for canonical, display in localized_terms.items()
+        if canonical
+        and display != canonical
+        and any(canonical in text for text in localized_strings)
+    })
+    if not leaked_terms:
+        return []
+    return [_finding(
+        "player_view_localized_text_not_localized",
+        "report_gap",
+        f"{run_id} player-view.jsonl localized_text.{play_language} leaks canonical player-visible terms: {', '.join(leaked_terms[:8])}.",
+        "Regenerate the active run so player-view.jsonl localized_text values render through localized_terms[play_language] while preserving canonical enum fields separately.",
+        run_id=run_id,
+        leaked_player_view_localized_text_terms=leaked_terms,
+        player_view_localized_text_samples=localized_strings[:8],
+    )]
+
+
 def _player_view_transcript_detail_findings(
     run_id: str,
     run_dir: Path,
@@ -2254,6 +2292,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_source_structure_findings(run_id, run_dir))
     findings.extend(_player_view_public_state_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_speaker_findings(run_id, run_dir, metadata))
+    findings.extend(_player_view_localized_text_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_transcript_detail_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_roll_text_findings(run_id, run_dir, campaign_dir, metadata))
     findings.extend(_pushed_roll_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))

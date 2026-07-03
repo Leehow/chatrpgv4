@@ -1369,6 +1369,49 @@ def test_completion_audit_fails_when_player_view_transcript_details_lack_display
     assert finding["unlocalized_player_view_details"] == ["turn 2 intent"]
 
 
+def test_completion_audit_fails_when_player_view_localized_text_leaks_canonical_terms(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["localized_terms"]["zh-Hans"]["Spot Hidden"] = "侦查"
+    write_json(metadata_path, metadata)
+    player_view = read_jsonl(run_dir / "player-view.jsonl")
+    write_jsonl(run_dir / "player-view.jsonl", [
+        {
+            **row,
+            "ruling": "spot_hidden_regular",
+            "ruling_display": "侦查普通难度",
+            "localized_text": {"zh-Hans": {"ruling": "Spot Hidden 普通难度"}},
+        }
+        if row.get("type") == "transcript_turn" and row.get("role") == "player_simulator"
+        else row
+        for row in player_view
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "player_view_localized_text_not_localized")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert finding["leaked_player_view_localized_text_terms"] == ["Spot Hidden"]
+
+
 def test_completion_audit_fails_when_campaign_logs_and_memory_lack_structured_evidence(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

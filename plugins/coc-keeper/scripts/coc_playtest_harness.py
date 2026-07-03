@@ -503,6 +503,12 @@ def _player_view_event(
         visible["text"] = rendered_text
     elif isinstance(visible.get("text"), str):
         visible["text"] = _localize_text(visible["text"], glossary)
+    localized_text = visible.get("localized_text", {})
+    if isinstance(localized_text, dict) and isinstance(localized_text.get(play_language), dict):
+        visible["localized_text"] = {
+            **localized_text,
+            play_language: _localize_public_value(localized_text[play_language], glossary),
+        }
     if isinstance(visible.get("speaker"), str):
         visible["speaker"] = _display_transcript_speaker(
             visible,
