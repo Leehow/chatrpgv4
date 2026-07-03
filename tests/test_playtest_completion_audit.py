@@ -1885,6 +1885,27 @@ def test_completion_audit_fails_when_battle_report_omits_source_dialogue_text(tm
     assert "fixture player turn" in finding["missing_dialogue_samples"]
 
 
+def test_completion_audit_accepts_protocol_wrapped_dialogue_rendered_without_wrappers(tmp_path):
+    run_dir = tmp_path / "run"
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {"role": "player_simulator", "text": "[meta] fixture meta turn [/meta]"},
+        {"role": "keeper_under_test", "text": "[spoiler_warning] fixture spoiler warning [/spoiler_warning]"},
+    ])
+    battle_report = "\n".join([
+        "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->",
+        "- fixture meta turn",
+        "- fixture spoiler warning",
+        "",
+        "## Session Transcript <!-- report-anchor: Session Transcript -->",
+        "- fixture meta turn",
+        "- fixture spoiler warning",
+    ])
+
+    findings = coc_completion_audit._battle_report_source_dialogue_findings("run", run_dir, battle_report)
+
+    assert findings == []
+
+
 def test_completion_audit_fails_when_source_dialogue_is_outside_replay_sections(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

@@ -15,6 +15,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from coc_playtest_report import (
+    _display_transcript_text,
     _event_roll_count,
     _format_roll_recap,
     _format_roll_transcript_text,
@@ -475,7 +476,7 @@ def _battle_report_source_dialogue_findings(run_id: str, run_dir: Path, battle_r
     ])
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
     required_dialogue = [
-        row["text"].strip()
+        _display_transcript_text(row["text"].strip())
         for row in transcript
         if row.get("role") != "system"
         and isinstance(row.get("text"), str)

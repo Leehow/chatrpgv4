@@ -27,6 +27,10 @@ SCENE_REPLAY_EVENT_TYPES = {
 }
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
 DAMAGE_SUMMARY_RE = re.compile(r"^(?P<cause>.+?)造成伤害: (?P<amount>[^；。]+)(?P<tail>[；。].*)$")
+TRANSCRIPT_PROTOCOL_WRAPPER_RE = re.compile(
+    r"^\[(?P<tag>meta|spoiler_warning)\]\s*(?P<body>.*?)\s*\[/(?P=tag)\]$",
+    re.DOTALL,
+)
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -1163,6 +1167,15 @@ def _transcript_mode_label(language_profile: dict[str, Any] | None, mode: Any) -
     return mode_text
 
 
+def _display_transcript_text(value: Any) -> str:
+    text = str(value or "")
+    while True:
+        match = TRANSCRIPT_PROTOCOL_WRAPPER_RE.match(text)
+        if not match:
+            return text
+        text = match.group("body").strip()
+
+
 def _format_transcript_event(
     event: dict[str, Any],
     rendered_text: str | None = None,
@@ -1175,7 +1188,7 @@ def _format_transcript_event(
     speaker = _display_transcript_speaker(event, profile_labels, language_profile, terms)
 
     turn = event.get("turn", "?")
-    text = rendered_text if rendered_text is not None else event.get("text", "")
+    text = _display_transcript_text(rendered_text if rendered_text is not None else event.get("text", ""))
     lines = [f"- {_transcript_turn_label(language_profile, turn)} {speaker}: {text}"]
     if event.get("mode"):
         mode = _transcript_mode_label(language_profile, event["mode"])
@@ -1202,7 +1215,7 @@ def _format_actual_play_event(
     speaker = _display_transcript_speaker(event, profile_labels, language_profile, terms)
 
     turn = event.get("turn", "?")
-    text = rendered_text if rendered_text is not None else event.get("text", "")
+    text = _display_transcript_text(rendered_text if rendered_text is not None else event.get("text", ""))
     if role in {"keeper_under_test", "player_simulator"}:
         lines = [f"- {_transcript_turn_label(language_profile, turn)} {speaker}: \"{text}\""]
     else:

@@ -960,8 +960,12 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         event.get("role") == "system" and event.get("mode") == "roll"
         for event in transcript_events(run_dir)
     )
-    assert "[meta]" in actual_play
-    assert "[/meta]" in actual_play
+    raw_transcript_text = "\n".join(str(event.get("text", "")) for event in transcript_events(run_dir))
+    assert "[meta]" in raw_transcript_text
+    assert "[meta]" not in actual_play
+    assert "[/meta]" not in actual_play
+    assert "[meta]" not in session_transcript
+    assert "[/meta]" not in session_transcript
     assert "为什么这里可以推骰" in actual_play
     assert "失败后果" in actual_play
     assert all("Ada King" not in text for text in visible_play_texts(run_dir))
@@ -1529,7 +1533,14 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "科比特宅邸的三条路" in story_facing_setup
     assert "先查房契和旧报纸" in actual_play
     assert "我直接去二楼" in actual_play
-    assert "[meta] 我想质疑一下" in actual_play
+    raw_transcript_text = "\n".join(str(event.get("text", "")) for event in transcript_events(run_dir))
+    assert "[meta]" in raw_transcript_text
+    assert "[spoiler_warning]" in raw_transcript_text
+    assert "[meta]" not in visible_table_text
+    assert "[/meta]" not in visible_table_text
+    assert "[spoiler_warning]" not in visible_table_text
+    assert "[/spoiler_warning]" not in visible_table_text
+    assert "我想质疑一下" in actual_play
     assert "规则裁定" in actual_play
     character_dossier = section_text(battle_text, "## Character Dossier")
     assert_localized_character_dossier_labels(character_dossier)
