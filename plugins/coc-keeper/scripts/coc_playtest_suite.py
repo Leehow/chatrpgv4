@@ -379,6 +379,70 @@ def _non_passing_runs(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
     ]
 
 
+def _active_evaluation_runs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    active_runs = [run for run in runs if run.get("audit_profile") != "baseline"]
+    return active_runs or runs
+
+
+def _run_needs_semantic_result(run: dict[str, Any]) -> bool:
+    return (
+        run.get("coverage_evaluator") == SemanticArtifactCoverageEvaluator.evaluator_id
+        and run.get("semantic_eval_result") == f"artifacts/{SEMANTIC_EVAL_RESULT}"
+        and str(run.get("next_loop_fix_target", "")).startswith("Fill ")
+    )
+
+
+def _loop_decision(index: dict[str, Any]) -> dict[str, Any]:
+    runs = index["runs"]
+    active_runs = _active_evaluation_runs(runs)
+    active_run_ids = [run["run_id"] for run in active_runs]
+    blockers: list[dict[str, Any]] = []
+
+    for run in active_runs:
+        if run["audit_result"] != "PASS":
+            blockers.append({
+                "type": "audit_failure",
+                "run_id": run["run_id"],
+                "root_cause_classification": run.get("root_cause_classification", ["test_gap"]),
+                "next_loop_fix_target": run.get("next_loop_fix_target", f"Fix audit failure for {run['run_id']}."),
+            })
+        elif _run_needs_semantic_result(run):
+            blockers.append({
+                "type": "missing_semantic_result",
+                "run_id": run["run_id"],
+                "root_cause_classification": run.get("root_cause_classification", ["test_gap"]),
+                "next_loop_fix_target": run.get("next_loop_fix_target", f"Fill artifacts/{SEMANTIC_EVAL_RESULT}."),
+            })
+
+    for gap in index["gaps"]:
+        blockers.append({
+            "type": "coverage_gap",
+            "key": gap,
+            "root_cause_classification": ["test_gap"],
+            "next_loop_fix_target": f"Add or fix a current playtest run that semantically covers {gap}.",
+        })
+
+    for gap in index["quality_gaps"]:
+        blockers.append({
+            "type": "quality_gap",
+            "key": gap,
+            "root_cause_classification": ["system_gap", "report_gap", "design_gap"],
+            "next_loop_fix_target": f"Inspect semantic quality reasons and improve the current playtest loop for {gap}.",
+        })
+
+    ignored = [run["run_id"] for run in runs if run["run_id"] not in set(active_run_ids)]
+    return {
+        "schema_version": 1,
+        "status": "needs_repair" if blockers else "ready_for_completion_audit",
+        "evaluated_runs": active_run_ids,
+        "ignored_historical_runs": ignored,
+        "blockers": blockers,
+        "next_action": blockers[0]["next_loop_fix_target"] if blockers else (
+            "Run the full completion audit against suite-report.md, latest battle reports, rulebook audits, and semantic evaluation results."
+        ),
+    }
+
+
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -554,8 +618,26 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
         else:
             lines.append("  - none")
 
+    decision = index["loop_decision"]
+    lines.extend(["", "## Loop Decision"])
+    lines.append(f"- Status: {decision['status']}")
+    lines.append(f"- Next Action: {decision['next_action']}")
+    lines.append(f"- Evaluated Runs: {', '.join(decision['evaluated_runs']) if decision['evaluated_runs'] else 'none'}")
+    ignored = ", ".join(decision["ignored_historical_runs"]) if decision["ignored_historical_runs"] else "none"
+    lines.append(f"- Ignored Historical Runs: {ignored}")
+    if decision["blockers"]:
+        lines.append("- Blockers:")
+        for blocker in decision["blockers"]:
+            label = blocker.get("run_id") or blocker.get("key", "suite")
+            lines.append(f"  - {blocker['type']} {label}: {blocker['next_loop_fix_target']}")
+    else:
+        lines.append("- Blockers: none")
+
     lines.extend(["", "## Repair Targets"])
+    active_run_ids = set(decision["evaluated_runs"])
     for run in index["runs"]:
+        if run["run_id"] not in active_run_ids:
+            continue
         classifications = run.get("root_cause_classification", [])
         classification_text = ", ".join(classifications) if classifications else "none"
         lines.append(f"- {run['run_id']}: {run.get('next_loop_fix_target', 'none')} (root causes: {classification_text})")
@@ -593,9 +675,12 @@ def generate_suite_report(root: Path, evaluator: CoverageEvaluator | None = None
         "quality_gaps": _gaps(quality),
         "non_passing_runs": _non_passing_runs(runs),
     }
+    index["loop_decision"] = _loop_decision(index)
     index_path = base / "index.json"
+    loop_decision_path = base / "loop-decision.json"
     report_path = base / "suite-report.md"
     _write_json(index_path, index)
+    _write_json(loop_decision_path, index["loop_decision"])
     _write_report(report_path, index)
     return report_path
 

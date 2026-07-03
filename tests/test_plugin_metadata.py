@@ -200,3 +200,19 @@ def test_coc_playtest_skill_documents_semantic_quality_matrix():
     for term in required_terms:
         assert term in skill_text
         assert term in spec_text
+
+
+def test_coc_playtest_skill_documents_loop_decision_artifact():
+    skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
+    required_terms = [
+        "loop-decision.json",
+        "Loop Decision",
+        "ready_for_completion_audit",
+        "needs_repair",
+        "ignored_historical_runs",
+        "evaluated_runs",
+    ]
+    for term in required_terms:
+        assert term in skill_text
+        assert term in spec_text

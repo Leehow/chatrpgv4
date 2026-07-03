@@ -218,6 +218,7 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
         evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
     )
     index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+    loop_decision = json.loads((tmp_path / ".coc" / "playtests" / "loop-decision.json").read_text())
     report_text = report_path.read_text()
 
     run = index["runs"][0]
@@ -233,7 +234,13 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
         "semantic-artifact-run": "LLM semantic judge scored rulebook_procedure as table-ready."
     }
     assert index["quality_gaps"] == []
+    assert index["loop_decision"]["status"] == "ready_for_completion_audit"
+    assert index["loop_decision"]["blockers"] == []
+    assert index["loop_decision"]["evaluated_runs"] == ["semantic-artifact-run"]
+    assert loop_decision == index["loop_decision"]
     assert "codex-llm-semantic-v1" in report_text
+    assert "## Loop Decision" in report_text
+    assert "ready_for_completion_audit" in report_text
     assert "## Quality Matrix" in report_text
     assert "## Remaining Quality Gaps" in report_text
     assert "- No quality gaps detected across indexed playtest runs." in report_text
@@ -241,3 +248,65 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
     assert "semantic-artifact-run: none" in report_text
     assert "LLM semantic judge found chase in the run evidence." in report_text
     assert "LLM semantic judge scored rulebook_procedure as table-ready." in report_text
+
+
+def test_loop_decision_ignores_historical_baseline_missing_semantic_result(tmp_path):
+    baseline_dir = tmp_path / ".coc" / "playtests" / "old-baseline"
+    baseline_artifacts = baseline_dir / "artifacts"
+    baseline_artifacts.mkdir(parents=True)
+    (baseline_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "old-baseline",
+        "campaign_title": "Old Baseline",
+        "scenario": "Old Smoke",
+        "audit_profile": "baseline",
+        "player_profile": "careful_investigator",
+    }))
+    (baseline_artifacts / "battle-report.md").write_text("Old smoke report without semantic result.")
+
+    active_dir = tmp_path / ".coc" / "playtests" / "active-module"
+    active_artifacts = active_dir / "artifacts"
+    active_artifacts.mkdir(parents=True)
+    (active_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "active-module",
+        "campaign_title": "Active Module",
+        "scenario": "Active Scenario",
+        "audit_profile": "haunting_module",
+        "player_profile": "careful_investigator",
+    }))
+    (active_artifacts / "battle-report.md").write_text("Active report with semantic result.")
+    (active_artifacts / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    (active_artifacts / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "active-module",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "coverage": {
+            key: {"covered": True, "reason": f"{key} covered by active run."}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": {
+            key: {"score": 4, "passed": True, "reason": f"{key} passed by active run."}
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        },
+        "root_cause_classification": [],
+        "next_loop_fix_target": "none",
+    }))
+
+    report_path = coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+    report_text = report_path.read_text()
+
+    assert index["non_passing_runs"] == [{
+        "run_id": "old-baseline",
+        "audit_result": "MISSING",
+        "audit_profile": "baseline",
+    }]
+    assert index["loop_decision"]["status"] == "ready_for_completion_audit"
+    assert index["loop_decision"]["evaluated_runs"] == ["active-module"]
+    assert index["loop_decision"]["ignored_historical_runs"] == ["old-baseline"]
+    assert index["loop_decision"]["blockers"] == []
+    assert "old-baseline: Fill artifacts/semantic-eval-result.json" not in report_text
+    assert "- active-module: none" in report_text
+    assert report_path == tmp_path / ".coc" / "playtests" / "suite-report.md"
