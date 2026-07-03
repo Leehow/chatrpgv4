@@ -153,6 +153,106 @@ LOCALIZED_JSON_TEXT_KEYS = {
     "summary",
     "text",
 }
+LOCALIZED_ROLL_TEXT_KEYS = (
+    "goal",
+    "difficulty_rationale",
+    "failure_consequence",
+    "push_justification",
+    "foreshadowed_failure",
+)
+ZH_HANS_ROLL_TEXT = {
+    "gain access to The Boston Globe clipping files from Arty Wilmot": "获得《波士顿环球报》剪报档案的查阅许可",
+    "Arty is an obstructive but ordinary editor, so the social skill check is Regular.": "阿蒂·威尔莫特只是普通编辑，不是超自然威胁；这次社交检定按普通难度处理。",
+    "Arty refuses access unless Ada escalates with a pushed approach.": "艾达·金会被阿蒂拒绝；除非改变策略并承担推骰风险，否则无法进入剪报档案室。",
+    "The pushed roll keeps the same social difficulty after Ada changes pressure.": "艾达·金改变施压方式后，推骰仍保持同一社交难度。",
+    "Arty would call strong-armed maintenance men and bar Ada from the files.": "阿蒂会叫来强壮的维护工，并禁止艾达·金继续查档。",
+    "Ada shows Mr. Knott's keys and argues that access may prevent another tragedy.": "艾达·金亮出诺特先生的钥匙，并强调查档可能阻止下一场悲剧。",
+    "On failure, Arty calls maintenance and Ada loses access to the morgue.": "若失败，阿蒂会叫维护工，艾达·金今天失去进入剪报档案室的机会。",
+    "connect Walter Corbitt to an executor and church records": "把沃尔特·科比特与遗嘱执行人和教会记录联系起来",
+    "The Hall of Records contains the entry, but it takes focused archive work.": "档案馆里有这条记录，但需要专注翻查档案。",
+    "Ada would spend another half day and risk pressure from Mr. Knott.": "艾达·金会多花半天时间，并可能受到诺特先生催促。",
+    "find the chapel journal under the ruined cabinet": "在破旧柜子下找到教堂日志",
+    "The journal is hidden under debris but can be found with a careful search.": "日志藏在碎屑下，但仔细搜索可以找到。",
+    "Ada would miss the explicit basement burial clue.": "艾达·金会错过明确指向地下室埋葬的线索。",
+    "notice the Bed Attack before impact": "在床铺撞来前察觉床铺袭击",
+    "The bed lurches suddenly, but a watchful investigator can react.": "床突然扑动，但警觉的调查员仍有机会反应。",
+    "Ada would have no chance to Dodge before the bed hit.": "艾达·金会来不及在床撞上前闪避。",
+    "avoid being thrown through the spare bedroom window by the Bed Attack": "避免被床铺袭击撞穿备用卧室窗户",
+    "Bed Attack allows a Dodge after the Spot Hidden success.": "成功察觉床铺袭击后，可以进行 Dodge 来避开撞击。",
+    "Ada is thrown through glass and takes 1D6+2 damage.": "艾达·金会被撞穿玻璃，并受到 1D6+2 伤害。",
+    "withstand seeing the bed move of its own accord": "承受亲眼看见床自行移动的冲击",
+    "The Bed Attack calls for SAN 1/1D4.": "床铺袭击需要进行 SAN 1/1D4 检定。",
+    "Ada loses 1D4 SAN.": "艾达·金会失去 1D4 SAN。",
+    "descend the moving basement stairs": "沿着会移动的地下室楼梯下去",
+    "The rulebook treats the basement stairs as a combined DEX or Climb roll.": "规则书把地下室楼梯处理为 DEX 或 Climb 的联合检定。",
+    "Ada must stop or push and risk a fall.": "艾达·金必须停下，或选择推骰并承担摔落风险。",
+    "push through the dangerous basement descent": "用推骰方式通过危险的地下室下行",
+    "Ada changes tactics by sitting low and bracing on the rail.": "艾达·金改变做法，压低身体并抓住扶手前进。",
+    "Ada would fall and lose 1D6 HP.": "艾达·金会摔下楼梯并损失 1D6 HP。",
+    "Ada inches down while braced and accepts a fall if it goes wrong.": "艾达·金扶稳身体一阶阶往下挪，并接受失败时摔下去的后果。",
+    "On failure, Ada falls down the stairs for 1D6 HP damage.": "若失败，艾达·金会摔下楼梯并受到 1D6 HP 伤害。",
+    "find Corbitt's blood-rusted dagger in basement clutter": "在地下室杂物中找到科比特那把血锈匕首",
+    "The knife is an Obscure clue hidden among dangerous clutter.": "这把刀是藏在危险杂物中的隐晦线索。",
+    "Ada misses the knife unless she risks a more dangerous search.": "艾达·金会错过这把刀，除非冒险进行更危险的搜索。",
+    "The pushed search takes more time and exposes Ada to sharp debris.": "推骰搜索会花更多时间，也让艾达·金暴露在尖锐碎片中。",
+    "Ada takes 1D4+2 HP damage from the knife.": "艾达·金会被刀伤到，受到 1D4+2 HP 伤害。",
+    "Ada removes her gloves and searches by touch despite the risk.": "艾达·金脱下手套，冒险用触摸继续搜索。",
+    "On failure, Ada catches her hand on the possessed knife and takes automatic damage.": "若失败，艾达·金会被附魔匕首割伤，并自动受到伤害。",
+    "withstand seeing The Floating Knife attack": "承受亲眼看见浮空匕首发动攻击的冲击",
+    "The Floating Knife calls for SAN 1/1D4.": "浮空匕首需要进行 SAN 1/1D4 检定。",
+    "Ada would lose 1D4 SAN.": "艾达·金会失去 1D4 SAN。",
+    "drive The Floating Knife into Ada": "驱使浮空匕首刺向艾达·金",
+    "The knife attacks using Corbitt's POW against Ada's Dodge.": "匕首用科比特的 POW 与艾达·金的 Dodge 对抗。",
+    "The knife would miss if Corbitt failed.": "如果科比特失败，匕首会刺空。",
+    "avoid The Floating Knife": "避开浮空匕首",
+    "Ada compares Dodge success level against Corbitt's POW success level.": "艾达·金用 Dodge 的成功等级与科比特 POW 的成功等级比较。",
+    "Ada would take 1D4+2 damage if Corbitt achieved the higher success level.": "若科比特取得更高成功等级，艾达·金会受到 1D4+2 伤害。",
+    "grab The Floating Knife with a coat-assisted fighting maneuver": "借助外套用战技抓住浮空匕首",
+    "Grabbing the knife uses Fighting Maneuver rules against Corbitt's POW.": "抓刀使用战技规则，并与科比特的 POW 对抗。",
+    "The knife would remain free and continue attacking.": "匕首会保持自由并继续攻击。",
+    "resist Ada grabbing The Floating Knife": "抵抗艾达·金抓住浮空匕首",
+    "Corbitt contests the maneuver with POW.": "科比特用 POW 对抗这次战技。",
+    "Ada gains hold of the knife.": "艾达·金成功抓住匕首。",
+    "withstand seeing Corbitt rise from the pallet": "承受亲眼看见科比特从木板床上坐起的冲击",
+    "Corbitt rising calls for SAN 1/1D8.": "科比特起身需要进行 SAN 1/1D8 检定。",
+    "Ada loses 1D8 SAN and may suffer temporary insanity.": "艾达·金会失去 1D8 SAN，并可能触发临时疯狂。",
+    "determine whether the 5+ SAN loss causes temporary insanity": "判断 5 点以上 SAN 损失是否触发临时疯狂",
+    "After losing 5 or more SAN, a successful INT roll means Ada comprehends the horror.": "一次损失 5 点以上 SAN 后，INT 成功表示艾达·金理解了恐怖真相。",
+    "On failure, Ada would be shaken but not temporarily insane.": "若失败，艾达·金会受到惊吓，但不会进入临时疯狂。",
+    "stab Corbitt with his own dagger": "用科比特自己的匕首刺向他",
+    "Ada attacks with the seized dagger before Corbitt's DEX 35 action.": "艾达·金在科比特 DEX 35 行动前，用夺来的匕首攻击。",
+    "Corbitt would take his action and continue the combat.": "科比特会获得行动机会，战斗继续。",
+    "confirm Nathaniel has the cult ledger before acting": "确认内森尼尔·克劳行动前是否带着邪教账本",
+    "The ledger is partly visible under Nathaniel's coat.": "账本只从内森尼尔·克劳的外套下露出一角，需要仔细观察。",
+    "Ada cannot confirm the ledger without risking detection.": "艾达·金无法确认账本，除非冒着被发现的风险继续观察。",
+    "Ada changes position for a better angle, keeping the same difficulty.": "艾达·金改变位置取得更好角度，因此仍保持同一难度。",
+    "Nathaniel would begin the chase at the same location as Ada.": "内森尼尔·克劳会在与艾达·金相同的位置开始追逐。",
+    "Ada leans over the skylight for a better look and accepts being noticed.": "艾达·金探身越过天窗多看一眼，并接受被发现的风险。",
+    "On failure, Nathaniel sees Ada and starts the chase with no gap.": "若失败，内森尼尔·克劳会看见艾达·金，追逐开始时双方没有距离差。",
+    "speed roll to establish Ada's adjusted MOV for the chase": "用速度检定确定艾达·金在本次追逐中的调整后 MOV",
+    "On-foot chases use CON as the speed roll.": "步行追逐使用 CON 作为速度检定。",
+    "Ada's MOV would drop by 1 for this chase.": "艾达·金的 MOV 会在本次追逐中降低 1。",
+    "speed roll to establish Nathaniel's adjusted MOV for the chase": "用速度检定确定内森尼尔·克劳在本次追逐中的调整后 MOV",
+    "Nathaniel's MOV would drop by 1 for this chase.": "内森尼尔·克劳的 MOV 会在本次追逐中降低 1。",
+    "negotiate the slick skylight hazard": "越过湿滑天窗危险点",
+    "The skylight is a Regular foot-chase hazard.": "湿滑天窗是普通难度的步行追逐危险点。",
+    "Ada would lose 1D3 movement actions and risk falling glass damage.": "艾达·金会失去 1D3 次移动行动，并冒着被碎玻璃伤到的风险。",
+    "avoid Nathaniel's sap during chase conflict": "在追逐冲突中避开内森尼尔·克劳的短棍",
+    "Conflict during a chase can be resolved with normal attack and Dodge rolls.": "追逐中的冲突可以用正常攻击和 Dodge 检定解决。",
+    "Ada would take damage and lose momentum.": "艾达·金会受到伤害并失去速度优势。",
+    "strike Ada with a sap during chase conflict": "在追逐冲突中用短棍打中艾达·金",
+    "An attack during a chase costs one movement action.": "追逐中的攻击会消耗一次移动行动。",
+    "Ada slips past the attack.": "艾达·金会从攻击旁边闪过去。",
+    "pass the locked roof door barrier": "通过上锁屋顶门障碍",
+    "The locked roof door is a Regular barrier with the stolen key ring.": "有偷来的钥匙串时，上锁屋顶门是普通难度障碍。",
+    "The barrier would stop Ada's movement until another method succeeded.": "障碍会阻止艾达·金移动，直到她用其他方法通过。",
+    "hide on the laundry roof after passing the barrier": "通过障碍后躲在晾衣屋顶",
+    "Ada has a brief lead and concealment among laundry sheets.": "艾达·金暂时领先，并能借晾衣布单遮蔽自己。",
+    "Nathaniel would keep the chase active.": "内森尼尔·克劳会继续保持追逐。",
+    "find Ada after she hides": "在艾达·金躲藏后重新找到她",
+    "The pursuer searches the laundry roof after losing line of sight.": "追赶者在失去视线后搜索晾衣屋顶。",
+    "The quarry escapes.": "被追者逃脱。",
+}
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -203,6 +303,23 @@ def _with_play_language(payload: dict[str, Any], glossary: dict[str, str]) -> di
     localized["play_language"] = "zh-Hans"
     localized["localized_terms"] = {"zh-Hans": glossary}
     return localized
+
+
+def _with_roll_localization(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for event in events:
+        payload = event.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        localized_text = dict(payload.get("localized_text", {}))
+        zh_hans = dict(localized_text.get("zh-Hans", {}))
+        for key in LOCALIZED_ROLL_TEXT_KEYS:
+            value = payload.get(key)
+            if value in ZH_HANS_ROLL_TEXT:
+                zh_hans.setdefault(key, ZH_HANS_ROLL_TEXT[value])
+        if zh_hans:
+            localized_text["zh-Hans"] = zh_hans
+            payload["localized_text"] = localized_text
+    return events
 
 
 def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> Path:
@@ -836,7 +953,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"turn": 51, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Rewards：Corbitt 化成尘土，Mr. Knott 支付报酬和 30 美元奖金，Ada 恢复 4 SAN。Final HP: 3。Final SAN: 49。"},
     ], ZH_HANS_HAUNTING_GLOSSARY)
 
-    _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
+    _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Persuade", "goal": "gain access to The Boston Globe clipping files from Arty Wilmot", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Arty is an obstructive but ordinary editor, so the social skill check is Regular.", "roll": 72, "outcome": "failure", "push_eligible": True, "failure_consequence": "Arty refuses access unless Ada escalates with a pushed approach.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "获得《波士顿环球报》剪报档案的查阅许可", "difficulty_rationale": "阿蒂·威尔莫特只是普通编辑，不是超自然威胁；这次社交检定按普通难度处理。", "failure_consequence": "艾达·金会被阿蒂拒绝；除非改变策略并承担推骰风险，否则无法进入剪报档案室。"}}}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Persuade", "goal": "gain access to The Boston Globe clipping files from Arty Wilmot", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed roll keeps the same social difficulty after Ada changes pressure.", "roll": 38, "outcome": "regular_success", "pushed": True, "push_justification": "Ada shows Mr. Knott's keys and argues that access may prevent another tragedy.", "foreshadowed_failure": "On failure, Arty calls maintenance and Ada loses access to the morgue.", "failure_consequence": "Arty would call strong-armed maintenance men and bar Ada from the files.", "skill_check_earned": True}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Library Use", "goal": "connect Walter Corbitt to an executor and church records", "target": 60, "effective_target": 60, "difficulty": "regular", "difficulty_rationale": "The Hall of Records contains the entry, but it takes focused archive work.", "roll": 22, "outcome": "hard_success", "failure_consequence": "Ada would spend another half day and risk pressure from Mr. Knott.", "skill_check_earned": True}},
@@ -856,7 +973,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"type": "sanity", "actor": investigator_id, "payload": {"skill": "SAN", "goal": "withstand seeing Corbitt rise from the pallet", "target": 51, "effective_target": 51, "difficulty": "sanity", "difficulty_rationale": "Corbitt rising calls for SAN 1/1D8.", "roll": 63, "outcome": "failure", "failure_consequence": "Ada loses 1D8 SAN and may suffer temporary insanity.", "san_loss": 6}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "INT", "goal": "determine whether the 5+ SAN loss causes temporary insanity", "target": 70, "effective_target": 70, "difficulty": "regular", "difficulty_rationale": "After losing 5 or more SAN, a successful INT roll means Ada comprehends the horror.", "roll": 35, "outcome": "regular_success", "failure_consequence": "On failure, Ada would be shaken but not temporarily insane.", "skill_check_earned": False}},
         {"type": "combat", "actor": investigator_id, "payload": {"skill": "Fighting (Brawl)", "goal": "stab Corbitt with his own dagger", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "Ada attacks with the seized dagger before Corbitt's DEX 35 action.", "roll": 21, "outcome": "regular_success", "failure_consequence": "Corbitt would take his action and continue the combat.", "skill_check_earned": True}},
-    ])
+    ]))
 
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-hiring", "summary": "Mr. Knott 雇用 Ada，给出 Handout 1、钥匙和 20 美元预付款。"}},
@@ -1127,7 +1244,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"turn": 20, "role": "system", "speaker": "system", "mode": "roll", "text": "Locksmith 21 vs 30 -> regular_success. Stealth 18 vs 45 -> hard_success. Nathaniel Spot Hidden 77 vs 40 -> failure."},
         {"turn": 21, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "quarry escapes。Nathaniel 从 laundry roof 另一头冲过去，没有看见你；Ada 抱着 ledger，听见脚步声渐渐落到楼下。"},
     ], ZH_HANS_CHASE_GLOSSARY)
-    _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
+    _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The ledger is partly visible under Nathaniel's coat.", "roll": 82, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada cannot confirm the ledger without risking detection.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "确认内森尼尔·克劳行动前是否带着邪教账本", "difficulty_rationale": "账本只从内森尼尔·克劳的外套下露出一角，需要仔细观察。", "failure_consequence": "艾达·金无法确认账本，除非冒着被发现的风险继续观察。"}}}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Ada changes position for a better angle, keeping the same difficulty.", "roll": 33, "outcome": "regular_success", "pushed": True, "push_justification": "Ada leans over the skylight for a better look and accepts being noticed.", "foreshadowed_failure": "On failure, Nathaniel sees Ada and starts the chase with no gap.", "failure_consequence": "Nathaniel would begin the chase at the same location as Ada.", "skill_check_earned": True}},
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "CON", "goal": "speed roll to establish Ada's adjusted MOV for the chase", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "On-foot chases use CON as the speed roll.", "roll": 42, "outcome": "success", "failure_consequence": "Ada's MOV would drop by 1 for this chase.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "用速度检定确定艾达·金在本次追逐中的调整后 MOV", "difficulty_rationale": "步行追逐使用 CON 作为速度检定。", "failure_consequence": "艾达·金的 MOV 会在本次追逐中降低 1。"}}}},
@@ -1138,7 +1255,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "Locksmith", "goal": "pass the locked roof door barrier", "target": 30, "effective_target": 30, "difficulty": "regular", "difficulty_rationale": "The locked roof door is a Regular barrier with the stolen key ring.", "roll": 21, "outcome": "regular_success", "failure_consequence": "The barrier would stop Ada's movement until another method succeeded.", "skill_check_earned": True}},
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "Stealth", "goal": "hide on the laundry roof after passing the barrier", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "Ada has a brief lead and concealment among laundry sheets.", "roll": 18, "outcome": "hard_success", "failure_consequence": "Nathaniel would keep the chase active.", "skill_check_earned": True}},
         {"type": "chase", "actor": pursuer_id, "payload": {"skill": "Spot Hidden", "goal": "find Ada after she hides", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "The pursuer searches the laundry roof after losing line of sight.", "roll": 77, "outcome": "failure", "failure_consequence": "The quarry escapes.", "localized_text": {"zh-Hans": {"goal": "在艾达·金躲藏后重新找到她", "difficulty_rationale": "追赶者在失去视线后搜索晾衣屋顶。", "failure_consequence": "被追者逃脱。"}}}},
-    ])
+    ]))
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "print-shop-roof", "summary": "Ada 在 print shop roof 发现 Nathaniel Crowe，确认他带着 cult ledger。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 冒着被发现的风险继续观察，确认 Nathaniel 是否带着 ledger。"}},

@@ -56,6 +56,16 @@ def campaign_state_events(run_dir: Path) -> list[dict]:
     return events
 
 
+def campaign_roll_events(run_dir: Path) -> list[dict]:
+    import json
+
+    campaign_logs = run_dir / "sandbox" / ".coc" / "campaigns"
+    events: list[dict] = []
+    for path in sorted(campaign_logs.glob("*/logs/rolls.jsonl")):
+        events.extend(json.loads(line) for line in path.read_text().splitlines() if line.strip())
+    return events
+
+
 def significant_scene_replay_count(run_dir: Path) -> int:
     significant_types = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
     return sum(1 for event in campaign_state_events(run_dir) if event.get("type") in significant_types)
@@ -70,6 +80,10 @@ def section_text(markdown: str, heading: str) -> str:
 
 def bullet_count(text: str) -> int:
     return sum(1 for line in text.splitlines() if line.startswith("- "))
+
+
+def detail_count(text: str, label: str) -> int:
+    return sum(1 for line in text.splitlines() if line.startswith(f"  - {label}："))
 
 
 def assert_zh_hans_locale(metadata: dict, required_terms: dict[str, str]) -> None:
@@ -234,6 +248,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Failure Consequence:" not in rules_recap
     assert "Pushed Roll:" not in rules_recap
     assert "ada-king-haunting rolled" not in rules_recap
+    roll_event_count = len(campaign_roll_events(run_dir))
+    assert bullet_count(rules_recap) == roll_event_count
+    assert detail_count(rules_recap, "目的") == roll_event_count
+    assert detail_count(rules_recap, "难度说明") == roll_event_count
+    assert detail_count(rules_recap, "失败后果") == roll_event_count
     assert has_cjk(section_text(battle_text, "## Story Recap"))
     assert has_cjk(section_text(battle_text, "## Player Feedback On KP"))
     assert "The Haunting Module Playthrough" in battle_text
@@ -393,6 +412,11 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Failure Consequence:" not in rules_recap
     assert "ada-king-chase rolled" not in rules_recap
     assert "nathaniel-crowe rolled" not in rules_recap
+    roll_event_count = len(campaign_roll_events(run_dir))
+    assert bullet_count(rules_recap) == roll_event_count
+    assert detail_count(rules_recap, "目的") == roll_event_count
+    assert detail_count(rules_recap, "难度说明") == roll_event_count
+    assert detail_count(rules_recap, "失败后果") == roll_event_count
     story_recap = section_text(battle_text, "## Story Recap")
     assert has_cjk(story_recap)
     assert "屋顶追逐" in story_recap
