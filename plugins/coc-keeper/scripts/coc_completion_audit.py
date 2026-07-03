@@ -53,6 +53,23 @@ REQUIRED_EVALUATION_REPORT_SECTIONS = [
     "## Recommended Fixes",
     "## Regression Tests To Add",
 ]
+REQUIRED_BATTLE_REPORT_ANCHORS = [
+    "Battle Report",
+    "Run Setup",
+    "Module",
+    "Investigator Creation",
+    "Character Dossier",
+    "Investigator Chronicle",
+    "Scene-by-Scene Replay",
+    "Actual Play Replay",
+    "Session Transcript",
+    "Mechanical Log",
+    "Chase Tracker",
+    "Story Recap",
+    "Player Feedback On KP",
+]
+REPORT_ANCHOR_PREFIX = "<!-- report-anchor: "
+REPORT_ANCHOR_SUFFIX = " -->"
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -197,6 +214,42 @@ def _evaluation_report_section_findings(run_id: str, evaluation_report: str) -> 
     )]
 
 
+def _battle_report_anchors(battle_report: str) -> set[str]:
+    anchors: set[str] = set()
+    for line in battle_report.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            continue
+        marker_start = stripped.find(REPORT_ANCHOR_PREFIX)
+        if marker_start == -1:
+            continue
+        anchor_start = marker_start + len(REPORT_ANCHOR_PREFIX)
+        anchor_end = stripped.find(REPORT_ANCHOR_SUFFIX, anchor_start)
+        if anchor_end == -1:
+            continue
+        anchors.add(stripped[anchor_start:anchor_end])
+    return anchors
+
+
+def _battle_report_anchor_findings(run_id: str, battle_report: str) -> list[dict[str, Any]]:
+    anchors = _battle_report_anchors(battle_report)
+    missing_anchors = [
+        anchor
+        for anchor in REQUIRED_BATTLE_REPORT_ANCHORS
+        if anchor not in anchors
+    ]
+    if not missing_anchors:
+        return []
+    return [_finding(
+        "battle_report_anchors_missing",
+        "report_gap",
+        f"{run_id} battle-report.md missing report anchors: {', '.join(missing_anchors)}.",
+        "Regenerate battle-report.md with the required actual-play report sections and stable ASCII report-anchor comments.",
+        run_id=run_id,
+        missing_anchors=missing_anchors,
+    )]
+
+
 def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     run_id = str(run.get("run_id"))
@@ -267,6 +320,9 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
             "Persist localized_terms for the selected play language.",
             run_id=run_id,
         ))
+
+    battle_report = _read_text(artifacts_dir / "battle-report.md")
+    findings.extend(_battle_report_anchor_findings(run_id, battle_report))
 
     evaluation_report = _read_text(artifacts_dir / "evaluation-report.md")
     findings.extend(_evaluation_report_section_findings(run_id, evaluation_report))

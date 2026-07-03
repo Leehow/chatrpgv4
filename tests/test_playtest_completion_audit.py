@@ -93,6 +93,24 @@ def evaluation_report_fixture() -> str:
     ]) + "\n"
 
 
+def battle_report_fixture() -> str:
+    return "\n\n".join([
+        "# Battle Report <!-- report-anchor: Battle Report -->",
+        "## Run Setup <!-- report-anchor: Run Setup -->\n- Run ID: fixture",
+        "## Module <!-- report-anchor: Module -->\n- Scenario: fixture",
+        "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n- Fixture creation record.",
+        "## Character Dossier <!-- report-anchor: Character Dossier -->\n- Fixture character dossier.",
+        "## Investigator Chronicle <!-- report-anchor: Investigator Chronicle -->\n- Fixture chronicle.",
+        "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n- Fixture scene.",
+        "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n- Fixture table turn.",
+        "## Session Transcript <!-- report-anchor: Session Transcript -->\n- Fixture transcript.",
+        "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n- Fixture roll.",
+        "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n- Fixture chase tracker.",
+        "## Story Recap <!-- report-anchor: Story Recap -->\n- Fixture recap.",
+        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n- Fixture feedback.",
+    ]) + "\n"
+
+
 def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: bool = False):
     run_dir = root / ".coc" / "playtests" / run_id
     write_json(run_dir / "playtest.json", {
@@ -110,7 +128,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         },
         "localized_terms": {"zh-Hans": {"Ada King": "艾达·金"}},
     })
-    write_text(run_dir / "artifacts" / "battle-report.md", "# Battle Report\n\n## Actual Play Replay\n")
+    write_text(run_dir / "artifacts" / "battle-report.md", battle_report_fixture())
     write_text(run_dir / "artifacts" / "evaluation-report.md", evaluation_report_fixture())
     write_text(run_dir / "artifacts" / "rulebook-audit.md", "# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
     write_json(run_dir / "artifacts" / "semantic-eval-request.json", request_payload(run_id))
@@ -193,6 +211,41 @@ def test_completion_audit_passes_for_ready_suite_with_active_monitor(tmp_path):
     assert "## Overall Result\nPASS" in markdown
     assert "virtual_player_pressure: passed" in markdown
     assert "Monitor: ACTIVE" in markdown
+
+
+def test_completion_audit_fails_when_battle_report_missing_required_anchors(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        "\n\n".join([
+            "# Battle Report <!-- report-anchor: Battle Report -->",
+            "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n- Fixture table turn.",
+            "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n- Fixture feedback.",
+        ]) + "\n",
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_anchors_missing")
+    assert "Run Setup" in finding["missing_anchors"]
+    assert "Mechanical Log" in finding["missing_anchors"]
 
 
 def test_completion_audit_fails_without_multi_profile_pressure(tmp_path):
