@@ -563,6 +563,7 @@ def _battle_report_memory_summary_findings(
     campaign_dir: Path,
     battle_report: str,
 ) -> list[dict[str, Any]]:
+    story_recap = _battle_report_anchor_section(battle_report, "Story Recap")
     memories = _read_jsonl(campaign_dir / "memory" / "session-summaries.jsonl")
     required_summaries = [
         row["summary"].strip()
@@ -573,7 +574,7 @@ def _battle_report_memory_summary_findings(
     missing_summaries = [
         summary
         for summary in required_summaries
-        if summary not in battle_report
+        if summary not in story_recap
     ]
     if not missing_summaries:
         return []
