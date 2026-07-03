@@ -77,6 +77,14 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
             "Library Use": 60,
             "Spot Hidden": 55,
         },
+        "backstory": {
+            "description": "A careful antiquarian who keeps old house keys sorted by address.",
+            "ideology_beliefs": ["Every house keeps a memory of the people who used it."],
+            "significant_people": ["Her late mentor Professor Leland Hart."],
+            "meaningful_locations": ["A cramped bookshop near Scollay Square."],
+            "treasured_possessions": ["A brass magnifier with a cracked handle."],
+            "traits": ["Patient", "Keeps notes before acting"],
+        },
     })
     write_jsonl(run_dir / "transcript.jsonl", [
         {
@@ -171,6 +179,13 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "STR: 60" in battle_text
     assert "HP: 12" in battle_text
     assert "Library Use: 60" in battle_text
+    assert "Backstory:" in battle_text
+    assert "Description: A careful antiquarian" in battle_text
+    assert "Ideology/Beliefs: Every house keeps a memory" in battle_text
+    assert "Significant People: Her late mentor Professor Leland Hart." in battle_text
+    assert "Meaningful Locations: A cramped bookshop near Scollay Square." in battle_text
+    assert "Treasured Possessions: A brass magnifier with a cracked handle." in battle_text
+    assert "Traits: Patient; Keeps notes before acting" in battle_text
     assert "## Session Transcript" in battle_text
     assert "KP: The room is cold." in battle_text
     assert "Player: I search the desk." in battle_text

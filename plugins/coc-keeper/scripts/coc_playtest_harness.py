@@ -914,6 +914,14 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "Psychology": 40,
             "Spot Hidden": 55,
         },
+        "backstory": {
+            "description": "艾达·金是一名研究旧宅产权和民俗传闻的古物学者，习惯把钥匙、地契和剪报按地址整理。",
+            "ideology_beliefs": ["老房子会留下居住者的记忆，公开记录能让这些记忆开口。"],
+            "significant_people": ["莱兰·哈特教授，她已故的导师，教她先查档案再下判断。"],
+            "meaningful_locations": ["斯科利广场附近的旧书店，她在那里替客户鉴定遗物。"],
+            "treasured_possessions": ["裂柄铜放大镜。"],
+            "traits": ["谨慎记笔记", "先询问目击者再进入危险地点"],
+        },
     })
 
     _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
@@ -1192,6 +1200,14 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "Spot Hidden": 55,
             "Stealth": 45,
         },
+        "backstory": {
+            "description": "艾达·金追查一批流入黑市的旧账本，因此学会在屋顶和后巷保持距离。",
+            "ideology_beliefs": ["线索必须在行动前被核实，但危险临近时也要果断撤离。"],
+            "significant_people": ["莱兰·哈特教授，她已故的导师，常提醒她别让好奇心跑在证据前面。"],
+            "meaningful_locations": ["印刷店屋顶，她第一次意识到档案线索也会引来追赶者。"],
+            "treasured_possessions": ["裂柄铜放大镜。"],
+            "traits": ["观察细致", "遇到追逐时会先找遮蔽物和退路"],
+        },
     })
     _write_json(campaign_dir / "save" / "chase.json", {
         "schema_version": 1,
@@ -1441,6 +1457,14 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             "Locksmith": 30,
             "Persuade": 55,
             "Spot Hidden": 55,
+        },
+        "backstory": {
+            "description": "艾达·金是一名被多次委托调查旧宅纠纷的古物学者，擅长把传言拆成可查证的线索。",
+            "ideology_beliefs": ["公开记录比传闻可靠，但传闻常常指向被隐藏的入口。"],
+            "significant_people": ["莱兰·哈特教授，她已故的导师，留下了一套严谨的调查笔记法。"],
+            "meaningful_locations": ["波士顿档案馆阅览室，她在那里学会从房契边注寻找异常。"],
+            "treasured_possessions": ["裂柄铜放大镜。"],
+            "traits": ["谨慎记笔记", "愿意听完同伴的鲁莽想法再提出风险"],
         },
     })
     _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [

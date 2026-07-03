@@ -187,6 +187,15 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "诺特先生在 1920 年的波士顿与艾达·金会面" in module_section
     assert "meets" not in module_section
     assert "- 艾达·金 (ada-king-haunting)" in battle_text
+    character_dossier = section_text(battle_text, "## Character Dossier")
+    assert "Backstory:" in character_dossier
+    assert "Description: 艾达·金" in character_dossier
+    assert "Ideology/Beliefs: 老房子会留下居住者的记忆" in character_dossier
+    assert "Significant People: 莱兰·哈特教授" in character_dossier
+    assert "Meaningful Locations: 斯科利广场附近的旧书店" in character_dossier
+    assert "Treasured Possessions: 裂柄铜放大镜" in character_dossier
+    assert "Traits: 谨慎记笔记" in character_dossier
+    assert "Ada King" not in character_dossier
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
@@ -378,6 +387,15 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "spots" not in module_section
     assert "leaving" not in module_section
     assert "- 艾达·金 (ada-king-chase)" in battle_text
+    character_dossier = section_text(battle_text, "## Character Dossier")
+    assert "Backstory:" in character_dossier
+    assert "Description: 艾达·金" in character_dossier
+    assert "Ideology/Beliefs: 线索必须在行动前被核实" in character_dossier
+    assert "Significant People: 莱兰·哈特教授" in character_dossier
+    assert "Meaningful Locations: 印刷店屋顶" in character_dossier
+    assert "Treasured Possessions: 裂柄铜放大镜" in character_dossier
+    assert "Traits: 观察细致" in character_dossier
+    assert "Ada King" not in character_dossier
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
@@ -524,6 +542,15 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "我直接去二楼" in actual_play
     assert "[meta] 我想质疑一下" in actual_play
     assert "规则裁定" in actual_play
+    character_dossier = section_text(battle_text, "## Character Dossier")
+    assert "Backstory:" in character_dossier
+    assert "Description: 艾达·金" in character_dossier
+    assert "Ideology/Beliefs: 公开记录比传闻可靠" in character_dossier
+    assert "Significant People: 莱兰·哈特教授" in character_dossier
+    assert "Meaningful Locations: 波士顿档案馆阅览室" in character_dossier
+    assert "Treasured Possessions: 裂柄铜放大镜" in character_dossier
+    assert "Traits: 谨慎记笔记" in character_dossier
+    assert "Ada King" not in character_dossier
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert "careful_investigator:" in feedback

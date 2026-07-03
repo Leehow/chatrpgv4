@@ -56,6 +56,15 @@ CHASE_REPORT_MOMENTS = [
 ]
 
 SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
+ACTIVE_AUDIT_PROFILES = {"haunting_module", "chase_drill", "multi_profile_pressure"}
+REQUIRED_BACKSTORY_FIELDS = [
+    "description",
+    "ideology_beliefs",
+    "significant_people",
+    "meaningful_locations",
+    "treasured_possessions",
+    "traits",
+]
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -104,6 +113,39 @@ def _select_campaign_dir(run_dir: Path, metadata: dict[str, Any]) -> Path | None
     return campaign_dirs[0] if campaign_dirs else None
 
 
+def _party_investigator_ids(party: dict[str, Any]) -> list[str]:
+    ids: list[str] = []
+    for key in ("investigator_ids", "active_investigator_ids", "investigators", "members"):
+        for item in party.get(key, []):
+            if isinstance(item, str):
+                ids.append(item)
+            elif isinstance(item, dict):
+                investigator_id = item.get("investigator_id") or item.get("id")
+                if investigator_id:
+                    ids.append(str(investigator_id))
+    return list(dict.fromkeys(ids))
+
+
+def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any]]:
+    sandbox_investigators = run_dir / "sandbox" / ".coc" / "investigators"
+    investigator_ids = _party_investigator_ids(party)
+    characters: list[dict[str, Any]] = []
+
+    for investigator_id in investigator_ids:
+        character = _read_json(sandbox_investigators / investigator_id / "character.json", {})
+        if character:
+            characters.append(character)
+
+    if characters or not sandbox_investigators.exists():
+        return characters
+
+    for path in sorted(sandbox_investigators.glob("*/character.json")):
+        character = _read_json(path, {})
+        if character:
+            characters.append(character)
+    return characters
+
+
 def _load_context(run_dir: Path) -> dict[str, Any]:
     metadata = _read_json(run_dir / "playtest.json", {})
     campaign_dir = _select_campaign_dir(run_dir, metadata)
@@ -111,14 +153,17 @@ def _load_context(run_dir: Path) -> dict[str, Any]:
     logs_dir = campaign_dir / "logs" if campaign_dir else None
     memory_dir = campaign_dir / "memory" if campaign_dir else None
     save_dir = campaign_dir / "save" if campaign_dir else None
+    party = _read_json(campaign_dir / "party.json", {}) if campaign_dir else {}
     return {
         "metadata": metadata,
         "campaign_dir": campaign_dir,
+        "party": party,
         "scenario": _read_json(scenario_dir / "scenario.json", {}) if scenario_dir else {},
         "clues": _read_json(scenario_dir / "clues.json", []) if scenario_dir else [],
         "locations": _read_json(scenario_dir / "locations.json", []) if scenario_dir else [],
         "npcs": _read_json(scenario_dir / "npcs.json", []) if scenario_dir else [],
         "timeline": _read_json(scenario_dir / "timeline.json", []) if scenario_dir else [],
+        "characters": _load_characters(run_dir, party),
         "transcript": _read_jsonl(run_dir / "transcript.jsonl"),
         "rolls": _read_jsonl(logs_dir / "rolls.jsonl") if logs_dir else [],
         "events": _read_jsonl(logs_dir / "events.jsonl") if logs_dir else [],
@@ -146,6 +191,37 @@ def _nonempty_text(value: Any) -> bool:
 
 def _nonempty_list(value: Any) -> bool:
     return isinstance(value, list) and len(value) > 0
+
+
+def _backstory_field_present(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return bool(value)
+    if isinstance(value, dict):
+        return any(_backstory_field_present(child) for child in value.values())
+    return value not in (None, "", [], {})
+
+
+def _character_backstory_gaps(characters: list[dict[str, Any]]) -> list[str]:
+    if not characters:
+        return ["no investigator character files loaded"]
+
+    gaps: list[str] = []
+    for character in characters:
+        investigator_id = str(character.get("id") or character.get("investigator_id") or "unknown")
+        backstory = character.get("backstory")
+        if not isinstance(backstory, dict):
+            gaps.append(f"{investigator_id} missing backstory")
+            continue
+        missing = [
+            field
+            for field in REQUIRED_BACKSTORY_FIELDS
+            if not _backstory_field_present(backstory.get(field))
+        ]
+        if missing:
+            gaps.append(f"{investigator_id} missing {', '.join(missing)}")
+    return gaps
 
 
 def _player_intent_count(transcript: list[dict[str, Any]]) -> int:
@@ -365,7 +441,17 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
         ))
 
     metadata = context["metadata"]
-    active_profile = metadata.get("audit_profile") in {"haunting_module", "chase_drill"}
+    active_profile = metadata.get("audit_profile") in ACTIVE_AUDIT_PROFILES
+    backstory_gaps = _character_backstory_gaps(context["characters"]) if active_profile else []
+    if backstory_gaps:
+        findings.append(_finding(
+            "character_backstory_missing",
+            "system_gap",
+            "medium",
+            "; ".join(backstory_gaps),
+            "Record the core Call of Cthulhu investigator backstory fields: description, ideology/beliefs, significant people, meaningful locations, treasured possessions, and traits.",
+        ))
+
     non_chinese_turns = _non_chinese_dialogue_turns(transcript)
     if active_profile and non_chinese_turns:
         findings.append(_finding(

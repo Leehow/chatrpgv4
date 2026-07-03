@@ -545,6 +545,52 @@ def _format_key_values(values: dict[str, Any], preferred_order: list[str] | None
     return ", ".join(f"{key}: {values[key]}" for key in keys)
 
 
+BACKSTORY_FIELDS = [
+    ("description", "Description"),
+    ("ideology_beliefs", "Ideology/Beliefs"),
+    ("significant_people", "Significant People"),
+    ("meaningful_locations", "Meaningful Locations"),
+    ("treasured_possessions", "Treasured Possessions"),
+    ("traits", "Traits"),
+    ("injuries_scars", "Injuries & Scars"),
+    ("phobias_manias", "Phobias & Manias"),
+]
+
+
+def _format_backstory_value(value: Any, localized_terms: dict[str, str]) -> str:
+    if isinstance(value, list):
+        return "; ".join(_format_backstory_value(item, localized_terms) for item in value)
+    if isinstance(value, dict):
+        parts = [
+            f"{key}: {_format_backstory_value(child, localized_terms)}"
+            for key, child in value.items()
+            if child not in (None, "", [], {})
+        ]
+        return "; ".join(parts)
+    return _localize_text(value, localized_terms)
+
+
+def _format_backstory(backstory: Any, localized_terms: dict[str, str]) -> list[str]:
+    if not isinstance(backstory, dict) or not backstory:
+        return []
+
+    lines = ["  - Backstory:"]
+    rendered_keys: set[str] = set()
+    for key, label in BACKSTORY_FIELDS:
+        value = backstory.get(key)
+        if value in (None, "", [], {}):
+            continue
+        rendered_keys.add(key)
+        lines.append(f"    - {label}: {_format_backstory_value(value, localized_terms)}")
+
+    for key in sorted(backstory):
+        if key in rendered_keys or backstory.get(key) in (None, "", [], {}):
+            continue
+        label = key.replace("_", " ").title()
+        lines.append(f"    - {label}: {_format_backstory_value(backstory[key], localized_terms)}")
+    return lines if len(lines) > 1 else []
+
+
 def _format_character(character: dict[str, Any], localized_terms: dict[str, str] | None = None) -> list[str]:
     terms = localized_terms or {}
     investigator_id = character.get("investigator_id") or character.get("id") or "unknown"
@@ -571,6 +617,7 @@ def _format_character(character: dict[str, Any], localized_terms: dict[str, str]
         )
     )
     lines.append("  - Skills: " + _format_key_values(character.get("skills", {})))
+    lines.extend(_format_backstory(character.get("backstory"), terms))
     return lines
 
 
