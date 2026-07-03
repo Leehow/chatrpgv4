@@ -465,6 +465,44 @@ def test_completion_audit_fails_when_index_coverage_is_not_supported_by_semantic
     )
 
 
+def test_completion_audit_fails_when_index_coverage_run_list_is_not_supported(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    semantic_path = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "artifacts" / "semantic-eval-result.json"
+    semantic = json.loads(semantic_path.read_text())
+    semantic["coverage"]["combat"]["covered"] = False
+    semantic["coverage"]["combat"]["reason"] = "Fixture says this run no longer supports combat coverage."
+    write_json(semantic_path, semantic)
+    write_index(tmp_path, runs)
+    index_path = tmp_path / ".coc" / "playtests" / "index.json"
+    index = json.loads(index_path.read_text())
+    index["coverage"]["combat"]["runs"] = ["v2-haunting-module"]
+    write_json(index_path, index)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(
+        finding["code"] == "semantic_artifacts_do_not_support_coverage"
+        and finding["key"] == "combat"
+        and finding["index_runs"] == ["v2-haunting-module"]
+        for finding in audit["findings"]
+    )
+
+
 def test_completion_audit_fails_when_index_quality_is_not_supported_by_semantic_artifacts(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
@@ -495,6 +533,39 @@ def test_completion_audit_fails_when_index_quality_is_not_supported_by_semantic_
     assert any(
         finding["code"] == "semantic_artifacts_do_not_support_quality"
         and finding["key"] == "report_completeness"
+        for finding in audit["findings"]
+    )
+
+
+def test_completion_audit_fails_when_index_quality_run_list_is_not_supported(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    index_path = tmp_path / ".coc" / "playtests" / "index.json"
+    index = json.loads(index_path.read_text())
+    index["quality"]["virtual_player_pressure"]["runs"] = ["v2-haunting-module"]
+    write_json(index_path, index)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(
+        finding["code"] == "semantic_artifacts_do_not_support_quality"
+        and finding["key"] == "virtual_player_pressure"
+        and finding["index_runs"] == ["v2-haunting-module"]
         for finding in audit["findings"]
     )
 
