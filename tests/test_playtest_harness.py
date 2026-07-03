@@ -469,8 +469,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "目的：获得《波士顿环球报》剪报档案的查阅许可" in rules_recap
     assert "难度说明：阿蒂·威尔莫特只是普通编辑" in rules_recap
     assert "失败后果：艾达·金会被阿蒂拒绝" in rules_recap
-    assert "推骰：yes" in rules_recap
-    assert "成长标记：yes" in rules_recap
+    assert "推骰：是" in rules_recap
+    assert "成长标记：是" in rules_recap
+    assert "成长标记：否" in rules_recap
     assert "SAN 损失：6" in rules_recap
     assert "POW：沃尔特·科比特掷出 34 / 90" in rules_recap
     assert "gain access to" not in rules_recap
@@ -480,6 +481,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Goal:" not in rules_recap
     assert "Failure Consequence:" not in rules_recap
     assert "Pushed Roll:" not in rules_recap
+    assert "推骰：yes" not in rules_recap
+    assert "成长标记：yes" not in rules_recap
+    assert "成长标记：no" not in rules_recap
     assert "ada-king-haunting rolled" not in rules_recap
     roll_event_count = len(campaign_roll_events(run_dir))
     assert bullet_count(rules_recap) == roll_event_count
@@ -736,12 +740,18 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "确认内森尼尔·克劳行动前是否带着邪教账本" in rules_recap
     assert "步行追逐使用 CON 作为速度检定" in rules_recap
     assert "艾达·金的 MOV 会在本次追逐中降低 1" in rules_recap
+    assert "推骰：是" in rules_recap
+    assert "成长标记：是" in rules_recap
+    assert "成长标记：否" in rules_recap
     assert "confirm " not in rules_recap
     assert "before acting" not in rules_recap
     assert "On-foot chases" not in rules_recap
     assert " would " not in rules_recap
     assert "Goal:" not in rules_recap
     assert "Failure Consequence:" not in rules_recap
+    assert "推骰：yes" not in rules_recap
+    assert "成长标记：yes" not in rules_recap
+    assert "成长标记：no" not in rules_recap
     assert "ada-king-chase rolled" not in rules_recap
     assert "nathaniel-crowe rolled" not in rules_recap
     roll_event_count = len(campaign_roll_events(run_dir))

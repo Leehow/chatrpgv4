@@ -845,6 +845,33 @@ def _transcript_detail_value_gaps(battle_report: str, metadata: dict[str, Any]) 
     return sorted(set(gaps))
 
 
+def _report_boolean_value_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    section = _section_text(battle_report, "Rules & Rolls Recap")
+    if not section:
+        return []
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("report_labels", {})
+    if not isinstance(labels, dict):
+        return []
+    yes_label = str(labels.get("yes", "yes"))
+    no_label = str(labels.get("no", "no"))
+    if yes_label == "yes" and no_label == "no":
+        return []
+    monitored_labels = [
+        str(labels.get("pushed_roll", "Pushed Roll")),
+        str(labels.get("skill_check_earned", "Skill Check Earned")),
+    ]
+    leaks: list[str] = []
+    for label in monitored_labels:
+        for raw_value in ("yes", "no"):
+            if f"- {label}：{raw_value}" in section or f"- {label}: {raw_value}" in section:
+                leaks.append(f"{label}:{raw_value}")
+    return sorted(set(leaks))
+
+
 def _character_dossier_term_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
     play_language = str(metadata.get("play_language") or "")
     if play_language in {"", "en-US"}:
@@ -1359,6 +1386,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Active localized transcript sections expose unlocalized detail values: " + ", ".join(transcript_detail_gaps),
             "Render intent/ruling display values from localized_text while preserving canonical values in JSON.",
+        ))
+    boolean_value_leaks = _report_boolean_value_leaks(battle_report, metadata)
+    if active_profile and boolean_value_leaks:
+        findings.append(_finding(
+            "report_boolean_values_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized Rules & Rolls Recap exposes raw boolean display values: "
+            + ", ".join(boolean_value_leaks),
+            "Render player-readable report boolean values from language_profile.report_labels while preserving machine values in JSON and Mechanical Log.",
         ))
     feedback_label_leaks = _feedback_label_leaks(battle_report, metadata, context["feedback"])
     if active_profile and feedback_label_leaks:

@@ -159,6 +159,7 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "transcript_labels",
         "transcript_labels_not_localized",
         "transcript_detail_values_not_localized",
+        "report_boolean_values_not_localized",
         "chronicle_labels",
         "investigator_chronicle_labels_not_localized",
         "feedback_labels",

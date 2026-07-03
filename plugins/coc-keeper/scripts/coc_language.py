@@ -190,8 +190,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "foreshadowed_failure": "预告失败后果",
             "skill_check_earned": "成长标记",
             "san_loss": "SAN 损失",
-            "yes": "yes",
-            "no": "no",
+            "yes": "是",
+            "no": "否",
             "localized_terms_summary": "{count} 条（见本地化附录）",
         },
         "report_heading_labels": {
@@ -390,8 +390,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "foreshadowed_failure": "失敗予告",
             "skill_check_earned": "成長チェック",
             "san_loss": "SAN 喪失",
-            "yes": "yes",
-            "no": "no",
+            "yes": "はい",
+            "no": "いいえ",
             "localized_terms_summary": "{count} 件（ローカライズ付録を参照）",
         },
         "report_heading_labels": {

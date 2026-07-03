@@ -1198,6 +1198,42 @@ def test_active_audit_rejects_unlocalized_run_setup_values(tmp_path):
     assert "run_setup_values_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_roll_boolean_values(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-roll-booleans"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- 这是中文场景回放。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- 第 1 轮 KP: \"诺特先生给出钥匙。\"\n\n"
+        "## Session Transcript / 会话记录\n"
+        "- 第 1 轮 KP: 诺特先生给出钥匙。\n"
+        "  - 模式: play\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Rules & Rolls Recap / 规则与掷骰回顾\n"
+        "- Persuade：艾达掷出 72 / 55，结果失败。\n"
+        "  - 推骰：yes\n"
+        "  - 成长标记：no\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- KP 清晰度: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "report_boolean_values_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_rejects_unlocalized_module_metadata_values(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "localized-module-metadata"
     create_final_rulebook_run(run_dir)
