@@ -1669,6 +1669,48 @@ def _player_view_speaker_findings(
     )]
 
 
+def _player_view_transcript_detail_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    localized_terms = _metadata_localized_terms(metadata)
+    play_language = str(metadata.get("play_language") or "")
+    if not play_language or play_language == "en-US":
+        return []
+
+    unlocalized_details: list[str] = []
+    for row in _read_jsonl(run_dir / "player-view.jsonl"):
+        if row.get("view") != "player" or row.get("type") != "transcript_turn":
+            continue
+        localized_text = row.get("localized_text", {})
+        language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
+        if not isinstance(language_text, dict):
+            continue
+        for key in ("intent", "ruling"):
+            canonical = row.get(key)
+            expected = language_text.get(key)
+            if not isinstance(canonical, str) or not canonical:
+                continue
+            if expected in (None, "", [], {}):
+                continue
+            expected_display = _localize_text(str(expected), localized_terms)
+            observed_display = row.get(f"{key}_display")
+            if observed_display != expected_display or observed_display == canonical:
+                unlocalized_details.append(f"turn {row.get('turn')} {key}")
+
+    if not unlocalized_details:
+        return []
+    return [_finding(
+        "player_view_transcript_details_not_localized",
+        "report_gap",
+        f"{run_id} player-view.jsonl transcript detail display fields are missing or still canonical for {len(unlocalized_details)} localized intent/ruling values.",
+        "Regenerate the active run so player-view.jsonl keeps canonical intent/ruling enum values but also writes intent_display/ruling_display from localized_text[play_language].",
+        run_id=run_id,
+        unlocalized_player_view_details=unlocalized_details[:20],
+    )]
+
+
 def _campaign_structure_findings(
     run_id: str,
     campaign_dir: Path,
@@ -2212,6 +2254,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_source_structure_findings(run_id, run_dir))
     findings.extend(_player_view_public_state_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_speaker_findings(run_id, run_dir, metadata))
+    findings.extend(_player_view_transcript_detail_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_roll_text_findings(run_id, run_dir, campaign_dir, metadata))
     findings.extend(_pushed_roll_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))
     findings.extend(_multi_profile_structure_findings(run_id, run_dir, audit_profile))

@@ -245,6 +245,28 @@ def assert_player_view_transcript_speakers_localized(run_dir: Path) -> None:
         assert english_tokens == set()
 
 
+def assert_player_view_transcript_details_localized(run_dir: Path) -> None:
+    metadata = playtest_metadata(run_dir)
+    play_language = metadata["play_language"]
+    assert play_language == "zh-Hans"
+    glossary = metadata["localized_terms"][play_language]
+
+    for event in run_jsonl(run_dir, "player-view.jsonl"):
+        if event.get("type") != "transcript_turn":
+            continue
+        localized_text = event.get("localized_text", {})
+        language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
+        for key in ("intent", "ruling"):
+            canonical = event.get(key)
+            if not isinstance(canonical, str) or not canonical:
+                continue
+            display_key = f"{key}_display"
+            expected = coc_playtest_harness._localize_text(language_text.get(key), glossary)
+            assert event.get(display_key) == expected
+            assert event[display_key] != canonical
+            assert has_cjk(event[display_key])
+
+
 PUSHED_ROLL_PROTOCOL_STAGES = [
     "player_reframes_action",
     "keeper_foreshadows_failure",
@@ -751,6 +773,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_player_view_roll_outcomes_localized(run_dir)
     assert_player_view_public_state_localized(run_dir)
     assert_player_view_transcript_speakers_localized(run_dir)
+    assert_player_view_transcript_details_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, [
         "haunting-arty-persuade-push",
         "haunting-basement-descent-push",
@@ -1131,6 +1154,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_player_view_roll_outcomes_localized(run_dir)
     assert_player_view_public_state_localized(run_dir)
     assert_player_view_transcript_speakers_localized(run_dir)
+    assert_player_view_transcript_details_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, ["chase-ledger-confirmation-push"])
     assert investigator_jsonl(run_dir, "ada-king-chase", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-chase", "development.jsonl")
@@ -1439,6 +1463,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert_player_view_roll_outcomes_localized(run_dir)
     assert_player_view_public_state_localized(run_dir)
     assert_player_view_transcript_speakers_localized(run_dir)
+    assert_player_view_transcript_details_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, ["pressure-reckless-entry-push"])
     assert_spoiler_reveal_protocol(run_dir, ["pressure-corbitt-basement-reveal"])
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")

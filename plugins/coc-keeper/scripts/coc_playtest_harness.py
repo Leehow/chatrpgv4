@@ -495,6 +495,7 @@ def _player_view_event(
     glossary: dict[str, str],
     language_profile: dict[str, Any],
     profile_labels: dict[str, str],
+    play_language: str,
     rendered_text: str | None = None,
 ) -> dict[str, Any]:
     visible = dict(event)
@@ -509,6 +510,15 @@ def _player_view_event(
             language_profile,
             glossary,
         )
+    localized_text = visible.get("localized_text", {})
+    language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
+    for key in ("intent", "ruling"):
+        if not isinstance(visible.get(key), str) or not visible[key]:
+            continue
+        display = language_text.get(key) if isinstance(language_text, dict) else None
+        if display in (None, "", [], {}):
+            display = visible[key]
+        visible[f"{key}_display"] = _localize_text(str(display), glossary)
     spoiler_protocol = visible.get("spoiler_protocol")
     if isinstance(spoiler_protocol, dict):
         visible["spoiler_protocol"] = {
@@ -525,6 +535,7 @@ def _player_view_transcript_events(
     glossary: dict[str, str],
     language_profile: dict[str, Any],
     profile_labels: dict[str, str],
+    play_language: str,
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     roll_cursor = 0
@@ -535,7 +546,7 @@ def _player_view_transcript_events(
             recaps = roll_recaps[roll_cursor: roll_cursor + roll_count]
             rendered_text = _format_roll_transcript_text(event, recaps, glossary)
             roll_cursor += roll_count
-        events.append(_player_view_event(event, glossary, language_profile, profile_labels, rendered_text))
+        events.append(_player_view_event(event, glossary, language_profile, profile_labels, play_language, rendered_text))
     return events
 
 
@@ -622,6 +633,7 @@ def _write_view_streams(run_dir: Path) -> None:
         player_glossary,
         language_profile,
         profile_labels,
+        play_language,
     )
     keeper_events = [keeper_context] + [
         {**event, "view": "keeper", "type": "transcript_turn"}
