@@ -127,7 +127,10 @@ REPORT_ANCHOR_SUFFIX = " -->"
 def _read_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return default
 
 
 def _read_text(path: Path) -> str:
@@ -571,6 +574,32 @@ def _empty_relative_files(base: Path, relative_paths: list[str], display_prefix:
     return empty
 
 
+def _malformed_relative_files(base: Path, relative_paths: list[str], display_prefix: str = "") -> list[str]:
+    malformed: list[str] = []
+    for relative_path in relative_paths:
+        path = base / relative_path
+        if not path.exists() or not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if not text.strip():
+            continue
+        try:
+            if relative_path.endswith(".jsonl"):
+                for line in text.splitlines():
+                    if not line.strip():
+                        continue
+                    row = json.loads(line)
+                    if not isinstance(row, dict):
+                        raise ValueError("JSONL rows must be objects")
+            else:
+                payload = json.loads(text)
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON source files must be objects")
+        except (json.JSONDecodeError, ValueError):
+            malformed.append(f"{display_prefix}{relative_path}")
+    return malformed
+
+
 def _investigator_ids_from_party(party: dict[str, Any]) -> list[str]:
     investigator_ids: list[str] = []
     for key in ("active_investigator_ids", "investigator_ids"):
@@ -588,6 +617,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings: list[dict[str, Any]] = []
     missing_files = _missing_relative_files(run_dir, REQUIRED_RUN_SOURCE_FILES)
     empty_files = _empty_relative_files(run_dir, REQUIRED_RUN_SOURCE_FILES)
+    malformed_files = _malformed_relative_files(run_dir, REQUIRED_RUN_SOURCE_FILES)
 
     campaign_id = str(metadata.get("campaign_id") or run_id)
     campaign_prefix = f"sandbox/.coc/campaigns/{campaign_id}/"
@@ -598,6 +628,11 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
         display_prefix=campaign_prefix,
     ))
     empty_files.extend(_empty_relative_files(
+        campaign_dir,
+        REQUIRED_CAMPAIGN_SOURCE_FILES,
+        display_prefix=campaign_prefix,
+    ))
+    malformed_files.extend(_malformed_relative_files(
         campaign_dir,
         REQUIRED_CAMPAIGN_SOURCE_FILES,
         display_prefix=campaign_prefix,
@@ -627,6 +662,11 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             REQUIRED_INVESTIGATOR_SOURCE_FILES,
             display_prefix=investigator_prefix,
         ))
+        malformed_files.extend(_malformed_relative_files(
+            investigator_dir,
+            REQUIRED_INVESTIGATOR_SOURCE_FILES,
+            display_prefix=investigator_prefix,
+        ))
 
     if missing_files:
         findings.append(_finding(
@@ -645,6 +685,15 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             "Regenerate the active run before completion audit so required transcript, view, log, memory, campaign, and investigator source files contain structured actual-play evidence.",
             run_id=run_id,
             empty_files=empty_files,
+        ))
+    if malformed_files:
+        findings.append(_finding(
+            "active_run_source_files_malformed",
+            "test_gap",
+            f"{run_id} malformed source files: {', '.join(malformed_files)}",
+            "Regenerate the active run before completion audit so required JSON and JSONL source files parse as structured objects.",
+            run_id=run_id,
+            malformed_files=malformed_files,
         ))
     return findings
 
