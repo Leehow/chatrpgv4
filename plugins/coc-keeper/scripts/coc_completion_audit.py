@@ -453,6 +453,37 @@ def _battle_report_event_summary_findings(
     )]
 
 
+def _battle_report_feedback_text_findings(
+    run_id: str,
+    run_dir: Path,
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
+    required_feedback = [
+        row["text"].strip()
+        for row in feedback
+        if isinstance(row.get("text"), str)
+        and row["text"].strip()
+    ]
+    missing_feedback = [
+        text
+        for text in required_feedback
+        if text not in battle_report
+    ]
+    if not missing_feedback:
+        return []
+    return [_finding(
+        "battle_report_feedback_text_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_feedback)} of {len(required_feedback)} source player feedback comments from player-feedback.jsonl.",
+        "Regenerate battle-report.md so Player Feedback On KP renders each structured source feedback comment.",
+        run_id=run_id,
+        missing_feedback_count=len(missing_feedback),
+        required_feedback_count=len(required_feedback),
+        missing_feedback_samples=missing_feedback[:5],
+    )]
+
+
 def _markdown_headings(markdown: str) -> set[str]:
     return {
         line.strip()
@@ -1338,6 +1369,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_source_dialogue_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_mechanical_log_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
+    findings.extend(_battle_report_feedback_text_findings(run_id, run_dir, battle_report))
 
     rulebook_audit = _read_text(artifacts_dir / "rulebook-audit.md")
     findings.extend(_rulebook_audit_section_findings(run_id, rulebook_audit))

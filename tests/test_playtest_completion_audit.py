@@ -136,6 +136,16 @@ def battle_report_event_fixture_text() -> str:
     return "\n".join(f"- {summary}" for summary in event_summaries)
 
 
+def battle_report_feedback_fixture_text() -> str:
+    feedback_texts = [
+        "fixture feedback",
+        "fixture careful feedback",
+        "fixture reckless feedback",
+        "fixture skeptical feedback",
+    ]
+    return "\n".join(f"- {text}" for text in feedback_texts)
+
+
 def battle_report_fixture() -> str:
     return "\n\n".join([
         "# Battle Report <!-- report-anchor: Battle Report -->",
@@ -172,7 +182,8 @@ def battle_report_fixture() -> str:
         + battle_report_mechanical_fixture_text(),
         "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n- Fixture chase tracker.",
         "## Story Recap <!-- report-anchor: Story Recap -->\n- Fixture recap.",
-        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n- Fixture feedback.",
+        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n"
+        + battle_report_feedback_fixture_text(),
     ]) + "\n"
 
 
@@ -207,6 +218,14 @@ def battle_report_with_dialogue_and_rolls_but_without_events() -> str:
         "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n"
         + battle_report_event_fixture_text(),
         "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n- Fixture scene.",
+    )
+
+
+def battle_report_with_sources_but_without_feedback_text() -> str:
+    return battle_report_fixture().replace(
+        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n"
+        + battle_report_feedback_fixture_text(),
+        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n- Fixture feedback summary.",
     )
 
 
@@ -1040,6 +1059,36 @@ def test_completion_audit_fails_when_battle_report_omits_source_event_summaries(
     assert finding["run_id"] == "v2-haunting-module"
     assert "fixture scene" in finding["missing_event_samples"]
     assert "fixture combat" in finding["missing_event_samples"]
+
+
+def test_completion_audit_fails_when_battle_report_omits_source_feedback_text(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v4-multi-profile-pressure"
+    write_text(run_dir / "artifacts" / "battle-report.md", battle_report_with_sources_but_without_feedback_text())
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_feedback_text_missing")
+    assert finding["run_id"] == "v4-multi-profile-pressure"
+    assert "fixture careful feedback" in finding["missing_feedback_samples"]
+    assert "fixture reckless feedback" in finding["missing_feedback_samples"]
+    assert "fixture skeptical feedback" in finding["missing_feedback_samples"]
 
 
 def test_completion_audit_fails_when_suite_report_missing_required_sections(tmp_path):
