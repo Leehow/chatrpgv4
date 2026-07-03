@@ -113,6 +113,22 @@ def assert_terms_absent(text: str, canonical_terms: list[str]) -> None:
         assert canonical not in text
 
 
+def assert_localized_report_shell(text: str) -> None:
+    assert "# Battle Report / 跑团战报" in text
+    assert "## Run Setup / 运行设置" in text
+    assert "## Actual Play Replay / 实际跑团回放" in text
+    assert "## Session Transcript / 会话记录" in text
+    assert "## Player Feedback On KP / 玩家对 KP 的反馈" in text
+    run_setup = section_text(text, "## Run Setup")
+    assert "Campaign:" in run_setup
+    assert "（战役）" in run_setup
+    assert "Play Language: zh-Hans" in run_setup
+    assert "（游玩语言）" in run_setup
+    module_section = section_text(text, "## Module")
+    assert "Opening Scene:" in module_section
+    assert "（开场场景）" in module_section
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -181,6 +197,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Bout of Madness events: 1" in audit_text
     assert "temporary_insanity_triggered markers: 1" in audit_text
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms)
+    assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
     assert "Localized Terms: " in run_setup
@@ -408,6 +425,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms)
+    assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
     assert "Localized Terms: " in run_setup

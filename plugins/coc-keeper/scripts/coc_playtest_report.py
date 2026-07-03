@@ -441,6 +441,25 @@ def _empty_report_line(language_profile: dict[str, Any], key: str, fallback: str
     return fallback
 
 
+def _localized_report_label(language_profile: dict[str, Any], group: str, canonical: str) -> str:
+    labels = language_profile.get(group, {})
+    if isinstance(labels, dict) and labels.get(canonical):
+        return str(labels[canonical])
+    return canonical
+
+
+def _report_heading(level: int, canonical: str, language_profile: dict[str, Any]) -> str:
+    localized = _localized_report_label(language_profile, "report_heading_labels", canonical)
+    suffix = f" / {localized}" if localized != canonical else ""
+    return f"{'#' * level} {canonical}{suffix}"
+
+
+def _report_field(label: str, value: Any, language_profile: dict[str, Any]) -> str:
+    localized = _localized_report_label(language_profile, "report_field_labels", label)
+    suffix = f"（{localized}）" if localized != label else ""
+    return f"- {label}: {value}{suffix}"
+
+
 def _first_value(default: Any, *values: Any) -> Any:
     for value in values:
         if value not in (None, "", [], {}):
@@ -1059,90 +1078,90 @@ def generate_battle_report(run_dir: Path) -> Path:
     chase_tracker_lines = _format_chase_tracker(chase_state)
 
     body = [
-        "# Battle Report",
+        _report_heading(1, "Battle Report", language_profile),
         "",
-        "## Run Setup",
-        f"- Run ID: {metadata.get('run_id', 'unknown')}",
-        f"- Campaign: {_localize_text(campaign_title, localized_terms)}",
-        f"- Era: {era}",
-        f"- Dice Mode: {dice_mode}",
-        f"- Spoiler Policy: {spoiler_policy}",
-        f"- Play Language: {play_language}",
-        f"- Language Profile: {language_profile.get('display_name', play_language)}",
-        f"- Localized Terms: {_format_localized_terms_summary(localized_terms)}",
-        f"- Player Profile: {metadata.get('player_profile', 'unknown')}",
+        _report_heading(2, "Run Setup", language_profile),
+        _report_field("Run ID", metadata.get("run_id", "unknown"), language_profile),
+        _report_field("Campaign", _localize_text(campaign_title, localized_terms), language_profile),
+        _report_field("Era", era, language_profile),
+        _report_field("Dice Mode", dice_mode, language_profile),
+        _report_field("Spoiler Policy", spoiler_policy, language_profile),
+        _report_field("Play Language", play_language, language_profile),
+        _report_field("Language Profile", language_profile.get("display_name", play_language), language_profile),
+        _report_field("Localized Terms", _format_localized_terms_summary(localized_terms), language_profile),
+        _report_field("Player Profile", metadata.get("player_profile", "unknown"), language_profile),
         "",
-        "## Module",
-        f"- Scenario: {_localize_text(scenario_title, localized_terms)}",
-        f"- Scenario ID: {scenario_id}",
-        f"- Source: {module_source}",
-        f"- Opening Scene: {_localize_text(scenario.get('opening_scene', 'not recorded'), localized_terms)}",
+        _report_heading(2, "Module", language_profile),
+        _report_field("Scenario", _localize_text(scenario_title, localized_terms), language_profile),
+        _report_field("Scenario ID", scenario_id, language_profile),
+        _report_field("Source", module_source, language_profile),
+        _report_field("Opening Scene", _localize_text(scenario.get("opening_scene", "not recorded"), localized_terms), language_profile),
         "",
-        "## Character Dossier",
+        _report_heading(2, "Character Dossier", language_profile),
         *_list_lines(character_lines, "- No character sheets recorded."),
         "",
-        "## Investigator Chronicle",
+        _report_heading(2, "Investigator Chronicle", language_profile),
         *_list_lines(chronicle_lines, "- No investigator chronicle recorded."),
         "",
-        "## Scene-by-Scene Replay",
+        _report_heading(2, "Scene-by-Scene Replay", language_profile),
         *_list_lines(scene_replay_lines, "- No scene replay recorded."),
         "",
-        "## Actual Play Replay",
+        _report_heading(2, "Actual Play Replay", language_profile),
         *_list_lines(actual_play_lines, "- No actual play events recorded."),
         "",
-        "## Session Transcript",
+        _report_heading(2, "Session Transcript", language_profile),
         *_list_lines(transcript_lines, "- No transcript events recorded."),
         "",
-        "## Major Player Decisions",
+        _report_heading(2, "Major Player Decisions", language_profile),
         *_list_lines(decision_lines, "- No major decisions recorded."),
         "",
-        "## Rules & Rolls Recap",
+        _report_heading(2, "Rules & Rolls Recap", language_profile),
         *_list_lines(roll_recap_lines, "- No roll recap recorded."),
         "",
-        "## Mechanical Log",
-        "### Important Rolls",
+        _report_heading(2, "Mechanical Log", language_profile),
+        _report_heading(3, "Important Rolls", language_profile),
         *_list_lines(roll_lines, "- No rolls recorded."),
         "",
-        "### State Changes",
+        _report_heading(3, "State Changes", language_profile),
         *_list_lines(state_lines, "- No state changes recorded."),
         "",
-        "## Combat Summary",
+        _report_heading(2, "Combat Summary", language_profile),
         *_list_lines(
             combat_lines,
             _empty_report_line(language_profile, "combat_summary", "- No combat summary recorded."),
         ),
         "",
-        "## Chase Summary",
+        _report_heading(2, "Chase Summary", language_profile),
         *_list_lines(
             chase_lines,
             _empty_report_line(language_profile, "chase_summary", "- No chase summary recorded."),
         ),
         "",
-        "## Chase Tracker",
+        _report_heading(2, "Chase Tracker", language_profile),
         *_list_lines(
             chase_tracker_lines,
             _empty_report_line(language_profile, "chase_tracker", "- No chase tracker recorded."),
         ),
         "",
-        "## Sanity Summary",
+        _report_heading(2, "Sanity Summary", language_profile),
         *_list_lines(
             sanity_lines,
             _empty_report_line(language_profile, "sanity_summary", "- No sanity summary recorded."),
         ),
         "",
-        "## Clues Found",
+        _report_heading(2, "Clues Found", language_profile),
         *_list_lines(clue_lines, "- No clues recorded."),
         "",
-        "## Session Ending",
+        _report_heading(2, "Session Ending", language_profile),
         *_list_lines(ending_lines, "- Session ending not recorded."),
         "",
-        "## Story Recap",
+        _report_heading(2, "Story Recap", language_profile),
         *_list_lines(recap_lines, "- No story recap recorded."),
         "",
-        "## Player Feedback On KP",
+        _report_heading(2, "Player Feedback On KP", language_profile),
         *_list_lines(feedback_lines, "- No player feedback recorded."),
         "",
-        "## Localization Appendix",
+        _report_heading(2, "Localization Appendix", language_profile),
         *_list_lines(_format_localization_appendix(localized_terms), "- No localized terms recorded."),
         "",
     ]

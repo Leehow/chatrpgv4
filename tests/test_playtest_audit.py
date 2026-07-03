@@ -748,6 +748,43 @@ def test_active_audit_rejects_unlocalized_player_profile_ids_in_reports(tmp_path
     assert "player_profile_labels_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_report_shell_for_localized_runs(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-shell"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report\n\n"
+        "## Run Setup\n"
+        "- Campaign: The Haunting\n"
+        "- Play Language: zh-Hans\n\n"
+        "## Module\n"
+        "- Scenario: The Haunting\n"
+        "- Opening Scene: 诺特先生给出委托。\n\n"
+        "## Scene-by-Scene Replay\n"
+        "- 诺特先生给出委托，艾达选择先查资料。\n\n"
+        "## Actual Play Replay\n"
+        "- Turn 1 KP: \"诺特先生给出钥匙。\"\n\n"
+        "## Session Transcript\n"
+        "- Turn 1 KP: 诺特先生给出钥匙。\n\n"
+        "## Major Player Decisions\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Story Recap\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP\n"
+        "- kp_clarity: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "report_shell_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_requires_investigator_backstory_fields(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
     create_final_rulebook_run(run_dir)

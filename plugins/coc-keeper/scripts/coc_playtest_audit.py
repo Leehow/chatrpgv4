@@ -3,8 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from coc_language import language_profile as build_language_profile
 
 
 Finding = dict[str, Any]
@@ -82,6 +89,20 @@ LOCALIZABLE_EMPTY_PLACEHOLDERS = [
     "No chase summary recorded.",
     "No chase tracker recorded.",
     "No sanity summary recorded.",
+]
+REPORT_SHELL_REQUIRED_HEADINGS = {
+    "Battle Report": "#",
+    "Run Setup": "##",
+    "Actual Play Replay": "##",
+    "Session Transcript": "##",
+    "Player Feedback On KP": "##",
+}
+REPORT_SHELL_REQUIRED_FIELDS = [
+    "Campaign",
+    "Play Language",
+    "Player Profile",
+    "Scenario",
+    "Opening Scene",
 ]
 
 
@@ -412,6 +433,45 @@ def _unlocalized_empty_placeholders(battle_report: str, play_language: str) -> l
     if play_language in {"", "en-US"}:
         return []
     return [marker for marker in LOCALIZABLE_EMPTY_PLACEHOLDERS if marker in battle_report]
+
+
+def _merge_language_profile(base: dict[str, Any], override: Any, play_language: str) -> dict[str, Any]:
+    if not isinstance(override, dict) or override.get("language") != play_language:
+        return base
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            nested = dict(merged[key])
+            nested.update(value)
+            merged[key] = nested
+        else:
+            merged[key] = value
+    return merged
+
+
+def _selected_language_profile(metadata: dict[str, Any]) -> dict[str, Any]:
+    play_language = str(metadata.get("play_language") or "en-US")
+    profile = build_language_profile(play_language)
+    return _merge_language_profile(profile, metadata.get("language_profile"), play_language)
+
+
+def _localized_report_shell_gaps(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    profile = _selected_language_profile(metadata)
+    heading_labels = profile.get("report_heading_labels", {})
+    field_labels = profile.get("report_field_labels", {})
+    gaps: list[str] = []
+    for heading, prefix in REPORT_SHELL_REQUIRED_HEADINGS.items():
+        label = heading_labels.get(heading) if isinstance(heading_labels, dict) else None
+        if label and label != heading and f"{prefix} {heading} / {label}" not in battle_report:
+            gaps.append(f"heading:{heading}")
+    for field in REPORT_SHELL_REQUIRED_FIELDS:
+        label = field_labels.get(field) if isinstance(field_labels, dict) else None
+        if label and label != field and f"（{label}）" not in battle_report:
+            gaps.append(f"field:{field}")
+    return gaps
 
 
 def _profile_ids(metadata: dict[str, Any]) -> list[str]:
@@ -789,6 +849,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "high",
             "Battle report does not include the Actual Play Replay section for visible table dialogue.",
             "Render the KP/player/system transcript as an actual-play replay before the structured transcript appendix.",
+        ))
+    report_shell_gaps = _localized_report_shell_gaps(battle_report, metadata)
+    if active_profile and report_shell_gaps:
+        findings.append(_finding(
+            "report_shell_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized battle report lacks localized report chrome: " + ", ".join(report_shell_gaps),
+            "Render canonical report headings with localized aliases and append localized field labels from language_profile.",
         ))
     if active_profile and (
         "## Investigator Chronicle" not in battle_report
