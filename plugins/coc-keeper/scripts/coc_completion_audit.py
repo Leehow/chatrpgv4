@@ -549,6 +549,148 @@ def _battle_report_memory_summary_findings(
     )]
 
 
+def _creation_label(metadata: dict[str, Any], canonical: str) -> str:
+    language_profile = metadata.get("language_profile", {})
+    if not isinstance(language_profile, dict):
+        return canonical
+    creation_labels = language_profile.get("creation_labels", {})
+    if not isinstance(creation_labels, dict):
+        return canonical
+    return str(creation_labels.get(canonical) or canonical)
+
+
+def _format_creation_formula_points(formula: Any, points: Any) -> str:
+    if formula in (None, "", [], {}):
+        return str(points) if points not in (None, "", [], {}) else ""
+    if points in (None, "", [], {}):
+        return str(formula)
+    return f"{formula} = {points}"
+
+
+def _creation_required_texts(creation: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
+    localized_terms = _metadata_localized_terms(metadata)
+    required_texts: list[str] = []
+
+    characteristics = creation.get("characteristics", {})
+    if isinstance(characteristics, dict):
+        preferred_characteristics = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"]
+        ordered_characteristics = [key for key in preferred_characteristics if key in characteristics]
+        ordered_characteristics.extend(sorted(key for key in characteristics if key not in ordered_characteristics))
+        for key in ordered_characteristics:
+            value = characteristics.get(key)
+            if isinstance(value, dict) and value.get("final") not in (None, "", [], {}):
+                required_texts.append(f"{key} {value['final']}")
+
+    occupation = creation.get("occupation", {})
+    if isinstance(occupation, dict):
+        if occupation.get("name") not in (None, "", [], {}):
+            required_texts.append(str(occupation["name"]))
+        occupation_points = _format_creation_formula_points(
+            occupation.get("skill_point_formula"),
+            occupation.get("skill_points_available"),
+        )
+        if occupation_points:
+            required_texts.append(occupation_points)
+
+    personal_interest = creation.get("personal_interest", {})
+    if isinstance(personal_interest, dict):
+        personal_points = _format_creation_formula_points(
+            personal_interest.get("skill_point_formula"),
+            personal_interest.get("skill_points_available"),
+        )
+        if personal_points:
+            required_texts.append(personal_points)
+
+    finances = creation.get("finances", {})
+    if isinstance(finances, dict) and finances.get("credit_rating") not in (None, "", [], {}):
+        credit_label = _creation_label(metadata, "Credit Rating")
+        required_texts.append(f"{credit_label}: {finances['credit_rating']}")
+        if isinstance(occupation, dict) and occupation.get("credit_rating_range") not in (None, "", [], {}):
+            range_label = _creation_label(metadata, "Rulebook Occupation Range")
+            required_texts.append(f"{range_label} {occupation['credit_rating_range']}")
+
+    allocation = creation.get("skill_allocation", {})
+    if isinstance(allocation, dict) and allocation:
+        occupation_label = _creation_label(metadata, "Occupation")
+        personal_label = _creation_label(metadata, "Personal Interest")
+        unallocated_label = _creation_label(metadata, "Unallocated")
+        occupation_available = creation.get("occupation", {}).get("skill_points_available", "?")
+        personal_available = creation.get("personal_interest", {}).get("skill_points_available", "?")
+        if allocation.get("occupation_points_spent") not in (None, "", [], {}):
+            required_texts.append(f"{occupation_label} {allocation['occupation_points_spent']}/{occupation_available}")
+        if allocation.get("personal_interest_points_spent") not in (None, "", [], {}):
+            required_texts.append(f"{personal_label} {allocation['personal_interest_points_spent']}/{personal_available}")
+        if (
+            allocation.get("unallocated_occupation_points") not in (None, "", [], {})
+            and allocation.get("unallocated_personal_interest_points") not in (None, "", [], {})
+        ):
+            required_texts.append(
+                f"{unallocated_label} {allocation['unallocated_occupation_points']}/"
+                f"{allocation['unallocated_personal_interest_points']}"
+            )
+
+        skills = allocation.get("skills", {})
+        if isinstance(skills, dict):
+            for skill, entry in skills.items():
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("final") in (None, "", [], {}):
+                    continue
+                display_skill = _localize_text(str(skill), localized_terms)
+                required_texts.append(
+                    f"{display_skill}: base {entry.get('base', '?')} + "
+                    f"{occupation_label} {entry.get('occupation_points', 0)} + "
+                    f"{personal_label} {entry.get('personal_interest_points', 0)} = "
+                    f"{entry['final']}"
+                )
+
+    equipment = creation.get("equipment")
+    if isinstance(equipment, list):
+        required_texts.extend(
+            str(item)
+            for item in equipment
+            if item not in (None, "", [], {})
+        )
+    return required_texts
+
+
+def _battle_report_investigator_creation_findings(
+    run_id: str,
+    run_dir: Path,
+    campaign_dir: Path,
+    metadata: dict[str, Any],
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    party = _read_json(campaign_dir / "party.json", {})
+    investigator_ids = _investigator_ids_from_party(party) if isinstance(party, dict) else []
+    localized_terms = _metadata_localized_terms(metadata)
+
+    required_texts: list[str] = []
+    for investigator_id in investigator_ids:
+        investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
+        creation = _read_json(investigator_dir / "creation.json", {})
+        if isinstance(creation, dict):
+            required_texts.extend(_creation_required_texts(creation, metadata))
+
+    missing_texts = [
+        text
+        for text in required_texts
+        if not _text_rendered_in_report(text, battle_report, localized_terms)
+    ]
+    if not missing_texts:
+        return []
+    return [_finding(
+        "battle_report_investigator_creation_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_texts)} of {len(required_texts)} investigator creation records from creation.json.",
+        "Regenerate battle-report.md so Investigator Creation renders characteristics, occupation points, personal-interest points, credit rating, skill allocation, and equipment from creation.json.",
+        run_id=run_id,
+        missing_creation_count=len(missing_texts),
+        required_creation_count=len(required_texts),
+        missing_creation_samples=missing_texts[:15],
+    )]
+
+
 def _investigator_chronicle_required_texts(investigator_dir: Path) -> list[str]:
     required_texts: list[str] = []
     for filename, fields in INVESTIGATOR_CHRONICLE_TEXT_FIELDS.items():
@@ -1482,6 +1624,13 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_feedback_text_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_memory_summary_findings(run_id, campaign_dir, battle_report))
+    findings.extend(_battle_report_investigator_creation_findings(
+        run_id,
+        run_dir,
+        campaign_dir,
+        metadata,
+        battle_report,
+    ))
     findings.extend(_battle_report_investigator_chronicle_findings(
         run_id,
         run_dir,
