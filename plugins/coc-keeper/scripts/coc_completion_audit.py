@@ -5,8 +5,21 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from coc_playtest_report import (
+    _event_roll_count,
+    _format_roll_recap,
+    _format_roll_transcript_text,
+    _localized_actor_names,
+)
 
 
 REQUIRED_AUDIT_PROFILES = ["haunting_module", "chase_drill", "multi_profile_pressure"]
@@ -1393,6 +1406,96 @@ def _source_structure_findings(run_id: str, run_dir: Path) -> list[dict[str, Any
     return findings
 
 
+def _campaign_characters(run_dir: Path, campaign_dir: Path) -> list[dict[str, Any]]:
+    party = _read_json(campaign_dir / "party.json", {})
+    investigator_ids = _investigator_ids_from_party(party) if isinstance(party, dict) else []
+    characters: list[dict[str, Any]] = []
+    for investigator_id in investigator_ids:
+        character = _read_json(
+            run_dir / "sandbox" / ".coc" / "investigators" / investigator_id / "character.json",
+            {},
+        )
+        if isinstance(character, dict) and character:
+            characters.append(character)
+    return characters
+
+
+def _expected_player_view_roll_texts(
+    run_dir: Path,
+    campaign_dir: Path,
+    metadata: dict[str, Any],
+) -> list[str]:
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
+    if not transcript or not rolls:
+        return []
+
+    localized_terms = _metadata_localized_terms(metadata)
+    language_profile = metadata.get("language_profile", {})
+    if not isinstance(language_profile, dict):
+        language_profile = {}
+    play_language = str(metadata.get("play_language") or "en-US")
+    actor_names = _localized_actor_names(_campaign_characters(run_dir, campaign_dir), localized_terms)
+    roll_recaps = [
+        _format_roll_recap(event, actor_names, localized_terms, play_language, language_profile)
+        for event in rolls
+    ]
+
+    expected_texts: list[str] = []
+    roll_cursor = 0
+    for event in transcript:
+        if event.get("mode") != "roll":
+            continue
+        roll_count = _event_roll_count(event, len(roll_recaps) - roll_cursor)
+        recaps = roll_recaps[roll_cursor: roll_cursor + roll_count]
+        rendered_text = _format_roll_transcript_text(event, recaps, localized_terms)
+        roll_cursor += roll_count
+        if rendered_text:
+            expected_texts.append(rendered_text)
+    return expected_texts
+
+
+def _player_view_roll_text_findings(
+    run_id: str,
+    run_dir: Path,
+    campaign_dir: Path,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    expected_texts = _expected_player_view_roll_texts(run_dir, campaign_dir, metadata)
+    if not expected_texts:
+        return []
+
+    player_view = _read_jsonl(run_dir / "player-view.jsonl")
+    player_view_roll_texts = [
+        row["text"].strip()
+        for row in player_view
+        if row.get("view") == "player"
+        and row.get("type") == "transcript_turn"
+        and row.get("role") == "system"
+        and row.get("mode") == "roll"
+        and isinstance(row.get("text"), str)
+        and row["text"].strip()
+    ]
+    missing_texts = [
+        text
+        for text in expected_texts
+        if text not in player_view_roll_texts
+    ]
+    if not missing_texts:
+        return []
+    return [_finding(
+        "player_view_roll_text_not_localized",
+        "report_gap",
+        f"{run_id} player-view.jsonl omits {len(missing_texts)} of {len(expected_texts)} localized system roll transcript texts derived from logs/rolls.jsonl.",
+        "Regenerate the active run so player-view.jsonl renders system roll transcript text from structured roll logs through play_language while preserving canonical payload fields.",
+        run_id=run_id,
+        missing_player_view_roll_count=len(missing_texts),
+        required_player_view_roll_count=len(expected_texts),
+        missing_player_view_roll_samples=missing_texts[:5],
+        observed_player_view_roll_samples=player_view_roll_texts[:5],
+    )]
+
+
 def _campaign_structure_findings(
     run_id: str,
     campaign_dir: Path,
@@ -1819,6 +1922,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             malformed_files=malformed_files,
         ))
     findings.extend(_source_structure_findings(run_id, run_dir))
+    findings.extend(_player_view_roll_text_findings(run_id, run_dir, campaign_dir, metadata))
     findings.extend(_pushed_roll_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))
     findings.extend(_multi_profile_structure_findings(run_id, run_dir, audit_profile))
     findings.extend(_meta_game_structure_findings(run_id, run_dir, audit_profile))

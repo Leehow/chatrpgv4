@@ -574,6 +574,13 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
             "language": "zh-Hans",
             "display_name": "Simplified Chinese",
             "term_policy": "Use localized_terms.zh-Hans for people, places, factions, handouts, scenario titles, and special terms.",
+            "report_labels": {
+                "roll_sentence": "- {skill}：{actor}掷出 {roll} / {target}，结果{outcome}。",
+            },
+            "outcome_labels": {
+                "regular_success": "普通成功",
+                "hard_success": "困难成功",
+            },
         },
         "localized_terms": {"zh-Hans": {"Ada King": "艾达·金"}},
     })
@@ -584,7 +591,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         {"turn": 3, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "text": "fixture reframed pushed action", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "player_reframes_action"}},
         {"turn": 4, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "fixture keeper foreshadows pushed risk", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "keeper_foreshadows_failure", "failure_consequence_source": "keeper"}},
         {"turn": 5, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "text": "fixture confirms pushed risk", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "player_confirms_risk", "risk_confirmed": True}},
-        {"turn": 6, "role": "system", "speaker": "System", "mode": "roll", "text": "fixture pushed roll resolved", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "roll_resolved"}},
+        {"turn": 6, "role": "system", "speaker": "System", "mode": "roll", "roll_count": 2, "text": "fixture pushed roll resolved", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "roll_resolved"}},
     ]
     if audit_profile == "multi_profile_pressure":
         transcript_rows.extend([
@@ -600,6 +607,15 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     write_jsonl(run_dir / "player-view.jsonl", [
         {"view": "player", "type": "public_character_state", "campaign_id": run_id},
         {"view": "player", "type": "transcript_turn", "turn": 2, "role": "player_simulator", "text": "fixture player turn"},
+        {
+            "view": "player",
+            "type": "transcript_turn",
+            "turn": 6,
+            "role": "system",
+            "mode": "roll",
+            "roll_count": 2,
+            "text": "Spot Hidden：艾达·金掷出 33 / 55，结果普通成功；Spot Hidden：艾达·金掷出 22 / 55，结果困难成功。",
+        },
     ])
     write_jsonl(run_dir / "keeper-view.jsonl", [
         {"view": "keeper", "type": "keeper_context", "campaign_id": run_id, "keeper_secret_ids": []},
@@ -1060,6 +1076,48 @@ def test_completion_audit_fails_when_view_sources_lack_player_and_keeper_evidenc
     assert "keeper context" in finding["missing_evidence"]
     assert "keeper view transcript turn" in finding["missing_evidence"]
     assert "keeper secret id list" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_player_view_roll_text_is_not_localized(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_jsonl(run_dir / "player-view.jsonl", [
+        {"view": "player", "type": "public_character_state", "campaign_id": "v2-haunting-module"},
+        {"view": "player", "type": "transcript_turn", "turn": 2, "role": "player_simulator", "text": "fixture player turn"},
+        {
+            "view": "player",
+            "type": "transcript_turn",
+            "turn": 6,
+            "role": "system",
+            "mode": "roll",
+            "roll_count": 2,
+            "text": "Spot Hidden 33 vs 55 -> regular_success. Spot Hidden 22 vs 55 -> hard_success.",
+        },
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "player_view_roll_text_not_localized")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert finding["missing_player_view_roll_samples"] == [
+        "Spot Hidden：艾达·金掷出 33 / 55，结果普通成功；Spot Hidden：艾达·金掷出 22 / 55，结果困难成功。"
+    ]
 
 
 def test_completion_audit_fails_when_campaign_logs_and_memory_lack_structured_evidence(tmp_path):
@@ -2325,9 +2383,30 @@ def test_completion_audit_accepts_selected_non_default_play_language(tmp_path):
         "language": "ja-JP",
         "display_name": "Japanese",
         "term_policy": "Use localized_terms.ja-JP for people, places, factions, handouts, scenario titles, and special terms.",
+        "report_labels": {
+            "roll_sentence": "- {skill}：{actor}は {roll} / {target} を振り、結果は{outcome}。",
+        },
+        "outcome_labels": {
+            "regular_success": "レギュラー成功",
+            "hard_success": "ハード成功",
+        },
     }
     metadata["localized_terms"] = {"ja-JP": {"Ada King": "エイダ・キング"}}
     write_json(metadata_path, metadata)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_jsonl(run_dir / "player-view.jsonl", [
+        {"view": "player", "type": "public_character_state", "campaign_id": "v2-haunting-module"},
+        {"view": "player", "type": "transcript_turn", "turn": 2, "role": "player_simulator", "text": "fixture player turn"},
+        {
+            "view": "player",
+            "type": "transcript_turn",
+            "turn": 6,
+            "role": "system",
+            "mode": "roll",
+            "roll_count": 2,
+            "text": "Spot Hidden：エイダ・キングは 33 / 55 を振り、結果はレギュラー成功；Spot Hidden：エイダ・キングは 22 / 55 を振り、結果はハード成功。",
+        },
+    ])
     write_index(tmp_path, runs)
     automation_path = tmp_path / "automation.toml"
     write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
