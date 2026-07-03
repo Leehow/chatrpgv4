@@ -413,6 +413,10 @@ def _battle_report_anchor_findings(run_id: str, battle_report: str) -> list[dict
 
 
 def _battle_report_source_dialogue_findings(run_id: str, run_dir: Path, battle_report: str) -> list[dict[str, Any]]:
+    replay_sections = "\n".join([
+        _battle_report_anchor_section(battle_report, "Actual Play Replay"),
+        _battle_report_anchor_section(battle_report, "Session Transcript"),
+    ])
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
     required_dialogue = [
         row["text"].strip()
@@ -424,7 +428,7 @@ def _battle_report_source_dialogue_findings(run_id: str, run_dir: Path, battle_r
     missing_dialogue = [
         text
         for text in required_dialogue
-        if text not in battle_report
+        if text not in replay_sections
     ]
     if not missing_dialogue:
         return []
