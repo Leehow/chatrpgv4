@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -138,6 +139,12 @@ REQUIRED_SEMANTIC_REQUEST_FIELDS = [
 ]
 REPORT_ANCHOR_PREFIX = "<!-- report-anchor: "
 REPORT_ANCHOR_SUFFIX = " -->"
+CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
+INVESTIGATOR_CHRONICLE_TEXT_FIELDS = {
+    "history.jsonl": ["summary"],
+    "development.jsonl": ["summary", "carryover_notes"],
+    "inventory-history.jsonl": ["summary", "notes"],
+}
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -169,6 +176,33 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         if isinstance(row, dict):
             rows.append(row)
     return rows
+
+
+def _metadata_localized_terms(metadata: dict[str, Any]) -> dict[str, str]:
+    play_language = str(metadata.get("play_language") or "")
+    localized_terms = metadata.get("localized_terms", {})
+    if not isinstance(localized_terms, dict):
+        return {}
+    terms = localized_terms.get(play_language, {})
+    if not isinstance(terms, dict):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in terms.items()
+        if str(key) and str(value)
+    }
+
+
+def _localize_text(text: str, localized_terms: dict[str, str]) -> str:
+    localized = text
+    for canonical, display in sorted(localized_terms.items(), key=lambda item: len(item[0]), reverse=True):
+        localized = localized.replace(canonical, display)
+    return CJK_BOUNDARY_SPACE.sub("", localized)
+
+
+def _text_rendered_in_report(text: str, battle_report: str, localized_terms: dict[str, str]) -> bool:
+    candidates = {text, _localize_text(text, localized_terms)}
+    return any(candidate and candidate in battle_report for candidate in candidates)
 
 
 def _json_sha256(payload: Any) -> str:
@@ -512,6 +546,52 @@ def _battle_report_memory_summary_findings(
         missing_memory_count=len(missing_summaries),
         required_memory_count=len(required_summaries),
         missing_memory_samples=missing_summaries[:5],
+    )]
+
+
+def _investigator_chronicle_required_texts(investigator_dir: Path) -> list[str]:
+    required_texts: list[str] = []
+    for filename, fields in INVESTIGATOR_CHRONICLE_TEXT_FIELDS.items():
+        for row in _read_jsonl(investigator_dir / filename):
+            for field in fields:
+                value = row.get(field)
+                if isinstance(value, str) and value.strip():
+                    required_texts.append(value.strip())
+    return required_texts
+
+
+def _battle_report_investigator_chronicle_findings(
+    run_id: str,
+    run_dir: Path,
+    campaign_dir: Path,
+    metadata: dict[str, Any],
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    party = _read_json(campaign_dir / "party.json", {})
+    investigator_ids = _investigator_ids_from_party(party) if isinstance(party, dict) else []
+    localized_terms = _metadata_localized_terms(metadata)
+
+    required_texts: list[str] = []
+    for investigator_id in investigator_ids:
+        investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
+        required_texts.extend(_investigator_chronicle_required_texts(investigator_dir))
+
+    missing_texts = [
+        text
+        for text in required_texts
+        if not _text_rendered_in_report(text, battle_report, localized_terms)
+    ]
+    if not missing_texts:
+        return []
+    return [_finding(
+        "battle_report_investigator_chronicle_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_texts)} of {len(required_texts)} reusable investigator chronicle records from history/development/inventory source files.",
+        "Regenerate battle-report.md so Investigator Chronicle renders reusable investigator history, development, and inventory carryover records.",
+        run_id=run_id,
+        missing_chronicle_count=len(missing_texts),
+        required_chronicle_count=len(required_texts),
+        missing_chronicle_samples=missing_texts[:5],
     )]
 
 
@@ -1402,6 +1482,13 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_feedback_text_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_memory_summary_findings(run_id, campaign_dir, battle_report))
+    findings.extend(_battle_report_investigator_chronicle_findings(
+        run_id,
+        run_dir,
+        campaign_dir,
+        metadata,
+        battle_report,
+    ))
 
     rulebook_audit = _read_text(artifacts_dir / "rulebook-audit.md")
     findings.extend(_rulebook_audit_section_findings(run_id, rulebook_audit))

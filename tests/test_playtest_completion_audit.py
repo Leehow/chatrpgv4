@@ -150,6 +150,14 @@ def battle_report_memory_fixture_text() -> str:
     return "- fixture memory"
 
 
+def battle_report_investigator_chronicle_fixture_text() -> str:
+    return "\n".join([
+        "- fixture history",
+        "- fixture development",
+        "- fixture inventory",
+    ])
+
+
 def battle_report_fixture() -> str:
     return "\n\n".join([
         "# Battle Report <!-- report-anchor: Battle Report -->",
@@ -157,7 +165,8 @@ def battle_report_fixture() -> str:
         "## Module <!-- report-anchor: Module -->\n- Scenario: fixture",
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n- Fixture creation record.",
         "## Character Dossier <!-- report-anchor: Character Dossier -->\n- Fixture character dossier.",
-        "## Investigator Chronicle <!-- report-anchor: Investigator Chronicle -->\n- Fixture chronicle.",
+        "## Investigator Chronicle <!-- report-anchor: Investigator Chronicle -->\n"
+        + battle_report_investigator_chronicle_fixture_text(),
         "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n"
         + battle_report_event_fixture_text(),
         "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n"
@@ -239,6 +248,14 @@ def battle_report_with_sources_but_without_memory_summary() -> str:
         "## Story Recap <!-- report-anchor: Story Recap -->\n"
         + battle_report_memory_fixture_text(),
         "## Story Recap <!-- report-anchor: Story Recap -->\n- Fixture recap.",
+    )
+
+
+def battle_report_with_sources_but_without_investigator_chronicle_records() -> str:
+    return battle_report_fixture().replace(
+        "## Investigator Chronicle <!-- report-anchor: Investigator Chronicle -->\n"
+        + battle_report_investigator_chronicle_fixture_text(),
+        "## Investigator Chronicle <!-- report-anchor: Investigator Chronicle -->\n- Fixture chronicle.",
     )
 
 
@@ -1130,6 +1147,77 @@ def test_completion_audit_fails_when_battle_report_omits_source_memory_summaries
     finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_memory_summaries_missing")
     assert finding["run_id"] == "v2-haunting-module"
     assert "fixture memory" in finding["missing_memory_samples"]
+
+
+def test_completion_audit_fails_when_battle_report_omits_investigator_chronicle_records(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        battle_report_with_sources_but_without_investigator_chronicle_records(),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(
+        finding for finding in audit["findings"]
+        if finding["code"] == "battle_report_investigator_chronicle_missing"
+    )
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "fixture history" in finding["missing_chronicle_samples"]
+    assert "fixture development" in finding["missing_chronicle_samples"]
+    assert "fixture inventory" in finding["missing_chronicle_samples"]
+
+
+def test_completion_audit_accepts_localized_investigator_chronicle_spacing(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    playtest = json.loads((run_dir / "playtest.json").read_text())
+    playtest["localized_terms"]["zh-Hans"]["Fixture Scenario"] = "《夹具剧本》"
+    write_json(run_dir / "playtest.json", playtest)
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / "v2-haunting-module-investigator"
+    write_jsonl(investigator_dir / "history.jsonl", [
+        {"campaign_id": "v2-haunting-module", "summary": "fixture history 在 Fixture Scenario 中完成"},
+    ])
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        battle_report_fixture().replace("fixture history", "fixture history 在《夹具剧本》中完成"),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "pass"
 
 
 def test_completion_audit_fails_when_suite_report_missing_required_sections(tmp_path):
