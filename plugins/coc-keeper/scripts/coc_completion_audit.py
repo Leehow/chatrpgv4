@@ -706,6 +706,58 @@ def _source_structure_findings(run_id: str, run_dir: Path) -> list[dict[str, Any
     return findings
 
 
+def _campaign_structure_findings(run_id: str, campaign_dir: Path, campaign_prefix: str) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    missing_evidence: list[str] = []
+    incomplete_files: list[str] = []
+
+    rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
+    events = _read_jsonl(campaign_dir / "logs" / "events.jsonl")
+    memories = _read_jsonl(campaign_dir / "memory" / "session-summaries.jsonl")
+
+    has_roll_payload = any(
+        isinstance(row.get("type"), str)
+        and bool(row["type"].strip())
+        and isinstance(row.get("payload"), dict)
+        and bool(row["payload"])
+        for row in rolls
+    )
+    has_event_payload = any(
+        isinstance(row.get("type"), str)
+        and bool(row["type"].strip())
+        and isinstance(row.get("payload"), dict)
+        and bool(row["payload"])
+        for row in events
+    )
+    has_memory_summary = any(
+        isinstance(row.get("summary"), str)
+        and bool(row["summary"].strip())
+        for row in memories
+    )
+
+    if not has_roll_payload:
+        missing_evidence.append("mechanical roll payload")
+        incomplete_files.append(f"{campaign_prefix}logs/rolls.jsonl")
+    if not has_event_payload:
+        missing_evidence.append("durable event payload")
+        incomplete_files.append(f"{campaign_prefix}logs/events.jsonl")
+    if not has_memory_summary:
+        missing_evidence.append("session memory summary")
+        incomplete_files.append(f"{campaign_prefix}memory/session-summaries.jsonl")
+
+    if missing_evidence:
+        findings.append(_finding(
+            "active_run_source_files_incomplete",
+            "test_gap",
+            f"{run_id} campaign source files lack required evidence: {', '.join(missing_evidence)}.",
+            "Regenerate the active run so campaign roll logs, event logs, and memory summaries contain structured actual-play evidence before completion audit.",
+            run_id=run_id,
+            incomplete_files=incomplete_files,
+            missing_evidence=missing_evidence,
+        ))
+    return findings
+
+
 def _investigator_ids_from_party(party: dict[str, Any]) -> list[str]:
     investigator_ids: list[str] = []
     for key in ("active_investigator_ids", "investigator_ids"):
@@ -754,6 +806,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             "Regenerate the run so party.json links the campaign to reusable sandbox investigator records.",
             run_id=run_id,
         ))
+    findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix))
 
     for investigator_id in investigator_ids:
         investigator_prefix = f"sandbox/.coc/investigators/{investigator_id}/"
