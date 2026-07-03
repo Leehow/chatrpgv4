@@ -35,11 +35,56 @@ QUALITY_DIMENSIONS = {
 SEMANTIC_EVAL_REQUEST = "semantic-eval-request.json"
 SEMANTIC_EVAL_RESULT = "semantic-eval-result.json"
 LLM_SEMANTIC_EVALUATOR_ID = "codex-llm-semantic-v1"
+SEMANTIC_RESULT_REQUIRED_FIELDS = [
+    "schema_version",
+    "run_id",
+    "evaluator_id",
+    "evaluation_provenance",
+    "coverage",
+    "quality",
+    "root_cause_classification",
+    "next_loop_fix_target",
+]
 
 
 def _json_sha256(payload: Any) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _entry_keys(value: Any) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+    keys: set[str] = set()
+    for entry in value:
+        if isinstance(entry, dict) and isinstance(entry.get("key"), str) and entry["key"]:
+            keys.add(entry["key"])
+    return keys
+
+
+def _semantic_request_contract_errors(payload: Any, run_id: str) -> list[str]:
+    if not isinstance(payload, dict) or not payload:
+        return ["semantic_eval_request"]
+    errors: list[str] = []
+    if payload.get("schema_version") != 1:
+        errors.append("semantic_eval_request.schema_version")
+    if payload.get("kind") != "coc_semantic_coverage_request":
+        errors.append("semantic_eval_request.kind")
+    if payload.get("run_id") != run_id:
+        errors.append("semantic_eval_request.run_id")
+    coverage_keys = _entry_keys(payload.get("coverage_keys"))
+    if not coverage_keys or any(key not in coverage_keys for key in CORE_COVERAGE):
+        errors.append("semantic_eval_request.coverage_keys")
+    quality_keys = _entry_keys(payload.get("quality_dimensions"))
+    if not quality_keys or any(key not in quality_keys for key in QUALITY_DIMENSIONS):
+        errors.append("semantic_eval_request.quality_dimensions")
+    expected_output = payload.get("expected_output_schema")
+    expected_required = expected_output.get("required") if isinstance(expected_output, dict) else None
+    if not isinstance(expected_required, list) or any(
+        field not in expected_required for field in SEMANTIC_RESULT_REQUIRED_FIELDS
+    ):
+        errors.append("semantic_eval_request.expected_output_schema.required")
+    return errors
 
 
 class CoverageContext:
@@ -173,6 +218,10 @@ class SemanticArtifactCoverageEvaluator:
         schema_errors: list[str] = []
         if payload.get("evaluator_id") != LLM_SEMANTIC_EVALUATOR_ID:
             schema_errors.append("evaluator_id")
+        request_path = context.run_dir / "artifacts" / SEMANTIC_EVAL_REQUEST
+        request_payload = _read_json(request_path, {}) if request_path.exists() else {}
+        if request_path.exists():
+            schema_errors.extend(_semantic_request_contract_errors(request_payload, context.run_id))
         provenance = payload.get("evaluation_provenance")
         if not isinstance(provenance, dict) or not provenance:
             schema_errors.append("evaluation_provenance")
@@ -184,10 +233,9 @@ class SemanticArtifactCoverageEvaluator:
             if provenance.get("reviewed_artifact") != f"artifacts/{SEMANTIC_EVAL_REQUEST}":
                 schema_errors.append("evaluation_provenance.reviewed_artifact")
             if isinstance(provenance.get("request_sha256"), str) and provenance.get("request_sha256"):
-                request_path = context.run_dir / "artifacts" / SEMANTIC_EVAL_REQUEST
                 if not request_path.exists():
                     schema_errors.append("evaluation_provenance.request_missing")
-                elif provenance.get("request_sha256") != _json_sha256(_read_json(request_path, {})):
+                elif provenance.get("request_sha256") != _json_sha256(request_payload):
                     schema_errors.append("evaluation_provenance.request_sha256_mismatch")
         if "root_cause_classification" not in payload:
             schema_errors.append("root_cause_classification")
