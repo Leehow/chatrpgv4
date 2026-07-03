@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Protocol
@@ -34,6 +35,11 @@ QUALITY_DIMENSIONS = {
 SEMANTIC_EVAL_REQUEST = "semantic-eval-request.json"
 SEMANTIC_EVAL_RESULT = "semantic-eval-result.json"
 LLM_SEMANTIC_EVALUATOR_ID = "codex-llm-semantic-v1"
+
+
+def _json_sha256(payload: Any) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class CoverageContext:
@@ -175,6 +181,10 @@ class SemanticArtifactCoverageEvaluator:
                 schema_errors.append("evaluation_provenance.kind")
             if not isinstance(provenance.get("request_sha256"), str) or not provenance.get("request_sha256"):
                 schema_errors.append("evaluation_provenance.request_sha256")
+            else:
+                request_path = context.run_dir / "artifacts" / SEMANTIC_EVAL_REQUEST
+                if request_path.exists() and provenance.get("request_sha256") != _json_sha256(_read_json(request_path, {})):
+                    schema_errors.append("evaluation_provenance.request_sha256_mismatch")
         if "root_cause_classification" not in payload:
             schema_errors.append("root_cause_classification")
         elif not isinstance(payload.get("root_cause_classification"), list):
