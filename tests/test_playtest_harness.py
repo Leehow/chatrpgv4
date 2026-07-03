@@ -170,9 +170,16 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
-    assert "Ada King -> 艾达·金" in run_setup
-    assert "Mr. Knott -> 诺特先生" in run_setup
-    assert "The Old Corbitt Place -> 科比特老宅" in run_setup
+    assert "Localized Terms: " in run_setup
+    assert "see Localization Appendix" in run_setup
+    assert "Ada King -> 艾达·金" not in run_setup
+    assert "Mr. Knott -> 诺特先生" not in run_setup
+    assert "The Old Corbitt Place -> 科比特老宅" not in run_setup
+    assert len(run_setup.splitlines()) <= 10
+    localization_appendix = section_text(battle_text, "## Localization Appendix")
+    assert "Ada King -> 艾达·金" in localization_appendix
+    assert "Mr. Knott -> 诺特先生" in localization_appendix
+    assert "The Old Corbitt Place -> 科比特老宅" in localization_appendix
     module_section = section_text(battle_text, "## Module")
     assert "- Opening Scene: 诺特先生" in battle_text
     assert "诺特先生在 1920 年的波士顿与艾达·金会面" in module_section
@@ -188,19 +195,37 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "地下室楼梯" in scene_replay
     assert "推骰地下室搜索" in scene_replay
     assert "以其人之物反制的线索" in scene_replay
+    assert "伤害: 5 HP" in scene_replay
+    assert "DEX 检定" in scene_replay
     assert_terms_absent(scene_replay, ["own-weapon clue", "three-Y eye symbol", "spare bedroom", "basement stairs", "pushed 地下室 search"])
+    assert_terms_absent(scene_replay, ["Damage:", "DEX roll"])
     assert "## Actual Play Replay" in battle_text
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_visible_terms_localized(actual_play, zh_terms)
     assert "诺特先生把一枚旧钥匙" in actual_play
+    assert "Turn 6 system: Persuade：艾达·金掷出 72 / 55，结果失败。" in actual_play
+    assert "Turn 42 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；Dodge：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
+    assert "Persuade 72 vs 55" not in actual_play
+    assert "regular_success" not in actual_play
+    assert "Corbitt POW 34 vs 90" not in actual_play
+    session_transcript = section_text(battle_text, "## Session Transcript")
+    assert "Turn 6 system: Persuade：艾达·金掷出 72 / 55，结果失败。" in session_transcript
+    assert "Turn 42 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；Dodge：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in session_transcript
+    assert "Persuade 72 vs 55" not in session_transcript
+    assert "regular_success" not in session_transcript
+    assert "Corbitt POW 34 vs 90" not in session_transcript
     visible_dialogue = "\n".join(visible_play_texts(run_dir))
     assert_visible_terms_localized(visible_dialogue, visible_scene_terms)
     assert_terms_absent(visible_dialogue, ["Regular difficulty", "pushed roll", "pushed rolls", "HP damage"])
+    assert_terms_absent(visible_dialogue, ["combined roll", "Obscure clue", " chapel "])
     assert_terms_absent(visible_dialogue, ["combat round", "Rewards", "Final HP", "Final SAN"])
     assert "难度为普通" not in visible_dialogue
     assert "普通难度" in visible_dialogue
     assert "推骰" in visible_dialogue
     assert "HP 伤害" in visible_dialogue
+    assert "联合检定" in visible_dialogue
+    assert "隐晦线索" in visible_dialogue
+    assert "教堂或科比特" in visible_dialogue
     assert "战斗轮" in visible_dialogue
     assert "奖励" in visible_dialogue
     assert "最终 HP" in visible_dialogue
@@ -254,7 +279,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert detail_count(rules_recap, "难度说明") == roll_event_count
     assert detail_count(rules_recap, "失败后果") == roll_event_count
     assert has_cjk(section_text(battle_text, "## Story Recap"))
-    assert has_cjk(section_text(battle_text, "## Player Feedback On KP"))
+    feedback = section_text(battle_text, "## Player Feedback On KP")
+    assert has_cjk(feedback)
+    assert "清单" in feedback
+    assert "checklist" not in feedback
     assert "The Haunting Module Playthrough" in battle_text
     assert "Mr. Knott" in battle_text
     assert "Arty Wilmot" in battle_text
@@ -280,7 +308,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "worm-eaten book" not in state_changes
     assert "worm-eaten book" not in story_recap
     assert "虫蛀书" in state_changes
-    assert "Damage: 5 HP" in battle_text
+    assert "伤害: 5 HP" in battle_text
+    assert "Damage: 5 HP" not in battle_text
     assert "最终 HP: 3" in battle_text
     assert "最终 SAN: 49" in battle_text
     assert "Player Feedback On KP" in battle_text
@@ -330,9 +359,16 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
-    assert "Ada King -> 艾达·金" in run_setup
-    assert "Nathaniel Crowe -> 内森尼尔·克劳" in run_setup
-    assert "ledger -> 账本" in run_setup
+    assert "Localized Terms: " in run_setup
+    assert "see Localization Appendix" in run_setup
+    assert "Ada King -> 艾达·金" not in run_setup
+    assert "Nathaniel Crowe -> 内森尼尔·克劳" not in run_setup
+    assert "ledger -> 账本" not in run_setup
+    assert len(run_setup.splitlines()) <= 10
+    localization_appendix = section_text(battle_text, "## Localization Appendix")
+    assert "Ada King -> 艾达·金" in localization_appendix
+    assert "Nathaniel Crowe -> 内森尼尔·克劳" in localization_appendix
+    assert "ledger -> 账本" in localization_appendix
     module_section = section_text(battle_text, "## Module")
     assert "- Opening Scene: 艾达·金" in battle_text
     assert "艾达·金发现内森尼尔·克劳带着账本离开印刷店" in module_section
@@ -352,7 +388,21 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "湿滑天窗" in scene_replay
     assert_terms_absent(scene_replay, ["print shop roof", "print-shop roof", "rain gutter", "locked roof door barrier", "slick 天窗"])
     assert "## Actual Play Replay" in battle_text
-    assert_visible_terms_localized(section_text(battle_text, "## Actual Play Replay"), zh_terms)
+    actual_play = section_text(battle_text, "## Actual Play Replay")
+    assert_visible_terms_localized(actual_play, zh_terms)
+    assert "Turn 4 system: Spot Hidden：艾达·金掷出 82 / 55，结果失败。" in actual_play
+    assert "Turn 9 system: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in actual_play
+    assert "Turn 18 system: Dodge：艾达·金掷出 19 / 35，结果普通成功；Fighting (Brawl)：内森尼尔·克劳掷出 62 / 45，结果失败。内森尼尔·克劳的短棍攻击落空。" in actual_play
+    assert "Turn 20 system: Locksmith：艾达·金掷出 21 / 30，结果普通成功；Stealth：艾达·金掷出 18 / 45，结果困难成功；Spot Hidden：内森尼尔·克劳掷出 77 / 40，结果失败。艾达·金带着账本逃脱。" in actual_play
+    assert "Pushed Spot Hidden 33" not in actual_play
+    assert "MOV remains" not in actual_play
+    assert "extreme_success" not in actual_play
+    session_transcript = section_text(battle_text, "## Session Transcript")
+    assert "Turn 4 system: Spot Hidden：艾达·金掷出 82 / 55，结果失败。" in session_transcript
+    assert "Turn 9 system: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in session_transcript
+    assert "Pushed Spot Hidden 33" not in session_transcript
+    assert "MOV remains" not in session_transcript
+    assert "extreme_success" not in session_transcript
     visible_dialogue = "\n".join(visible_play_texts(run_dir))
     assert_visible_terms_localized(visible_dialogue, visible_scene_terms)
     assert_terms_absent(
@@ -423,6 +473,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "rooftop 追逐" not in story_recap
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert has_cjk(feedback)
+    assert "规则裁定" in feedback
+    assert "rule decisions" not in feedback
     assert "escapes" not in feedback
     assert "逃脱" in feedback
     assert "save/chase.json" in battle_text

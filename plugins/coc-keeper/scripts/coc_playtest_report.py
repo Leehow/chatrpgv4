@@ -220,6 +220,42 @@ def _format_roll_recap(
     return "\n".join(lines)
 
 
+def _roll_recap_summary(recap: str) -> str:
+    first_line = recap.splitlines()[0] if recap.splitlines() else ""
+    return first_line.removeprefix("- ").strip()
+
+
+def _join_roll_recap_summaries(recaps: list[str]) -> str:
+    summaries = [_roll_recap_summary(recap) for recap in recaps if _roll_recap_summary(recap)]
+    if not summaries:
+        return ""
+    if len(summaries) == 1:
+        return summaries[0]
+    return "；".join(summary.rstrip("。") for summary in summaries) + "。"
+
+
+def _event_roll_count(event: dict[str, Any], remaining_rolls: int) -> int:
+    raw_count = event.get("roll_count", 1)
+    try:
+        count = int(raw_count)
+    except (TypeError, ValueError):
+        count = 1
+    count = max(1, count)
+    if remaining_rolls <= 0:
+        return 0
+    return min(count, remaining_rolls)
+
+
+def _format_roll_transcript_text(event: dict[str, Any], roll_recaps: list[str]) -> str | None:
+    if event.get("mode") != "roll" or not roll_recaps:
+        return None
+    text = _join_roll_recap_summaries(roll_recaps)
+    outcome_note = str(event.get("outcome_note", "")).strip()
+    if outcome_note:
+        text = f"{text}{outcome_note}" if text.endswith("。") else f"{text}。{outcome_note}"
+    return text
+
+
 def _display_actor(actor: str) -> str:
     if actor == "keeper_under_test":
         return "KP"
@@ -314,10 +350,14 @@ def _localized_terms(metadata: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def _format_localized_terms(terms: dict[str, str]) -> str:
+def _format_localized_terms_summary(terms: dict[str, str]) -> str:
     if not terms:
         return "none"
-    return ", ".join(f"{canonical} -> {localized}" for canonical, localized in sorted(terms.items()))
+    return f"{len(terms)} entries (see Localization Appendix)"
+
+
+def _format_localization_appendix(terms: dict[str, str]) -> list[str]:
+    return [f"- {canonical} -> {localized}" for canonical, localized in sorted(terms.items())]
 
 
 def _localize_text(text: Any, terms: dict[str, str]) -> str:
@@ -413,7 +453,7 @@ def _format_character(character: dict[str, Any], localized_terms: dict[str, str]
     return lines
 
 
-def _format_transcript_event(event: dict[str, Any]) -> list[str]:
+def _format_transcript_event(event: dict[str, Any], rendered_text: str | None = None) -> list[str]:
     role = event.get("role", "unknown")
     if role == "keeper_under_test":
         speaker = "KP"
@@ -423,7 +463,7 @@ def _format_transcript_event(event: dict[str, Any]) -> list[str]:
         speaker = event.get("speaker") or role
 
     turn = event.get("turn", "?")
-    text = event.get("text", "")
+    text = rendered_text if rendered_text is not None else event.get("text", "")
     lines = [f"- Turn {turn} {speaker}: {text}"]
     if event.get("mode"):
         lines.append(f"  - Mode: {event['mode']}")
@@ -432,7 +472,7 @@ def _format_transcript_event(event: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _format_actual_play_event(event: dict[str, Any]) -> list[str]:
+def _format_actual_play_event(event: dict[str, Any], rendered_text: str | None = None) -> list[str]:
     role = event.get("role", "unknown")
     if role == "keeper_under_test":
         speaker = "KP"
@@ -442,7 +482,7 @@ def _format_actual_play_event(event: dict[str, Any]) -> list[str]:
         speaker = event.get("speaker") or role
 
     turn = event.get("turn", "?")
-    text = event.get("text", "")
+    text = rendered_text if rendered_text is not None else event.get("text", "")
     if role in {"keeper_under_test", "player_simulator"}:
         lines = [f"- Turn {turn} {speaker}: \"{text}\""]
     else:
@@ -525,16 +565,23 @@ def generate_battle_report(run_dir: Path) -> Path:
         campaign.get("play_language"),
     )
 
-    transcript_lines: list[str] = []
-    actual_play_lines: list[str] = []
-    for event in transcript:
-        transcript_lines.extend(_format_transcript_event(event))
-        actual_play_lines.extend(_format_actual_play_event(event))
     actor_names = _localized_actor_names(characters, localized_terms)
     roll_recap_lines = [
         _format_roll_recap(event, actor_names, localized_terms, str(play_language))
         for event in rolls
     ]
+    transcript_lines: list[str] = []
+    actual_play_lines: list[str] = []
+    roll_cursor = 0
+    for event in transcript:
+        rendered_text = None
+        if str(play_language) == "zh-Hans" and event.get("mode") == "roll":
+            roll_count = _event_roll_count(event, len(roll_recap_lines) - roll_cursor)
+            recaps = roll_recap_lines[roll_cursor: roll_cursor + roll_count]
+            rendered_text = _format_roll_transcript_text(event, recaps)
+            roll_cursor += roll_count
+        transcript_lines.extend(_format_transcript_event(event, rendered_text))
+        actual_play_lines.extend(_format_actual_play_event(event, rendered_text))
     roll_lines = [_format_roll(event) for event in rolls]
     state_lines = [_format_state_event(event) for event in state_events]
     decision_lines = [
@@ -564,7 +611,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         f"- Dice Mode: {dice_mode}",
         f"- Spoiler Policy: {spoiler_policy}",
         f"- Play Language: {play_language}",
-        f"- Localized Terms: {_format_localized_terms(localized_terms)}",
+        f"- Localized Terms: {_format_localized_terms_summary(localized_terms)}",
         f"- Player Profile: {metadata.get('player_profile', 'unknown')}",
         "",
         "## Module",
@@ -618,6 +665,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         "",
         "## Player Feedback On KP",
         *_list_lines(feedback_lines, "- No player feedback recorded."),
+        "",
+        "## Localization Appendix",
+        *_list_lines(_format_localization_appendix(localized_terms), "- No localized terms recorded."),
         "",
     ]
     output.write_text("\n".join(body), encoding="utf-8")
