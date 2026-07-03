@@ -122,6 +122,44 @@ def battle_report_fixture() -> str:
         "## Character Dossier <!-- report-anchor: Character Dossier -->\n- Fixture character dossier.",
         "## Investigator Chronicle <!-- report-anchor: Investigator Chronicle -->\n- Fixture chronicle.",
         "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n- Fixture scene.",
+        "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n"
+        "- fixture keeper turn\n"
+        "- fixture player turn\n"
+        "- fixture reframed pushed action\n"
+        "- fixture keeper foreshadows pushed risk\n"
+        "- fixture confirms pushed risk\n"
+        "- fixture careful profile turn\n"
+        "- fixture reckless profile turn\n"
+        "- fixture skeptical rules profile turn\n"
+        "- fixture meta player question\n"
+        "- fixture meta keeper answer",
+        "## Session Transcript <!-- report-anchor: Session Transcript -->\n"
+        "- fixture keeper turn\n"
+        "- fixture player turn\n"
+        "- fixture reframed pushed action\n"
+        "- fixture keeper foreshadows pushed risk\n"
+        "- fixture confirms pushed risk\n"
+        "- fixture careful profile turn\n"
+        "- fixture reckless profile turn\n"
+        "- fixture skeptical rules profile turn\n"
+        "- fixture meta player question\n"
+        "- fixture meta keeper answer",
+        "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n- Fixture roll.",
+        "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n- Fixture chase tracker.",
+        "## Story Recap <!-- report-anchor: Story Recap -->\n- Fixture recap.",
+        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n- Fixture feedback.",
+    ]) + "\n"
+
+
+def battle_report_shell_with_required_anchors() -> str:
+    return "\n\n".join([
+        "# Battle Report <!-- report-anchor: Battle Report -->",
+        "## Run Setup <!-- report-anchor: Run Setup -->\n- Run ID: fixture",
+        "## Module <!-- report-anchor: Module -->\n- Scenario: fixture",
+        "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n- Fixture creation record.",
+        "## Character Dossier <!-- report-anchor: Character Dossier -->\n- Fixture character dossier.",
+        "## Investigator Chronicle <!-- report-anchor: Investigator Chronicle -->\n- Fixture chronicle.",
+        "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n- Fixture scene.",
         "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n- Fixture table turn.",
         "## Session Transcript <!-- report-anchor: Session Transcript -->\n- Fixture transcript.",
         "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n- Fixture roll.",
@@ -874,6 +912,35 @@ def test_completion_audit_fails_when_battle_report_missing_required_anchors(tmp_
     finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_anchors_missing")
     assert "Run Setup" in finding["missing_anchors"]
     assert "Mechanical Log" in finding["missing_anchors"]
+
+
+def test_completion_audit_fails_when_battle_report_omits_source_dialogue_text(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(run_dir / "artifacts" / "battle-report.md", battle_report_shell_with_required_anchors())
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_source_dialogue_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "fixture keeper turn" in finding["missing_dialogue_samples"]
+    assert "fixture player turn" in finding["missing_dialogue_samples"]
 
 
 def test_completion_audit_fails_when_suite_report_missing_required_sections(tmp_path):

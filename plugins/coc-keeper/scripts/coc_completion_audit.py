@@ -348,6 +348,34 @@ def _battle_report_anchor_findings(run_id: str, battle_report: str) -> list[dict
     )]
 
 
+def _battle_report_source_dialogue_findings(run_id: str, run_dir: Path, battle_report: str) -> list[dict[str, Any]]:
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    required_dialogue = [
+        row["text"].strip()
+        for row in transcript
+        if row.get("role") != "system"
+        and isinstance(row.get("text"), str)
+        and row["text"].strip()
+    ]
+    missing_dialogue = [
+        text
+        for text in required_dialogue
+        if text not in battle_report
+    ]
+    if not missing_dialogue:
+        return []
+    return [_finding(
+        "battle_report_source_dialogue_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_dialogue)} of {len(required_dialogue)} source dialogue turns from transcript.jsonl.",
+        "Regenerate battle-report.md so Actual Play Replay or Session Transcript renders the visible non-system transcript source text.",
+        run_id=run_id,
+        missing_dialogue_count=len(missing_dialogue),
+        required_dialogue_count=len(required_dialogue),
+        missing_dialogue_samples=missing_dialogue[:5],
+    )]
+
+
 def _markdown_headings(markdown: str) -> set[str]:
     return {
         line.strip()
@@ -1228,6 +1256,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
 
     battle_report = _read_text(artifacts_dir / "battle-report.md")
     findings.extend(_battle_report_anchor_findings(run_id, battle_report))
+    findings.extend(_battle_report_source_dialogue_findings(run_id, run_dir, battle_report))
 
     rulebook_audit = _read_text(artifacts_dir / "rulebook-audit.md")
     findings.extend(_rulebook_audit_section_findings(run_id, rulebook_audit))
