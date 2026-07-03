@@ -191,6 +191,10 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
             {"turn": 8, "role": "player_simulator", "speaker": "Reckless Player", "mode": "play", "player_profile": "reckless_investigator", "text": "fixture reckless profile turn"},
             {"turn": 9, "role": "player_simulator", "speaker": "Rules Player", "mode": "meta", "player_profile": "skeptical_rules_lawyer", "text": "fixture skeptical rules profile turn"},
         ])
+    transcript_rows.extend([
+        {"turn": 10, "role": "player_simulator", "speaker": "Rules Player", "mode": "meta", "text": "fixture meta player question"},
+        {"turn": 11, "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "text": "fixture meta keeper answer"},
+    ])
     write_jsonl(run_dir / "transcript.jsonl", transcript_rows)
     write_jsonl(run_dir / "player-view.jsonl", [
         {"view": "player", "type": "public_character_state", "campaign_id": run_id},
@@ -712,6 +716,44 @@ def test_completion_audit_fails_when_required_pushed_roll_source_evidence_is_mis
     assert "sandbox/.coc/campaigns/v2-haunting-module/logs/rolls.jsonl" in finding["incomplete_files"]
     assert "required pushed roll payload" in finding["missing_evidence"]
     assert "pushed roll transcript protocol" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_required_meta_game_source_evidence_is_missing(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    pushed_roll_id = "v2-haunting-module-pushed-roll"
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "fixture keeper turn"},
+        {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "investigate", "text": "fixture player turn"},
+        {"turn": 3, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "text": "fixture reframed pushed action", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "player_reframes_action"}},
+        {"turn": 4, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "fixture keeper foreshadows pushed risk", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "keeper_foreshadows_failure", "failure_consequence_source": "keeper"}},
+        {"turn": 5, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "text": "fixture confirms pushed risk", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "player_confirms_risk", "risk_confirmed": True}},
+        {"turn": 6, "role": "system", "speaker": "System", "mode": "roll", "text": "fixture pushed roll resolved", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "roll_resolved"}},
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_incomplete")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "transcript.jsonl" in finding["incomplete_files"]
+    assert "meta player question" in finding["missing_evidence"]
+    assert "meta keeper answer" in finding["missing_evidence"]
 
 
 def test_completion_audit_fails_when_multi_profile_source_lacks_required_player_profiles(tmp_path):

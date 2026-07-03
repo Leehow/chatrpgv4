@@ -76,6 +76,7 @@ PUSHED_ROLL_PROTOCOL_STAGES = [
 MULTI_PROFILE_SOURCE_REQUIREMENTS = {
     "multi_profile_pressure": ["careful_investigator", "reckless_investigator", "skeptical_rules_lawyer"],
 }
+META_GAME_REQUIRED_PROFILES = {"haunting_module", "chase_drill", "multi_profile_pressure"}
 REQUIRED_EVALUATION_REPORT_SECTIONS = [
     "# Evaluation Report",
     "## Overall Result",
@@ -944,6 +945,45 @@ def _multi_profile_structure_findings(run_id: str, run_dir: Path, audit_profile:
     )]
 
 
+def _meta_game_structure_findings(run_id: str, run_dir: Path, audit_profile: str) -> list[dict[str, Any]]:
+    if audit_profile not in META_GAME_REQUIRED_PROFILES:
+        return []
+
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    has_meta_player_question = any(
+        row.get("mode") == "meta"
+        and row.get("role") == "player_simulator"
+        and isinstance(row.get("text"), str)
+        and row["text"].strip()
+        for row in transcript
+    )
+    has_meta_keeper_answer = any(
+        row.get("mode") == "meta"
+        and row.get("role") == "keeper_under_test"
+        and isinstance(row.get("text"), str)
+        and row["text"].strip()
+        for row in transcript
+    )
+
+    missing_evidence: list[str] = []
+    if not has_meta_player_question:
+        missing_evidence.append("meta player question")
+    if not has_meta_keeper_answer:
+        missing_evidence.append("meta keeper answer")
+    if not missing_evidence:
+        return []
+
+    return [_finding(
+        "active_run_source_files_incomplete",
+        "test_gap",
+        f"{run_id} transcript.jsonl lacks required meta-game source evidence: {', '.join(missing_evidence)}.",
+        "Regenerate the active run so transcript.jsonl includes separated meta-mode player questions and Keeper answers with visible text.",
+        run_id=run_id,
+        incomplete_files=["transcript.jsonl"],
+        missing_evidence=missing_evidence,
+    )]
+
+
 def _investigator_structure_findings(run_id: str, investigator_dir: Path, investigator_prefix: str) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     missing_evidence: list[str] = []
@@ -1110,6 +1150,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_source_structure_findings(run_id, run_dir))
     findings.extend(_pushed_roll_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))
     findings.extend(_multi_profile_structure_findings(run_id, run_dir, audit_profile))
+    findings.extend(_meta_game_structure_findings(run_id, run_dir, audit_profile))
     return findings
 
 
