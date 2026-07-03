@@ -16,6 +16,14 @@ coc_playtest_harness = load_module("coc_playtest_harness", "plugins/coc-keeper/s
 coc_playtest_suite = load_module("coc_playtest_suite", "plugins/coc-keeper/scripts/coc_playtest_suite.py")
 
 
+def llm_semantic_provenance():
+    return {
+        "kind": "llm",
+        "request_sha256": "fixture-request-sha256",
+        "reviewed_artifact": "artifacts/semantic-eval-request.json",
+    }
+
+
 def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="v2-haunting-module")
     coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="v3-chase-drill")
@@ -186,11 +194,17 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
         "schema_version",
         "run_id",
         "evaluator_id",
+        "evaluation_provenance",
         "coverage",
         "quality",
         "root_cause_classification",
         "next_loop_fix_target",
     ]
+    assert request["expected_output_schema"]["evaluation_provenance"] == {
+        "kind": "llm",
+        "request_sha256": "canonical SHA-256 hash of this semantic-eval-request.json",
+        "reviewed_artifact": "artifacts/semantic-eval-request.json",
+    }
 
 
 def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
@@ -211,6 +225,7 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
         "schema_version": 1,
         "run_id": "semantic-artifact-run",
         "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance(),
         "coverage": {
             key: {
                 "covered": True,
@@ -296,6 +311,7 @@ def test_suite_report_requires_explicit_semantic_quality_passed_flag(tmp_path):
         "schema_version": 1,
         "run_id": "semantic-artifact-run",
         "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance(),
         "coverage": {
             key: {"covered": True, "reason": f"{key} covered by fixture."}
             for key in coc_playtest_suite.CORE_COVERAGE
@@ -340,6 +356,7 @@ def test_suite_report_requires_structured_semantic_coverage_reason(tmp_path):
         "schema_version": 1,
         "run_id": "semantic-artifact-run",
         "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance(),
         "coverage": coverage,
         "quality": {
             key: {"score": 4, "passed": True, "reason": f"{key} passed by fixture."}
@@ -379,6 +396,7 @@ def test_suite_report_requires_semantic_result_loop_fields(tmp_path):
         "schema_version": 1,
         "run_id": "semantic-artifact-run",
         "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance(),
         "coverage": {
             key: {"covered": True, "reason": f"{key} covered by fixture."}
             for key in coc_playtest_suite.CORE_COVERAGE
@@ -402,6 +420,49 @@ def test_suite_report_requires_semantic_result_loop_fields(tmp_path):
     assert "root_cause_classification" in index["loop_decision"]["blockers"][0]["next_loop_fix_target"]
 
 
+def test_suite_report_requires_llm_semantic_evaluator_provenance(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "semantic-artifact-run"
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "semantic-artifact-run",
+        "campaign_title": "Semantic Artifact Fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": "semantic_fixture",
+        "player_profile": "careful_investigator",
+    }))
+    (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "semantic-artifact-run",
+        "evaluator_id": "fixture-semantic-evaluator",
+        "coverage": {
+            key: {"covered": True, "reason": f"{key} covered by fixture."}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": {
+            key: {"score": 4, "passed": True, "reason": f"{key} passed by fixture."}
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        },
+        "root_cause_classification": ["test_gap"],
+        "next_loop_fix_target": "Regenerate semantic-eval-result.json with LLM provenance.",
+    }))
+
+    coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["blockers"][0]["type"] == "semantic_artifact_schema_invalid"
+    assert index["loop_decision"]["blockers"][0]["run_id"] == "semantic-artifact-run"
+    target = index["loop_decision"]["blockers"][0]["next_loop_fix_target"]
+    assert "evaluator_id" in target
+    assert "evaluation_provenance" in target
+
+
 def test_suite_report_flags_missing_virtual_player_pressure_quality(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "single-profile-run"
     artifacts_dir = run_dir / "artifacts"
@@ -419,6 +480,7 @@ def test_suite_report_flags_missing_virtual_player_pressure_quality(tmp_path):
         "schema_version": 1,
         "run_id": "single-profile-run",
         "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance(),
         "coverage": {
             key: {"covered": True, "reason": f"{key} covered by fixture."}
             for key in coc_playtest_suite.CORE_COVERAGE
@@ -474,6 +536,7 @@ def test_loop_decision_ignores_historical_baseline_missing_semantic_result(tmp_p
         "schema_version": 1,
         "run_id": "active-module",
         "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance(),
         "coverage": {
             key: {"covered": True, "reason": f"{key} covered by active run."}
             for key in coc_playtest_suite.CORE_COVERAGE

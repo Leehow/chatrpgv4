@@ -33,6 +33,7 @@ QUALITY_DIMENSIONS = {
 
 SEMANTIC_EVAL_REQUEST = "semantic-eval-request.json"
 SEMANTIC_EVAL_RESULT = "semantic-eval-result.json"
+LLM_SEMANTIC_EVALUATOR_ID = "codex-llm-semantic-v1"
 
 
 class CoverageContext:
@@ -164,6 +165,16 @@ class SemanticArtifactCoverageEvaluator:
         if payload.get("run_id") != context.run_id:
             raise ValueError(f"{result_path} run_id must be {context.run_id}")
         schema_errors: list[str] = []
+        if payload.get("evaluator_id") != LLM_SEMANTIC_EVALUATOR_ID:
+            schema_errors.append("evaluator_id")
+        provenance = payload.get("evaluation_provenance")
+        if not isinstance(provenance, dict) or not provenance:
+            schema_errors.append("evaluation_provenance")
+        else:
+            if provenance.get("kind") != "llm":
+                schema_errors.append("evaluation_provenance.kind")
+            if not isinstance(provenance.get("request_sha256"), str) or not provenance.get("request_sha256"):
+                schema_errors.append("evaluation_provenance.request_sha256")
         if "root_cause_classification" not in payload:
             schema_errors.append("root_cause_classification")
         elif not isinstance(payload.get("root_cause_classification"), list):
@@ -600,11 +611,17 @@ def _semantic_eval_request(context: CoverageContext) -> dict[str, Any]:
                 "schema_version",
                 "run_id",
                 "evaluator_id",
+                "evaluation_provenance",
                 "coverage",
                 "quality",
                 "root_cause_classification",
                 "next_loop_fix_target",
             ],
+            "evaluation_provenance": {
+                "kind": "llm",
+                "request_sha256": "canonical SHA-256 hash of this semantic-eval-request.json",
+                "reviewed_artifact": f"artifacts/{SEMANTIC_EVAL_REQUEST}",
+            },
             "coverage_value": {
                 "covered": "boolean",
                 "reason": "short semantic justification based on evidence, not keyword matching",
