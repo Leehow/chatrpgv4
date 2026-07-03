@@ -498,14 +498,16 @@ Automated and semi-automated tests write to `.coc/playtests/` so they do not pol
         ├── transcript.jsonl
         ├── keeper-view.jsonl
         ├── player-view.jsonl
+        ├── player-feedback.jsonl
         ├── evaluator-notes.jsonl
         ├── state-diffs/
         ├── artifacts/
         │   ├── battle-report.md
         │   └── evaluation-report.md
         └── sandbox/
-            ├── investigators/
-            └── campaigns/
+            └── .coc/
+                ├── investigators/
+                └── campaigns/
 ```
 
 Playtest data is disposable by default. Any investigator or campaign created inside `sandbox/` must not be promoted into the real `.coc/investigators/` or `.coc/campaigns/` folders unless the user explicitly requests it.
@@ -937,22 +939,22 @@ Required sections:
 ```text
 # Battle Report
 
-## Run Metadata
-## Scenario Under Test
-## Simulated Player Profile
-## Session Timeline
+## Run Setup
+## Module
+## Character Dossier
+## Session Transcript
 ## Major Player Decisions
-## Important Rolls
+## Mechanical Log
 ## Combat Summary
 ## Chase Summary
 ## Sanity Summary
 ## Clues Found
-## State Changes
 ## Session Ending
-## Player-Safe Recap
+## Story Recap
+## Player Feedback On KP
 ```
 
-The battle report should read like a detailed actual-play recap and should avoid exposing Keeper-only material unless the report is explicitly marked as evaluator-only.
+The battle report should read like a detailed actual-play replay. It should identify the campaign, module, reusable investigators, key parameters, virtual player utterances, KP utterances, mechanical rolls, durable state changes, story memory, and player feedback on the KP experience. It should avoid exposing Keeper-only material unless the report is explicitly marked as evaluator-only.
 
 ### Evaluation Report Output
 

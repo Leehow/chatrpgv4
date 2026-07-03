@@ -69,3 +69,23 @@ def test_reference_documents_exist_and_use_ascii_system_markers():
         assert "[spoiler_warning]" in text or name != "mode-protocol.md"
         for marker in ["[超游]", "[剧透警告]", "[回到游戏]"]:
             assert marker not in text
+
+
+def test_coc_playtest_skill_documents_battle_report_inputs():
+    text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    required_terms = [
+        "campaign.json",
+        "party.json",
+        "scenario.json",
+        "character.json",
+        "transcript.jsonl",
+        "rolls.jsonl",
+        "events.jsonl",
+        "session-summaries.jsonl",
+        "player-feedback.jsonl",
+        "## Run Setup",
+        "## Character Dossier",
+        "## Player Feedback On KP",
+    ]
+    for term in required_terms:
+        assert term in text
