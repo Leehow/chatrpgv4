@@ -19,10 +19,11 @@ they do not choose one, set `play_language` to `zh-Hans`. Persist the matching
 `language_profile` so resumed campaigns keep the same output instruction,
 name policy, term policy, and report labels.
 
-Player-visible narration, NPC speech, player prompts, recaps, and report prose
-follow `play_language`. Event-level `localized_text[play_language]` is the
-preferred player-visible rendering when present; otherwise use
-`localized_terms[play_language]` to localize names, setting terms, and skill display names. For
+Player-visible narration, NPC speech, player prompts, player-view transcript
+text, recaps, and report prose follow `play_language`. Event-level
+`localized_text[play_language]` is the preferred player-visible rendering when
+present; otherwise use `localized_terms[play_language]` to localize names,
+setting terms, and skill display names. For
 `zh-Hans`, foreign names, places, factions, handouts, campaign titles,
 scenario titles, player-visible module source labels, player-visible skill display names, and special terms should
 use `localized_terms` with Chinese transliterations or conventional translated names.
@@ -36,7 +37,7 @@ KP, player, and system. `language_profile.transcript_mode_labels` stores
 player-visible mode values such as play, roll, and meta while transcript JSON
 keeps the canonical enum values.
 
-Keep machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text stable. Do not translate those fields even when ordinary dialogue is Chinese; render player-visible skill display names through `localized_terms`.
+Keep machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text stable. Stored transcript payload fields also stay canonical. Do not translate those fields even when ordinary dialogue is Chinese; render player-visible skill display names, system roll summaries, success-level labels, and difficulty labels in `player-view.jsonl` through `play_language`.
 
 ## Roles
 
