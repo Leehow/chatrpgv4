@@ -66,6 +66,13 @@ PROFILE_EVENT_TYPE_REQUIREMENTS = {
     "chase_drill": ["chase", "status", "session_ending"],
     "multi_profile_pressure": ["decision", "status", "session_ending"],
 }
+PUSHED_ROLL_REQUIRED_PROFILES = {"haunting_module", "chase_drill", "multi_profile_pressure"}
+PUSHED_ROLL_PROTOCOL_STAGES = [
+    "player_reframes_action",
+    "keeper_foreshadows_failure",
+    "player_confirms_risk",
+    "roll_resolved",
+]
 REQUIRED_EVALUATION_REPORT_SECTIONS = [
     "# Evaluation Report",
     "## Overall Result",
@@ -796,6 +803,89 @@ def _campaign_structure_findings(
     return findings
 
 
+def _pushed_roll_structure_findings(
+    run_id: str,
+    run_dir: Path,
+    campaign_dir: Path,
+    campaign_prefix: str,
+    audit_profile: str,
+) -> list[dict[str, Any]]:
+    if audit_profile not in PUSHED_ROLL_REQUIRED_PROFILES:
+        return []
+
+    findings: list[dict[str, Any]] = []
+    missing_evidence: list[str] = []
+    incomplete_files: list[str] = []
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
+    rolls_file = f"{campaign_prefix}logs/rolls.jsonl"
+
+    pushed_payloads = [
+        row["payload"]
+        for row in rolls
+        if isinstance(row.get("payload"), dict)
+        and (
+            row["payload"].get("pushed") is True
+            or isinstance(row["payload"].get("pushed_roll_protocol"), dict)
+        )
+    ]
+
+    complete_roll_ids: list[str] = []
+    for payload in pushed_payloads:
+        protocol = payload.get("pushed_roll_protocol")
+        if not isinstance(protocol, dict):
+            continue
+        roll_id = protocol.get("roll_id")
+        if (
+            isinstance(roll_id, str)
+            and roll_id.strip()
+            and protocol.get("failure_consequence_source") == "keeper"
+            and protocol.get("keeper_foreshadowed_failure") is True
+            and protocol.get("player_confirmation_recorded") is True
+        ):
+            complete_roll_ids.append(roll_id)
+
+    if not pushed_payloads:
+        missing_evidence.append("required pushed roll payload")
+    if not complete_roll_ids:
+        missing_evidence.append("pushed roll payload protocol")
+
+    transcript_roll_ids = set()
+    for roll_id in complete_roll_ids:
+        stages = [
+            row["pushed_roll_protocol"].get("stage")
+            for row in transcript
+            if isinstance(row.get("pushed_roll_protocol"), dict)
+            and row["pushed_roll_protocol"].get("roll_id") == roll_id
+        ]
+        stage_index = 0
+        for stage in stages:
+            if stage_index < len(PUSHED_ROLL_PROTOCOL_STAGES) and stage == PUSHED_ROLL_PROTOCOL_STAGES[stage_index]:
+                stage_index += 1
+        if stage_index == len(PUSHED_ROLL_PROTOCOL_STAGES):
+            transcript_roll_ids.add(roll_id)
+
+    if not transcript_roll_ids:
+        missing_evidence.append("pushed roll transcript protocol")
+
+    if "required pushed roll payload" in missing_evidence or "pushed roll payload protocol" in missing_evidence:
+        incomplete_files.append(rolls_file)
+    if "pushed roll transcript protocol" in missing_evidence:
+        incomplete_files.append("transcript.jsonl")
+
+    if missing_evidence:
+        findings.append(_finding(
+            "active_run_source_files_incomplete",
+            "test_gap",
+            f"{run_id} pushed-roll source files lack required evidence: {', '.join(missing_evidence)}.",
+            "Regenerate the active run so pushed rolls record Keeper-owned consequences, player confirmation, roll ids, and ordered transcript protocol stages.",
+            run_id=run_id,
+            incomplete_files=incomplete_files,
+            missing_evidence=missing_evidence,
+        ))
+    return findings
+
+
 def _investigator_structure_findings(run_id: str, investigator_dir: Path, investigator_prefix: str) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     missing_evidence: list[str] = []
@@ -960,6 +1050,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             malformed_files=malformed_files,
         ))
     findings.extend(_source_structure_findings(run_id, run_dir))
+    findings.extend(_pushed_roll_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))
     return findings
 
 

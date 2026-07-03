@@ -176,9 +176,14 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         },
         "localized_terms": {"zh-Hans": {"Ada King": "艾达·金"}},
     })
+    pushed_roll_id = f"{run_id}-pushed-roll"
     write_jsonl(run_dir / "transcript.jsonl", [
         {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "open_scene", "text": "fixture keeper turn"},
         {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "investigate", "text": "fixture player turn"},
+        {"turn": 3, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "text": "fixture reframed pushed action", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "player_reframes_action"}},
+        {"turn": 4, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "fixture keeper foreshadows pushed risk", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "keeper_foreshadows_failure", "failure_consequence_source": "keeper"}},
+        {"turn": 5, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "text": "fixture confirms pushed risk", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "player_confirms_risk", "risk_confirmed": True}},
+        {"turn": 6, "role": "system", "speaker": "System", "mode": "roll", "text": "fixture pushed roll resolved", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "roll_resolved"}},
     ])
     write_jsonl(run_dir / "player-view.jsonl", [
         {"view": "player", "type": "public_character_state", "campaign_id": run_id},
@@ -218,6 +223,23 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     })
     write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "target": 55, "roll": 33, "outcome": "regular_success"}},
+        {
+            "type": "roll",
+            "actor": investigator_id,
+            "payload": {
+                "skill": "Spot Hidden",
+                "target": 55,
+                "roll": 22,
+                "outcome": "hard_success",
+                "pushed": True,
+                "pushed_roll_protocol": {
+                    "roll_id": pushed_roll_id,
+                    "failure_consequence_source": "keeper",
+                    "keeper_foreshadowed_failure": True,
+                    "player_confirmation_recorded": True,
+                },
+            },
+        },
     ])
     event_rows = [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"summary": "fixture scene"}},
@@ -638,6 +660,44 @@ def test_completion_audit_fails_when_roll_log_lacks_dice_target_and_outcome(tmp_
     assert finding["run_id"] == "v2-haunting-module"
     assert "sandbox/.coc/campaigns/v2-haunting-module/logs/rolls.jsonl" in finding["incomplete_files"]
     assert "mechanical roll result" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_required_pushed_roll_source_evidence_is_missing(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "v2-haunting-module"
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "fixture keeper turn"},
+        {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "investigate", "text": "fixture player turn"},
+    ])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
+        {"type": "roll", "actor": "fixture", "payload": {"skill": "Spot Hidden", "target": 55, "roll": 33, "outcome": "regular_success"}},
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_incomplete")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "transcript.jsonl" in finding["incomplete_files"]
+    assert "sandbox/.coc/campaigns/v2-haunting-module/logs/rolls.jsonl" in finding["incomplete_files"]
+    assert "required pushed roll payload" in finding["missing_evidence"]
+    assert "pushed roll transcript protocol" in finding["missing_evidence"]
 
 
 def test_completion_audit_fails_when_investigator_sources_lack_reusable_character_evidence(tmp_path):
