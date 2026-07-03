@@ -84,7 +84,8 @@ def test_mode_protocol_documents_play_language_and_localized_terms():
         "campaign titles",
         "player-visible module source labels",
         "empty_report_lines",
-        "machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text",
+        "player-visible skill display names",
+        "machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text",
     ]
     for term in required_terms:
         assert term in text
@@ -103,7 +104,8 @@ def test_design_blueprint_documents_play_language_and_localized_terms():
         "campaign titles",
         "player-visible module source labels",
         "empty_report_lines",
-        "machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text",
+        "player-visible skill display names",
+        "machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text",
     ]
     for term in required_terms:
         assert term in text
@@ -168,6 +170,7 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "character_dossier_labels_not_localized",
         "character_dossier_derived_labels_not_localized",
         "character_dossier_terms_not_localized",
+        "report_skill_names_not_localized",
         "report_state_ids_not_localized",
         "report_memory_ids_not_localized",
         "report_event_type_labels_not_localized",
@@ -200,6 +203,7 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "test_gap",
         "system_gap",
         "report_gap",
+        "report_skill_names_not_localized",
         "Blueprint Cross-Check",
         "Next Loop Fix Target",
     ]

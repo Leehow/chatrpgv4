@@ -22,9 +22,9 @@ name policy, term policy, and report labels.
 Player-visible narration, NPC speech, player prompts, recaps, and report prose
 follow `play_language`. Event-level `localized_text[play_language]` is the
 preferred player-visible rendering when present; otherwise use
-`localized_terms[play_language]` to localize names and setting terms. For
+`localized_terms[play_language]` to localize names, setting terms, and skill display names. For
 `zh-Hans`, foreign names, places, factions, handouts, campaign titles,
-scenario titles, player-visible module source labels, and special terms should
+scenario titles, player-visible module source labels, player-visible skill display names, and special terms should
 use `localized_terms` with Chinese transliterations or conventional translated names.
 For other languages, use customary local forms for that language.
 
@@ -32,7 +32,7 @@ For other languages, use customary local forms for that language.
 report states such as no combat, no chase, no chase tracker, or no sanity
 events in the selected language.
 
-Keep machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text stable. Do not translate those fields even when ordinary dialogue is Chinese.
+Keep machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text stable. Do not translate those fields even when ordinary dialogue is Chinese; render player-visible skill display names through `localized_terms`.
 
 ## Roles
 

@@ -939,6 +939,65 @@ def _character_dossier_term_leaks(battle_report: str, metadata: dict[str, Any]) 
     return _unlocalized_terms_in_text("\n".join(narrative_lines), _localized_terms(metadata))
 
 
+def _add_skill_name(skills: set[str], value: Any) -> None:
+    if value in (None, "", [], {}):
+        return
+    text = str(value)
+    skills.add(text)
+    for part in re.split(r"/", text):
+        part = part.strip()
+        if part:
+            skills.add(part)
+
+
+def _context_skill_names(context: dict[str, Any]) -> list[str]:
+    skills: set[str] = set()
+    for character in context["characters"]:
+        character_skills = character.get("skills", {})
+        if isinstance(character_skills, dict):
+            for skill in character_skills:
+                _add_skill_name(skills, skill)
+    for roll in context["rolls"]:
+        payload = roll.get("payload", {})
+        if isinstance(payload, dict):
+            _add_skill_name(skills, payload.get("skill"))
+    location_chain = context["chase_state"].get("location_chain", [])
+    if isinstance(location_chain, list):
+        for location in location_chain:
+            if isinstance(location, dict):
+                _add_skill_name(skills, location.get("skill"))
+    return sorted(skills, key=len, reverse=True)
+
+
+def _report_skill_name_leaks(battle_report: str, metadata: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    terms = _localized_terms(metadata)
+    localized_skills = [
+        skill
+        for skill in _context_skill_names(context)
+        if skill in terms and terms[skill] != skill
+    ]
+    if not localized_skills:
+        return []
+    headings = [
+        "Character Dossier",
+        "Investigator Chronicle",
+        "Actual Play Replay",
+        "Session Transcript",
+        "Rules & Rolls Recap",
+        "Chase Tracker",
+    ]
+    leaks: list[str] = []
+    for heading in headings:
+        section = _section_text(battle_report, heading)
+        for skill in localized_skills:
+            if skill in section:
+                leaks.append(f"{heading}:{skill}")
+    return sorted(set(leaks))
+
+
 def _profile_ids(metadata: dict[str, Any]) -> list[str]:
     ids: list[str] = []
     for profile_id in metadata.get("player_profiles_tested", []):
@@ -1250,7 +1309,7 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "system_gap",
             "high",
             "Visible KP/player dialogue still contains canonical glossary terms: " + ", ".join(unlocalized_visible_terms),
-            "Render player-visible names and setting terms through play_language localized_terms while preserving canonical ids, JSON keys, skills, and enum values.",
+            "Render player-visible names, setting terms, and skill display names through play_language localized_terms while preserving canonical ids, JSON keys, canonical skill keys, and enum values.",
         ))
 
     roll_gaps = _roll_protocol_gaps(context["rolls"])
@@ -1400,6 +1459,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Active localized Character Dossier leaks canonical glossary terms: " + ", ".join(character_term_leaks),
             "Render Character Dossier values through localized_terms for the selected play_language.",
+        ))
+    skill_name_leaks = _report_skill_name_leaks(battle_report, metadata, context)
+    if active_profile and skill_name_leaks:
+        findings.append(_finding(
+            "report_skill_names_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized player-visible report sections expose canonical skill names: "
+            + ", ".join(skill_name_leaks),
+            "Render player-visible skill display names through localized_terms while preserving canonical skill keys in JSON and Mechanical Log.",
         ))
     transcript_label_gaps = _transcript_label_gaps(battle_report, metadata)
     if active_profile and transcript_label_gaps:

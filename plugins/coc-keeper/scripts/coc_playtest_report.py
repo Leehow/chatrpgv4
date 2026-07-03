@@ -204,7 +204,7 @@ def _format_roll_recap(
     outcome_labels = language_profile.get("outcome_labels", {})
     difficulty_labels = language_profile.get("difficulty_labels", {})
     allow_raw_fallback = bool(language_profile.get("raw_payload_fallback"))
-    skill = payload.get("skill", "check")
+    skill = _display_skill_name(payload.get("skill", "check"), localized_terms)
     actor = _display_roll_actor(event.get("actor", "unknown"), actor_names)
     roll = payload.get("roll", "?")
     target = payload.get("effective_target", payload.get("target", "?"))
@@ -549,6 +549,10 @@ def _localize_text(text: Any, terms: dict[str, str]) -> str:
     return CJK_BOUNDARY_SPACE.sub("", localized)
 
 
+def _display_skill_name(skill: Any, localized_terms: dict[str, str]) -> str:
+    return _localize_text(skill, localized_terms)
+
+
 def _party_investigator_ids(party: dict[str, Any]) -> list[str]:
     ids: list[str] = []
     for key in ("investigator_ids", "active_investigator_ids", "investigators", "members"):
@@ -704,7 +708,13 @@ def _format_character(
             lambda key: _character_dossier_label(profile, key),
         )
     )
-    lines.append(f"  - {_character_dossier_label(profile, 'Skills')}: " + _format_key_values(character.get("skills", {})))
+    lines.append(
+        f"  - {_character_dossier_label(profile, 'Skills')}: "
+        + _format_key_values(
+            character.get("skills", {}),
+            label_for_key=lambda key: _display_skill_name(key, terms),
+        )
+    )
     lines.extend(_format_backstory(character.get("backstory"), terms, profile))
     return lines
 
@@ -1016,7 +1026,11 @@ def _format_chase_location(
         (
             _localized_rule_value(location[field], difficulty_labels, localized_terms)
             if field == "difficulty"
-            else _chase_tracker_value(location[field], localized_terms, language_profile)
+            else (
+                _display_skill_name(location[field], localized_terms)
+                if field == "skill"
+                else _chase_tracker_value(location[field], localized_terms, language_profile)
+            )
         )
         for field in ["label", "difficulty", "skill"]
         if location.get(field) not in (None, "", [], {})

@@ -1501,6 +1501,73 @@ def test_active_audit_rejects_unlocalized_character_dossier_terms(tmp_path):
     assert "character_dossier_terms_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_player_visible_skill_names(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-skill-names"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata["localized_terms"] = {
+        "zh-Hans": {
+            "Ada King": "艾达·金",
+            "Antiquarian": "古物学者",
+            "Library Use": "图书馆使用",
+            "Spot Hidden": "侦查",
+        }
+    }
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Run Setup / 运行设置\n"
+        "- Campaign: The Haunting（战役）\n"
+        "- Play Language: zh-Hans（游玩语言）\n"
+        "- Player Profile: careful_investigator（玩家画像）\n\n"
+        "## Module / 模组\n"
+        "- Scenario: The Haunting（模组）\n"
+        "- Opening Scene: 诺特先生给出委托。（开场场景）\n\n"
+        "## Character Dossier / 角色档案\n"
+        "- 艾达·金 (ada-king)\n"
+        "  - 职业: 古物学者\n"
+        "  - 年代: 1920s\n"
+        "  - 属性: STR: 60\n"
+        "  - 衍生值: HP: 12\n"
+        "  - 技能: Library Use: 60; Spot Hidden: 55\n"
+        "  - 背景:\n"
+        "    - 描述: 艾达·金是一名古物学者。\n"
+        "    - 信念/理念: 公开记录能让真相开口。\n\n"
+        "## Investigator Chronicle / 调查员经历\n"
+        "- 经历: 艾达完成档案调查。\n"
+        "  - 获得成长标记: Library Use; Spot Hidden\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- 诺特先生给出委托，艾达选择先查资料。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- 第 1 轮 system: Library Use：艾达·金掷出 42 / 60，结果困难成功。\n\n"
+        "## Session Transcript / 会话记录\n"
+        "- 第 1 轮 system: Library Use：艾达·金掷出 42 / 60，结果困难成功。\n"
+        "  - 模式: roll\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Rules & Rolls Recap / 规则与掷骰回顾\n"
+        "- Library Use：艾达·金掷出 42 / 60，结果困难成功。\n"
+        "  - 成长标记：是\n"
+        "- Spot Hidden：艾达·金掷出 83 / 55，结果失败。\n"
+        "  - 成长标记：否\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- KP 清晰度: 5 - KP 解释清楚。\n\n"
+        "## Mechanical Log\n"
+        "- Library Use: ada-king rolled 42 vs 60 -> regular_success\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "report_skill_names_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_requires_investigator_backstory_fields(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
     create_final_rulebook_run(run_dir)

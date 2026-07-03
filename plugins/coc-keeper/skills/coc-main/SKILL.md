@@ -30,4 +30,4 @@ Do not proactively offer COC mode during ordinary Codex work.
 - Use ASCII system markers only.
 - Use `[spoiler_warning]` before revealing Keeper-only information.
 - Treat rules JSON as the runtime authority for common calculations.
-- Render player-visible dialogue in `play_language`; keep machine markers, JSON keys, skill names, rule enum values, and roll text stable.
+- Render player-visible dialogue and skill display names in `play_language`; keep machine markers, JSON keys, canonical skill keys, rule enum values, and Mechanical Log roll text stable.

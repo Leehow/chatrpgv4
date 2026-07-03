@@ -97,6 +97,7 @@ def assert_zh_hans_locale(metadata: dict, required_terms: dict[str, str]) -> Non
     assert metadata["play_language"] == "zh-Hans"
     assert metadata["language_profile"]["language"] == "zh-Hans"
     assert "localized_terms.zh-Hans" in metadata["language_profile"]["term_policy"]
+    assert "player-visible skill display names" in metadata["language_profile"]["term_policy"]
     glossary = metadata["localized_terms"]["zh-Hans"]
     for canonical, localized in required_terms.items():
         assert glossary[canonical] == localized
@@ -106,6 +107,20 @@ def assert_visible_terms_localized(text: str, required_terms: dict[str, str]) ->
     for canonical, localized in required_terms.items():
         assert localized in text
         assert canonical not in text
+
+
+ZH_SKILL_TERMS = {
+    "Persuade": "说服",
+    "Library Use": "图书馆使用",
+    "Spot Hidden": "侦查",
+    "Dodge": "闪避",
+    "Fighting (Brawl)": "格斗（斗殴）",
+    "Locksmith": "锁匠",
+    "Stealth": "潜行",
+    "Charm": "魅惑",
+    "Climb": "攀爬",
+    "Psychology": "心理学",
+}
 
 
 def assert_terms_absent(text: str, canonical_terms: list[str]) -> None:
@@ -322,7 +337,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Module coverage: 10/10" in audit_text
     assert "Bout of Madness events: 1" in audit_text
     assert "temporary_insanity_triggered markers: 1" in audit_text
-    assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms)
+    assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
     assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
@@ -363,6 +378,16 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "珍贵物品: 裂柄铜放大镜" in character_dossier
     assert "特质: 谨慎记笔记" in character_dossier
     assert "Ada King" not in character_dossier
+    assert "说服: 55" in character_dossier
+    assert "图书馆使用: 60" in character_dossier
+    assert "侦查: 55" in character_dossier
+    assert "闪避: 25" in character_dossier
+    assert "格斗（斗殴）: 40" in character_dossier
+    assert "Persuade: 55" not in character_dossier
+    assert "Library Use: 60" not in character_dossier
+    assert "Spot Hidden: 55" not in character_dossier
+    assert "Dodge: 25" not in character_dossier
+    assert "Fighting (Brawl): 40" not in character_dossier
     assert investigator_jsonl(run_dir, "ada-king-haunting", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-haunting", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")
@@ -370,7 +395,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "艾达·金在《鬼屋》中幸存" in chronicle
     assert "最终 HP: 3" in chronicle
     assert "最终 SAN: 49" in chronicle
-    assert "获得成长标记: Persuade; Library Use; Spot Hidden; Dodge; Fighting (Brawl)" in chronicle
+    assert "获得成长标记: 说服; 图书馆使用; 侦查; 闪避; 格斗（斗殴）" in chronicle
     assert "继承备注: 下次导入前先结算成长检定" in chronicle
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
@@ -405,9 +430,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         ["ask terms and immediate leads", "no_roll_needed", "ask 推骰-roll ruling", "pushed_roll_explanation"],
     )
     assert "诺特先生把一枚旧钥匙" in actual_play
-    assert "第 6 轮 system: Persuade：艾达·金掷出 72 / 55，结果失败。" in actual_play
-    assert "第 42 轮 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；Dodge：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
+    assert "第 6 轮 system: 说服：艾达·金掷出 72 / 55，结果失败。" in actual_play
+    assert "第 42 轮 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
     assert "Persuade 72 vs 55" not in actual_play
+    assert "Persuade：" not in actual_play
+    assert "Dodge：" not in actual_play
     assert "regular_success" not in actual_play
     assert "Corbitt POW 34 vs 90" not in actual_play
     session_transcript = section_text(battle_text, "## Session Transcript")
@@ -417,8 +444,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         ["询问委托条件和近期线索", "无需检定", "询问推骰裁定", "推骰说明"],
         ["ask terms and immediate leads", "no_roll_needed", "ask 推骰-roll ruling", "pushed_roll_explanation"],
     )
-    assert "第 6 轮 system: Persuade：艾达·金掷出 72 / 55，结果失败。" in session_transcript
-    assert "第 42 轮 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；Dodge：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in session_transcript
+    assert "第 6 轮 system: 说服：艾达·金掷出 72 / 55，结果失败。" in session_transcript
+    assert "第 42 轮 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in session_transcript
     assert "Persuade 72 vs 55" not in session_transcript
     assert "regular_success" not in session_transcript
     assert "Corbitt POW 34 vs 90" not in session_transcript
@@ -465,7 +492,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "艾达·金相信维托里奥的提示" in major_decisions
     rules_recap = section_text(battle_text, "## Rules & Rolls Recap")
     assert has_cjk(rules_recap)
-    assert "Persuade：艾达·金掷出 72 / 55，结果失败。" in rules_recap
+    assert "说服：艾达·金掷出 72 / 55，结果失败。" in rules_recap
+    assert "图书馆使用：艾达·金掷出 22 / 60，结果困难成功。" in rules_recap
+    assert "侦查：艾达·金掷出 28 / 55，结果普通成功。" in rules_recap
     assert "目的：获得《波士顿环球报》剪报档案的查阅许可" in rules_recap
     assert "难度说明：阿蒂·威尔莫特只是普通编辑" in rules_recap
     assert "失败后果：艾达·金会被阿蒂拒绝" in rules_recap
@@ -474,6 +503,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "成长标记：否" in rules_recap
     assert "SAN 损失：6" in rules_recap
     assert "POW：沃尔特·科比特掷出 34 / 90" in rules_recap
+    assert "Persuade：" not in rules_recap
+    assert "Library Use：" not in rules_recap
+    assert "Spot Hidden：" not in rules_recap
+    assert "Dodge：" not in rules_recap
     assert "gain access to" not in rules_recap
     assert "clipping files" not in rules_recap
     assert "obstructive but ordinary editor" not in rules_recap
@@ -599,7 +632,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
 
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
-    assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms)
+    assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
     assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
@@ -642,6 +675,14 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "珍贵物品: 裂柄铜放大镜" in character_dossier
     assert "特质: 观察细致" in character_dossier
     assert "Ada King" not in character_dossier
+    assert "侦查: 55" in character_dossier
+    assert "闪避: 35" in character_dossier
+    assert "锁匠: 30" in character_dossier
+    assert "潜行: 45" in character_dossier
+    assert "Spot Hidden: 55" not in character_dossier
+    assert "Dodge: 35" not in character_dossier
+    assert "Locksmith: 30" not in character_dossier
+    assert "Stealth: 45" not in character_dossier
     assert investigator_jsonl(run_dir, "ada-king-chase", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-chase", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")
@@ -649,7 +690,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "艾达·金带着邪教账本逃脱" in chronicle
     assert "最终 HP: 12" in chronicle
     assert "最终 SAN: 55" in chronicle
-    assert "获得成长标记: Spot Hidden; Dodge; Locksmith; Stealth" in chronicle
+    assert "获得成长标记: 侦查; 闪避; 锁匠; 潜行" in chronicle
     assert "继承备注: 账本线索可带入后续模组" in chronicle
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
@@ -670,10 +711,10 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         ["确认被偷走的账本", "推骰确认账本", "建立追逐", "通过障碍并躲藏"],
         ["spot the stolen ledger", "push ledger confirmation", "chase_setup", "pass barrier and hide"],
     )
-    assert "第 4 轮 system: Spot Hidden：艾达·金掷出 82 / 55，结果失败。" in actual_play
+    assert "第 4 轮 system: 侦查：艾达·金掷出 82 / 55，结果失败。" in actual_play
     assert "第 9 轮 system: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in actual_play
-    assert "第 18 轮 system: Dodge：艾达·金掷出 19 / 35，结果普通成功；Fighting (Brawl)：内森尼尔·克劳掷出 62 / 45，结果失败。内森尼尔·克劳的短棍攻击落空。" in actual_play
-    assert "第 20 轮 system: Locksmith：艾达·金掷出 21 / 30，结果普通成功；Stealth：艾达·金掷出 18 / 45，结果困难成功；Spot Hidden：内森尼尔·克劳掷出 77 / 40，结果失败。艾达·金带着账本逃脱。" in actual_play
+    assert "第 18 轮 system: 闪避：艾达·金掷出 19 / 35，结果普通成功；格斗（斗殴）：内森尼尔·克劳掷出 62 / 45，结果失败。内森尼尔·克劳的短棍攻击落空。" in actual_play
+    assert "第 20 轮 system: 锁匠：艾达·金掷出 21 / 30，结果普通成功；潜行：艾达·金掷出 18 / 45，结果困难成功；侦查：内森尼尔·克劳掷出 77 / 40，结果失败。艾达·金带着账本逃脱。" in actual_play
     assert "Pushed Spot Hidden 33" not in actual_play
     assert "MOV remains" not in actual_play
     assert "extreme_success" not in actual_play
@@ -684,7 +725,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         ["确认被偷走的账本", "推骰确认账本", "建立追逐", "通过障碍并躲藏"],
         ["spot the stolen ledger", "push ledger confirmation", "chase_setup", "pass barrier and hide"],
     )
-    assert "第 4 轮 system: Spot Hidden：艾达·金掷出 82 / 55，结果失败。" in session_transcript
+    assert "第 4 轮 system: 侦查：艾达·金掷出 82 / 55，结果失败。" in session_transcript
     assert "第 9 轮 system: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in session_transcript
     assert "Pushed Spot Hidden 33" not in session_transcript
     assert "MOV remains" not in session_transcript
@@ -730,7 +771,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "是否带着账本" in chase_decisions
     rules_recap = section_text(battle_text, "## Rules & Rolls Recap")
     assert has_cjk(rules_recap)
-    assert "Spot Hidden：艾达·金掷出 82 / 55，结果失败。" in rules_recap
+    assert "侦查：艾达·金掷出 82 / 55，结果失败。" in rules_recap
     assert "CON：艾达·金掷出 42 / 55，结果成功。" in rules_recap
     assert "CON：内森尼尔·克劳掷出 9 / 50，结果极难成功。" in rules_recap
     assert "速度检定" in rules_recap
@@ -743,6 +784,10 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "推骰：是" in rules_recap
     assert "成长标记：是" in rules_recap
     assert "成长标记：否" in rules_recap
+    assert "Spot Hidden：" not in rules_recap
+    assert "Dodge：" not in rules_recap
+    assert "Locksmith：" not in rules_recap
+    assert "Stealth：" not in rules_recap
     assert "confirm " not in rules_recap
     assert "before acting" not in rules_recap
     assert "On-foot chases" not in rules_recap
@@ -792,8 +837,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 内森尼尔·克劳 (nathaniel-crowe) | 追赶者 | MOV 8 -> 9 | DEX 60 | 移动行动 2 | 位置 上锁屋顶门 (locked-roof-door)" in chase_tracker
     assert "- 位置链:" in chase_tracker
     assert "- 印刷店屋顶 (print-shop-roof) [起点]" in chase_tracker
-    assert "- 湿滑天窗 (slick-skylight) [危险点, 普通, Dodge]" in chase_tracker
-    assert "- 上锁屋顶门 (locked-roof-door) [障碍, 普通, Locksmith]" in chase_tracker
+    assert "- 湿滑天窗 (slick-skylight) [危险点, 普通, 闪避]" in chase_tracker
+    assert "- 上锁屋顶门 (locked-roof-door) [障碍, 普通, 锁匠]" in chase_tracker
     assert "- 轮次:" in chase_tracker
     assert "- 第 1 轮:" in chase_tracker
     assert "- 第 2 轮:" in chase_tracker
@@ -847,6 +892,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
         "reckless_investigator": "鲁莽调查员",
         "skeptical_rules_lawyer": "规则质疑玩家",
     }
+    assert_zh_hans_locale(metadata, {"Library Use": "图书馆使用", "Spot Hidden": "侦查"})
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_localized_transcript_chrome(actual_play)
     assert_transcript_detail_values_localized(
@@ -888,6 +934,10 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "珍贵物品: 裂柄铜放大镜" in character_dossier
     assert "特质: 谨慎记笔记" in character_dossier
     assert "Ada King" not in character_dossier
+    assert "图书馆使用: 60" in character_dossier
+    assert "侦查: 55" in character_dossier
+    assert "Library Use: 60" not in character_dossier
+    assert "Spot Hidden: 55" not in character_dossier
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-pressure", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")
@@ -895,7 +945,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "艾达·金经历了三种玩家风格压测" in chronicle
     assert "规则质疑获得独立规则解释" in chronicle
     assert "meta 质疑" not in chronicle
-    assert "获得成长标记: Library Use; Spot Hidden" in chronicle
+    assert "获得成长标记: 图书馆使用; 侦查" in chronicle
     assert "继承备注: 后续故事入口保留为沉思教堂记录" in chronicle
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert_player_readable_state_ids_absent(

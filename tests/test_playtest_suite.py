@@ -174,6 +174,9 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     assert "virtual_player_pressure" in quality_keys
     quality_questions = {entry["key"]: entry["question"] for entry in request["quality_dimensions"]}
     assert "Chinese" in quality_questions["chinese_visible_dialogue"]
+    assert "player-visible skill display names" in quality_questions["chinese_visible_dialogue"]
+    assert "canonical skill keys" in quality_questions["chinese_visible_dialogue"]
+    assert "skill names, system roll text" not in quality_questions["chinese_visible_dialogue"]
     assert "actual-play" in quality_questions["actual_play_replay"]
     assert "multiple player profiles" in quality_questions["virtual_player_pressure"]
     assert "battle_report" in request["inputs"]
