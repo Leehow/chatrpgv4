@@ -547,6 +547,37 @@ def test_completion_audit_fails_when_campaign_logs_and_memory_lack_structured_ev
     assert "session memory summary" in finding["missing_evidence"]
 
 
+def test_completion_audit_fails_when_roll_log_lacks_dice_target_and_outcome(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    campaign_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "sandbox" / ".coc" / "campaigns" / "v2-haunting-module"
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
+        {"type": "roll", "actor": "fixture", "payload": {"skill": "Spot Hidden"}},
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_incomplete")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "sandbox/.coc/campaigns/v2-haunting-module/logs/rolls.jsonl" in finding["incomplete_files"]
+    assert "mechanical roll result" in finding["missing_evidence"]
+
+
 def test_completion_audit_fails_when_investigator_sources_lack_reusable_character_evidence(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

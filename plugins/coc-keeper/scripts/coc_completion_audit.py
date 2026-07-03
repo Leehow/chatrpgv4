@@ -722,6 +722,16 @@ def _campaign_structure_findings(run_id: str, campaign_dir: Path, campaign_prefi
         and bool(row["payload"])
         for row in rolls
     )
+    has_roll_result = any(
+        isinstance(row.get("payload"), dict)
+        and isinstance(row["payload"].get("roll"), (int, float))
+        and not isinstance(row["payload"].get("roll"), bool)
+        and isinstance(row["payload"].get("target"), (int, float))
+        and not isinstance(row["payload"].get("target"), bool)
+        and isinstance(row["payload"].get("outcome"), str)
+        and bool(row["payload"]["outcome"].strip())
+        for row in rolls
+    )
     has_event_payload = any(
         isinstance(row.get("type"), str)
         and bool(row["type"].strip())
@@ -737,6 +747,9 @@ def _campaign_structure_findings(run_id: str, campaign_dir: Path, campaign_prefi
 
     if not has_roll_payload:
         missing_evidence.append("mechanical roll payload")
+    if not has_roll_result:
+        missing_evidence.append("mechanical roll result")
+    if not has_roll_payload or not has_roll_result:
         incomplete_files.append(f"{campaign_prefix}logs/rolls.jsonl")
     if not has_event_payload:
         missing_evidence.append("durable event payload")
