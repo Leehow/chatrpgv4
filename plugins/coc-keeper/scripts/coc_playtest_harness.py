@@ -538,6 +538,71 @@ def _player_view_event(
     return {**visible, "view": "player", "type": "transcript_turn"}
 
 
+def _transcript_event_with_display_fields(
+    event: dict[str, Any],
+    glossary: dict[str, str],
+    language_profile: dict[str, Any],
+    profile_labels: dict[str, str],
+    play_language: str,
+    rendered_text: str | None = None,
+) -> dict[str, Any]:
+    visible = dict(event)
+    if isinstance(visible.get("speaker"), str):
+        visible["speaker_display"] = _display_transcript_speaker(
+            visible,
+            profile_labels,
+            language_profile,
+            glossary,
+        )
+    if rendered_text is not None:
+        visible["text_display"] = rendered_text
+    elif isinstance(visible.get("text"), str):
+        visible["text_display"] = _localize_text(visible["text"], glossary)
+
+    localized_text = visible.get("localized_text", {})
+    language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
+    for key in ("intent", "ruling"):
+        if not isinstance(visible.get(key), str) or not visible[key]:
+            continue
+        display = language_text.get(key) if isinstance(language_text, dict) else None
+        if display in (None, "", [], {}):
+            display = visible[key]
+        visible[f"{key}_display"] = _localize_text(str(display), glossary)
+
+    player_profile = visible.get("player_profile")
+    if isinstance(player_profile, str) and player_profile in profile_labels:
+        visible["player_profile_display"] = profile_labels[player_profile]
+    return visible
+
+
+def _transcript_events_with_display_fields(
+    transcript: list[dict[str, Any]],
+    roll_recaps: list[str],
+    glossary: dict[str, str],
+    language_profile: dict[str, Any],
+    profile_labels: dict[str, str],
+    play_language: str,
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    roll_cursor = 0
+    for event in transcript:
+        rendered_text = None
+        if event.get("mode") == "roll":
+            roll_count = _event_roll_count(event, len(roll_recaps) - roll_cursor)
+            recaps = roll_recaps[roll_cursor: roll_cursor + roll_count]
+            rendered_text = _format_roll_transcript_text(event, recaps, glossary)
+            roll_cursor += roll_count
+        events.append(_transcript_event_with_display_fields(
+            event,
+            glossary,
+            language_profile,
+            profile_labels,
+            play_language,
+            rendered_text,
+        ))
+    return events
+
+
 def _player_view_transcript_events(
     transcript: list[dict[str, Any]],
     roll_recaps: list[str],
@@ -645,6 +710,15 @@ def _write_view_streams(run_dir: Path) -> None:
         _format_roll_recap(event, actor_names, player_glossary, play_language, language_profile)
         for event in roll_events
     ]
+    transcript = _transcript_events_with_display_fields(
+        transcript,
+        roll_recaps,
+        player_glossary,
+        language_profile,
+        profile_labels,
+        play_language,
+    )
+    _write_jsonl(run_dir / "transcript.jsonl", transcript)
     public_state = {
         "view": "player",
         "type": "public_character_state",

@@ -270,6 +270,21 @@ def assert_player_view_transcript_details_localized(run_dir: Path) -> None:
             assert has_cjk(event[display_key])
 
 
+def assert_source_transcript_display_fields_localized(run_dir: Path) -> None:
+    by_turn = {event.get("turn"): event for event in transcript_events(run_dir)}
+
+    assert by_turn[1]["speaker"] == "Mr. Knott"
+    assert by_turn[1]["speaker_display"] == "KP[诺特先生]"
+    assert by_turn[2]["speaker"] == "Ada King"
+    assert by_turn[2]["speaker_display"] == "玩家"
+
+    first_roll = by_turn[6]
+    assert first_roll["text"] == "Persuade 72 vs 55 -> failure."
+    assert first_roll["speaker_display"] == "系统"
+    assert first_roll["text_display"] == "说服：艾达·金掷出 72 / 55，结果失败。"
+    assert has_cjk(first_roll["text_display"])
+
+
 def assert_player_view_localized_text_values_localized(run_dir: Path) -> None:
     metadata = playtest_metadata(run_dir)
     play_language = metadata["play_language"]
@@ -739,6 +754,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert bout_payload["control_returned"] is True
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
+    assert_source_transcript_display_fields_localized(run_dir)
     assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- 游玩语言: zh-Hans" in run_setup

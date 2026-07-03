@@ -616,6 +616,11 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
                 "regular_success": "普通成功",
                 "hard_success": "困难成功",
             },
+            "speaker_labels": {
+                "keeper": "KP",
+                "player": "玩家",
+                "system": "系统",
+            },
         },
         "localized_terms": {"zh-Hans": {"Ada King": "艾达·金"}},
     })
@@ -681,6 +686,15 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         {"turn": 20, "role": "player_simulator", "speaker": "Rules Player", "mode": "meta", "text": "fixture meta player question"},
         {"turn": 21, "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "text": "fixture meta keeper answer"},
     ])
+    for row in transcript_rows:
+        if row.get("role") == "player_simulator":
+            row["speaker_display"] = "玩家"
+        elif row.get("role") == "system":
+            row["speaker_display"] = "系统"
+        else:
+            row["speaker_display"] = "KP"
+        if row.get("mode") == "roll":
+            row["text_display"] = "Spot Hidden：艾达·金掷出 33 / 55，结果普通成功；Spot Hidden：艾达·金掷出 22 / 55，结果困难成功。"
     write_jsonl(run_dir / "transcript.jsonl", transcript_rows)
     write_jsonl(run_dir / "player-view.jsonl", [
         {"view": "player", "type": "public_character_state", "campaign_id": run_id},
@@ -1396,6 +1410,44 @@ def test_completion_audit_fails_when_player_view_transcript_speakers_are_not_loc
     assert finding["run_id"] == "v2-haunting-module"
     assert "Ada King" in finding["leaked_player_view_speakers"]
     assert {"Ada", "King"}.issubset(set(finding["english_player_view_speaker_tokens"]))
+
+
+def test_completion_audit_fails_when_source_transcript_lacks_localized_display_fields(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    transcript = read_jsonl(run_dir / "transcript.jsonl")
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {
+            key: value
+            for key, value in row.items()
+            if key not in {"speaker_display", "text_display"}
+        }
+        for row in transcript
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "transcript_display_not_localized")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "turn 2 speaker_display" in finding["missing_transcript_display_fields"]
+    assert "turn 6 text_display" in finding["missing_transcript_display_fields"]
+    assert "Spot Hidden：艾达·金掷出 33 / 55，结果普通成功；Spot Hidden：艾达·金掷出 22 / 55，结果困难成功。" in finding["missing_transcript_roll_samples"]
 
 
 def test_completion_audit_fails_when_player_view_transcript_details_lack_display_values(tmp_path):
@@ -2982,10 +3034,36 @@ def test_completion_audit_accepts_selected_non_default_play_language(tmp_path):
             "regular_success": "レギュラー成功",
             "hard_success": "ハード成功",
         },
+        "speaker_labels": {
+            "keeper": "KP",
+            "player": "プレイヤー",
+            "system": "システム",
+        },
     }
     metadata["localized_terms"] = {"ja-JP": {"Ada King": "エイダ・キング"}}
     write_json(metadata_path, metadata)
     run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    transcript = read_jsonl(run_dir / "transcript.jsonl")
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {
+            **row,
+            "speaker_display": (
+                "プレイヤー"
+                if row.get("role") == "player_simulator"
+                else "システム"
+                if row.get("role") == "system"
+                else "KP"
+            ),
+            **(
+                {
+                    "text_display": "Spot Hidden：エイダ・キングは 33 / 55 を振り、結果はレギュラー成功；Spot Hidden：エイダ・キングは 22 / 55 を振り、結果はハード成功。"
+                }
+                if row.get("mode") == "roll"
+                else {}
+            ),
+        }
+        for row in transcript
+    ])
     write_jsonl(run_dir / "player-view.jsonl", [
         {"view": "player", "type": "public_character_state", "campaign_id": "v2-haunting-module"},
         {"view": "player", "type": "transcript_turn", "turn": 2, "role": "player_simulator", "text": "fixture player turn"},

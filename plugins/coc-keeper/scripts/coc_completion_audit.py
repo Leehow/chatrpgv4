@@ -15,6 +15,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from coc_playtest_report import (
+    _display_transcript_speaker,
     _display_transcript_text,
     _event_roll_count,
     _format_roll_recap,
@@ -1590,6 +1591,71 @@ def _player_view_roll_text_findings(
     )]
 
 
+def _transcript_display_findings(
+    run_id: str,
+    run_dir: Path,
+    campaign_dir: Path,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    play_language = str(metadata.get("play_language") or "")
+    if not play_language or play_language == "en-US":
+        return []
+
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    if not transcript:
+        return []
+
+    localized_terms = _metadata_localized_terms(metadata)
+    language_profile = metadata.get("language_profile", {})
+    if not isinstance(language_profile, dict):
+        language_profile = {}
+    profile_labels = _metadata_player_profile_labels(metadata)
+
+    missing_fields: list[str] = []
+    for row in transcript:
+        if not isinstance(row.get("speaker"), str) or not row["speaker"].strip():
+            continue
+        expected_speaker = _display_transcript_speaker(row, profile_labels, language_profile, localized_terms)
+        if row.get("role") == "player_simulator" and row.get("player_profile") and not profile_labels:
+            speaker_labels = language_profile.get("speaker_labels", {}) if isinstance(language_profile, dict) else {}
+            expected_speaker = str(speaker_labels.get("player", "Player"))
+        if expected_speaker != row.get("speaker") and row.get("speaker_display") != expected_speaker:
+            missing_fields.append(f"turn {row.get('turn')} speaker_display")
+
+    missing_roll_texts: list[str] = []
+    expected_roll_texts = _expected_player_view_roll_texts(run_dir, campaign_dir, metadata)
+    observed_roll_texts = [
+        str(row.get("text_display", "")).strip()
+        for row in transcript
+        if row.get("role") == "system"
+        and row.get("mode") == "roll"
+        and isinstance(row.get("text_display"), str)
+        and row["text_display"].strip()
+    ]
+    for expected_text in expected_roll_texts:
+        if expected_text not in observed_roll_texts:
+            missing_roll_texts.append(expected_text)
+    if missing_roll_texts:
+        missing_fields.extend(
+            f"turn {row.get('turn')} text_display"
+            for row in transcript
+            if row.get("role") == "system" and row.get("mode") == "roll"
+        )
+
+    if not missing_fields and not missing_roll_texts:
+        return []
+    return [_finding(
+        "transcript_display_not_localized",
+        "system_gap",
+        f"{run_id} transcript.jsonl lacks localized display fields for source transcript replay evidence.",
+        "Regenerate the active run so transcript.jsonl preserves canonical source fields while adding speaker_display and localized roll text_display derived from play_language, localized_terms, and structured roll logs.",
+        run_id=run_id,
+        missing_transcript_display_fields=sorted(set(missing_fields)),
+        missing_transcript_roll_samples=missing_roll_texts[:5],
+        observed_transcript_roll_samples=observed_roll_texts[:5],
+    )]
+
+
 def _nested_string_values(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value] if value.strip() else []
@@ -2468,6 +2534,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_player_view_localized_text_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_transcript_detail_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_roll_text_findings(run_id, run_dir, campaign_dir, metadata))
+    findings.extend(_transcript_display_findings(run_id, run_dir, campaign_dir, metadata))
     findings.extend(_pushed_roll_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))
     findings.extend(_multi_profile_structure_findings(run_id, run_dir, audit_profile))
     findings.extend(_meta_game_structure_findings(run_id, run_dir, audit_profile))
