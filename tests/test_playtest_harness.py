@@ -179,7 +179,13 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_visible_terms_localized(actual_play, zh_terms)
     assert "诺特先生把一枚旧钥匙" in actual_play
-    assert_visible_terms_localized("\n".join(visible_play_texts(run_dir)), visible_scene_terms)
+    visible_dialogue = "\n".join(visible_play_texts(run_dir))
+    assert_visible_terms_localized(visible_dialogue, visible_scene_terms)
+    assert_terms_absent(visible_dialogue, ["Regular difficulty", "pushed roll", "pushed rolls", "HP damage"])
+    assert "难度为普通" not in visible_dialogue
+    assert "普通难度" in visible_dialogue
+    assert "推骰" in visible_dialogue
+    assert "HP 伤害" in visible_dialogue
     meta_events = [
         event
         for event in transcript_events(run_dir)
@@ -188,7 +194,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert {event["role"] for event in meta_events} == {"keeper_under_test", "player_simulator"}
     assert "[meta]" in actual_play
     assert "[/meta]" in actual_play
-    assert "为什么这里可以 pushed roll" in actual_play
+    assert "为什么这里可以推骰" in actual_play
     assert "失败后果" in actual_play
     assert all("Ada King" not in text for text in visible_play_texts(run_dir))
     assert all("Mr. Knott" not in text for text in visible_play_texts(run_dir))
@@ -288,7 +294,31 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_terms_absent(scene_replay, ["print shop roof", "print-shop roof", "rain gutter", "locked roof door barrier", "slick 天窗"])
     assert "## Actual Play Replay" in battle_text
     assert_visible_terms_localized(section_text(battle_text, "## Actual Play Replay"), zh_terms)
-    assert_visible_terms_localized("\n".join(visible_play_texts(run_dir)), visible_scene_terms)
+    visible_dialogue = "\n".join(visible_play_texts(run_dir))
+    assert_visible_terms_localized(visible_dialogue, visible_scene_terms)
+    assert_terms_absent(
+        visible_dialogue,
+        [
+            "Regular difficulty",
+            "pushed roll",
+            "pushed rolls",
+            "speed roll",
+            "location chain",
+            "movement action",
+            "movement actions",
+            "quarry",
+            "pursuer",
+            "chase",
+        ],
+    )
+    assert "难度普通" not in visible_dialogue
+    assert "普通难度" in visible_dialogue
+    assert "推骰" in visible_dialogue
+    assert "速度检定" in visible_dialogue
+    assert "位置链" in visible_dialogue
+    assert "移动行动" in visible_dialogue
+    assert "被追者" in visible_dialogue
+    assert "追赶者" in visible_dialogue
     assert all("Ada King" not in text for text in visible_play_texts(run_dir))
     assert all("Nathaniel Crowe" not in text for text in visible_play_texts(run_dir))
     assert all("ledger" not in text for text in visible_play_texts(run_dir))
@@ -303,8 +333,16 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "ledger" not in chase_decisions
     assert "艾达·金冒着被发现的风险继续观察" in chase_decisions
     assert "是否带着账本" in chase_decisions
-    assert has_cjk(section_text(battle_text, "## Story Recap"))
-    assert has_cjk(section_text(battle_text, "## Player Feedback On KP"))
+    story_recap = section_text(battle_text, "## Story Recap")
+    assert has_cjk(story_recap)
+    assert "屋顶追逐" in story_recap
+    assert "rooftop 追逐" not in story_recap
+    feedback = section_text(battle_text, "## Player Feedback On KP")
+    assert has_cjk(feedback)
+    assert "escapes" not in feedback
+    assert "逃脱" in feedback
+    assert "save/chase.json" in battle_text
+    assert "save/追逐.json" not in battle_text
     assert "Rooftop Chase Drill" in battle_text
     assert "Chase Summary" in battle_text
     assert "speed roll" in battle_text

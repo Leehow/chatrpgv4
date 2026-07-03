@@ -207,12 +207,12 @@ def _report_narrative_text(section: str) -> str:
         if not line.startswith("- "):
             lines.append(line)
             continue
-        if ": " in line:
-            lines.append(line.split(": ", 1)[1])
-        elif " - " in line:
-            lines.append(line.split(" - ", 1)[1])
-        else:
-            lines.append(line[2:])
+        text = line[2:]
+        if ": " in text:
+            text = text.split(": ", 1)[1]
+        if " - " in text:
+            text = text.split(" - ", 1)[1]
+        lines.append(text)
     return "\n".join(lines)
 
 
@@ -272,11 +272,15 @@ def _report_contains_all(text: str, markers: list[str]) -> list[str]:
     return [marker for marker in markers if marker not in text]
 
 
+def _contains_marker_or_localized(text: str, marker: str, terms: dict[str, str]) -> bool:
+    localized = terms.get(marker)
+    return marker in text or bool(localized and localized in text)
+
+
 def _report_contains_required_moments(text: str, markers: list[str], terms: dict[str, str]) -> list[str]:
     missing: list[str] = []
     for marker in markers:
-        localized = terms.get(marker)
-        if marker not in text and (not localized or localized not in text):
+        if not _contains_marker_or_localized(text, marker, terms):
             missing.append(marker)
     return missing
 
@@ -668,11 +672,11 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "Persist chase participants, location chain, round log, and outcome under save/chase.json.",
             ))
 
-        chase_text = " ".join(_payload_summaries(context["events"], "chase")).lower()
+        chase_text = " ".join(_payload_summaries(context["events"], "chase"))
         if (
-            "speed roll" not in chase_text
-            or "movement actions" not in chase_text
-            or "quarry escapes" not in chase_text
+            not _contains_marker_or_localized(chase_text, "speed roll", locale_terms)
+            or not _contains_marker_or_localized(chase_text, "movement actions", locale_terms)
+            or not _contains_marker_or_localized(chase_text, "quarry escapes", locale_terms)
         ):
             findings.append(_finding(
                 "chase_resolution_missing",
