@@ -1412,6 +1412,64 @@ def test_completion_audit_fails_when_player_view_localized_text_leaks_canonical_
     assert finding["leaked_player_view_localized_text_terms"] == ["Spot Hidden"]
 
 
+def test_completion_audit_fails_when_player_profile_display_values_are_missing(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v4-multi-profile-pressure"
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["player_profile_labels"] = {
+        "zh-Hans": {
+            "careful_investigator": "谨慎调查员",
+            "reckless_investigator": "鲁莽调查员",
+            "skeptical_rules_lawyer": "规则质疑玩家",
+        }
+    }
+    write_json(metadata_path, metadata)
+    player_view = read_jsonl(run_dir / "player-view.jsonl")
+    write_jsonl(run_dir / "player-view.jsonl", [
+        *player_view,
+        {
+            "view": "player",
+            "type": "transcript_turn",
+            "turn": 7,
+            "role": "player_simulator",
+            "speaker": "玩家[谨慎调查员]",
+            "mode": "play",
+            "player_profile": "careful_investigator",
+            "text": "fixture careful profile visible turn",
+        },
+    ])
+    feedback_rows = read_jsonl(run_dir / "player-feedback.jsonl")
+    write_jsonl(run_dir / "player-feedback.jsonl", [
+        {**row, "player_profile_display": row["player_profile"]}
+        if row.get("player_profile") == "careful_investigator"
+        else row
+        for row in feedback_rows
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "player_profile_display_not_localized")
+    assert finding["run_id"] == "v4-multi-profile-pressure"
+    assert "careful_investigator" in finding["unlocalized_player_profile_displays"]
+
+
 def test_completion_audit_fails_when_campaign_logs_and_memory_lack_structured_evidence(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

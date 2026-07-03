@@ -212,6 +212,21 @@ def _metadata_localized_terms(metadata: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _metadata_player_profile_labels(metadata: dict[str, Any]) -> dict[str, str]:
+    play_language = str(metadata.get("play_language") or "")
+    labels_by_language = metadata.get("player_profile_labels", {})
+    if not isinstance(labels_by_language, dict):
+        return {}
+    labels = labels_by_language.get(play_language, {})
+    if not isinstance(labels, dict):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in labels.items()
+        if str(key) and str(value)
+    }
+
+
 def _localize_text(text: str, localized_terms: dict[str, str]) -> str:
     localized = text
     for canonical, display in sorted(localized_terms.items(), key=lambda item: len(item[0]), reverse=True):
@@ -1669,6 +1684,56 @@ def _player_view_speaker_findings(
     )]
 
 
+def _player_profile_display_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    labels = _metadata_player_profile_labels(metadata)
+    if not labels:
+        return []
+
+    unlocalized_profiles: set[str] = set()
+    samples: list[dict[str, Any]] = []
+    for source, rows in (
+        ("player-view.jsonl", _read_jsonl(run_dir / "player-view.jsonl")),
+        ("player-feedback.jsonl", _read_jsonl(run_dir / "player-feedback.jsonl")),
+    ):
+        for row in rows:
+            if source == "player-view.jsonl" and (
+                row.get("view") != "player" or row.get("type") != "transcript_turn"
+            ):
+                continue
+            player_profile = row.get("player_profile")
+            if not isinstance(player_profile, str) or player_profile not in labels:
+                continue
+            expected_display = labels[player_profile]
+            observed_display = row.get("player_profile_display")
+            if observed_display == expected_display and observed_display != player_profile:
+                continue
+            unlocalized_profiles.add(player_profile)
+            samples.append({
+                "source": source,
+                "turn": row.get("turn"),
+                "category": row.get("category"),
+                "player_profile": player_profile,
+                "player_profile_display": observed_display,
+                "expected_player_profile_display": expected_display,
+            })
+
+    if not unlocalized_profiles:
+        return []
+    return [_finding(
+        "player_profile_display_not_localized",
+        "report_gap",
+        f"{run_id} player-visible profile rows lack localized player_profile_display values for {', '.join(sorted(unlocalized_profiles)[:8])}.",
+        "Regenerate the active run so player-view.jsonl and player-feedback.jsonl preserve canonical player_profile enum values while adding localized player_profile_display from player_profile_labels[play_language].",
+        run_id=run_id,
+        unlocalized_player_profile_displays=sorted(unlocalized_profiles),
+        player_profile_display_samples=samples[:8],
+    )]
+
+
 def _player_view_localized_text_findings(
     run_id: str,
     run_dir: Path,
@@ -2292,6 +2357,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_source_structure_findings(run_id, run_dir))
     findings.extend(_player_view_public_state_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_speaker_findings(run_id, run_dir, metadata))
+    findings.extend(_player_profile_display_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_localized_text_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_transcript_detail_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_roll_text_findings(run_id, run_dir, campaign_dir, metadata))

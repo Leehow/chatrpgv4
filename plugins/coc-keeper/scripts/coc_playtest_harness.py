@@ -525,6 +525,9 @@ def _player_view_event(
         if display in (None, "", [], {}):
             display = visible[key]
         visible[f"{key}_display"] = _localize_text(str(display), glossary)
+    player_profile = visible.get("player_profile")
+    if isinstance(player_profile, str) and player_profile in profile_labels:
+        visible["player_profile_display"] = profile_labels[player_profile]
     spoiler_protocol = visible.get("spoiler_protocol")
     if isinstance(spoiler_protocol, dict):
         visible["spoiler_protocol"] = {
@@ -865,8 +868,19 @@ def _localize_value(value: Any, glossary: dict[str, str], key: str | None = None
     return value
 
 
-def _write_jsonl_localized(path: Path, events: list[dict[str, Any]], glossary: dict[str, str]) -> None:
-    _write_jsonl(path, [_localize_value(event, glossary) for event in events])
+def _write_jsonl_localized(
+    path: Path,
+    events: list[dict[str, Any]],
+    glossary: dict[str, str],
+    profile_labels: dict[str, str] | None = None,
+) -> None:
+    localized_events = [_localize_value(event, glossary) for event in events]
+    if profile_labels:
+        for event in localized_events:
+            player_profile = event.get("player_profile")
+            if isinstance(player_profile, str) and player_profile in profile_labels:
+                event["player_profile_display"] = profile_labels[player_profile]
+    _write_jsonl(path, localized_events)
 
 
 def _write_transcript_jsonl_localized(path: Path, events: list[dict[str, Any]], glossary: dict[str, str]) -> None:
@@ -1766,6 +1780,13 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     investigator_id = "ada-king-chase"
     pursuer_id = "nathaniel-crowe"
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
+    player_profile_labels = {
+        "zh-Hans": {
+            "reckless_investigator": "鲁莽调查员",
+            "skeptical_rules_lawyer": "规则质疑玩家",
+            "genre_savvy_player": "类型片熟手",
+        }
+    }
 
     _write_json(run_dir / "playtest.json", _with_play_language({
         "run_id": run_id,
@@ -1783,13 +1804,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "skeptical_rules_lawyer",
             "genre_savvy_player",
         ],
-        "player_profile_labels": {
-            "zh-Hans": {
-                "reckless_investigator": "鲁莽调查员",
-                "skeptical_rules_lawyer": "规则质疑玩家",
-                "genre_savvy_player": "类型片熟手",
-            }
-        },
+        "player_profile_labels": player_profile_labels,
         "module_coverage": [
             "chase_setup",
             "speed_roll",
@@ -2084,7 +2099,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"player_profile": "reckless_investigator", "category": "immersion", "score": 4, "text": "追逐保持紧张感，同时没有把 rule decisions 藏起来。"},
         {"player_profile": "skeptical_rules_lawyer", "category": "meta_quality", "score": 5, "text": "KP 把 MOV、movement actions 和追逐内不能推骰的边界解释清楚。"},
         {"player_profile": "genre_savvy_player", "category": "spoiler_safety", "score": 5, "text": "KP 没有直接确认我的剧透猜测，只给了玩家安全的障碍和遮蔽信息。"},
-    ], ZH_HANS_CHASE_GLOSSARY)
+    ], ZH_HANS_CHASE_GLOSSARY, player_profile_labels["zh-Hans"])
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
         {
             "severity": "low",
@@ -2394,7 +2409,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"player_profile": "reckless_investigator", "category": "agency", "score": 4, "text": "KP 没有阻止我冒险，但把更近的风险说清楚了。"},
         {"player_profile": "skeptical_rules_lawyer", "category": "meta_quality", "score": 5, "text": "KP 清楚解释了为什么不同做法对应不同检定和失败后果。"},
         {"player_profile": "skeptical_rules_lawyer", "category": "spoiler_safety", "score": 5, "text": "KP 在真正揭示地下室秘密前先给出剧透警告，等我确认后只回答了有限范围。"},
-    ], ZH_HANS_HAUNTING_GLOSSARY)
+    ], ZH_HANS_HAUNTING_GLOSSARY, player_profile_labels["zh-Hans"])
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
         {
             "severity": "low",
