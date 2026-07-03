@@ -537,9 +537,9 @@ Exact matching is allowed only for machine-controlled schema fields, enum values
 
 `coc_playtest_suite.py --write-semantic-requests --root <repo-root>` writes `artifacts/semantic-eval-request.json` for each run. Codex or another LLM semantic evaluator reads that request and writes `artifacts/semantic-eval-result.json` with `schema_version`, `run_id`, `evaluator_id`, `coverage`, `quality`, `root_cause_classification`, and `next_loop_fix_target`. Then `coc_playtest_suite.py --evaluator semantic-artifact --root <repo-root>` consumes those results and records the LLM evaluator id and reasons in the suite index. Missing result files must be treated as missing semantic evidence, not as permission to fall back to a natural-language matcher.
 
-The semantic request includes `quality_dimensions`. The result `quality` object scores `module_fidelity`, `rulebook_procedure`, `immersion_and_pacing`, `state_continuity`, `spoiler_safety`, `player_agency`, and `report_completeness`; each dimension includes `score`, `passed`, and `reason`. The suite report writes `## Quality Matrix`, `## Quality Evidence`, and `quality_gaps` so the next loop can tell whether the blocker is test coverage, system behavior, report output, or design.
+The semantic request includes `quality_dimensions`. The result `quality` object scores `module_fidelity`, `rulebook_procedure`, `immersion_and_pacing`, `chinese_visible_dialogue`, `actual_play_replay`, `state_continuity`, `spoiler_safety`, `player_agency`, `virtual_player_pressure`, and `report_completeness`; each dimension includes `score`, `passed`, and `reason`. The suite report writes `## Quality Matrix`, `## Quality Evidence`, and `quality_gaps` so the next loop can tell whether the blocker is test coverage, system behavior, report output, or design.
 
-`loop-decision.json` is the machine-readable next-action gate. It contains `evaluated_runs`, `ignored_historical_runs`, `blockers`, `next_action`, and a status of either `needs_repair` or `ready_for_completion_audit`. Historical baseline runs remain visible in `Non-Passing Runs`, but they should not become current repair blockers when non-baseline evaluated runs already cover the suite.
+`loop-decision.json` is the machine-readable next-action gate. It contains `evaluated_runs`, `ignored_historical_runs`, `blockers`, `next_action`, and a status of either `needs_repair` or `ready_for_completion_audit`. Historical baseline runs remain visible in `Non-Passing Runs`, but they should not become current repair blockers when non-baseline evaluated runs already cover the suite. When the status is `ready_for_completion_audit`, `coc_completion_audit.py` generates `.coc/playtests/completion-audit.json` and `.coc/playtests/completion-audit.md` from the suite index, semantic artifacts, active run artifacts, and watchdog automation state.
 
 ## Campaign File Examples
 
@@ -993,7 +993,7 @@ After multiple serious playtests, `coc_playtest_suite.py` should generate `.coc/
 
 `suite-report.md` is the cross-run table of contents and coverage proof. It should include `## Run Index`, `## Non-Passing Runs`, `## Loop Decision`, `## Core Coverage Matrix`, `## Coverage Evidence`, `## Quality Matrix`, `## Quality Evidence`, and `## Remaining Gaps`. The coverage matrix must report `character_dossier`, `kp_player_transcript`, `mechanical_rolls`, `combat`, `chase`, `sanity`, and `player_feedback` so the evaluator can see whether the current playtest set covers the requested Keeper workflows without hiding failed or missing audits.
 
-The `semantic-artifact` evaluator is the preferred path when Codex is available as evaluator. It should read `semantic-eval-result.json`, preserve `root_cause_classification`, and surface `next_loop_fix_target` for the next repair loop.
+The `semantic-artifact` evaluator is the preferred path when Codex is available as evaluator. It should read `semantic-eval-result.json`, preserve `root_cause_classification`, and surface `next_loop_fix_target` for the next repair loop. `coc_completion_audit.py` then performs the artifact-level completion audit once `loop-decision.json` says `ready_for_completion_audit`.
 
 ### Rulebook Alignment Audit
 

@@ -38,9 +38,14 @@ Use `../../scripts/coc_playtest_suite.py` after multiple serious runs to generat
 - `.coc/playtests/loop-decision.json`
 - `.coc/playtests/suite-report.md`
 
+Use `../../scripts/coc_completion_audit.py` when `loop-decision.json` reports `ready_for_completion_audit` to generate:
+
+- `.coc/playtests/completion-audit.json`
+- `.coc/playtests/completion-audit.md`
+
 `suite-report.md` should include `## Run Index`, `## Non-Passing Runs`, `## Loop Decision`, and a `## Core Coverage Matrix` with `character_dossier`, `kp_player_transcript`, `mechanical_rolls`, `combat`, `chase`, `sanity`, `meta_game`, and `player_feedback`, so the evaluator can see whether the current playtest set covers the requested Keeper Rulebook workflows without hiding failed or missing audits.
 
-`loop-decision.json` is the next-action gate for the continuous loop. It records `evaluated_runs`, `ignored_historical_runs`, `blockers`, and status. `needs_repair` means fix the first blocker and rerun the loop. `ready_for_completion_audit` means current active runs have no coverage or quality gaps, so perform a full completion audit before claiming the goal is done.
+`loop-decision.json` is the next-action gate for the continuous loop. It records `evaluated_runs`, `ignored_historical_runs`, `blockers`, and status. `needs_repair` means fix the first blocker and rerun the loop. `ready_for_completion_audit` means current active runs have no coverage or quality gaps, so run `coc_completion_audit.py` and inspect `completion-audit.md/json` before claiming the goal is done.
 
 ## Semantic Matcher Constitution
 
