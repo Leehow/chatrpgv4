@@ -111,6 +111,11 @@ PLAYER_READABLE_REPORT_SECTIONS = [
     "Story Recap",
     "Player Feedback On KP",
 ]
+SUBSYSTEM_SUMMARY_SECTIONS = [
+    "Combat Summary",
+    "Chase Summary",
+    "Sanity Summary",
+]
 LOCALIZABLE_EMPTY_PLACEHOLDERS = [
     "No combat summary recorded.",
     "No chase summary recorded.",
@@ -622,6 +627,24 @@ def _scene_replay_actor_dash_prefixes(
         for name in names:
             if line.startswith(f"- {name} - "):
                 leaks.append(name)
+    return sorted(set(leaks))
+
+
+def _subsystem_actor_colon_prefixes(
+    battle_report: str,
+    characters: list[dict[str, Any]],
+    terms: dict[str, str],
+) -> list[str]:
+    names = sorted(set(_character_display_names(characters, terms) + ["KP"]), key=len, reverse=True)
+    leaks: list[str] = []
+    for heading in SUBSYSTEM_SUMMARY_SECTIONS:
+        section = _section_text(battle_report, heading)
+        if not section:
+            continue
+        for line in section.splitlines():
+            for name in names:
+                if line.startswith(f"- {name}: "):
+                    leaks.append(f"{heading}:{name}")
     return sorted(set(leaks))
 
 
@@ -1642,6 +1665,20 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "low",
             "Scene-by-Scene Replay uses actor dash prefixes: " + ", ".join(scene_actor_dash_prefixes),
             "Render Scene-by-Scene Replay entries as natural player-readable sentences instead of actor-dash log lines.",
+        ))
+    subsystem_actor_colon_prefixes = _subsystem_actor_colon_prefixes(
+        battle_report,
+        context["characters"],
+        locale_terms,
+    )
+    if active_profile and subsystem_actor_colon_prefixes:
+        findings.append(_finding(
+            "report_actor_colon_prefix",
+            "report_gap",
+            "low",
+            "Player-readable subsystem summaries use actor-colon prefixes: "
+            + ", ".join(subsystem_actor_colon_prefixes),
+            "Render Combat/Chase/Sanity summaries as natural player-readable sentences instead of actor-colon log lines.",
         ))
     empty_placeholder_leaks = _unlocalized_empty_placeholders(
         battle_report,

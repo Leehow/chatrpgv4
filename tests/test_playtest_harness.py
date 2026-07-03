@@ -185,6 +185,11 @@ def assert_player_readable_actor_dash_prefixes_absent(text: str, actor_names: li
         assert f"- {actor_name} - " not in text
 
 
+def assert_player_readable_actor_colon_prefixes_absent(text: str, actor_names: list[str]) -> None:
+    for actor_name in actor_names:
+        assert f"- {actor_name}: " not in text
+
+
 def assert_localized_transcript_chrome(text: str) -> None:
     assert "第 1 轮" in text
     assert "\n  - 意图:" in text or "\n  - 裁定:" in text or "\n  - 模式:" in text
@@ -580,6 +585,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Bout duration rolls: 1" in audit_text
     assert "战斗轮" in battle_text
     assert "combat round" not in combat_summary
+    assert "- KP:" not in combat_summary
     assert "ada-king-haunting:" not in combat_summary
     assert "- 艾达·金:" not in combat_summary
     assert "艾达·金: 艾达·金" not in combat_summary
@@ -590,10 +596,13 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "DEX 顺序" in combat_summary
     assert "POW 对抗" in combat_summary
     sanity_summary = section_text(battle_text, "## Sanity Summary")
+    assert "- KP:" not in sanity_summary
     assert "ada-king-haunting:" not in sanity_summary
-    assert "- 艾达·金:" in sanity_summary
+    assert_player_readable_actor_colon_prefixes_absent(sanity_summary, ["艾达·金"])
     assert "艾达·金: 艾达·金" not in sanity_summary
     assert "- 艾达·金因床铺袭击失败 SAN 1/1D4" in sanity_summary
+    assert "- 科比特起身时艾达·金失败 SAN 1/1D8" in sanity_summary
+    assert "- 疯狂发作：艾达·金在临时疯狂中把左轮丢到地下室角落" in sanity_summary
     state_changes = section_text(battle_text, "### State Changes")
     story_recap = section_text(battle_text, "## Story Recap")
     assert "worm-eaten book" not in state_changes
@@ -607,6 +616,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "模组忠实度: 4" in battle_text
     assert "No combat summary recorded." not in battle_text
     chase_summary = section_text(battle_text, "## Chase Summary")
+    assert "- KP:" not in chase_summary
     assert "本模组不包含必需追逐场景" in chase_summary
     assert "追逐子系统覆盖留到独立场景" in chase_summary
     assert "本模组不包含必需追逐场景（本模组不包含必需追逐场景）" not in chase_summary
@@ -848,8 +858,12 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "save/追逐.json" not in battle_text
     assert "Chase Summary" in battle_text
     chase_summary = section_text(battle_text, "## Chase Summary")
+    assert "- KP:" not in chase_summary
     assert "ada-king-chase:" not in chase_summary
-    assert "- 艾达·金:" in chase_summary
+    assert_player_readable_actor_colon_prefixes_absent(chase_summary, ["艾达·金"])
+    assert "- 艾达·金的闪避成功，穿过湿滑天窗且没有损失移动行动。" in chase_summary
+    assert "- 艾达·金用锁匠通过上锁屋顶门障碍，到达晾衣屋顶。" in chase_summary
+    assert "- 艾达·金的潜行胜过内森尼尔·克劳失败的侦查，带着账本结束追逐。" in chase_summary
     assert "## Chase Tracker" in battle_text
     chase_tracker = section_text(battle_text, "## Chase Tracker")
     assert "- 追逐 ID: rooftop-chase" in chase_tracker

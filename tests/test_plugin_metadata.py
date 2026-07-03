@@ -154,6 +154,7 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "report_actor_ids_not_localized",
         "report_actor_label_repeated",
         "report_actor_dash_prefix",
+        "report_actor_colon_prefix",
         "localized_empty_placeholders_not_rendered",
         "player_profile_labels",
         "player_profile_labels_not_localized",
@@ -213,6 +214,7 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "report_skill_names_not_localized",
         "transcript_mode_labels",
         "report_actor_dash_prefix",
+        "report_actor_colon_prefix",
         "Blueprint Cross-Check",
         "Next Loop Fix Target",
     ]

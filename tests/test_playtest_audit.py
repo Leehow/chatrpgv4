@@ -929,6 +929,42 @@ def test_active_audit_rejects_actor_dash_prefixes_in_scene_replay(tmp_path):
     assert "report_actor_dash_prefix" in finding_codes(audit)
 
 
+def test_active_audit_rejects_actor_colon_prefixes_in_subsystem_summaries(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "chase-drill"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "chase_drill"
+    metadata["play_language"] = "zh-Hans"
+    metadata["localized_terms"] = {"zh-Hans": {"Ada King": "艾达·金"}}
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- 艾达·金穿过湿滑天窗。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- 第 1 轮 KP: \"这是中文主持描述。\"\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达·金选择继续追逐。\n\n"
+        "## Combat Summary / 战斗摘要\n"
+        "- KP: 本轮没有触发战斗场面。\n\n"
+        "## Chase Summary / 追逐摘要\n"
+        "- 艾达·金: 危险点：艾达·金穿过湿滑天窗。\n\n"
+        "## Sanity Summary / 理智摘要\n"
+        "- 艾达·金: 疯狂发作：艾达·金短暂失控。\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- 艾达·金完成追逐。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- KP 清晰度: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "report_actor_colon_prefix" in finding_codes(audit)
+
+
 def test_active_audit_rejects_unlocalized_empty_subsystem_placeholders(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
     create_final_rulebook_run(run_dir)

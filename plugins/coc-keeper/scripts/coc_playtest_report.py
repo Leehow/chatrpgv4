@@ -399,9 +399,23 @@ def _format_subsystem_event(
         localized_terms,
         play_language,
     )
-    if actor and summary.startswith(actor):
-        return f"- {summary}"
-    return f"- {actor}: {summary}"
+    summary = _naturalize_player_event_summary(str(event.get("type", "event")), actor, summary)
+    return f"- {summary}"
+
+
+def _naturalize_player_event_summary(event_type: str, actor: str, summary: str) -> str:
+    if event_type == "damage" and actor not in {"", "KP", "unknown"} and actor not in summary:
+        match = DAMAGE_SUMMARY_RE.match(summary)
+        if match:
+            return (
+                f"{match.group('cause')}造成{actor} {match.group('amount').strip()} 伤害"
+                f"{match.group('tail')}"
+            )
+    if event_type == "chase" and actor not in {"", "KP", "unknown"}:
+        _label, separator, detail = summary.partition("：")
+        if separator and detail.startswith(actor):
+            return detail
+    return summary
 
 
 def _format_scene_replay_event(
@@ -422,17 +436,7 @@ def _format_scene_replay_event(
     event_label = event_type.replace("_", " ")
     actor = _display_roll_actor(event.get("actor", "unknown"), names)
     summary = _event_summary(event, f"{event_label} recorded", terms, play_language)
-    if event_type == "damage" and actor not in {"", "KP", "unknown"} and actor not in summary:
-        match = DAMAGE_SUMMARY_RE.match(summary)
-        if match:
-            summary = (
-                f"{match.group('cause')}造成{actor} {match.group('amount').strip()} 伤害"
-                f"{match.group('tail')}"
-            )
-    if event_type == "chase" and actor not in {"", "KP", "unknown"}:
-        _label, separator, detail = summary.partition("：")
-        if separator and detail.startswith(actor):
-            summary = detail
+    summary = _naturalize_player_event_summary(str(event_type), actor, summary)
     return f"- {summary}"
 
 
