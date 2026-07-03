@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ REQUIRED_ARTIFACTS = [
     "battle-report.md",
     "evaluation-report.md",
     "rulebook-audit.md",
+    "semantic-eval-request.json",
     "semantic-eval-result.json",
 ]
 REQUIRED_QUALITY_DIMENSIONS = [
@@ -38,6 +40,11 @@ def _read_text(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
+
+
+def _json_sha256(payload: Any) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _playtests_dir(root: Path) -> Path:
@@ -153,6 +160,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
             run_id=run_id,
         ))
 
+    semantic_request = _read_json(artifacts_dir / "semantic-eval-request.json", {})
     semantic = _read_json(artifacts_dir / "semantic-eval-result.json", {})
     if semantic:
         if semantic.get("evaluator_id") != "codex-llm-semantic-v1":
@@ -169,6 +177,39 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
                 "test_gap",
                 f"{run_id} semantic-eval-result.json does not contain a quality object.",
                 "Regenerate semantic-eval-result.json with structured quality dimensions.",
+                run_id=run_id,
+            ))
+        provenance = semantic.get("evaluation_provenance")
+        if not isinstance(provenance, dict) or not provenance:
+            findings.append(_finding(
+                "semantic_provenance_missing",
+                "test_gap",
+                f"{run_id} semantic-eval-result.json does not contain evaluation_provenance.",
+                "Have an LLM semantic evaluator fill semantic-eval-result.json from the matching semantic-eval-request.json and record provenance.",
+                run_id=run_id,
+            ))
+        elif provenance.get("kind") != "llm":
+            findings.append(_finding(
+                "semantic_provenance_not_llm",
+                "test_gap",
+                f"{run_id} evaluation_provenance.kind={provenance.get('kind')}",
+                "Completion-oriented semantic artifacts must be produced by an LLM semantic evaluator, not a deterministic harness fixture.",
+                run_id=run_id,
+            ))
+        elif not semantic_request:
+            findings.append(_finding(
+                "semantic_request_missing",
+                "test_gap",
+                f"{run_id} semantic-eval-request.json is missing or empty.",
+                "Write the semantic evaluation request before accepting a semantic result.",
+                run_id=run_id,
+            ))
+        elif provenance.get("request_sha256") != _json_sha256(semantic_request):
+            findings.append(_finding(
+                "semantic_request_hash_mismatch",
+                "test_gap",
+                f"{run_id} request_sha256 does not match semantic-eval-request.json.",
+                "Regenerate semantic-eval-request.json and have the LLM evaluator refill semantic-eval-result.json from that exact request.",
                 run_id=run_id,
             ))
 

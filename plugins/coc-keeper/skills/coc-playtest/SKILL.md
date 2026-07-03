@@ -55,9 +55,9 @@ Exact matching is allowed only for machine-controlled schema fields, enum values
 
 ## LLM Semantic Evaluation Artifacts
 
-For semantic review, run `../../scripts/coc_playtest_suite.py --write-semantic-requests --root <repo-root>` to write `artifacts/semantic-eval-request.json` for each playtest run. Codex or another LLM semantic evaluator should read that request and write `artifacts/semantic-eval-result.json`.
+For semantic review, run `../../scripts/coc_playtest_suite.py --write-semantic-requests --root <repo-root>` to write `artifacts/semantic-eval-request.json` for each playtest run. The harness must not fabricate `semantic-eval-result.json`; Codex or another LLM semantic evaluator should read that exact request and write the result.
 
-`semantic-eval-result.json` must include `schema_version`, `run_id`, `evaluator_id`, `coverage`, `quality`, `root_cause_classification`, and `next_loop_fix_target`. The `coverage` object uses the same keys as the suite matrix and each value must include `covered` plus a semantic `reason`.
+`semantic-eval-result.json` must include `schema_version`, `run_id`, `evaluator_id`, `evaluation_provenance`, `coverage`, `quality`, `root_cause_classification`, and `next_loop_fix_target`. `evaluation_provenance.kind` must be `llm`, and `evaluation_provenance.request_sha256` must match the canonical JSON hash of the request that was reviewed. The `coverage` object uses the same keys as the suite matrix and each value must include `covered` plus a semantic `reason`.
 
 The request also includes `quality_dimensions`, and the result `quality` object must score `module_fidelity`, `rulebook_procedure`, `immersion_and_pacing`, `chinese_visible_dialogue`, `actual_play_replay`, `state_continuity`, `spoiler_safety`, `player_agency`, `virtual_player_pressure`, and `report_completeness`. Each dimension must include `score`, `passed`, and `reason`; the suite report surfaces these in `## Quality Matrix` and records unresolved `quality_gaps`.
 

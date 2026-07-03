@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 
@@ -26,7 +27,22 @@ def write_text(path: Path, text: str):
     path.write_text(text, encoding="utf-8")
 
 
+def request_payload(run_id: str) -> dict:
+    return {
+        "schema_version": 1,
+        "kind": "coc_semantic_coverage_request",
+        "run_id": run_id,
+        "inputs": {"battle_report": "fixture evidence"},
+    }
+
+
+def request_hash(payload: dict) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def semantic_result(run_id: str, *, virtual_pressure: bool = False) -> dict:
+    request = request_payload(run_id)
     quality = {
         key: {
             "score": 5 if key == "virtual_player_pressure" and virtual_pressure else 4,
@@ -39,6 +55,11 @@ def semantic_result(run_id: str, *, virtual_pressure: bool = False) -> dict:
         "schema_version": 1,
         "run_id": run_id,
         "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": {
+            "kind": "llm",
+            "request_sha256": request_hash(request),
+            "evaluator_note": "Fixture stands in for a completed Codex semantic review.",
+        },
         "coverage": {
             key: {"covered": True, "reason": f"{key} covered by semantic fixture."}
             for key in coc_playtest_suite.CORE_COVERAGE
@@ -69,6 +90,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     write_text(run_dir / "artifacts" / "battle-report.md", "# Battle Report\n\n## Actual Play Replay\n")
     write_text(run_dir / "artifacts" / "evaluation-report.md", "# Evaluation Report\n")
     write_text(run_dir / "artifacts" / "rulebook-audit.md", "# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    write_json(run_dir / "artifacts" / "semantic-eval-request.json", request_payload(run_id))
     write_json(run_dir / "artifacts" / "semantic-eval-result.json", semantic_result(run_id, virtual_pressure=virtual_pressure))
 
 
@@ -193,3 +215,31 @@ def test_completion_audit_fails_without_language_profile(tmp_path):
 
     assert audit["result"] == "fail"
     assert any(finding["code"] == "language_profile_missing" for finding in audit["findings"])
+
+
+def test_completion_audit_fails_without_llm_semantic_provenance(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    semantic_path = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "artifacts" / "semantic-eval-result.json"
+    semantic = json.loads(semantic_path.read_text())
+    semantic.pop("evaluation_provenance")
+    write_json(semantic_path, semantic)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(finding["code"] == "semantic_provenance_missing" for finding in audit["findings"])

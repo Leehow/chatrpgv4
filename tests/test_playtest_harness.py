@@ -497,12 +497,16 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
 
 
 def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
+    stale_artifacts = tmp_path / ".coc" / "playtests" / "multi-profile-pressure" / "artifacts"
+    stale_artifacts.mkdir(parents=True)
+    (stale_artifacts / "semantic-eval-request.json").write_text("{}")
+    (stale_artifacts / "semantic-eval-result.json").write_text("{}")
+
     run_dir = coc_playtest_harness.create_multi_profile_pressure_run(tmp_path, run_id="multi-profile-pressure")
 
     audit = coc_playtest_audit.audit_run(run_dir)
     battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
     metadata = playtest_metadata(run_dir)
-    semantic = __import__("json").loads((run_dir / "artifacts" / "semantic-eval-result.json").read_text())
 
     assert audit["result"] == "pass"
     assert metadata["audit_profile"] == "multi_profile_pressure"
@@ -525,6 +529,5 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "careful_investigator:" in feedback
     assert "reckless_investigator:" in feedback
     assert "skeptical_rules_lawyer:" in feedback
-    assert semantic["quality"]["virtual_player_pressure"]["passed"] is True
-    assert semantic["quality"]["virtual_player_pressure"]["score"] >= 4
-    assert "multiple player profiles" in semantic["quality"]["virtual_player_pressure"]["reason"]
+    assert not (run_dir / "artifacts" / "semantic-eval-request.json").exists()
+    assert not (run_dir / "artifacts" / "semantic-eval-result.json").exists()

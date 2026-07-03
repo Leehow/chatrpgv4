@@ -207,6 +207,8 @@ def test_coc_playtest_skill_documents_semantic_eval_artifact_workflow():
         "semantic-eval-request.json",
         "semantic-eval-result.json",
         "semantic-artifact",
+        "evaluation_provenance",
+        "request_sha256",
         "root_cause_classification",
         "next_loop_fix_target",
     ]

@@ -331,8 +331,17 @@ def _with_roll_localization(events: list[dict[str, Any]]) -> list[dict[str, Any]
     return events
 
 
+def _clear_semantic_eval_artifacts(run_dir: Path) -> None:
+    artifacts_dir = run_dir / "artifacts"
+    for name in ("semantic-eval-request.json", "semantic-eval-result.json"):
+        path = artifacts_dir / name
+        if path.exists():
+            path.unlink()
+
+
 def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> Path:
     run_dir = root / ".coc" / "playtests" / run_id
+    _clear_semantic_eval_artifacts(run_dir)
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
     scenario_dir = campaign_dir / "scenario"
     investigator_id = "ada-king-rulebook"
@@ -733,6 +742,7 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
 
 def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -> Path:
     run_dir = root / ".coc" / "playtests" / run_id
+    _clear_semantic_eval_artifacts(run_dir)
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
     scenario_dir = campaign_dir / "scenario"
     investigator_id = "ada-king-haunting"
@@ -1044,6 +1054,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
 
 def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     run_dir = root / ".coc" / "playtests" / run_id
+    _clear_semantic_eval_artifacts(run_dir)
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
     scenario_dir = campaign_dir / "scenario"
     investigator_id = "ada-king-chase"
@@ -1304,6 +1315,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
 
 def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profile-pressure") -> Path:
     run_dir = root / ".coc" / "playtests" / run_id
+    _clear_semantic_eval_artifacts(run_dir)
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
     scenario_dir = campaign_dir / "scenario"
     investigator_id = "ada-king-pressure"
@@ -1479,36 +1491,6 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"severity": "low", "category": "meta_quality", "text": "The skeptical profile challenges a ruling in meta mode and receives a separated explanation."},
         {"severity": "low", "category": "immersion", "text": "The run remains a compact pressure test rather than a full module session, but it exercises multiple virtual player styles."},
     ])
-
-    _write_json(run_dir / "artifacts" / "semantic-eval-result.json", {
-        "schema_version": 1,
-        "run_id": run_id,
-        "evaluator_id": "codex-llm-semantic-v1",
-        "coverage": {
-            "character_dossier": {"covered": True, "reason": "The run uses Ada King with a reusable character sheet and relevant investigative skills."},
-            "kp_player_transcript": {"covered": True, "reason": "The transcript shows Keeper responses to careful, reckless, and skeptical virtual player profiles."},
-            "mechanical_rolls": {"covered": True, "reason": "The run records Library Use, Spot Hidden, and a pushed Spot Hidden roll with goals and consequences."},
-            "combat": {"covered": False, "reason": "This pressure run does not include a combat exchange; combat remains covered by the module run."},
-            "chase": {"covered": False, "reason": "This pressure run does not include a chase; chase remains covered by the chase drill."},
-            "sanity": {"covered": False, "reason": "This pressure run does not include SAN checks; sanity remains covered by the module run."},
-            "meta_game": {"covered": True, "reason": "The skeptical rules-lawyer profile asks a meta rules question and receives a separated Keeper ruling."},
-            "player_feedback": {"covered": True, "reason": "Feedback is recorded separately for careful, reckless, and skeptical virtual player profiles."},
-        },
-        "quality": {
-            "module_fidelity": {"score": 4, "passed": True, "reason": "The pressure run stays inside The Haunting opening premise without revealing unrelated material."},
-            "rulebook_procedure": {"score": 4, "passed": True, "reason": "The Keeper distinguishes no-roll framing, regular checks, pushed-roll stakes, and meta explanation."},
-            "immersion_and_pacing": {"score": 4, "passed": True, "reason": "The compact run reads like table dialogue across three player styles rather than a checklist."},
-            "chinese_visible_dialogue": {"score": 5, "passed": True, "reason": "Visible Keeper and virtual player turns are in Chinese while profile markers and skill names stay stable."},
-            "actual_play_replay": {"score": 4, "passed": True, "reason": "The report can replay what each profile asked, how the Keeper ruled, and how rolls changed the fiction."},
-            "state_continuity": {"score": 4, "passed": True, "reason": "Clues, pushed-roll risk, profile choices, memory, and final route remain coherent."},
-            "spoiler_safety": {"score": 5, "passed": True, "reason": "The player-facing transcript keeps the opening player-safe and does not reveal Keeper-only basement secrets."},
-            "player_agency": {"score": 5, "passed": True, "reason": "Careful, reckless, and skeptical profiles each make distinct choices that change rulings or information flow."},
-            "virtual_player_pressure": {"score": 5, "passed": True, "reason": "The run uses multiple player profiles to pressure-test Keeper support for careful planning, reckless risk-taking, and skeptical rules challenges."},
-            "report_completeness": {"score": 4, "passed": True, "reason": "The report includes setup, character data, transcript, rolls, decisions, memory, profile-specific feedback, and semantic evaluation."},
-        },
-        "root_cause_classification": [],
-        "next_loop_fix_target": "none",
-    })
 
     generate_battle_report(run_dir)
     generate_evaluation_report(run_dir)
