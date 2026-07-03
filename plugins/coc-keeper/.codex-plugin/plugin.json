@@ -1,0 +1,25 @@
+{
+  "name": "coc-keeper",
+  "version": "0.1.0",
+  "description": "Call of Cthulhu Keeper mode plugin for Codex with structured rules, persistent campaign state, and playtest reporting.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "COC Keeper",
+    "shortDescription": "Run Call of Cthulhu campaigns inside Codex.",
+    "longDescription": "COC Keeper adds an explicit Codex mode for immersive Call of Cthulhu play, structured rules lookup, JSON campaign state, reusable investigators, module indexing, and automated playtest reports.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Activate COC mode.",
+      "Create a COC investigator.",
+      "Run a COC playtest."
+    ]
+  }
+}
