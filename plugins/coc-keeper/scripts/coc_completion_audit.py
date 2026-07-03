@@ -146,7 +146,10 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        row = json.loads(line)
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            return []
         if isinstance(row, dict):
             rows.append(row)
     return rows
@@ -600,6 +603,41 @@ def _malformed_relative_files(base: Path, relative_paths: list[str], display_pre
     return malformed
 
 
+def _source_structure_findings(run_id: str, run_dir: Path) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    missing_evidence: list[str] = []
+
+    has_keeper_turn = any(
+        row.get("role") == "keeper_under_test"
+        and isinstance(row.get("text"), str)
+        and bool(row["text"].strip())
+        for row in transcript
+    )
+    has_player_turn = any(
+        row.get("role") == "player_simulator"
+        and isinstance(row.get("text"), str)
+        and bool(row["text"].strip())
+        for row in transcript
+    )
+    if not has_keeper_turn:
+        missing_evidence.append("keeper_under_test turn")
+    if not has_player_turn:
+        missing_evidence.append("player_simulator turn")
+
+    if missing_evidence:
+        findings.append(_finding(
+            "active_run_source_files_incomplete",
+            "test_gap",
+            f"{run_id} transcript.jsonl lacks required source evidence: {', '.join(missing_evidence)}.",
+            "Regenerate the active run so transcript.jsonl contains structured Keeper and player simulator turns with visible text before completion audit.",
+            run_id=run_id,
+            incomplete_files=["transcript.jsonl"],
+            missing_evidence=missing_evidence,
+        ))
+    return findings
+
+
 def _investigator_ids_from_party(party: dict[str, Any]) -> list[str]:
     investigator_ids: list[str] = []
     for key in ("active_investigator_ids", "investigator_ids"):
@@ -695,6 +733,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             run_id=run_id,
             malformed_files=malformed_files,
         ))
+    findings.extend(_source_structure_findings(run_id, run_dir))
     return findings
 
 

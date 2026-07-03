@@ -411,6 +411,37 @@ def test_completion_audit_fails_when_active_run_source_files_are_malformed(tmp_p
     assert "transcript.jsonl" in finding["malformed_files"]
 
 
+def test_completion_audit_fails_when_transcript_source_lacks_keeper_and_player_turns(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    write_jsonl(tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "transcript.jsonl", [
+        {"turn": 1, "role": "system", "mode": "roll", "text": "fixture roll only"},
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_incomplete")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "transcript.jsonl" in finding["incomplete_files"]
+    assert "keeper_under_test turn" in finding["missing_evidence"]
+    assert "player_simulator turn" in finding["missing_evidence"]
+
+
 def test_completion_audit_fails_when_battle_report_missing_required_anchors(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
