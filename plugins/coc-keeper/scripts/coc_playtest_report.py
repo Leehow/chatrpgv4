@@ -946,68 +946,145 @@ def _format_csv(values: Any) -> str:
     return "none recorded"
 
 
-def _format_chase_location(location: dict[str, Any]) -> str:
+def _chase_tracker_label(language_profile: dict[str, Any] | None, canonical: str) -> str:
+    return _localized_report_label(language_profile or {}, "chase_tracker_labels", canonical)
+
+
+def _chase_tracker_value(
+    value: Any,
+    localized_terms: dict[str, str],
+    language_profile: dict[str, Any] | None,
+) -> str:
+    value_text = str(value)
+    localized = _chase_tracker_label(language_profile, value_text)
+    if localized != value_text:
+        return localized
+    return _localize_text(value_text, localized_terms)
+
+
+def _display_chase_location_ref(location_id: Any, localized_terms: dict[str, str]) -> str:
+    raw_id = str(location_id or "unknown")
+    display = _localize_text(raw_id.replace("-", " "), localized_terms)
+    if display == raw_id.replace("-", " "):
+        return raw_id
+    return f"{display} ({raw_id})"
+
+
+def _display_chase_participant_ref(
+    participant_id: Any,
+    participant_names: dict[str, str],
+) -> str:
+    raw_id = str(participant_id or "unknown")
+    display = participant_names.get(raw_id, raw_id)
+    if display == raw_id:
+        return raw_id
+    return f"{display} ({raw_id})"
+
+
+def _format_chase_location(
+    location: dict[str, Any],
+    localized_terms: dict[str, str],
+    language_profile: dict[str, Any],
+) -> str:
     location_id = location.get("id", "unknown")
+    difficulty_labels = language_profile.get("difficulty_labels", {})
     tags = [
-        str(location[field])
+        (
+            _localized_rule_value(location[field], difficulty_labels, localized_terms)
+            if field == "difficulty"
+            else _chase_tracker_value(location[field], localized_terms, language_profile)
+        )
         for field in ["label", "difficulty", "skill"]
         if location.get(field) not in (None, "", [], {})
     ]
-    return f"  - {location_id} [{', '.join(tags)}]" if tags else f"  - {location_id}"
+    display_location = _display_chase_location_ref(location_id, localized_terms)
+    return f"  - {display_location} [{', '.join(tags)}]" if tags else f"  - {display_location}"
 
 
-def _format_chase_tracker(chase_state: dict[str, Any]) -> list[str]:
+def _format_chase_round_summary(
+    chase_round: dict[str, Any],
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> str:
+    localized = _localized_field(chase_round, "summary", localized_terms, play_language)
+    if localized is not None:
+        return localized
+    return _localize_text(chase_round.get("summary", "no summary"), localized_terms)
+
+
+def _format_chase_tracker(
+    chase_state: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+    actor_names: dict[str, str] | None = None,
+    language_profile: dict[str, Any] | None = None,
+) -> list[str]:
     if not chase_state:
         return []
 
+    terms = localized_terms or {}
+    profile = language_profile or {}
+    participant_names = {
+        str(participant.get("id")): _localize_text(participant.get("name") or participant.get("id"), terms)
+        for participant in chase_state.get("participants", [])
+        if isinstance(participant, dict) and participant.get("id") not in (None, "", [], {})
+    }
+    participant_names.update(actor_names or {})
+
     lines = [
-        f"- Chase ID: {chase_state.get('chase_id', 'unknown')}",
-        f"- Status: {chase_state.get('status', 'unknown')}",
-        f"- Round: {chase_state.get('round', 'unknown')}",
+        f"- {_chase_tracker_label(profile, 'Chase ID')}: {chase_state.get('chase_id', 'unknown')}",
+        f"- {_chase_tracker_label(profile, 'Status')}: {_chase_tracker_value(chase_state.get('status', 'unknown'), terms, profile)}",
+        f"- {_chase_tracker_label(profile, 'Round')}: {chase_state.get('round', 'unknown')}",
     ]
     dex_order = chase_state.get("dex_order", [])
     if isinstance(dex_order, list) and dex_order:
-        lines.append(f"- DEX order: {' -> '.join(str(participant_id) for participant_id in dex_order)}")
+        order = " -> ".join(_display_chase_participant_ref(participant_id, participant_names) for participant_id in dex_order)
+        lines.append(f"- {_chase_tracker_label(profile, 'DEX order')}: {order}")
 
     participants = chase_state.get("participants", [])
     if isinstance(participants, list) and participants:
-        lines.append("- Participants:")
+        lines.append(f"- {_chase_tracker_label(profile, 'Participants')}:")
         for participant in participants:
             if not isinstance(participant, dict):
                 continue
             participant_id = participant.get("id", "unknown")
-            role = participant.get("role", "unknown")
+            participant_display = _display_chase_participant_ref(participant_id, participant_names)
+            role = _chase_tracker_value(participant.get("role", "unknown"), terms, profile)
             base_mov = participant.get("base_mov", "?")
             adjusted_mov = participant.get("adjusted_mov", "?")
             dex = participant.get("dex", "?")
             actions = participant.get("movement_actions", "?")
-            position = participant.get("position", "unknown")
+            position = _display_chase_location_ref(participant.get("position", "unknown"), terms)
             lines.append(
-                f"  - {participant_id} | {role} | MOV {base_mov} -> {adjusted_mov} | "
-                f"DEX {dex} | actions {actions} | position {position}"
+                f"  - {participant_display} | {role} | MOV {base_mov} -> {adjusted_mov} | "
+                f"DEX {dex} | {_chase_tracker_label(profile, 'movement_actions')} {actions} | "
+                f"{_chase_tracker_label(profile, 'position')} {position}"
             )
 
     location_chain = chase_state.get("location_chain", [])
     if isinstance(location_chain, list) and location_chain:
-        lines.append("- Location Chain:")
+        lines.append(f"- {_chase_tracker_label(profile, 'Location Chain')}:")
         lines.extend(
-            _format_chase_location(location)
+            _format_chase_location(location, terms, profile)
             for location in location_chain
             if isinstance(location, dict)
         )
 
     rounds = chase_state.get("rounds", [])
     if isinstance(rounds, list) and rounds:
-        lines.append("- Rounds:")
+        lines.append(f"- {_chase_tracker_label(profile, 'Rounds')}:")
+        round_template = _chase_tracker_label(profile, "round_format")
         for chase_round in rounds:
             if not isinstance(chase_round, dict):
                 continue
             round_number = chase_round.get("round", "?")
-            summary = chase_round.get("summary", "no summary")
-            lines.append(f"  - Round {round_number}: {summary}")
+            summary = _format_chase_round_summary(chase_round, terms, play_language)
+            round_label = round_template.format(round=round_number)
+            lines.append(f"  - {round_label}: {summary}")
 
     if chase_state.get("outcome") not in (None, "", [], {}):
-        lines.append(f"- Outcome: {chase_state['outcome']}")
+        outcome = _chase_tracker_value(chase_state["outcome"], terms, profile)
+        lines.append(f"- {_chase_tracker_label(profile, 'Outcome')}: {outcome}")
     return lines
 
 
@@ -1157,7 +1234,13 @@ def generate_battle_report(run_dir: Path) -> Path:
         _format_feedback(event, localized_terms, str(play_language), profile_labels, language_profile)
         for event in player_feedback
     ]
-    chase_tracker_lines = _format_chase_tracker(chase_state)
+    chase_tracker_lines = _format_chase_tracker(
+        chase_state,
+        localized_terms,
+        str(play_language),
+        actor_names,
+        language_profile,
+    )
 
     body = [
         _report_heading(1, "Battle Report", language_profile),

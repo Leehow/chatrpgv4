@@ -142,6 +142,25 @@ FEEDBACK_REQUIRED_LABELS = [
     "agency",
     "meta_quality",
 ]
+CHASE_TRACKER_REQUIRED_LABELS = [
+    "Chase ID",
+    "Status",
+    "Round",
+    "DEX order",
+    "Participants",
+    "Location Chain",
+    "Rounds",
+    "Outcome",
+    "movement_actions",
+    "position",
+    "start",
+    "hazard",
+    "barrier",
+    "escape",
+    "quarry",
+    "pursuer",
+    "resolved",
+]
 TRANSCRIPT_LABEL_REQUIRED_KEYS = ["turn_format", "mode", "intent", "ruling"]
 
 
@@ -629,6 +648,37 @@ def _feedback_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[
         if not label or label == canonical:
             continue
         if f"- {canonical}:" in section:
+            leaks.append(canonical)
+    return sorted(set(leaks))
+
+
+def _chase_tracker_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    section = _section_text(battle_report, "Chase Tracker")
+    if not section:
+        return []
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("chase_tracker_labels", {})
+    difficulty_labels = profile.get("difficulty_labels", {})
+    if not isinstance(labels, dict):
+        labels = {}
+    if not isinstance(difficulty_labels, dict):
+        difficulty_labels = {}
+    leaks: list[str] = []
+    label_sources = [
+        (canonical, labels.get(canonical))
+        for canonical in CHASE_TRACKER_REQUIRED_LABELS
+    ]
+    label_sources.extend(
+        (canonical, difficulty_labels.get(canonical))
+        for canonical in ["regular", "hard", "extreme"]
+    )
+    for canonical, label in label_sources:
+        if not label or label == canonical:
+            continue
+        if canonical in section:
             leaks.append(canonical)
     return sorted(set(leaks))
 
@@ -1485,6 +1535,17 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "save/chase.json has participants, location chain, round log, and outcome, but the battle report does not render a populated ## Chase Tracker section.",
                 "Render save/chase.json participants, DEX order, location chain, rounds, and outcome in ## Chase Tracker.",
             ))
+        else:
+            chase_tracker_label_leaks = _chase_tracker_label_leaks(battle_report, metadata)
+            if chase_tracker_label_leaks:
+                findings.append(_finding(
+                    "chase_tracker_labels_not_localized",
+                    "report_gap",
+                    "medium",
+                    "Active localized Chase Tracker exposes unlocalized labels, roles, status, or difficulty values: "
+                    + ", ".join(chase_tracker_label_leaks),
+                    "Render Chase Tracker labels and display values from language_profile.chase_tracker_labels, localized_terms, and localized_text while preserving canonical ids as audit anchors.",
+                ))
 
         chase_text = " ".join(_payload_summaries(context["events"], "chase"))
         if (

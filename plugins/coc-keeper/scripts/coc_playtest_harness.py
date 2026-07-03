@@ -110,6 +110,7 @@ ZH_HANS_CHASE_GLOSSARY = {
     "slick skylight hazard": "湿滑天窗危险点",
     "slick skylight": "湿滑天窗",
     "locked roof door barrier": "上锁屋顶门障碍",
+    "locked roof door": "上锁屋顶门",
     "laundry sheets": "晾衣布单",
     "laundry roof": "晾衣屋顶",
     "roof door": "屋顶门",
@@ -1385,10 +1386,20 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             {
                 "round": 1,
                 "summary": "Nathaniel has two movement actions and closes from two locations behind to one location behind; Ada spends one action crossing the slick skylight hazard.",
+                "localized_text": {
+                    "zh-Hans": {
+                        "summary": "内森尼尔·克劳有 2 个移动行动，从落后两个位置缩短到落后一个位置；艾达·金花费 1 个行动穿过湿滑天窗危险点。"
+                    }
+                },
             },
             {
                 "round": 2,
                 "summary": "Nathaniel spends one movement action to attack in conflict; Ada Dodges, opens the locked roof door barrier, hides on the laundry roof, and the quarry escapes.",
+                "localized_text": {
+                    "zh-Hans": {
+                        "summary": "内森尼尔·克劳花费 1 个移动行动发动追逐冲突；艾达·金 Dodge、打开上锁屋顶门障碍并躲进晾衣屋顶，被追者逃脱。"
+                    }
+                },
             },
         ],
         "outcome": "quarry escapes",

@@ -139,6 +139,8 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "temporary_insanity_bout_missing",
         "temporary_insanity_bout_duration_missing",
         "chase_tracker_not_rendered",
+        "chase_tracker_labels",
+        "chase_tracker_labels_not_localized",
         "report_actor_ids_not_localized",
         "report_actor_label_repeated",
         "localized_empty_placeholders_not_rendered",

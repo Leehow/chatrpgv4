@@ -686,18 +686,30 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 艾达·金:" in chase_summary
     assert "## Chase Tracker" in battle_text
     chase_tracker = section_text(battle_text, "## Chase Tracker")
-    assert "- Chase ID: rooftop-chase" in chase_tracker
-    assert "- Status: resolved" in chase_tracker
-    assert "- Round: 2" in chase_tracker
-    assert "- DEX order: nathaniel-crowe -> ada-king-chase" in chase_tracker
-    assert "- ada-king-chase | quarry | MOV 8 -> 8 | DEX 50 | actions 1 | position laundry-roof" in chase_tracker
-    assert "- nathaniel-crowe | pursuer | MOV 8 -> 9 | DEX 60 | actions 2 | position locked-roof-door" in chase_tracker
-    assert "- print-shop-roof [start]" in chase_tracker
-    assert "- slick-skylight [hazard, regular, Dodge]" in chase_tracker
-    assert "- locked-roof-door [barrier, regular, Locksmith]" in chase_tracker
-    assert "- Round 1:" in chase_tracker
-    assert "- Round 2:" in chase_tracker
-    assert "- Outcome: quarry escapes" in chase_tracker
+    assert "- 追逐 ID: rooftop-chase" in chase_tracker
+    assert "- 状态: 已解决" in chase_tracker
+    assert "- 当前轮数: 2" in chase_tracker
+    assert "- DEX 顺序: 内森尼尔·克劳 (nathaniel-crowe) -> 艾达·金 (ada-king-chase)" in chase_tracker
+    assert "- 参与者:" in chase_tracker
+    assert "- 艾达·金 (ada-king-chase) | 被追者 | MOV 8 -> 8 | DEX 50 | 移动行动 1 | 位置 晾衣屋顶 (laundry-roof)" in chase_tracker
+    assert "- 内森尼尔·克劳 (nathaniel-crowe) | 追赶者 | MOV 8 -> 9 | DEX 60 | 移动行动 2 | 位置 上锁屋顶门 (locked-roof-door)" in chase_tracker
+    assert "- 位置链:" in chase_tracker
+    assert "- 印刷店屋顶 (print-shop-roof) [起点]" in chase_tracker
+    assert "- 湿滑天窗 (slick-skylight) [危险点, 普通, Dodge]" in chase_tracker
+    assert "- 上锁屋顶门 (locked-roof-door) [障碍, 普通, Locksmith]" in chase_tracker
+    assert "- 轮次:" in chase_tracker
+    assert "- 第 1 轮:" in chase_tracker
+    assert "- 第 2 轮:" in chase_tracker
+    assert "内森尼尔·克劳有 2 个移动行动" in chase_tracker
+    assert "艾达·金花费 1 个行动穿过湿滑天窗危险点" in chase_tracker
+    assert "- 结果: 被追者逃脱" in chase_tracker
+    assert "Status: resolved" not in chase_tracker
+    assert " | quarry | " not in chase_tracker
+    assert " | pursuer | " not in chase_tracker
+    assert "actions 1" not in chase_tracker
+    assert "position laundry-roof" not in chase_tracker
+    assert "Round 1: Nathaniel has" not in chase_tracker
+    assert "Outcome: quarry escapes" not in chase_tracker
     assert "speed roll" in battle_text
     assert "MOV" in battle_text
     assert "movement actions" in battle_text

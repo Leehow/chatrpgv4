@@ -132,6 +132,28 @@ BASE_FEEDBACK_LABELS = {
     "meta_quality": "meta_quality",
 }
 
+BASE_CHASE_TRACKER_LABELS = {
+    "Chase ID": "Chase ID",
+    "Status": "Status",
+    "Round": "Round",
+    "DEX order": "DEX order",
+    "Participants": "Participants",
+    "Location Chain": "Location Chain",
+    "Rounds": "Rounds",
+    "Outcome": "Outcome",
+    "movement_actions": "actions",
+    "position": "position",
+    "round_format": "Round {round}",
+    "start": "start",
+    "clear": "clear",
+    "hazard": "hazard",
+    "barrier": "barrier",
+    "escape": "escape",
+    "quarry": "quarry",
+    "pursuer": "pursuer",
+    "resolved": "resolved",
+}
+
 LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
     "zh-Hans": {
         "language": "zh-Hans",
@@ -238,6 +260,27 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "agency": "自主性",
             "meta_quality": "超游质量",
         },
+        "chase_tracker_labels": {
+            "Chase ID": "追逐 ID",
+            "Status": "状态",
+            "Round": "当前轮数",
+            "DEX order": "DEX 顺序",
+            "Participants": "参与者",
+            "Location Chain": "位置链",
+            "Rounds": "轮次",
+            "Outcome": "结果",
+            "movement_actions": "移动行动",
+            "position": "位置",
+            "round_format": "第 {round} 轮",
+            "start": "起点",
+            "clear": "通路",
+            "hazard": "危险点",
+            "barrier": "障碍",
+            "escape": "逃脱点",
+            "quarry": "被追者",
+            "pursuer": "追赶者",
+            "resolved": "已解决",
+        },
         "empty_report_lines": {
             "combat_summary": "- 本轮没有触发战斗场面。",
             "chase_summary": "- 本轮没有触发追逐场面。",
@@ -286,6 +329,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "character_dossier_labels": BASE_CHARACTER_DOSSIER_LABELS,
         "chronicle_labels": BASE_CHRONICLE_LABELS,
         "feedback_labels": BASE_FEEDBACK_LABELS,
+        "chase_tracker_labels": BASE_CHASE_TRACKER_LABELS,
         "empty_report_lines": BASE_EMPTY_REPORT_LINES,
         "speaker_labels": BASE_SPEAKER_LABELS,
         "transcript_labels": BASE_TRANSCRIPT_LABELS,
@@ -398,6 +442,27 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "agency": "主体性",
             "meta_quality": "メタ相談の質",
         },
+        "chase_tracker_labels": {
+            "Chase ID": "チェイス ID",
+            "Status": "状態",
+            "Round": "現在ラウンド",
+            "DEX order": "DEX 順",
+            "Participants": "参加者",
+            "Location Chain": "ロケーション列",
+            "Rounds": "ラウンド",
+            "Outcome": "結果",
+            "movement_actions": "移動アクション",
+            "position": "位置",
+            "round_format": "第 {round} ラウンド",
+            "start": "開始地点",
+            "clear": "通常地点",
+            "hazard": "危険",
+            "barrier": "障害",
+            "escape": "逃走地点",
+            "quarry": "逃走側",
+            "pursuer": "追跡側",
+            "resolved": "解決済み",
+        },
         "empty_report_lines": {
             "combat_summary": "- 今回は戦闘場面は発生していない。",
             "chase_summary": "- 今回はチェイス場面は発生していない。",
@@ -456,4 +521,5 @@ def language_profile(play_language: str | None = None) -> dict[str, Any]:
     profile["character_dossier_labels"] = BASE_CHARACTER_DOSSIER_LABELS
     profile["chronicle_labels"] = BASE_CHRONICLE_LABELS
     profile["feedback_labels"] = BASE_FEEDBACK_LABELS
+    profile["chase_tracker_labels"] = BASE_CHASE_TRACKER_LABELS
     return profile
