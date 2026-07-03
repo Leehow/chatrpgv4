@@ -1123,6 +1123,59 @@ def test_active_audit_rejects_unlocalized_run_setup_values(tmp_path):
     assert "run_setup_values_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_module_metadata_values(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-module-metadata"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata["campaign_title"] = "The Haunting Module Playthrough"
+    metadata["scenario"] = "The Haunting"
+    metadata["localized_terms"] = {
+        "zh-Hans": {
+            "The Haunting Module Playthrough": "《鬼屋》模组实录",
+            "The Haunting": "《鬼屋》",
+            "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf": "《克苏鲁的呼唤守秘人规则书》40周年纪念版 PDF",
+        }
+    }
+    metadata_path.write_text(json.dumps(metadata))
+    scenario_path = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop" / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text())
+    scenario["title"] = "The Haunting"
+    scenario["module_source"] = "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf"
+    scenario_path.write_text(json.dumps(scenario))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Run Setup / 运行设置\n"
+        "- Campaign: The Haunting Module Playthrough（战役）\n"
+        "- Play Language: zh-Hans（游玩语言）\n\n"
+        "## Module / 模组\n"
+        "- Scenario: The Haunting（模组）\n"
+        "- Source: pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf（来源）\n"
+        "- Opening Scene: 诺特先生给出委托。（开场场景）\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- 这是中文场景回放。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- 第 1 轮 KP: \"诺特先生给出钥匙。\"\n\n"
+        "## Session Transcript / 会话记录\n"
+        "- 第 1 轮 KP: 诺特先生给出钥匙。\n"
+        "  - 模式: play\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- KP 清晰度: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "module_metadata_values_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_rejects_unlocalized_report_shell_for_localized_runs(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "localized-shell"
     create_final_rulebook_run(run_dir)

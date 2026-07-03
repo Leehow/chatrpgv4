@@ -1282,7 +1282,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_heading(2, "Module", language_profile),
         _report_field("Scenario", _localize_text(scenario_title, localized_terms), language_profile),
         _report_field("Scenario ID", scenario_id, language_profile),
-        _report_field("Source", module_source, language_profile),
+        _report_field("Source", _localize_text(module_source, localized_terms), language_profile),
         _report_field("Opening Scene", _localize_text(scenario.get("opening_scene", "not recorded"), localized_terms), language_profile),
         "",
         _report_heading(2, "Character Dossier", language_profile),

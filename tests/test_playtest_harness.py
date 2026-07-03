@@ -230,6 +230,27 @@ def assert_run_setup_values_localized(text: str, expected_profile: str) -> None:
         assert value not in text
 
 
+def assert_module_metadata_values_localized(
+    run_setup: str,
+    module_section: str,
+    *,
+    campaign: str,
+    scenario: str,
+    source: str,
+    forbidden: list[str],
+) -> None:
+    combined = f"{run_setup}\n{module_section}"
+    expected = [
+        f"Campaign: {campaign}（战役）",
+        f"Scenario: {scenario}（模组）",
+        f"Source: {source}（来源）",
+    ]
+    for value in expected:
+        assert value in combined
+    for value in forbidden:
+        assert value not in combined
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -313,6 +334,18 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Mr. Knott -> 诺特先生" in localization_appendix
     assert "The Old Corbitt Place -> 科比特老宅" in localization_appendix
     module_section = section_text(battle_text, "## Module")
+    assert_module_metadata_values_localized(
+        run_setup,
+        module_section,
+        campaign="《鬼屋》模组实录",
+        scenario="《鬼屋》",
+        source="《克苏鲁的呼唤守秘人规则书》40周年纪念版 PDF",
+        forbidden=[
+            "The Haunting Module Playthrough",
+            "Scenario: The Haunting",
+            "pdf/Call Of Cthulhu Keeper Rulebook",
+        ],
+    )
     assert "- Opening Scene: 诺特先生" in battle_text
     assert "诺特先生在 1920 年的波士顿与艾达·金会面" in module_section
     assert "meets" not in module_section
@@ -330,7 +363,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert investigator_jsonl(run_dir, "ada-king-haunting", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")
     assert_localized_chronicle_labels(chronicle)
-    assert "艾达·金在 The Haunting 中幸存" in chronicle
+    assert "艾达·金在《鬼屋》中幸存" in chronicle
     assert "最终 HP: 3" in chronicle
     assert "最终 SAN: 49" in chronicle
     assert "获得成长标记: Persuade; Library Use; Spot Hidden; Dodge; Fighting (Brawl)" in chronicle
@@ -455,7 +488,6 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_feedback_labels_localized(feedback, ["KP 清晰度: 5", "沉浸感: 4"], ["kp_clarity:", "immersion:"])
     assert "清单" in feedback
     assert "checklist" not in feedback
-    assert "The Haunting Module Playthrough" in battle_text
     assert "Mr. Knott" in battle_text
     assert "Arty Wilmot" in battle_text
     assert "线索资料 2" in battle_text
@@ -563,6 +595,18 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Nathaniel Crowe -> 内森尼尔·克劳" in localization_appendix
     assert "ledger -> 账本" in localization_appendix
     module_section = section_text(battle_text, "## Module")
+    assert_module_metadata_values_localized(
+        run_setup,
+        module_section,
+        campaign="屋顶追逐演练",
+        scenario="屋顶追逐演练",
+        source="基于《守秘人规则书》第 7 章：追逐的内部演练",
+        forbidden=[
+            "Campaign: Rooftop Chase Drill",
+            "Scenario: Rooftop Chase Drill",
+            "internal drill based on Keeper Rulebook Chapter 7: Chases",
+        ],
+    )
     assert "- Opening Scene: 艾达·金" in battle_text
     assert "艾达·金发现内森尼尔·克劳带着账本离开印刷店" in module_section
     assert "ledger" not in module_section
@@ -702,7 +746,6 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "逃脱" in feedback
     assert "save/chase.json" in battle_text
     assert "save/追逐.json" not in battle_text
-    assert "Rooftop Chase Drill" in battle_text
     assert "Chase Summary" in battle_text
     chase_summary = section_text(battle_text, "## Chase Summary")
     assert "ada-king-chase:" not in chase_summary
@@ -788,6 +831,19 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Player[skeptical_rules_lawyer]" not in actual_play
     run_setup = section_text(battle_text, "## Run Setup")
     assert_run_setup_values_localized(run_setup, "多玩家画像矩阵")
+    module_section = section_text(battle_text, "## Module")
+    assert_module_metadata_values_localized(
+        run_setup,
+        module_section,
+        campaign="守秘人多玩家画像压力测试",
+        scenario="《鬼屋》开场压力矩阵",
+        source="《克苏鲁的呼唤守秘人规则书》40周年纪念版 PDF",
+        forbidden=[
+            "Keeper Multi-Profile Pressure Test",
+            "The Haunting Opening Pressure Matrix",
+            "pdf/Call Of Cthulhu Keeper Rulebook",
+        ],
+    )
     assert "先查房契和旧报纸" in actual_play
     assert "我直接去二楼" in actual_play
     assert "[meta] 我想质疑一下" in actual_play

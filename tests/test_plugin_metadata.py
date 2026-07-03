@@ -81,6 +81,8 @@ def test_mode_protocol_documents_play_language_and_localized_terms():
         "localized_text",
         "Chinese transliterations",
         "conventional translated names",
+        "campaign titles",
+        "player-visible module source labels",
         "empty_report_lines",
         "machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text",
     ]
@@ -98,6 +100,8 @@ def test_design_blueprint_documents_play_language_and_localized_terms():
         "localized_text",
         "Chinese transliterations",
         "conventional translated names",
+        "campaign titles",
+        "player-visible module source labels",
         "empty_report_lines",
         "machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text",
     ]
@@ -151,6 +155,7 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "report_value_labels",
         "report_shell_not_localized",
         "run_setup_values_not_localized",
+        "module_metadata_values_not_localized",
         "transcript_labels",
         "transcript_labels_not_localized",
         "transcript_detail_values_not_localized",

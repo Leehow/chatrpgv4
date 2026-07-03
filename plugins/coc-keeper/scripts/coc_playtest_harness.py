@@ -59,6 +59,11 @@ ZH_HANS_BASE_GLOSSARY = {
 
 ZH_HANS_HAUNTING_GLOSSARY = {
     **ZH_HANS_BASE_GLOSSARY,
+    "The Haunting Module Playthrough": "《鬼屋》模组实录",
+    "Keeper Multi-Profile Pressure Test": "守秘人多玩家画像压力测试",
+    "The Haunting Opening Pressure Matrix": "《鬼屋》开场压力矩阵",
+    "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf": "《克苏鲁的呼唤守秘人规则书》40周年纪念版 PDF",
+    "The Haunting": "《鬼屋》",
     "Mr. Knott": "诺特先生",
     "Arty Wilmot": "阿蒂·威尔莫特",
     "Arty": "阿蒂",
@@ -100,6 +105,8 @@ ZH_HANS_HAUNTING_GLOSSARY = {
 
 ZH_HANS_CHASE_GLOSSARY = {
     **ZH_HANS_BASE_GLOSSARY,
+    "Rooftop Chase Drill": "屋顶追逐演练",
+    "internal drill based on Keeper Rulebook Chapter 7: Chases": "基于《守秘人规则书》第 7 章：追逐的内部演练",
     "Nathaniel Crowe": "内森尼尔·克劳",
     "Nathaniel": "内森尼尔·克劳",
     "cult ledger": "邪教账本",

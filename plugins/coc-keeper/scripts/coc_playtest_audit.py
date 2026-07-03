@@ -109,6 +109,10 @@ RUN_SETUP_VALUE_FIELDS = [
     "spoiler_policy",
     "player_profile",
 ]
+MODULE_METADATA_VALUE_FIELDS = [
+    "campaign_title",
+    "scenario",
+]
 CHARACTER_DOSSIER_REQUIRED_LABELS = [
     "Occupation",
     "Era",
@@ -620,6 +624,34 @@ def _run_setup_value_leaks(battle_report: str, metadata: dict[str, Any]) -> list
             leaks.append(canonical)
     if "entries (see Localization Appendix)" in section:
         leaks.append("localized_terms_summary")
+    return sorted(set(leaks))
+
+
+def _module_metadata_value_leaks(battle_report: str, metadata: dict[str, Any], scenario: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    section = "\n".join([
+        _section_text(battle_report, "Run Setup"),
+        _section_text(battle_report, "Module"),
+    ])
+    if not section:
+        return []
+    terms = _localized_terms(metadata)
+    candidates = [
+        str(metadata.get(field))
+        for field in MODULE_METADATA_VALUE_FIELDS
+        if metadata.get(field) not in (None, "", [], {})
+    ]
+    for field in ("title", "module_source", "source"):
+        value = scenario.get(field)
+        if value not in (None, "", [], {}):
+            candidates.append(str(value))
+    leaks: list[str] = []
+    for canonical in candidates:
+        localized = terms.get(canonical)
+        if canonical in section and localized != canonical:
+            leaks.append(canonical)
     return sorted(set(leaks))
 
 
@@ -1194,6 +1226,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Active localized Run Setup exposes raw configuration values: " + ", ".join(run_setup_value_leaks),
             "Render Run Setup display values from language_profile.report_value_labels while preserving canonical values in JSON.",
+        ))
+    module_metadata_value_leaks = _module_metadata_value_leaks(battle_report, metadata, context["scenario"])
+    if active_profile and module_metadata_value_leaks:
+        findings.append(_finding(
+            "module_metadata_values_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized report exposes raw module metadata values: " + ", ".join(module_metadata_value_leaks),
+            "Render Campaign, Scenario, and Source display values through localized_terms while preserving canonical values in JSON.",
         ))
     if active_profile and (
         "## Investigator Chronicle" not in battle_report
