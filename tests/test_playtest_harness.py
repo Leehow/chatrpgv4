@@ -145,6 +145,8 @@ def assert_localized_character_dossier_labels(text: str) -> None:
     assert "  - Occupation:" not in text
     assert "  - Backstory:" not in text
     assert "    - Description:" not in text
+    assert "职业: 古物学者" in text
+    assert "Antiquarian" not in text
 
 
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
@@ -215,6 +217,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Bout of Madness events: 1" in audit_text
     assert "temporary_insanity_triggered markers: 1" in audit_text
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms)
+    assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
     assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
@@ -443,6 +446,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms)
+    assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
     assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup

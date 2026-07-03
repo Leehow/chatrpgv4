@@ -509,6 +509,41 @@ def _character_dossier_label_gaps(battle_report: str, metadata: dict[str, Any]) 
     return sorted(set(gaps))
 
 
+def _character_dossier_term_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    section = _section_text(battle_report, "Character Dossier")
+    if not section:
+        return []
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("character_dossier_labels", {})
+    if not isinstance(labels, dict):
+        labels = {}
+    narrative_labels = {
+        str(labels.get("Player", "Player")),
+        str(labels.get("Occupation", "Occupation")),
+        str(labels.get("Backstory", "Backstory")),
+        str(labels.get("Description", "Description")),
+        str(labels.get("Ideology/Beliefs", "Ideology/Beliefs")),
+        str(labels.get("Significant People", "Significant People")),
+        str(labels.get("Meaningful Locations", "Meaningful Locations")),
+        str(labels.get("Treasured Possessions", "Treasured Possessions")),
+        str(labels.get("Traits", "Traits")),
+        str(labels.get("Injuries & Scars", "Injuries & Scars")),
+        str(labels.get("Phobias & Manias", "Phobias & Manias")),
+    }
+    narrative_lines: list[str] = []
+    for line in section.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- ") or ": " not in stripped:
+            continue
+        label, value = stripped[2:].split(": ", 1)
+        if label in narrative_labels:
+            narrative_lines.append(value)
+    return _unlocalized_terms_in_text("\n".join(narrative_lines), _localized_terms(metadata))
+
+
 def _profile_ids(metadata: dict[str, Any]) -> list[str]:
     ids: list[str] = []
     for profile_id in metadata.get("player_profiles_tested", []):
@@ -913,6 +948,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Active localized Character Dossier lacks localized field labels: " + ", ".join(character_label_gaps),
             "Render Character Dossier field labels from language_profile.character_dossier_labels.",
+        ))
+    character_term_leaks = _character_dossier_term_leaks(battle_report, metadata)
+    if active_profile and character_term_leaks:
+        findings.append(_finding(
+            "character_dossier_terms_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized Character Dossier leaks canonical glossary terms: " + ", ".join(character_term_leaks),
+            "Render Character Dossier values through localized_terms for the selected play_language.",
         ))
 
     scene_replay = _section_text(battle_report, "Scene-by-Scene Replay") if active_profile else ""

@@ -149,6 +149,7 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "report_shell_not_localized",
         "character_dossier_labels",
         "character_dossier_labels_not_localized",
+        "character_dossier_terms_not_localized",
         "Bout of Madness",
         "duration_roll",
         "playtests prove investigator reuse without writing sandbox changes into the real investigator library",

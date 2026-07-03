@@ -21,6 +21,7 @@ from coc_language import language_profile
 ZH_HANS_BASE_GLOSSARY = {
     "Ada King": "艾达·金",
     "Ada": "艾达·金",
+    "Antiquarian": "古物学者",
     "Regular difficulty": "普通难度",
     "pushed roll": "推骰",
     "pushed rolls": "推骰",
