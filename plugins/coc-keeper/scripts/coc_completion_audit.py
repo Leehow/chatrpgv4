@@ -531,6 +531,7 @@ def _battle_report_feedback_text_findings(
     run_dir: Path,
     battle_report: str,
 ) -> list[dict[str, Any]]:
+    feedback_section = _battle_report_anchor_section(battle_report, "Player Feedback On KP")
     feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
     required_feedback = [
         row["text"].strip()
@@ -541,7 +542,7 @@ def _battle_report_feedback_text_findings(
     missing_feedback = [
         text
         for text in required_feedback
-        if text not in battle_report
+        if text not in feedback_section
     ]
     if not missing_feedback:
         return []
