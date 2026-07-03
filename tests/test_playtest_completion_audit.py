@@ -127,6 +127,17 @@ def suite_report_fixture() -> str:
     ]) + "\n"
 
 
+def rulebook_audit_fixture() -> str:
+    return "\n\n".join([
+        "# Rulebook Alignment Audit",
+        "## Overall Result\nPASS",
+        "## Positive Rulebook Evidence\n- Fixture evidence.",
+        "## Root Cause Classification\n- No findings.",
+        "## Blueprint Cross-Check\n- Current run satisfies the implemented rulebook-audit contract.",
+        "## Next Loop Fix Target\n- No fix target.",
+    ]) + "\n"
+
+
 def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: bool = False):
     run_dir = root / ".coc" / "playtests" / run_id
     write_json(run_dir / "playtest.json", {
@@ -146,7 +157,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     })
     write_text(run_dir / "artifacts" / "battle-report.md", battle_report_fixture())
     write_text(run_dir / "artifacts" / "evaluation-report.md", evaluation_report_fixture())
-    write_text(run_dir / "artifacts" / "rulebook-audit.md", "# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    write_text(run_dir / "artifacts" / "rulebook-audit.md", rulebook_audit_fixture())
     write_json(run_dir / "artifacts" / "semantic-eval-request.json", request_payload(run_id))
     write_json(run_dir / "artifacts" / "semantic-eval-result.json", semantic_result(run_id, virtual_pressure=virtual_pressure))
 
@@ -297,6 +308,37 @@ def test_completion_audit_fails_when_suite_report_missing_required_sections(tmp_
     finding = next(finding for finding in audit["findings"] if finding["code"] == "suite_report_sections_missing")
     assert "## Coverage Evidence" in finding["missing_sections"]
     assert "## Quality Evidence" in finding["missing_sections"]
+
+
+def test_completion_audit_fails_when_rulebook_audit_missing_required_sections(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(
+        run_dir / "artifacts" / "rulebook-audit.md",
+        "# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n",
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "rulebook_audit_sections_missing")
+    assert "## Positive Rulebook Evidence" in finding["missing_sections"]
+    assert "## Next Loop Fix Target" in finding["missing_sections"]
 
 
 def test_completion_audit_fails_without_multi_profile_pressure(tmp_path):

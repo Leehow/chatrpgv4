@@ -79,6 +79,14 @@ REQUIRED_SUITE_REPORT_SECTIONS = [
     "## Loop Decision",
     "## Remaining Gaps",
 ]
+REQUIRED_RULEBOOK_AUDIT_SECTIONS = [
+    "# Rulebook Alignment Audit",
+    "## Overall Result",
+    "## Positive Rulebook Evidence",
+    "## Root Cause Classification",
+    "## Blueprint Cross-Check",
+    "## Next Loop Fix Target",
+]
 REPORT_ANCHOR_PREFIX = "<!-- report-anchor: "
 REPORT_ANCHOR_SUFFIX = " -->"
 
@@ -287,6 +295,25 @@ def _suite_report_section_findings(suite_report: str) -> list[dict[str, Any]]:
     )]
 
 
+def _rulebook_audit_section_findings(run_id: str, rulebook_audit: str) -> list[dict[str, Any]]:
+    headings = _markdown_headings(rulebook_audit)
+    missing_sections = [
+        section
+        for section in REQUIRED_RULEBOOK_AUDIT_SECTIONS
+        if section not in headings
+    ]
+    if not missing_sections:
+        return []
+    return [_finding(
+        "rulebook_audit_sections_missing",
+        "report_gap",
+        f"{run_id} rulebook-audit.md missing sections: {', '.join(missing_sections)}.",
+        "Regenerate rulebook-audit.md with the required rulebook evidence and loop-control sections.",
+        run_id=run_id,
+        missing_sections=missing_sections,
+    )]
+
+
 def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     run_id = str(run.get("run_id"))
@@ -360,6 +387,9 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
 
     battle_report = _read_text(artifacts_dir / "battle-report.md")
     findings.extend(_battle_report_anchor_findings(run_id, battle_report))
+
+    rulebook_audit = _read_text(artifacts_dir / "rulebook-audit.md")
+    findings.extend(_rulebook_audit_section_findings(run_id, rulebook_audit))
 
     evaluation_report = _read_text(artifacts_dir / "evaluation-report.md")
     findings.extend(_evaluation_report_section_findings(run_id, evaluation_report))
