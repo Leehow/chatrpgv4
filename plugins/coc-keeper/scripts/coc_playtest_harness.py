@@ -569,7 +569,29 @@ def _localize_public_value(value: Any, glossary: dict[str, str]) -> Any:
     return value
 
 
-def _localize_public_character_state(character: dict[str, Any], glossary: dict[str, str]) -> dict[str, Any]:
+def _public_character_label(language_profile: dict[str, Any], canonical: str) -> str:
+    labels = language_profile.get("character_dossier_labels", {})
+    if isinstance(labels, dict) and canonical in labels:
+        return str(labels[canonical])
+    return canonical
+
+
+def _localize_public_derived_values(
+    derived: dict[str, Any],
+    glossary: dict[str, str],
+    language_profile: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        _public_character_label(language_profile, str(key)): _localize_public_value(value, glossary)
+        for key, value in derived.items()
+    }
+
+
+def _localize_public_character_state(
+    character: dict[str, Any],
+    glossary: dict[str, str],
+    language_profile: dict[str, Any],
+) -> dict[str, Any]:
     visible = dict(character)
     for field in ("name", "occupation", "era"):
         if isinstance(visible.get(field), str):
@@ -582,8 +604,12 @@ def _localize_public_character_state(character: dict[str, Any], glossary: dict[s
             for skill, value in skills.items()
         }
 
-    for field in ("derived", "backstory"):
-        visible[field] = _localize_public_value(visible.get(field, {}), glossary)
+    derived = visible.get("derived", {})
+    if isinstance(derived, dict):
+        visible["derived"] = _localize_public_derived_values(derived, glossary, language_profile)
+    else:
+        visible["derived"] = _localize_public_value(derived, glossary)
+    visible["backstory"] = _localize_public_value(visible.get("backstory", {}), glossary)
     return visible
 
 
@@ -625,7 +651,7 @@ def _write_view_streams(run_dir: Path) -> None:
         "campaign_id": metadata.get("campaign_id"),
         "scenario": _localize_public_scenario_state(scenario, player_glossary),
         "investigators": [
-            _localize_public_character_state(character, player_glossary)
+            _localize_public_character_state(character, player_glossary, language_profile)
             for character in public_characters
         ],
     }

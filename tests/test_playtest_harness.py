@@ -175,7 +175,10 @@ def public_state_visible_strings(public_state: dict) -> list[str]:
         skills = investigator.get("skills", {})
         if isinstance(skills, dict):
             strings.extend(str(skill) for skill in skills)
-        strings.extend(nested_string_values(investigator.get("derived", {})))
+        derived = investigator.get("derived", {})
+        if isinstance(derived, dict):
+            strings.extend(str(key) for key in derived)
+        strings.extend(nested_string_values(derived))
         strings.extend(nested_string_values(investigator.get("backstory", {})))
     return [text for text in strings if text]
 

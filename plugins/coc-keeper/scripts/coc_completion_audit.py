@@ -1628,7 +1628,10 @@ def _public_state_visible_strings(row: dict[str, Any]) -> list[str]:
         skills = investigator.get("skills", {})
         if isinstance(skills, dict):
             strings.extend(str(skill) for skill in skills if str(skill).strip())
-        strings.extend(_nested_string_values(investigator.get("derived", {})))
+        derived = investigator.get("derived", {})
+        if isinstance(derived, dict):
+            strings.extend(str(key) for key in derived if str(key).strip())
+        strings.extend(_nested_string_values(derived))
         strings.extend(_nested_string_values(investigator.get("backstory", {})))
     return strings
 
