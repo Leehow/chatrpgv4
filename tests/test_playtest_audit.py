@@ -646,6 +646,38 @@ def test_active_audit_rejects_actor_ids_in_player_readable_report_sections(tmp_p
     assert "report_actor_ids_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_repeated_actor_labels_in_report_sections(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata["localized_terms"] = {"zh-Hans": {"Ada King": "艾达·金"}}
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report\n\n"
+        "## Scene-by-Scene Replay\n"
+        "- combat: 艾达·金 - 艾达·金挡开匕首。\n\n"
+        "## Actual Play Replay\n"
+        "- Turn 1 KP: \"这是中文主持描述。\"\n\n"
+        "## Major Player Decisions\n"
+        "- 艾达·金选择继续调查。\n\n"
+        "## Combat Summary\n"
+        "- 艾达·金: 艾达·金挡开匕首。\n\n"
+        "## Story Recap\n"
+        "- 艾达·金接受委托并找到线索。\n\n"
+        "## Player Feedback On KP\n"
+        "- kp_clarity: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "report_actor_label_repeated" in finding_codes(audit)
+
+
 def test_active_audit_requires_investigator_backstory_fields(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
     create_final_rulebook_run(run_dir)

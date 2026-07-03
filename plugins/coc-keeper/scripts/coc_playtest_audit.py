@@ -374,6 +374,34 @@ def _report_actor_id_leaks(battle_report: str, characters: list[dict[str, Any]])
     return sorted(set(leaks))
 
 
+def _character_display_names(characters: list[dict[str, Any]], terms: dict[str, str]) -> list[str]:
+    names: list[str] = []
+    for character in characters:
+        canonical_name = character.get("name")
+        investigator_id = character.get("id") or character.get("investigator_id")
+        display_name = terms.get(str(canonical_name), canonical_name) if canonical_name else investigator_id
+        if display_name not in (None, "", [], {}):
+            names.append(str(display_name))
+    return sorted(set(names), key=len, reverse=True)
+
+
+def _report_repeated_actor_labels(
+    battle_report: str,
+    characters: list[dict[str, Any]],
+    terms: dict[str, str],
+) -> list[str]:
+    names = _character_display_names(characters, terms)
+    repeated: list[str] = []
+    for heading in PLAYER_READABLE_REPORT_SECTIONS:
+        section = _section_text(battle_report, heading)
+        if not section:
+            continue
+        for name in names:
+            if f"{name}: {name}" in section or f"{name} - {name}" in section:
+                repeated.append(f"{heading}:{name}")
+    return sorted(set(repeated))
+
+
 def _event_type_count(events: list[dict[str, Any]], event_type: str) -> int:
     return sum(1 for event in events if event.get("type") == event_type)
 
@@ -782,6 +810,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Player-readable report sections expose internal actor ids: " + ", ".join(actor_id_leaks),
             "Render localized actor display names in player-readable report sections; reserve canonical ids for Character Dossier, Mechanical Log, Chase Tracker, and stored JSON.",
+        ))
+    repeated_actor_labels = _report_repeated_actor_labels(battle_report, context["characters"], locale_terms)
+    if active_profile and repeated_actor_labels:
+        findings.append(_finding(
+            "report_actor_label_repeated",
+            "report_gap",
+            "low",
+            "Player-readable report sections repeat actor labels: " + ", ".join(repeated_actor_labels),
+            "If a player-readable summary already begins with the localized actor name, omit the separate actor label prefix.",
         ))
 
     if "{'" in battle_report or "'}" in battle_report:

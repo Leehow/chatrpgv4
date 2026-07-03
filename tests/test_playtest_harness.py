@@ -232,7 +232,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "DEX 检定" in scene_replay
     assert "ada-king-haunting -" not in scene_replay
     assert "- damage: 艾达·金 -" in scene_replay
-    assert "- combat: 艾达·金 -" in scene_replay
+    assert "艾达·金 - 艾达·金" not in scene_replay
+    assert "- combat: 艾达·金用借助外套战技" in scene_replay
     assert_terms_absent(scene_replay, ["own-weapon clue", "three-Y eye symbol", "spare bedroom", "basement stairs", "pushed 地下室 search"])
     assert_terms_absent(scene_replay, ["Damage:", "DEX roll"])
     assert "## Actual Play Replay" in battle_text
@@ -340,7 +341,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "战斗轮" in battle_text
     assert "combat round" not in combat_summary
     assert "ada-king-haunting:" not in combat_summary
-    assert "- 艾达·金:" in combat_summary
+    assert "- 艾达·金:" not in combat_summary
+    assert "艾达·金: 艾达·金" not in combat_summary
+    assert "- 艾达·金用借助外套战技抓住浮空匕首" in combat_summary
     assert "in a 战斗轮" not in combat_summary
     assert "DEX order" not in combat_summary
     assert "opposed POW" not in combat_summary
@@ -349,6 +352,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     sanity_summary = section_text(battle_text, "## Sanity Summary")
     assert "ada-king-haunting:" not in sanity_summary
     assert "- 艾达·金:" in sanity_summary
+    assert "艾达·金: 艾达·金" not in sanity_summary
+    assert "- 艾达·金因床铺袭击失败 SAN 1/1D4" in sanity_summary
     state_changes = section_text(battle_text, "### State Changes")
     story_recap = section_text(battle_text, "## Story Recap")
     assert "worm-eaten book" not in state_changes

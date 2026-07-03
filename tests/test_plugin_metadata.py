@@ -138,6 +138,7 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "temporary_insanity_bout_duration_missing",
         "chase_tracker_not_rendered",
         "report_actor_ids_not_localized",
+        "report_actor_label_repeated",
         "Bout of Madness",
         "duration_roll",
         "playtests prove investigator reuse without writing sandbox changes into the real investigator library",
