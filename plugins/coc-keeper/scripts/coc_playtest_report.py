@@ -262,6 +262,30 @@ def _format_transcript_event(event: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _format_actual_play_event(event: dict[str, Any]) -> list[str]:
+    role = event.get("role", "unknown")
+    if role == "keeper_under_test":
+        speaker = "KP"
+    elif role == "player_simulator":
+        speaker = "Player"
+    else:
+        speaker = event.get("speaker") or role
+
+    turn = event.get("turn", "?")
+    text = event.get("text", "")
+    if role in {"keeper_under_test", "player_simulator"}:
+        lines = [f"- Turn {turn} {speaker}: \"{text}\""]
+    else:
+        lines = [f"- Turn {turn} {speaker}: {text}"]
+    if event.get("intent"):
+        lines.append(f"  - Intent: {event['intent']}")
+    if event.get("ruling"):
+        lines.append(f"  - Ruling: {event['ruling']}")
+    if event.get("mode") == "roll":
+        lines.append("  - Mode: roll")
+    return lines
+
+
 def _format_session_summary(event: dict[str, Any]) -> str:
     session_id = event.get("session_id") or event.get("id") or "session"
     summary = event.get("summary") or event.get("text") or ""
@@ -326,8 +350,10 @@ def generate_battle_report(run_dir: Path) -> Path:
     )
 
     transcript_lines: list[str] = []
+    actual_play_lines: list[str] = []
     for event in transcript:
         transcript_lines.extend(_format_transcript_event(event))
+        actual_play_lines.extend(_format_actual_play_event(event))
     roll_lines = [_format_roll(event) for event in rolls]
     state_lines = [_format_state_event(event) for event in state_events]
     decision_lines = [_format_decision(event) for event in state_events if event.get("type") == "decision"]
@@ -361,6 +387,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         "",
         "## Character Dossier",
         *_list_lines(character_lines, "- No character sheets recorded."),
+        "",
+        "## Actual Play Replay",
+        *_list_lines(actual_play_lines, "- No actual play events recorded."),
         "",
         "## Session Transcript",
         *_list_lines(transcript_lines, "- No transcript events recorded."),

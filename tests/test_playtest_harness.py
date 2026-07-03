@@ -15,6 +15,21 @@ coc_playtest_harness = load_module("coc_playtest_harness", "plugins/coc-keeper/s
 coc_playtest_audit = load_module("coc_playtest_audit", "plugins/coc-keeper/scripts/coc_playtest_audit.py")
 
 
+def has_cjk(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
+def visible_play_texts(run_dir: Path) -> list[str]:
+    import json
+
+    return [
+        event.get("text", "")
+        for line in (run_dir / "transcript.jsonl").read_text().splitlines()
+        for event in [json.loads(line)]
+        if event.get("role") in {"keeper_under_test", "player_simulator"}
+    ]
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -51,6 +66,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
 
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
+    assert "## Actual Play Replay" in battle_text
+    assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     assert "The Haunting Module Playthrough" in battle_text
     assert "Mr. Knott" in battle_text
     assert "Arty Wilmot" in battle_text
@@ -87,6 +104,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
 
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
+    assert "## Actual Play Replay" in battle_text
+    assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     assert "Rooftop Chase Drill" in battle_text
     assert "Chase Summary" in battle_text
     assert "speed roll" in battle_text

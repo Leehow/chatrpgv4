@@ -54,7 +54,7 @@ For semantic review, run `../../scripts/coc_playtest_suite.py --write-semantic-r
 
 `semantic-eval-result.json` must include `schema_version`, `run_id`, `evaluator_id`, `coverage`, `quality`, `root_cause_classification`, and `next_loop_fix_target`. The `coverage` object uses the same keys as the suite matrix and each value must include `covered` plus a semantic `reason`.
 
-The request also includes `quality_dimensions`, and the result `quality` object must score `module_fidelity`, `rulebook_procedure`, `immersion_and_pacing`, `state_continuity`, `spoiler_safety`, `player_agency`, and `report_completeness`. Each dimension must include `score`, `passed`, and `reason`; the suite report surfaces these in `## Quality Matrix` and records unresolved `quality_gaps`.
+The request also includes `quality_dimensions`, and the result `quality` object must score `module_fidelity`, `rulebook_procedure`, `immersion_and_pacing`, `chinese_visible_dialogue`, `actual_play_replay`, `state_continuity`, `spoiler_safety`, `player_agency`, and `report_completeness`. Each dimension must include `score`, `passed`, and `reason`; the suite report surfaces these in `## Quality Matrix` and records unresolved `quality_gaps`.
 
 After result files exist, run `../../scripts/coc_playtest_suite.py --evaluator semantic-artifact --root <repo-root>`. The suite must use the result file's `evaluator_id` and reasons instead of fallback structured-source coverage. If the result file is missing, the `semantic-artifact` evaluator should mark coverage missing rather than inventing a natural-language match.
 
@@ -65,7 +65,7 @@ Before generating reports, record the run context:
 - `sandbox/.coc/campaigns/<campaign-id>/party.json`: investigator ids used in the playtest.
 - `sandbox/.coc/campaigns/<campaign-id>/scenario/scenario.json`: module title, scenario id, source PDF, opening scene.
 - `sandbox/.coc/investigators/<investigator-id>/character.json`: characteristics, derived values, skills, occupation, and reusable investigator id.
-- `transcript.jsonl`: every virtual player, KP, system, and meta turn with role, text, mode, and player intent when available.
+- `transcript.jsonl`: every virtual player, KP, system, and meta turn with role, text, mode, and player intent when available. In serious active runs, visible KP and virtual-player dialogue should be Chinese, while machine markers, JSON keys, skill names, rule enum values, and system roll text remain stable.
 - `sandbox/.coc/campaigns/<campaign-id>/logs/rolls.jsonl`: rolls and mechanical outcomes.
 - `sandbox/.coc/campaigns/<campaign-id>/logs/events.jsonl`: scenes, clues, state changes, combat, chase, sanity, and other durable events.
 - `sandbox/.coc/campaigns/<campaign-id>/memory/session-summaries.jsonl`: player-safe story recap and campaign memory.
@@ -77,6 +77,7 @@ Before generating reports, record the run context:
 - `## Run Setup`
 - `## Module`
 - `## Character Dossier`
+- `## Actual Play Replay`
 - `## Session Transcript`
 - `## Mechanical Log`
 - `## Story Recap`
@@ -108,6 +109,7 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit must also 
 - have too few player decisions or too thin a KP/player transcript
 - fail to record Corbitt combat resolution
 - omit final HP, final SAN, rewards, or unresolved state
+- omit Chinese visible KP/player dialogue or the `## Actual Play Replay` section
 - leave Chase Summary empty instead of explaining that The Haunting has no required chase sequence
 
 When `playtest.json` sets `audit_profile: chase_drill`, the audit must also reject runs that:
@@ -116,3 +118,4 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit must also reje
 - omit `save/chase.json` or leave out participants, location chain, rounds, or outcome
 - fail to show speed roll, MOV, movement actions, hazard, barrier, conflict, and quarry escapes in Chase Summary
 - claim a chase happened without recording the state and rolls that explain how it resolved
+- omit Chinese visible KP/player dialogue or the `## Actual Play Replay` section

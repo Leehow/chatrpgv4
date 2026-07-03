@@ -154,6 +154,27 @@ def _keeper_ruling_count(transcript: list[dict[str, Any]]) -> int:
     return sum(1 for event in transcript if event.get("role") == "keeper_under_test" and event.get("ruling"))
 
 
+def _visible_dialogue_events(transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        event
+        for event in transcript
+        if event.get("role") in {"keeper_under_test", "player_simulator"}
+        and _nonempty_text(event.get("text"))
+    ]
+
+
+def _has_cjk(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
+def _non_chinese_dialogue_turns(transcript: list[dict[str, Any]]) -> list[str]:
+    turns: list[str] = []
+    for event in _visible_dialogue_events(transcript):
+        if not _has_cjk(str(event.get("text", ""))):
+            turns.append(str(event.get("turn", "?")))
+    return turns
+
+
 def _event_type_count(events: list[dict[str, Any]], event_type: str) -> int:
     return sum(1 for event in events if event.get("type") == event_type)
 
@@ -243,6 +264,18 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Run enough turns to cover scene framing, player intent, Keeper ruling, result, and consequence.",
         ))
 
+    metadata = context["metadata"]
+    active_profile = metadata.get("audit_profile") in {"haunting_module", "chase_drill"}
+    non_chinese_turns = _non_chinese_dialogue_turns(transcript)
+    if active_profile and non_chinese_turns:
+        findings.append(_finding(
+            "visible_dialogue_not_chinese",
+            "system_gap",
+            "high",
+            "Visible KP/player dialogue lacks Chinese text on turns: " + ", ".join(non_chinese_turns),
+            "Generate KP and virtual player visible dialogue in Chinese while preserving machine-readable markers, JSON keys, skills, and enum values.",
+        ))
+
     roll_gaps = _roll_protocol_gaps(context["rolls"])
     if roll_gaps:
         findings.append(_finding(
@@ -307,6 +340,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Render recorded story memory, decisions, clues, and player feedback instead of placeholder text.",
         ))
 
+    if active_profile and "## Actual Play Replay" not in battle_report:
+        findings.append(_finding(
+            "actual_play_replay_missing",
+            "report_gap",
+            "high",
+            "Battle report does not include the Actual Play Replay section for visible table dialogue.",
+            "Render the KP/player/system transcript as an actual-play replay before the structured transcript appendix.",
+        ))
+
     if "{'" in battle_report or "'}" in battle_report:
         findings.append(_finding(
             "raw_payload_rendered",
@@ -357,7 +399,6 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Declare and exercise at least investigation in every rulebook-alignment playtest; add sanity/combat/chase per scenario.",
         ))
 
-    metadata = context["metadata"]
     if _haunting_module_required(metadata):
         module_coverage = set(metadata.get("module_coverage", []))
         missing_coverage = [

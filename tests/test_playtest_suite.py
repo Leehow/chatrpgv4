@@ -162,6 +162,11 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     assert "LLM semantic evaluator" in request["instructions"]
     assert coverage_keys == set(coc_playtest_suite.CORE_COVERAGE)
     assert quality_keys == set(coc_playtest_suite.QUALITY_DIMENSIONS)
+    assert "chinese_visible_dialogue" in quality_keys
+    assert "actual_play_replay" in quality_keys
+    quality_questions = {entry["key"]: entry["question"] for entry in request["quality_dimensions"]}
+    assert "Chinese" in quality_questions["chinese_visible_dialogue"]
+    assert "actual-play" in quality_questions["actual_play_replay"]
     assert "battle_report" in request["inputs"]
     assert "transcript" in request["inputs"]
     assert "state_events" in request["inputs"]

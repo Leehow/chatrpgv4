@@ -401,3 +401,32 @@ def test_chase_drill_audit_requires_chase_state_and_resolution(tmp_path):
     assert "chase_state_missing" in finding_codes(audit)
     assert "chase_resolution_missing" in finding_codes(audit)
     assert "chase_report_missing_key_moments" in finding_codes(audit)
+
+
+def test_active_audit_requires_chinese_visible_kp_and_player_dialogue(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["module_coverage"] = [
+        "knott_hiring",
+        "research_route",
+        "chapel_of_contemplation",
+        "old_corbitt_place",
+        "bed_attack",
+        "basement",
+        "floating_knife",
+        "corbitt_hiding_place",
+        "corbitt_confrontation",
+        "conclusion_rewards",
+    ]
+    metadata["subsystems_covered"] = ["investigation", "social", "pushed_roll", "sanity", "damage", "combat"]
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(report_path.read_text() + "\n## Actual Play Replay\n- Turn 1 KP: \"The room is cold.\"\n")
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "visible_dialogue_not_chinese" in finding_codes(audit)
