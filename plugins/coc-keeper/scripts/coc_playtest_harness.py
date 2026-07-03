@@ -2352,7 +2352,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
                 "type": "scenario_experience",
                 "campaign_id": run_id,
                 "scenario_id": "the-haunting-opening-pressure",
-                "summary": "艾达·金经历了三种玩家风格压测，确认公开记录、鲁莽进屋和规则质疑都能进入同一故事。",
+                "summary": "艾达·金经历了三种调查风格的开局分支，确认公开记录、鲁莽进屋和规则质疑都能进入同一故事。",
                 "final_hp": 12,
                 "final_san": 55,
                 "notable_events": ["谨慎路线找到科比特与沉思教堂线索", "鲁莽路线通过推骰发现新划痕", "规则质疑获得独立规则解释"],
@@ -2377,7 +2377,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
                 "type": "scenario_inventory_summary",
                 "campaign_id": run_id,
                 "scenario_id": "the-haunting-opening-pressure",
-                "summary": "多玩家画像压测结束时的可继承物品、线索和路线选择。",
+                "summary": "多调查风格开局结束时的可继承物品、线索和路线选择。",
                 "items": [
                     "诺特先生的钥匙",
                     "沉思教堂记录线索",
@@ -2406,10 +2406,10 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"turn": 13, "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "profile_pressure_explanation", "text": "[meta] 规则裁定：检定不是惩罚玩家风格，而是根据行动方式和风险来定。谨慎路线用 Library Use 获取线索；鲁莽路线也允许，但信息少、后果更近。推骰前我必须先说明失败代价。[/meta]"},
         {"turn": "13a", "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "intent": "request keeper-only spoiler", "text": "[meta] 如果我现在明确想知道地下室到底藏着什么，能不能直接剧透告诉我？[/meta]"},
         {"turn": "13b", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "spoiler_warning", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "warning_issued", "secret-corbitt-body", "corbitt_basement_presence", {"requires_confirmation": True}), "text": "[spoiler_warning] 这会揭示《鬼屋》的守秘人信息：地下室核心秘密的一部分。确认后我只回答你请求的范围，不展开攻击触发或完整真相。你确认要看吗？[/spoiler_warning]"},
-        {"turn": "13c", "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "player_confirmed", "secret-corbitt-body", "corbitt_basement_presence", {"confirmed": True}), "text": "[meta] 确认。我接受这段剧透，只用于测试剧透警告流程。[/meta]"},
+        {"turn": "13c", "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "player_confirmed", "secret-corbitt-body", "corbitt_basement_presence", {"confirmed": True}), "text": "[meta] 确认。我接受这段剧透；只回答地下室这一点，不要展开后面的触发。[/meta]"},
         {"turn": "13d", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "limited_spoiler_reveal", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "limited_reveal", "secret-corbitt-body", "corbitt_basement_presence", {"confirmed": True}), "text": "[meta] 有限剧透：科比特的遗体仍在地下室。到此为止，我不会额外说明它如何行动、如何触发攻击，或完整结局。[/meta]"},
         {"turn": 14, "role": "player_simulator", "speaker": "Careful Player", "player_profile": "careful_investigator", "mode": "play", "intent": "use clue to shape plan", "text": "那我把档案线索告诉大家，建议先找沉思教堂的记录，再决定是否进地下室。"},
-        {"turn": 15, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "session_wrap", "text": "本轮压测到这里结束：KP 保留三个玩家画像的选择、风险和规则质疑，并把后续入口记录到战役记忆。"},
+        {"turn": 15, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "session_wrap", "text": "这一幕先收在这里：三个调查方向都留下了后续入口。你们可以先追查沉思教堂，再决定是否深入科比特宅邸。"},
     ], ZH_HANS_HAUNTING_GLOSSARY)
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Library Use", "goal": "research deed and newspaper records before entering the house", "target": 60, "effective_target": 60, "difficulty": "regular", "difficulty_rationale": "Public records can reveal a useful lead with focused archive work.", "roll": 29, "outcome": "hard_success", "failure_consequence": "Ada would spend half a day and enter the house with fewer leads.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "进屋前查房契和旧报纸记录", "difficulty_rationale": "公开记录能通过专注查档找到有用线索。", "failure_consequence": "艾达·金会多花半天，并带着更少线索进屋。"}}}},
@@ -2425,7 +2425,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"type": "decision", "actor": "player_simulator", "payload": {"summary": "规则质疑玩家主动要求查看地下室守秘人剧透；KP 先发出剧透警告并等待确认。"}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "fresh-scratches", "summary": "推骰成功后，艾达·金看见门闩边缘的新划痕。"}},
         {"type": "status", "actor": investigator_id, "payload": {"summary": "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。"}},
-        {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "多玩家画像压测结束，后续入口记录为先追查沉思教堂，再决定是否进入科比特宅邸深处。"}},
+        {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "本幕收束，后续入口记录为先追查沉思教堂，再决定是否进入科比特宅邸深处。"}},
     ], ZH_HANS_HAUNTING_GLOSSARY)
     _write_jsonl(campaign_dir / "logs" / "audit.jsonl", [
         {
@@ -2443,7 +2443,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
     _write_jsonl_localized(campaign_dir / "memory" / "session-summaries.jsonl", [
         {
             "session_id": "session-1",
-            "summary": "三个玩家画像压测同一 KP：谨慎玩家先查公开记录，鲁莽玩家直接进屋并推骰，规则质疑玩家要求解释裁定并确认一次剧透警告。KP 分别给出风险、失败后果、有限剧透和后续路线。",
+            "summary": "三个调查风格汇入同一开局：谨慎玩家先查公开记录，鲁莽玩家直接进屋并推骰，规则质疑玩家要求解释裁定并确认一次剧透警告。KP 分别给出风险、失败后果、有限剧透和后续路线。",
         },
     ], ZH_HANS_HAUNTING_GLOSSARY)
     _write_jsonl_localized(run_dir / "player-feedback.jsonl", [

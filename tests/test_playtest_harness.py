@@ -1475,8 +1475,14 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "沉思教堂记录线索" in inventory_history[0]["items"]
     assert_zh_hans_locale(metadata, {"Library Use": "图书馆使用", "Spot Hidden": "侦查"})
     actual_play = section_text(battle_text, "## Actual Play Replay")
+    session_transcript = section_text(battle_text, "## Session Transcript")
+    visible_table_text = actual_play + "\n" + session_transcript
     assert_localized_transcript_chrome(actual_play)
     assert "第 4 轮 系统: 图书馆使用：艾达·金掷出 29 / 60，结果困难成功。" in actual_play
+    assert "只用于测试剧透警告流程" not in visible_table_text
+    assert "本轮压测到这里结束" not in visible_table_text
+    assert "确认。我接受这段剧透；只回答地下室这一点，不要展开后面的触发。" in visible_table_text
+    assert "这一幕先收在这里：三个调查方向都留下了后续入口。" in visible_table_text
     assert_transcript_detail_values_localized(
         actual_play,
         ["请求谨慎调查路线", "鲁莽闯入危险", "质疑 KP 裁定", "收束本轮"],
@@ -1534,7 +1540,8 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert investigator_jsonl(run_dir, "ada-king-pressure", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")
     assert_localized_chronicle_labels(chronicle)
-    assert "艾达·金经历了三种玩家风格压测" in chronicle
+    assert "艾达·金经历了三种调查风格的开局分支" in chronicle
+    assert "三种玩家风格压测" not in chronicle
     assert "规则质疑获得独立规则解释" in chronicle
     assert "meta 质疑" not in chronicle
     assert "获得成长标记: 图书馆使用; 侦查" in chronicle
@@ -1546,6 +1553,8 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     )
     assert_player_readable_event_prefixes_absent(scene_replay, ["session ending"])
     assert "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。" in scene_replay
+    assert "多玩家画像压测结束" not in scene_replay
+    assert "本幕收束，后续入口记录为先追查沉思教堂" in scene_replay
     state_changes = section_text(battle_text, "### State Changes")
     assert_player_readable_state_ids_absent(
         state_changes,
@@ -1564,6 +1573,8 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     story_recap = section_text(battle_text, "## Story Recap")
     assert has_cjk(story_recap)
     assert "session-1:" not in story_recap
+    assert "三个调查风格汇入同一开局" in story_recap
+    assert "压测同一 KP" not in story_recap
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert_feedback_labels_localized(
