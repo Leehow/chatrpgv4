@@ -159,7 +159,17 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert all("Mr. Knott" not in text for text in visible_play_texts(run_dir))
     assert all("Walter Corbitt" not in text for text in visible_play_texts(run_dir))
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
-    assert has_cjk(section_text(battle_text, "## Major Player Decisions"))
+    major_decisions = section_text(battle_text, "## Major Player Decisions")
+    assert has_cjk(major_decisions)
+    assert " chose " not in major_decisions
+    assert " before " not in major_decisions
+    assert "ada-king-haunting:" not in major_decisions
+    assert "艾达·金:" not in major_decisions
+    assert "艾达·金: 艾达·金" not in major_decisions
+    assert " basement" not in major_decisions
+    assert " dagger" not in major_decisions
+    assert "艾达·金选择先去《波士顿环球报》查剪报" in major_decisions
+    assert "艾达·金相信维托里奥的提示" in major_decisions
     assert has_cjk(section_text(battle_text, "## Story Recap"))
     assert has_cjk(section_text(battle_text, "## Player Feedback On KP"))
     assert "The Haunting Module Playthrough" in battle_text
@@ -184,7 +194,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "The Haunting does not include a required chase sequence" in battle_text
     assert "No chase summary recorded." not in battle_text
     assert "Session ending not recorded." not in battle_text
-    assert bullet_count(section_text(battle_text, "## Major Player Decisions")) >= 5
+    assert bullet_count(major_decisions) >= 5
     assert "{'" not in battle_text
     assert "'}" not in battle_text
 
@@ -206,7 +216,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_zh_hans_locale(metadata, zh_terms)
     module_section = section_text(battle_text, "## Module")
     assert "- Opening Scene: 艾达·金" in battle_text
-    assert "艾达·金发现内森尼尔·克劳带着 ledger 离开印刷店" in module_section
+    assert "艾达·金发现内森尼尔·克劳带着账本离开印刷店" in module_section
+    assert "ledger" not in module_section
     assert "spots" not in module_section
     assert "leaving" not in module_section
     assert "- 艾达·金 (ada-king-chase)" in battle_text
@@ -218,8 +229,18 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_visible_terms_localized(section_text(battle_text, "## Actual Play Replay"), zh_terms)
     assert all("Ada King" not in text for text in visible_play_texts(run_dir))
     assert all("Nathaniel Crowe" not in text for text in visible_play_texts(run_dir))
+    assert all("ledger" not in text for text in visible_play_texts(run_dir))
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
-    assert has_cjk(section_text(battle_text, "## Major Player Decisions"))
+    chase_decisions = section_text(battle_text, "## Major Player Decisions")
+    assert has_cjk(chase_decisions)
+    assert " chose " not in chase_decisions
+    assert "ada-king-chase:" not in chase_decisions
+    assert "艾达·金:" not in chase_decisions
+    assert "艾达·金: 艾达·金" not in chase_decisions
+    assert "push ledger confirmation roll" not in chase_decisions
+    assert "ledger" not in chase_decisions
+    assert "艾达·金冒着被发现的风险继续观察" in chase_decisions
+    assert "是否带着账本" in chase_decisions
     assert has_cjk(section_text(battle_text, "## Story Recap"))
     assert has_cjk(section_text(battle_text, "## Player Feedback On KP"))
     assert "Rooftop Chase Drill" in battle_text

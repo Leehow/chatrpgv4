@@ -134,9 +134,8 @@ def _event_summary(event: dict[str, Any], fallback: str = "") -> str:
 
 
 def _format_decision(event: dict[str, Any]) -> str:
-    actor = _display_actor(event.get("actor", "unknown"))
     summary = _event_summary(event, "decision recorded")
-    return f"- {actor}: {summary}"
+    return f"- {summary}"
 
 
 def _format_clue(event: dict[str, Any]) -> str:
@@ -404,7 +403,11 @@ def generate_battle_report(run_dir: Path) -> Path:
         actual_play_lines.extend(_format_actual_play_event(event))
     roll_lines = [_format_roll(event) for event in rolls]
     state_lines = [_format_state_event(event) for event in state_events]
-    decision_lines = [_format_decision(event) for event in state_events if event.get("type") == "decision"]
+    decision_lines = [
+        _format_decision(event)
+        for event in state_events
+        if event.get("type") == "decision"
+    ]
     clue_lines = [_format_clue(event) for event in state_events if event.get("type") == "clue"]
     scene_replay_lines = [_format_scene_replay_event(event) for event in _scene_replay_events(state_events)]
     combat_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "combat"]
