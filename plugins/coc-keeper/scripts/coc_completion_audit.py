@@ -562,6 +562,15 @@ def _missing_relative_files(base: Path, relative_paths: list[str], display_prefi
     return missing
 
 
+def _empty_relative_files(base: Path, relative_paths: list[str], display_prefix: str = "") -> list[str]:
+    empty: list[str] = []
+    for relative_path in relative_paths:
+        path = base / relative_path
+        if path.exists() and path.is_file() and not path.read_text(encoding="utf-8").strip():
+            empty.append(f"{display_prefix}{relative_path}")
+    return empty
+
+
 def _investigator_ids_from_party(party: dict[str, Any]) -> list[str]:
     investigator_ids: list[str] = []
     for key in ("active_investigator_ids", "investigator_ids"):
@@ -578,11 +587,17 @@ def _investigator_ids_from_party(party: dict[str, Any]) -> list[str]:
 def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     missing_files = _missing_relative_files(run_dir, REQUIRED_RUN_SOURCE_FILES)
+    empty_files = _empty_relative_files(run_dir, REQUIRED_RUN_SOURCE_FILES)
 
     campaign_id = str(metadata.get("campaign_id") or run_id)
     campaign_prefix = f"sandbox/.coc/campaigns/{campaign_id}/"
     campaign_dir = run_dir / campaign_prefix
     missing_files.extend(_missing_relative_files(
+        campaign_dir,
+        REQUIRED_CAMPAIGN_SOURCE_FILES,
+        display_prefix=campaign_prefix,
+    ))
+    empty_files.extend(_empty_relative_files(
         campaign_dir,
         REQUIRED_CAMPAIGN_SOURCE_FILES,
         display_prefix=campaign_prefix,
@@ -607,6 +622,11 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             REQUIRED_INVESTIGATOR_SOURCE_FILES,
             display_prefix=investigator_prefix,
         ))
+        empty_files.extend(_empty_relative_files(
+            investigator_dir,
+            REQUIRED_INVESTIGATOR_SOURCE_FILES,
+            display_prefix=investigator_prefix,
+        ))
 
     if missing_files:
         findings.append(_finding(
@@ -616,6 +636,15 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             "Regenerate the active run before completion audit so battle reports, audits, and semantic results are backed by current transcript, view, log, memory, campaign, and investigator source files.",
             run_id=run_id,
             missing_files=missing_files,
+        ))
+    if empty_files:
+        findings.append(_finding(
+            "active_run_source_files_empty",
+            "test_gap",
+            f"{run_id} empty source files: {', '.join(empty_files)}",
+            "Regenerate the active run before completion audit so required transcript, view, log, memory, campaign, and investigator source files contain structured actual-play evidence.",
+            run_id=run_id,
+            empty_files=empty_files,
         ))
     return findings
 

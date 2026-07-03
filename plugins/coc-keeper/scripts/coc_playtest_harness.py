@@ -1755,6 +1755,22 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
                 "carryover_notes": "账本线索可带入后续模组；结算成长检定后再导入长期角色卡。",
             }
         ],
+        [
+            {
+                "schema_version": 1,
+                "type": "scenario_inventory_summary",
+                "campaign_id": run_id,
+                "scenario_id": "rooftop-chase-drill",
+                "summary": "屋顶追逐结束时的可继承物品与证据状态。",
+                "items": [
+                    "邪教账本",
+                    "钥匙串",
+                    "裂柄铜放大镜",
+                ],
+                "cash": "未变化",
+                "notes": "邪教账本可作为后续仓库调查入口；钥匙串是否归还或封存由下一场开局确认。",
+            }
+        ],
     )
     _write_json(campaign_dir / "save" / "chase.json", {
         "schema_version": 1,
@@ -2107,6 +2123,23 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
                 "rewards": ["保留三种玩家画像的 KP 裁定记录"],
                 "permanent_changes": ["记录科比特宅邸开局调查路线"],
                 "carryover_notes": "后续故事入口保留为沉思教堂记录；导入正式战役前由玩家选择采用哪条路线为正史。",
+            }
+        ],
+        [
+            {
+                "schema_version": 1,
+                "type": "scenario_inventory_summary",
+                "campaign_id": run_id,
+                "scenario_id": "the-haunting-opening-pressure",
+                "summary": "多玩家画像压测结束时的可继承物品、线索和路线选择。",
+                "items": [
+                    "诺特先生的钥匙",
+                    "沉思教堂记录线索",
+                    "门闩新划痕线索",
+                    "裂柄铜放大镜",
+                ],
+                "cash": "20 美元预付款暂记",
+                "notes": "导入正式战役前由玩家选择谨慎调查路线、鲁莽进屋路线或合并为正史；诺特先生钥匙应在委托结束后归还。",
             }
         ],
     )

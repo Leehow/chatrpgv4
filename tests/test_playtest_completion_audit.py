@@ -103,7 +103,7 @@ def evaluation_report_fixture() -> str:
         "## Passed Test Cases\n- fixture pass",
         "## Failed Test Cases\n- none",
         "## Rule Accuracy Findings\n- none",
-        "## State Integrity Findings\n- none",
+        "## State Integrity Findings\n- [low] state_integrity: Fixture state agrees with the report. Evidence: artifacts artifacts/battle-report.md",
         "## Spoiler Safety Findings\n- none",
         "## Immersion Findings\n- none",
         "## Meta-Game Findings\n- none",
@@ -191,7 +191,14 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     write_jsonl(run_dir / "player-feedback.jsonl", [
         {"category": "kp_clarity", "score": 5, "text": "fixture feedback"},
     ])
-    write_jsonl(run_dir / "evaluator-notes.jsonl", [])
+    write_jsonl(run_dir / "evaluator-notes.jsonl", [
+        {
+            "severity": "low",
+            "category": "state_integrity",
+            "text": "Fixture state agrees with the report.",
+            "evidence": {"artifact_paths": ["artifacts/battle-report.md"]},
+        }
+    ])
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
     write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,
@@ -348,6 +355,33 @@ def test_completion_audit_fails_when_active_run_source_files_are_missing(tmp_pat
     finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_missing")
     assert finding["run_id"] == "v2-haunting-module"
     assert "transcript.jsonl" in finding["missing_files"]
+
+
+def test_completion_audit_fails_when_active_run_source_files_are_empty(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    write_text(tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "transcript.jsonl", "")
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_empty")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "transcript.jsonl" in finding["empty_files"]
 
 
 def test_completion_audit_fails_when_battle_report_missing_required_anchors(tmp_path):

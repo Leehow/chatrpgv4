@@ -1167,6 +1167,10 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "No chase summary recorded." not in battle_text
     clues_found = section_text(battle_text, "## Clues Found")
     assert_player_readable_state_ids_absent(clues_found, ["ledger-clue"])
+    inventory_history = investigator_jsonl(run_dir, "ada-king-chase", "inventory-history.jsonl")
+    assert inventory_history
+    assert "邪教账本" in inventory_history[0]["items"]
+    assert "钥匙串" in inventory_history[0]["items"]
     assert (run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json").exists()
 
 
@@ -1197,6 +1201,10 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
         "reckless_investigator": "鲁莽调查员",
         "skeptical_rules_lawyer": "规则质疑玩家",
     }
+    inventory_history = investigator_jsonl(run_dir, "ada-king-pressure", "inventory-history.jsonl")
+    assert inventory_history
+    assert "诺特先生的钥匙" in inventory_history[0]["items"]
+    assert "沉思教堂记录线索" in inventory_history[0]["items"]
     assert_zh_hans_locale(metadata, {"Library Use": "图书馆使用", "Spot Hidden": "侦查"})
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_localized_transcript_chrome(actual_play)
