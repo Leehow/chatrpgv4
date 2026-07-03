@@ -193,6 +193,22 @@ def battle_report_chase_tracker_fixture_text() -> str:
     ])
 
 
+def battle_report_character_dossier_fixture_text() -> str:
+    return "\n".join([
+        "- Ada King (v2-haunting-module-investigator)",
+        "- Ada King (v3-chase-drill-investigator)",
+        "- Ada King (v4-multi-profile-pressure-investigator)",
+        "  - Occupation: Antiquarian",
+        "  - Era: 1920s",
+        "  - Characteristics: STR: 60, DEX: 50",
+        "  - Derived: HP: 12, MOV: 8",
+        "  - Skills: Spot Hidden: 55, Library Use: 60",
+        "  - Backstory:",
+        "    - Description: fixture backstory",
+        "    - Traits: careful notes; checks exits",
+    ])
+
+
 def battle_report_fixture() -> str:
     return "\n\n".join([
         "# Battle Report <!-- report-anchor: Battle Report -->",
@@ -200,7 +216,8 @@ def battle_report_fixture() -> str:
         "## Module <!-- report-anchor: Module -->\n- Scenario: fixture",
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n"
         + battle_report_investigator_creation_fixture_text(),
-        "## Character Dossier <!-- report-anchor: Character Dossier -->\n- Fixture character dossier.",
+        "## Character Dossier <!-- report-anchor: Character Dossier -->\n"
+        + battle_report_character_dossier_fixture_text(),
         "## Investigator Chronicle <!-- report-anchor: Investigator Chronicle -->\n"
         + battle_report_investigator_chronicle_fixture_text(),
         "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n"
@@ -309,6 +326,14 @@ def battle_report_with_sources_but_without_chase_tracker_state() -> str:
         "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n"
         + battle_report_chase_tracker_fixture_text(),
         "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n- Fixture chase tracker.",
+    )
+
+
+def battle_report_with_sources_but_without_character_dossier_records() -> str:
+    return battle_report_fixture().replace(
+        "## Character Dossier <!-- report-anchor: Character Dossier -->\n"
+        + battle_report_character_dossier_fixture_text(),
+        "## Character Dossier <!-- report-anchor: Character Dossier -->\n- Fixture character dossier.",
     )
 
 
@@ -545,7 +570,26 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     write_json(investigator_dir / "character.json", {
         "schema_version": 1,
         "investigator_id": investigator_id,
-        "skills": {"Spot Hidden": 55},
+        "id": investigator_id,
+        "name": "Ada King",
+        "occupation": "Antiquarian",
+        "era": "1920s",
+        "characteristics": {
+            "STR": 60,
+            "DEX": 50,
+        },
+        "derived": {
+            "HP": 12,
+            "MOV": 8,
+        },
+        "skills": {
+            "Spot Hidden": 55,
+            "Library Use": 60,
+        },
+        "backstory": {
+            "description": "fixture backstory",
+            "traits": ["careful notes", "checks exits"],
+        },
     })
     write_jsonl(investigator_dir / "history.jsonl", [
         {"campaign_id": run_id, "summary": "fixture history"},
@@ -1378,6 +1422,43 @@ def test_completion_audit_fails_when_battle_report_omits_chase_tracker_state(tmp
     assert "fixture-chase" in finding["missing_chase_samples"]
     assert "fixture chase round one" in finding["missing_chase_samples"]
     assert "quarry escapes" in finding["missing_chase_samples"]
+
+
+def test_completion_audit_fails_when_battle_report_omits_character_dossier_records(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        battle_report_with_sources_but_without_character_dossier_records(),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(
+        finding for finding in audit["findings"]
+        if finding["code"] == "battle_report_character_dossier_missing"
+    )
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "Ada King" in finding["missing_character_samples"]
+    assert "STR: 60" in finding["missing_character_samples"]
+    assert "Spot Hidden: 55" in finding["missing_character_samples"]
+    assert "fixture backstory" in finding["missing_character_samples"]
 
 
 def test_completion_audit_accepts_localized_investigator_chronicle_spacing(tmp_path):

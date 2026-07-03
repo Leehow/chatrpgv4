@@ -546,6 +546,8 @@ The semantic request includes `coverage_keys` and `quality_dimensions`; completi
 
 The completion audit must also reject battle reports whose Investigator Creation omits structured reusable-investigator `creation.json` values for generated characteristics, occupation skill points, personal-interest skill points, credit rating, skill allocation, and equipment, allowing machine glossary localization for player-visible names, occupations, skills, and gear.
 
+The completion audit must also reject battle reports whose Character Dossier omits structured reusable-investigator `character.json` values for name/id, occupation, era, characteristics, derived values, skills, and backstory, allowing language-profile labels and glossary localization for player-visible names, occupations, skills, and character-sheet terms.
+
 The completion audit must also reject battle reports whose Chase Tracker omits structured `save/chase.json` values for participants, DEX order, location chain, round summaries, and outcome, allowing language-profile labels and glossary localization for player-visible chase terms.
 
 ## Campaign File Examples

@@ -373,6 +373,26 @@ def _battle_report_anchors(battle_report: str) -> set[str]:
     return anchors
 
 
+def _battle_report_anchor_section(battle_report: str, anchor: str) -> str:
+    marker = f"{REPORT_ANCHOR_PREFIX}{anchor}{REPORT_ANCHOR_SUFFIX}"
+    lines = battle_report.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if marker not in stripped or not stripped.startswith("#"):
+            continue
+        level = len(stripped) - len(stripped.lstrip("#"))
+        section = [line]
+        for next_line in lines[index + 1:]:
+            next_stripped = next_line.strip()
+            if next_stripped.startswith("#"):
+                next_level = len(next_stripped) - len(next_stripped.lstrip("#"))
+                if next_level <= level:
+                    break
+            section.append(next_line)
+        return "\n".join(section)
+    return ""
+
+
 def _battle_report_anchor_findings(run_id: str, battle_report: str) -> list[dict[str, Any]]:
     anchors = _battle_report_anchors(battle_report)
     missing_anchors = [
@@ -692,6 +712,96 @@ def _battle_report_investigator_creation_findings(
         missing_creation_count=len(missing_texts),
         required_creation_count=len(required_texts),
         missing_creation_samples=missing_texts[:15],
+    )]
+
+
+def _character_dossier_label(metadata: dict[str, Any], canonical: str) -> str:
+    return _profile_label(metadata, "character_dossier_labels", canonical)
+
+
+def _character_dossier_required_texts(character: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
+    localized_terms = _metadata_localized_terms(metadata)
+    required_texts: list[str] = []
+
+    for key in ("name", "investigator_id", "id", "occupation", "era"):
+        value = character.get(key)
+        if value not in (None, "", [], {}):
+            required_texts.append(str(value))
+
+    characteristics = character.get("characteristics", {})
+    if isinstance(characteristics, dict):
+        for key, value in characteristics.items():
+            if value in (None, "", [], {}):
+                continue
+            label = _character_dossier_label(metadata, str(key))
+            required_texts.append(f"{label}: {value}")
+
+    derived = character.get("derived", {})
+    if isinstance(derived, dict):
+        for key, value in derived.items():
+            if value in (None, "", [], {}):
+                continue
+            label = _character_dossier_label(metadata, str(key))
+            required_texts.append(f"{label}: {value}")
+
+    skills = character.get("skills", {})
+    if isinstance(skills, dict):
+        for skill, value in skills.items():
+            if value in (None, "", [], {}):
+                continue
+            display_skill = _localize_text(str(skill), localized_terms)
+            required_texts.append(f"{display_skill}: {value}")
+
+    backstory = character.get("backstory", {})
+    if isinstance(backstory, dict):
+        for value in backstory.values():
+            if isinstance(value, str) and value.strip():
+                required_texts.append(value.strip())
+            elif isinstance(value, list):
+                required_texts.extend(
+                    str(item).strip()
+                    for item in value
+                    if str(item).strip()
+                )
+
+    return list(dict.fromkeys(text for text in required_texts if text))
+
+
+def _battle_report_character_dossier_findings(
+    run_id: str,
+    run_dir: Path,
+    campaign_dir: Path,
+    metadata: dict[str, Any],
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    character_dossier = _battle_report_anchor_section(battle_report, "Character Dossier")
+    party = _read_json(campaign_dir / "party.json", {})
+    investigator_ids = _investigator_ids_from_party(party) if isinstance(party, dict) else []
+    localized_terms = _metadata_localized_terms(metadata)
+
+    required_texts: list[str] = []
+    for investigator_id in investigator_ids:
+        investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
+        character = _read_json(investigator_dir / "character.json", {})
+        if isinstance(character, dict):
+            required_texts.extend(_character_dossier_required_texts(character, metadata))
+
+    missing_texts = [
+        text
+        for text in required_texts
+        if not _text_rendered_in_report(text, character_dossier, localized_terms)
+    ]
+    if not missing_texts:
+        return []
+    return [_finding(
+        "battle_report_character_dossier_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_texts)} of {len(required_texts)} character dossier records from character.json.",
+        "Regenerate battle-report.md so Character Dossier renders reusable investigator name/id, occupation, era, characteristics, derived values, skills, and backstory from character.json.",
+        run_id=run_id,
+        missing_character_count=len(missing_texts),
+        required_character_count=len(required_texts),
+        missing_character_samples=missing_texts[:30],
     )]
 
 
@@ -1768,6 +1878,13 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_feedback_text_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_memory_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_investigator_creation_findings(
+        run_id,
+        run_dir,
+        campaign_dir,
+        metadata,
+        battle_report,
+    ))
+    findings.extend(_battle_report_character_dossier_findings(
         run_id,
         run_dir,
         campaign_dir,
