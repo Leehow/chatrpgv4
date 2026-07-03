@@ -1617,7 +1617,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {
             "round": 2,
             "control": "keeper",
-            "summary": "疯狂发作第 2 回合：艾达·金背撞在地下室墙边，只能防御和抽泣；KP 暂时不接受玩家的主动攻击宣告。",
+            "summary": "疯狂发作第 2 回合：艾达·金背撞在地下室墙边；这一回合她的动作只剩下本能的防御和抽泣，科比特逼近时她无法组织起攻击。",
         },
         {
             "round": 3,

@@ -1109,6 +1109,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "疯狂发作第 3 回合" in sanity_summary
     assert "疯狂发作第 4 回合" in sanity_summary
     assert "控制权回到玩家" in sanity_summary
+    assert "KP 暂时不接受玩家的主动攻击宣告" not in bout_visible_sections
+    assert "KP 暂时不接受玩家的主动攻击宣告" not in visible_dialogue
+    assert "这一回合她的动作只剩下本能的防御" in bout_visible_sections
     state_changes = section_text(battle_text, "### State Changes")
     story_recap = section_text(battle_text, "## Story Recap")
     assert_player_readable_state_ids_absent(
