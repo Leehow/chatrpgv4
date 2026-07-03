@@ -537,7 +537,7 @@ MP = floor(POW / 5)
 SAN = POW
 Luck = provided luck or POW
 DB/Build = damage_bonus_build(STR, SIZ)
-MOV = 8 if DEX and STR are both greater than SIZ, 7 if either DEX or STR is at least SIZ, otherwise 6
+MOV = 9 if DEX and STR are both greater than SIZ, 8 if either DEX or STR is at least SIZ, otherwise 7
 ```
 
 Implement validation for required `id`, `name`, `characteristics`, and all eight characteristics.
