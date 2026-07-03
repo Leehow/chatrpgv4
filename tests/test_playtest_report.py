@@ -157,7 +157,16 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     ])
     write_jsonl(run_dir / "evaluator-notes.jsonl", [
         {"severity": "low", "category": "immersion", "text": "Good opening."},
-        {"severity": "low", "category": "state_integrity", "text": "Campaign validation returned no errors."},
+        {
+            "severity": "low",
+            "category": "state_integrity",
+            "text": "Campaign validation returned no errors.",
+            "evidence": {
+                "transcript_turns": [1, 2, 3],
+                "log_paths": ["sandbox/.coc/campaigns/run-1/logs/rolls.jsonl"],
+                "state_files": ["sandbox/.coc/campaigns/run-1/campaign.json"],
+            },
+        },
         {"severity": "low", "category": "spoiler_safety", "text": "No leaks observed."},
         {"severity": "low", "category": "meta_quality", "text": "Meta question paused play and returned cleanly."},
     ])
@@ -242,6 +251,7 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "- activation_resume" in evaluation_text
     assert "- spoiler_warning" in evaluation_text
     assert "[low] state_integrity: Campaign validation returned no errors." in evaluation_text
+    assert "Evidence: transcript turns 1, 2, 3; logs sandbox/.coc/campaigns/run-1/logs/rolls.jsonl; state sandbox/.coc/campaigns/run-1/campaign.json" in evaluation_text
     assert "[low] spoiler_safety: No leaks observed." in evaluation_text
     assert "[low] meta_quality: Meta question paused play and returned cleanly." in evaluation_text
     assert "- Populate spoiler warning transcript checks." in evaluation_text

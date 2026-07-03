@@ -1644,13 +1644,37 @@ def generate_evaluation_report(run_dir: Path) -> Path:
     fix_lines = [f"- {fix}" for fix in metadata.get("recommended_fixes", [])]
     regression_lines = [f"- {item}" for item in metadata.get("regression_tests", [])]
 
+    def format_evidence(note: dict[str, Any]) -> str:
+        evidence = note.get("evidence")
+        if not isinstance(evidence, dict):
+            return ""
+        parts: list[str] = []
+        evidence_labels = [
+            ("transcript_turns", "transcript turns"),
+            ("transcript_event_ids", "transcript events"),
+            ("log_paths", "logs"),
+            ("state_files", "state"),
+            ("artifact_paths", "artifacts"),
+        ]
+        for key, label in evidence_labels:
+            value = evidence.get(key)
+            if value in (None, "", [], {}):
+                continue
+            values = value if isinstance(value, list) else [value]
+            parts.append(f"{label} {', '.join(str(item) for item in values)}")
+        return "; ".join(parts)
+
     def notes_for(*categories: str) -> list[str]:
         accepted = set(categories)
-        return [
-            f"- [{note.get('severity', 'unknown')}] {note.get('category', 'general')}: {note.get('text', '')}"
-            for note in notes
-            if note.get("category") in accepted
-        ]
+        lines: list[str] = []
+        for note in notes:
+            if note.get("category") not in accepted:
+                continue
+            lines.append(f"- [{note.get('severity', 'unknown')}] {note.get('category', 'general')}: {note.get('text', '')}")
+            evidence = format_evidence(note)
+            if evidence:
+                lines.append(f"  - Evidence: {evidence}")
+        return lines
 
     body = [
         "# Evaluation Report",

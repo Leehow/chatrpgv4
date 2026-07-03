@@ -363,6 +363,25 @@ def _write_jsonl(path: Path, events: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
 
 
+def _evidence(
+    *,
+    transcript_turns: list[Any] | None = None,
+    log_paths: list[str] | None = None,
+    state_files: list[str] | None = None,
+    artifact_paths: list[str] | None = None,
+) -> dict[str, list[Any] | list[str]]:
+    evidence: dict[str, list[Any] | list[str]] = {}
+    if transcript_turns:
+        evidence["transcript_turns"] = transcript_turns
+    if log_paths:
+        evidence["log_paths"] = log_paths
+    if state_files:
+        evidence["state_files"] = state_files
+    if artifact_paths:
+        evidence["artifact_paths"] = artifact_paths
+    return evidence
+
+
 def _read_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
@@ -1113,8 +1132,25 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
         },
     ])
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
-        {"severity": "low", "category": "rules_accuracy", "text": "Rolls include goals and difficulty rationale."},
-        {"severity": "low", "category": "state_integrity", "text": "Clue, decision, sanity, memory, and feedback logs are present."},
+        {
+            "severity": "low",
+            "category": "rules_accuracy",
+            "text": "Rolls include goals and difficulty rationale.",
+            "evidence": _evidence(
+                transcript_turns=[5, 6, 8, "8a", 9, 12],
+                log_paths=[f"sandbox/.coc/campaigns/{run_id}/logs/rolls.jsonl"],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "state_integrity",
+            "text": "Clue, decision, sanity, memory, and feedback logs are present.",
+            "evidence": _evidence(
+                transcript_turns=[1, 4, 8, 12, 13],
+                log_paths=[f"sandbox/.coc/campaigns/{run_id}/logs/events.jsonl", f"sandbox/.coc/campaigns/{run_id}/memory/session-summaries.jsonl"],
+                artifact_paths=["player-feedback.jsonl", "artifacts/battle-report.md"],
+            ),
+        },
     ])
 
     _write_view_streams(run_dir)
@@ -1474,11 +1510,57 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"category": "combat_readability", "score": 4, "text": "combat round 顺序、opposed rolls、damage 和 Corbitt 的败亡都能读懂。"},
     ], ZH_HANS_HAUNTING_GLOSSARY)
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
-        {"severity": "low", "category": "rules_accuracy", "text": "Pushed rolls state changed tactics and foreshadowed consequences."},
-        {"severity": "low", "category": "rules_accuracy", "text": "The Floating Knife uses opposed POW versus Dodge and a Fighting Maneuver to grab it."},
-        {"severity": "low", "category": "state_integrity", "text": "HP, SAN, clues, scenes, combat, final status, memory, and feedback are recorded."},
-        {"severity": "low", "category": "meta_quality", "text": "A meta-mode pushed-roll question pauses narration, explains the ruling, and returns to play."},
-        {"severity": "medium", "category": "immersion", "text": "The scripted test compresses a full scenario and should later be replaced by an LLM-vs-KP interactive transcript."},
+        {
+            "severity": "low",
+            "category": "rules_accuracy",
+            "text": "Pushed rolls state changed tactics and foreshadowed consequences.",
+            "evidence": _evidence(
+                transcript_turns=[7, "8a", 32, "33a", 38, "38b"],
+                log_paths=[f"sandbox/.coc/campaigns/{run_id}/logs/rolls.jsonl"],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "rules_accuracy",
+            "text": "The Floating Knife uses opposed POW versus Dodge and a Fighting Maneuver to grab it.",
+            "evidence": _evidence(
+                transcript_turns=[40, 41, 42, 43, 44, 45],
+                log_paths=[f"sandbox/.coc/campaigns/{run_id}/logs/rolls.jsonl", f"sandbox/.coc/campaigns/{run_id}/logs/events.jsonl"],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "state_integrity",
+            "text": "HP, SAN, clues, scenes, combat, final status, memory, and feedback are recorded.",
+            "evidence": _evidence(
+                transcript_turns=[26, 28, 39, 53, 54, 55, 56, 57],
+                log_paths=[f"sandbox/.coc/campaigns/{run_id}/logs/events.jsonl", f"sandbox/.coc/campaigns/{run_id}/memory/session-summaries.jsonl"],
+                state_files=[
+                    f"sandbox/.coc/investigators/{investigator_id}/character.json",
+                    f"sandbox/.coc/investigators/{investigator_id}/history.jsonl",
+                    f"sandbox/.coc/investigators/{investigator_id}/development.jsonl",
+                    f"sandbox/.coc/investigators/{investigator_id}/inventory-history.jsonl",
+                ],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "meta_quality",
+            "text": "A meta-mode pushed-roll question pauses narration, explains the ruling, and returns to play.",
+            "evidence": _evidence(
+                transcript_turns=["7a", "7b", 8, "8a"],
+                artifact_paths=["transcript.jsonl", "player-view.jsonl"],
+            ),
+        },
+        {
+            "severity": "medium",
+            "category": "immersion",
+            "text": "The scripted test compresses a full scenario and should later be replaced by an LLM-vs-KP interactive transcript.",
+            "evidence": _evidence(
+                transcript_turns=[1, 10, 16, 22, 40, 57],
+                artifact_paths=["artifacts/battle-report.md", "transcript.jsonl"],
+            ),
+        },
     ])
 
     _write_view_streams(run_dir)
@@ -1800,11 +1882,55 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"player_profile": "genre_savvy_player", "category": "spoiler_safety", "score": 5, "text": "KP 没有直接确认我的剧透猜测，只给了玩家安全的障碍和遮蔽信息。"},
     ], ZH_HANS_CHASE_GLOSSARY)
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
-        {"severity": "low", "category": "rules_accuracy", "text": "Chase setup includes speed roll, MOV adjustment, location chain, DEX order, and movement actions."},
-        {"severity": "low", "category": "state_integrity", "text": "save/chase.json records participants, location chain, rounds, and outcome."},
-        {"severity": "low", "category": "meta_quality", "text": "A skeptical rules profile challenges chase pushed-roll and movement-action boundaries in meta mode."},
-        {"severity": "low", "category": "spoiler_safety", "text": "A genre-savvy profile probes a possible hidden setup and receives a player-safe boundary answer."},
-        {"severity": "low", "category": "immersion", "text": "The scripted multi-profile drill reads as a coherent chase scene with table pressure."},
+        {
+            "severity": "low",
+            "category": "rules_accuracy",
+            "text": "Chase setup includes speed roll, MOV adjustment, location chain, DEX order, and movement actions.",
+            "evidence": _evidence(
+                transcript_turns=[8, 9, 10, 11, 12, 13],
+                log_paths=[f"sandbox/.coc/campaigns/{run_id}/logs/rolls.jsonl", f"sandbox/.coc/campaigns/{run_id}/logs/events.jsonl"],
+                state_files=[f"sandbox/.coc/campaigns/{run_id}/save/chase.json"],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "state_integrity",
+            "text": "save/chase.json records participants, location chain, rounds, and outcome.",
+            "evidence": _evidence(
+                transcript_turns=[16, 18, 20, 21, 22],
+                log_paths=[f"sandbox/.coc/campaigns/{run_id}/logs/events.jsonl"],
+                state_files=[f"sandbox/.coc/campaigns/{run_id}/save/chase.json"],
+                artifact_paths=["artifacts/battle-report.md"],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "meta_quality",
+            "text": "A skeptical rules profile challenges chase pushed-roll and movement-action boundaries in meta mode.",
+            "evidence": _evidence(
+                transcript_turns=["13a", "13b"],
+                artifact_paths=["transcript.jsonl", "player-view.jsonl"],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "spoiler_safety",
+            "text": "A genre-savvy profile probes a possible hidden setup and receives a player-safe boundary answer.",
+            "evidence": _evidence(
+                transcript_turns=["13c", "13d"],
+                state_files=[f"sandbox/.coc/campaigns/{run_id}/keeper-secrets.json"],
+                artifact_paths=["player-view.jsonl", "keeper-view.jsonl"],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "immersion",
+            "text": "The scripted multi-profile drill reads as a coherent chase scene with table pressure.",
+            "evidence": _evidence(
+                transcript_turns=[1, 5, 8, 14, 17, 22],
+                artifact_paths=["artifacts/battle-report.md", "transcript.jsonl"],
+            ),
+        },
     ])
 
     _write_view_streams(run_dir)
@@ -2029,9 +2155,34 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"player_profile": "skeptical_rules_lawyer", "category": "meta_quality", "score": 5, "text": "KP 清楚解释了为什么不同做法对应不同检定和失败后果。"},
     ], ZH_HANS_HAUNTING_GLOSSARY)
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
-        {"severity": "low", "category": "rules_accuracy", "text": "Different player styles receive rulings based on fictional positioning and stated risk."},
-        {"severity": "low", "category": "meta_quality", "text": "The skeptical profile challenges a ruling in meta mode and receives a separated explanation."},
-        {"severity": "low", "category": "immersion", "text": "The run remains a compact pressure test rather than a full module session, but it exercises multiple virtual player styles."},
+        {
+            "severity": "low",
+            "category": "rules_accuracy",
+            "text": "Different player styles receive rulings based on fictional positioning and stated risk.",
+            "evidence": _evidence(
+                transcript_turns=[2, 3, 6, 7, 9, 10, "10a", 11],
+                log_paths=[f"sandbox/.coc/campaigns/{run_id}/logs/rolls.jsonl", f"sandbox/.coc/campaigns/{run_id}/logs/events.jsonl"],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "meta_quality",
+            "text": "The skeptical profile challenges a ruling in meta mode and receives a separated explanation.",
+            "evidence": _evidence(
+                transcript_turns=[12, 13],
+                artifact_paths=["transcript.jsonl", "player-view.jsonl"],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "immersion",
+            "text": "The run remains a compact pressure test rather than a full module session, but it exercises multiple virtual player styles.",
+            "evidence": _evidence(
+                transcript_turns=[1, 2, 6, 12, 14, 15],
+                state_files=[f"sandbox/.coc/investigators/{investigator_id}/history.jsonl", f"sandbox/.coc/investigators/{investigator_id}/development.jsonl"],
+                artifact_paths=["artifacts/battle-report.md"],
+            ),
+        },
     ])
 
     _write_view_streams(run_dir)

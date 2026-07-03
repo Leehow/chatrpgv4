@@ -412,9 +412,11 @@ def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
 
     audit = coc_playtest_audit.audit_run(run_dir)
     battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    evaluation_text = (run_dir / "artifacts" / "evaluation-report.md").read_text()
     audit_text = (run_dir / "artifacts" / "rulebook-audit.md").read_text()
 
     assert audit["result"] == "pass"
+    assert "Evidence:" in evaluation_text
     assert "PASS" in audit_text
     assert "Mr. Knott" in battle_text
     assert "Chapel of Contemplation" in battle_text
@@ -439,6 +441,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
 
     audit = coc_playtest_audit.audit_run(run_dir)
     battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    evaluation_text = (run_dir / "artifacts" / "evaluation-report.md").read_text()
     audit_text = (run_dir / "artifacts" / "rulebook-audit.md").read_text()
     metadata = playtest_metadata(run_dir)
     zh_terms = {
@@ -469,6 +472,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     }
 
     assert audit["result"] == "pass"
+    assert "Evidence:" in evaluation_text
     assert "PASS" in audit_text
     assert "## Positive Rulebook Evidence" in audit_text
     assert "Module coverage: 10/10" in audit_text
@@ -1176,9 +1180,11 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
 
     audit = coc_playtest_audit.audit_run(run_dir)
     battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    evaluation_text = (run_dir / "artifacts" / "evaluation-report.md").read_text()
     metadata = playtest_metadata(run_dir)
 
     assert audit["result"] == "pass"
+    assert "Evidence:" in evaluation_text
     assert metadata["audit_profile"] == "multi_profile_pressure"
     assert metadata["player_profile"] == "multi_profile_matrix"
     assert metadata["player_profiles_tested"] == [
