@@ -16,6 +16,29 @@ REQUIRED_ARTIFACTS = [
     "semantic-eval-request.json",
     "semantic-eval-result.json",
 ]
+REQUIRED_RUN_SOURCE_FILES = [
+    "playtest.json",
+    "transcript.jsonl",
+    "player-view.jsonl",
+    "keeper-view.jsonl",
+    "player-feedback.jsonl",
+    "evaluator-notes.jsonl",
+]
+REQUIRED_CAMPAIGN_SOURCE_FILES = [
+    "campaign.json",
+    "party.json",
+    "scenario/scenario.json",
+    "logs/rolls.jsonl",
+    "logs/events.jsonl",
+    "memory/session-summaries.jsonl",
+]
+REQUIRED_INVESTIGATOR_SOURCE_FILES = [
+    "creation.json",
+    "character.json",
+    "history.jsonl",
+    "development.jsonl",
+    "inventory-history.jsonl",
+]
 REQUIRED_COVERAGE_DIMENSIONS = [
     "character_dossier",
     "kp_player_transcript",
@@ -531,12 +554,79 @@ def _semantic_support_findings(
     return findings
 
 
+def _missing_relative_files(base: Path, relative_paths: list[str], display_prefix: str = "") -> list[str]:
+    missing: list[str] = []
+    for relative_path in relative_paths:
+        if not (base / relative_path).exists():
+            missing.append(f"{display_prefix}{relative_path}")
+    return missing
+
+
+def _investigator_ids_from_party(party: dict[str, Any]) -> list[str]:
+    investigator_ids: list[str] = []
+    for key in ("active_investigator_ids", "investigator_ids"):
+        values = party.get(key)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            investigator_id = str(value)
+            if investigator_id and investigator_id not in investigator_ids:
+                investigator_ids.append(investigator_id)
+    return investigator_ids
+
+
+def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    missing_files = _missing_relative_files(run_dir, REQUIRED_RUN_SOURCE_FILES)
+
+    campaign_id = str(metadata.get("campaign_id") or run_id)
+    campaign_prefix = f"sandbox/.coc/campaigns/{campaign_id}/"
+    campaign_dir = run_dir / campaign_prefix
+    missing_files.extend(_missing_relative_files(
+        campaign_dir,
+        REQUIRED_CAMPAIGN_SOURCE_FILES,
+        display_prefix=campaign_prefix,
+    ))
+
+    party = _read_json(campaign_dir / "party.json", {})
+    investigator_ids = _investigator_ids_from_party(party) if isinstance(party, dict) else []
+    if (campaign_dir / "party.json").exists() and not investigator_ids:
+        findings.append(_finding(
+            "active_run_investigator_ids_missing",
+            "system_gap",
+            f"{run_id} party.json does not list active or reusable investigator ids.",
+            "Regenerate the run so party.json links the campaign to reusable sandbox investigator records.",
+            run_id=run_id,
+        ))
+
+    for investigator_id in investigator_ids:
+        investigator_prefix = f"sandbox/.coc/investigators/{investigator_id}/"
+        investigator_dir = run_dir / investigator_prefix
+        missing_files.extend(_missing_relative_files(
+            investigator_dir,
+            REQUIRED_INVESTIGATOR_SOURCE_FILES,
+            display_prefix=investigator_prefix,
+        ))
+
+    if missing_files:
+        findings.append(_finding(
+            "active_run_source_files_missing",
+            "test_gap",
+            f"{run_id} missing source files: {', '.join(missing_files)}",
+            "Regenerate the active run before completion audit so battle reports, audits, and semantic results are backed by current transcript, view, log, memory, campaign, and investigator source files.",
+            run_id=run_id,
+            missing_files=missing_files,
+        ))
+    return findings
+
+
 def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     run_id = str(run.get("run_id"))
     run_dir = _playtests_dir(root) / run_id
     metadata = _read_json(run_dir / "playtest.json", {})
     artifacts_dir = run_dir / "artifacts"
+    findings.extend(_active_run_source_findings(run_id, run_dir, metadata))
 
     if run.get("audit_result") != "PASS":
         findings.append(_finding(

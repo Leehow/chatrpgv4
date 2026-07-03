@@ -160,6 +160,7 @@ def rulebook_audit_fixture() -> str:
 
 def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: bool = False):
     run_dir = root / ".coc" / "playtests" / run_id
+    investigator_id = f"{run_id}-investigator"
     write_json(run_dir / "playtest.json", {
         "run_id": run_id,
         "campaign_id": run_id,
@@ -175,6 +176,68 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         },
         "localized_terms": {"zh-Hans": {"Ada King": "艾达·金"}},
     })
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "open_scene", "text": "fixture keeper turn"},
+        {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "investigate", "text": "fixture player turn"},
+    ])
+    write_jsonl(run_dir / "player-view.jsonl", [
+        {"view": "player", "type": "public_character_state", "campaign_id": run_id},
+        {"view": "player", "type": "transcript_turn", "turn": 2, "role": "player_simulator", "text": "fixture player turn"},
+    ])
+    write_jsonl(run_dir / "keeper-view.jsonl", [
+        {"view": "keeper", "type": "keeper_context", "campaign_id": run_id, "keeper_secret_ids": []},
+        {"view": "keeper", "type": "transcript_turn", "turn": 1, "role": "keeper_under_test", "text": "fixture keeper turn"},
+    ])
+    write_jsonl(run_dir / "player-feedback.jsonl", [
+        {"category": "kp_clarity", "score": 5, "text": "fixture feedback"},
+    ])
+    write_jsonl(run_dir / "evaluator-notes.jsonl", [])
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
+    write_json(campaign_dir / "campaign.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "title": run_id,
+        "status": "playtest",
+    })
+    write_json(campaign_dir / "party.json", {
+        "campaign_id": run_id,
+        "investigator_ids": [investigator_id],
+        "active_investigator_ids": [investigator_id],
+    })
+    write_json(campaign_dir / "scenario" / "scenario.json", {
+        "schema_version": 1,
+        "scenario_id": "fixture-scenario",
+        "title": "Fixture Scenario",
+    })
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "target": 55, "roll": 33, "outcome": "regular_success"}},
+    ])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {"type": "scene", "actor": "keeper_under_test", "payload": {"summary": "fixture scene"}},
+    ])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [
+        {"session_id": "fixture-session", "summary": "fixture memory"},
+    ])
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
+    write_json(investigator_dir / "creation.json", {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "skill_allocation": {"final_values": {"Spot Hidden": 55}},
+    })
+    write_json(investigator_dir / "character.json", {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "skills": {"Spot Hidden": 55},
+    })
+    write_jsonl(investigator_dir / "history.jsonl", [
+        {"campaign_id": run_id, "summary": "fixture history"},
+    ])
+    write_jsonl(investigator_dir / "development.jsonl", [
+        {"campaign_id": run_id, "summary": "fixture development"},
+    ])
+    write_jsonl(investigator_dir / "inventory-history.jsonl", [
+        {"campaign_id": run_id, "summary": "fixture inventory"},
+    ])
     write_text(run_dir / "artifacts" / "battle-report.md", battle_report_fixture())
     write_text(run_dir / "artifacts" / "evaluation-report.md", evaluation_report_fixture())
     write_text(run_dir / "artifacts" / "rulebook-audit.md", rulebook_audit_fixture())
@@ -258,6 +321,33 @@ def test_completion_audit_passes_for_ready_suite_with_active_monitor(tmp_path):
     assert "## Overall Result\nPASS" in markdown
     assert "virtual_player_pressure: passed" in markdown
     assert "Monitor: ACTIVE" in markdown
+
+
+def test_completion_audit_fails_when_active_run_source_files_are_missing(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    (tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "transcript.jsonl").unlink()
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "transcript.jsonl" in finding["missing_files"]
 
 
 def test_completion_audit_fails_when_battle_report_missing_required_anchors(tmp_path):
