@@ -129,6 +129,24 @@ def assert_localized_report_shell(text: str) -> None:
     assert "（开场场景）" in module_section
 
 
+def assert_localized_character_dossier_labels(text: str) -> None:
+    assert "  - 职业: " in text
+    assert "  - 年代: " in text
+    assert "  - 属性: " in text
+    assert "  - 衍生值: " in text
+    assert "  - 技能: " in text
+    assert "  - 背景:" in text
+    assert "    - 描述: " in text
+    assert "    - 信念/理念: " in text
+    assert "    - 重要之人: " in text
+    assert "    - 重要地点: " in text
+    assert "    - 珍贵物品: " in text
+    assert "    - 特质: " in text
+    assert "  - Occupation:" not in text
+    assert "  - Backstory:" not in text
+    assert "    - Description:" not in text
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -216,13 +234,13 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "meets" not in module_section
     assert "- 艾达·金 (ada-king-haunting)" in battle_text
     character_dossier = section_text(battle_text, "## Character Dossier")
-    assert "Backstory:" in character_dossier
-    assert "Description: 艾达·金" in character_dossier
-    assert "Ideology/Beliefs: 老房子会留下居住者的记忆" in character_dossier
-    assert "Significant People: 莱兰·哈特教授" in character_dossier
-    assert "Meaningful Locations: 斯科利广场附近的旧书店" in character_dossier
-    assert "Treasured Possessions: 裂柄铜放大镜" in character_dossier
-    assert "Traits: 谨慎记笔记" in character_dossier
+    assert_localized_character_dossier_labels(character_dossier)
+    assert "描述: 艾达·金" in character_dossier
+    assert "信念/理念: 老房子会留下居住者的记忆" in character_dossier
+    assert "重要之人: 莱兰·哈特教授" in character_dossier
+    assert "重要地点: 斯科利广场附近的旧书店" in character_dossier
+    assert "珍贵物品: 裂柄铜放大镜" in character_dossier
+    assert "特质: 谨慎记笔记" in character_dossier
     assert "Ada King" not in character_dossier
     assert investigator_jsonl(run_dir, "ada-king-haunting", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-haunting", "development.jsonl")
@@ -446,13 +464,13 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "leaving" not in module_section
     assert "- 艾达·金 (ada-king-chase)" in battle_text
     character_dossier = section_text(battle_text, "## Character Dossier")
-    assert "Backstory:" in character_dossier
-    assert "Description: 艾达·金" in character_dossier
-    assert "Ideology/Beliefs: 线索必须在行动前被核实" in character_dossier
-    assert "Significant People: 莱兰·哈特教授" in character_dossier
-    assert "Meaningful Locations: 印刷店屋顶" in character_dossier
-    assert "Treasured Possessions: 裂柄铜放大镜" in character_dossier
-    assert "Traits: 观察细致" in character_dossier
+    assert_localized_character_dossier_labels(character_dossier)
+    assert "描述: 艾达·金" in character_dossier
+    assert "信念/理念: 线索必须在行动前被核实" in character_dossier
+    assert "重要之人: 莱兰·哈特教授" in character_dossier
+    assert "重要地点: 印刷店屋顶" in character_dossier
+    assert "珍贵物品: 裂柄铜放大镜" in character_dossier
+    assert "特质: 观察细致" in character_dossier
     assert "Ada King" not in character_dossier
     assert investigator_jsonl(run_dir, "ada-king-chase", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-chase", "development.jsonl")
@@ -639,13 +657,13 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "[meta] 我想质疑一下" in actual_play
     assert "规则裁定" in actual_play
     character_dossier = section_text(battle_text, "## Character Dossier")
-    assert "Backstory:" in character_dossier
-    assert "Description: 艾达·金" in character_dossier
-    assert "Ideology/Beliefs: 公开记录比传闻可靠" in character_dossier
-    assert "Significant People: 莱兰·哈特教授" in character_dossier
-    assert "Meaningful Locations: 波士顿档案馆阅览室" in character_dossier
-    assert "Treasured Possessions: 裂柄铜放大镜" in character_dossier
-    assert "Traits: 谨慎记笔记" in character_dossier
+    assert_localized_character_dossier_labels(character_dossier)
+    assert "描述: 艾达·金" in character_dossier
+    assert "信念/理念: 公开记录比传闻可靠" in character_dossier
+    assert "重要之人: 莱兰·哈特教授" in character_dossier
+    assert "重要地点: 波士顿档案馆阅览室" in character_dossier
+    assert "珍贵物品: 裂柄铜放大镜" in character_dossier
+    assert "特质: 谨慎记笔记" in character_dossier
     assert "Ada King" not in character_dossier
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-pressure", "development.jsonl")

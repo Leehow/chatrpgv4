@@ -622,54 +622,70 @@ def _format_backstory_value(value: Any, localized_terms: dict[str, str]) -> str:
     return _localize_text(value, localized_terms)
 
 
-def _format_backstory(backstory: Any, localized_terms: dict[str, str]) -> list[str]:
+def _character_dossier_label(language_profile: dict[str, Any], canonical: str) -> str:
+    return _localized_report_label(language_profile, "character_dossier_labels", canonical)
+
+
+def _format_backstory(
+    backstory: Any,
+    localized_terms: dict[str, str],
+    language_profile: dict[str, Any],
+) -> list[str]:
     if not isinstance(backstory, dict) or not backstory:
         return []
 
-    lines = ["  - Backstory:"]
+    lines = [f"  - {_character_dossier_label(language_profile, 'Backstory')}:"]
     rendered_keys: set[str] = set()
     for key, label in BACKSTORY_FIELDS:
         value = backstory.get(key)
         if value in (None, "", [], {}):
             continue
         rendered_keys.add(key)
-        lines.append(f"    - {label}: {_format_backstory_value(value, localized_terms)}")
+        display_label = _character_dossier_label(language_profile, label)
+        lines.append(f"    - {display_label}: {_format_backstory_value(value, localized_terms)}")
 
     for key in sorted(backstory):
         if key in rendered_keys or backstory.get(key) in (None, "", [], {}):
             continue
         label = key.replace("_", " ").title()
-        lines.append(f"    - {label}: {_format_backstory_value(backstory[key], localized_terms)}")
+        display_label = _character_dossier_label(language_profile, label)
+        lines.append(f"    - {display_label}: {_format_backstory_value(backstory[key], localized_terms)}")
     return lines if len(lines) > 1 else []
 
 
-def _format_character(character: dict[str, Any], localized_terms: dict[str, str] | None = None) -> list[str]:
+def _format_character(
+    character: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    language_profile: dict[str, Any] | None = None,
+) -> list[str]:
     terms = localized_terms or {}
+    profile = language_profile or {}
     investigator_id = character.get("investigator_id") or character.get("id") or "unknown"
     name = _localize_text(character.get("name") or investigator_id or "Unknown Investigator", terms)
     lines = [f"- {name} ({investigator_id})"]
     if character.get("player_name"):
-        lines.append(f"  - Player: {character['player_name']}")
+        lines.append(f"  - {_character_dossier_label(profile, 'Player')}: {character['player_name']}")
     if character.get("occupation"):
-        lines.append(f"  - Occupation: {character['occupation']}")
+        occupation = _localize_text(character["occupation"], terms)
+        lines.append(f"  - {_character_dossier_label(profile, 'Occupation')}: {occupation}")
     if character.get("era"):
-        lines.append(f"  - Era: {character['era']}")
+        lines.append(f"  - {_character_dossier_label(profile, 'Era')}: {character['era']}")
     lines.append(
-        "  - Characteristics: "
+        f"  - {_character_dossier_label(profile, 'Characteristics')}: "
         + _format_key_values(
             character.get("characteristics", {}),
             ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"],
         )
     )
     lines.append(
-        "  - Derived: "
+        f"  - {_character_dossier_label(profile, 'Derived')}: "
         + _format_key_values(
             character.get("derived", {}),
             ["HP", "MP", "SAN", "MOV", "damage_bonus", "build"],
         )
     )
-    lines.append("  - Skills: " + _format_key_values(character.get("skills", {})))
-    lines.extend(_format_backstory(character.get("backstory"), terms))
+    lines.append(f"  - {_character_dossier_label(profile, 'Skills')}: " + _format_key_values(character.get("skills", {})))
+    lines.extend(_format_backstory(character.get("backstory"), terms, profile))
     return lines
 
 
@@ -1063,7 +1079,7 @@ def generate_battle_report(run_dir: Path) -> Path:
     ]
     character_lines: list[str] = []
     for character in characters:
-        character_lines.extend(_format_character(character, localized_terms))
+        character_lines.extend(_format_character(character, localized_terms, language_profile))
     chronicle_lines: list[str] = []
     for character in characters:
         chronicle_lines.extend(_format_investigator_chronicle(character, localized_terms, str(play_language)))

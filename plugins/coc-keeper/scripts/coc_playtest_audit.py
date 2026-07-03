@@ -104,6 +104,20 @@ REPORT_SHELL_REQUIRED_FIELDS = [
     "Scenario",
     "Opening Scene",
 ]
+CHARACTER_DOSSIER_REQUIRED_LABELS = [
+    "Occupation",
+    "Era",
+    "Characteristics",
+    "Derived",
+    "Skills",
+    "Backstory",
+    "Description",
+    "Ideology/Beliefs",
+    "Significant People",
+    "Meaningful Locations",
+    "Treasured Possessions",
+    "Traits",
+]
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -472,6 +486,27 @@ def _localized_report_shell_gaps(battle_report: str, metadata: dict[str, Any]) -
         if label and label != field and f"（{label}）" not in battle_report:
             gaps.append(f"field:{field}")
     return gaps
+
+
+def _character_dossier_label_gaps(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    section = _section_text(battle_report, "Character Dossier")
+    if not section:
+        return []
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("character_dossier_labels", {})
+    gaps: list[str] = []
+    for canonical in CHARACTER_DOSSIER_REQUIRED_LABELS:
+        label = labels.get(canonical) if isinstance(labels, dict) else None
+        if not label or label == canonical:
+            continue
+        if f"{label}:" not in section:
+            gaps.append(f"missing:{canonical}")
+        if f"{canonical}:" in section:
+            gaps.append(f"leaked:{canonical}")
+    return sorted(set(gaps))
 
 
 def _profile_ids(metadata: dict[str, Any]) -> list[str]:
@@ -869,6 +904,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Battle report does not render reusable investigator history and development records.",
             "Render sandbox investigator history.jsonl and development.jsonl in an Investigator Chronicle section.",
+        ))
+    character_label_gaps = _character_dossier_label_gaps(battle_report, metadata)
+    if active_profile and character_label_gaps:
+        findings.append(_finding(
+            "character_dossier_labels_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized Character Dossier lacks localized field labels: " + ", ".join(character_label_gaps),
+            "Render Character Dossier field labels from language_profile.character_dossier_labels.",
         ))
 
     scene_replay = _section_text(battle_report, "Scene-by-Scene Replay") if active_profile else ""

@@ -76,6 +76,24 @@ BASE_REPORT_FIELD_LABELS = {
     "Opening Scene": "Opening Scene",
 }
 
+BASE_CHARACTER_DOSSIER_LABELS = {
+    "Player": "Player",
+    "Occupation": "Occupation",
+    "Era": "Era",
+    "Characteristics": "Characteristics",
+    "Derived": "Derived",
+    "Skills": "Skills",
+    "Backstory": "Backstory",
+    "Description": "Description",
+    "Ideology/Beliefs": "Ideology/Beliefs",
+    "Significant People": "Significant People",
+    "Meaningful Locations": "Meaningful Locations",
+    "Treasured Possessions": "Treasured Possessions",
+    "Traits": "Traits",
+    "Injuries & Scars": "Injuries & Scars",
+    "Phobias & Manias": "Phobias & Manias",
+}
+
 LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
     "zh-Hans": {
         "language": "zh-Hans",
@@ -136,6 +154,23 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Source": "来源",
             "Opening Scene": "开场场景",
         },
+        "character_dossier_labels": {
+            "Player": "玩家",
+            "Occupation": "职业",
+            "Era": "年代",
+            "Characteristics": "属性",
+            "Derived": "衍生值",
+            "Skills": "技能",
+            "Backstory": "背景",
+            "Description": "描述",
+            "Ideology/Beliefs": "信念/理念",
+            "Significant People": "重要之人",
+            "Meaningful Locations": "重要地点",
+            "Treasured Possessions": "珍贵物品",
+            "Traits": "特质",
+            "Injuries & Scars": "伤疤与伤势",
+            "Phobias & Manias": "恐惧与躁狂",
+        },
         "empty_report_lines": {
             "combat_summary": "- 本轮没有触发战斗场面。",
             "chase_summary": "- 本轮没有触发追逐场面。",
@@ -175,6 +210,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "report_labels": BASE_REPORT_LABELS,
         "report_heading_labels": BASE_REPORT_HEADING_LABELS,
         "report_field_labels": BASE_REPORT_FIELD_LABELS,
+        "character_dossier_labels": BASE_CHARACTER_DOSSIER_LABELS,
         "empty_report_lines": BASE_EMPTY_REPORT_LINES,
         "speaker_labels": BASE_SPEAKER_LABELS,
         "outcome_labels": {},
@@ -240,6 +276,23 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Source": "出典",
             "Opening Scene": "導入シーン",
         },
+        "character_dossier_labels": {
+            "Player": "プレイヤー",
+            "Occupation": "職業",
+            "Era": "時代",
+            "Characteristics": "能力値",
+            "Derived": "派生値",
+            "Skills": "技能",
+            "Backstory": "バックストーリー",
+            "Description": "描写",
+            "Ideology/Beliefs": "思想/信念",
+            "Significant People": "重要人物",
+            "Meaningful Locations": "重要な場所",
+            "Treasured Possessions": "大切な所持品",
+            "Traits": "特徴",
+            "Injuries & Scars": "負傷と傷跡",
+            "Phobias & Manias": "恐怖症と躁症",
+        },
         "empty_report_lines": {
             "combat_summary": "- 今回は戦闘場面は発生していない。",
             "chase_summary": "- 今回はチェイス場面は発生していない。",
@@ -289,4 +342,5 @@ def language_profile(play_language: str | None = None) -> dict[str, Any]:
     profile["speaker_labels"] = BASE_SPEAKER_LABELS
     profile["report_heading_labels"] = BASE_REPORT_HEADING_LABELS
     profile["report_field_labels"] = BASE_REPORT_FIELD_LABELS
+    profile["character_dossier_labels"] = BASE_CHARACTER_DOSSIER_LABELS
     return profile
