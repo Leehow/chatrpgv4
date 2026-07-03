@@ -57,3 +57,15 @@ def test_all_v1_skills_have_valid_frontmatter():
         assert len(description) > 40
         found.add(name)
     assert found == expected
+
+
+def test_reference_documents_exist_and_use_ascii_system_markers():
+    reference_names = ["mode-protocol.md", "state-schema.md", "rules-json-guide.md"]
+    for name in reference_names:
+        path = PLUGIN_ROOT / "references" / name
+        assert path.exists()
+        text = path.read_text()
+        assert "[meta]" in text or name != "mode-protocol.md"
+        assert "[spoiler_warning]" in text or name != "mode-protocol.md"
+        for marker in ["[超游]", "[剧透警告]", "[回到游戏]"]:
+            assert marker not in text
