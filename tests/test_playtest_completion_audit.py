@@ -208,6 +208,10 @@ def battle_report_with_localized_chase_difficulty() -> str:
     )
 
 
+def battle_report_handout_fixture_text() -> str:
+    return "- Fixture handout title"
+
+
 def battle_report_character_dossier_fixture_text() -> str:
     return "\n".join([
         "- Ada King (v2-haunting-module-investigator)",
@@ -229,6 +233,8 @@ def battle_report_fixture() -> str:
         "# Battle Report <!-- report-anchor: Battle Report -->",
         "## Run Setup <!-- report-anchor: Run Setup -->\n- Run ID: fixture",
         "## Module <!-- report-anchor: Module -->\n- Scenario: fixture",
+        "## Handouts <!-- report-anchor: Handouts -->\n"
+        + battle_report_handout_fixture_text(),
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n"
         + battle_report_investigator_creation_fixture_text(),
         "## Character Dossier <!-- report-anchor: Character Dossier -->\n"
@@ -281,6 +287,7 @@ def battle_report_shell_with_required_anchors() -> str:
         "# Battle Report <!-- report-anchor: Battle Report -->",
         "## Run Setup <!-- report-anchor: Run Setup -->\n- Run ID: fixture",
         "## Module <!-- report-anchor: Module -->\n- Scenario: fixture",
+        "## Handouts <!-- report-anchor: Handouts -->\n- Fixture handouts.",
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n- Fixture creation record.",
         "## Character Dossier <!-- report-anchor: Character Dossier -->\n- Fixture character dossier.",
         "## Investigator Chronicle <!-- report-anchor: Investigator Chronicle -->\n- Fixture chronicle.",
@@ -386,6 +393,14 @@ def battle_report_with_dialogue_and_rolls_but_without_events() -> str:
         "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n"
         + battle_report_event_fixture_text(),
         "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n- Fixture scene.",
+    )
+
+
+def battle_report_without_handout_records() -> str:
+    return battle_report_fixture().replace(
+        "## Handouts <!-- report-anchor: Handouts -->\n"
+        + battle_report_handout_fixture_text(),
+        "## Handouts <!-- report-anchor: Handouts -->\n- Fixture handout placeholder.",
     )
 
 
@@ -718,6 +733,9 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         "scenario_id": "fixture-scenario",
         "title": "Fixture Scenario",
     })
+    write_json(campaign_dir / "scenario" / "handouts.json", [
+        {"id": "fixture-handout", "title": "Fixture handout title"},
+    ])
     write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "target": 55, "roll": 33, "outcome": "regular_success"}},
         {
@@ -2018,6 +2036,34 @@ def test_completion_audit_fails_when_event_summaries_are_outside_scene_and_state
     assert finding["run_id"] == "v2-haunting-module"
     assert "fixture scene" in finding["missing_event_samples"]
     assert "fixture combat" in finding["missing_event_samples"]
+
+
+def test_completion_audit_fails_when_battle_report_omits_source_handouts(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(run_dir / "artifacts" / "battle-report.md", battle_report_without_handout_records())
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_handouts_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "Fixture handout title" in finding["missing_handout_samples"]
 
 
 def test_completion_audit_fails_when_battle_report_omits_source_feedback_text(tmp_path):

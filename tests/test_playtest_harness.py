@@ -1102,6 +1102,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "chase subsystem coverage deferred to separate scenario" not in chase_summary
     assert "No chase summary recorded." not in battle_text
     assert "Session ending not recorded." not in battle_text
+    handouts = section_text(battle_text, "## Handouts")
+    assert "线索资料 1：诺特先生的委托" in handouts
+    assert "线索资料 2：未刊登的《波士顿环球报》报道" in handouts
+    assert "线索资料 7：教堂遗嘱执行人记录" in handouts
+    assert "handout-1" not in handouts
     clues_found = section_text(battle_text, "## Clues Found")
     assert_player_readable_state_ids_absent(
         clues_found,

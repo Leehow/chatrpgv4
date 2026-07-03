@@ -1491,10 +1491,30 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"id": "past-1918", "summary": "The Macarios flee after illness and madness."},
     ])
     _write_json(scenario_dir / "handouts.json", [
-        {"id": "handout-1", "title": "Mr. Knott's job"},
-        {"id": "handout-2", "title": "Unpublished Boston Globe story"},
-        {"id": "handout-7", "title": "Chapel executor record"},
-        {"id": "handout-9", "title": "Chapel symbol"},
+        {
+            "id": "handout-1",
+            "label": "Handout 1",
+            "title": "Mr. Knott's job",
+            "localized_text": {"zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托"}},
+        },
+        {
+            "id": "handout-2",
+            "label": "Handout 2",
+            "title": "Unpublished Boston Globe story",
+            "localized_text": {"zh-Hans": {"label": "线索资料 2", "title": "未刊登的《波士顿环球报》报道"}},
+        },
+        {
+            "id": "handout-7",
+            "label": "Handout 7",
+            "title": "Chapel executor record",
+            "localized_text": {"zh-Hans": {"label": "线索资料 7", "title": "教堂遗嘱执行人记录"}},
+        },
+        {
+            "id": "handout-9",
+            "label": "Handout 9",
+            "title": "Chapel symbol",
+            "localized_text": {"zh-Hans": {"label": "线索资料 9", "title": "教堂符号"}},
+        },
     ])
     _write_json(scenario_dir / "keeper-secrets.json", [
         {"id": "secret-corbitt-body", "summary": "Walter Corbitt's body and mind persist in the basement."},
@@ -1888,7 +1908,12 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"id": "roof-chase", "summary": "Ada becomes the quarry when Nathaniel spots her with the ledger."},
     ])
     _write_json(scenario_dir / "handouts.json", [
-        {"id": "ledger-handout", "title": "Cult warehouse ledger"},
+        {
+            "id": "ledger-handout",
+            "label": "Ledger handout",
+            "title": "Cult warehouse ledger",
+            "localized_text": {"zh-Hans": {"label": "账本线索资料", "title": "邪教仓库账本"}},
+        },
     ])
     _write_json(scenario_dir / "keeper-secrets.json", [
         {"id": "secret-warehouse", "summary": "The warehouse contains ritual supplies for a later scenario."},
@@ -2260,8 +2285,18 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"id": "pressure-branch", "summary": "Careful, reckless, and skeptical player profiles test different Keeper responses."},
     ])
     _write_json(scenario_dir / "handouts.json", [
-        {"id": "handout-1", "title": "Mr. Knott's job"},
-        {"id": "deed-note", "title": "Records lead"},
+        {
+            "id": "handout-1",
+            "label": "Handout 1",
+            "title": "Mr. Knott's job",
+            "localized_text": {"zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托"}},
+        },
+        {
+            "id": "deed-note",
+            "label": "Records lead",
+            "title": "Records lead",
+            "localized_text": {"zh-Hans": {"label": "档案线索", "title": "房契旁注"}},
+        },
     ])
     _write_json(scenario_dir / "keeper-secrets.json", [
         {"id": "secret-corbitt-body", "summary": "Walter Corbitt's body persists in the basement."},

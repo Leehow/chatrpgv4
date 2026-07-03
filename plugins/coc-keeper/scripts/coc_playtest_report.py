@@ -179,6 +179,21 @@ def _localized_event_text(event: dict[str, Any], localized_terms: dict[str, str]
     return _localize_text(event.get("text", ""), localized_terms)
 
 
+def _localized_visible_field(
+    container: dict[str, Any],
+    key: str,
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> str | None:
+    localized = _localized_field(container, key, localized_terms, play_language)
+    if localized is not None:
+        return localized
+    value = container.get(key)
+    if value in (None, "", [], {}):
+        return None
+    return _localize_text(str(value), localized_terms)
+
+
 def _localized_payload_text(
     payload: dict[str, Any],
     key: str,
@@ -452,6 +467,29 @@ def _format_scene_replay_event(
     summary = _event_summary(event, f"{event_label} recorded", terms, play_language)
     summary = _naturalize_player_event_summary(str(event_type), actor, summary)
     return f"- {summary}"
+
+
+def _format_handout(
+    handout: dict[str, Any],
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> str:
+    label = _localized_visible_field(handout, "label", localized_terms, play_language)
+    title = _localized_visible_field(handout, "title", localized_terms, play_language)
+    summary = _localized_visible_field(handout, "summary", localized_terms, play_language)
+    route = _localized_visible_field(handout, "route", localized_terms, play_language)
+
+    if label and title:
+        separator = "：" if play_language == "zh-Hans" else ": "
+        line = f"- {label}{separator}{title}"
+    else:
+        line = f"- {title or label or summary or route or 'handout recorded'}"
+
+    details = [detail for detail in (summary, route) if detail and detail not in line]
+    if details:
+        detail_separator = "；" if play_language == "zh-Hans" else "; "
+        line = f"{line} — {detail_separator.join(details)}"
+    return line
 
 
 def _scene_replay_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1374,6 +1412,11 @@ def generate_battle_report(run_dir: Path) -> Path:
     campaign = context["campaign"]
     scenario = context["scenario"]
     characters = context["characters"]
+    handouts = (
+        _read_json(context["campaign_dir"] / "scenario" / "handouts.json", [])
+        if context["campaign_dir"]
+        else []
+    )
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
     rolls = _read_jsonl_files(_campaign_log_paths(run_dir, "rolls.jsonl"))
     state_events = _read_jsonl_files(_campaign_log_paths(run_dir, "events.jsonl"))
@@ -1425,6 +1468,11 @@ def generate_battle_report(run_dir: Path) -> Path:
     profile_labels = _localized_profile_labels(metadata)
 
     actor_names = _localized_actor_names(characters, localized_terms)
+    handout_lines = [
+        _format_handout(handout, localized_terms, str(play_language))
+        for handout in handouts
+        if isinstance(handout, dict)
+    ]
     roll_recap_lines = [
         _format_roll_recap(event, actor_names, localized_terms, str(play_language), language_profile)
         for event in rolls
@@ -1556,6 +1604,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_field("Scenario ID", scenario_id, language_profile),
         _report_field("Source", _localize_text(module_source, localized_terms), language_profile),
         _report_field("Opening Scene", _localize_text(scenario.get("opening_scene", "not recorded"), localized_terms), language_profile),
+        "",
+        _report_heading(2, "Handouts", language_profile),
+        *_list_lines(handout_lines, "- No handouts recorded."),
         "",
         _report_heading(2, "Investigator Creation", language_profile),
         *_list_lines(creation_lines, "- No investigator creation recorded."),

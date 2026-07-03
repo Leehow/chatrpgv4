@@ -42,6 +42,7 @@ REQUIRED_CAMPAIGN_SOURCE_FILES = [
     "campaign.json",
     "party.json",
     "scenario/scenario.json",
+    "scenario/handouts.json",
     "logs/rolls.jsonl",
     "logs/events.jsonl",
     "memory/session-summaries.jsonl",
@@ -53,6 +54,9 @@ REQUIRED_INVESTIGATOR_SOURCE_FILES = [
     "development.jsonl",
     "inventory-history.jsonl",
 ]
+JSON_ARRAY_SOURCE_FILES = {
+    "scenario/handouts.json",
+}
 REQUIRED_COVERAGE_DIMENSIONS = [
     "character_dossier",
     "kp_player_transcript",
@@ -116,6 +120,7 @@ REQUIRED_BATTLE_REPORT_ANCHORS = [
     "Battle Report",
     "Run Setup",
     "Module",
+    "Handouts",
     "Investigator Creation",
     "Character Dossier",
     "Investigator Chronicle",
@@ -237,6 +242,23 @@ def _localize_text(text: str, localized_terms: dict[str, str]) -> str:
 def _text_rendered_in_report(text: str, battle_report: str, localized_terms: dict[str, str]) -> bool:
     candidates = {text, _localize_text(text, localized_terms)}
     return any(candidate and candidate in battle_report for candidate in candidates)
+
+
+def _localized_source_field(
+    row: dict[str, Any],
+    key: str,
+    metadata: dict[str, Any],
+    localized_terms: dict[str, str],
+) -> str | None:
+    play_language = str(metadata.get("play_language") or "")
+    localized_text = row.get("localized_text")
+    if isinstance(localized_text, dict):
+        language_text = localized_text.get(play_language)
+        if isinstance(language_text, dict) and language_text.get(key) not in (None, "", [], {}):
+            return _localize_text(str(language_text[key]), localized_terms)
+    if row.get(key) in (None, "", [], {}):
+        return None
+    return _localize_text(str(row[key]), localized_terms)
 
 
 def _profile_label(metadata: dict[str, Any], label_group: str, canonical: str) -> str:
@@ -851,6 +873,52 @@ def _battle_report_character_dossier_findings(
     )]
 
 
+def _handout_required_texts(campaign_dir: Path, metadata: dict[str, Any]) -> list[str]:
+    handouts = _read_json(campaign_dir / "scenario" / "handouts.json", [])
+    if not isinstance(handouts, list):
+        return []
+    localized_terms = _metadata_localized_terms(metadata)
+    required_texts: list[str] = []
+    for handout in handouts:
+        if not isinstance(handout, dict):
+            continue
+        for field in ("label", "title", "summary", "route"):
+            value = _localized_source_field(handout, field, metadata, localized_terms)
+            if value:
+                required_texts.append(value)
+    return list(dict.fromkeys(text for text in required_texts if text))
+
+
+def _battle_report_handout_findings(
+    run_id: str,
+    campaign_dir: Path,
+    metadata: dict[str, Any],
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    handout_section = _battle_report_anchor_section(battle_report, "Handouts")
+    localized_terms = _metadata_localized_terms(metadata)
+    required_texts = _handout_required_texts(campaign_dir, metadata)
+    if not required_texts:
+        return []
+    missing_texts = [
+        text
+        for text in required_texts
+        if not _text_rendered_in_report(text, handout_section, localized_terms)
+    ]
+    if not missing_texts:
+        return []
+    return [_finding(
+        "battle_report_handouts_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_texts)} of {len(required_texts)} player-visible handout records from scenario/handouts.json.",
+        "Regenerate battle-report.md so the Handouts section renders scenario/handouts.json labels, titles, summaries, and routes using the active play language.",
+        run_id=run_id,
+        missing_handout_count=len(missing_texts),
+        required_handout_count=len(required_texts),
+        missing_handout_samples=missing_texts[:20],
+    )]
+
+
 def _chase_tracker_label(metadata: dict[str, Any], canonical: str) -> str:
     return _profile_label(metadata, "chase_tracker_labels", canonical)
 
@@ -1317,7 +1385,10 @@ def _malformed_relative_files(base: Path, relative_paths: list[str], display_pre
                         raise ValueError("JSONL rows must be objects")
             else:
                 payload = json.loads(text)
-                if not isinstance(payload, dict):
+                if relative_path in JSON_ARRAY_SOURCE_FILES:
+                    if not isinstance(payload, list):
+                        raise ValueError("JSON source file must be an array")
+                elif not isinstance(payload, dict):
                     raise ValueError("JSON source files must be objects")
         except (json.JSONDecodeError, ValueError):
             malformed.append(f"{display_prefix}{relative_path}")
@@ -2449,6 +2520,12 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_feedback_text_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_memory_summary_findings(run_id, campaign_dir, battle_report))
+    findings.extend(_battle_report_handout_findings(
+        run_id,
+        campaign_dir,
+        metadata,
+        battle_report,
+    ))
     findings.extend(_battle_report_investigator_creation_findings(
         run_id,
         run_dir,
