@@ -678,6 +678,43 @@ def test_active_audit_rejects_repeated_actor_labels_in_report_sections(tmp_path)
     assert "report_actor_label_repeated" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_empty_subsystem_placeholders(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "multi_profile_pressure"
+    metadata["play_language"] = "zh-Hans"
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report\n\n"
+        "## Scene-by-Scene Replay\n"
+        "- intro: 这是中文场景回放。\n\n"
+        "## Actual Play Replay\n"
+        "- Turn 1 KP: \"这是中文主持描述。\"\n\n"
+        "## Major Player Decisions\n"
+        "- 艾达选择继续调查。\n\n"
+        "## Combat Summary\n"
+        "- No combat summary recorded.\n\n"
+        "## Chase Summary\n"
+        "- No chase summary recorded.\n\n"
+        "## Chase Tracker\n"
+        "- No chase tracker recorded.\n\n"
+        "## Sanity Summary\n"
+        "- No sanity summary recorded.\n\n"
+        "## Story Recap\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP\n"
+        "- kp_clarity: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "localized_empty_placeholders_not_rendered" in finding_codes(audit)
+
+
 def test_active_audit_requires_investigator_backstory_fields(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
     create_final_rulebook_run(run_dir)

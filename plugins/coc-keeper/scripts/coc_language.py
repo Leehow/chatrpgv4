@@ -22,6 +22,13 @@ BASE_REPORT_LABELS = {
     "no": "no",
 }
 
+BASE_EMPTY_REPORT_LINES = {
+    "combat_summary": "- No combat summary recorded.",
+    "chase_summary": "- No chase summary recorded.",
+    "chase_tracker": "- No chase tracker recorded.",
+    "sanity_summary": "- No sanity summary recorded.",
+}
+
 LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
     "zh-Hans": {
         "language": "zh-Hans",
@@ -42,6 +49,12 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "san_loss": "SAN 损失",
             "yes": "yes",
             "no": "no",
+        },
+        "empty_report_lines": {
+            "combat_summary": "- 本轮没有触发战斗场面。",
+            "chase_summary": "- 本轮没有触发追逐场面。",
+            "chase_tracker": "- 本轮没有追逐状态需要追踪。",
+            "sanity_summary": "- 本轮没有触发理智检定或疯狂事件。",
         },
         "outcome_labels": {
             "critical": "大成功",
@@ -69,6 +82,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "name_policy": "Use customary English names and established scenario terminology.",
         "term_policy": "Use localized_terms.en-US for player-visible aliases when the source term needs an English table form.",
         "report_labels": BASE_REPORT_LABELS,
+        "empty_report_lines": BASE_EMPTY_REPORT_LINES,
         "outcome_labels": {},
         "difficulty_labels": {},
         "raw_payload_fallback": True,
@@ -92,6 +106,12 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "san_loss": "SAN 喪失",
             "yes": "yes",
             "no": "no",
+        },
+        "empty_report_lines": {
+            "combat_summary": "- 今回は戦闘場面は発生していない。",
+            "chase_summary": "- 今回はチェイス場面は発生していない。",
+            "chase_tracker": "- 今回は追跡するチェイス状態はない。",
+            "sanity_summary": "- 今回は正気度判定や狂気イベントは発生していない。",
         },
         "outcome_labels": {
             "critical": "クリティカル",
@@ -127,4 +147,5 @@ def language_profile(play_language: str | None = None) -> dict[str, Any]:
         "name_policy": f"Use customary {language} forms for names and setting terms when available.",
         "term_policy": f"Use localized_terms.{language} for player-visible people, places, factions, handouts, scenario titles, and special terms.",
     })
+    profile["empty_report_lines"] = BASE_EMPTY_REPORT_LINES
     return profile

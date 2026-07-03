@@ -28,6 +28,10 @@ special terms should use `localized_terms` with Chinese transliterations or
 conventional translated names. For other languages, use customary local forms
 for that language.
 
+`language_profile.empty_report_lines` stores player-visible text for empty
+report states such as no combat, no chase, no chase tracker, or no sanity
+events in the selected language.
+
 Keep machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text stable. Do not translate those fields even when ordinary dialogue is Chinese.
 
 ## Roles

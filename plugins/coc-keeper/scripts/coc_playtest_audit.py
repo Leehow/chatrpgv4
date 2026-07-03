@@ -77,6 +77,12 @@ PLAYER_READABLE_REPORT_SECTIONS = [
     "Story Recap",
     "Player Feedback On KP",
 ]
+LOCALIZABLE_EMPTY_PLACEHOLDERS = [
+    "No combat summary recorded.",
+    "No chase summary recorded.",
+    "No chase tracker recorded.",
+    "No sanity summary recorded.",
+]
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -400,6 +406,12 @@ def _report_repeated_actor_labels(
             if f"{name}: {name}" in section or f"{name} - {name}" in section:
                 repeated.append(f"{heading}:{name}")
     return sorted(set(repeated))
+
+
+def _unlocalized_empty_placeholders(battle_report: str, play_language: str) -> list[str]:
+    if play_language in {"", "en-US"}:
+        return []
+    return [marker for marker in LOCALIZABLE_EMPTY_PLACEHOLDERS if marker in battle_report]
 
 
 def _event_type_count(events: list[dict[str, Any]], event_type: str) -> int:
@@ -819,6 +831,19 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "low",
             "Player-readable report sections repeat actor labels: " + ", ".join(repeated_actor_labels),
             "If a player-readable summary already begins with the localized actor name, omit the separate actor label prefix.",
+        ))
+    empty_placeholder_leaks = _unlocalized_empty_placeholders(
+        battle_report,
+        str(metadata.get("play_language") or ""),
+    )
+    if active_profile and empty_placeholder_leaks:
+        findings.append(_finding(
+            "localized_empty_placeholders_not_rendered",
+            "report_gap",
+            "medium",
+            "Active localized battle report still contains English empty subsystem placeholders: "
+            + ", ".join(empty_placeholder_leaks),
+            "Render empty subsystem summaries through language_profile.empty_report_lines for the selected play_language.",
         ))
 
     if "{'" in battle_report or "'}" in battle_report:

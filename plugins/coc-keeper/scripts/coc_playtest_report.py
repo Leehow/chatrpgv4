@@ -434,6 +434,13 @@ def _list_lines(items: list[str], empty: str) -> list[str]:
     return items if items else [empty]
 
 
+def _empty_report_line(language_profile: dict[str, Any], key: str, fallback: str) -> str:
+    empty_lines = language_profile.get("empty_report_lines", {})
+    if isinstance(empty_lines, dict) and empty_lines.get(key):
+        return str(empty_lines[key])
+    return fallback
+
+
 def _first_value(default: Any, *values: Any) -> Any:
     for value in values:
         if value not in (None, "", [], {}):
@@ -1065,16 +1072,28 @@ def generate_battle_report(run_dir: Path) -> Path:
         *_list_lines(state_lines, "- No state changes recorded."),
         "",
         "## Combat Summary",
-        *_list_lines(combat_lines, "- No combat summary recorded."),
+        *_list_lines(
+            combat_lines,
+            _empty_report_line(language_profile, "combat_summary", "- No combat summary recorded."),
+        ),
         "",
         "## Chase Summary",
-        *_list_lines(chase_lines, "- No chase summary recorded."),
+        *_list_lines(
+            chase_lines,
+            _empty_report_line(language_profile, "chase_summary", "- No chase summary recorded."),
+        ),
         "",
         "## Chase Tracker",
-        *_list_lines(chase_tracker_lines, "- No chase tracker recorded."),
+        *_list_lines(
+            chase_tracker_lines,
+            _empty_report_line(language_profile, "chase_tracker", "- No chase tracker recorded."),
+        ),
         "",
         "## Sanity Summary",
-        *_list_lines(sanity_lines, "- No sanity summary recorded."),
+        *_list_lines(
+            sanity_lines,
+            _empty_report_line(language_profile, "sanity_summary", "- No sanity summary recorded."),
+        ),
         "",
         "## Clues Found",
         *_list_lines(clue_lines, "- No clues recorded."),

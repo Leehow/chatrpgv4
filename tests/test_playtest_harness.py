@@ -635,5 +635,13 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "careful_investigator:" in feedback
     assert "reckless_investigator:" in feedback
     assert "skeptical_rules_lawyer:" in feedback
+    assert "No combat summary recorded." not in battle_text
+    assert "No chase summary recorded." not in battle_text
+    assert "No chase tracker recorded." not in battle_text
+    assert "No sanity summary recorded." not in battle_text
+    assert "本轮没有触发战斗场面。" in section_text(battle_text, "## Combat Summary")
+    assert "本轮没有触发追逐场面。" in section_text(battle_text, "## Chase Summary")
+    assert "本轮没有追逐状态需要追踪。" in section_text(battle_text, "## Chase Tracker")
+    assert "本轮没有触发理智检定或疯狂事件。" in section_text(battle_text, "## Sanity Summary")
     assert not (run_dir / "artifacts" / "semantic-eval-request.json").exists()
     assert not (run_dir / "artifacts" / "semantic-eval-result.json").exists()

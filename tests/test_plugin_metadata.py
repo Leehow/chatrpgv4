@@ -81,6 +81,7 @@ def test_mode_protocol_documents_play_language_and_localized_terms():
         "localized_text",
         "Chinese transliterations",
         "conventional translated names",
+        "empty_report_lines",
         "machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text",
     ]
     for term in required_terms:
@@ -97,6 +98,7 @@ def test_design_blueprint_documents_play_language_and_localized_terms():
         "localized_text",
         "Chinese transliterations",
         "conventional translated names",
+        "empty_report_lines",
         "machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text",
     ]
     for term in required_terms:
@@ -139,6 +141,7 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "chase_tracker_not_rendered",
         "report_actor_ids_not_localized",
         "report_actor_label_repeated",
+        "localized_empty_placeholders_not_rendered",
         "Bout of Madness",
         "duration_roll",
         "playtests prove investigator reuse without writing sandbox changes into the real investigator library",
