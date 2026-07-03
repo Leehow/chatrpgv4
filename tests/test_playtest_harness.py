@@ -1177,15 +1177,19 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_module_metadata_values_localized(
         run_setup,
         module_section,
-        campaign="屋顶追逐演练",
-        scenario="屋顶追逐演练",
-        source="基于《守秘人规则书》第 7 章：追逐的内部演练",
+        campaign="屋顶上的账本",
+        scenario="屋顶上的账本",
+        source="《守秘人规则书》第 7 章追逐场景",
         forbidden=[
             "Campaign: Rooftop Chase Drill",
             "Scenario: Rooftop Chase Drill",
             "internal drill based on Keeper Rulebook Chapter 7: Chases",
         ],
     )
+    story_facing_setup = run_setup + "\n" + module_section
+    assert "屋顶追逐演练" not in story_facing_setup
+    assert "内部演练" not in story_facing_setup
+    assert "追逐场景" in story_facing_setup
     assert "- 开场场景: 艾达·金" in battle_text
     assert "艾达·金发现内森尼尔·克劳带着账本离开印刷店" in module_section
     assert "ledger" not in module_section

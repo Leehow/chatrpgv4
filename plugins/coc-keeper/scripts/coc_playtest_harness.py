@@ -138,8 +138,8 @@ ZH_HANS_HAUNTING_GLOSSARY = {
 
 ZH_HANS_CHASE_GLOSSARY = {
     **ZH_HANS_BASE_GLOSSARY,
-    "Rooftop Chase Drill": "屋顶追逐演练",
-    "internal drill based on Keeper Rulebook Chapter 7: Chases": "基于《守秘人规则书》第 7 章：追逐的内部演练",
+    "The Ledger on the Rooftops": "屋顶上的账本",
+    "Keeper Rulebook Chapter 7 chase scene": "《守秘人规则书》第 7 章追逐场景",
     "Nathaniel Crowe": "内森尼尔·克劳",
     "Nathaniel": "内森尼尔·克劳",
     "cult ledger": "邪教账本",
@@ -1815,8 +1815,8 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     _write_json(run_dir / "playtest.json", _with_play_language({
         "run_id": run_id,
         "campaign_id": run_id,
-        "campaign_title": "Rooftop Chase Drill",
-        "scenario": "Rooftop Chase Drill",
+        "campaign_title": "The Ledger on the Rooftops",
+        "scenario": "The Ledger on the Rooftops",
         "scenario_id": "rooftop-chase-drill",
         "audit_profile": "chase_drill",
         "era": "1920s",
@@ -1862,14 +1862,14 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         ],
         "failed_test_cases": [],
         "recommended_fixes": [
-            "Future loop should replace this scripted multi-profile chase drill with a live LLM-vs-KP chase stress test.",
+            "Future loop should replace this scripted multi-profile chase scene with a live LLM-vs-KP chase stress test.",
         ],
         "regression_tests": ["Chase drill audit must pass for a report with real chase state."],
     }, ZH_HANS_CHASE_GLOSSARY))
     _write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,
         "campaign_id": run_id,
-        "title": "Rooftop Chase Drill",
+        "title": "The Ledger on the Rooftops",
         "mode": "keeper",
         "status": "complete",
         "era": "1920s",
@@ -1887,8 +1887,8 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     _write_json(scenario_dir / "scenario.json", {
         "schema_version": 1,
         "scenario_id": "rooftop-chase-drill",
-        "title": "Rooftop Chase Drill",
-        "module_source": "internal drill based on Keeper Rulebook Chapter 7: Chases",
+        "title": "The Ledger on the Rooftops",
+        "module_source": "Keeper Rulebook Chapter 7 chase scene",
         "summary": "Ada steals a cult ledger and flees across rainy Boston rooftops while Nathaniel Crowe pursues her.",
         "player_safe_summary": "艾达·金找到被偷走的邪教账本后，必须从追赶者手中逃脱。",
         "opening_scene": "Ada King 发现 Nathaniel Crowe 带着 ledger 离开印刷店，并跟着他上到屋顶。",
@@ -2174,7 +2174,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {
             "severity": "low",
             "category": "immersion",
-            "text": "The scripted multi-profile drill reads as a coherent chase scene with table pressure.",
+            "text": "The scripted multi-profile chase scene reads as a coherent table sequence with pressure.",
             "evidence": _evidence(
                 transcript_turns=[1, 5, 8, 14, 17, 22],
                 artifact_paths=["artifacts/battle-report.md", "transcript.jsonl"],

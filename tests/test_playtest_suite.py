@@ -60,7 +60,8 @@ def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     assert "The Haunting Module Playthrough" in report_text
     assert "haunting_module" in report_text
     assert "v3-chase-drill" in report_text
-    assert "Rooftop Chase Drill" in report_text
+    assert "The Ledger on the Rooftops" in report_text
+    assert "Rooftop Chase Drill" not in report_text
     assert "chase_drill" in report_text
     assert "## Core Coverage Matrix" in report_text
     assert "character_dossier: covered" in report_text
