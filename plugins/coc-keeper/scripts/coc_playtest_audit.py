@@ -51,6 +51,12 @@ HAUNTING_REPORT_MOMENTS = [
     "Rewards",
 ]
 
+HAUNTING_REQUIRED_NPC_SPEAKERS = [
+    "Mr. Knott",
+    "Arty Wilmot",
+    "Gabriela Macario",
+]
+
 CHASE_REPORT_MOMENTS = [
     "speed roll",
     "MOV",
@@ -1143,6 +1149,35 @@ def _profile_ids(metadata: dict[str, Any]) -> list[str]:
     return sorted(set(ids), key=len, reverse=True)
 
 
+def _npc_dialogue_gaps(
+    metadata: dict[str, Any],
+    transcript: list[dict[str, Any]],
+    battle_report: str,
+    terms: dict[str, str],
+) -> list[str]:
+    npc_events = [
+        event for event in transcript
+        if event.get("role") == "keeper_under_test"
+        and event.get("speaker_role") == "npc"
+        and event.get("mode") == "play"
+    ]
+    npc_speakers = {str(event.get("speaker") or "") for event in npc_events}
+    gaps = [
+        f"missing_npc_speaker:{speaker}"
+        for speaker in HAUNTING_REQUIRED_NPC_SPEAKERS
+        if speaker not in npc_speakers
+    ]
+    for speaker in HAUNTING_REQUIRED_NPC_SPEAKERS:
+        if speaker not in npc_speakers:
+            continue
+        display_speaker = terms.get(speaker, speaker)
+        if f"KP[{display_speaker}]" not in battle_report:
+            gaps.append(f"missing_report_label:{speaker}")
+        if metadata.get("play_language") not in {"", "en-US"} and f"KP[{speaker}]" in battle_report:
+            gaps.append(f"unlocalized_report_label:{speaker}")
+    return gaps
+
+
 def _chase_profile_pressure_gaps(metadata: dict[str, Any], transcript: list[dict[str, Any]]) -> list[str]:
     tested = set(_profile_ids(metadata))
     gaps = [
@@ -1318,7 +1353,13 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
     if metadata.get("audit_profile") == "haunting_module":
         module_coverage = set(metadata.get("module_coverage", []))
         covered_count = sum(1 for item in HAUNTING_MODULE_COVERAGE if item in module_coverage)
+        npc_speakers = [
+            str(event.get("speaker") or "")
+            for event in transcript
+            if event.get("role") == "keeper_under_test" and event.get("speaker_role") == "npc"
+        ]
         lines.append(f"Module coverage: {covered_count}/{len(HAUNTING_MODULE_COVERAGE)} required The Haunting beats recorded.")
+        lines.append(f"NPC roleplay turns: {len(npc_speakers)}; speakers: {', '.join(sorted(set(npc_speakers))) if npc_speakers else 'none'}.")
         lines.append(
             f"Combat evidence: {_event_type_count(events, 'combat')} combat events; "
             f"{sum(1 for event in rolls if event.get('type') == 'combat')} combat roll entries."
@@ -1954,6 +1995,17 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "Missing subsystem coverage: " + ", ".join(missing_subsystems),
                 "Exercise the social, pushed-roll, sanity, damage, and combat procedures that The Haunting introduces.",
+            ))
+
+        npc_dialogue_gaps = _npc_dialogue_gaps(metadata, transcript, battle_report, locale_terms)
+        if npc_dialogue_gaps:
+            cause = "test_gap" if any(gap.startswith("missing_npc_speaker:") for gap in npc_dialogue_gaps) else "report_gap"
+            findings.append(_finding(
+                "haunting_npc_dialogue_missing",
+                cause,
+                "medium",
+                "The Haunting module transcript lacks structured localized NPC roleplay: " + ", ".join(npc_dialogue_gaps),
+                "Record Keeper-controlled NPC speech with speaker_role=npc, canonical speaker names, and localized KP[NPC] report labels for core social/investigation scenes.",
             ))
 
         if len(transcript) < 30 or _player_intent_count(transcript) < 8 or _keeper_ruling_count(transcript) < 6:

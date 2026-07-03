@@ -97,6 +97,8 @@ ZH_HANS_HAUNTING_GLOSSARY = {
     "chase subsystem coverage deferred to separate scenario": "追逐子系统覆盖留到独立场景",
     "Reverend Michael Thomas": "迈克尔·托马斯牧师",
     "Ruth Blake": "露丝·布莱克",
+    "Gabriela Macario": "加布里埃拉·马卡里奥",
+    "Vittorio Macario": "维托里奥·马卡里奥",
     "Gabriela": "加布里埃拉",
     "Vittorio": "维托里奥",
     "Macario": "马卡里奥",
@@ -389,7 +391,7 @@ def _write_transcript_jsonl_localized(path: Path, events: list[dict[str, Any]], 
     for event in events:
         localized = dict(event)
         if localized.get("role") in {"keeper_under_test", "player_simulator"}:
-            for key in ("speaker", "text"):
+            for key in ("text",):
                 if isinstance(localized.get(key), str):
                     localized[key] = _localize_text(localized[key], glossary)
         localized_text = dict(localized.get("localized_text", {}))
@@ -1057,24 +1059,24 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
     )
 
     _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
-        {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Mr. Knott 把一枚旧钥匙推到桌面中央，说只要 Ada 能查清 Corbitt House 为什么赶走房客，他每天付 20 美元。"},
+        {"turn": 1, "role": "keeper_under_test", "speaker": "Mr. Knott", "speaker_role": "npc", "mode": "play", "text": "Mr. Knott 把一枚旧钥匙推到桌面中央：“金小姐，我需要的是事实，不是传闻。每天二十美元，查清 Corbitt House 为什么赶走房客。”"},
         {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "ask terms and immediate leads", "text": "我先不接钥匙，问 Mr. Knott：Macario 一家到底出了什么事？如果我要查，最好从哪里开始？"},
-        {"turn": 3, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "no_roll_needed", "text": "这个问题不需要检定。Mr. Knott 给你 Handout 1、钥匙和地址，并建议你在进屋前先查公共记录。"},
+        {"turn": 3, "role": "keeper_under_test", "speaker": "Mr. Knott", "speaker_role": "npc", "mode": "play", "ruling": "no_roll_needed", "text": "这个问题不需要检定。Mr. Knott 说：“Macario 一家搬进去后先是生病，后来几乎疯了；这是 Handout 1、钥匙和地址。进屋前，最好先查公共记录。”"},
         {"turn": 4, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "choose first research route", "text": "我先去 The Boston Globe，礼貌地要求查看旧剪报档案，不急着进那栋房子。"},
-        {"turn": 5, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "persuade_regular", "text": "Arty Wilmot 挡在 morgue 门口，不想让陌生人翻档案。你的目标是说服他放行，做 Persuade，Regular difficulty。"},
+        {"turn": 5, "role": "keeper_under_test", "speaker": "Arty Wilmot", "speaker_role": "npc", "mode": "play", "ruling": "persuade_regular", "text": "Arty Wilmot 挡在 morgue 门口：“剪报档案室不是给陌生人随便翻的。”你的目标是说服他放行，做 Persuade，Regular difficulty。"},
         {"turn": 6, "role": "system", "speaker": "system", "mode": "roll", "text": "Persuade 72 vs 55 -> failure."},
         {"turn": 7, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "push Arty social access", "text": "我把 Mr. Knott 的钥匙亮出来，压低声音说这可能阻止下一场悲剧；我接受失败时 Arty 会叫维护工把我赶出去。"},
         {"turn": "7a", "role": "player_simulator", "speaker": "Ada King", "mode": "meta", "intent": "ask pushed-roll ruling", "text": "[meta] 我想确认一下：为什么这里可以 pushed roll？失败后果是不是要先说清楚？[/meta]"},
         {"turn": "7b", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "pushed_roll_explanation", "text": "[meta] 可以，因为你不是重掷同一个动作，而是改变策略：亮出钥匙、强调可能阻止悲剧。失败后果会先摆明：阿蒂会叫维护工，你今天失去查档机会。确认后我们回到场景。[/meta]"},
         {"turn": 8, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_persuade", "text": "这构成 pushed Persuade。失败后果是，Arty 会叫来强壮的维护工，你今天彻底失去查档机会。"},
         {"turn": 9, "role": "system", "speaker": "system", "mode": "roll", "text": "Pushed Persuade 38 vs 55 -> regular_success."},
-        {"turn": 10, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Arty 终于让开。Ruth Blake 带你进满是灰尘的 morgue，Handout 2 写着事故、疾病、自杀，以及 Macario 一家仓皇逃离。"},
+        {"turn": 10, "role": "keeper_under_test", "speaker": "Arty Wilmot", "speaker_role": "npc", "mode": "play", "text": "Arty 终于让开：“好吧，金小姐。Ruth Blake 会带你进去，但别把剪报顺序弄乱。”Ruth Blake 带你进满是灰尘的 morgue，Handout 2 写着事故、疾病、自杀，以及 Macario 一家仓皇逃离。"},
         {"turn": 11, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "follow public record trail", "text": "我把剪报收好，下午去 Hall of Records，查 Walter Corbitt、遗嘱和任何教会记录。"},
         {"turn": 12, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "library_use_regular", "text": "做 Library Use。你的目标是把 Corbitt 和某个机构或遗嘱执行人联系起来，难度为 Regular。"},
         {"turn": 13, "role": "system", "speaker": "system", "mode": "roll", "text": "Library Use 22 vs 60 -> hard_success."},
         {"turn": 14, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Handout 7 把 Corbitt 的遗嘱执行人指向 Reverend Michael Thomas 和 Chapel of Contemplation。"},
         {"turn": 15, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "check sanitarium clue", "text": "在进屋前，我去 Roxbury Sanitarium，尽量温和地询问 Gabriela 和 Vittorio Macario 还记得什么。"},
-        {"turn": 16, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "roleplay_no_roll", "text": "这里用角色扮演处理，不需要检定。Gabriela 说屋里有邪恶存在；Vittorio 抱着圣经，反复说恶魔会败在自己的武器下。"},
+        {"turn": 16, "role": "keeper_under_test", "speaker": "Gabriela Macario", "speaker_role": "npc", "mode": "play", "ruling": "roleplay_no_roll", "text": "这里用角色扮演处理，不需要检定。Gabriela Macario 低声说：“那栋屋子里有东西，不肯让我们睡。”Vittorio Macario 抱着圣经，反复说恶魔会败在自己的武器下。"},
         {"turn": 17, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "investigate Chapel of Contemplation", "text": "我去废弃的 Chapel of Contemplation，先看三叉眼符号，再搜那只旧柜子附近。"},
         {"turn": 18, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "spot_hidden_regular", "text": "你看见围着眼睛的 three-Y symbol。要在柜子下面找到关键记录，做 Spot Hidden，Regular difficulty。"},
         {"turn": 19, "role": "system", "speaker": "system", "mode": "roll", "text": "Spot Hidden 28 vs 55 -> regular_success."},

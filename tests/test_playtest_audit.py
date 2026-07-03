@@ -1752,6 +1752,22 @@ def test_active_audit_rejects_missing_status_event_in_scene_replay(tmp_path):
     assert "status_event_not_rendered" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_structured_npc_dialogue(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    transcript_path = run_dir / "transcript.jsonl"
+    stripped_events = []
+    for line in transcript_path.read_text().splitlines():
+        event = json.loads(line)
+        event.pop("speaker_role", None)
+        stripped_events.append(event)
+    transcript_path.write_text("\n".join(json.dumps(event) for event in stripped_events) + "\n")
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "haunting_npc_dialogue_missing" in finding_codes(audit)
+
+
 def test_chase_drill_audit_requires_multi_profile_pressure(tmp_path):
     run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
     metadata_path = run_dir / "playtest.json"

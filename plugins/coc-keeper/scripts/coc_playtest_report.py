@@ -889,11 +889,16 @@ def _display_transcript_speaker(
     event: dict[str, Any],
     profile_labels: dict[str, str] | None = None,
     language_profile: dict[str, Any] | None = None,
+    localized_terms: dict[str, str] | None = None,
 ) -> str:
     role = event.get("role", "unknown")
     speaker_labels = (language_profile or {}).get("speaker_labels", {})
     if role == "keeper_under_test":
-        return str(speaker_labels.get("keeper", "KP"))
+        keeper_label = str(speaker_labels.get("keeper", "KP"))
+        if event.get("speaker_role") == "npc" and event.get("speaker"):
+            npc_name = _localize_text(str(event["speaker"]), localized_terms or {})
+            return f"{keeper_label}[{npc_name}]"
+        return keeper_label
     if role == "player_simulator":
         player_profile = event.get("player_profile")
         player_label = str(speaker_labels.get("player", "Player"))
@@ -934,8 +939,8 @@ def _format_transcript_event(
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
 ) -> list[str]:
-    speaker = _display_transcript_speaker(event, profile_labels, language_profile)
     terms = localized_terms or {}
+    speaker = _display_transcript_speaker(event, profile_labels, language_profile, terms)
 
     turn = event.get("turn", "?")
     text = rendered_text if rendered_text is not None else event.get("text", "")
@@ -961,8 +966,8 @@ def _format_actual_play_event(
     play_language: str = "en-US",
 ) -> list[str]:
     role = event.get("role", "unknown")
-    speaker = _display_transcript_speaker(event, profile_labels, language_profile)
     terms = localized_terms or {}
+    speaker = _display_transcript_speaker(event, profile_labels, language_profile, terms)
 
     turn = event.get("turn", "?")
     text = rendered_text if rendered_text is not None else event.get("text", "")
