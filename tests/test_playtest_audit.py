@@ -197,6 +197,107 @@ def create_rulebook_shaped_run(run_dir: Path):
     )
 
 
+def create_final_rulebook_run(run_dir: Path):
+    create_rulebook_shaped_run(run_dir)
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop"
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
+        {
+            "type": "roll",
+            "actor": "ada-king",
+            "payload": {
+                "skill": "Library Use",
+                "goal": "find the earliest public clue about Walter Corbitt",
+                "target": 60,
+                "effective_target": 60,
+                "difficulty": "regular",
+                "difficulty_rationale": "public newspaper clipping files are accessible with focused research",
+                "roll": 42,
+                "outcome": "regular_success",
+                "push_eligible": False,
+                "failure_consequence": "lose time and risk missing the Chapel lead until another clue appears",
+                "skill_check_earned": True,
+            },
+        },
+        {
+            "type": "roll",
+            "actor": "ada-king",
+            "payload": {
+                "skill": "Spot Hidden",
+                "goal": "notice the important symbol before leaving",
+                "target": 55,
+                "effective_target": 55,
+                "difficulty": "regular",
+                "difficulty_rationale": "the clue is visible but easy to overlook",
+                "roll": 83,
+                "outcome": "failure",
+                "push_eligible": True,
+                "failure_consequence": "Ada will leave without the symbol unless she spends extra time and risks attention",
+                "skill_check_earned": False,
+            },
+        },
+        {
+            "type": "roll",
+            "actor": "ada-king",
+            "payload": {
+                "skill": "Spot Hidden",
+                "goal": "notice the important symbol before leaving",
+                "target": 55,
+                "effective_target": 55,
+                "difficulty": "regular",
+                "difficulty_rationale": "pushed roll keeps the same difficulty after Ada spends extra time",
+                "roll": 34,
+                "outcome": "regular_success",
+                "pushed": True,
+                "push_justification": "Ada spends ten more minutes checking the desk underside and accepts that someone may return.",
+                "foreshadowed_failure": "If this fails, Ada hears footsteps and loses the chance to search quietly.",
+                "failure_consequence": "Ada would be interrupted by footsteps from the hall.",
+                "skill_check_earned": True,
+            },
+        },
+        {
+            "type": "sanity",
+            "actor": "ada-king",
+            "payload": {
+                "skill": "SAN",
+                "goal": "test reaction to a disturbing omen",
+                "target": 55,
+                "effective_target": 55,
+                "difficulty": "sanity",
+                "difficulty_rationale": "SAN rolls use current SAN and no bonus or penalty dice",
+                "roll": 31,
+                "outcome": "success",
+                "san_loss": 0,
+                "failure_consequence": "lose 1D3 SAN and freeze for a moment",
+            },
+        },
+    ])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-hiring", "summary": "Mr. Knott hired Ada."}},
+        {"type": "decision", "actor": "ada-king", "payload": {"summary": "Ada chose to research before entering the house."}},
+        {"type": "clue", "actor": "ada-king", "payload": {"clue_id": "clue-corbitt-will", "summary": "Ada found the Corbitt lawsuit trail."}},
+        {"type": "sanity", "actor": "ada-king", "payload": {"summary": "Ada passed a SAN roll and lost no SAN."}},
+        {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "Session ended with Ada planning to visit the Corbitt House next."}},
+    ])
+    (run_dir / "artifacts" / "battle-report.md").write_text(
+        "# Battle Report\n\n"
+        "## Mechanical Log\n"
+        "- Library Use: ada-king rolled 42 vs 60 -> regular_success\n"
+        "  - Goal: find the earliest public clue about Walter Corbitt\n"
+        "  - Difficulty: regular\n"
+        "  - Difficulty Rationale: public newspaper clipping files are accessible with focused research\n"
+        "  - Failure Consequence: lose time and risk missing the Chapel lead until another clue appears\n"
+        "  - Skill Check Earned: yes\n"
+        "- Spot Hidden: ada-king rolled 34 vs 55 -> regular_success\n"
+        "  - Pushed Roll: yes\n"
+        "  - Push Justification: Ada spends ten more minutes checking the desk underside and accepts that someone may return.\n"
+        "  - Foreshadowed Failure: If this fails, Ada hears footsteps and loses the chance to search quietly.\n"
+        "  - Skill Check Earned: yes\n\n"
+        "## Session Ending\n- Session ended with Ada planning to visit the Corbitt House next.\n\n"
+        "## Story Recap\n- Ada accepted Knott's job and found the first Chapel lead.\n\n"
+        "## Player Feedback On KP\n- kp_clarity: 5 - KP explained what I could do and why rolls happened.\n",
+    )
+
+
 def finding_codes(audit: dict) -> set[str]:
     return {finding["code"] for finding in audit["findings"]}
 
@@ -230,9 +331,34 @@ def test_rulebook_audit_classifies_smoke_run_gaps(tmp_path):
 
 def test_rulebook_audit_accepts_rulebook_shaped_run(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "haunting-loop"
-    create_rulebook_shaped_run(run_dir)
+    create_final_rulebook_run(run_dir)
 
     audit = coc_playtest_audit.audit_run(run_dir)
 
     assert audit["result"] == "pass"
     assert audit["findings"] == []
+
+
+def test_final_audit_requires_pushed_roll_session_end_and_mechanical_detail(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-loop"
+    create_rulebook_shaped_run(run_dir)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "pushed_roll_missing" in finding_codes(audit)
+    assert "session_ending_missing" in finding_codes(audit)
+    assert "mechanical_detail_not_rendered" in finding_codes(audit)
+    assert "skill_development_not_rendered" in finding_codes(audit)
+
+
+def test_final_audit_rejects_raw_payload_rendering(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-loop"
+    create_final_rulebook_run(run_dir)
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(report_path.read_text() + "\n- clue: ada - {'summary': 'raw payload leaked'}\n")
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "raw_payload_rendered" in finding_codes(audit)

@@ -68,3 +68,5 @@ Every serious playtest follows this loop:
 4. Read `## Blueprint Cross-Check` to decide whether the problem is missing design or designed-but-not-implemented behavior.
 5. Apply the smallest targeted fix named in `## Next Loop Fix Target`.
 6. Rerun the playtest reports and rulebook audit.
+
+The baseline audit should reject reports that omit a pushed roll, session ending, mechanical detail such as goals and difficulty rationale, or that leak raw payload dictionaries into player-readable prose.

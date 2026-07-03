@@ -27,6 +27,16 @@ def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     assert "Mr. Knott" in battle_text
     assert "Chapel of Contemplation" in battle_text
     assert "Library Use: ada-king-rulebook rolled 42 vs 60 -> regular_success" in battle_text
+    assert "Pushed Roll: yes" in battle_text
+    assert "Ada chose to push the failed Spot Hidden roll" in battle_text
+    assert "Push Justification:" in battle_text
+    assert "Foreshadowed Failure:" in battle_text
+    assert "Goal: find an early public clue about Walter Corbitt and the house" in battle_text
+    assert "Difficulty Rationale: The clipping files are public but poorly indexed." in battle_text
+    assert "Skill Check Earned: yes" in battle_text
+    assert "Session ended with Ada planning to visit the Corbitt House next." in battle_text
     assert "kp_clarity: 5 - KP explained when rolls were needed and what changed in the fiction." in battle_text
+    assert "{'" not in battle_text
+    assert "'}" not in battle_text
     assert (run_dir / "sandbox" / ".coc" / "campaigns" / "rulebook-smoke" / "scenario" / "clues.json").exists()
     assert (run_dir / "player-feedback.jsonl").exists()

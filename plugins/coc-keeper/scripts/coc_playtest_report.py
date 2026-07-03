@@ -73,18 +73,54 @@ def _format_roll(event: dict[str, Any]) -> str:
     roll = payload.get("roll", "?")
     target = payload.get("effective_target", payload.get("target", "?"))
     outcome = payload.get("outcome", "unknown")
-    return f"- {skill}: {actor} rolled {roll} vs {target} -> {outcome}"
+    lines = [f"- {skill}: {actor} rolled {roll} vs {target} -> {outcome}"]
+    detail_fields = [
+        ("goal", "Goal"),
+        ("difficulty", "Difficulty"),
+        ("difficulty_rationale", "Difficulty Rationale"),
+        ("failure_consequence", "Failure Consequence"),
+    ]
+    for key, label in detail_fields:
+        if payload.get(key) not in (None, "", [], {}):
+            lines.append(f"  - {label}: {payload[key]}")
+    if payload.get("pushed"):
+        lines.append("  - Pushed Roll: yes")
+    if payload.get("push_justification"):
+        lines.append(f"  - Push Justification: {payload['push_justification']}")
+    if payload.get("foreshadowed_failure"):
+        lines.append(f"  - Foreshadowed Failure: {payload['foreshadowed_failure']}")
+    if "skill_check_earned" in payload:
+        earned = "yes" if payload.get("skill_check_earned") else "no"
+        lines.append(f"  - Skill Check Earned: {earned}")
+    if payload.get("san_loss") not in (None, "", [], {}):
+        lines.append(f"  - SAN Loss: {payload['san_loss']}")
+    return "\n".join(lines)
+
+
+def _display_actor(actor: str) -> str:
+    if actor == "keeper_under_test":
+        return "KP"
+    if actor == "player_simulator":
+        return "Player"
+    return actor
 
 
 def _format_state_event(event: dict[str, Any]) -> str:
     event_type = event.get("type", "event")
+    event_label = event_type.replace("_", " ")
     payload = event.get("payload", {})
     if event_type == "scene":
         scene_id = payload.get("scene_id", "unknown")
         summary = payload.get("summary", "")
         return f"- scene: {scene_id} - {summary}".rstrip()
-    actor = event.get("actor", "unknown")
-    return f"- {event_type}: {actor} - {payload}"
+    actor = _display_actor(event.get("actor", "unknown"))
+    summary = payload.get("summary") or payload.get("text")
+    if event_type == "clue":
+        clue_id = payload.get("clue_id", "unknown")
+        return f"- clue: {clue_id} - {summary or 'clue recorded'}"
+    if summary:
+        return f"- {event_label}: {actor} - {summary}"
+    return f"- {event_label}: {actor}"
 
 
 def _event_summary(event: dict[str, Any], fallback: str = "") -> str:
@@ -93,7 +129,7 @@ def _event_summary(event: dict[str, Any], fallback: str = "") -> str:
 
 
 def _format_decision(event: dict[str, Any]) -> str:
-    actor = event.get("actor", "unknown")
+    actor = _display_actor(event.get("actor", "unknown"))
     summary = _event_summary(event, "decision recorded")
     return f"- {actor}: {summary}"
 
@@ -106,7 +142,7 @@ def _format_clue(event: dict[str, Any]) -> str:
 
 
 def _format_subsystem_event(event: dict[str, Any]) -> str:
-    actor = event.get("actor", "unknown")
+    actor = _display_actor(event.get("actor", "unknown"))
     summary = _event_summary(event, f"{event.get('type', 'event')} recorded")
     return f"- {actor}: {summary}"
 
@@ -293,6 +329,7 @@ def generate_battle_report(run_dir: Path) -> Path:
     combat_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "combat"]
     chase_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "chase"]
     sanity_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "sanity"]
+    ending_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "session_ending"]
     character_lines: list[str] = []
     for character in characters:
         character_lines.extend(_format_character(character))
@@ -345,7 +382,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         *_list_lines(clue_lines, "- No clues recorded."),
         "",
         "## Session Ending",
-        "- Session ending not recorded.",
+        *_list_lines(ending_lines, "- Session ending not recorded."),
         "",
         "## Story Recap",
         *_list_lines(recap_lines, "- No story recap recorded."),

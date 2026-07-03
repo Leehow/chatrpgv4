@@ -131,6 +131,18 @@ def _roll_protocol_gaps(rolls: list[dict[str, Any]]) -> list[str]:
     return missing
 
 
+def _has_pushed_roll(rolls: list[dict[str, Any]]) -> bool:
+    return any(bool(event.get("payload", {}).get("pushed")) for event in rolls)
+
+
+def _has_skill_check(rolls: list[dict[str, Any]]) -> bool:
+    return any(bool(event.get("payload", {}).get("skill_check_earned")) for event in rolls)
+
+
+def _report_contains_all(text: str, markers: list[str]) -> list[str]:
+    return [marker for marker in markers if marker not in text]
+
+
 def audit_run(run_dir: Path) -> dict[str, Any]:
     context = _load_context(run_dir)
     findings: list[Finding] = []
@@ -183,6 +195,24 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Log clue discovery, missed clues, and alternate clue routes as durable campaign events.",
         ))
 
+    if not _has_pushed_roll(context["rolls"]):
+        findings.append(_finding(
+            "pushed_roll_missing",
+            "test_gap",
+            "high",
+            "No roll payload is marked as a pushed roll.",
+            "Exercise a failed skill roll, the player's push justification, foreshadowed failure, and the pushed result.",
+        ))
+
+    if _event_type_count(context["events"], "session_ending") < 1:
+        findings.append(_finding(
+            "session_ending_missing",
+            "system_gap",
+            "high",
+            "No session_ending event records how the session closed or what remains unresolved.",
+            "Record a session ending event with recap, cliffhanger or next-step state, and unresolved questions.",
+        ))
+
     if not context["memory"] or not context["feedback"]:
         findings.append(_finding(
             "memory_or_feedback_missing",
@@ -198,6 +228,7 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
         "No player feedback recorded.",
         "No clue extraction in V1 report.",
         "No major decision extraction in V1 report.",
+        "Session ending not recorded.",
     ]
     present_placeholders = [marker for marker in placeholder_markers if marker in battle_report]
     if not battle_report or present_placeholders:
@@ -207,6 +238,46 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Battle report is missing or still contains placeholders: " + ", ".join(present_placeholders or ["missing file"]),
             "Render recorded story memory, decisions, clues, and player feedback instead of placeholder text.",
+        ))
+
+    if "{'" in battle_report or "'}" in battle_report:
+        findings.append(_finding(
+            "raw_payload_rendered",
+            "report_gap",
+            "medium",
+            "Battle report contains raw Python/JSON-style payload text.",
+            "Format state changes as player-readable summaries rather than dumping payload dictionaries.",
+        ))
+
+    missing_mechanical_markers = _report_contains_all(
+        battle_report,
+        ["Goal:", "Difficulty:", "Difficulty Rationale:", "Failure Consequence:"],
+    )
+    if missing_mechanical_markers:
+        findings.append(_finding(
+            "mechanical_detail_not_rendered",
+            "report_gap",
+            "high",
+            "Battle report mechanical log misses: " + ", ".join(missing_mechanical_markers),
+            "Render roll goals, difficulty levels, difficulty rationale, and failure consequences for important rolls.",
+        ))
+
+    if _has_skill_check(context["rolls"]) and "Skill Check Earned: yes" not in battle_report:
+        findings.append(_finding(
+            "skill_development_not_rendered",
+            "report_gap",
+            "medium",
+            "At least one roll earned a skill check, but the battle report does not show it.",
+            "Render skill check marks and later development-phase outcomes when available.",
+        ))
+
+    if _has_pushed_roll(context["rolls"]) and "Pushed Roll: yes" not in battle_report:
+        findings.append(_finding(
+            "pushed_roll_not_rendered",
+            "report_gap",
+            "high",
+            "A pushed roll exists in rolls.jsonl, but the battle report does not show the push.",
+            "Render push justification, foreshadowed failure, and pushed-roll result in the mechanical log.",
         ))
 
     covered_subsystems = set(context["metadata"].get("subsystems_covered", []))
