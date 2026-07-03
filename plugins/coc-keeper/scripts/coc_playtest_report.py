@@ -943,9 +943,8 @@ def _format_session_summary(
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
 ) -> str:
-    session_id = event.get("session_id") or event.get("id") or "session"
     summary = _event_summary(event, "", localized_terms, play_language)
-    return f"- {session_id}: {summary}".rstrip()
+    return f"- {summary}".rstrip()
 
 
 def _format_feedback(

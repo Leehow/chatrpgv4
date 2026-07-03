@@ -168,6 +168,7 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "character_dossier_derived_labels_not_localized",
         "character_dossier_terms_not_localized",
         "report_state_ids_not_localized",
+        "report_memory_ids_not_localized",
         "report_event_type_labels_not_localized",
         "疯狂发作",
         "bout_of_madness",

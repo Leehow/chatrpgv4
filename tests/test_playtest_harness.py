@@ -486,7 +486,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert detail_count(rules_recap, "目的") == roll_event_count
     assert detail_count(rules_recap, "难度说明") == roll_event_count
     assert detail_count(rules_recap, "失败后果") == roll_event_count
-    assert has_cjk(section_text(battle_text, "## Story Recap"))
+    story_recap = section_text(battle_text, "## Story Recap")
+    assert has_cjk(story_recap)
+    assert "session-1:" not in story_recap
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert has_cjk(feedback)
     assert_feedback_labels_localized(
@@ -749,6 +751,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert detail_count(rules_recap, "失败后果") == roll_event_count
     story_recap = section_text(battle_text, "## Story Recap")
     assert has_cjk(story_recap)
+    assert "session-1:" not in story_recap
     assert "屋顶追逐" in story_recap
     assert "rooftop 追逐" not in story_recap
     feedback = section_text(battle_text, "## Player Feedback On KP")
@@ -890,6 +893,9 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert_player_readable_event_prefixes_absent(scene_replay, ["session ending"])
     clues_found = section_text(battle_text, "## Clues Found")
     assert_player_readable_state_ids_absent(clues_found, ["deed-note", "fresh-scratches"])
+    story_recap = section_text(battle_text, "## Story Recap")
+    assert has_cjk(story_recap)
+    assert "session-1:" not in story_recap
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert_feedback_labels_localized(

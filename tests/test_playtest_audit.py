@@ -791,6 +791,41 @@ def test_active_audit_rejects_state_ids_in_player_readable_report_sections(tmp_p
     assert "report_state_ids_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_memory_ids_in_story_recap(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-memory-ids"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata_path.write_text(json.dumps(metadata))
+    write_jsonl(run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop" / "memory" / "session-summaries.jsonl", [
+        {"session_id": "session-1", "summary": "艾达接受委托并找到线索。"},
+    ])
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- 这是中文场景回放。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- 第 1 轮 KP: \"诺特先生给出钥匙。\"\n\n"
+        "## Session Transcript / 会话记录\n"
+        "- 第 1 轮 KP: 诺特先生给出钥匙。\n"
+        "  - 模式: play\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- session-1: 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- KP 清晰度: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "report_memory_ids_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_rejects_event_type_prefixes_in_scene_replay(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
     create_final_rulebook_run(run_dir)

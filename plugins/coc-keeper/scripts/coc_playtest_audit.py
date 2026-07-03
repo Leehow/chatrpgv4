@@ -509,6 +509,29 @@ def _report_state_id_leaks(battle_report: str, events: list[dict[str, Any]]) -> 
     return sorted(set(leaks))
 
 
+def _memory_ids(memory: list[dict[str, Any]]) -> list[str]:
+    ids: list[str] = []
+    for entry in memory:
+        if not isinstance(entry, dict):
+            continue
+        for key in ("session_id", "id"):
+            value = entry.get(key)
+            if value not in (None, "", [], {}):
+                ids.append(str(value))
+    return sorted(set(ids), key=len, reverse=True)
+
+
+def _report_memory_id_leaks(battle_report: str, memory: list[dict[str, Any]]) -> list[str]:
+    story_recap = _section_text(battle_report, "Story Recap")
+    if not story_recap:
+        return []
+    leaks: list[str] = []
+    for memory_id in _memory_ids(memory):
+        if _state_id_prefix_leaked(story_recap, memory_id):
+            leaks.append(f"Story Recap:{memory_id}")
+    return sorted(set(leaks))
+
+
 def _scene_replay_event_type_labels(events: list[dict[str, Any]]) -> list[str]:
     labels: list[str] = []
     for event in events:
@@ -1403,6 +1426,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Player-readable report sections expose internal state ids: " + ", ".join(state_id_leaks),
             "Render scene and clue summaries without machine ids in player-readable report sections; reserve canonical ids for Mechanical Log, Chase Tracker, and stored JSON.",
+        ))
+    memory_id_leaks = _report_memory_id_leaks(battle_report, context["memory"])
+    if active_profile and memory_id_leaks:
+        findings.append(_finding(
+            "report_memory_ids_not_localized",
+            "report_gap",
+            "medium",
+            "Player-readable Story Recap exposes internal memory ids: " + ", ".join(memory_id_leaks),
+            "Render story memory summaries without session_id or memory ids; reserve canonical ids for stored JSON.",
         ))
     scene_event_label_leaks = _scene_replay_event_type_label_leaks(battle_report, context["events"])
     if active_profile and scene_event_label_leaks:
