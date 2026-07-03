@@ -448,6 +448,25 @@ def battle_report_with_sources_but_without_investigator_creation_records() -> st
     )
 
 
+def battle_report_with_creation_only_outside_creation_section() -> str:
+    return (
+        battle_report_fixture()
+        .replace(
+            "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n"
+            + battle_report_investigator_creation_fixture_text(),
+            "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n- Fixture creation record.",
+        )
+        .replace(
+            "## Story Recap <!-- report-anchor: Story Recap -->\n"
+            + battle_report_memory_fixture_text(),
+            "## Story Recap <!-- report-anchor: Story Recap -->\n"
+            + battle_report_memory_fixture_text()
+            + "\n"
+            + battle_report_investigator_creation_fixture_text(),
+        )
+    )
+
+
 def battle_report_with_sources_but_without_chase_tracker_state() -> str:
     return battle_report_fixture().replace(
         "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n"
@@ -1671,6 +1690,41 @@ def test_completion_audit_fails_when_battle_report_omits_investigator_creation_r
     assert "STR 60" in finding["missing_creation_samples"]
     assert "EDU x 4 = 300" in finding["missing_creation_samples"]
     assert "Spot Hidden: base 25 + Occupation 30 + Personal Interest 0 = 55" in finding["missing_creation_samples"]
+
+
+def test_completion_audit_fails_when_creation_records_are_outside_creation_section(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        battle_report_with_creation_only_outside_creation_section(),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(
+        finding for finding in audit["findings"]
+        if finding["code"] == "battle_report_investigator_creation_missing"
+    )
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "STR 60" in finding["missing_creation_samples"]
+    assert "EDU x 4 = 300" in finding["missing_creation_samples"]
 
 
 def test_completion_audit_fails_when_battle_report_omits_chase_tracker_state(tmp_path):
