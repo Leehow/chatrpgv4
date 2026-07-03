@@ -1,0 +1,8 @@
+{
+  "temporary_insanity_loss_threshold": 5,
+  "indefinite_insanity_daily_fraction": 0.2,
+  "bout_duration": {
+    "real_time_rounds": "1D10",
+    "summary_hours": "1D10"
+  }
+}

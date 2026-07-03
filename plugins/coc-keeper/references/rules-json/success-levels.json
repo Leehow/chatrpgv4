@@ -1,0 +1,7 @@
+{
+  "critical_roll": 1,
+  "fumble": {
+    "target_below_50": [96, 100],
+    "target_50_or_above": [100, 100]
+  }
+}

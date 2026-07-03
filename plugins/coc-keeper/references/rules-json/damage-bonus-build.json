@@ -1,0 +1,11 @@
+[
+  {"min": 2, "max": 64, "damage_bonus": "-2", "build": -2},
+  {"min": 65, "max": 84, "damage_bonus": "-1", "build": -1},
+  {"min": 85, "max": 124, "damage_bonus": "none", "build": 0},
+  {"min": 125, "max": 164, "damage_bonus": "+1D4", "build": 1},
+  {"min": 165, "max": 204, "damage_bonus": "+1D6", "build": 2},
+  {"min": 205, "max": 284, "damage_bonus": "+2D6", "build": 3},
+  {"min": 285, "max": 364, "damage_bonus": "+3D6", "build": 4},
+  {"min": 365, "max": 444, "damage_bonus": "+4D6", "build": 5},
+  {"min": 445, "max": 524, "damage_bonus": "+5D6", "build": 6}
+]
