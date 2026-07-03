@@ -14,7 +14,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from coc_language import language_profile as build_language_profile
 
 
-SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
+SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "bout_of_madness", "combat", "chase", "session_ending"}
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
 
 
@@ -916,7 +916,7 @@ def generate_battle_report(run_dir: Path) -> Path:
     sanity_lines = [
         _format_subsystem_event(event, localized_terms, str(play_language))
         for event in state_events
-        if event.get("type") == "sanity"
+        if event.get("type") in {"sanity", "bout_of_madness"}
     ]
     ending_lines = [
         _format_subsystem_event(event, localized_terms, str(play_language))

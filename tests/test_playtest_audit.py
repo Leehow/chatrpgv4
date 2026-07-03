@@ -551,3 +551,75 @@ def test_active_audit_requires_investigator_chronicle_and_development(tmp_path):
     assert audit["result"] == "fail"
     assert "investigator_chronicle_missing" in finding_codes(audit)
     assert "investigator_chronicle_not_rendered" in finding_codes(audit)
+
+
+def test_haunting_module_audit_requires_temporary_insanity_bout(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["module_coverage"] = [
+        "knott_hiring",
+        "research_route",
+        "chapel_of_contemplation",
+        "old_corbitt_place",
+        "bed_attack",
+        "basement",
+        "floating_knife",
+        "corbitt_hiding_place",
+        "corbitt_confrontation",
+        "conclusion_rewards",
+    ]
+    metadata["subsystems_covered"] = ["investigation", "social", "pushed_roll", "sanity", "damage", "combat"]
+    metadata_path.write_text(json.dumps(metadata))
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop"
+    rolls = [
+        json.loads(line)
+        for line in (campaign_dir / "logs" / "rolls.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    rolls.extend([
+        {
+            "type": "sanity",
+            "actor": "ada-king",
+            "payload": {
+                "skill": "SAN",
+                "goal": "withstand seeing Corbitt rise",
+                "target": 51,
+                "effective_target": 51,
+                "difficulty": "sanity",
+                "difficulty_rationale": "Corbitt rising calls for SAN 1/1D8.",
+                "roll": 63,
+                "outcome": "failure",
+                "failure_consequence": "Ada loses 1D8 SAN and may suffer temporary insanity.",
+                "san_loss": 6,
+            },
+        },
+        {
+            "type": "roll",
+            "actor": "ada-king",
+            "payload": {
+                "skill": "INT",
+                "goal": "determine whether the 5+ SAN loss causes temporary insanity",
+                "target": 70,
+                "effective_target": 70,
+                "difficulty": "regular",
+                "difficulty_rationale": "A successful INT roll means Ada comprehends the horror.",
+                "roll": 35,
+                "outcome": "regular_success",
+                "failure_consequence": "On failure, Ada would be shaken but not temporarily insane.",
+                "skill_check_earned": False,
+                "temporary_insanity_triggered": True,
+            },
+        },
+    ])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", rolls)
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(report_path.read_text() + "\n## Sanity Summary\n- 临时疯狂触发。\n")
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "temporary_insanity_bout_missing" in finding_codes(audit)
+    assert "temporary_insanity_bout_not_rendered" in finding_codes(audit)

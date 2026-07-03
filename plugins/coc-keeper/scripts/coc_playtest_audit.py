@@ -55,7 +55,7 @@ CHASE_REPORT_MOMENTS = [
     "quarry escapes",
 ]
 
-SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
+SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "bout_of_madness", "combat", "chase", "session_ending"}
 ACTIVE_AUDIT_PROFILES = {"haunting_module", "chase_drill", "multi_profile_pressure"}
 REQUIRED_BACKSTORY_FIELDS = [
     "description",
@@ -372,6 +372,17 @@ def _has_skill_check(rolls: list[dict[str, Any]]) -> bool:
     return any(bool(event.get("payload", {}).get("skill_check_earned")) for event in rolls)
 
 
+def _temporary_insanity_triggered(rolls: list[dict[str, Any]]) -> bool:
+    return any(
+        event.get("payload", {}).get("temporary_insanity_triggered") is True
+        for event in rolls
+    )
+
+
+def _has_bout_of_madness_event(events: list[dict[str, Any]]) -> bool:
+    return any(event.get("type") == "bout_of_madness" for event in events)
+
+
 def _report_contains_all(text: str, markers: list[str]) -> list[str]:
     return [marker for marker in markers if marker not in text]
 
@@ -663,6 +674,24 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "At least one roll earned a skill check, but the battle report does not show it.",
             "Render skill check marks and later development-phase outcomes when available.",
         ))
+
+    if active_profile and _temporary_insanity_triggered(context["rolls"]):
+        if not _has_bout_of_madness_event(context["events"]):
+            findings.append(_finding(
+                "temporary_insanity_bout_missing",
+                "system_gap",
+                "high",
+                "A structured roll payload sets temporary_insanity_triggered=true, but events.jsonl has no bout_of_madness event.",
+                "Record a bout_of_madness event with the episode, duration, Keeper control boundary, player-facing behavior, and recovery note.",
+            ))
+        if "Bout of Madness" not in battle_report:
+            findings.append(_finding(
+                "temporary_insanity_bout_not_rendered",
+                "report_gap",
+                "high",
+                "Temporary insanity was triggered, but the battle report does not render a Bout of Madness entry.",
+                "Render bout_of_madness events in the Scene-by-Scene Replay and Sanity Summary.",
+            ))
 
     if _has_pushed_roll(context["rolls"]) and "Pushed Roll: yes" not in battle_report:
         findings.append(_finding(

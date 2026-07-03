@@ -133,6 +133,8 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "history.jsonl",
         "development.jsonl",
         "investigator_chronicle_missing",
+        "temporary_insanity_bout_missing",
+        "Bout of Madness",
         "playtests prove investigator reuse without writing sandbox changes into the real investigator library",
     ]
     for term in required_terms:
@@ -147,6 +149,8 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "coc_playtest_audit.py",
         "rulebook-audit.md",
         "pushed roll",
+        "temporary_insanity_bout_missing",
+        "Bout of Madness",
         "session ending",
         "mechanical detail",
         "raw payload",
