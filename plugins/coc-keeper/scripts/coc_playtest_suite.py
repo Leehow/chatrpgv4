@@ -183,7 +183,9 @@ class SemanticArtifactCoverageEvaluator:
                 schema_errors.append("evaluation_provenance.request_sha256")
             else:
                 request_path = context.run_dir / "artifacts" / SEMANTIC_EVAL_REQUEST
-                if request_path.exists() and provenance.get("request_sha256") != _json_sha256(_read_json(request_path, {})):
+                if not request_path.exists():
+                    schema_errors.append("evaluation_provenance.request_missing")
+                elif provenance.get("request_sha256") != _json_sha256(_read_json(request_path, {})):
                     schema_errors.append("evaluation_provenance.request_sha256_mismatch")
         if "root_cause_classification" not in payload:
             schema_errors.append("root_cause_classification")

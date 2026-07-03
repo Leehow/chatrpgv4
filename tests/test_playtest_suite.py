@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 
@@ -20,6 +21,33 @@ def llm_semantic_provenance():
     return {
         "kind": "llm",
         "request_sha256": "fixture-request-sha256",
+        "reviewed_artifact": "artifacts/semantic-eval-request.json",
+    }
+
+
+def request_hash(payload: dict) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def write_semantic_eval_request(
+    artifacts_dir: Path,
+    run_id: str,
+    battle_report: str = "Narrative text that requires semantic judgment.",
+) -> dict:
+    request = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "inputs": {"battle_report": battle_report},
+    }
+    (artifacts_dir / "semantic-eval-request.json").write_text(json.dumps(request))
+    return request
+
+
+def llm_semantic_provenance_for(request: dict) -> dict:
+    return {
+        "kind": "llm",
+        "request_sha256": request_hash(request),
         "reviewed_artifact": "artifacts/semantic-eval-request.json",
     }
 
@@ -222,11 +250,21 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
     }))
     (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    request = {
+        "schema_version": 1,
+        "run_id": "semantic-artifact-run",
+        "inputs": {"battle_report": "Narrative text that requires semantic judgment."},
+    }
+    (artifacts_dir / "semantic-eval-request.json").write_text(json.dumps(request))
     (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
         "schema_version": 1,
         "run_id": "semantic-artifact-run",
         "evaluator_id": "codex-llm-semantic-v1",
-        "evaluation_provenance": llm_semantic_provenance(),
+        "evaluation_provenance": {
+            "kind": "llm",
+            "request_sha256": request_hash(request),
+            "reviewed_artifact": "artifacts/semantic-eval-request.json",
+        },
         "coverage": {
             key: {
                 "covered": True,
@@ -335,6 +373,48 @@ def test_suite_report_rejects_stale_semantic_result_request_hash(tmp_path):
     assert "evaluation_provenance.request_sha256_mismatch" in index["runs"][0]["semantic_artifact_schema_errors"]
 
 
+def test_suite_report_rejects_semantic_result_without_request_artifact(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "semantic-artifact-run"
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "semantic-artifact-run",
+        "campaign_title": "Semantic Artifact Fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": "semantic_fixture",
+        "player_profile": "careful_investigator",
+        "subsystems_covered": [],
+    }))
+    (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "semantic-artifact-run",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance(),
+        "coverage": {
+            key: {"covered": True, "reason": f"{key} covered by fixture."}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": {
+            key: {"score": 4, "passed": True, "reason": f"{key} passed by fixture."}
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        },
+        "root_cause_classification": [],
+        "next_loop_fix_target": "none",
+    }))
+
+    coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["blockers"][0]["type"] == "semantic_artifact_schema_invalid"
+    assert "evaluation_provenance.request_missing" in index["runs"][0]["semantic_artifact_schema_errors"]
+
+
 def test_suite_report_requires_explicit_semantic_quality_passed_flag(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "semantic-artifact-run"
     artifacts_dir = run_dir / "artifacts"
@@ -348,6 +428,7 @@ def test_suite_report_requires_explicit_semantic_quality_passed_flag(tmp_path):
     }))
     (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    request = write_semantic_eval_request(artifacts_dir, "semantic-artifact-run")
     quality = {
         key: {
             "score": 4,
@@ -364,7 +445,7 @@ def test_suite_report_requires_explicit_semantic_quality_passed_flag(tmp_path):
         "schema_version": 1,
         "run_id": "semantic-artifact-run",
         "evaluator_id": "codex-llm-semantic-v1",
-        "evaluation_provenance": llm_semantic_provenance(),
+        "evaluation_provenance": llm_semantic_provenance_for(request),
         "coverage": {
             key: {"covered": True, "reason": f"{key} covered by fixture."}
             for key in coc_playtest_suite.CORE_COVERAGE
@@ -400,6 +481,7 @@ def test_suite_report_requires_structured_semantic_coverage_reason(tmp_path):
     }))
     (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    request = write_semantic_eval_request(artifacts_dir, "semantic-artifact-run")
     coverage = {
         key: {"covered": True, "reason": f"{key} covered by semantic fixture."}
         for key in coc_playtest_suite.CORE_COVERAGE
@@ -409,7 +491,7 @@ def test_suite_report_requires_structured_semantic_coverage_reason(tmp_path):
         "schema_version": 1,
         "run_id": "semantic-artifact-run",
         "evaluator_id": "codex-llm-semantic-v1",
-        "evaluation_provenance": llm_semantic_provenance(),
+        "evaluation_provenance": llm_semantic_provenance_for(request),
         "coverage": coverage,
         "quality": {
             key: {"score": 4, "passed": True, "reason": f"{key} passed by fixture."}
@@ -445,11 +527,12 @@ def test_suite_report_requires_semantic_result_loop_fields(tmp_path):
     }))
     (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    request = write_semantic_eval_request(artifacts_dir, "semantic-artifact-run")
     (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
         "schema_version": 1,
         "run_id": "semantic-artifact-run",
         "evaluator_id": "codex-llm-semantic-v1",
-        "evaluation_provenance": llm_semantic_provenance(),
+        "evaluation_provenance": llm_semantic_provenance_for(request),
         "coverage": {
             key: {"covered": True, "reason": f"{key} covered by fixture."}
             for key in coc_playtest_suite.CORE_COVERAGE
@@ -529,11 +612,16 @@ def test_suite_report_flags_missing_virtual_player_pressure_quality(tmp_path):
     }))
     (artifacts_dir / "battle-report.md").write_text("Only one simulated player profile is represented.")
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    request = write_semantic_eval_request(
+        artifacts_dir,
+        "single-profile-run",
+        "Only one simulated player profile is represented.",
+    )
     (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
         "schema_version": 1,
         "run_id": "single-profile-run",
         "evaluator_id": "codex-llm-semantic-v1",
-        "evaluation_provenance": llm_semantic_provenance(),
+        "evaluation_provenance": llm_semantic_provenance_for(request),
         "coverage": {
             key: {"covered": True, "reason": f"{key} covered by fixture."}
             for key in coc_playtest_suite.CORE_COVERAGE
@@ -585,11 +673,16 @@ def test_loop_decision_ignores_historical_baseline_missing_semantic_result(tmp_p
     }))
     (active_artifacts / "battle-report.md").write_text("Active report with semantic result.")
     (active_artifacts / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    request = write_semantic_eval_request(
+        active_artifacts,
+        "active-module",
+        "Active report with semantic result.",
+    )
     (active_artifacts / "semantic-eval-result.json").write_text(json.dumps({
         "schema_version": 1,
         "run_id": "active-module",
         "evaluator_id": "codex-llm-semantic-v1",
-        "evaluation_provenance": llm_semantic_provenance(),
+        "evaluation_provenance": llm_semantic_provenance_for(request),
         "coverage": {
             key: {"covered": True, "reason": f"{key} covered by active run."}
             for key in coc_playtest_suite.CORE_COVERAGE
