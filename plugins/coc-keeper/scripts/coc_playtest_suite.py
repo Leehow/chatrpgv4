@@ -181,7 +181,9 @@ class SemanticArtifactCoverageEvaluator:
                 schema_errors.append("evaluation_provenance.kind")
             if not isinstance(provenance.get("request_sha256"), str) or not provenance.get("request_sha256"):
                 schema_errors.append("evaluation_provenance.request_sha256")
-            else:
+            if provenance.get("reviewed_artifact") != f"artifacts/{SEMANTIC_EVAL_REQUEST}":
+                schema_errors.append("evaluation_provenance.reviewed_artifact")
+            if isinstance(provenance.get("request_sha256"), str) and provenance.get("request_sha256"):
                 request_path = context.run_dir / "artifacts" / SEMANTIC_EVAL_REQUEST
                 if not request_path.exists():
                     schema_errors.append("evaluation_provenance.request_missing")
