@@ -1405,6 +1405,13 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
     investigator_id = "ada-king-pressure"
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
     player_profiles = ["careful_investigator", "reckless_investigator", "skeptical_rules_lawyer"]
+    player_profile_labels = {
+        "zh-Hans": {
+            "careful_investigator": "谨慎调查员",
+            "reckless_investigator": "鲁莽调查员",
+            "skeptical_rules_lawyer": "规则质疑玩家",
+        }
+    }
 
     _write_json(run_dir / "playtest.json", _with_play_language({
         "run_id": run_id,
@@ -1419,6 +1426,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         "spoiler_policy": "warn_before_reveal",
         "player_profile": "multi_profile_matrix",
         "player_profiles_tested": player_profiles,
+        "player_profile_labels": player_profile_labels,
         "module_coverage": ["opening_hook", "research_choice", "reckless_entry", "rules_challenge", "session_wrap"],
         "subsystems_covered": ["investigation", "social", "pushed_roll", "meta_game"],
         "scores": {

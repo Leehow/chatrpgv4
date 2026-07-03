@@ -604,10 +604,18 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
         "reckless_investigator",
         "skeptical_rules_lawyer",
     ]
+    assert metadata["player_profile_labels"]["zh-Hans"] == {
+        "careful_investigator": "谨慎调查员",
+        "reckless_investigator": "鲁莽调查员",
+        "skeptical_rules_lawyer": "规则质疑玩家",
+    }
     actual_play = section_text(battle_text, "## Actual Play Replay")
-    assert "Player[careful_investigator]" in actual_play
-    assert "Player[reckless_investigator]" in actual_play
-    assert "Player[skeptical_rules_lawyer]" in actual_play
+    assert "玩家[谨慎调查员]" in actual_play
+    assert "玩家[鲁莽调查员]" in actual_play
+    assert "玩家[规则质疑玩家]" in actual_play
+    assert "Player[careful_investigator]" not in actual_play
+    assert "Player[reckless_investigator]" not in actual_play
+    assert "Player[skeptical_rules_lawyer]" not in actual_play
     assert "先查房契和旧报纸" in actual_play
     assert "我直接去二楼" in actual_play
     assert "[meta] 我想质疑一下" in actual_play
@@ -632,9 +640,12 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Carryover Notes: 后续故事入口保留为沉思教堂记录" in chronicle
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     feedback = section_text(battle_text, "## Player Feedback On KP")
-    assert "careful_investigator:" in feedback
-    assert "reckless_investigator:" in feedback
-    assert "skeptical_rules_lawyer:" in feedback
+    assert "谨慎调查员:" in feedback
+    assert "鲁莽调查员:" in feedback
+    assert "规则质疑玩家:" in feedback
+    assert "careful_investigator:" not in feedback
+    assert "reckless_investigator:" not in feedback
+    assert "skeptical_rules_lawyer:" not in feedback
     assert "No combat summary recorded." not in battle_text
     assert "No chase summary recorded." not in battle_text
     assert "No chase tracker recorded." not in battle_text

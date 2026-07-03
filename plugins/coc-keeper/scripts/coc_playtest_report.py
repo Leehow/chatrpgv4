@@ -485,6 +485,19 @@ def _localized_terms(metadata: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _localized_profile_labels(metadata: dict[str, Any]) -> dict[str, str]:
+    play_language = metadata.get("play_language")
+    labels = metadata.get("player_profile_labels", {})
+    language_labels = labels.get(play_language, {}) if isinstance(labels, dict) else {}
+    if not isinstance(language_labels, dict):
+        return {}
+    return {
+        str(profile_id): str(label)
+        for profile_id, label in language_labels.items()
+        if profile_id and label
+    }
+
+
 def _format_localized_terms_summary(terms: dict[str, str]) -> str:
     if not terms:
         return "none"
@@ -757,20 +770,34 @@ def _format_investigator_chronicle(
     return lines
 
 
-def _display_transcript_speaker(event: dict[str, Any]) -> str:
+def _display_transcript_speaker(
+    event: dict[str, Any],
+    profile_labels: dict[str, str] | None = None,
+    language_profile: dict[str, Any] | None = None,
+) -> str:
     role = event.get("role", "unknown")
+    speaker_labels = (language_profile or {}).get("speaker_labels", {})
     if role == "keeper_under_test":
-        return "KP"
+        return str(speaker_labels.get("keeper", "KP"))
     if role == "player_simulator":
         player_profile = event.get("player_profile")
+        player_label = str(speaker_labels.get("player", "Player"))
         if player_profile:
-            return f"Player[{player_profile}]"
-        return "Player"
+            display_profile = (profile_labels or {}).get(str(player_profile), str(player_profile))
+            return f"{player_label}[{display_profile}]"
+        return player_label
+    if role == "system":
+        return str(speaker_labels.get("system", event.get("speaker") or "system"))
     return event.get("speaker") or role
 
 
-def _format_transcript_event(event: dict[str, Any], rendered_text: str | None = None) -> list[str]:
-    speaker = _display_transcript_speaker(event)
+def _format_transcript_event(
+    event: dict[str, Any],
+    rendered_text: str | None = None,
+    profile_labels: dict[str, str] | None = None,
+    language_profile: dict[str, Any] | None = None,
+) -> list[str]:
+    speaker = _display_transcript_speaker(event, profile_labels, language_profile)
 
     turn = event.get("turn", "?")
     text = rendered_text if rendered_text is not None else event.get("text", "")
@@ -782,9 +809,14 @@ def _format_transcript_event(event: dict[str, Any], rendered_text: str | None = 
     return lines
 
 
-def _format_actual_play_event(event: dict[str, Any], rendered_text: str | None = None) -> list[str]:
+def _format_actual_play_event(
+    event: dict[str, Any],
+    rendered_text: str | None = None,
+    profile_labels: dict[str, str] | None = None,
+    language_profile: dict[str, Any] | None = None,
+) -> list[str]:
     role = event.get("role", "unknown")
-    speaker = _display_transcript_speaker(event)
+    speaker = _display_transcript_speaker(event, profile_labels, language_profile)
 
     turn = event.get("turn", "?")
     text = rendered_text if rendered_text is not None else event.get("text", "")
@@ -815,11 +847,13 @@ def _format_feedback(
     event: dict[str, Any],
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
+    profile_labels: dict[str, str] | None = None,
 ) -> str:
     category = event.get("category", "general")
     score = event.get("score", "unscored")
     profile = event.get("player_profile")
-    prefix = f"{profile}: " if profile else ""
+    display_profile = (profile_labels or {}).get(str(profile), str(profile)) if profile else ""
+    prefix = f"{display_profile}: " if display_profile else ""
     text = _event_summary(event, "", localized_terms, play_language)
     return f"- {category}: {score} - {prefix}{text}".rstrip()
 
@@ -950,6 +984,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         campaign.get("play_language"),
     )
     language_profile = _selected_language_profile(str(play_language), metadata, campaign)
+    profile_labels = _localized_profile_labels(metadata)
 
     actor_names = _localized_actor_names(characters, localized_terms)
     roll_recap_lines = [
@@ -966,8 +1001,8 @@ def generate_battle_report(run_dir: Path) -> Path:
             recaps = roll_recap_lines[roll_cursor: roll_cursor + roll_count]
             rendered_text = _format_roll_transcript_text(event, recaps)
             roll_cursor += roll_count
-        transcript_lines.extend(_format_transcript_event(event, rendered_text))
-        actual_play_lines.extend(_format_actual_play_event(event, rendered_text))
+        transcript_lines.extend(_format_transcript_event(event, rendered_text, profile_labels, language_profile))
+        actual_play_lines.extend(_format_actual_play_event(event, rendered_text, profile_labels, language_profile))
     roll_lines = [_format_roll(event) for event in rolls]
     state_lines = [
         _format_state_event(event, localized_terms, str(play_language))
@@ -1018,7 +1053,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         for event in session_summaries
     ]
     feedback_lines = [
-        _format_feedback(event, localized_terms, str(play_language))
+        _format_feedback(event, localized_terms, str(play_language), profile_labels)
         for event in player_feedback
     ]
     chase_tracker_lines = _format_chase_tracker(chase_state)

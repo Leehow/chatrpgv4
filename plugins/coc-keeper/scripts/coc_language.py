@@ -29,6 +29,12 @@ BASE_EMPTY_REPORT_LINES = {
     "sanity_summary": "- No sanity summary recorded.",
 }
 
+BASE_SPEAKER_LABELS = {
+    "keeper": "KP",
+    "player": "Player",
+    "system": "system",
+}
+
 LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
     "zh-Hans": {
         "language": "zh-Hans",
@@ -55,6 +61,11 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "chase_summary": "- 本轮没有触发追逐场面。",
             "chase_tracker": "- 本轮没有追逐状态需要追踪。",
             "sanity_summary": "- 本轮没有触发理智检定或疯狂事件。",
+        },
+        "speaker_labels": {
+            "keeper": "KP",
+            "player": "玩家",
+            "system": "system",
         },
         "outcome_labels": {
             "critical": "大成功",
@@ -83,6 +94,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "term_policy": "Use localized_terms.en-US for player-visible aliases when the source term needs an English table form.",
         "report_labels": BASE_REPORT_LABELS,
         "empty_report_lines": BASE_EMPTY_REPORT_LINES,
+        "speaker_labels": BASE_SPEAKER_LABELS,
         "outcome_labels": {},
         "difficulty_labels": {},
         "raw_payload_fallback": True,
@@ -112,6 +124,11 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "chase_summary": "- 今回はチェイス場面は発生していない。",
             "chase_tracker": "- 今回は追跡するチェイス状態はない。",
             "sanity_summary": "- 今回は正気度判定や狂気イベントは発生していない。",
+        },
+        "speaker_labels": {
+            "keeper": "KP",
+            "player": "プレイヤー",
+            "system": "system",
         },
         "outcome_labels": {
             "critical": "クリティカル",
@@ -148,4 +165,5 @@ def language_profile(play_language: str | None = None) -> dict[str, Any]:
         "term_policy": f"Use localized_terms.{language} for player-visible people, places, factions, handouts, scenario titles, and special terms.",
     })
     profile["empty_report_lines"] = BASE_EMPTY_REPORT_LINES
+    profile["speaker_labels"] = BASE_SPEAKER_LABELS
     return profile

@@ -414,6 +414,32 @@ def _unlocalized_empty_placeholders(battle_report: str, play_language: str) -> l
     return [marker for marker in LOCALIZABLE_EMPTY_PLACEHOLDERS if marker in battle_report]
 
 
+def _profile_ids(metadata: dict[str, Any]) -> list[str]:
+    ids: list[str] = []
+    for profile_id in metadata.get("player_profiles_tested", []):
+        if profile_id not in (None, "", [], {}):
+            ids.append(str(profile_id))
+    return sorted(set(ids), key=len, reverse=True)
+
+
+def _profile_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    labels = metadata.get("player_profile_labels", {})
+    language_labels = labels.get(play_language, {}) if isinstance(labels, dict) else {}
+    if not isinstance(language_labels, dict):
+        language_labels = {}
+    leaks: list[str] = []
+    for profile_id in _profile_ids(metadata):
+        if profile_id not in language_labels:
+            leaks.append(f"missing_label:{profile_id}")
+            continue
+        if f"Player[{profile_id}]" in battle_report or f"{profile_id}:" in battle_report:
+            leaks.append(profile_id)
+    return sorted(set(leaks))
+
+
 def _event_type_count(events: list[dict[str, Any]], event_type: str) -> int:
     return sum(1 for event in events if event.get("type") == event_type)
 
@@ -844,6 +870,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Active localized battle report still contains English empty subsystem placeholders: "
             + ", ".join(empty_placeholder_leaks),
             "Render empty subsystem summaries through language_profile.empty_report_lines for the selected play_language.",
+        ))
+    profile_label_leaks = _profile_label_leaks(battle_report, metadata)
+    if active_profile and profile_label_leaks:
+        findings.append(_finding(
+            "player_profile_labels_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized battle report exposes player profile ids or lacks labels: " + ", ".join(profile_label_leaks),
+            "Persist player_profile_labels for the selected play_language and render those labels in transcript, actual-play, and feedback sections.",
         ))
 
     if "{'" in battle_report or "'}" in battle_report:

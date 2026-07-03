@@ -715,6 +715,39 @@ def test_active_audit_rejects_unlocalized_empty_subsystem_placeholders(tmp_path)
     assert "localized_empty_placeholders_not_rendered" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_player_profile_ids_in_reports(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "multi_profile_pressure"
+    metadata["play_language"] = "zh-Hans"
+    metadata["player_profiles_tested"] = ["careful_investigator"]
+    metadata["player_profile_labels"] = {"zh-Hans": {"careful_investigator": "谨慎调查员"}}
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report\n\n"
+        "## Scene-by-Scene Replay\n"
+        "- intro: 这是中文场景回放。\n\n"
+        "## Actual Play Replay\n"
+        "- Turn 1 Player[careful_investigator]: \"我先查资料。\"\n\n"
+        "## Session Transcript\n"
+        "- Turn 1 Player[careful_investigator]: 我先查资料。\n\n"
+        "## Major Player Decisions\n"
+        "- 谨慎玩家选择继续调查。\n\n"
+        "## Story Recap\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP\n"
+        "- kp_clarity: 5 - careful_investigator: KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "player_profile_labels_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_requires_investigator_backstory_fields(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
     create_final_rulebook_run(run_dir)

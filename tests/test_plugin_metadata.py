@@ -142,6 +142,8 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "report_actor_ids_not_localized",
         "report_actor_label_repeated",
         "localized_empty_placeholders_not_rendered",
+        "player_profile_labels",
+        "player_profile_labels_not_localized",
         "Bout of Madness",
         "duration_roll",
         "playtests prove investigator reuse without writing sandbox changes into the real investigator library",
