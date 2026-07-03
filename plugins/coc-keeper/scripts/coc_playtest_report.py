@@ -16,6 +16,7 @@ from coc_language import language_profile as build_language_profile
 
 SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "bout_of_madness", "combat", "chase", "session_ending"}
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
+DAMAGE_SUMMARY_RE = re.compile(r"^(?P<cause>.+?)造成伤害: (?P<amount>[^；。]+)(?P<tail>[；。].*)$")
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -421,9 +422,18 @@ def _format_scene_replay_event(
     event_label = event_type.replace("_", " ")
     actor = _display_roll_actor(event.get("actor", "unknown"), names)
     summary = _event_summary(event, f"{event_label} recorded", terms, play_language)
-    if actor in {"", "KP", "unknown"} or summary.startswith(actor):
-        return f"- {summary}"
-    return f"- {actor} - {summary}"
+    if event_type == "damage" and actor not in {"", "KP", "unknown"} and actor not in summary:
+        match = DAMAGE_SUMMARY_RE.match(summary)
+        if match:
+            summary = (
+                f"{match.group('cause')}造成{actor} {match.group('amount').strip()} 伤害"
+                f"{match.group('tail')}"
+            )
+    if event_type == "chase" and actor not in {"", "KP", "unknown"}:
+        _label, separator, detail = summary.partition("：")
+        if separator and detail.startswith(actor):
+            summary = detail
+    return f"- {summary}"
 
 
 def _scene_replay_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

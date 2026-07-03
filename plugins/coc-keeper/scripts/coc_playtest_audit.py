@@ -608,6 +608,23 @@ def _report_repeated_actor_labels(
     return sorted(set(repeated))
 
 
+def _scene_replay_actor_dash_prefixes(
+    battle_report: str,
+    characters: list[dict[str, Any]],
+    terms: dict[str, str],
+) -> list[str]:
+    names = _character_display_names(characters, terms)
+    section = _section_text(battle_report, "Scene-by-Scene Replay")
+    if not section:
+        return []
+    leaks: list[str] = []
+    for line in section.splitlines():
+        for name in names:
+            if line.startswith(f"- {name} - "):
+                leaks.append(name)
+    return sorted(set(leaks))
+
+
 def _unlocalized_empty_placeholders(battle_report: str, play_language: str) -> list[str]:
     if play_language in {"", "en-US"}:
         return []
@@ -1616,6 +1633,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "low",
             "Player-readable report sections repeat actor labels: " + ", ".join(repeated_actor_labels),
             "If a player-readable summary already begins with the localized actor name, omit the separate actor label prefix.",
+        ))
+    scene_actor_dash_prefixes = _scene_replay_actor_dash_prefixes(battle_report, context["characters"], locale_terms)
+    if active_profile and scene_actor_dash_prefixes:
+        findings.append(_finding(
+            "report_actor_dash_prefix",
+            "report_gap",
+            "low",
+            "Scene-by-Scene Replay uses actor dash prefixes: " + ", ".join(scene_actor_dash_prefixes),
+            "Render Scene-by-Scene Replay entries as natural player-readable sentences instead of actor-dash log lines.",
         ))
     empty_placeholder_leaks = _unlocalized_empty_placeholders(
         battle_report,

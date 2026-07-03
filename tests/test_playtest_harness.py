@@ -180,6 +180,11 @@ def assert_player_readable_event_prefixes_absent(text: str, event_labels: list[s
         assert f"- {event_label}:" not in text
 
 
+def assert_player_readable_actor_dash_prefixes_absent(text: str, actor_names: list[str]) -> None:
+    for actor_name in actor_names:
+        assert f"- {actor_name} - " not in text
+
+
 def assert_localized_transcript_chrome(text: str) -> None:
     assert "第 1 轮" in text
     assert "\n  - 意图:" in text or "\n  - 裁定:" in text or "\n  - 模式:" in text
@@ -418,11 +423,13 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         scene_replay,
         ["damage", "sanity", "combat", "bout of madness", "chase", "session ending"],
     )
+    assert_player_readable_actor_dash_prefixes_absent(scene_replay, ["艾达·金"])
     assert "自家地下室" in scene_replay
     assert "地下室楼梯" in scene_replay
     assert "推骰地下室搜索" in scene_replay
     assert "以其人之物反制的线索" in scene_replay
-    assert "伤害: 5 HP" in scene_replay
+    assert "床铺袭击造成艾达·金 5 HP 伤害；HP 12 -> 7。" in scene_replay
+    assert "推骰地下室搜索失败造成艾达·金 4 HP 伤害；HP 7 -> 3。" in scene_replay
     assert "DEX 检定" in scene_replay
     assert "ada-king-haunting -" not in scene_replay
     assert "艾达·金 - 艾达·金" not in scene_replay
@@ -712,7 +719,11 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_player_readable_state_ids_absent(scene_replay, ["print-shop-roof", "ledger-clue"])
     assert_player_readable_event_prefixes_absent(scene_replay, ["chase", "session ending"])
     assert "ada-king-chase -" not in scene_replay
+    assert_player_readable_actor_dash_prefixes_absent(scene_replay, ["艾达·金"])
     assert "艾达·金在印刷店屋顶发现内森尼尔·克劳" in scene_replay
+    assert "艾达·金的闪避成功，穿过湿滑天窗且没有损失移动行动。" in scene_replay
+    assert "艾达·金用锁匠通过上锁屋顶门障碍，到达晾衣屋顶。" in scene_replay
+    assert "艾达·金的潜行胜过内森尼尔·克劳失败的侦查，带着账本结束追逐。" in scene_replay
     assert "湿滑天窗" in scene_replay
     assert_terms_absent(scene_replay, ["print shop roof", "print-shop roof", "rain gutter", "locked roof door barrier", "slick 天窗"])
     assert "## Actual Play Replay" in battle_text
