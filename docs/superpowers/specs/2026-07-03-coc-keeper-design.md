@@ -151,7 +151,7 @@ This may reveal Keeper-only scenario information and affect play. Confirm if you
 [/spoiler_warning]
 ```
 
-After confirmation, Codex may reveal only the requested scope and should log the reveal to `logs/audit.jsonl`.
+After confirmation, Codex may reveal only the requested scope and should log the reveal to `logs/audit.jsonl`. Completion-oriented playtest suites must prove this with structured `spoiler_protocol` transcript stages (`warning_issued`, `player_confirmed`, `limited_reveal`) plus a matching `type: spoiler_reveal` audit-log row; player-facing views may show confirmed reveal text but must not expose internal Keeper secret ids.
 
 ## Architecture
 

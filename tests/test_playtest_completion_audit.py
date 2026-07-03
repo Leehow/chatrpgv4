@@ -246,6 +246,9 @@ def battle_report_fixture() -> str:
         "- fixture careful profile turn\n"
         "- fixture reckless profile turn\n"
         "- fixture skeptical rules profile turn\n"
+        "- fixture spoiler warning\n"
+        "- fixture spoiler confirmation\n"
+        "- fixture limited spoiler reveal\n"
         "- fixture meta player question\n"
         "- fixture meta keeper answer",
         "## Session Transcript <!-- report-anchor: Session Transcript -->\n"
@@ -257,6 +260,9 @@ def battle_report_fixture() -> str:
         "- fixture careful profile turn\n"
         "- fixture reckless profile turn\n"
         "- fixture skeptical rules profile turn\n"
+        "- fixture spoiler warning\n"
+        "- fixture spoiler confirmation\n"
+        "- fixture limited spoiler reveal\n"
         "- fixture meta player question\n"
         "- fixture meta keeper answer",
         "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n"
@@ -322,6 +328,9 @@ def battle_report_with_source_dialogue_only_outside_replay_sections() -> str:
         "- fixture reframed pushed action",
         "- fixture keeper foreshadows pushed risk",
         "- fixture confirms pushed risk",
+        "- fixture spoiler warning",
+        "- fixture spoiler confirmation",
+        "- fixture limited spoiler reveal",
         "- fixture meta player question",
         "- fixture meta keeper answer",
     ])
@@ -337,6 +346,9 @@ def battle_report_with_source_dialogue_only_outside_replay_sections() -> str:
             "- fixture careful profile turn\n"
             "- fixture reckless profile turn\n"
             "- fixture skeptical rules profile turn\n"
+            "- fixture spoiler warning\n"
+            "- fixture spoiler confirmation\n"
+            "- fixture limited spoiler reveal\n"
             "- fixture meta player question\n"
             "- fixture meta keeper answer",
             "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n- Fixture table turn.",
@@ -351,6 +363,9 @@ def battle_report_with_source_dialogue_only_outside_replay_sections() -> str:
             "- fixture careful profile turn\n"
             "- fixture reckless profile turn\n"
             "- fixture skeptical rules profile turn\n"
+            "- fixture spoiler warning\n"
+            "- fixture spoiler confirmation\n"
+            "- fixture limited spoiler reveal\n"
             "- fixture meta player question\n"
             "- fixture meta keeper answer",
             "## Session Transcript <!-- report-anchor: Session Transcript -->\n- Fixture transcript.",
@@ -602,10 +617,53 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
             {"turn": 7, "role": "player_simulator", "speaker": "Careful Player", "mode": "play", "player_profile": "careful_investigator", "text": "fixture careful profile turn"},
             {"turn": 8, "role": "player_simulator", "speaker": "Reckless Player", "mode": "play", "player_profile": "reckless_investigator", "text": "fixture reckless profile turn"},
             {"turn": 9, "role": "player_simulator", "speaker": "Rules Player", "mode": "meta", "player_profile": "skeptical_rules_lawyer", "text": "fixture skeptical rules profile turn"},
+            {
+                "turn": 10,
+                "role": "keeper_under_test",
+                "speaker": "KP",
+                "mode": "meta",
+                "text": "fixture spoiler warning",
+                "spoiler_protocol": {
+                    "spoiler_id": "fixture-spoiler-reveal",
+                    "stage": "warning_issued",
+                    "keeper_secret_id": "fixture-secret",
+                    "scope": "fixture_secret_scope",
+                    "requires_confirmation": True,
+                },
+            },
+            {
+                "turn": 11,
+                "role": "player_simulator",
+                "speaker": "Rules Player",
+                "mode": "meta",
+                "player_profile": "skeptical_rules_lawyer",
+                "text": "fixture spoiler confirmation",
+                "spoiler_protocol": {
+                    "spoiler_id": "fixture-spoiler-reveal",
+                    "stage": "player_confirmed",
+                    "keeper_secret_id": "fixture-secret",
+                    "scope": "fixture_secret_scope",
+                    "confirmed": True,
+                },
+            },
+            {
+                "turn": 12,
+                "role": "keeper_under_test",
+                "speaker": "KP",
+                "mode": "meta",
+                "text": "fixture limited spoiler reveal",
+                "spoiler_protocol": {
+                    "spoiler_id": "fixture-spoiler-reveal",
+                    "stage": "limited_reveal",
+                    "keeper_secret_id": "fixture-secret",
+                    "scope": "fixture_secret_scope",
+                    "confirmed": True,
+                },
+            },
         ])
     transcript_rows.extend([
-        {"turn": 10, "role": "player_simulator", "speaker": "Rules Player", "mode": "meta", "text": "fixture meta player question"},
-        {"turn": 11, "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "text": "fixture meta keeper answer"},
+        {"turn": 20, "role": "player_simulator", "speaker": "Rules Player", "mode": "meta", "text": "fixture meta player question"},
+        {"turn": 21, "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "text": "fixture meta keeper answer"},
     ])
     write_jsonl(run_dir / "transcript.jsonl", transcript_rows)
     write_jsonl(run_dir / "player-view.jsonl", [
@@ -703,6 +761,18 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
             {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "fixture ending"}},
         ])
     write_jsonl(campaign_dir / "logs" / "events.jsonl", event_rows)
+    if audit_profile == "multi_profile_pressure":
+        write_jsonl(campaign_dir / "logs" / "audit.jsonl", [
+            {
+                "type": "spoiler_reveal",
+                "spoiler_id": "fixture-spoiler-reveal",
+                "keeper_secret_id": "fixture-secret",
+                "scope": "fixture_secret_scope",
+                "confirmed": True,
+                "transcript_turns": [10, 11, 12],
+                "payload": {"summary": "fixture limited spoiler reveal"},
+            },
+        ])
     write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [
         {"session_id": "fixture-session", "summary": "fixture memory"},
     ])
@@ -1450,6 +1520,70 @@ def test_completion_audit_fails_when_multi_profile_source_lacks_required_player_
     assert "multi_profile_pressure transcript profile skeptical_rules_lawyer" in finding["missing_evidence"]
     assert "multi_profile_pressure feedback profile reckless_investigator" in finding["missing_evidence"]
     assert "multi_profile_pressure feedback profile skeptical_rules_lawyer" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_required_spoiler_protocol_is_missing(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v4-multi-profile-pressure"
+    rows = [
+        {key: value for key, value in row.items() if key != "spoiler_protocol"}
+        for row in read_jsonl(run_dir / "transcript.jsonl")
+    ]
+    write_jsonl(run_dir / "transcript.jsonl", rows)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "spoiler_reveal_protocol_missing")
+    assert finding["run_id"] == "v4-multi-profile-pressure"
+    assert "transcript.jsonl" in finding["incomplete_files"]
+    assert "spoiler warning stage" in finding["missing_evidence"]
+    assert "spoiler player confirmation stage" in finding["missing_evidence"]
+    assert "spoiler limited reveal stage" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_spoiler_audit_log_is_missing(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    campaign_dir = tmp_path / ".coc" / "playtests" / "v4-multi-profile-pressure" / "sandbox" / ".coc" / "campaigns" / "v4-multi-profile-pressure"
+    (campaign_dir / "logs" / "audit.jsonl").unlink()
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "spoiler_reveal_audit_missing")
+    assert finding["run_id"] == "v4-multi-profile-pressure"
+    assert "sandbox/.coc/campaigns/v4-multi-profile-pressure/logs/audit.jsonl" in finding["incomplete_files"]
+    assert "spoiler audit log reveal" in finding["missing_evidence"]
 
 
 def test_completion_audit_fails_when_investigator_sources_lack_reusable_character_evidence(tmp_path):

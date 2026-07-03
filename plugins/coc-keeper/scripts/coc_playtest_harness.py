@@ -356,6 +356,9 @@ ZH_HANS_TRANSCRIPT_DETAIL_TEXT = {
     "san_roll": "SAN 检定",
     "search basement clutter": "搜索地下室杂物",
     "session_wrap": "收束本轮",
+    "request keeper-only spoiler": "请求守秘人剧透",
+    "spoiler_warning": "剧透警告",
+    "limited_spoiler_reveal": "有限剧透揭示",
     "spoiler_boundary_probe": "试探剧透边界",
     "spoiler_safe_chase_answer": "剧透安全回应",
     "spot the stolen ledger": "确认被偷走的账本",
@@ -496,6 +499,13 @@ def _player_view_event(
         visible["text"] = rendered_text
     elif isinstance(visible.get("text"), str):
         visible["text"] = _localize_text(visible["text"], glossary)
+    spoiler_protocol = visible.get("spoiler_protocol")
+    if isinstance(spoiler_protocol, dict):
+        visible["spoiler_protocol"] = {
+            key: value
+            for key, value in spoiler_protocol.items()
+            if key != "keeper_secret_id"
+        }
     return {**visible, "view": "player", "type": "transcript_turn"}
 
 
@@ -615,6 +625,24 @@ def _pushed_roll_payload_protocol(roll_id: str) -> dict[str, Any]:
         "keeper_foreshadowed_failure": True,
         "player_confirmation_recorded": True,
     }
+
+
+def _spoiler_transcript_protocol(
+    spoiler_id: str,
+    stage: str,
+    keeper_secret_id: str,
+    scope: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    protocol = {
+        "spoiler_id": spoiler_id,
+        "stage": stage,
+        "keeper_secret_id": keeper_secret_id,
+        "scope": scope,
+    }
+    if extra:
+        protocol.update(extra)
+    return protocol
 
 
 def _write_investigator_chronicle(
@@ -2121,6 +2149,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             "reckless_risk_route",
             "skeptical_meta_challenge",
             "pushed_roll_stakes",
+            "spoiler_warning_confirmed_reveal",
             "profile_specific_feedback",
         ],
         "failed_test_cases": [],
@@ -2276,6 +2305,10 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"turn": 11, "role": "system", "speaker": "system", "mode": "roll", "pushed_roll_protocol": _pushed_roll_transcript_protocol("pressure-reckless-entry-push", "roll_resolved"), "outcome_note": "你看见门闩边缘有新划痕，没有触发额外危险。", "text": "Pushed Spot Hidden 22 vs 55 -> hard_success."},
         {"turn": 12, "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "intent": "challenge keeper ruling", "text": "[meta] 我想质疑一下：谨慎玩家查资料、鲁莽玩家直接进屋，为什么 KP 给的是不同检定和风险？[/meta]"},
         {"turn": 13, "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "profile_pressure_explanation", "text": "[meta] 规则裁定：检定不是惩罚玩家风格，而是根据行动方式和风险来定。谨慎路线用 Library Use 获取线索；鲁莽路线也允许，但信息少、后果更近。推骰前我必须先说明失败代价。[/meta]"},
+        {"turn": "13a", "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "intent": "request keeper-only spoiler", "text": "[meta] 如果我现在明确想知道地下室到底藏着什么，能不能直接剧透告诉我？[/meta]"},
+        {"turn": "13b", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "spoiler_warning", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "warning_issued", "secret-corbitt-body", "corbitt_basement_presence", {"requires_confirmation": True}), "text": "[spoiler_warning] 这会揭示《鬼屋》的守秘人信息：地下室核心秘密的一部分。确认后我只回答你请求的范围，不展开攻击触发或完整真相。你确认要看吗？[/spoiler_warning]"},
+        {"turn": "13c", "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "player_confirmed", "secret-corbitt-body", "corbitt_basement_presence", {"confirmed": True}), "text": "[meta] 确认。我接受这段剧透，只用于测试剧透警告流程。[/meta]"},
+        {"turn": "13d", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "limited_spoiler_reveal", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "limited_reveal", "secret-corbitt-body", "corbitt_basement_presence", {"confirmed": True}), "text": "[meta] 有限剧透：科比特的遗体仍在地下室。到此为止，我不会额外说明它如何行动、如何触发攻击，或完整结局。[/meta]"},
         {"turn": 14, "role": "player_simulator", "speaker": "Careful Player", "player_profile": "careful_investigator", "mode": "play", "intent": "use clue to shape plan", "text": "那我把档案线索告诉大家，建议先找沉思教堂的记录，再决定是否进地下室。"},
         {"turn": 15, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "session_wrap", "text": "本轮压测到这里结束：KP 保留三个玩家画像的选择、风险和规则质疑，并把后续入口记录到战役记忆。"},
     ], ZH_HANS_HAUNTING_GLOSSARY)
@@ -2290,20 +2323,35 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "deed-note", "summary": "艾达·金发现沃尔特·科比特与沉思教堂有关。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "鲁莽玩家选择直接进二楼，并在 KP 说明失败后果后继续推骰。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑玩家以超游模式要求 KP 解释不同玩家风格对应的检定和风险。"}},
+        {"type": "decision", "actor": "player_simulator", "payload": {"summary": "规则质疑玩家主动要求查看地下室守秘人剧透；KP 先发出剧透警告并等待确认。"}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "fresh-scratches", "summary": "推骰成功后，艾达·金看见门闩边缘的新划痕。"}},
         {"type": "status", "actor": investigator_id, "payload": {"summary": "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。"}},
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "多玩家画像压测结束，后续入口记录为先追查沉思教堂，再决定是否进入科比特宅邸深处。"}},
     ], ZH_HANS_HAUNTING_GLOSSARY)
+    _write_jsonl(campaign_dir / "logs" / "audit.jsonl", [
+        {
+            "type": "spoiler_reveal",
+            "spoiler_id": "pressure-corbitt-basement-reveal",
+            "keeper_secret_id": "secret-corbitt-body",
+            "scope": "corbitt_basement_presence",
+            "confirmed": True,
+            "transcript_turns": ["13b", "13c", "13d"],
+            "payload": {
+                "summary": "Player confirmed a warning-gated limited reveal that Walter Corbitt's body remains in the basement.",
+            },
+        },
+    ])
     _write_jsonl_localized(campaign_dir / "memory" / "session-summaries.jsonl", [
         {
             "session_id": "session-1",
-            "summary": "三个玩家画像压测同一 KP：谨慎玩家先查公开记录，鲁莽玩家直接进屋并推骰，规则质疑玩家要求解释裁定。KP 分别给出风险、失败后果和后续路线。",
+            "summary": "三个玩家画像压测同一 KP：谨慎玩家先查公开记录，鲁莽玩家直接进屋并推骰，规则质疑玩家要求解释裁定并确认一次剧透警告。KP 分别给出风险、失败后果、有限剧透和后续路线。",
         },
     ], ZH_HANS_HAUNTING_GLOSSARY)
     _write_jsonl_localized(run_dir / "player-feedback.jsonl", [
         {"player_profile": "careful_investigator", "category": "kp_clarity", "score": 5, "text": "KP 允许我先调查，并说明成功和失败会怎样改变进屋准备。"},
         {"player_profile": "reckless_investigator", "category": "agency", "score": 4, "text": "KP 没有阻止我冒险，但把更近的风险说清楚了。"},
         {"player_profile": "skeptical_rules_lawyer", "category": "meta_quality", "score": 5, "text": "KP 清楚解释了为什么不同做法对应不同检定和失败后果。"},
+        {"player_profile": "skeptical_rules_lawyer", "category": "spoiler_safety", "score": 5, "text": "KP 在真正揭示地下室秘密前先给出剧透警告，等我确认后只回答了有限范围。"},
     ], ZH_HANS_HAUNTING_GLOSSARY)
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
         {
@@ -2322,6 +2370,17 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             "evidence": _evidence(
                 transcript_turns=[12, 13],
                 artifact_paths=["transcript.jsonl", "player-view.jsonl"],
+            ),
+        },
+        {
+            "severity": "low",
+            "category": "spoiler_safety",
+            "text": "A Keeper-only reveal is warning-gated, player-confirmed, limited in scope, and recorded in logs/audit.jsonl.",
+            "evidence": _evidence(
+                transcript_turns=["13b", "13c", "13d"],
+                log_paths=[f"sandbox/.coc/campaigns/{run_id}/logs/audit.jsonl"],
+                state_files=[f"sandbox/.coc/campaigns/{run_id}/scenario/keeper-secrets.json"],
+                artifact_paths=["transcript.jsonl", "player-view.jsonl", "keeper-view.jsonl"],
             ),
         },
         {

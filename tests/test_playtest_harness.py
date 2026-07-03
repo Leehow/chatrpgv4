@@ -85,6 +85,16 @@ def campaign_roll_events(run_dir: Path) -> list[dict]:
     return events
 
 
+def campaign_audit_events(run_dir: Path) -> list[dict]:
+    import json
+
+    campaign_logs = run_dir / "sandbox" / ".coc" / "campaigns"
+    events: list[dict] = []
+    for path in sorted(campaign_logs.glob("*/logs/audit.jsonl")):
+        events.extend(json.loads(line) for line in path.read_text().splitlines() if line.strip())
+    return events
+
+
 def investigator_jsonl(run_dir: Path, investigator_id: str, filename: str) -> list[dict]:
     import json
 
@@ -212,6 +222,13 @@ PUSHED_ROLL_PROTOCOL_STAGES = [
 ]
 
 
+SPOILER_REVEAL_PROTOCOL_STAGES = [
+    "warning_issued",
+    "player_confirmed",
+    "limited_reveal",
+]
+
+
 def assert_pushed_roll_protocol(run_dir: Path, expected_roll_ids: list[str]) -> None:
     transcript_protocols: dict[str, list[dict]] = {}
     for event in transcript_events(run_dir):
@@ -248,6 +265,44 @@ def assert_pushed_roll_protocol(run_dir: Path, expected_roll_ids: list[str]) -> 
         assert protocol["failure_consequence_source"] == "keeper"
         assert protocol["player_confirmation_recorded"] is True
         assert protocol["keeper_foreshadowed_failure"] is True
+
+
+def assert_spoiler_reveal_protocol(run_dir: Path, expected_spoiler_ids: list[str]) -> None:
+    transcript_protocols: dict[str, list[dict]] = {}
+    for event in transcript_events(run_dir):
+        protocol = event.get("spoiler_protocol")
+        if not isinstance(protocol, dict):
+            continue
+        spoiler_id = protocol.get("spoiler_id")
+        if isinstance(spoiler_id, str):
+            transcript_protocols.setdefault(spoiler_id, []).append(event)
+
+    assert set(transcript_protocols) == set(expected_spoiler_ids)
+    for spoiler_id in expected_spoiler_ids:
+        events = transcript_protocols[spoiler_id]
+        stages = [event["spoiler_protocol"]["stage"] for event in events]
+        roles = [event["role"] for event in events]
+        assert stages == SPOILER_REVEAL_PROTOCOL_STAGES
+        assert roles == ["keeper_under_test", "player_simulator", "keeper_under_test"]
+        warning_protocol = events[0]["spoiler_protocol"]
+        confirmation_protocol = events[1]["spoiler_protocol"]
+        reveal_protocol = events[2]["spoiler_protocol"]
+        assert warning_protocol["requires_confirmation"] is True
+        assert confirmation_protocol["confirmed"] is True
+        assert reveal_protocol["confirmed"] is True
+        assert reveal_protocol["scope"] == warning_protocol["scope"]
+        assert reveal_protocol["keeper_secret_id"] == warning_protocol["keeper_secret_id"]
+
+    audit_reveals = [
+        event
+        for event in campaign_audit_events(run_dir)
+        if event.get("type") == "spoiler_reveal"
+    ]
+    assert {event.get("spoiler_id") for event in audit_reveals} == set(expected_spoiler_ids)
+    for event in audit_reveals:
+        assert event["confirmed"] is True
+        assert event["scope"]
+        assert event["keeper_secret_id"]
 
 
 def significant_scene_replay_count(run_dir: Path) -> int:
@@ -1351,6 +1406,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert_player_view_roll_outcomes_localized(run_dir)
     assert_player_view_public_state_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, ["pressure-reckless-entry-push"])
+    assert_spoiler_reveal_protocol(run_dir, ["pressure-corbitt-basement-reveal"])
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-pressure", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")

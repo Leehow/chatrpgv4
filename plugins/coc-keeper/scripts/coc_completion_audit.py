@@ -91,6 +91,12 @@ MULTI_PROFILE_SOURCE_REQUIREMENTS = {
     "multi_profile_pressure": ["careful_investigator", "reckless_investigator", "skeptical_rules_lawyer"],
 }
 META_GAME_REQUIRED_PROFILES = {"haunting_module", "chase_drill", "multi_profile_pressure"}
+SPOILER_REVEAL_REQUIRED_PROFILES = {"multi_profile_pressure"}
+SPOILER_REVEAL_PROTOCOL_STAGES = [
+    "warning_issued",
+    "player_confirmed",
+    "limited_reveal",
+]
 REQUIRED_EVALUATION_REPORT_SECTIONS = [
     "# Evaluation Report",
     "## Overall Result",
@@ -1870,6 +1876,121 @@ def _meta_game_structure_findings(run_id: str, run_dir: Path, audit_profile: str
     )]
 
 
+def _spoiler_reveal_structure_findings(
+    run_id: str,
+    run_dir: Path,
+    campaign_dir: Path,
+    campaign_prefix: str,
+    audit_profile: str,
+) -> list[dict[str, Any]]:
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    audit_log = _read_jsonl(campaign_dir / "logs" / "audit.jsonl")
+    protocol_rows = [
+        row
+        for row in transcript
+        if isinstance(row.get("spoiler_protocol"), dict)
+    ]
+    required = audit_profile in SPOILER_REVEAL_REQUIRED_PROFILES or any(
+        row.get("spoiler_protocol", {}).get("stage") == "limited_reveal"
+        for row in protocol_rows
+    )
+    if not required:
+        return []
+
+    findings: list[dict[str, Any]] = []
+    by_spoiler_id: dict[str, list[dict[str, Any]]] = {}
+    for row in protocol_rows:
+        protocol = row["spoiler_protocol"]
+        spoiler_id = protocol.get("spoiler_id")
+        if isinstance(spoiler_id, str) and spoiler_id.strip():
+            by_spoiler_id.setdefault(spoiler_id, []).append(row)
+
+    complete_spoiler_ids: list[str] = []
+    observed_stages = {
+        row["spoiler_protocol"].get("stage")
+        for row in protocol_rows
+        if isinstance(row.get("spoiler_protocol"), dict)
+    }
+    missing_protocol_evidence: list[str] = []
+    stage_labels = {
+        "warning_issued": "spoiler warning stage",
+        "player_confirmed": "spoiler player confirmation stage",
+        "limited_reveal": "spoiler limited reveal stage",
+    }
+    for stage in SPOILER_REVEAL_PROTOCOL_STAGES:
+        if stage not in observed_stages:
+            missing_protocol_evidence.append(stage_labels[stage])
+
+    for spoiler_id, rows in by_spoiler_id.items():
+        stage_index = 0
+        warning_scope = None
+        warning_secret_id = None
+        player_confirmed = False
+        reveal_confirmed = False
+        reveal_scope = None
+        reveal_secret_id = None
+        for row in rows:
+            protocol = row["spoiler_protocol"]
+            stage = protocol.get("stage")
+            if stage_index < len(SPOILER_REVEAL_PROTOCOL_STAGES) and stage == SPOILER_REVEAL_PROTOCOL_STAGES[stage_index]:
+                stage_index += 1
+            if stage == "warning_issued":
+                warning_scope = protocol.get("scope")
+                warning_secret_id = protocol.get("keeper_secret_id")
+            elif stage == "player_confirmed":
+                player_confirmed = protocol.get("confirmed") is True
+            elif stage == "limited_reveal":
+                reveal_confirmed = protocol.get("confirmed") is True
+                reveal_scope = protocol.get("scope")
+                reveal_secret_id = protocol.get("keeper_secret_id")
+        if stage_index != len(SPOILER_REVEAL_PROTOCOL_STAGES):
+            continue
+        if not player_confirmed or not reveal_confirmed:
+            continue
+        if not warning_scope or warning_scope != reveal_scope:
+            continue
+        if not warning_secret_id or warning_secret_id != reveal_secret_id:
+            continue
+        complete_spoiler_ids.append(spoiler_id)
+
+    if protocol_rows and not complete_spoiler_ids:
+        missing_protocol_evidence.append("ordered spoiler reveal protocol")
+    if missing_protocol_evidence:
+        findings.append(_finding(
+            "spoiler_reveal_protocol_missing",
+            "test_gap",
+            f"{run_id} transcript.jsonl lacks required warning-gated spoiler reveal protocol evidence: {', '.join(missing_protocol_evidence)}.",
+            "Regenerate the active run so transcript.jsonl records spoiler_protocol stages warning_issued, player_confirmed, and limited_reveal with matching spoiler_id, scope, keeper_secret_id, and confirmation.",
+            run_id=run_id,
+            incomplete_files=["transcript.jsonl"],
+            missing_evidence=missing_protocol_evidence,
+        ))
+
+    audit_reveal_ids = {
+        row.get("spoiler_id")
+        for row in audit_log
+        if row.get("type") == "spoiler_reveal"
+        and row.get("confirmed") is True
+        and isinstance(row.get("spoiler_id"), str)
+        and isinstance(row.get("keeper_secret_id"), str)
+        and isinstance(row.get("scope"), str)
+        and row["spoiler_id"].strip()
+        and row["keeper_secret_id"].strip()
+        and row["scope"].strip()
+    }
+    if not complete_spoiler_ids or not set(complete_spoiler_ids).intersection(audit_reveal_ids):
+        findings.append(_finding(
+            "spoiler_reveal_audit_missing",
+            "system_gap",
+            f"{run_id} logs/audit.jsonl lacks a confirmed spoiler_reveal event linked to the completed transcript protocol.",
+            "Regenerate the active run so logs/audit.jsonl records each confirmed Keeper-only reveal with spoiler_id, keeper_secret_id, scope, and confirmed=true.",
+            run_id=run_id,
+            incomplete_files=[f"{campaign_prefix}logs/audit.jsonl"],
+            missing_evidence=["spoiler audit log reveal"],
+        ))
+    return findings
+
+
 def _investigator_structure_findings(run_id: str, investigator_dir: Path, investigator_prefix: str) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     missing_evidence: list[str] = []
@@ -2039,6 +2160,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_pushed_roll_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))
     findings.extend(_multi_profile_structure_findings(run_id, run_dir, audit_profile))
     findings.extend(_meta_game_structure_findings(run_id, run_dir, audit_profile))
+    findings.extend(_spoiler_reveal_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))
     return findings
 
 
