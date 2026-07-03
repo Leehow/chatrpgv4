@@ -443,11 +443,51 @@ def _keeper_secret_ids(campaign_dir: Path | None) -> list[str]:
     return [str(secret["id"]) for secret in secrets if isinstance(secret, dict) and secret.get("id")]
 
 
+def _metadata_localized_terms(metadata: dict[str, Any]) -> dict[str, str]:
+    play_language = str(metadata.get("play_language") or "")
+    localized_terms = metadata.get("localized_terms", {})
+    if not isinstance(localized_terms, dict):
+        return {}
+    terms = localized_terms.get(play_language, {})
+    if not isinstance(terms, dict):
+        return {}
+    return {
+        str(canonical): str(display)
+        for canonical, display in terms.items()
+        if str(canonical) and str(display)
+    }
+
+
+def _player_view_glossary(metadata: dict[str, Any]) -> dict[str, str]:
+    glossary = _metadata_localized_terms(metadata)
+    profile = metadata.get("language_profile", {})
+    if not isinstance(profile, dict):
+        return glossary
+    for label_group in ("outcome_labels", "difficulty_labels"):
+        labels = profile.get(label_group, {})
+        if not isinstance(labels, dict):
+            continue
+        glossary.update({
+            str(canonical): str(display)
+            for canonical, display in labels.items()
+            if str(canonical) and str(display)
+        })
+    return glossary
+
+
+def _player_view_event(event: dict[str, Any], glossary: dict[str, str]) -> dict[str, Any]:
+    visible = dict(event)
+    if isinstance(visible.get("text"), str):
+        visible["text"] = _localize_text(visible["text"], glossary)
+    return {**visible, "view": "player", "type": "transcript_turn"}
+
+
 def _write_view_streams(run_dir: Path) -> None:
     campaign_dir = _select_campaign_dir(run_dir)
     metadata = _read_json(run_dir / "playtest.json", {})
     scenario = _read_json(campaign_dir / "scenario" / "scenario.json", {}) if campaign_dir else {}
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    player_glossary = _player_view_glossary(metadata)
     public_state = {
         "view": "player",
         "type": "public_character_state",
@@ -467,10 +507,7 @@ def _write_view_streams(run_dir: Path) -> None:
         "scenario_id": scenario.get("scenario_id"),
         "keeper_secret_ids": _keeper_secret_ids(campaign_dir),
     }
-    player_events = [public_state] + [
-        {**event, "view": "player", "type": "transcript_turn"}
-        for event in transcript
-    ]
+    player_events = [public_state] + [_player_view_event(event, player_glossary) for event in transcript]
     keeper_events = [keeper_context] + [
         {**event, "view": "keeper", "type": "transcript_turn"}
         for event in transcript

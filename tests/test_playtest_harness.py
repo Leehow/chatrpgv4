@@ -50,6 +50,14 @@ def run_jsonl(run_dir: Path, filename: str) -> list[dict]:
     ]
 
 
+def player_view_text(run_dir: Path) -> str:
+    return "\n".join(
+        str(event.get("text", ""))
+        for event in run_jsonl(run_dir, "player-view.jsonl")
+        if isinstance(event.get("text"), str)
+    )
+
+
 def playtest_metadata(run_dir: Path) -> dict:
     import json
 
@@ -112,6 +120,15 @@ def assert_view_streams_separated(run_dir: Path, secret_ids: list[str]) -> None:
     for secret_id in secret_ids:
         assert secret_id not in player_text
         assert secret_id in keeper_text
+
+
+def assert_player_view_roll_outcomes_localized(run_dir: Path) -> None:
+    metadata = playtest_metadata(run_dir)
+    labels = metadata["language_profile"]["outcome_labels"]
+    visible_text = player_view_text(run_dir)
+    for canonical in labels:
+        assert canonical not in visible_text
+    assert any(display in visible_text for display in labels.values())
 
 
 PUSHED_ROLL_PROTOCOL_STAGES = [
@@ -572,6 +589,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     }
     assert_creation_allocation_matches_character(run_dir, "ada-king-haunting")
     assert_view_streams_separated(run_dir, ["secret-corbitt-body", "secret-floating-knife"])
+    assert_player_view_roll_outcomes_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, [
         "haunting-arty-persuade-push",
         "haunting-basement-descent-push",
@@ -949,6 +967,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Stealth: 45" not in character_dossier
     assert_creation_allocation_matches_character(run_dir, "ada-king-chase")
     assert_view_streams_separated(run_dir, ["secret-warehouse"])
+    assert_player_view_roll_outcomes_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, ["chase-ledger-confirmation-push"])
     assert investigator_jsonl(run_dir, "ada-king-chase", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-chase", "development.jsonl")
@@ -1254,6 +1273,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Spot Hidden: 55" not in character_dossier
     assert_creation_allocation_matches_character(run_dir, "ada-king-pressure")
     assert_view_streams_separated(run_dir, ["secret-corbitt-body"])
+    assert_player_view_roll_outcomes_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, ["pressure-reckless-entry-push"])
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-pressure", "development.jsonl")
