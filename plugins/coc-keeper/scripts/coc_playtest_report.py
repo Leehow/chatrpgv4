@@ -453,14 +453,20 @@ def _format_character(character: dict[str, Any], localized_terms: dict[str, str]
     return lines
 
 
-def _format_transcript_event(event: dict[str, Any], rendered_text: str | None = None) -> list[str]:
+def _display_transcript_speaker(event: dict[str, Any]) -> str:
     role = event.get("role", "unknown")
     if role == "keeper_under_test":
-        speaker = "KP"
-    elif role == "player_simulator":
-        speaker = "Player"
-    else:
-        speaker = event.get("speaker") or role
+        return "KP"
+    if role == "player_simulator":
+        player_profile = event.get("player_profile")
+        if player_profile:
+            return f"Player[{player_profile}]"
+        return "Player"
+    return event.get("speaker") or role
+
+
+def _format_transcript_event(event: dict[str, Any], rendered_text: str | None = None) -> list[str]:
+    speaker = _display_transcript_speaker(event)
 
     turn = event.get("turn", "?")
     text = rendered_text if rendered_text is not None else event.get("text", "")
@@ -474,12 +480,7 @@ def _format_transcript_event(event: dict[str, Any], rendered_text: str | None = 
 
 def _format_actual_play_event(event: dict[str, Any], rendered_text: str | None = None) -> list[str]:
     role = event.get("role", "unknown")
-    if role == "keeper_under_test":
-        speaker = "KP"
-    elif role == "player_simulator":
-        speaker = "Player"
-    else:
-        speaker = event.get("speaker") or role
+    speaker = _display_transcript_speaker(event)
 
     turn = event.get("turn", "?")
     text = rendered_text if rendered_text is not None else event.get("text", "")
@@ -505,8 +506,10 @@ def _format_session_summary(event: dict[str, Any]) -> str:
 def _format_feedback(event: dict[str, Any]) -> str:
     category = event.get("category", "general")
     score = event.get("score", "unscored")
+    profile = event.get("player_profile")
+    prefix = f"{profile}: " if profile else ""
     text = event.get("text", "")
-    return f"- {category}: {score} - {text}".rstrip()
+    return f"- {category}: {score} - {prefix}{text}".rstrip()
 
 
 def _format_csv(values: Any) -> str:

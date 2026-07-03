@@ -27,6 +27,7 @@ QUALITY_DIMENSIONS = {
     "state_continuity": "State continuity",
     "spoiler_safety": "Spoiler safety",
     "player_agency": "Player agency",
+    "virtual_player_pressure": "Virtual player pressure",
     "report_completeness": "Report completeness",
 }
 
@@ -496,6 +497,7 @@ def _quality_dimension_contracts() -> list[dict[str, str]]:
         "state_continuity": "Do HP, SAN, clues, items, injuries, decisions, memories, and final state remain coherent across the run?",
         "spoiler_safety": "Does the player-facing material avoid Keeper-only secrets unless the report is evaluator-only or explicitly warning-gated?",
         "player_agency": "Does the virtual player make meaningful choices, ask questions, push rolls, accept stakes, and affect outcomes?",
+        "virtual_player_pressure": "Does the test use multiple player profiles or clearly distinct simulated player styles to pressure-test Keeper rulings, pacing, and rule explanations?",
         "report_completeness": "Can an evaluator reconstruct campaign setup, module, character parameters, KP/player dialogue, rolls, subsystems, state changes, memory, and feedback from the report?",
     }
     return [

@@ -54,7 +54,7 @@ For semantic review, run `../../scripts/coc_playtest_suite.py --write-semantic-r
 
 `semantic-eval-result.json` must include `schema_version`, `run_id`, `evaluator_id`, `coverage`, `quality`, `root_cause_classification`, and `next_loop_fix_target`. The `coverage` object uses the same keys as the suite matrix and each value must include `covered` plus a semantic `reason`.
 
-The request also includes `quality_dimensions`, and the result `quality` object must score `module_fidelity`, `rulebook_procedure`, `immersion_and_pacing`, `chinese_visible_dialogue`, `actual_play_replay`, `state_continuity`, `spoiler_safety`, `player_agency`, and `report_completeness`. Each dimension must include `score`, `passed`, and `reason`; the suite report surfaces these in `## Quality Matrix` and records unresolved `quality_gaps`.
+The request also includes `quality_dimensions`, and the result `quality` object must score `module_fidelity`, `rulebook_procedure`, `immersion_and_pacing`, `chinese_visible_dialogue`, `actual_play_replay`, `state_continuity`, `spoiler_safety`, `player_agency`, `virtual_player_pressure`, and `report_completeness`. Each dimension must include `score`, `passed`, and `reason`; the suite report surfaces these in `## Quality Matrix` and records unresolved `quality_gaps`.
 
 After result files exist, run `../../scripts/coc_playtest_suite.py --evaluator semantic-artifact --root <repo-root>`. The suite must use the result file's `evaluator_id` and reasons instead of fallback structured-source coverage. If the result file is missing, the `semantic-artifact` evaluator should mark coverage missing rather than inventing a natural-language match.
 
@@ -71,6 +71,7 @@ Before generating reports, record the run context:
 - `sandbox/.coc/campaigns/<campaign-id>/memory/session-summaries.jsonl`: player-safe story recap and campaign memory.
 - `player-feedback.jsonl`: virtual player ratings and comments about the KP experience.
 - `evaluator-notes.jsonl`: full evaluator findings, including spoiler, state, pacing, and rules issues.
+- Serious completion-oriented suites should include at least one multi-profile virtual player pressure run, or equivalent semantic evidence, so the evaluator can see how the Keeper handles careful planning, reckless risk-taking, and meta/rules challenges rather than only one scripted player style.
 
 `battle-report.md` is an actual-play replay, not just a mechanics checklist. It should include:
 

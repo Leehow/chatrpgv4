@@ -1300,14 +1300,234 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     return run_dir
 
 
+def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profile-pressure") -> Path:
+    run_dir = root / ".coc" / "playtests" / run_id
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
+    scenario_dir = campaign_dir / "scenario"
+    investigator_id = "ada-king-pressure"
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
+    player_profiles = ["careful_investigator", "reckless_investigator", "skeptical_rules_lawyer"]
+
+    _write_json(run_dir / "playtest.json", _with_play_language({
+        "run_id": run_id,
+        "campaign_id": run_id,
+        "campaign_title": "Keeper Multi-Profile Pressure Test",
+        "scenario": "The Haunting Opening Pressure Matrix",
+        "scenario_id": "haunting-opening-pressure",
+        "module_source": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf",
+        "audit_profile": "multi_profile_pressure",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "player_profile": "multi_profile_matrix",
+        "player_profiles_tested": player_profiles,
+        "module_coverage": ["opening_hook", "research_choice", "reckless_entry", "rules_challenge", "session_wrap"],
+        "subsystems_covered": ["investigation", "social", "pushed_roll", "meta_game"],
+        "scores": {
+            "immersion": 4,
+            "rules_accuracy": 4,
+            "state_integrity": 4,
+            "spoiler_safety": 5,
+            "meta_quality": 5,
+            "pacing": 4,
+            "virtual_player_pressure": 5,
+        },
+        "passed_test_cases": [
+            "multi_profile_turns",
+            "careful_research_route",
+            "reckless_risk_route",
+            "skeptical_meta_challenge",
+            "pushed_roll_stakes",
+            "profile_specific_feedback",
+        ],
+        "failed_test_cases": [],
+        "recommended_fixes": [],
+        "regression_tests": ["Multi-profile pressure run must preserve distinct virtual player labels in battle reports."],
+    }, ZH_HANS_HAUNTING_GLOSSARY))
+    _write_json(campaign_dir / "campaign.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "title": "Keeper Multi-Profile Pressure Test",
+        "mode": "keeper",
+        "status": "complete",
+        "era": "1920s",
+        "active_scenario_id": "haunting-opening-pressure",
+        "active_scene_id": "opening-pressure-wrap",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "active_subsystem": "meta_game",
+        "player_profiles_tested": player_profiles,
+    })
+    _write_json(campaign_dir / "party.json", {
+        "campaign_id": run_id,
+        "investigator_ids": [investigator_id],
+        "active_investigator_ids": [investigator_id],
+    })
+    _write_json(scenario_dir / "scenario.json", {
+        "schema_version": 1,
+        "scenario_id": "haunting-opening-pressure",
+        "title": "The Haunting Opening Pressure Matrix",
+        "module_source": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf",
+        "summary": "Three virtual player profiles pressure-test the Keeper's opening handling for The Haunting.",
+        "player_safe_summary": "Mr. Knott hires Ada King to inspect the Corbitt House, while different player styles ask for research, risk, and rule clarity.",
+        "opening_scene": "诺特先生将科比特宅邸的钥匙放在桌上，等待艾达·金决定先调查还是直接进屋。",
+        "current_phase": "opening_pressure",
+    })
+    _write_json(scenario_dir / "clues.json", [
+        {"id": "handout-1", "summary": "Mr. Knott gives the address, keys, $20 advance, and the research premise.", "route": "opening"},
+        {"id": "deed-note", "summary": "City records point toward Walter Corbitt and the Chapel of Contemplation.", "route": "careful research route"},
+    ])
+    _write_json(scenario_dir / "locations.json", [
+        {"id": "knott-office", "name": "Mr. Knott's office", "purpose": "opening hook"},
+        {"id": "records-room", "name": "Hall of Records", "purpose": "careful research pressure"},
+        {"id": "corbitt-house-front", "name": "The Old Corbitt Place", "purpose": "reckless entry pressure"},
+    ])
+    _write_json(scenario_dir / "npcs.json", [
+        {"id": "npc-knott", "name": "Mr. Knott", "role": "landlord and client"},
+        {"id": "npc-clerk", "name": "records clerk", "role": "ordinary obstacle to public records"},
+    ])
+    _write_json(scenario_dir / "timeline.json", [
+        {"id": "opening-hire", "summary": "Mr. Knott hires Ada to investigate the Corbitt House."},
+        {"id": "pressure-branch", "summary": "Careful, reckless, and skeptical player profiles test different Keeper responses."},
+    ])
+    _write_json(scenario_dir / "handouts.json", [
+        {"id": "handout-1", "title": "Mr. Knott's job"},
+        {"id": "deed-note", "title": "Records lead"},
+    ])
+    _write_json(scenario_dir / "keeper-secrets.json", [
+        {"id": "secret-corbitt-body", "summary": "Walter Corbitt's body persists in the basement."},
+    ])
+    _write_json(investigator_dir / "character.json", {
+        "schema_version": 1,
+        "id": investigator_id,
+        "name": "Ada King",
+        "occupation": "Antiquarian",
+        "era": "1920s",
+        "characteristics": {
+            "STR": 60,
+            "CON": 55,
+            "SIZ": 65,
+            "DEX": 50,
+            "APP": 45,
+            "INT": 70,
+            "POW": 55,
+            "EDU": 75,
+            "LUCK": 55,
+        },
+        "derived": {
+            "HP": 12,
+            "MP": 11,
+            "SAN": 55,
+            "MOV": 8,
+            "damage_bonus": "0",
+            "build": 0,
+        },
+        "skills": {
+            "Library Use": 60,
+            "Locksmith": 30,
+            "Persuade": 55,
+            "Spot Hidden": 55,
+        },
+    })
+    _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
+        {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "诺特先生把钥匙和预付款放在桌上，说明科比特宅邸又把房客吓跑了。"},
+        {"turn": 2, "role": "player_simulator", "speaker": "Careful Player", "player_profile": "careful_investigator", "mode": "play", "intent": "request careful research route", "text": "我先查房契和旧报纸，不急着进屋；我想知道公开记录里有没有科比特或教堂线索。"},
+        {"turn": 3, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "library_use_regular", "text": "可以。这个路线用 Library Use，普通难度；成功会给你进屋前的线索，失败则会多花半天。"},
+        {"turn": 4, "role": "system", "speaker": "system", "mode": "roll", "text": "Library Use 29 vs 60 -> hard_success."},
+        {"turn": 5, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "你在档案馆找到房契旁注：沃尔特·科比特与沉思教堂有联系。"},
+        {"turn": 6, "role": "player_simulator", "speaker": "Reckless Player", "player_profile": "reckless_investigator", "mode": "play", "intent": "rush into danger", "text": "我直接去二楼，拿钥匙开门进去，不等其他调查。"},
+        {"turn": 7, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "spot_hidden_regular", "text": "可以直接行动，但这会让你少拿一部分准备信息。先做 Spot Hidden，普通难度，看你是否注意到门框内侧的新划痕。"},
+        {"turn": 8, "role": "system", "speaker": "system", "mode": "roll", "text": "Spot Hidden 84 vs 55 -> failure."},
+        {"turn": 9, "role": "player_simulator", "speaker": "Reckless Player", "player_profile": "reckless_investigator", "mode": "play", "intent": "push reckless entry", "text": "我推骰：把手电贴近门缝，再冒险伸手摸门闩；如果失败，我接受惊动屋内东西的后果。"},
+        {"turn": 10, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_spot_hidden", "text": "这是有效推骰，因为你改变了方法并承担更大风险。失败后果是屋内的动静会先一步锁定你。"},
+        {"turn": 11, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "你看见门闩边缘有新划痕，没有触发额外危险。", "text": "Pushed Spot Hidden 22 vs 55 -> hard_success."},
+        {"turn": 12, "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "intent": "challenge keeper ruling", "text": "[meta] 我想质疑一下：谨慎玩家查资料、鲁莽玩家直接进屋，为什么 KP 给的是不同检定和风险？[/meta]"},
+        {"turn": 13, "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "profile_pressure_explanation", "text": "[meta] 规则裁定：检定不是惩罚玩家风格，而是根据行动方式和风险来定。谨慎路线用 Library Use 获取线索；鲁莽路线也允许，但信息少、后果更近。推骰前我必须先说明失败代价。[/meta]"},
+        {"turn": 14, "role": "player_simulator", "speaker": "Careful Player", "player_profile": "careful_investigator", "mode": "play", "intent": "use clue to shape plan", "text": "那我把档案线索告诉大家，建议先找沉思教堂的记录，再决定是否进地下室。"},
+        {"turn": 15, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "session_wrap", "text": "本轮压测到这里结束：KP 保留三个玩家画像的选择、风险和规则质疑，并把后续入口记录到战役记忆。"},
+    ], ZH_HANS_HAUNTING_GLOSSARY)
+    _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Library Use", "goal": "research deed and newspaper records before entering the house", "target": 60, "effective_target": 60, "difficulty": "regular", "difficulty_rationale": "Public records can reveal a useful lead with focused archive work.", "roll": 29, "outcome": "hard_success", "failure_consequence": "Ada would spend half a day and enter the house with fewer leads.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "进屋前查房契和旧报纸记录", "difficulty_rationale": "公开记录能通过专注查档找到有用线索。", "failure_consequence": "艾达·金会多花半天，并带着更少线索进屋。"}}}},
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "notice fresh marks before reckless entry", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The marks are visible only if the investigator slows down at the door.", "roll": 84, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada misses the warning and risks entering without preparation.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "鲁莽进屋前注意到新划痕", "difficulty_rationale": "只有在门口稍作停顿才能看到这些痕迹。", "failure_consequence": "艾达·金会错过警告，冒着准备不足的风险进屋。"}}}},
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "push the door inspection by checking the latch by touch", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed approach changes method by touching the latch and accepting immediate risk.", "roll": 22, "outcome": "hard_success", "pushed": True, "push_justification": "Ada moves the flashlight close and reaches into the door gap by touch.", "foreshadowed_failure": "On failure, the house notices Ada first.", "failure_consequence": "Ada would trigger a noise inside the house before she could warn the others.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "用触摸门闩的方式推骰检查门口", "difficulty_rationale": "推骰方法改变为触摸门闩，并接受即时风险。", "push_justification": "艾达·金把手电贴近门缝，伸手摸向门闩。", "foreshadowed_failure": "若失败，屋内的东西会先注意到艾达·金。", "failure_consequence": "艾达·金会在警告同伴前先触发屋内动静。"}}}},
+    ]))
+    _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
+        {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-office", "summary": "诺特先生给出钥匙、预付款和科比特宅邸的委托。"}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "谨慎玩家选择先查房契和旧报纸，避免无准备进屋。"}},
+        {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "deed-note", "summary": "艾达·金发现沃尔特·科比特与沉思教堂有关。"}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "鲁莽玩家选择直接进二楼，并在失败后接受更危险的推骰。"}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑玩家用 meta 模式要求 KP 解释不同玩家风格对应的检定和风险。"}},
+        {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "fresh-scratches", "summary": "推骰成功后，艾达·金看见门闩边缘的新划痕。"}},
+        {"type": "status", "actor": investigator_id, "payload": {"summary": "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。"}},
+        {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "多玩家画像压测结束，后续入口记录为先追查沉思教堂，再决定是否进入科比特宅邸深处。"}},
+    ], ZH_HANS_HAUNTING_GLOSSARY)
+    _write_jsonl_localized(campaign_dir / "memory" / "session-summaries.jsonl", [
+        {
+            "session_id": "session-1",
+            "summary": "三个玩家画像压测同一 KP：谨慎玩家先查公开记录，鲁莽玩家直接进屋并推骰，规则质疑玩家要求解释裁定。KP 分别给出风险、失败后果和后续路线。",
+        },
+    ], ZH_HANS_HAUNTING_GLOSSARY)
+    _write_jsonl_localized(run_dir / "player-feedback.jsonl", [
+        {"player_profile": "careful_investigator", "category": "kp_clarity", "score": 5, "text": "KP 允许我先调查，并说明成功和失败会怎样改变进屋准备。"},
+        {"player_profile": "reckless_investigator", "category": "agency", "score": 4, "text": "KP 没有阻止我冒险，但把更近的风险说清楚了。"},
+        {"player_profile": "skeptical_rules_lawyer", "category": "meta_quality", "score": 5, "text": "KP 清楚解释了为什么不同做法对应不同检定和失败后果。"},
+    ], ZH_HANS_HAUNTING_GLOSSARY)
+    _write_jsonl(run_dir / "evaluator-notes.jsonl", [
+        {"severity": "low", "category": "rules_accuracy", "text": "Different player styles receive rulings based on fictional positioning and stated risk."},
+        {"severity": "low", "category": "meta_quality", "text": "The skeptical profile challenges a ruling in meta mode and receives a separated explanation."},
+        {"severity": "low", "category": "immersion", "text": "The run remains a compact pressure test rather than a full module session, but it exercises multiple virtual player styles."},
+    ])
+
+    _write_json(run_dir / "artifacts" / "semantic-eval-result.json", {
+        "schema_version": 1,
+        "run_id": run_id,
+        "evaluator_id": "codex-llm-semantic-v1",
+        "coverage": {
+            "character_dossier": {"covered": True, "reason": "The run uses Ada King with a reusable character sheet and relevant investigative skills."},
+            "kp_player_transcript": {"covered": True, "reason": "The transcript shows Keeper responses to careful, reckless, and skeptical virtual player profiles."},
+            "mechanical_rolls": {"covered": True, "reason": "The run records Library Use, Spot Hidden, and a pushed Spot Hidden roll with goals and consequences."},
+            "combat": {"covered": False, "reason": "This pressure run does not include a combat exchange; combat remains covered by the module run."},
+            "chase": {"covered": False, "reason": "This pressure run does not include a chase; chase remains covered by the chase drill."},
+            "sanity": {"covered": False, "reason": "This pressure run does not include SAN checks; sanity remains covered by the module run."},
+            "meta_game": {"covered": True, "reason": "The skeptical rules-lawyer profile asks a meta rules question and receives a separated Keeper ruling."},
+            "player_feedback": {"covered": True, "reason": "Feedback is recorded separately for careful, reckless, and skeptical virtual player profiles."},
+        },
+        "quality": {
+            "module_fidelity": {"score": 4, "passed": True, "reason": "The pressure run stays inside The Haunting opening premise without revealing unrelated material."},
+            "rulebook_procedure": {"score": 4, "passed": True, "reason": "The Keeper distinguishes no-roll framing, regular checks, pushed-roll stakes, and meta explanation."},
+            "immersion_and_pacing": {"score": 4, "passed": True, "reason": "The compact run reads like table dialogue across three player styles rather than a checklist."},
+            "chinese_visible_dialogue": {"score": 5, "passed": True, "reason": "Visible Keeper and virtual player turns are in Chinese while profile markers and skill names stay stable."},
+            "actual_play_replay": {"score": 4, "passed": True, "reason": "The report can replay what each profile asked, how the Keeper ruled, and how rolls changed the fiction."},
+            "state_continuity": {"score": 4, "passed": True, "reason": "Clues, pushed-roll risk, profile choices, memory, and final route remain coherent."},
+            "spoiler_safety": {"score": 5, "passed": True, "reason": "The player-facing transcript keeps the opening player-safe and does not reveal Keeper-only basement secrets."},
+            "player_agency": {"score": 5, "passed": True, "reason": "Careful, reckless, and skeptical profiles each make distinct choices that change rulings or information flow."},
+            "virtual_player_pressure": {"score": 5, "passed": True, "reason": "The run uses multiple player profiles to pressure-test Keeper support for careful planning, reckless risk-taking, and skeptical rules challenges."},
+            "report_completeness": {"score": 4, "passed": True, "reason": "The report includes setup, character data, transcript, rolls, decisions, memory, profile-specific feedback, and semantic evaluation."},
+        },
+        "root_cause_classification": [],
+        "next_loop_fix_target": "none",
+    })
+
+    generate_battle_report(run_dir)
+    generate_evaluation_report(run_dir)
+    generate_rulebook_audit(run_dir)
+    return run_dir
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".")
     parser.add_argument("--run-id", default="v1-rulebook-smoke")
-    parser.add_argument("--profile", choices=["rulebook-smoke", "haunting-module", "chase-drill"], default="rulebook-smoke")
+    parser.add_argument(
+        "--profile",
+        choices=["rulebook-smoke", "haunting-module", "chase-drill", "multi-profile-pressure"],
+        default="rulebook-smoke",
+    )
     args = parser.parse_args()
     if args.profile == "chase-drill":
         run_dir = create_chase_drill_run(Path(args.root), args.run_id)
+    elif args.profile == "multi-profile-pressure":
+        run_dir = create_multi_profile_pressure_run(Path(args.root), args.run_id)
     elif args.profile == "haunting-module":
         run_dir = create_haunting_module_run(Path(args.root), args.run_id)
     else:

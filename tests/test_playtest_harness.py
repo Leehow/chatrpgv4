@@ -492,3 +492,37 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "quarry escapes" in battle_text
     assert "No chase summary recorded." not in battle_text
     assert (run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json").exists()
+
+
+def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
+    run_dir = coc_playtest_harness.create_multi_profile_pressure_run(tmp_path, run_id="multi-profile-pressure")
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+    battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    metadata = playtest_metadata(run_dir)
+    semantic = __import__("json").loads((run_dir / "artifacts" / "semantic-eval-result.json").read_text())
+
+    assert audit["result"] == "pass"
+    assert metadata["audit_profile"] == "multi_profile_pressure"
+    assert metadata["player_profile"] == "multi_profile_matrix"
+    assert metadata["player_profiles_tested"] == [
+        "careful_investigator",
+        "reckless_investigator",
+        "skeptical_rules_lawyer",
+    ]
+    actual_play = section_text(battle_text, "## Actual Play Replay")
+    assert "Player[careful_investigator]" in actual_play
+    assert "Player[reckless_investigator]" in actual_play
+    assert "Player[skeptical_rules_lawyer]" in actual_play
+    assert "先查房契和旧报纸" in actual_play
+    assert "我直接去二楼" in actual_play
+    assert "[meta] 我想质疑一下" in actual_play
+    assert "规则裁定" in actual_play
+    assert all(has_cjk(text) for text in visible_play_texts(run_dir))
+    feedback = section_text(battle_text, "## Player Feedback On KP")
+    assert "careful_investigator:" in feedback
+    assert "reckless_investigator:" in feedback
+    assert "skeptical_rules_lawyer:" in feedback
+    assert semantic["quality"]["virtual_player_pressure"]["passed"] is True
+    assert semantic["quality"]["virtual_player_pressure"]["score"] >= 4
+    assert "multiple player profiles" in semantic["quality"]["virtual_player_pressure"]["reason"]

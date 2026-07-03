@@ -171,9 +171,11 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     assert quality_keys == set(coc_playtest_suite.QUALITY_DIMENSIONS)
     assert "chinese_visible_dialogue" in quality_keys
     assert "actual_play_replay" in quality_keys
+    assert "virtual_player_pressure" in quality_keys
     quality_questions = {entry["key"]: entry["question"] for entry in request["quality_dimensions"]}
     assert "Chinese" in quality_questions["chinese_visible_dialogue"]
     assert "actual-play" in quality_questions["actual_play_replay"]
+    assert "multiple player profiles" in quality_questions["virtual_player_pressure"]
     assert "battle_report" in request["inputs"]
     assert "transcript" in request["inputs"]
     assert "state_events" in request["inputs"]
@@ -260,6 +262,49 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
     assert "semantic-artifact-run: none" in report_text
     assert "LLM semantic judge found chase in the run evidence." in report_text
     assert "LLM semantic judge scored rulebook_procedure as table-ready." in report_text
+
+
+def test_suite_report_flags_missing_virtual_player_pressure_quality(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "single-profile-run"
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "single-profile-run",
+        "campaign_title": "Single Profile Fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": "haunting_module",
+        "player_profile": "careful_investigator",
+    }))
+    (artifacts_dir / "battle-report.md").write_text("Only one simulated player profile is represented.")
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "single-profile-run",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "coverage": {
+            key: {"covered": True, "reason": f"{key} covered by fixture."}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": {
+            key: {"score": 4, "passed": True, "reason": f"{key} passed by fixture."}
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+            if key != "virtual_player_pressure"
+        },
+        "root_cause_classification": ["test_gap"],
+        "next_loop_fix_target": "Add a multi-profile virtual player pressure run.",
+    }))
+
+    coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["quality"]["virtual_player_pressure"]["status"] == "needs_fix"
+    assert "virtual_player_pressure" in index["quality_gaps"]
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["blockers"][0]["type"] == "quality_gap"
+    assert index["loop_decision"]["blockers"][0]["key"] == "virtual_player_pressure"
 
 
 def test_loop_decision_ignores_historical_baseline_missing_semantic_result(tmp_path):
