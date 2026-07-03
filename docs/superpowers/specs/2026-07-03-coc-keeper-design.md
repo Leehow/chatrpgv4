@@ -1029,6 +1029,7 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit should add
 - required The Haunting beats in `module_coverage`
 - social, pushed-roll, sanity, damage, and combat subsystem coverage
 - structured Keeper-controlled NPC roleplay turns for core social/investigation scenes, rendered with localized `KP[NPC]` labels in Actual Play Replay and Session Transcript; otherwise emit `haunting_npc_dialogue_missing`
+- sandbox inventory-history records for carryover keys, handouts, weapons, cash, evidence, and optional items; otherwise emit `investigator_inventory_history_missing`
 - enough transcript turns, player intents, Keeper rulings, and major player decisions to resemble an actual-play report
 - recorded floating-knife and Corbitt combat resolution
 - if a structured roll payload sets `temporary_insanity_triggered: true`, a `bout_of_madness` event and battle-report `疯狂发作` entry showing the 1D10-round loss-of-control episode, the actual `duration_roll`/`duration_rounds`, Keeper control boundary, and recovery note

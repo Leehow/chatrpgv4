@@ -1768,6 +1768,17 @@ def test_haunting_module_audit_requires_structured_npc_dialogue(tmp_path):
     assert "haunting_npc_dialogue_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_inventory_history_for_carryover(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    inventory_path = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting" / "inventory-history.jsonl"
+    inventory_path.write_text("")
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "investigator_inventory_history_missing" in finding_codes(audit)
+
+
 def test_chase_drill_audit_requires_multi_profile_pressure(tmp_path):
     run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
     metadata_path = run_dir / "playtest.json"

@@ -1056,6 +1056,24 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
                 "carryover_notes": "下次导入前先结算成长检定，并决定是否把地下室创伤写入伤疤、恐惧或关系条目。",
             }
         ],
+        [
+            {
+                "schema_version": 1,
+                "type": "scenario_inventory_summary",
+                "campaign_id": run_id,
+                "scenario_id": "the-haunting",
+                "summary": "《鬼屋》结束时的可继承物品与证物。",
+                "items": [
+                    "诺特先生的钥匙状态：任务结束后应归还诺特先生",
+                    "线索资料 1、2、7",
+                    "科比特匕首：作为危险证物封存",
+                    "左轮：临时疯狂中丢失，战后找回",
+                    "虫蛀书：可选择保留，需下次开团前确认",
+                ],
+                "cash": "50 美元",
+                "notes": "导入后续模组前确认虫蛀书是否保留，并决定科比特匕首是交给警方、诺特先生，还是作为封存证物记录。",
+            }
+        ],
     )
 
     _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [

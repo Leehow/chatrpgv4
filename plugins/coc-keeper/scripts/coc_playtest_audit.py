@@ -417,6 +417,19 @@ def _character_chronicle_gaps(characters: list[dict[str, Any]], rolls: list[dict
     return gaps
 
 
+def _character_inventory_history_gaps(characters: list[dict[str, Any]]) -> list[str]:
+    if not characters:
+        return ["no investigator character files loaded"]
+
+    gaps: list[str] = []
+    for character in characters:
+        investigator_id = str(character.get("id") or character.get("investigator_id") or "unknown")
+        inventory = character.get("_inventory_history", [])
+        if not inventory:
+            gaps.append(f"{investigator_id} missing inventory-history.jsonl carryover record")
+    return gaps
+
+
 def _player_intent_count(transcript: list[dict[str, Any]]) -> int:
     return sum(1 for event in transcript if event.get("role") == "player_simulator" and event.get("intent"))
 
@@ -1358,8 +1371,10 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             for event in transcript
             if event.get("role") == "keeper_under_test" and event.get("speaker_role") == "npc"
         ]
+        inventory_records = sum(len(character.get("_inventory_history", [])) for character in context["characters"])
         lines.append(f"Module coverage: {covered_count}/{len(HAUNTING_MODULE_COVERAGE)} required The Haunting beats recorded.")
         lines.append(f"NPC roleplay turns: {len(npc_speakers)}; speakers: {', '.join(sorted(set(npc_speakers))) if npc_speakers else 'none'}.")
+        lines.append(f"Investigator inventory history records: {inventory_records}.")
         lines.append(
             f"Combat evidence: {_event_type_count(events, 'combat')} combat events; "
             f"{sum(1 for event in rolls if event.get('type') == 'combat')} combat roll entries."
@@ -1995,6 +2010,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "Missing subsystem coverage: " + ", ".join(missing_subsystems),
                 "Exercise the social, pushed-roll, sanity, damage, and combat procedures that The Haunting introduces.",
+            ))
+
+        inventory_history_gaps = _character_inventory_history_gaps(context["characters"])
+        if inventory_history_gaps:
+            findings.append(_finding(
+                "investigator_inventory_history_missing",
+                "system_gap",
+                "medium",
+                "; ".join(inventory_history_gaps),
+                "Record sandbox inventory-history.jsonl for keys, handouts, weapons, cash, and optional carryover items so a reusable investigator can enter the next story with item state intact.",
             ))
 
         npc_dialogue_gaps = _npc_dialogue_gaps(metadata, transcript, battle_report, locale_terms)

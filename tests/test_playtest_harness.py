@@ -419,6 +419,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Fighting (Brawl): 40" not in character_dossier
     assert investigator_jsonl(run_dir, "ada-king-haunting", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-haunting", "development.jsonl")
+    inventory_history = investigator_jsonl(run_dir, "ada-king-haunting", "inventory-history.jsonl")
+    assert inventory_history
+    assert "线索资料 1、2、7" in inventory_history[0]["items"]
+    assert "50 美元" in inventory_history[0]["cash"]
     chronicle = section_text(battle_text, "## Investigator Chronicle")
     assert_localized_chronicle_labels(chronicle)
     assert "艾达·金在《鬼屋》中幸存" in chronicle
@@ -426,6 +430,14 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "最终 SAN: 49" in chronicle
     assert "获得成长标记: 说服; 图书馆使用; 侦查; 闪避; 格斗（斗殴）" in chronicle
     assert "继承备注: 下次导入前先结算成长检定" in chronicle
+    assert "物品经历" in chronicle
+    assert "《鬼屋》结束时的可继承物品与证物" in chronicle
+    assert "物品: 诺特先生的钥匙状态：任务结束后应归还诺特先生" in chronicle
+    assert "线索资料 1、2、7" in chronicle
+    assert "科比特匕首：作为危险证物封存" in chronicle
+    assert "左轮：临时疯狂中丢失，战后找回" in chronicle
+    assert "虫蛀书：可选择保留，需下次开团前确认" in chronicle
+    assert "现金: 50 美元" in chronicle
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
