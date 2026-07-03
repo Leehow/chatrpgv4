@@ -118,6 +118,7 @@ CHARACTER_DOSSIER_REQUIRED_LABELS = [
     "Treasured Possessions",
     "Traits",
 ]
+TRANSCRIPT_LABEL_REQUIRED_KEYS = ["turn_format", "mode", "intent", "ruling"]
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -563,6 +564,31 @@ def _character_dossier_label_gaps(battle_report: str, metadata: dict[str, Any]) 
             gaps.append(f"missing:{canonical}")
         if f"{canonical}:" in section:
             gaps.append(f"leaked:{canonical}")
+    return sorted(set(gaps))
+
+
+def _transcript_label_gaps(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("transcript_labels", {})
+    if not isinstance(labels, dict):
+        return TRANSCRIPT_LABEL_REQUIRED_KEYS
+    gaps = [key for key in TRANSCRIPT_LABEL_REQUIRED_KEYS if not labels.get(key)]
+    actual_play = _section_text(battle_report, "Actual Play Replay")
+    transcript = _section_text(battle_report, "Session Transcript")
+    combined = f"{actual_play}\n{transcript}"
+    if labels.get("turn_format") != "Turn {turn}" and "- Turn " in combined:
+        gaps.append("turn_format")
+    canonical_detail_labels = {
+        "mode": "Mode",
+        "intent": "Intent",
+        "ruling": "Ruling",
+    }
+    for key, canonical in canonical_detail_labels.items():
+        if labels.get(key) != canonical and f"\n  - {canonical}:" in combined:
+            gaps.append(key)
     return sorted(set(gaps))
 
 
@@ -1014,6 +1040,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Active localized Character Dossier leaks canonical glossary terms: " + ", ".join(character_term_leaks),
             "Render Character Dossier values through localized_terms for the selected play_language.",
+        ))
+    transcript_label_gaps = _transcript_label_gaps(battle_report, metadata)
+    if active_profile and transcript_label_gaps:
+        findings.append(_finding(
+            "transcript_labels_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized transcript sections lack localized labels: " + ", ".join(transcript_label_gaps),
+            "Render Actual Play Replay and Session Transcript turn/detail labels from language_profile.transcript_labels.",
         ))
 
     scene_replay = _section_text(battle_report, "Scene-by-Scene Replay") if active_profile else ""

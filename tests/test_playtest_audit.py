@@ -838,6 +838,41 @@ def test_active_audit_rejects_unlocalized_player_profile_ids_in_reports(tmp_path
     assert "player_profile_labels_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_transcript_labels(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-transcript-labels"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "multi_profile_pressure"
+    metadata["play_language"] = "zh-Hans"
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- 这是中文场景回放。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- Turn 1 KP: \"诺特先生给出钥匙。\"\n"
+        "  - Intent: start play\n"
+        "  - Ruling: no_roll_needed\n"
+        "  - Mode: roll\n\n"
+        "## Session Transcript / 会话记录\n"
+        "- Turn 1 KP: 诺特先生给出钥匙。\n"
+        "  - Mode: play\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- kp_clarity: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "transcript_labels_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_rejects_unlocalized_report_shell_for_localized_runs(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "localized-shell"
     create_final_rulebook_run(run_dir)

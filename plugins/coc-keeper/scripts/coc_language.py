@@ -35,6 +35,13 @@ BASE_SPEAKER_LABELS = {
     "system": "system",
 }
 
+BASE_TRANSCRIPT_LABELS = {
+    "turn_format": "Turn {turn}",
+    "mode": "Mode",
+    "intent": "Intent",
+    "ruling": "Ruling",
+}
+
 BASE_REPORT_HEADING_LABELS = {
     "Battle Report": "Battle Report",
     "Run Setup": "Run Setup",
@@ -182,6 +189,12 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "player": "玩家",
             "system": "system",
         },
+        "transcript_labels": {
+            "turn_format": "第 {turn} 轮",
+            "mode": "模式",
+            "intent": "意图",
+            "ruling": "裁定",
+        },
         "outcome_labels": {
             "critical": "大成功",
             "extreme_success": "极难成功",
@@ -213,6 +226,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "character_dossier_labels": BASE_CHARACTER_DOSSIER_LABELS,
         "empty_report_lines": BASE_EMPTY_REPORT_LINES,
         "speaker_labels": BASE_SPEAKER_LABELS,
+        "transcript_labels": BASE_TRANSCRIPT_LABELS,
         "outcome_labels": {},
         "difficulty_labels": {},
         "raw_payload_fallback": True,
@@ -303,6 +317,12 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "keeper": "KP",
             "player": "プレイヤー",
             "system": "system",
+        },
+        "transcript_labels": {
+            "turn_format": "第 {turn} ターン",
+            "mode": "モード",
+            "intent": "意図",
+            "ruling": "裁定",
         },
         "outcome_labels": {
             "critical": "クリティカル",

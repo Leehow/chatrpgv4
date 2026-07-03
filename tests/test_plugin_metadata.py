@@ -147,6 +147,8 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "report_heading_labels",
         "report_field_labels",
         "report_shell_not_localized",
+        "transcript_labels",
+        "transcript_labels_not_localized",
         "character_dossier_labels",
         "character_dossier_labels_not_localized",
         "character_dossier_terms_not_localized",

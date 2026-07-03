@@ -821,6 +821,18 @@ def _display_transcript_speaker(
     return event.get("speaker") or role
 
 
+def _transcript_label(language_profile: dict[str, Any] | None, key: str, fallback: str) -> str:
+    labels = (language_profile or {}).get("transcript_labels", {})
+    if isinstance(labels, dict) and labels.get(key):
+        return str(labels[key])
+    return fallback
+
+
+def _transcript_turn_label(language_profile: dict[str, Any] | None, turn: Any) -> str:
+    template = _transcript_label(language_profile, "turn_format", "Turn {turn}")
+    return template.format(turn=turn)
+
+
 def _format_transcript_event(
     event: dict[str, Any],
     rendered_text: str | None = None,
@@ -831,11 +843,11 @@ def _format_transcript_event(
 
     turn = event.get("turn", "?")
     text = rendered_text if rendered_text is not None else event.get("text", "")
-    lines = [f"- Turn {turn} {speaker}: {text}"]
+    lines = [f"- {_transcript_turn_label(language_profile, turn)} {speaker}: {text}"]
     if event.get("mode"):
-        lines.append(f"  - Mode: {event['mode']}")
+        lines.append(f"  - {_transcript_label(language_profile, 'mode', 'Mode')}: {event['mode']}")
     if event.get("intent"):
-        lines.append(f"  - Intent: {event['intent']}")
+        lines.append(f"  - {_transcript_label(language_profile, 'intent', 'Intent')}: {event['intent']}")
     return lines
 
 
@@ -851,15 +863,15 @@ def _format_actual_play_event(
     turn = event.get("turn", "?")
     text = rendered_text if rendered_text is not None else event.get("text", "")
     if role in {"keeper_under_test", "player_simulator"}:
-        lines = [f"- Turn {turn} {speaker}: \"{text}\""]
+        lines = [f"- {_transcript_turn_label(language_profile, turn)} {speaker}: \"{text}\""]
     else:
-        lines = [f"- Turn {turn} {speaker}: {text}"]
+        lines = [f"- {_transcript_turn_label(language_profile, turn)} {speaker}: {text}"]
     if event.get("intent"):
-        lines.append(f"  - Intent: {event['intent']}")
+        lines.append(f"  - {_transcript_label(language_profile, 'intent', 'Intent')}: {event['intent']}")
     if event.get("ruling"):
-        lines.append(f"  - Ruling: {event['ruling']}")
+        lines.append(f"  - {_transcript_label(language_profile, 'ruling', 'Ruling')}: {event['ruling']}")
     if event.get("mode") == "roll":
-        lines.append("  - Mode: roll")
+        lines.append(f"  - {_transcript_label(language_profile, 'mode', 'Mode')}: roll")
     return lines
 
 
