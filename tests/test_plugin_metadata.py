@@ -165,6 +165,7 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "player_feedback_labels_not_localized",
         "character_dossier_labels",
         "character_dossier_labels_not_localized",
+        "character_dossier_derived_labels_not_localized",
         "character_dossier_terms_not_localized",
         "report_state_ids_not_localized",
         "report_event_type_labels_not_localized",

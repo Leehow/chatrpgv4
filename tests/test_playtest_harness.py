@@ -134,6 +134,8 @@ def assert_localized_character_dossier_labels(text: str) -> None:
     assert "  - 年代: " in text
     assert "  - 属性: " in text
     assert "  - 衍生值: " in text
+    assert "DB: 0" in text
+    assert "体格: 0" in text
     assert "  - 技能: " in text
     assert "  - 背景:" in text
     assert "    - 描述: " in text
@@ -145,6 +147,8 @@ def assert_localized_character_dossier_labels(text: str) -> None:
     assert "  - Occupation:" not in text
     assert "  - Backstory:" not in text
     assert "    - Description:" not in text
+    assert "damage_bonus:" not in text
+    assert "build:" not in text
     assert "职业: 古物学者" in text
     assert "Antiquarian" not in text
 

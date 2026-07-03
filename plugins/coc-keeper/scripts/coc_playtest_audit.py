@@ -127,6 +127,10 @@ CHARACTER_DOSSIER_REQUIRED_LABELS = [
     "Treasured Possessions",
     "Traits",
 ]
+CHARACTER_DOSSIER_FORBIDDEN_DERIVED_LABELS = [
+    "damage_bonus",
+    "build",
+]
 CHRONICLE_REQUIRED_LABELS = [
     "History",
     "Development",
@@ -674,6 +678,20 @@ def _character_dossier_label_gaps(battle_report: str, metadata: dict[str, Any]) 
         if f"{canonical}:" in section:
             gaps.append(f"leaked:{canonical}")
     return sorted(set(gaps))
+
+
+def _character_dossier_derived_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    section = _section_text(battle_report, "Character Dossier")
+    if not section:
+        return []
+    return [
+        label
+        for label in CHARACTER_DOSSIER_FORBIDDEN_DERIVED_LABELS
+        if f"{label}:" in section
+    ]
 
 
 def _chronicle_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
@@ -1265,6 +1283,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Active localized Character Dossier lacks localized field labels: " + ", ".join(character_label_gaps),
             "Render Character Dossier field labels from language_profile.character_dossier_labels.",
+        ))
+    character_derived_label_leaks = _character_dossier_derived_label_leaks(battle_report, metadata)
+    if active_profile and character_derived_label_leaks:
+        findings.append(_finding(
+            "character_dossier_derived_labels_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized Character Dossier exposes raw derived value labels: "
+            + ", ".join(character_derived_label_leaks),
+            "Render derived value labels such as damage bonus and build through language_profile.character_dossier_labels.",
         ))
     character_term_leaks = _character_dossier_term_leaks(battle_report, metadata)
     if active_profile and character_term_leaks:

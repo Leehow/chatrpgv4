@@ -102,6 +102,8 @@ BASE_CHARACTER_DOSSIER_LABELS = {
     "Era": "Era",
     "Characteristics": "Characteristics",
     "Derived": "Derived",
+    "damage_bonus": "DB",
+    "build": "Build",
     "Skills": "Skills",
     "Backstory": "Backstory",
     "Description": "Description",
@@ -173,7 +175,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "display_name": "Simplified Chinese",
         "output_instruction": "Use Simplified Chinese for player-visible narration, table dialogue, recaps, and reports.",
         "name_policy": "Foreign names should use Chinese transliterations or conventional translated names.",
-        "term_policy": "Use localized_terms.zh-Hans for people, places, factions, handouts, scenario titles, and special terms.",
+        "term_policy": "Use localized_terms.zh-Hans for people, places, factions, handouts, campaign titles, scenario titles, player-visible module source labels, and special terms.",
         "report_labels": {
             "roll_sentence": "- {skill}：{actor}掷出 {roll} / {target}，结果{outcome}。",
             "difficulty": "难度",
@@ -245,6 +247,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Era": "年代",
             "Characteristics": "属性",
             "Derived": "衍生值",
+            "damage_bonus": "DB",
+            "build": "体格",
             "Skills": "技能",
             "Backstory": "背景",
             "Description": "描述",
@@ -368,7 +372,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "display_name": "Japanese",
         "output_instruction": "Use Japanese for player-visible narration, table dialogue, recaps, and reports.",
         "name_policy": "Foreign names should use customary Japanese katakana forms or established translated names.",
-        "term_policy": "Use localized_terms.ja-JP for people, places, factions, handouts, scenario titles, and special terms.",
+        "term_policy": "Use localized_terms.ja-JP for people, places, factions, handouts, campaign titles, scenario titles, player-visible module source labels, and special terms.",
         "report_labels": {
             "roll_sentence": "- {skill}：{actor}は {roll} / {target} を振り、結果は{outcome}。",
             "difficulty": "難易度",
@@ -440,6 +444,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Era": "時代",
             "Characteristics": "能力値",
             "Derived": "派生値",
+            "damage_bonus": "DB",
+            "build": "ビルド",
             "Skills": "技能",
             "Backstory": "バックストーリー",
             "Description": "描写",
@@ -550,7 +556,7 @@ def language_profile(play_language: str | None = None) -> dict[str, Any]:
         "display_name": language,
         "output_instruction": f"Use {language} for player-visible narration, table dialogue, recaps, and reports.",
         "name_policy": f"Use customary {language} forms for names and setting terms when available.",
-        "term_policy": f"Use localized_terms.{language} for player-visible people, places, factions, handouts, scenario titles, and special terms.",
+        "term_policy": f"Use localized_terms.{language} for player-visible people, places, factions, handouts, campaign titles, scenario titles, player-visible module source labels, and special terms.",
     })
     profile["empty_report_lines"] = BASE_EMPTY_REPORT_LINES
     profile["speaker_labels"] = BASE_SPEAKER_LABELS

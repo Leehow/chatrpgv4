@@ -598,13 +598,17 @@ def _load_campaign_context(run_dir: Path, metadata: dict[str, Any]) -> dict[str,
     }
 
 
-def _format_key_values(values: dict[str, Any], preferred_order: list[str] | None = None) -> str:
+def _format_key_values(
+    values: dict[str, Any],
+    preferred_order: list[str] | None = None,
+    label_for_key: Any | None = None,
+) -> str:
     if not values:
         return "none recorded"
     ordered_keys = preferred_order or []
     keys = [key for key in ordered_keys if key in values]
     keys.extend(sorted(key for key in values if key not in keys))
-    return ", ".join(f"{key}: {values[key]}" for key in keys)
+    return ", ".join(f"{label_for_key(key) if label_for_key else key}: {values[key]}" for key in keys)
 
 
 BACKSTORY_FIELDS = [
@@ -692,6 +696,7 @@ def _format_character(
         + _format_key_values(
             character.get("derived", {}),
             ["HP", "MP", "SAN", "MOV", "damage_bonus", "build"],
+            lambda key: _character_dossier_label(profile, key),
         )
     )
     lines.append(f"  - {_character_dossier_label(profile, 'Skills')}: " + _format_key_values(character.get("skills", {})))
