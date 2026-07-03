@@ -111,6 +111,22 @@ def battle_report_fixture() -> str:
     ]) + "\n"
 
 
+def suite_report_fixture() -> str:
+    return "\n\n".join([
+        "# COC Playtest Suite Report",
+        "## Run Index\n- fixture run",
+        "## Non-Passing Runs\n- none",
+        "## Core Coverage Matrix\n- character_dossier: covered",
+        "## Coverage Evidence\n- fixture coverage evidence",
+        "## Quality Matrix\n- report_completeness: passed",
+        "## Quality Evidence\n- fixture quality evidence",
+        "## Loop Decision\n- Status: ready_for_completion_audit",
+        "## Repair Targets\n- none",
+        "## Remaining Gaps\n- No gaps detected.",
+        "## Remaining Quality Gaps\n- No quality gaps detected.",
+    ]) + "\n"
+
+
 def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: bool = False):
     run_dir = root / ".coc" / "playtests" / run_id
     write_json(run_dir / "playtest.json", {
@@ -180,7 +196,7 @@ def write_index(root: Path, runs: list[dict], *, quality_gap: str | None = None)
         "loop_decision": loop_decision,
     })
     write_json(playtests_dir / "loop-decision.json", loop_decision)
-    write_text(playtests_dir / "suite-report.md", "# COC Playtest Suite Report\n")
+    write_text(playtests_dir / "suite-report.md", suite_report_fixture())
 
 
 def test_completion_audit_passes_for_ready_suite_with_active_monitor(tmp_path):
@@ -246,6 +262,41 @@ def test_completion_audit_fails_when_battle_report_missing_required_anchors(tmp_
     finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_anchors_missing")
     assert "Run Setup" in finding["missing_anchors"]
     assert "Mechanical Log" in finding["missing_anchors"]
+
+
+def test_completion_audit_fails_when_suite_report_missing_required_sections(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    write_text(
+        tmp_path / ".coc" / "playtests" / "suite-report.md",
+        "\n\n".join([
+            "# COC Playtest Suite Report",
+            "## Run Index\n- fixture run",
+            "## Core Coverage Matrix\n- character_dossier: covered",
+            "## Loop Decision\n- Status: ready_for_completion_audit",
+        ]) + "\n",
+    )
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "suite_report_sections_missing")
+    assert "## Coverage Evidence" in finding["missing_sections"]
+    assert "## Quality Evidence" in finding["missing_sections"]
 
 
 def test_completion_audit_fails_without_multi_profile_pressure(tmp_path):

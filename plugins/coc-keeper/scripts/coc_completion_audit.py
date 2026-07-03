@@ -68,6 +68,17 @@ REQUIRED_BATTLE_REPORT_ANCHORS = [
     "Story Recap",
     "Player Feedback On KP",
 ]
+REQUIRED_SUITE_REPORT_SECTIONS = [
+    "# COC Playtest Suite Report",
+    "## Run Index",
+    "## Non-Passing Runs",
+    "## Core Coverage Matrix",
+    "## Coverage Evidence",
+    "## Quality Matrix",
+    "## Quality Evidence",
+    "## Loop Decision",
+    "## Remaining Gaps",
+]
 REPORT_ANCHOR_PREFIX = "<!-- report-anchor: "
 REPORT_ANCHOR_SUFFIX = " -->"
 
@@ -247,6 +258,32 @@ def _battle_report_anchor_findings(run_id: str, battle_report: str) -> list[dict
         "Regenerate battle-report.md with the required actual-play report sections and stable ASCII report-anchor comments.",
         run_id=run_id,
         missing_anchors=missing_anchors,
+    )]
+
+
+def _markdown_headings(markdown: str) -> set[str]:
+    return {
+        line.strip()
+        for line in markdown.splitlines()
+        if line.startswith("#")
+    }
+
+
+def _suite_report_section_findings(suite_report: str) -> list[dict[str, Any]]:
+    headings = _markdown_headings(suite_report)
+    missing_sections = [
+        section
+        for section in REQUIRED_SUITE_REPORT_SECTIONS
+        if section not in headings
+    ]
+    if not missing_sections:
+        return []
+    return [_finding(
+        "suite_report_sections_missing",
+        "report_gap",
+        f"suite-report.md missing sections: {', '.join(missing_sections)}.",
+        "Regenerate suite-report.md with the required cross-run coverage and quality evidence sections.",
+        missing_sections=missing_sections,
     )]
 
 
@@ -506,8 +543,14 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     return findings
 
 
-def _suite_findings(index: dict[str, Any], loop_decision: dict[str, Any], active_runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _suite_findings(
+    index: dict[str, Any],
+    loop_decision: dict[str, Any],
+    active_runs: list[dict[str, Any]],
+    suite_report: str,
+) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
+    findings.extend(_suite_report_section_findings(suite_report))
     if loop_decision.get("status") != "ready_for_completion_audit":
         findings.append(_finding(
             "loop_not_ready_for_completion_audit",
@@ -613,7 +656,7 @@ def generate_completion_audit(root: Path, automation_path: Path | None = None) -
     index = _read_json(base / "index.json", {})
     loop_decision = _read_json(base / "loop-decision.json", {})
     active_runs = _active_runs(index, loop_decision)
-    findings = _suite_findings(index, loop_decision, active_runs)
+    findings = _suite_findings(index, loop_decision, active_runs, _read_text(base / "suite-report.md"))
     for run in active_runs:
         findings.extend(_run_artifact_findings(root, run))
 
