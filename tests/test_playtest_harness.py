@@ -1244,7 +1244,10 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "艾达·金用锁匠通过上锁屋顶门障碍，到达晾衣屋顶。" in scene_replay
     assert "艾达·金的潜行胜过内森尼尔·克劳失败的侦查，带着账本结束追逐。" in scene_replay
     assert "最终追逐状态：艾达·金保持 HP 12、SAN 55、MOV 8，并带走邪教账本；内森尼尔·克劳落后一处位置。" in scene_replay
+    assert "艾达·金带着邪教账本脱离屋顶" in scene_replay
     assert "Final 追逐状态" not in scene_replay
+    assert "save/chase.json" not in scene_replay
+    assert "rooftops" not in scene_replay
     assert "location" not in scene_replay
     assert "湿滑天窗" in scene_replay
     assert_terms_absent(scene_replay, ["print shop roof", "print-shop roof", "rain gutter", "locked roof door barrier", "slick 天窗"])
@@ -1369,9 +1372,11 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         ["scene", "decision", "clue", "chase", "status", "session ending"],
     )
     assert "ada-king-chase -" not in state_changes
+    assert "save/chase.json" not in state_changes
     story_recap = section_text(battle_text, "## Story Recap")
     assert has_cjk(story_recap)
     assert "session-1:" not in story_recap
+    assert "save/chase.json" not in story_recap
     assert "屋顶追逐" in story_recap
     assert "rooftop 追逐" not in story_recap
     feedback = section_text(battle_text, "## Player Feedback On KP")
@@ -1395,6 +1400,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "save/追逐.json" not in battle_text
     assert "Chase Summary" in battle_text
     chase_summary = section_text(battle_text, "## Chase Summary")
+    assert "save/chase.json" not in chase_summary
     assert "- KP:" not in chase_summary
     assert "ada-king-chase:" not in chase_summary
     assert_player_readable_actor_colon_prefixes_absent(chase_summary, ["艾达·金"])
@@ -1420,6 +1426,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "内森尼尔·克劳有 2 个移动行动" in chase_tracker
     assert "艾达·金花费 1 个行动穿过湿滑天窗危险点" in chase_tracker
     assert "- 结果: 被追者逃脱" in chase_tracker
+    session_ending = section_text(battle_text, "## Session Ending")
+    assert "save/chase.json" not in session_ending
     assert "Status: resolved" not in chase_tracker
     assert " | quarry | " not in chase_tracker
     assert " | pursuer | " not in chase_tracker

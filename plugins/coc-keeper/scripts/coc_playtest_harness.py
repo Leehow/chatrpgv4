@@ -2115,7 +2115,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"type": "chase", "actor": investigator_id, "payload": {"summary": "barrier：Ada 用 Locksmith 通过 locked roof door barrier，到达 laundry roof。"}},
         {"type": "chase", "actor": investigator_id, "payload": {"summary": "quarry escapes：Ada 的 Stealth 胜过 Nathaniel 失败的 Spot Hidden，带着 ledger 结束 chase。"}},
         {"type": "status", "actor": investigator_id, "payload": {"summary": "最终追逐状态：Ada 保持 HP 12、SAN 55、MOV 8，并带走 cult ledger；Nathaniel 落后一处位置。"}},
-        {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "quarry escapes 后 session ended，chase state 已保存到 save/chase.json。"}},
+        {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "quarry escapes 后本场结束；Ada 带着 cult ledger 脱离屋顶，Nathaniel 失去她的踪迹。"}},
     ], ZH_HANS_CHASE_GLOSSARY)
     _write_jsonl_localized(campaign_dir / "memory" / "session-summaries.jsonl", [
         {

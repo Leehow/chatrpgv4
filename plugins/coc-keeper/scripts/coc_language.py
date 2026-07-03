@@ -186,6 +186,7 @@ BASE_FEEDBACK_LABELS = {
 
 BASE_CHASE_TRACKER_LABELS = {
     "Chase ID": "Chase ID",
+    "State File": "State File",
     "Status": "Status",
     "Round": "Round",
     "DEX order": "DEX order",
@@ -358,6 +359,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         },
         "chase_tracker_labels": {
             "Chase ID": "追逐 ID",
+            "State File": "状态文件",
             "Status": "状态",
             "Round": "当前轮数",
             "DEX order": "DEX 顺序",
@@ -592,6 +594,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         },
         "chase_tracker_labels": {
             "Chase ID": "チェイス ID",
+            "State File": "状態ファイル",
             "Status": "状態",
             "Round": "現在ラウンド",
             "DEX order": "DEX 順",

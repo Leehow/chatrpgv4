@@ -1350,6 +1350,7 @@ def _format_chase_tracker(
 
     lines = [
         f"- {_chase_tracker_label(profile, 'Chase ID')}: {chase_state.get('chase_id', 'unknown')}",
+        f"- {_chase_tracker_label(profile, 'State File')}: save/chase.json",
         f"- {_chase_tracker_label(profile, 'Status')}: {_chase_tracker_value(chase_state.get('status', 'unknown'), terms, profile)}",
         f"- {_chase_tracker_label(profile, 'Round')}: {chase_state.get('round', 'unknown')}",
     ]
