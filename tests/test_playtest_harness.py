@@ -80,6 +80,14 @@ def investigator_json(run_dir: Path, investigator_id: str, filename: str) -> dic
     return json.loads(path.read_text())
 
 
+def assert_creation_allocation_matches_character(run_dir: Path, investigator_id: str) -> None:
+    character = investigator_json(run_dir, investigator_id, "character.json")
+    creation = investigator_json(run_dir, investigator_id, "creation.json")
+    allocation = creation["skill_allocation"]["skills"]
+    allocation_finals = {skill: entry["final"] for skill, entry in allocation.items()}
+    assert allocation_finals == character["skills"]
+
+
 def significant_scene_replay_count(run_dir: Path) -> int:
     significant_types = {
         "scene",
@@ -486,6 +494,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         "personal_interest_points": 15,
         "final": 40,
     }
+    assert_creation_allocation_matches_character(run_dir, "ada-king-haunting")
     creation_section = section_text(battle_text, "## Investigator Creation")
     assert "## 角色创建记录 <!-- report-anchor: Investigator Creation -->" in battle_text
     assert battle_text.index("report-anchor: Investigator Creation") < battle_text.index("report-anchor: Actual Play Replay")
@@ -848,6 +857,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Dodge: 35" not in character_dossier
     assert "Locksmith: 30" not in character_dossier
     assert "Stealth: 45" not in character_dossier
+    assert_creation_allocation_matches_character(run_dir, "ada-king-chase")
     assert investigator_jsonl(run_dir, "ada-king-chase", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-chase", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")
@@ -1133,6 +1143,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "侦查: 55" in character_dossier
     assert "Library Use: 60" not in character_dossier
     assert "Spot Hidden: 55" not in character_dossier
+    assert_creation_allocation_matches_character(run_dir, "ada-king-pressure")
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-pressure", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")

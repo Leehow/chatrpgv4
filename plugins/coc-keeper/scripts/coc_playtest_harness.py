@@ -374,7 +374,81 @@ def _write_investigator_chronicle(
     _write_jsonl(investigator_dir / "inventory-history.jsonl", inventory or [])
 
 
-def _ada_king_creation_record(equipment: list[str] | None = None) -> dict[str, Any]:
+ADA_KING_OCCUPATION_SKILL_POINTS = 300
+ADA_KING_PERSONAL_INTEREST_POINTS = 140
+
+
+def _ada_king_base_skill_entries() -> dict[str, dict[str, int]]:
+    return {
+        "Credit Rating": {"base": 0, "occupation_points": 40, "personal_interest_points": 0, "final": 40},
+        "Appraise": {"base": 5, "occupation_points": 35, "personal_interest_points": 0, "final": 40},
+        "Art/Craft (Antiques)": {"base": 5, "occupation_points": 35, "personal_interest_points": 0, "final": 40},
+        "History": {"base": 5, "occupation_points": 45, "personal_interest_points": 0, "final": 50},
+        "Library Use": {"base": 20, "occupation_points": 40, "personal_interest_points": 0, "final": 60},
+        "Other Language (Latin)": {"base": 1, "occupation_points": 29, "personal_interest_points": 0, "final": 30},
+        "Persuade": {"base": 10, "occupation_points": 35, "personal_interest_points": 10, "final": 55},
+        "Spot Hidden": {"base": 25, "occupation_points": 30, "personal_interest_points": 0, "final": 55},
+        "Psychology": {"base": 10, "occupation_points": 11, "personal_interest_points": 19, "final": 40},
+        "Charm": {"base": 15, "occupation_points": 0, "personal_interest_points": 20, "final": 35},
+        "Climb": {"base": 20, "occupation_points": 0, "personal_interest_points": 0, "final": 20},
+        "Dodge": {"base": 25, "occupation_points": 0, "personal_interest_points": 0, "final": 25},
+        "Fighting (Brawl)": {"base": 25, "occupation_points": 0, "personal_interest_points": 15, "final": 40},
+        "Firearms (Handgun)": {"base": 20, "occupation_points": 0, "personal_interest_points": 20, "final": 40},
+        "First Aid": {"base": 30, "occupation_points": 0, "personal_interest_points": 10, "final": 40},
+        "Listen": {"base": 20, "occupation_points": 0, "personal_interest_points": 20, "final": 40},
+        "Stealth": {"base": 20, "occupation_points": 0, "personal_interest_points": 20, "final": 40},
+        "Occult": {"base": 5, "occupation_points": 0, "personal_interest_points": 6, "final": 11},
+    }
+
+
+def _skill_allocation_record(skills: dict[str, dict[str, int]]) -> dict[str, Any]:
+    occupation_spent = sum(entry["occupation_points"] for entry in skills.values())
+    personal_spent = sum(entry["personal_interest_points"] for entry in skills.values())
+    return {
+        "occupation_points_spent": occupation_spent,
+        "personal_interest_points_spent": personal_spent,
+        "unallocated_occupation_points": ADA_KING_OCCUPATION_SKILL_POINTS - occupation_spent,
+        "unallocated_personal_interest_points": ADA_KING_PERSONAL_INTEREST_POINTS - personal_spent,
+        "skills": skills,
+    }
+
+
+def _ada_king_default_skill_allocation() -> dict[str, Any]:
+    return _skill_allocation_record(_ada_king_base_skill_entries())
+
+
+def _ada_king_chase_skill_allocation() -> dict[str, Any]:
+    skills = _ada_king_base_skill_entries()
+    skills.update({
+        "Charm": {"base": 15, "occupation_points": 0, "personal_interest_points": 0, "final": 15},
+        "Climb": {"base": 20, "occupation_points": 0, "personal_interest_points": 20, "final": 40},
+        "Dodge": {"base": 25, "occupation_points": 0, "personal_interest_points": 10, "final": 35},
+        "Firearms (Handgun)": {"base": 20, "occupation_points": 0, "personal_interest_points": 0, "final": 20},
+        "First Aid": {"base": 30, "occupation_points": 0, "personal_interest_points": 0, "final": 30},
+        "Listen": {"base": 20, "occupation_points": 0, "personal_interest_points": 12, "final": 32},
+        "Locksmith": {"base": 1, "occupation_points": 0, "personal_interest_points": 29, "final": 30},
+        "Occult": {"base": 5, "occupation_points": 0, "personal_interest_points": 0, "final": 5},
+        "Stealth": {"base": 20, "occupation_points": 0, "personal_interest_points": 25, "final": 45},
+    })
+    return _skill_allocation_record(skills)
+
+
+def _skill_finals(skill_allocation: dict[str, Any]) -> dict[str, int]:
+    return {skill: entry["final"] for skill, entry in skill_allocation["skills"].items()}
+
+
+def _ada_king_default_character_skills() -> dict[str, int]:
+    return _skill_finals(_ada_king_default_skill_allocation())
+
+
+def _ada_king_chase_character_skills() -> dict[str, int]:
+    return _skill_finals(_ada_king_chase_skill_allocation())
+
+
+def _ada_king_creation_record(
+    equipment: list[str] | None = None,
+    skill_allocation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "method": "standard_rulebook_chapter_3",
@@ -434,32 +508,7 @@ def _ada_king_creation_record(equipment: list[str] | None = None) -> dict[str, A
             "credit_rating": 40,
             "living_standard": "Average",
         },
-        "skill_allocation": {
-            "occupation_points_spent": 300,
-            "personal_interest_points_spent": 140,
-            "unallocated_occupation_points": 0,
-            "unallocated_personal_interest_points": 0,
-            "skills": {
-                "Credit Rating": {"base": 0, "occupation_points": 40, "personal_interest_points": 0, "final": 40},
-                "Appraise": {"base": 5, "occupation_points": 35, "personal_interest_points": 0, "final": 40},
-                "Art/Craft (Antiques)": {"base": 5, "occupation_points": 35, "personal_interest_points": 0, "final": 40},
-                "History": {"base": 5, "occupation_points": 45, "personal_interest_points": 0, "final": 50},
-                "Library Use": {"base": 20, "occupation_points": 40, "personal_interest_points": 0, "final": 60},
-                "Other Language (Latin)": {"base": 1, "occupation_points": 29, "personal_interest_points": 0, "final": 30},
-                "Persuade": {"base": 10, "occupation_points": 35, "personal_interest_points": 10, "final": 55},
-                "Spot Hidden": {"base": 25, "occupation_points": 30, "personal_interest_points": 0, "final": 55},
-                "Psychology": {"base": 10, "occupation_points": 11, "personal_interest_points": 19, "final": 40},
-                "Charm": {"base": 15, "occupation_points": 0, "personal_interest_points": 20, "final": 35},
-                "Climb": {"base": 20, "occupation_points": 0, "personal_interest_points": 0, "final": 20},
-                "Dodge": {"base": 25, "occupation_points": 0, "personal_interest_points": 0, "final": 25},
-                "Fighting (Brawl)": {"base": 25, "occupation_points": 0, "personal_interest_points": 15, "final": 40},
-                "Firearms (Handgun)": {"base": 20, "occupation_points": 0, "personal_interest_points": 20, "final": 40},
-                "First Aid": {"base": 30, "occupation_points": 0, "personal_interest_points": 10, "final": 40},
-                "Listen": {"base": 20, "occupation_points": 0, "personal_interest_points": 20, "final": 40},
-                "Stealth": {"base": 20, "occupation_points": 0, "personal_interest_points": 20, "final": 40},
-                "Occult": {"base": 5, "occupation_points": 0, "personal_interest_points": 6, "final": 11},
-            },
-        },
+        "skill_allocation": skill_allocation or _ada_king_default_skill_allocation(),
         "backstory": {
             "description": "艾达·金是一名研究旧宅产权和民俗传闻的古物学者。",
             "ideology_beliefs": "老房子会留下居住者的记忆，公开记录能让这些记忆开口。",
@@ -1121,26 +1170,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "damage_bonus": "0",
             "build": 0,
         },
-        "skills": {
-            "Appraise": 40,
-            "Art/Craft (Antiques)": 40,
-            "Charm": 35,
-            "Climb": 20,
-            "Dodge": 25,
-            "Firearms (Handgun)": 40,
-            "First Aid": 40,
-            "Fighting (Brawl)": 40,
-            "History": 50,
-            "Listen": 40,
-            "Library Use": 60,
-            "Occult": 11,
-            "Other Language (Latin)": 30,
-            "Persuade": 55,
-            "Psychology": 40,
-            "Spot Hidden": 55,
-            "Stealth": 40,
-            "Credit Rating": 40,
-        },
+        "skills": _ada_king_default_character_skills(),
         "backstory": {
             "description": "艾达·金是一名研究旧宅产权和民俗传闻的古物学者，习惯把钥匙、地契和剪报按地址整理。",
             "ideology_beliefs": ["老房子会留下居住者的记忆，公开记录能让这些记忆开口。"],
@@ -1480,14 +1510,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "damage_bonus": "0",
             "build": 0,
         },
-        "skills": {
-            "Climb": 40,
-            "Dodge": 35,
-            "Fighting (Brawl)": 40,
-            "Locksmith": 30,
-            "Spot Hidden": 55,
-            "Stealth": 45,
-        },
+        "skills": _ada_king_chase_character_skills(),
         "backstory": {
             "description": "艾达·金追查一批流入黑市的旧账本，因此学会在屋顶和后巷保持距离。",
             "ideology_beliefs": ["线索必须在行动前被核实，但危险临近时也要果断撤离。"],
@@ -1497,7 +1520,9 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "traits": ["观察细致", "遇到追逐时会先找遮蔽物和退路"],
         },
     })
-    _write_json(investigator_dir / "creation.json", _ada_king_creation_record())
+    _write_json(investigator_dir / "creation.json", _ada_king_creation_record(
+        skill_allocation=_ada_king_chase_skill_allocation(),
+    ))
     _write_investigator_chronicle(
         investigator_dir,
         [
@@ -1795,12 +1820,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             "damage_bonus": "0",
             "build": 0,
         },
-        "skills": {
-            "Library Use": 60,
-            "Locksmith": 30,
-            "Persuade": 55,
-            "Spot Hidden": 55,
-        },
+        "skills": _ada_king_default_character_skills(),
         "backstory": {
             "description": "艾达·金是一名被多次委托调查旧宅纠纷的古物学者，擅长把传言拆成可查证的线索。",
             "ideology_beliefs": ["公开记录比传闻可靠，但传闻常常指向被隐藏的入口。"],

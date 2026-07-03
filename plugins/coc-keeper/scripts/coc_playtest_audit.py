@@ -538,6 +538,42 @@ def _character_skill_allocation_gaps(characters: list[dict[str, Any]]) -> list[s
     return gaps
 
 
+def _character_skill_allocation_mismatch_gaps(characters: list[dict[str, Any]]) -> list[str]:
+    if not characters:
+        return ["no investigator character files loaded"]
+
+    gaps: list[str] = []
+    for character in characters:
+        investigator_id = str(character.get("id") or character.get("investigator_id") or "unknown")
+        character_skills = character.get("skills")
+        creation = character.get("_creation")
+        allocation = creation.get("skill_allocation") if isinstance(creation, dict) else None
+        allocation_skills = allocation.get("skills") if isinstance(allocation, dict) else None
+        if not isinstance(character_skills, dict) or not isinstance(allocation_skills, dict):
+            continue
+        missing_from_character = sorted(skill for skill in allocation_skills if skill not in character_skills)
+        missing_from_allocation = sorted(skill for skill in character_skills if skill not in allocation_skills)
+        if missing_from_character:
+            gaps.append(
+                f"{investigator_id} allocation skills absent from character.json: "
+                f"{', '.join(missing_from_character)}"
+            )
+        if missing_from_allocation:
+            gaps.append(
+                f"{investigator_id} character skills absent from skill_allocation: "
+                f"{', '.join(missing_from_allocation)}"
+            )
+        for skill, entry in allocation_skills.items():
+            if not isinstance(entry, dict):
+                continue
+            final = entry.get("final")
+            if skill in character_skills and character_skills.get(skill) != final:
+                gaps.append(
+                    f"{investigator_id} {skill} final {final} != character.json {character_skills.get(skill)}"
+                )
+    return gaps
+
+
 def _player_intent_count(transcript: list[dict[str, Any]]) -> int:
     return sum(1 for event in transcript if event.get("role") == "player_simulator" and event.get("intent"))
 
@@ -1686,6 +1722,18 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "; ".join(skill_allocation_gaps),
             "Record skill_allocation inside creation.json with occupation and personal-interest point spending, base values, final skill values, and zero unallocated points.",
+        ))
+
+    skill_allocation_mismatch_gaps = (
+        _character_skill_allocation_mismatch_gaps(context["characters"]) if active_profile else []
+    )
+    if skill_allocation_mismatch_gaps:
+        findings.append(_finding(
+            "investigator_skill_allocation_mismatch",
+            "system_gap",
+            "high",
+            "; ".join(skill_allocation_mismatch_gaps),
+            "Keep skill_allocation final values identical to character.json skills so the creation record, dossier, and roll targets describe the same investigator.",
         ))
 
     non_chinese_turns = _non_chinese_dialogue_turns(transcript)

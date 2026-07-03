@@ -1803,6 +1803,19 @@ def test_haunting_module_audit_requires_investigator_skill_allocation(tmp_path):
     assert "investigator_skill_allocation_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_rejects_skill_allocation_character_mismatch(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    character_path = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting" / "character.json"
+    character = json.loads(character_path.read_text())
+    character["skills"]["Dodge"] = 35
+    character_path.write_text(json.dumps(character))
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "investigator_skill_allocation_mismatch" in finding_codes(audit)
+
+
 def test_chase_drill_audit_requires_multi_profile_pressure(tmp_path):
     run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
     metadata_path = run_dir / "playtest.json"
