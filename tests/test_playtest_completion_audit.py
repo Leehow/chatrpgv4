@@ -219,9 +219,29 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "target": 55, "roll": 33, "outcome": "regular_success"}},
     ])
-    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+    event_rows = [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"summary": "fixture scene"}},
-    ])
+    ]
+    if audit_profile == "haunting_module":
+        event_rows.extend([
+            {"type": "combat", "actor": investigator_id, "payload": {"summary": "fixture combat"}},
+            {"type": "sanity", "actor": investigator_id, "payload": {"summary": "fixture sanity"}},
+            {"type": "status", "actor": investigator_id, "payload": {"summary": "fixture status"}},
+            {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "fixture ending"}},
+        ])
+    elif audit_profile == "chase_drill":
+        event_rows.extend([
+            {"type": "chase", "actor": investigator_id, "payload": {"summary": "fixture chase"}},
+            {"type": "status", "actor": investigator_id, "payload": {"summary": "fixture status"}},
+            {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "fixture ending"}},
+        ])
+    elif audit_profile == "multi_profile_pressure":
+        event_rows.extend([
+            {"type": "decision", "actor": "player_simulator", "payload": {"summary": "fixture decision"}},
+            {"type": "status", "actor": investigator_id, "payload": {"summary": "fixture status"}},
+            {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "fixture ending"}},
+        ])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", event_rows)
     write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [
         {"session_id": "fixture-session", "summary": "fixture memory"},
     ])
@@ -545,6 +565,48 @@ def test_completion_audit_fails_when_campaign_logs_and_memory_lack_structured_ev
     assert "mechanical roll payload" in finding["missing_evidence"]
     assert "durable event payload" in finding["missing_evidence"]
     assert "session memory summary" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_profile_event_logs_lack_required_event_types(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+        campaign_dir = tmp_path / ".coc" / "playtests" / run["run_id"] / "sandbox" / ".coc" / "campaigns" / run["run_id"]
+        write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+            {"type": "scene", "actor": "keeper_under_test", "payload": {"summary": "fixture scene only"}},
+        ])
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    findings = [
+        finding for finding in audit["findings"]
+        if finding["code"] == "active_run_source_files_incomplete"
+    ]
+    by_run = {finding["run_id"]: finding for finding in findings}
+    assert "haunting_module event type combat" in by_run["v2-haunting-module"]["missing_evidence"]
+    assert "haunting_module event type sanity" in by_run["v2-haunting-module"]["missing_evidence"]
+    assert "haunting_module event type status" in by_run["v2-haunting-module"]["missing_evidence"]
+    assert "haunting_module event type session_ending" in by_run["v2-haunting-module"]["missing_evidence"]
+    assert "chase_drill event type chase" in by_run["v3-chase-drill"]["missing_evidence"]
+    assert "chase_drill event type status" in by_run["v3-chase-drill"]["missing_evidence"]
+    assert "chase_drill event type session_ending" in by_run["v3-chase-drill"]["missing_evidence"]
+    assert "multi_profile_pressure event type decision" in by_run["v4-multi-profile-pressure"]["missing_evidence"]
+    assert "multi_profile_pressure event type status" in by_run["v4-multi-profile-pressure"]["missing_evidence"]
+    assert "multi_profile_pressure event type session_ending" in by_run["v4-multi-profile-pressure"]["missing_evidence"]
 
 
 def test_completion_audit_fails_when_roll_log_lacks_dice_target_and_outcome(tmp_path):

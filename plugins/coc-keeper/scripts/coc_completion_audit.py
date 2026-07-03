@@ -61,6 +61,11 @@ REQUIRED_QUALITY_DIMENSIONS = [
     "virtual_player_pressure",
     "report_completeness",
 ]
+PROFILE_EVENT_TYPE_REQUIREMENTS = {
+    "haunting_module": ["combat", "sanity", "status", "session_ending"],
+    "chase_drill": ["chase", "status", "session_ending"],
+    "multi_profile_pressure": ["decision", "status", "session_ending"],
+}
 REQUIRED_EVALUATION_REPORT_SECTIONS = [
     "# Evaluation Report",
     "## Overall Result",
@@ -706,7 +711,12 @@ def _source_structure_findings(run_id: str, run_dir: Path) -> list[dict[str, Any
     return findings
 
 
-def _campaign_structure_findings(run_id: str, campaign_dir: Path, campaign_prefix: str) -> list[dict[str, Any]]:
+def _campaign_structure_findings(
+    run_id: str,
+    campaign_dir: Path,
+    campaign_prefix: str,
+    audit_profile: str,
+) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     missing_evidence: list[str] = []
     incomplete_files: list[str] = []
@@ -714,6 +724,7 @@ def _campaign_structure_findings(run_id: str, campaign_dir: Path, campaign_prefi
     rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
     events = _read_jsonl(campaign_dir / "logs" / "events.jsonl")
     memories = _read_jsonl(campaign_dir / "memory" / "session-summaries.jsonl")
+    event_file = f"{campaign_prefix}logs/events.jsonl"
 
     has_roll_payload = any(
         isinstance(row.get("type"), str)
@@ -739,6 +750,16 @@ def _campaign_structure_findings(run_id: str, campaign_dir: Path, campaign_prefi
         and bool(row["payload"])
         for row in events
     )
+    event_types = {
+        row.get("type")
+        for row in events
+        if isinstance(row.get("type"), str) and row["type"].strip()
+    }
+    missing_event_types = [
+        event_type
+        for event_type in PROFILE_EVENT_TYPE_REQUIREMENTS.get(audit_profile, [])
+        if event_type not in event_types
+    ]
     has_memory_summary = any(
         isinstance(row.get("summary"), str)
         and bool(row["summary"].strip())
@@ -753,7 +774,11 @@ def _campaign_structure_findings(run_id: str, campaign_dir: Path, campaign_prefi
         incomplete_files.append(f"{campaign_prefix}logs/rolls.jsonl")
     if not has_event_payload:
         missing_evidence.append("durable event payload")
-        incomplete_files.append(f"{campaign_prefix}logs/events.jsonl")
+        incomplete_files.append(event_file)
+    for event_type in missing_event_types:
+        missing_evidence.append(f"{audit_profile} event type {event_type}")
+    if missing_event_types and event_file not in incomplete_files:
+        incomplete_files.append(event_file)
     if not has_memory_summary:
         missing_evidence.append("session memory summary")
         incomplete_files.append(f"{campaign_prefix}memory/session-summaries.jsonl")
@@ -856,6 +881,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     malformed_files = _malformed_relative_files(run_dir, REQUIRED_RUN_SOURCE_FILES)
 
     campaign_id = str(metadata.get("campaign_id") or run_id)
+    audit_profile = str(metadata.get("audit_profile") or "")
     campaign_prefix = f"sandbox/.coc/campaigns/{campaign_id}/"
     campaign_dir = run_dir / campaign_prefix
     missing_files.extend(_missing_relative_files(
@@ -884,7 +910,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             "Regenerate the run so party.json links the campaign to reusable sandbox investigator records.",
             run_id=run_id,
         ))
-    findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix))
+    findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix, audit_profile))
 
     for investigator_id in investigator_ids:
         investigator_prefix = f"sandbox/.coc/investigators/{investigator_id}/"
