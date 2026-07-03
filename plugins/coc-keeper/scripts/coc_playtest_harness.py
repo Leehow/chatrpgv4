@@ -733,13 +733,275 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
     return run_dir
 
 
+def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
+    run_dir = root / ".coc" / "playtests" / run_id
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
+    scenario_dir = campaign_dir / "scenario"
+    investigator_id = "ada-king-chase"
+    pursuer_id = "nathaniel-crowe"
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
+
+    _write_json(run_dir / "playtest.json", {
+        "run_id": run_id,
+        "campaign_id": run_id,
+        "campaign_title": "Rooftop Chase Drill",
+        "scenario": "Rooftop Chase Drill",
+        "scenario_id": "rooftop-chase-drill",
+        "audit_profile": "chase_drill",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "player_profile": "reckless_investigator",
+        "module_coverage": [
+            "chase_setup",
+            "speed_roll",
+            "location_chain",
+            "movement_actions",
+            "hazard",
+            "barrier",
+            "conflict",
+            "escape_resolution",
+        ],
+        "subsystems_covered": ["investigation", "pushed_roll", "chase", "hazard", "barrier", "conflict"],
+        "scores": {
+            "immersion": 4,
+            "rules_accuracy": 4,
+            "state_integrity": 5,
+            "spoiler_safety": 5,
+            "meta_quality": 4,
+            "pacing": 4,
+            "chase_readability": 5,
+        },
+        "passed_test_cases": [
+            "chase_setup",
+            "speed_roll_mov_adjustment",
+            "location_chain",
+            "movement_action_economy",
+            "hazard_resolution",
+            "barrier_resolution",
+            "conflict_during_chase",
+            "escape_resolution",
+        ],
+        "failed_test_cases": [],
+        "recommended_fixes": [
+            "Future loop should turn this deterministic drill into an LLM-vs-KP chase with multiple player profiles.",
+        ],
+        "regression_tests": ["Chase drill audit must pass for a report with real chase state."],
+    })
+    _write_json(campaign_dir / "campaign.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "title": "Rooftop Chase Drill",
+        "mode": "keeper",
+        "status": "complete",
+        "era": "1920s",
+        "active_scenario_id": "rooftop-chase-drill",
+        "active_scene_id": "quarry-escapes",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "active_subsystem": "chase",
+    })
+    _write_json(campaign_dir / "party.json", {
+        "campaign_id": run_id,
+        "investigator_ids": [investigator_id],
+        "active_investigator_ids": [investigator_id],
+    })
+    _write_json(scenario_dir / "scenario.json", {
+        "schema_version": 1,
+        "scenario_id": "rooftop-chase-drill",
+        "title": "Rooftop Chase Drill",
+        "module_source": "internal drill based on Keeper Rulebook Chapter 7: Chases",
+        "summary": "Ada steals a cult ledger and flees across rainy Boston rooftops while Nathaniel Crowe pursues her.",
+        "player_safe_summary": "Ada must escape a pursuer after finding a stolen cult ledger.",
+        "opening_scene": "Ada spots Nathaniel Crowe leaving the print shop with a ledger and follows him onto the roof.",
+        "current_phase": "quarry_escapes",
+    })
+    _write_json(scenario_dir / "clues.json", [
+        {"id": "ledger-clue", "summary": "The ledger names a warehouse where the cult stores ritual supplies.", "route": "Spot Hidden at the print shop."},
+    ])
+    _write_json(scenario_dir / "locations.json", [
+        {"id": "print-shop-roof", "name": "Print Shop Roof", "purpose": "chase start"},
+        {"id": "rain-gutter", "name": "Rain Gutter", "purpose": "opening gap"},
+        {"id": "slick-skylight", "name": "Slick Skylight", "purpose": "Regular hazard"},
+        {"id": "locked-roof-door", "name": "Locked Roof Door", "purpose": "barrier"},
+        {"id": "laundry-roof", "name": "Laundry Roof", "purpose": "escape and hide"},
+    ])
+    _write_json(scenario_dir / "npcs.json", [
+        {"id": pursuer_id, "name": "Nathaniel Crowe", "role": "cult courier and pursuer"},
+    ])
+    _write_json(scenario_dir / "timeline.json", [
+        {"id": "ledger-stolen", "summary": "Nathaniel steals the ledger from the print shop safe."},
+        {"id": "roof-chase", "summary": "Ada becomes the quarry when Nathaniel spots her with the ledger."},
+    ])
+    _write_json(scenario_dir / "handouts.json", [
+        {"id": "ledger-handout", "title": "Cult warehouse ledger"},
+    ])
+    _write_json(scenario_dir / "keeper-secrets.json", [
+        {"id": "secret-warehouse", "summary": "The warehouse contains ritual supplies for a later scenario."},
+    ])
+    _write_json(investigator_dir / "character.json", {
+        "schema_version": 1,
+        "id": investigator_id,
+        "name": "Ada King",
+        "occupation": "Antiquarian",
+        "era": "1920s",
+        "characteristics": {
+            "STR": 60,
+            "CON": 55,
+            "SIZ": 65,
+            "DEX": 50,
+            "APP": 45,
+            "INT": 70,
+            "POW": 55,
+            "EDU": 75,
+            "LUCK": 55,
+        },
+        "derived": {
+            "HP": 12,
+            "MP": 11,
+            "SAN": 55,
+            "MOV": 8,
+            "damage_bonus": "0",
+            "build": 0,
+        },
+        "skills": {
+            "Climb": 40,
+            "Dodge": 35,
+            "Fighting (Brawl)": 40,
+            "Locksmith": 30,
+            "Spot Hidden": 55,
+            "Stealth": 45,
+        },
+    })
+    _write_json(campaign_dir / "save" / "chase.json", {
+        "schema_version": 1,
+        "chase_id": "rooftop-chase",
+        "status": "resolved",
+        "round": 2,
+        "participants": [
+            {
+                "id": investigator_id,
+                "name": "Ada King",
+                "role": "quarry",
+                "base_mov": 8,
+                "adjusted_mov": 8,
+                "dex": 50,
+                "movement_actions": 1,
+                "position": "laundry-roof",
+            },
+            {
+                "id": pursuer_id,
+                "name": "Nathaniel Crowe",
+                "role": "pursuer",
+                "base_mov": 8,
+                "adjusted_mov": 9,
+                "dex": 60,
+                "movement_actions": 2,
+                "position": "locked-roof-door",
+            },
+        ],
+        "dex_order": [pursuer_id, investigator_id],
+        "location_chain": [
+            {"id": "print-shop-roof", "label": "start"},
+            {"id": "rain-gutter", "label": "clear"},
+            {"id": "slick-skylight", "label": "hazard", "difficulty": "regular", "skill": "Dodge"},
+            {"id": "locked-roof-door", "label": "barrier", "difficulty": "regular", "skill": "Locksmith"},
+            {"id": "laundry-roof", "label": "escape"},
+        ],
+        "rounds": [
+            {
+                "round": 1,
+                "summary": "Nathaniel has two movement actions and closes from two locations behind to one location behind; Ada spends one action crossing the slick skylight hazard.",
+            },
+            {
+                "round": 2,
+                "summary": "Nathaniel spends one movement action to attack in conflict; Ada Dodges, opens the locked roof door barrier, hides on the laundry roof, and the quarry escapes.",
+            },
+        ],
+        "outcome": "quarry escapes",
+    })
+
+    _write_jsonl(run_dir / "transcript.jsonl", [
+        {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Rain needles the print shop roof. Nathaniel Crowe has the cult ledger under his coat."},
+        {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "spot the stolen ledger", "text": "I check whether he is carrying the ledger before I reveal myself."},
+        {"turn": 3, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "spot_hidden_regular", "text": "Roll Spot Hidden. The goal is to confirm the ledger before Nathaniel notices you."},
+        {"turn": 4, "role": "system", "speaker": "system", "mode": "roll", "text": "Spot Hidden 82 vs 55 -> failure."},
+        {"turn": 5, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "push ledger confirmation", "text": "I push by leaning over the skylight for a better look, accepting that he may spot me."},
+        {"turn": 6, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_spot_hidden", "text": "That justifies a pushed roll. On failure, Nathaniel sees you and starts with no gap."},
+        {"turn": 7, "role": "system", "speaker": "system", "mode": "roll", "text": "Pushed Spot Hidden 33 vs 55 -> regular_success. Ada sees the ledger, but Nathaniel hears the roof tile shift."},
+        {"turn": 8, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "chase_setup", "text": "Nathaniel lunges for you. You become the quarry and he is the pursuer. We make speed roll checks to establish the chase."},
+        {"turn": 9, "role": "system", "speaker": "system", "mode": "roll", "text": "Ada CON speed roll 42 vs 55 -> success; MOV remains 8."},
+        {"turn": 10, "role": "system", "speaker": "system", "mode": "roll", "text": "Nathaniel CON speed roll 9 vs 50 -> extreme_success; MOV rises from 8 to 9."},
+        {"turn": 11, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "cut_to_chase", "text": "Because the pursuer's adjusted MOV equals or exceeds the quarry's MOV, the chase is established. I cut to the chase with Nathaniel two locations behind."},
+        {"turn": 12, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "location_chain", "text": "The location chain is print-shop roof, rain gutter, slick skylight hazard, locked roof door barrier, laundry roof. DEX order is Nathaniel 60 then Ada 50."},
+        {"turn": 13, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "movement_actions", "text": "Ada has 1 movement action. Nathaniel has 2 movement actions because his adjusted MOV is one higher than the slowest participant."},
+        {"turn": 14, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "cross hazard", "text": "I sprint across the slick skylight toward the roof door."},
+        {"turn": 15, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "hazard_dodge", "text": "That hazard calls for Dodge at Regular difficulty. Pushed rolls are not used inside the chase."},
+        {"turn": 16, "role": "system", "speaker": "system", "mode": "roll", "text": "Dodge 24 vs 35 -> regular_success. Ada crosses the slick skylight hazard."},
+        {"turn": 17, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "conflict", "text": "Nathaniel spends movement actions to catch up and swings a sap. This conflict costs one movement action."},
+        {"turn": 18, "role": "system", "speaker": "system", "mode": "roll", "text": "Ada Dodge 19 vs 35 -> regular_success; Nathaniel Fighting 62 vs 45 -> failure."},
+        {"turn": 19, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "pass barrier and hide", "text": "I use the stolen key ring on the locked roof door barrier, slip through, and hide among laundry sheets."},
+        {"turn": 20, "role": "system", "speaker": "system", "mode": "roll", "text": "Locksmith 21 vs 30 -> regular_success. Stealth 18 vs 45 -> hard_success. Nathaniel Spot Hidden 77 vs 40 -> failure."},
+        {"turn": 21, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "The quarry escapes. Nathaniel runs past the laundry roof while Ada keeps the ledger and hears the chase fade below."},
+    ])
+    _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The ledger is partly visible under Nathaniel's coat.", "roll": 82, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada cannot confirm the ledger without risking detection.", "skill_check_earned": False}},
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Ada changes position for a better angle, keeping the same difficulty.", "roll": 33, "outcome": "regular_success", "pushed": True, "push_justification": "Ada leans over the skylight for a better look and accepts being noticed.", "foreshadowed_failure": "On failure, Nathaniel sees Ada and starts the chase with no gap.", "failure_consequence": "Nathaniel would begin the chase at the same location as Ada.", "skill_check_earned": True}},
+        {"type": "chase", "actor": investigator_id, "payload": {"skill": "CON", "goal": "speed roll to establish Ada's adjusted MOV for the chase", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "On-foot chases use CON as the speed roll.", "roll": 42, "outcome": "success", "failure_consequence": "Ada's MOV would drop by 1 for this chase.", "skill_check_earned": False}},
+        {"type": "chase", "actor": pursuer_id, "payload": {"skill": "CON", "goal": "speed roll to establish Nathaniel's adjusted MOV for the chase", "target": 50, "effective_target": 50, "difficulty": "regular", "difficulty_rationale": "On-foot chases use CON as the speed roll.", "roll": 9, "outcome": "extreme_success", "failure_consequence": "Nathaniel's MOV would drop by 1 for this chase."}},
+        {"type": "chase", "actor": investigator_id, "payload": {"skill": "Dodge", "goal": "negotiate the slick skylight hazard", "target": 35, "effective_target": 35, "difficulty": "regular", "difficulty_rationale": "The skylight is a Regular foot-chase hazard.", "roll": 24, "outcome": "regular_success", "failure_consequence": "Ada would lose 1D3 movement actions and risk falling glass damage.", "skill_check_earned": True}},
+        {"type": "chase", "actor": investigator_id, "payload": {"skill": "Dodge", "goal": "avoid Nathaniel's sap during chase conflict", "target": 35, "effective_target": 35, "difficulty": "regular", "difficulty_rationale": "Conflict during a chase can be resolved with normal attack and Dodge rolls.", "roll": 19, "outcome": "regular_success", "failure_consequence": "Ada would take damage and lose momentum.", "skill_check_earned": True}},
+        {"type": "chase", "actor": pursuer_id, "payload": {"skill": "Fighting (Brawl)", "goal": "strike Ada with a sap during chase conflict", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "An attack during a chase costs one movement action.", "roll": 62, "outcome": "failure", "failure_consequence": "Ada slips past the attack."}},
+        {"type": "chase", "actor": investigator_id, "payload": {"skill": "Locksmith", "goal": "pass the locked roof door barrier", "target": 30, "effective_target": 30, "difficulty": "regular", "difficulty_rationale": "The locked roof door is a Regular barrier with the stolen key ring.", "roll": 21, "outcome": "regular_success", "failure_consequence": "The barrier would stop Ada's movement until another method succeeded.", "skill_check_earned": True}},
+        {"type": "chase", "actor": investigator_id, "payload": {"skill": "Stealth", "goal": "hide on the laundry roof after passing the barrier", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "Ada has a brief lead and concealment among laundry sheets.", "roll": 18, "outcome": "hard_success", "failure_consequence": "Nathaniel would keep the chase active.", "skill_check_earned": True}},
+        {"type": "chase", "actor": pursuer_id, "payload": {"skill": "Spot Hidden", "goal": "find Ada after she hides", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "The pursuer searches the laundry roof after losing line of sight.", "roll": 77, "outcome": "failure", "failure_consequence": "The quarry escapes."}},
+    ])
+    _write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "print-shop-roof", "summary": "Ada finds Nathaniel Crowe on the print shop roof with the cult ledger."}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada chose to push the ledger confirmation roll despite the risk of being noticed."}},
+        {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "ledger-clue", "summary": "Ada confirmed the cult ledger and kept it after the chase."}},
+        {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "speed roll setup: Ada CON success keeps MOV 8; Nathaniel CON extreme success raises MOV 8 to MOV 9, so the pursuer can establish the chase."}},
+        {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "location chain: print-shop roof -> rain gutter -> slick skylight hazard -> locked roof door barrier -> laundry roof; DEX order is Nathaniel 60 then Ada 50."}},
+        {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "movement actions: Ada has 1 movement action; Nathaniel has 2 movement actions because his adjusted MOV is one above the slowest participant."}},
+        {"type": "chase", "actor": investigator_id, "payload": {"summary": "hazard: Ada succeeds on Dodge to cross the slick skylight without losing movement actions."}},
+        {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "conflict: Nathaniel spends one movement action to attack with a sap; Ada Dodges and the attack misses."}},
+        {"type": "chase", "actor": investigator_id, "payload": {"summary": "barrier: Ada succeeds with Locksmith at the locked roof door barrier and reaches the laundry roof."}},
+        {"type": "chase", "actor": investigator_id, "payload": {"summary": "quarry escapes: Ada wins Stealth against Nathaniel's failed Spot Hidden roll and ends the chase with the ledger."}},
+        {"type": "status", "actor": investigator_id, "payload": {"summary": "Final chase state: Ada keeps HP 12, SAN 55, MOV 8, and the cult ledger; Nathaniel remains one location behind."}},
+        {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "Session ended after the quarry escapes and the chase state was saved to save/chase.json."}},
+    ])
+    _write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [
+        {
+            "session_id": "session-1",
+            "summary": "Ada confirmed Nathaniel had the ledger, became the quarry in a rooftop chase, navigated a hazard and barrier, survived chase conflict, hid on the laundry roof, and escaped with the clue.",
+        },
+    ])
+    _write_jsonl(run_dir / "player-feedback.jsonl", [
+        {"category": "kp_clarity", "score": 5, "text": "KP explained speed roll, MOV, movement actions, hazards, barriers, and outcome."},
+        {"category": "chase_readability", "score": 5, "text": "I could tell where everyone was in the location chain and why the quarry escapes."},
+        {"category": "immersion", "score": 4, "text": "The chase felt tense while still showing the rule decisions."},
+    ])
+    _write_jsonl(run_dir / "evaluator-notes.jsonl", [
+        {"severity": "low", "category": "rules_accuracy", "text": "Chase setup includes speed roll, MOV adjustment, location chain, DEX order, and movement actions."},
+        {"severity": "low", "category": "state_integrity", "text": "save/chase.json records participants, location chain, rounds, and outcome."},
+        {"severity": "low", "category": "immersion", "text": "The drill is deterministic but reads as a coherent chase scene."},
+    ])
+
+    generate_battle_report(run_dir)
+    generate_evaluation_report(run_dir)
+    generate_rulebook_audit(run_dir)
+    return run_dir
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".")
     parser.add_argument("--run-id", default="v1-rulebook-smoke")
-    parser.add_argument("--profile", choices=["rulebook-smoke", "haunting-module"], default="rulebook-smoke")
+    parser.add_argument("--profile", choices=["rulebook-smoke", "haunting-module", "chase-drill"], default="rulebook-smoke")
     args = parser.parse_args()
-    if args.profile == "haunting-module":
+    if args.profile == "chase-drill":
+        run_dir = create_chase_drill_run(Path(args.root), args.run_id)
+    elif args.profile == "haunting-module":
         run_dir = create_haunting_module_run(Path(args.root), args.run_id)
     else:
         run_dir = create_rulebook_smoke_run(Path(args.root), args.run_id)

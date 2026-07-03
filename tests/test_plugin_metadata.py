@@ -111,3 +111,22 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
     for term in required_terms:
         assert term in skill_text
         assert term in spec_text
+
+
+def test_coc_playtest_skill_documents_chase_drill_profile():
+    skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
+    required_terms = [
+        "chase-drill",
+        "chase_drill",
+        "save/chase.json",
+        "movement actions",
+        "location chain",
+        "hazard",
+        "barrier",
+        "conflict",
+        "quarry escapes",
+    ]
+    for term in required_terms:
+        assert term in skill_text
+        assert term in spec_text

@@ -21,6 +21,7 @@ Use `../../scripts/coc_playtest_harness.py` when you need a reproducible baselin
 
 - `--profile rulebook-smoke`: short The Haunting-derived smoke run for the ordinary investigation loop.
 - `--profile haunting-module`: module-level The Haunting run that reaches Mr. Knott, Arty Wilmot, Chapel clues, the Corbitt House, Bed Attack, basement hazards, The Floating Knife, Corbitt combat, final state, rewards, and player feedback.
+- `--profile chase-drill`: rulebook chase drill that writes `save/chase.json` and shows speed roll, MOV, movement actions, location chain, DEX order, hazard, barrier, conflict, and why the quarry escapes.
 
 Use `../../scripts/coc_playtest_report.py` to generate:
 
@@ -82,3 +83,10 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit must also 
 - fail to record Corbitt combat resolution
 - omit final HP, final SAN, rewards, or unresolved state
 - leave Chase Summary empty instead of explaining that The Haunting has no required chase sequence
+
+When `playtest.json` sets `audit_profile: chase_drill`, the audit must also reject runs that:
+
+- do not declare `chase` in `subsystems_covered`
+- omit `save/chase.json` or leave out participants, location chain, rounds, or outcome
+- fail to show speed roll, MOV, movement actions, hazard, barrier, conflict, and quarry escapes in Chase Summary
+- claim a chase happened without recording the state and rolls that explain how it resolved

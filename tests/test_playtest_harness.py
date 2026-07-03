@@ -76,3 +76,27 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert battle_text.count("- ada-king-haunting: Ada chose") >= 5
     assert "{'" not in battle_text
     assert "'}" not in battle_text
+
+
+def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
+    run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+    battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    audit_text = (run_dir / "artifacts" / "rulebook-audit.md").read_text()
+
+    assert audit["result"] == "pass"
+    assert "PASS" in audit_text
+    assert "Rooftop Chase Drill" in battle_text
+    assert "Chase Summary" in battle_text
+    assert "speed roll" in battle_text
+    assert "MOV" in battle_text
+    assert "movement actions" in battle_text
+    assert "location chain" in battle_text
+    assert "DEX order" in battle_text
+    assert "hazard" in battle_text
+    assert "barrier" in battle_text
+    assert "conflict" in battle_text
+    assert "quarry escapes" in battle_text
+    assert "No chase summary recorded." not in battle_text
+    assert (run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json").exists()

@@ -43,6 +43,18 @@ HAUNTING_REPORT_MOMENTS = [
     "Rewards",
 ]
 
+CHASE_REPORT_MOMENTS = [
+    "speed roll",
+    "MOV",
+    "movement actions",
+    "location chain",
+    "DEX order",
+    "hazard",
+    "barrier",
+    "conflict",
+    "quarry escapes",
+]
+
 
 def _read_json(path: Path, default: Any) -> Any:
     if not path.exists():
@@ -96,6 +108,7 @@ def _load_context(run_dir: Path) -> dict[str, Any]:
     scenario_dir = campaign_dir / "scenario" if campaign_dir else None
     logs_dir = campaign_dir / "logs" if campaign_dir else None
     memory_dir = campaign_dir / "memory" if campaign_dir else None
+    save_dir = campaign_dir / "save" if campaign_dir else None
     return {
         "metadata": metadata,
         "campaign_dir": campaign_dir,
@@ -109,6 +122,7 @@ def _load_context(run_dir: Path) -> dict[str, Any]:
         "events": _read_jsonl(logs_dir / "events.jsonl") if logs_dir else [],
         "memory": _read_jsonl(memory_dir / "session-summaries.jsonl") if memory_dir else [],
         "feedback": _read_jsonl(run_dir / "player-feedback.jsonl"),
+        "chase_state": _read_json(save_dir / "chase.json", {}) if save_dir else {},
         "battle_report": _read_text(run_dir / "artifacts" / "battle-report.md"),
     }
 
@@ -179,6 +193,10 @@ def _report_contains_all(text: str, markers: list[str]) -> list[str]:
 
 def _haunting_module_required(metadata: dict[str, Any]) -> bool:
     return metadata.get("audit_profile") == "haunting_module"
+
+
+def _chase_drill_required(metadata: dict[str, Any]) -> bool:
+    return metadata.get("audit_profile") == "chase_drill"
 
 
 def _payload_summaries(events: list[dict[str, Any]], event_type: str) -> list[str]:
@@ -427,6 +445,55 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "Battle report misses key module moments: " + ", ".join(missing_report_moments),
                 "Render the named module beats in the transcript, state changes, combat summary, and ending sections.",
+            ))
+
+    if _chase_drill_required(metadata):
+        if "chase" not in covered_subsystems:
+            findings.append(_finding(
+                "chase_subsystem_missing",
+                "test_gap",
+                "high",
+                f"subsystems_covered={sorted(covered_subsystems)}.",
+                "Exercise and declare the chase subsystem in a dedicated chase drill playtest.",
+            ))
+
+        chase_state = context["chase_state"]
+        required_state_fields = ["participants", "location_chain", "rounds", "outcome"]
+        missing_state_fields = [
+            field for field in required_state_fields
+            if chase_state.get(field) in (None, "", [], {})
+        ]
+        if missing_state_fields:
+            findings.append(_finding(
+                "chase_state_missing",
+                "system_gap",
+                "high",
+                "save/chase.json is missing or incomplete: " + ", ".join(missing_state_fields),
+                "Persist chase participants, location chain, round log, and outcome under save/chase.json.",
+            ))
+
+        chase_text = " ".join(_payload_summaries(context["events"], "chase")).lower()
+        if (
+            "speed roll" not in chase_text
+            or "movement actions" not in chase_text
+            or "quarry escapes" not in chase_text
+        ):
+            findings.append(_finding(
+                "chase_resolution_missing",
+                "system_gap",
+                "high",
+                "Chase events do not show speed rolls, movement actions, and escape/capture resolution.",
+                "Record the chase setup, DEX order, movement action economy, hazards/barriers, conflict, and final outcome.",
+            ))
+
+        missing_chase_moments = _report_contains_all(battle_report, CHASE_REPORT_MOMENTS)
+        if missing_chase_moments:
+            findings.append(_finding(
+                "chase_report_missing_key_moments",
+                "report_gap",
+                "high",
+                "Battle report misses chase moments: " + ", ".join(missing_chase_moments),
+                "Render speed rolls, MOV, location chain, movement actions, hazards, barriers, conflict, and escape/capture in Chase Summary.",
             ))
 
     return {

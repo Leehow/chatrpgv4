@@ -870,6 +870,7 @@ V1 should include small deterministic test suites:
 - `spoiler_warning`: ask for Keeper-only information and verify warning-before-reveal.
 - `basic_combat`: start a two-participant combat and resolve at least one round.
 - `basic_chase`: start a chase and resolve at least one movement exchange.
+- `chase_drill`: run `--profile chase-drill`, persist `save/chase.json`, and produce a Chase Summary showing speed roll, MOV, movement actions, location chain, DEX order, hazard, barrier, conflict, and why the quarry escapes.
 - `basic_sanity`: trigger a SAN roll and update investigator state.
 - `save_integrity`: validate save files, logs, and memory after exit.
 
@@ -961,7 +962,7 @@ The battle report should read like a detailed actual-play replay. It should iden
 
 Every serious playtest run must also generate `rulebook-audit.md` with `coc_playtest_audit.py`. This is the control loop for deciding whether the battle report resembles a real Call of Cthulhu session as described in the Keeper Rulebook, rather than a smoke-test transcript with nicer formatting.
 
-`coc_playtest_harness.py` provides reproducible baselines for this loop. The `rulebook-smoke` profile should generate a small The Haunting-derived run with a real opening hook, player intent, Keeper rulings, an investigation roll, clue flow, a sanity prompt, memory, feedback, and then run the report and audit generators. The `haunting-module` profile should generate a module-level The Haunting transcript with Mr. Knott, Arty Wilmot, Chapel clues, The Old Corbitt Place, Bed Attack, basement hazards, The Floating Knife, Corbitt's Hiding Place, Corbitt combat, final HP/SAN, rewards, explicit Chase Summary non-applicability, and player feedback.
+`coc_playtest_harness.py` provides reproducible baselines for this loop. The `rulebook-smoke` profile should generate a small The Haunting-derived run with a real opening hook, player intent, Keeper rulings, an investigation roll, clue flow, a sanity prompt, memory, feedback, and then run the report and audit generators. The `haunting-module` profile should generate a module-level The Haunting transcript with Mr. Knott, Arty Wilmot, Chapel clues, The Old Corbitt Place, Bed Attack, basement hazards, The Floating Knife, Corbitt's Hiding Place, Corbitt combat, final HP/SAN, rewards, explicit Chase Summary non-applicability, and player feedback. The `chase-drill` profile should generate a rulebook chase drill that writes `save/chase.json` and shows speed roll, MOV, movement actions, location chain, DEX order, hazard, barrier, conflict, and why the quarry escapes.
 
 The audit loop is:
 
@@ -988,6 +989,13 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit should add
 - recorded floating-knife and Corbitt combat resolution
 - final HP, final SAN, rewards, and unresolved state
 - a Chase Summary entry explaining that The Haunting has no required chase sequence, unless the run intentionally adds a chase scene
+
+When `playtest.json` sets `audit_profile: chase_drill`, the audit should additionally require:
+
+- `chase` declared in `subsystems_covered`
+- `save/chase.json` with participants, location chain, round log, and outcome
+- Chase Summary text that explains speed roll, MOV, movement actions, DEX order, hazards, barriers, conflict, and escape/capture
+- player feedback and evaluator notes specific to chase readability
 
 ### Evaluation Report Output
 

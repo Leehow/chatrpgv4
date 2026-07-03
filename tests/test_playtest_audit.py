@@ -383,3 +383,21 @@ def test_haunting_module_audit_requires_module_coverage_and_resolution(tmp_path)
     assert "final_state_missing" in finding_codes(audit)
     assert "module_decisions_too_thin" in finding_codes(audit)
     assert "chase_context_missing" in finding_codes(audit)
+
+
+def test_chase_drill_audit_requires_chase_state_and_resolution(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "chase-drill"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "chase_drill"
+    metadata["subsystems_covered"] = ["investigation", "sanity"]
+    metadata_path.write_text(json.dumps(metadata))
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "chase_subsystem_missing" in finding_codes(audit)
+    assert "chase_state_missing" in finding_codes(audit)
+    assert "chase_resolution_missing" in finding_codes(audit)
+    assert "chase_report_missing_key_moments" in finding_codes(audit)
