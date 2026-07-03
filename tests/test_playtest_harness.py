@@ -182,10 +182,15 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     visible_dialogue = "\n".join(visible_play_texts(run_dir))
     assert_visible_terms_localized(visible_dialogue, visible_scene_terms)
     assert_terms_absent(visible_dialogue, ["Regular difficulty", "pushed roll", "pushed rolls", "HP damage"])
+    assert_terms_absent(visible_dialogue, ["combat round", "Rewards", "Final HP", "Final SAN"])
     assert "难度为普通" not in visible_dialogue
     assert "普通难度" in visible_dialogue
     assert "推骰" in visible_dialogue
     assert "HP 伤害" in visible_dialogue
+    assert "战斗轮" in visible_dialogue
+    assert "奖励" in visible_dialogue
+    assert "最终 HP" in visible_dialogue
+    assert "最终 SAN" in visible_dialogue
     meta_events = [
         event
         for event in transcript_events(run_dir)
@@ -223,16 +228,33 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "The Floating Knife" in battle_text
     assert zh_terms["Corbitt's Hiding Place"] in battle_text
     assert zh_terms["Corbitt Attacks"] in battle_text
-    assert "Rewards" in battle_text
-    assert "temporary insanity" in battle_text
-    assert "combat round" in battle_text
+    combat_summary = section_text(battle_text, "## Combat Summary")
+    assert "奖励" in battle_text
+    assert "临时疯狂" in battle_text
+    assert "战斗轮" in battle_text
+    assert "combat round" not in combat_summary
+    assert "in a 战斗轮" not in combat_summary
+    assert "DEX order" not in combat_summary
+    assert "opposed POW" not in combat_summary
+    assert "DEX 顺序" in combat_summary
+    assert "POW 对抗" in combat_summary
+    state_changes = section_text(battle_text, "### State Changes")
+    story_recap = section_text(battle_text, "## Story Recap")
+    assert "worm-eaten book" not in state_changes
+    assert "worm-eaten book" not in story_recap
+    assert "虫蛀书" in state_changes
     assert "Damage: 5 HP" in battle_text
-    assert "Final HP: 3" in battle_text
-    assert "Final SAN: 49" in battle_text
+    assert "最终 HP: 3" in battle_text
+    assert "最终 SAN: 49" in battle_text
     assert "Player Feedback On KP" in battle_text
     assert "module_fidelity: 4" in battle_text
     assert "No combat summary recorded." not in battle_text
-    assert "The Haunting does not include a required chase sequence" in battle_text
+    chase_summary = section_text(battle_text, "## Chase Summary")
+    assert "本模组不包含必需追逐场景" in chase_summary
+    assert "追逐子系统覆盖留到独立场景" in chase_summary
+    assert "本模组不包含必需追逐场景（本模组不包含必需追逐场景）" not in chase_summary
+    assert "The Haunting does not include a required chase sequence" not in chase_summary
+    assert "chase subsystem coverage deferred to separate scenario" not in chase_summary
     assert "No chase summary recorded." not in battle_text
     assert "Session ending not recorded." not in battle_text
     assert bullet_count(major_decisions) >= 5

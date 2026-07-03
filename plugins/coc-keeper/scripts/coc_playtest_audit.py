@@ -604,7 +604,11 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             locale_terms.get("Walter Corbitt", ""),
         ]
         has_corbitt_resolution = any(marker and marker in combat_text for marker in corbitt_markers)
-        if len(combat_summaries) < 2 or "combat round" not in combat_text.lower() or not has_corbitt_resolution:
+        if (
+            len(combat_summaries) < 2
+            or not _contains_marker_or_localized(combat_text, "combat round", locale_terms)
+            or not has_corbitt_resolution
+        ):
             findings.append(_finding(
                 "combat_resolution_missing",
                 "system_gap",
@@ -614,7 +618,10 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             ))
 
         status_text = " ".join(_payload_summaries(context["events"], "status"))
-        if "Final HP:" not in status_text or "Final SAN:" not in status_text:
+        if (
+            not _contains_marker_or_localized(status_text, "Final HP", locale_terms)
+            or not _contains_marker_or_localized(status_text, "Final SAN", locale_terms)
+        ):
             findings.append(_finding(
                 "final_state_missing",
                 "system_gap",
