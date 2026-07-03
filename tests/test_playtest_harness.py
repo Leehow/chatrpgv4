@@ -132,6 +132,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
     assert_zh_hans_locale(metadata, zh_terms)
+    run_setup = section_text(battle_text, "## Run Setup")
+    assert "- Play Language: zh-Hans" in run_setup
+    assert "Ada King -> 艾达·金" in run_setup
+    assert "Mr. Knott -> 诺特先生" in run_setup
+    assert "The Old Corbitt Place -> 科比特老宅" in run_setup
     module_section = section_text(battle_text, "## Module")
     assert "- Opening Scene: 诺特先生" in battle_text
     assert "诺特先生在 1920 年的波士顿与艾达·金会面" in module_section
@@ -214,6 +219,11 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
     assert_zh_hans_locale(metadata, zh_terms)
+    run_setup = section_text(battle_text, "## Run Setup")
+    assert "- Play Language: zh-Hans" in run_setup
+    assert "Ada King -> 艾达·金" in run_setup
+    assert "Nathaniel Crowe -> 内森尼尔·克劳" in run_setup
+    assert "ledger -> 账本" in run_setup
     module_section = section_text(battle_text, "## Module")
     assert "- Opening Scene: 艾达·金" in battle_text
     assert "艾达·金发现内森尼尔·克劳带着账本离开印刷店" in module_section

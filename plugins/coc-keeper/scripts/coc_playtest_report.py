@@ -196,6 +196,12 @@ def _localized_terms(metadata: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _format_localized_terms(terms: dict[str, str]) -> str:
+    if not terms:
+        return "none"
+    return ", ".join(f"{canonical} -> {localized}" for canonical, localized in sorted(terms.items()))
+
+
 def _localize_text(text: Any, terms: dict[str, str]) -> str:
     localized = str(text)
     for canonical, replacement in sorted(terms.items(), key=lambda item: len(item[0]), reverse=True):
@@ -395,6 +401,11 @@ def generate_battle_report(run_dir: Path) -> Path:
         campaign.get("spoiler_policy"),
         metadata.get("spoiler_policy"),
     )
+    play_language = _first_value(
+        "unknown",
+        metadata.get("play_language"),
+        campaign.get("play_language"),
+    )
 
     transcript_lines: list[str] = []
     actual_play_lines: list[str] = []
@@ -429,6 +440,8 @@ def generate_battle_report(run_dir: Path) -> Path:
         f"- Era: {era}",
         f"- Dice Mode: {dice_mode}",
         f"- Spoiler Policy: {spoiler_policy}",
+        f"- Play Language: {play_language}",
+        f"- Localized Terms: {_format_localized_terms(localized_terms)}",
         f"- Player Profile: {metadata.get('player_profile', 'unknown')}",
         "",
         "## Module",
