@@ -32,6 +32,13 @@ Use `../../scripts/coc_playtest_audit.py` after report generation to generate:
 
 - `artifacts/rulebook-audit.md`
 
+Use `../../scripts/coc_playtest_suite.py` after multiple serious runs to generate:
+
+- `.coc/playtests/index.json`
+- `.coc/playtests/suite-report.md`
+
+`suite-report.md` should include `## Run Index`, `## Non-Passing Runs`, and a `## Core Coverage Matrix` with `character_dossier`, `kp_player_transcript`, `mechanical_rolls`, `combat`, `chase`, `sanity`, and `player_feedback`, so the evaluator can see whether the current playtest set covers the requested Keeper Rulebook workflows without hiding failed or missing audits.
+
 Before generating reports, record the run context:
 
 - `playtest.json`: run id, campaign id, scenario id, era, dice mode, spoiler policy, player profile, scores, pass/fail cases, recommendations.

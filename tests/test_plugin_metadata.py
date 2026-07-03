@@ -130,3 +130,22 @@ def test_coc_playtest_skill_documents_chase_drill_profile():
     for term in required_terms:
         assert term in skill_text
         assert term in spec_text
+
+
+def test_coc_playtest_skill_documents_suite_report_index():
+    skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
+    required_terms = [
+        "coc_playtest_suite.py",
+        "suite-report.md",
+        "index.json",
+        "Core Coverage Matrix",
+        "Non-Passing Runs",
+        "character_dossier",
+        "kp_player_transcript",
+        "mechanical_rolls",
+        "player_feedback",
+    ]
+    for term in required_terms:
+        assert term in skill_text
+        assert term in spec_text
