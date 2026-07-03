@@ -172,6 +172,27 @@ def battle_report_investigator_creation_fixture_text() -> str:
     ])
 
 
+def battle_report_chase_tracker_fixture_text() -> str:
+    return "\n".join([
+        "- Chase ID: fixture-chase",
+        "- Status: resolved",
+        "- Round: 2",
+        "- DEX order: fixture-pursuer -> v3-chase-drill-investigator",
+        "- Participants:",
+        "  - Ada King (v3-chase-drill-investigator) | quarry | MOV 8 -> 8 | DEX 50 | movement_actions 1 | position fixture-finish",
+        "  - Nathaniel Crowe (fixture-pursuer) | pursuer | MOV 8 -> 9 | DEX 60 | movement_actions 2 | position fixture-barrier",
+        "- Location Chain:",
+        "  - fixture-start [start]",
+        "  - fixture-hazard [hazard, regular, Dodge]",
+        "  - fixture-barrier [barrier, regular, Locksmith]",
+        "  - fixture-finish [escape]",
+        "- Rounds:",
+        "  - Round 1: fixture chase round one",
+        "  - Round 2: fixture chase round two",
+        "- Outcome: quarry escapes",
+    ])
+
+
 def battle_report_fixture() -> str:
     return "\n\n".join([
         "# Battle Report <!-- report-anchor: Battle Report -->",
@@ -208,7 +229,8 @@ def battle_report_fixture() -> str:
         "- fixture meta keeper answer",
         "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n"
         + battle_report_mechanical_fixture_text(),
-        "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n- Fixture chase tracker.",
+        "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n"
+        + battle_report_chase_tracker_fixture_text(),
         "## Story Recap <!-- report-anchor: Story Recap -->\n"
         + battle_report_memory_fixture_text(),
         "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n"
@@ -279,6 +301,14 @@ def battle_report_with_sources_but_without_investigator_creation_records() -> st
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n"
         + battle_report_investigator_creation_fixture_text(),
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n- Fixture creation record.",
+    )
+
+
+def battle_report_with_sources_but_without_chase_tracker_state() -> str:
+    return battle_report_fixture().replace(
+        "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n"
+        + battle_report_chase_tracker_fixture_text(),
+        "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n- Fixture chase tracker.",
     )
 
 
@@ -436,6 +466,47 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [
         {"session_id": "fixture-session", "summary": "fixture memory"},
     ])
+    if audit_profile == "chase_drill":
+        write_json(campaign_dir / "save" / "chase.json", {
+            "schema_version": 1,
+            "chase_id": "fixture-chase",
+            "status": "resolved",
+            "round": 2,
+            "participants": [
+                {
+                    "id": investigator_id,
+                    "name": "Ada King",
+                    "role": "quarry",
+                    "base_mov": 8,
+                    "adjusted_mov": 8,
+                    "dex": 50,
+                    "movement_actions": 1,
+                    "position": "fixture-finish",
+                },
+                {
+                    "id": "fixture-pursuer",
+                    "name": "Nathaniel Crowe",
+                    "role": "pursuer",
+                    "base_mov": 8,
+                    "adjusted_mov": 9,
+                    "dex": 60,
+                    "movement_actions": 2,
+                    "position": "fixture-barrier",
+                },
+            ],
+            "dex_order": ["fixture-pursuer", investigator_id],
+            "location_chain": [
+                {"id": "fixture-start", "label": "start"},
+                {"id": "fixture-hazard", "label": "hazard", "difficulty": "regular", "skill": "Dodge"},
+                {"id": "fixture-barrier", "label": "barrier", "difficulty": "regular", "skill": "Locksmith"},
+                {"id": "fixture-finish", "label": "escape"},
+            ],
+            "rounds": [
+                {"round": 1, "summary": "fixture chase round one"},
+                {"round": 2, "summary": "fixture chase round two"},
+            ],
+            "outcome": "quarry escapes",
+        })
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
     write_json(investigator_dir / "creation.json", {
         "schema_version": 1,
@@ -1271,6 +1342,42 @@ def test_completion_audit_fails_when_battle_report_omits_investigator_creation_r
     assert "STR 60" in finding["missing_creation_samples"]
     assert "EDU x 4 = 300" in finding["missing_creation_samples"]
     assert "Spot Hidden: base 25 + Occupation 30 + Personal Interest 0 = 55" in finding["missing_creation_samples"]
+
+
+def test_completion_audit_fails_when_battle_report_omits_chase_tracker_state(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v3-chase-drill"
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        battle_report_with_sources_but_without_chase_tracker_state(),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(
+        finding for finding in audit["findings"]
+        if finding["code"] == "battle_report_chase_tracker_missing"
+    )
+    assert finding["run_id"] == "v3-chase-drill"
+    assert "fixture-chase" in finding["missing_chase_samples"]
+    assert "fixture chase round one" in finding["missing_chase_samples"]
+    assert "quarry escapes" in finding["missing_chase_samples"]
 
 
 def test_completion_audit_accepts_localized_investigator_chronicle_spacing(tmp_path):

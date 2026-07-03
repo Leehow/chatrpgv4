@@ -205,6 +205,16 @@ def _text_rendered_in_report(text: str, battle_report: str, localized_terms: dic
     return any(candidate and candidate in battle_report for candidate in candidates)
 
 
+def _profile_label(metadata: dict[str, Any], label_group: str, canonical: str) -> str:
+    language_profile = metadata.get("language_profile", {})
+    if not isinstance(language_profile, dict):
+        return canonical
+    labels = language_profile.get(label_group, {})
+    if not isinstance(labels, dict):
+        return canonical
+    return str(labels.get(canonical) or canonical)
+
+
 def _json_sha256(payload: Any) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -550,13 +560,7 @@ def _battle_report_memory_summary_findings(
 
 
 def _creation_label(metadata: dict[str, Any], canonical: str) -> str:
-    language_profile = metadata.get("language_profile", {})
-    if not isinstance(language_profile, dict):
-        return canonical
-    creation_labels = language_profile.get("creation_labels", {})
-    if not isinstance(creation_labels, dict):
-        return canonical
-    return str(creation_labels.get(canonical) or canonical)
+    return _profile_label(metadata, "creation_labels", canonical)
 
 
 def _format_creation_formula_points(formula: Any, points: Any) -> str:
@@ -688,6 +692,145 @@ def _battle_report_investigator_creation_findings(
         missing_creation_count=len(missing_texts),
         required_creation_count=len(required_texts),
         missing_creation_samples=missing_texts[:15],
+    )]
+
+
+def _chase_tracker_label(metadata: dict[str, Any], canonical: str) -> str:
+    return _profile_label(metadata, "chase_tracker_labels", canonical)
+
+
+def _chase_tracker_value(value: Any, metadata: dict[str, Any], localized_terms: dict[str, str]) -> str:
+    value_text = str(value)
+    localized = _chase_tracker_label(metadata, value_text)
+    if localized != value_text:
+        return localized
+    return _localize_text(value_text, localized_terms)
+
+
+def _display_chase_location_ref(location_id: Any, localized_terms: dict[str, str]) -> str:
+    raw_id = str(location_id or "unknown")
+    display = _localize_text(raw_id.replace("-", " "), localized_terms)
+    if display == raw_id.replace("-", " "):
+        return raw_id
+    return f"{display} ({raw_id})"
+
+
+def _chase_round_summary(chase_round: dict[str, Any], metadata: dict[str, Any], localized_terms: dict[str, str]) -> str:
+    play_language = str(metadata.get("play_language") or "")
+    localized = chase_round.get("localized_text")
+    if isinstance(localized, dict):
+        language_value = localized.get(play_language)
+        if isinstance(language_value, dict) and isinstance(language_value.get("summary"), str):
+            return _localize_text(language_value["summary"], localized_terms)
+    if isinstance(chase_round.get("summary"), str):
+        return _localize_text(chase_round["summary"], localized_terms)
+    return ""
+
+
+def _chase_tracker_required_texts(chase_state: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
+    localized_terms = _metadata_localized_terms(metadata)
+    required_texts: list[str] = []
+    for key in ("chase_id", "status", "outcome"):
+        if chase_state.get(key) not in (None, "", [], {}):
+            value = chase_state[key]
+            required_texts.append(str(value))
+            rendered_value = _chase_tracker_value(value, metadata, localized_terms)
+            if rendered_value != str(value):
+                required_texts.append(rendered_value)
+    if chase_state.get("round") not in (None, "", [], {}):
+        required_texts.append(f"{_chase_tracker_label(metadata, 'Round')}: {chase_state['round']}")
+
+    participants = chase_state.get("participants", [])
+    if isinstance(participants, list):
+        for participant in participants:
+            if not isinstance(participant, dict):
+                continue
+            for key in ("id", "name", "role", "position"):
+                if participant.get(key) in (None, "", [], {}):
+                    continue
+                value = participant[key]
+                if key == "role":
+                    required_texts.append(_chase_tracker_value(value, metadata, localized_terms))
+                elif key == "position":
+                    required_texts.append(_display_chase_location_ref(value, localized_terms))
+                else:
+                    required_texts.append(str(value))
+            if participant.get("base_mov") not in (None, "", [], {}) and participant.get("adjusted_mov") not in (None, "", [], {}):
+                required_texts.append(f"MOV {participant['base_mov']} -> {participant['adjusted_mov']}")
+            if participant.get("dex") not in (None, "", [], {}):
+                required_texts.append(f"DEX {participant['dex']}")
+            if participant.get("movement_actions") not in (None, "", [], {}):
+                required_texts.append(f"{_chase_tracker_label(metadata, 'movement_actions')} {participant['movement_actions']}")
+
+    dex_order = chase_state.get("dex_order", [])
+    if isinstance(dex_order, list):
+        required_texts.extend(str(participant_id) for participant_id in dex_order if participant_id not in (None, "", [], {}))
+
+    location_chain = chase_state.get("location_chain", [])
+    if isinstance(location_chain, list):
+        for location in location_chain:
+            if not isinstance(location, dict):
+                continue
+            if location.get("id") not in (None, "", [], {}):
+                required_texts.append(str(location["id"]))
+                required_texts.append(_display_chase_location_ref(location["id"], localized_terms))
+            for key in ("label", "difficulty", "skill"):
+                if location.get(key) in (None, "", [], {}):
+                    continue
+                value = location[key]
+                if key == "label":
+                    required_texts.append(_chase_tracker_value(value, metadata, localized_terms))
+                else:
+                    required_texts.append(_localize_text(str(value), localized_terms))
+
+    rounds = chase_state.get("rounds", [])
+    if isinstance(rounds, list):
+        for chase_round in rounds:
+            if not isinstance(chase_round, dict):
+                continue
+            summary = _chase_round_summary(chase_round, metadata, localized_terms)
+            if summary:
+                required_texts.append(summary)
+    return list(dict.fromkeys(text for text in required_texts if text))
+
+
+def _chase_tracker_text_rendered(
+    text: str,
+    battle_report: str,
+    metadata: dict[str, Any],
+    localized_terms: dict[str, str],
+) -> bool:
+    candidates = {text, _localize_text(text, localized_terms), _chase_tracker_value(text, metadata, localized_terms)}
+    return any(candidate and candidate in battle_report for candidate in candidates)
+
+
+def _battle_report_chase_tracker_findings(
+    run_id: str,
+    campaign_dir: Path,
+    metadata: dict[str, Any],
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    chase_state = _read_json(campaign_dir / "save" / "chase.json", {})
+    if not isinstance(chase_state, dict) or not chase_state:
+        return []
+    localized_terms = _metadata_localized_terms(metadata)
+    required_texts = _chase_tracker_required_texts(chase_state, metadata)
+    missing_texts = [
+        text
+        for text in required_texts
+        if not _chase_tracker_text_rendered(text, battle_report, metadata, localized_terms)
+    ]
+    if not missing_texts:
+        return []
+    return [_finding(
+        "battle_report_chase_tracker_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_texts)} of {len(required_texts)} chase tracker records from save/chase.json.",
+        "Regenerate battle-report.md so Chase Tracker renders save/chase.json participants, DEX order, location chain, rounds, and outcome.",
+        run_id=run_id,
+        missing_chase_count=len(missing_texts),
+        required_chase_count=len(required_texts),
+        missing_chase_samples=missing_texts[:30],
     )]
 
 
@@ -1627,6 +1770,12 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_investigator_creation_findings(
         run_id,
         run_dir,
+        campaign_dir,
+        metadata,
+        battle_report,
+    ))
+    findings.extend(_battle_report_chase_tracker_findings(
+        run_id,
         campaign_dir,
         metadata,
         battle_report,
