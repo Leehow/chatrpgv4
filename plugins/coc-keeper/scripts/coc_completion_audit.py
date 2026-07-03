@@ -456,6 +456,11 @@ def _semantic_quality_passes(value: Any) -> bool:
     return score >= 4
 
 
+def _has_non_empty_reason(value: dict[str, Any]) -> bool:
+    reason = value.get("reason")
+    return isinstance(reason, str) and bool(reason.strip())
+
+
 def _semantic_support_findings(
     root: Path,
     index: dict[str, Any],
@@ -705,6 +710,15 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
                         run_id=run_id,
                         key=dimension,
                     ))
+                if not _has_non_empty_reason(coverage_value):
+                    findings.append(_finding(
+                        "semantic_coverage_dimension_invalid",
+                        "test_gap",
+                        f"{run_id} coverage.{dimension}.reason is not a non-empty string.",
+                        "Regenerate semantic-eval-result.json so each coverage dimension has a non-empty reason.",
+                        run_id=run_id,
+                        key=dimension,
+                    ))
         if not isinstance(semantic.get("quality"), dict) or not semantic.get("quality"):
             findings.append(_finding(
                 "semantic_quality_missing",
@@ -748,6 +762,15 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
                         "test_gap",
                         f"{run_id} quality.{dimension}.passed is not a boolean.",
                         "Regenerate semantic-eval-result.json so each quality dimension has score, passed, and reason.",
+                        run_id=run_id,
+                        key=dimension,
+                    ))
+                if not _has_non_empty_reason(quality_value):
+                    findings.append(_finding(
+                        "semantic_quality_dimension_invalid",
+                        "test_gap",
+                        f"{run_id} quality.{dimension}.reason is not a non-empty string.",
+                        "Regenerate semantic-eval-result.json so each quality dimension has a non-empty reason.",
                         run_id=run_id,
                         key=dimension,
                     ))
