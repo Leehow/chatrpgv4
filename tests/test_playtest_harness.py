@@ -156,6 +156,11 @@ def assert_player_readable_state_ids_absent(text: str, ids: list[str]) -> None:
         assert f"- {state_id} -" not in text
 
 
+def assert_player_readable_event_prefixes_absent(text: str, event_labels: list[str]) -> None:
+    for event_label in event_labels:
+        assert f"- {event_label}:" not in text
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -271,6 +276,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         scene_replay,
         ["basement", "corbitt-dagger", "own-weapon-clue", "corbitt-defeated"],
     )
+    assert_player_readable_event_prefixes_absent(
+        scene_replay,
+        ["damage", "sanity", "combat", "bout of madness", "chase", "session ending"],
+    )
     assert "自家地下室" in scene_replay
     assert "地下室楼梯" in scene_replay
     assert "推骰地下室搜索" in scene_replay
@@ -278,9 +287,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "伤害: 5 HP" in scene_replay
     assert "DEX 检定" in scene_replay
     assert "ada-king-haunting -" not in scene_replay
-    assert "- damage: 艾达·金 -" in scene_replay
     assert "艾达·金 - 艾达·金" not in scene_replay
-    assert "- combat: 艾达·金用借助外套战技" in scene_replay
+    assert "- 艾达·金用借助外套战技" in scene_replay
     assert_terms_absent(scene_replay, ["own-weapon clue", "three-Y eye symbol", "spare bedroom", "basement stairs", "pushed 地下室 search"])
     assert_terms_absent(scene_replay, ["Damage:", "DEX roll"])
     assert "## Actual Play Replay" in battle_text
@@ -506,8 +514,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert has_cjk(scene_replay)
     assert bullet_count(scene_replay) >= significant_scene_replay_count(run_dir)
     assert_player_readable_state_ids_absent(scene_replay, ["print-shop-roof", "ledger-clue"])
+    assert_player_readable_event_prefixes_absent(scene_replay, ["chase", "session ending"])
     assert "ada-king-chase -" not in scene_replay
-    assert "- chase: 艾达·金 -" in scene_replay
     assert "艾达·金在印刷店屋顶发现内森尼尔·克劳" in scene_replay
     assert "湿滑天窗" in scene_replay
     assert_terms_absent(scene_replay, ["print shop roof", "print-shop roof", "rain gutter", "locked roof door barrier", "slick 天窗"])
@@ -696,6 +704,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
         scene_replay,
         ["knott-office", "deed-note", "fresh-scratches"],
     )
+    assert_player_readable_event_prefixes_absent(scene_replay, ["session ending"])
     clues_found = section_text(battle_text, "## Clues Found")
     assert_player_readable_state_ids_absent(clues_found, ["deed-note", "fresh-scratches"])
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))

@@ -452,6 +452,26 @@ def _report_state_id_leaks(battle_report: str, events: list[dict[str, Any]]) -> 
     return sorted(set(leaks))
 
 
+def _scene_replay_event_type_labels(events: list[dict[str, Any]]) -> list[str]:
+    labels: list[str] = []
+    for event in events:
+        event_type = event.get("type")
+        if event_type in SCENE_REPLAY_EVENT_TYPES:
+            labels.append(str(event_type).replace("_", " "))
+    return sorted(set(labels), key=len, reverse=True)
+
+
+def _scene_replay_event_type_label_leaks(battle_report: str, events: list[dict[str, Any]]) -> list[str]:
+    section = _section_text(battle_report, "Scene-by-Scene Replay")
+    if not section:
+        return []
+    leaks: list[str] = []
+    for label in _scene_replay_event_type_labels(events):
+        if f"- {label}:" in section:
+            leaks.append(label)
+    return sorted(set(leaks))
+
+
 def _character_display_names(characters: list[dict[str, Any]], terms: dict[str, str]) -> list[str]:
     names: list[str] = []
     for character in characters:
@@ -1051,6 +1071,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Player-readable report sections expose internal state ids: " + ", ".join(state_id_leaks),
             "Render scene and clue summaries without machine ids in player-readable report sections; reserve canonical ids for Mechanical Log, Chase Tracker, and stored JSON.",
+        ))
+    scene_event_label_leaks = _scene_replay_event_type_label_leaks(battle_report, context["events"])
+    if active_profile and scene_event_label_leaks:
+        findings.append(_finding(
+            "report_event_type_labels_not_localized",
+            "report_gap",
+            "medium",
+            "Scene-by-Scene Replay exposes raw event type labels: " + ", ".join(scene_event_label_leaks),
+            "Render scene replay entries as player-readable summaries without raw event type prefixes; reserve event type enums for logs and Mechanical Log.",
         ))
     repeated_actor_labels = _report_repeated_actor_labels(battle_report, context["characters"], locale_terms)
     if active_profile and repeated_actor_labels:

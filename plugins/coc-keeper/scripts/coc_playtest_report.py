@@ -416,9 +416,9 @@ def _format_scene_replay_event(
     event_label = event_type.replace("_", " ")
     actor = _display_roll_actor(event.get("actor", "unknown"), names)
     summary = _event_summary(event, f"{event_label} recorded", terms, play_language)
-    if actor and summary.startswith(actor):
-        return f"- {event_label}: {summary}"
-    return f"- {event_label}: {actor} - {summary}"
+    if actor in {"", "KP", "unknown"} or summary.startswith(actor):
+        return f"- {summary}"
+    return f"- {actor} - {summary}"
 
 
 def _scene_replay_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
