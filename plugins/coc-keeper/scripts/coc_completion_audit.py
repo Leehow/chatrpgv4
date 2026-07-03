@@ -974,6 +974,7 @@ def _battle_report_investigator_chronicle_findings(
     metadata: dict[str, Any],
     battle_report: str,
 ) -> list[dict[str, Any]]:
+    chronicle_section = _battle_report_anchor_section(battle_report, "Investigator Chronicle")
     party = _read_json(campaign_dir / "party.json", {})
     investigator_ids = _investigator_ids_from_party(party) if isinstance(party, dict) else []
     localized_terms = _metadata_localized_terms(metadata)
@@ -986,7 +987,7 @@ def _battle_report_investigator_chronicle_findings(
     missing_texts = [
         text
         for text in required_texts
-        if not _text_rendered_in_report(text, battle_report, localized_terms)
+        if not _text_rendered_in_report(text, chronicle_section, localized_terms)
     ]
     if not missing_texts:
         return []
