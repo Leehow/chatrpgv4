@@ -484,6 +484,37 @@ def _battle_report_feedback_text_findings(
     )]
 
 
+def _battle_report_memory_summary_findings(
+    run_id: str,
+    campaign_dir: Path,
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    memories = _read_jsonl(campaign_dir / "memory" / "session-summaries.jsonl")
+    required_summaries = [
+        row["summary"].strip()
+        for row in memories
+        if isinstance(row.get("summary"), str)
+        and row["summary"].strip()
+    ]
+    missing_summaries = [
+        summary
+        for summary in required_summaries
+        if summary not in battle_report
+    ]
+    if not missing_summaries:
+        return []
+    return [_finding(
+        "battle_report_memory_summaries_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_summaries)} of {len(required_summaries)} source memory summaries from memory/session-summaries.jsonl.",
+        "Regenerate battle-report.md so Story Recap renders each structured source memory summary.",
+        run_id=run_id,
+        missing_memory_count=len(missing_summaries),
+        required_memory_count=len(required_summaries),
+        missing_memory_samples=missing_summaries[:5],
+    )]
+
+
 def _markdown_headings(markdown: str) -> set[str]:
     return {
         line.strip()
@@ -1370,6 +1401,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_mechanical_log_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_feedback_text_findings(run_id, run_dir, battle_report))
+    findings.extend(_battle_report_memory_summary_findings(run_id, campaign_dir, battle_report))
 
     rulebook_audit = _read_text(artifacts_dir / "rulebook-audit.md")
     findings.extend(_rulebook_audit_section_findings(run_id, rulebook_audit))
