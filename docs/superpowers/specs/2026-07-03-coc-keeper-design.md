@@ -973,6 +973,7 @@ Required sections:
 ## Run Setup
 ## Module
 ## Character Dossier
+## Investigator Chronicle
 ## Session Transcript
 ## Major Player Decisions
 ## Mechanical Log
@@ -985,7 +986,7 @@ Required sections:
 ## Player Feedback On KP
 ```
 
-The battle report should read like a detailed actual-play replay. It should identify the campaign, module, reusable investigators, key parameters, virtual player utterances, KP utterances, mechanical rolls, durable state changes, story memory, and player feedback on the KP experience. It should avoid exposing Keeper-only material unless the report is explicitly marked as evaluator-only.
+The battle report should read like a detailed actual-play replay. It should identify the campaign, module, reusable investigators, key parameters, virtual player utterances, KP utterances, mechanical rolls, durable state changes, story memory, and player feedback on the KP experience. `## Investigator Chronicle` must render sandbox investigator `history.jsonl` and `development.jsonl` entries so the evaluator can see what would carry into a later story without mutating the real investigator library. It should avoid exposing Keeper-only material unless the report is explicitly marked as evaluator-only.
 
 ### Suite Report Output
 
@@ -999,7 +1000,7 @@ The `semantic-artifact` evaluator is the preferred path when Codex is available 
 
 Every serious playtest run must also generate `rulebook-audit.md` with `coc_playtest_audit.py`. This is the control loop for deciding whether the battle report resembles a real Call of Cthulhu session as described in the Keeper Rulebook, rather than a smoke-test transcript with nicer formatting.
 
-`coc_playtest_harness.py` provides reproducible baselines for this loop. The `rulebook-smoke` profile should generate a small The Haunting-derived run with a real opening hook, player intent, Keeper rulings, an investigation roll, clue flow, a sanity prompt, memory, feedback, and then run the report and audit generators. The `haunting-module` profile should generate a module-level The Haunting transcript with Mr. Knott, Arty Wilmot, Chapel clues, The Old Corbitt Place, Bed Attack, basement hazards, The Floating Knife, Corbitt's Hiding Place, Corbitt combat, final HP/SAN, rewards, explicit Chase Summary non-applicability, and player feedback. The `chase-drill` profile should generate a rulebook chase drill that writes `save/chase.json` and shows speed roll, MOV, movement actions, location chain, DEX order, hazard, barrier, conflict, and why the quarry escapes.
+`coc_playtest_harness.py` provides reproducible baselines for this loop. The `rulebook-smoke` profile should generate a small The Haunting-derived run with a real opening hook, player intent, Keeper rulings, an investigation roll, clue flow, a sanity prompt, memory, feedback, and then run the report and audit generators. The `haunting-module` profile should generate a module-level The Haunting transcript with Mr. Knott, Arty Wilmot, Chapel clues, The Old Corbitt Place, Bed Attack, basement hazards, The Floating Knife, Corbitt's Hiding Place, Corbitt combat, final HP/SAN, rewards, explicit Chase Summary non-applicability, sandbox investigator `history.jsonl` and `development.jsonl`, and player feedback. The `chase-drill` profile should generate a rulebook chase drill that writes `save/chase.json`, writes sandbox investigator `history.jsonl` and `development.jsonl`, and shows speed roll, MOV, movement actions, location chain, DEX order, hazard, barrier, conflict, and why the quarry escapes.
 
 The audit loop is:
 
@@ -1068,6 +1069,7 @@ Before claiming a Keeper implementation is ready for real play, it must pass:
 - no state corruption after save/resume
 - no unlogged rolls
 - no permanent investigator changes written from a sandbox run
+- no `investigator_chronicle_missing` or `investigator_chronicle_not_rendered` findings in serious active runs
 - evaluator score of at least 4 for state integrity and spoiler safety
 
 ## Version Roadmap

@@ -86,6 +86,28 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
             "traits": ["Patient", "Keeps notes before acting"],
         },
     })
+    write_jsonl(investigator_dir / "history.jsonl", [
+        {
+            "schema_version": 1,
+            "type": "scenario_experience",
+            "campaign_id": "run-1",
+            "scenario_id": "the-haunting",
+            "summary": "Ada survived the cold-room investigation and kept the disturbed desk clue.",
+            "final_hp": 12,
+            "final_san": 55,
+        }
+    ])
+    write_jsonl(investigator_dir / "development.jsonl", [
+        {
+            "schema_version": 1,
+            "type": "development_phase_summary",
+            "campaign_id": "run-1",
+            "status": "pending_player_rolls",
+            "skill_checks_earned": ["Library Use"],
+            "rewards": ["No SAN reward yet"],
+            "carryover_notes": "Resolve skill improvement before importing Ada into another scenario.",
+        }
+    ])
     write_jsonl(run_dir / "transcript.jsonl", [
         {
             "turn": 1,
@@ -186,6 +208,15 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "Meaningful Locations: A cramped bookshop near Scollay Square." in battle_text
     assert "Treasured Possessions: A brass magnifier with a cracked handle." in battle_text
     assert "Traits: Patient; Keeps notes before acting" in battle_text
+    assert "## Investigator Chronicle" in battle_text
+    assert "History:" in battle_text
+    assert "Ada survived the cold-room investigation" in battle_text
+    assert "Development:" in battle_text
+    assert "Development Phase Summary" in battle_text
+    assert "development_phase_summary" not in battle_text
+    assert "Status: pending_player_rolls" in battle_text
+    assert "Skill Checks Earned: Library Use" in battle_text
+    assert "Carryover Notes: Resolve skill improvement before importing Ada into another scenario." in battle_text
     assert "## Session Transcript" in battle_text
     assert "KP: The room is cold." in battle_text
     assert "Player: I search the desk." in battle_text

@@ -110,6 +110,8 @@ def test_coc_playtest_skill_documents_battle_report_inputs():
         "party.json",
         "scenario.json",
         "character.json",
+        "history.jsonl",
+        "development.jsonl",
         "transcript.jsonl",
         "rolls.jsonl",
         "events.jsonl",
@@ -117,7 +119,21 @@ def test_coc_playtest_skill_documents_battle_report_inputs():
         "player-feedback.jsonl",
         "## Run Setup",
         "## Character Dossier",
+        "## Investigator Chronicle",
         "## Player Feedback On KP",
+    ]
+    for term in required_terms:
+        assert term in text
+
+
+def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
+    text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
+    required_terms = [
+        "## Investigator Chronicle",
+        "history.jsonl",
+        "development.jsonl",
+        "investigator_chronicle_missing",
+        "playtests prove investigator reuse without writing sandbox changes into the real investigator library",
     ]
     for term in required_terms:
         assert term in text

@@ -132,8 +132,12 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
     characters: list[dict[str, Any]] = []
 
     for investigator_id in investigator_ids:
-        character = _read_json(sandbox_investigators / investigator_id / "character.json", {})
+        path = sandbox_investigators / investigator_id / "character.json"
+        character = _read_json(path, {})
         if character:
+            character["_history"] = _read_jsonl(path.parent / "history.jsonl")
+            character["_development"] = _read_jsonl(path.parent / "development.jsonl")
+            character["_inventory_history"] = _read_jsonl(path.parent / "inventory-history.jsonl")
             characters.append(character)
 
     if characters or not sandbox_investigators.exists():
@@ -142,6 +146,9 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
     for path in sorted(sandbox_investigators.glob("*/character.json")):
         character = _read_json(path, {})
         if character:
+            character["_history"] = _read_jsonl(path.parent / "history.jsonl")
+            character["_development"] = _read_jsonl(path.parent / "development.jsonl")
+            character["_inventory_history"] = _read_jsonl(path.parent / "inventory-history.jsonl")
             characters.append(character)
     return characters
 
@@ -221,6 +228,27 @@ def _character_backstory_gaps(characters: list[dict[str, Any]]) -> list[str]:
         ]
         if missing:
             gaps.append(f"{investigator_id} missing {', '.join(missing)}")
+    return gaps
+
+
+def _character_chronicle_gaps(characters: list[dict[str, Any]], rolls: list[dict[str, Any]]) -> list[str]:
+    if not characters:
+        return ["no investigator character files loaded"]
+
+    earned_skill_checks = {
+        event.get("actor")
+        for event in rolls
+        if event.get("payload", {}).get("skill_check_earned")
+    }
+    gaps: list[str] = []
+    for character in characters:
+        investigator_id = str(character.get("id") or character.get("investigator_id") or "unknown")
+        history = character.get("_history", [])
+        development = character.get("_development", [])
+        if not history:
+            gaps.append(f"{investigator_id} missing history.jsonl scenario experience")
+        if investigator_id in earned_skill_checks and not development:
+            gaps.append(f"{investigator_id} earned skill checks but lacks development.jsonl")
     return gaps
 
 
@@ -452,6 +480,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Record the core Call of Cthulhu investigator backstory fields: description, ideology/beliefs, significant people, meaningful locations, treasured possessions, and traits.",
         ))
 
+    chronicle_gaps = _character_chronicle_gaps(context["characters"], context["rolls"]) if active_profile else []
+    if chronicle_gaps:
+        findings.append(_finding(
+            "investigator_chronicle_missing",
+            "system_gap",
+            "medium",
+            "; ".join(chronicle_gaps),
+            "Write sandbox investigator history.jsonl and development.jsonl records so the playtest proves cross-campaign carryover without mutating the real investigator library.",
+        ))
+
     non_chinese_turns = _non_chinese_dialogue_turns(transcript)
     if active_profile and non_chinese_turns:
         findings.append(_finding(
@@ -543,6 +581,17 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "high",
             "Battle report does not include the Actual Play Replay section for visible table dialogue.",
             "Render the KP/player/system transcript as an actual-play replay before the structured transcript appendix.",
+        ))
+    if active_profile and (
+        "## Investigator Chronicle" not in battle_report
+        or "No investigator chronicle recorded." in battle_report
+    ):
+        findings.append(_finding(
+            "investigator_chronicle_not_rendered",
+            "report_gap",
+            "medium",
+            "Battle report does not render reusable investigator history and development records.",
+            "Render sandbox investigator history.jsonl and development.jsonl in an Investigator Chronicle section.",
         ))
 
     scene_replay = _section_text(battle_report, "Scene-by-Scene Replay") if active_profile else ""

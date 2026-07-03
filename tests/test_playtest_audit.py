@@ -525,3 +525,29 @@ def test_active_audit_requires_investigator_backstory_fields(tmp_path):
 
     assert audit["result"] == "fail"
     assert "character_backstory_missing" in finding_codes(audit)
+
+
+def test_active_audit_requires_investigator_chronicle_and_development(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "multi_profile_pressure"
+    metadata_path.write_text(json.dumps(metadata))
+    character_path = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king" / "character.json"
+    character = json.loads(character_path.read_text())
+    character["backstory"] = {
+        "description": "Ada is a careful investigator.",
+        "ideology_beliefs": ["Records matter."],
+        "significant_people": ["Professor Hart."],
+        "meaningful_locations": ["The archive."],
+        "treasured_possessions": ["Brass magnifier."],
+        "traits": ["Patient"],
+    }
+    character_path.write_text(json.dumps(character))
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "investigator_chronicle_missing" in finding_codes(audit)
+    assert "investigator_chronicle_not_rendered" in finding_codes(audit)

@@ -273,6 +273,17 @@ def _write_jsonl(path: Path, events: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
 
 
+def _write_investigator_chronicle(
+    investigator_dir: Path,
+    history: list[dict[str, Any]],
+    development: list[dict[str, Any]],
+    inventory: list[dict[str, Any]] | None = None,
+) -> None:
+    _write_jsonl(investigator_dir / "history.jsonl", history)
+    _write_jsonl(investigator_dir / "development.jsonl", development)
+    _write_jsonl(investigator_dir / "inventory-history.jsonl", inventory or [])
+
+
 def _localize_text(text: str, glossary: dict[str, str]) -> str:
     localized = text
     for canonical, replacement in sorted(glossary.items(), key=lambda item: len(item[0]), reverse=True):
@@ -923,6 +934,34 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "traits": ["谨慎记笔记", "先询问目击者再进入危险地点"],
         },
     })
+    _write_investigator_chronicle(
+        investigator_dir,
+        [
+            {
+                "schema_version": 1,
+                "type": "scenario_experience",
+                "campaign_id": run_id,
+                "scenario_id": "the-haunting",
+                "summary": "艾达·金在 The Haunting 中幸存，摧毁科比特；最终 HP: 3；最终 SAN: 49。",
+                "final_hp": 3,
+                "final_san": 49,
+                "notable_events": ["逼退阿蒂进入剪报档案室", "从沉思教堂追查到地下室", "用科比特自己的匕首摧毁他"],
+                "unresolved_threads": ["沉思教堂残余记录可能指向后续模组"],
+            }
+        ],
+        [
+            {
+                "schema_version": 1,
+                "type": "development_phase_summary",
+                "campaign_id": run_id,
+                "status": "pending_player_rolls",
+                "skill_checks_earned": ["Persuade", "Library Use", "Spot Hidden", "Dodge", "Fighting (Brawl)"],
+                "rewards": ["恢复 4 SAN", "诺特先生支付报酬和 30 美元奖金"],
+                "permanent_changes": ["记录临时疯狂经历", "保留科比特宅邸幸存经历"],
+                "carryover_notes": "下次导入前先结算成长检定，并决定是否把地下室创伤写入伤疤、恐惧或关系条目。",
+            }
+        ],
+    )
 
     _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
         {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Mr. Knott 把一枚旧钥匙推到桌面中央，说只要 Ada 能查清 Corbitt House 为什么赶走房客，他每天付 20 美元。"},
@@ -1209,6 +1248,34 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "traits": ["观察细致", "遇到追逐时会先找遮蔽物和退路"],
         },
     })
+    _write_investigator_chronicle(
+        investigator_dir,
+        [
+            {
+                "schema_version": 1,
+                "type": "scenario_experience",
+                "campaign_id": run_id,
+                "scenario_id": "rooftop-chase-drill",
+                "summary": "艾达·金带着邪教账本逃脱；最终 HP: 12；最终 SAN: 55。",
+                "final_hp": 12,
+                "final_san": 55,
+                "notable_events": ["在印刷店屋顶确认账本", "穿过湿滑天窗危险点", "通过上锁屋顶门并甩开追赶者"],
+                "unresolved_threads": ["邪教账本可指向后续仓库调查"],
+            }
+        ],
+        [
+            {
+                "schema_version": 1,
+                "type": "development_phase_summary",
+                "campaign_id": run_id,
+                "status": "pending_player_rolls",
+                "skill_checks_earned": ["Spot Hidden", "Dodge", "Locksmith", "Stealth"],
+                "rewards": ["保留邪教账本线索"],
+                "permanent_changes": ["记录屋顶追逐经验"],
+                "carryover_notes": "账本线索可带入后续模组；结算成长检定后再导入长期角色卡。",
+            }
+        ],
+    )
     _write_json(campaign_dir / "save" / "chase.json", {
         "schema_version": 1,
         "chase_id": "rooftop-chase",
@@ -1467,6 +1534,34 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             "traits": ["谨慎记笔记", "愿意听完同伴的鲁莽想法再提出风险"],
         },
     })
+    _write_investigator_chronicle(
+        investigator_dir,
+        [
+            {
+                "schema_version": 1,
+                "type": "scenario_experience",
+                "campaign_id": run_id,
+                "scenario_id": "the-haunting-opening-pressure",
+                "summary": "艾达·金经历了三种玩家风格压测，确认公开记录、鲁莽进屋和规则质疑都能进入同一故事。",
+                "final_hp": 12,
+                "final_san": 55,
+                "notable_events": ["谨慎路线找到科比特与沉思教堂线索", "鲁莽路线通过推骰发现新划痕", "meta 质疑获得独立规则解释"],
+                "unresolved_threads": ["后续故事入口保留为沉思教堂记录"],
+            }
+        ],
+        [
+            {
+                "schema_version": 1,
+                "type": "development_phase_summary",
+                "campaign_id": run_id,
+                "status": "pending_player_rolls",
+                "skill_checks_earned": ["Library Use", "Spot Hidden"],
+                "rewards": ["保留三种玩家画像的 KP 裁定记录"],
+                "permanent_changes": ["记录科比特宅邸开局调查路线"],
+                "carryover_notes": "后续故事入口保留为沉思教堂记录；导入正式战役前由玩家选择采用哪条路线为正史。",
+            }
+        ],
+    )
     _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
         {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "诺特先生把钥匙和预付款放在桌上，说明科比特宅邸又把房客吓跑了。"},
         {"turn": 2, "role": "player_simulator", "speaker": "Careful Player", "player_profile": "careful_investigator", "mode": "play", "intent": "request careful research route", "text": "我先查房契和旧报纸，不急着进屋；我想知道公开记录里有没有科比特或教堂线索。"},

@@ -66,6 +66,13 @@ def campaign_roll_events(run_dir: Path) -> list[dict]:
     return events
 
 
+def investigator_jsonl(run_dir: Path, investigator_id: str, filename: str) -> list[dict]:
+    import json
+
+    path = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id / filename
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def significant_scene_replay_count(run_dir: Path) -> int:
     significant_types = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
     return sum(1 for event in campaign_state_events(run_dir) if event.get("type") in significant_types)
@@ -196,6 +203,17 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Treasured Possessions: 裂柄铜放大镜" in character_dossier
     assert "Traits: 谨慎记笔记" in character_dossier
     assert "Ada King" not in character_dossier
+    assert investigator_jsonl(run_dir, "ada-king-haunting", "history.jsonl")
+    assert investigator_jsonl(run_dir, "ada-king-haunting", "development.jsonl")
+    chronicle = section_text(battle_text, "## Investigator Chronicle")
+    assert "History:" in chronicle
+    assert "艾达·金在 The Haunting 中幸存" in chronicle
+    assert "最终 HP: 3" in chronicle
+    assert "最终 SAN: 49" in chronicle
+    assert "Development:" in chronicle
+    assert "Status: pending_player_rolls" in chronicle
+    assert "Skill Checks Earned: Persuade; Library Use; Spot Hidden; Dodge; Fighting (Brawl)" in chronicle
+    assert "Carryover Notes: 下次导入前先结算成长检定" in chronicle
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
@@ -396,6 +414,17 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Treasured Possessions: 裂柄铜放大镜" in character_dossier
     assert "Traits: 观察细致" in character_dossier
     assert "Ada King" not in character_dossier
+    assert investigator_jsonl(run_dir, "ada-king-chase", "history.jsonl")
+    assert investigator_jsonl(run_dir, "ada-king-chase", "development.jsonl")
+    chronicle = section_text(battle_text, "## Investigator Chronicle")
+    assert "History:" in chronicle
+    assert "艾达·金带着邪教账本逃脱" in chronicle
+    assert "最终 HP: 12" in chronicle
+    assert "最终 SAN: 55" in chronicle
+    assert "Development:" in chronicle
+    assert "Status: pending_player_rolls" in chronicle
+    assert "Skill Checks Earned: Spot Hidden; Dodge; Locksmith; Stealth" in chronicle
+    assert "Carryover Notes: 账本线索可带入后续模组" in chronicle
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
@@ -551,6 +580,15 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Treasured Possessions: 裂柄铜放大镜" in character_dossier
     assert "Traits: 谨慎记笔记" in character_dossier
     assert "Ada King" not in character_dossier
+    assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")
+    assert investigator_jsonl(run_dir, "ada-king-pressure", "development.jsonl")
+    chronicle = section_text(battle_text, "## Investigator Chronicle")
+    assert "History:" in chronicle
+    assert "艾达·金经历了三种玩家风格压测" in chronicle
+    assert "Development:" in chronicle
+    assert "Status: pending_player_rolls" in chronicle
+    assert "Skill Checks Earned: Library Use; Spot Hidden" in chronicle
+    assert "Carryover Notes: 后续故事入口保留为沉思教堂记录" in chronicle
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert "careful_investigator:" in feedback

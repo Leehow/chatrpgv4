@@ -70,6 +70,8 @@ Before generating reports, record the run context:
 - `sandbox/.coc/campaigns/<campaign-id>/party.json`: investigator ids used in the playtest.
 - `sandbox/.coc/campaigns/<campaign-id>/scenario/scenario.json`: module title, scenario id, source PDF, opening scene.
 - `sandbox/.coc/investigators/<investigator-id>/character.json`: characteristics, derived values, skills, occupation, and reusable investigator id.
+- `sandbox/.coc/investigators/<investigator-id>/history.jsonl`: sandbox-only scenario experience, final state, notable events, and unresolved threads that could carry into a later story.
+- `sandbox/.coc/investigators/<investigator-id>/development.jsonl`: sandbox-only investigator development phase summary, skill checks earned, rewards, permanent-change candidates, and carryover notes.
 - `transcript.jsonl`: every virtual player, KP, system, and meta turn with role, text, mode, and player intent when available. In serious active runs, visible KP and virtual-player dialogue should follow `play_language`, defaulting to `zh-Hans`; for `zh-Hans`, names and setting terms should use `localized_terms` such as Chinese transliterations or conventional translated names, while machine markers, JSON keys, skill names, rule enum values, and system roll text remain stable.
 - `sandbox/.coc/campaigns/<campaign-id>/logs/rolls.jsonl`: rolls and mechanical outcomes.
 - `sandbox/.coc/campaigns/<campaign-id>/logs/events.jsonl`: scenes, clues, state changes, combat, chase, sanity, and other durable events.
@@ -83,6 +85,7 @@ Before generating reports, record the run context:
 - `## Run Setup`
 - `## Module`
 - `## Character Dossier`
+- `## Investigator Chronicle`
 - `## Scene-by-Scene Replay`
 - `## Actual Play Replay`
 - `## Session Transcript`
@@ -92,7 +95,9 @@ Before generating reports, record the run context:
 
 `## Scene-by-Scene Replay` should render each significant structured play event from `events.jsonl` before the transcript appendix: scene, clue, damage, sanity, combat, chase, and session-ending events. This section is a table-readable episode map for the actual play report, not just a list of opening locations.
 
-Flag spoiler leaks, state errors, unlogged rolls, poor pacing, and incorrect rules.
+`## Investigator Chronicle` should render sandbox `history.jsonl` and `development.jsonl`, proving that the playtest can describe what would carry into a later story without writing sandbox changes into the real investigator library.
+
+Flag spoiler leaks, state errors, unlogged rolls, poor pacing, incorrect rules, `investigator_chronicle_missing`, and `investigator_chronicle_not_rendered`.
 
 ## Rulebook Audit Loop
 

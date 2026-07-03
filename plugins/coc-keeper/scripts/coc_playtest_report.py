@@ -510,6 +510,9 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
         path = sandbox_investigators / investigator_id / "character.json"
         character = _read_json(path, {})
         if character:
+            character["_history"] = _read_jsonl(path.parent / "history.jsonl")
+            character["_development"] = _read_jsonl(path.parent / "development.jsonl")
+            character["_inventory_history"] = _read_jsonl(path.parent / "inventory-history.jsonl")
             characters.append(character)
 
     if characters or not sandbox_investigators.exists():
@@ -518,6 +521,9 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
     for path in sorted(sandbox_investigators.glob("*/character.json")):
         character = _read_json(path, {})
         if character:
+            character["_history"] = _read_jsonl(path.parent / "history.jsonl")
+            character["_development"] = _read_jsonl(path.parent / "development.jsonl")
+            character["_inventory_history"] = _read_jsonl(path.parent / "inventory-history.jsonl")
             characters.append(character)
     return characters
 
@@ -618,6 +624,122 @@ def _format_character(character: dict[str, Any], localized_terms: dict[str, str]
     )
     lines.append("  - Skills: " + _format_key_values(character.get("skills", {})))
     lines.extend(_format_backstory(character.get("backstory"), terms))
+    return lines
+
+
+def _format_record_value(value: Any, localized_terms: dict[str, str]) -> str:
+    if isinstance(value, list):
+        return "; ".join(_format_record_value(item, localized_terms) for item in value)
+    if isinstance(value, dict):
+        parts = [
+            f"{key}: {_format_record_value(child, localized_terms)}"
+            for key, child in value.items()
+            if child not in (None, "", [], {})
+        ]
+        return "; ".join(parts)
+    return _localize_text(value, localized_terms)
+
+
+def _localized_record_field(
+    record: dict[str, Any],
+    key: str,
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> str | None:
+    localized = _localized_field(record, key, localized_terms, play_language)
+    if localized is not None:
+        return localized
+    if record.get(key) not in (None, "", [], {}):
+        return _format_record_value(record[key], localized_terms)
+    return None
+
+
+def _format_record_type(value: Any, fallback: str) -> str:
+    if value in (None, "", [], {}):
+        return fallback
+    return str(value).replace("_", " ").title()
+
+
+def _format_history_entry(
+    record: dict[str, Any],
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> list[str]:
+    summary = _localized_record_field(record, "summary", localized_terms, play_language)
+    lines = [f"    - {summary or record.get('type', 'history entry')}"]
+    for key, label in [
+        ("final_hp", "Final HP"),
+        ("final_san", "Final SAN"),
+        ("notable_events", "Notable Events"),
+        ("unresolved_threads", "Unresolved Threads"),
+    ]:
+        value = _localized_record_field(record, key, localized_terms, play_language)
+        if value is not None:
+            lines.append(f"      - {label}: {value}")
+    return lines
+
+
+def _format_development_entry(
+    record: dict[str, Any],
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> list[str]:
+    title = _format_record_type(record.get("type"), "Development Entry")
+    lines = [f"    - {title}"]
+    for key, label in [
+        ("status", "Status"),
+        ("skill_checks_earned", "Skill Checks Earned"),
+        ("rewards", "Rewards"),
+        ("permanent_changes", "Permanent Changes"),
+        ("carryover_notes", "Carryover Notes"),
+    ]:
+        value = _localized_record_field(record, key, localized_terms, play_language)
+        if value is not None:
+            lines.append(f"      - {label}: {value}")
+    return lines
+
+
+def _format_inventory_entry(
+    record: dict[str, Any],
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> list[str]:
+    summary = _localized_record_field(record, "summary", localized_terms, play_language)
+    lines = [f"    - {summary or record.get('type', 'inventory entry')}"]
+    for key, label in [("items", "Items"), ("cash", "Cash"), ("notes", "Notes")]:
+        value = _localized_record_field(record, key, localized_terms, play_language)
+        if value is not None:
+            lines.append(f"      - {label}: {value}")
+    return lines
+
+
+def _format_investigator_chronicle(
+    character: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> list[str]:
+    terms = localized_terms or {}
+    history = character.get("_history", [])
+    development = character.get("_development", [])
+    inventory = character.get("_inventory_history", [])
+    if not history and not development and not inventory:
+        return []
+
+    investigator_id = character.get("investigator_id") or character.get("id") or "unknown"
+    name = _localize_text(character.get("name") or investigator_id or "Unknown Investigator", terms)
+    lines = [f"- {name} ({investigator_id})"]
+    if history:
+        lines.append("  - History:")
+        for record in history:
+            lines.extend(_format_history_entry(record, terms, play_language))
+    if development:
+        lines.append("  - Development:")
+        for record in development:
+            lines.extend(_format_development_entry(record, terms, play_language))
+    if inventory:
+        lines.append("  - Inventory History:")
+        for record in inventory:
+            lines.extend(_format_inventory_entry(record, terms, play_language))
     return lines
 
 
@@ -804,6 +926,9 @@ def generate_battle_report(run_dir: Path) -> Path:
     character_lines: list[str] = []
     for character in characters:
         character_lines.extend(_format_character(character, localized_terms))
+    chronicle_lines: list[str] = []
+    for character in characters:
+        chronicle_lines.extend(_format_investigator_chronicle(character, localized_terms, str(play_language)))
     recap_lines = [
         _format_session_summary(event, localized_terms, str(play_language))
         for event in session_summaries
@@ -835,6 +960,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         "",
         "## Character Dossier",
         *_list_lines(character_lines, "- No character sheets recorded."),
+        "",
+        "## Investigator Chronicle",
+        *_list_lines(chronicle_lines, "- No investigator chronicle recorded."),
         "",
         "## Scene-by-Scene Replay",
         *_list_lines(scene_replay_lines, "- No scene replay recorded."),
