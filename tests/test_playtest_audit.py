@@ -1004,6 +1004,43 @@ def test_active_audit_rejects_unlocalized_transcript_labels(tmp_path):
     assert "transcript_labels_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_transcript_speaker_and_mode_values(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-transcript-mode-values"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "multi_profile_pressure"
+    metadata["play_language"] = "zh-Hans"
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- 这是中文场景回放。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- 第 1 轮 system: 图书馆使用：艾达·金掷出 42 / 60，结果困难成功。\n"
+        "  - 模式: roll\n"
+        "- 第 2 轮 KP: \"[meta] 我解释一下推骰风险。[/meta]\"\n"
+        "  - 模式: meta\n\n"
+        "## Session Transcript / 会话记录\n"
+        "- 第 1 轮 system: 图书馆使用：艾达·金掷出 42 / 60，结果困难成功。\n"
+        "  - 模式: roll\n"
+        "- 第 2 轮 玩家: 我继续查档案。\n"
+        "  - 模式: play\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- kp_clarity: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "transcript_labels_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_rejects_unlocalized_transcript_detail_values(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "localized-transcript-values"
     create_final_rulebook_run(run_dir)

@@ -43,6 +43,12 @@ BASE_TRANSCRIPT_LABELS = {
     "ruling": "Ruling",
 }
 
+BASE_TRANSCRIPT_MODE_LABELS = {
+    "play": "play",
+    "roll": "roll",
+    "meta": "meta",
+}
+
 BASE_REPORT_HEADING_LABELS = {
     "Battle Report": "Battle Report",
     "Run Setup": "Run Setup",
@@ -325,13 +331,18 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "speaker_labels": {
             "keeper": "KP",
             "player": "玩家",
-            "system": "system",
+            "system": "系统",
         },
         "transcript_labels": {
             "turn_format": "第 {turn} 轮",
             "mode": "模式",
             "intent": "意图",
             "ruling": "裁定",
+        },
+        "transcript_mode_labels": {
+            "play": "游玩",
+            "roll": "掷骰",
+            "meta": "超游",
         },
         "outcome_labels": {
             "critical": "大成功",
@@ -369,6 +380,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "empty_report_lines": BASE_EMPTY_REPORT_LINES,
         "speaker_labels": BASE_SPEAKER_LABELS,
         "transcript_labels": BASE_TRANSCRIPT_LABELS,
+        "transcript_mode_labels": BASE_TRANSCRIPT_MODE_LABELS,
         "outcome_labels": {},
         "difficulty_labels": {},
         "raw_payload_fallback": True,
@@ -525,13 +537,18 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "speaker_labels": {
             "keeper": "KP",
             "player": "プレイヤー",
-            "system": "system",
+            "system": "システム",
         },
         "transcript_labels": {
             "turn_format": "第 {turn} ターン",
             "mode": "モード",
             "intent": "意図",
             "ruling": "裁定",
+        },
+        "transcript_mode_labels": {
+            "play": "プレイ",
+            "roll": "ロール",
+            "meta": "メタ",
         },
         "outcome_labels": {
             "critical": "クリティカル",
@@ -569,6 +586,7 @@ def language_profile(play_language: str | None = None) -> dict[str, Any]:
     })
     profile["empty_report_lines"] = BASE_EMPTY_REPORT_LINES
     profile["speaker_labels"] = BASE_SPEAKER_LABELS
+    profile["transcript_mode_labels"] = BASE_TRANSCRIPT_MODE_LABELS
     profile["report_heading_labels"] = BASE_REPORT_HEADING_LABELS
     profile["report_field_labels"] = BASE_REPORT_FIELD_LABELS
     profile["report_value_labels"] = BASE_REPORT_VALUE_LABELS

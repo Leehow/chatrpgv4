@@ -894,6 +894,14 @@ def _transcript_turn_label(language_profile: dict[str, Any] | None, turn: Any) -
     return template.format(turn=turn)
 
 
+def _transcript_mode_label(language_profile: dict[str, Any] | None, mode: Any) -> str:
+    mode_text = str(mode)
+    labels = (language_profile or {}).get("transcript_mode_labels", {})
+    if isinstance(labels, dict) and labels.get(mode_text):
+        return str(labels[mode_text])
+    return mode_text
+
+
 def _format_transcript_event(
     event: dict[str, Any],
     rendered_text: str | None = None,
@@ -909,7 +917,8 @@ def _format_transcript_event(
     text = rendered_text if rendered_text is not None else event.get("text", "")
     lines = [f"- {_transcript_turn_label(language_profile, turn)} {speaker}: {text}"]
     if event.get("mode"):
-        lines.append(f"  - {_transcript_label(language_profile, 'mode', 'Mode')}: {event['mode']}")
+        mode = _transcript_mode_label(language_profile, event["mode"])
+        lines.append(f"  - {_transcript_label(language_profile, 'mode', 'Mode')}: {mode}")
     if event.get("intent"):
         intent = _localized_field(event, "intent", terms, play_language) or str(event["intent"])
         lines.append(f"  - {_transcript_label(language_profile, 'intent', 'Intent')}: {intent}")
@@ -944,7 +953,8 @@ def _format_actual_play_event(
         ruling = _localized_field(event, "ruling", terms, play_language) or str(event["ruling"])
         lines.append(f"  - {_transcript_label(language_profile, 'ruling', 'Ruling')}: {ruling}")
     if event.get("mode") == "roll":
-        lines.append(f"  - {_transcript_label(language_profile, 'mode', 'Mode')}: roll")
+        mode = _transcript_mode_label(language_profile, event["mode"])
+        lines.append(f"  - {_transcript_label(language_profile, 'mode', 'Mode')}: {mode}")
     return lines
 
 

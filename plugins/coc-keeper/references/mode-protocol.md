@@ -31,6 +31,10 @@ For other languages, use customary local forms for that language.
 `language_profile.empty_report_lines` stores player-visible text for empty
 report states such as no combat, no chase, no chase tracker, or no sanity
 events in the selected language.
+`language_profile.speaker_labels` stores player-visible speaker labels such as
+KP, player, and system. `language_profile.transcript_mode_labels` stores
+player-visible mode values such as play, roll, and meta while transcript JSON
+keeps the canonical enum values.
 
 Keep machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text stable. Do not translate those fields even when ordinary dialogue is Chinese; render player-visible skill display names through `localized_terms`.
 

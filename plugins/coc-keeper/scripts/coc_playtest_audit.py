@@ -202,6 +202,7 @@ CHASE_TRACKER_REQUIRED_LABELS = [
     "resolved",
 ]
 TRANSCRIPT_LABEL_REQUIRED_KEYS = ["turn_format", "mode", "intent", "ruling"]
+TRANSCRIPT_MODE_REQUIRED_VALUES = ["play", "roll", "meta"]
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -837,6 +838,13 @@ def _transcript_label_gaps(battle_report: str, metadata: dict[str, Any]) -> list
     combined = f"{actual_play}\n{transcript}"
     if labels.get("turn_format") != "Turn {turn}" and "- Turn " in combined:
         gaps.append("turn_format")
+    speaker_labels = profile.get("speaker_labels", {})
+    if not isinstance(speaker_labels, dict):
+        gaps.append("speaker.system")
+    else:
+        system_label = str(speaker_labels.get("system", "system"))
+        if system_label != "system" and " system:" in combined:
+            gaps.append("speaker.system")
     canonical_detail_labels = {
         "mode": "Mode",
         "intent": "Intent",
@@ -845,6 +853,23 @@ def _transcript_label_gaps(battle_report: str, metadata: dict[str, Any]) -> list
     for key, canonical in canonical_detail_labels.items():
         if labels.get(key) != canonical and f"\n  - {canonical}:" in combined:
             gaps.append(key)
+    mode_label = str(labels.get("mode") or "Mode")
+    mode_labels = profile.get("transcript_mode_labels", {})
+    if not isinstance(mode_labels, dict):
+        gaps.extend(f"mode.{mode}" for mode in TRANSCRIPT_MODE_REQUIRED_VALUES)
+    else:
+        for mode in TRANSCRIPT_MODE_REQUIRED_VALUES:
+            localized_mode = str(mode_labels.get(mode) or "")
+            if not localized_mode:
+                gaps.append(f"mode.{mode}")
+                continue
+            if localized_mode == mode:
+                continue
+            if (
+                f"\n  - {mode_label}: {mode}" in combined
+                or f"\n  - Mode: {mode}" in combined
+            ):
+                gaps.append(f"mode.{mode}")
     return sorted(set(gaps))
 
 
@@ -1477,7 +1502,7 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "report_gap",
             "medium",
             "Active localized transcript sections lack localized labels: " + ", ".join(transcript_label_gaps),
-            "Render Actual Play Replay and Session Transcript turn/detail labels from language_profile.transcript_labels.",
+            "Render Actual Play Replay and Session Transcript turn/detail labels from language_profile.transcript_labels, speaker labels from speaker_labels, and mode values from transcript_mode_labels.",
         ))
     transcript_detail_gaps = _transcript_detail_value_gaps(battle_report, metadata)
     if active_profile and transcript_detail_gaps:

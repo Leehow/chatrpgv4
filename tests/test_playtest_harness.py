@@ -184,9 +184,18 @@ def assert_localized_transcript_chrome(text: str) -> None:
     assert "第 1 轮" in text
     assert "\n  - 意图:" in text or "\n  - 裁定:" in text or "\n  - 模式:" in text
     assert "- Turn " not in text
+    assert " system:" not in text
     assert "\n  - Intent:" not in text
     assert "\n  - Ruling:" not in text
     assert "\n  - Mode:" not in text
+    assert "\n  - 模式: roll" not in text
+    assert "\n  - 模式: play" not in text
+    assert "\n  - 模式: meta" not in text
+    if "\n  - 模式:" in text:
+        assert any(
+            f"\n  - 模式: {localized_mode}" in text
+            for localized_mode in ["游玩", "掷骰", "超游"]
+        )
 
 
 def assert_transcript_detail_values_localized(text: str, expected: list[str], forbidden: list[str]) -> None:
@@ -430,8 +439,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         ["ask terms and immediate leads", "no_roll_needed", "ask 推骰-roll ruling", "pushed_roll_explanation"],
     )
     assert "诺特先生把一枚旧钥匙" in actual_play
-    assert "第 6 轮 system: 说服：艾达·金掷出 72 / 55，结果失败。" in actual_play
-    assert "第 42 轮 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
+    assert "第 6 轮 系统: 说服：艾达·金掷出 72 / 55，结果失败。" in actual_play
+    assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
     assert "Persuade 72 vs 55" not in actual_play
     assert "Persuade：" not in actual_play
     assert "Dodge：" not in actual_play
@@ -444,8 +453,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         ["询问委托条件和近期线索", "无需检定", "询问推骰裁定", "推骰说明"],
         ["ask terms and immediate leads", "no_roll_needed", "ask 推骰-roll ruling", "pushed_roll_explanation"],
     )
-    assert "第 6 轮 system: 说服：艾达·金掷出 72 / 55，结果失败。" in session_transcript
-    assert "第 42 轮 system: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in session_transcript
+    assert "第 6 轮 系统: 说服：艾达·金掷出 72 / 55，结果失败。" in session_transcript
+    assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in session_transcript
     assert "Persuade 72 vs 55" not in session_transcript
     assert "regular_success" not in session_transcript
     assert "Corbitt POW 34 vs 90" not in session_transcript
@@ -471,6 +480,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         if event.get("mode") == "meta" and event.get("role") in {"keeper_under_test", "player_simulator"}
     ]
     assert {event["role"] for event in meta_events} == {"keeper_under_test", "player_simulator"}
+    assert any(
+        event.get("role") == "system" and event.get("mode") == "roll"
+        for event in transcript_events(run_dir)
+    )
     assert "[meta]" in actual_play
     assert "[/meta]" in actual_play
     assert "为什么这里可以推骰" in actual_play
@@ -711,10 +724,10 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         ["确认被偷走的账本", "推骰确认账本", "建立追逐", "通过障碍并躲藏"],
         ["spot the stolen ledger", "push ledger confirmation", "chase_setup", "pass barrier and hide"],
     )
-    assert "第 4 轮 system: 侦查：艾达·金掷出 82 / 55，结果失败。" in actual_play
-    assert "第 9 轮 system: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in actual_play
-    assert "第 18 轮 system: 闪避：艾达·金掷出 19 / 35，结果普通成功；格斗（斗殴）：内森尼尔·克劳掷出 62 / 45，结果失败。内森尼尔·克劳的短棍攻击落空。" in actual_play
-    assert "第 20 轮 system: 锁匠：艾达·金掷出 21 / 30，结果普通成功；潜行：艾达·金掷出 18 / 45，结果困难成功；侦查：内森尼尔·克劳掷出 77 / 40，结果失败。艾达·金带着账本逃脱。" in actual_play
+    assert "第 4 轮 系统: 侦查：艾达·金掷出 82 / 55，结果失败。" in actual_play
+    assert "第 9 轮 系统: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in actual_play
+    assert "第 18 轮 系统: 闪避：艾达·金掷出 19 / 35，结果普通成功；格斗（斗殴）：内森尼尔·克劳掷出 62 / 45，结果失败。内森尼尔·克劳的短棍攻击落空。" in actual_play
+    assert "第 20 轮 系统: 锁匠：艾达·金掷出 21 / 30，结果普通成功；潜行：艾达·金掷出 18 / 45，结果困难成功；侦查：内森尼尔·克劳掷出 77 / 40，结果失败。艾达·金带着账本逃脱。" in actual_play
     assert "Pushed Spot Hidden 33" not in actual_play
     assert "MOV remains" not in actual_play
     assert "extreme_success" not in actual_play
@@ -725,8 +738,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         ["确认被偷走的账本", "推骰确认账本", "建立追逐", "通过障碍并躲藏"],
         ["spot the stolen ledger", "push ledger confirmation", "chase_setup", "pass barrier and hide"],
     )
-    assert "第 4 轮 system: 侦查：艾达·金掷出 82 / 55，结果失败。" in session_transcript
-    assert "第 9 轮 system: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in session_transcript
+    assert "第 4 轮 系统: 侦查：艾达·金掷出 82 / 55，结果失败。" in session_transcript
+    assert "第 9 轮 系统: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in session_transcript
     assert "Pushed Spot Hidden 33" not in session_transcript
     assert "MOV remains" not in session_transcript
     assert "extreme_success" not in session_transcript
@@ -895,6 +908,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert_zh_hans_locale(metadata, {"Library Use": "图书馆使用", "Spot Hidden": "侦查"})
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_localized_transcript_chrome(actual_play)
+    assert "第 4 轮 系统: 图书馆使用：艾达·金掷出 29 / 60，结果困难成功。" in actual_play
     assert_transcript_detail_values_localized(
         actual_play,
         ["请求谨慎调查路线", "鲁莽闯入危险", "质疑 KP 裁定", "收束本轮"],

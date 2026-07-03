@@ -84,6 +84,8 @@ def test_mode_protocol_documents_play_language_and_localized_terms():
         "campaign titles",
         "player-visible module source labels",
         "empty_report_lines",
+        "speaker_labels",
+        "transcript_mode_labels",
         "player-visible skill display names",
         "machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text",
     ]
@@ -104,6 +106,8 @@ def test_design_blueprint_documents_play_language_and_localized_terms():
         "campaign titles",
         "player-visible module source labels",
         "empty_report_lines",
+        "speaker_labels",
+        "transcript_mode_labels",
         "player-visible skill display names",
         "machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text",
     ]
@@ -159,6 +163,8 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "run_setup_values_not_localized",
         "module_metadata_values_not_localized",
         "transcript_labels",
+        "speaker_labels",
+        "transcript_mode_labels",
         "transcript_labels_not_localized",
         "transcript_detail_values_not_localized",
         "report_boolean_values_not_localized",
@@ -204,6 +210,7 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "system_gap",
         "report_gap",
         "report_skill_names_not_localized",
+        "transcript_mode_labels",
         "Blueprint Cross-Check",
         "Next Loop Fix Target",
     ]
