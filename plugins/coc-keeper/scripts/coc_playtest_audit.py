@@ -201,6 +201,21 @@ def _visible_unlocalized_glossary_terms(transcript: list[dict[str, Any]], terms:
     return sorted(set(leaked))
 
 
+def _report_narrative_text(section: str) -> str:
+    lines: list[str] = []
+    for line in section.splitlines():
+        if not line.startswith("- "):
+            lines.append(line)
+            continue
+        if ": " in line:
+            lines.append(line.split(": ", 1)[1])
+        elif " - " in line:
+            lines.append(line.split(" - ", 1)[1])
+        else:
+            lines.append(line[2:])
+    return "\n".join(lines)
+
+
 def _report_unlocalized_glossary_terms(battle_report: str, terms: dict[str, str]) -> list[str]:
     visible_sections = [
         "Scene-by-Scene Replay",
@@ -210,7 +225,7 @@ def _report_unlocalized_glossary_terms(battle_report: str, terms: dict[str, str]
     ]
     leaked: list[str] = []
     for heading in visible_sections:
-        leaked.extend(_unlocalized_terms_in_text(_section_text(battle_report, heading), terms))
+        leaked.extend(_unlocalized_terms_in_text(_report_narrative_text(_section_text(battle_report, heading)), terms))
     actual_play_lines = [
         line
         for line in _section_text(battle_report, "Actual Play Replay").splitlines()

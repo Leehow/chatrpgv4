@@ -40,9 +40,22 @@ ZH_HANS_HAUNTING_GLOSSARY = {
     "The Floating Knife": "浮空匕首",
     "Bed Attack": "床铺袭击",
     "Reverend Michael Thomas": "迈克尔·托马斯牧师",
+    "Ruth Blake": "露丝·布莱克",
     "Gabriela": "加布里埃拉",
     "Vittorio": "维托里奥",
     "Macario": "马卡里奥",
+    "Handout": "线索资料",
+    "pushed basement search": "推骰地下室搜索",
+    "own-weapon clue": "以其人之物反制的线索",
+    "three-Y eye symbol": "三叉眼符号",
+    "three-Y symbol": "三叉眼符号",
+    "Mythos material": "神话材料",
+    "basement door": "地下室门",
+    "basement stairs": "地下室楼梯",
+    "basement": "地下室",
+    "spare bedroom": "备用卧室",
+    "morgue": "剪报档案室",
+    "dagger": "匕首",
 }
 
 ZH_HANS_CHASE_GLOSSARY = {
@@ -51,9 +64,35 @@ ZH_HANS_CHASE_GLOSSARY = {
     "Nathaniel": "内森尼尔·克劳",
     "cult ledger": "邪教账本",
     "ledger": "账本",
+    "print shop roof": "印刷店屋顶",
+    "print-shop roof": "印刷店屋顶",
+    "rain gutter": "雨水槽",
+    "slick skylight hazard": "湿滑天窗危险点",
+    "slick skylight": "湿滑天窗",
+    "locked roof door barrier": "上锁屋顶门障碍",
+    "laundry sheets": "晾衣布单",
+    "laundry roof": "晾衣屋顶",
+    "roof door": "屋顶门",
+    "skylight": "天窗",
+    "key ring": "钥匙串",
+    "two locations": "两个位置",
 }
 
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
+LOCALIZED_JSON_TEXT_KEYS = {
+    "description",
+    "difficulty_rationale",
+    "failure_consequence",
+    "foreshadowed_failure",
+    "goal",
+    "name",
+    "player_safe_summary",
+    "push_justification",
+    "purpose",
+    "role",
+    "summary",
+    "text",
+}
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -73,13 +112,13 @@ def _localize_text(text: str, glossary: dict[str, str]) -> str:
     return CJK_BOUNDARY_SPACE.sub("", localized)
 
 
-def _localize_value(value: Any, glossary: dict[str, str]) -> Any:
+def _localize_value(value: Any, glossary: dict[str, str], key: str | None = None) -> Any:
     if isinstance(value, str):
-        return _localize_text(value, glossary)
+        return _localize_text(value, glossary) if key in LOCALIZED_JSON_TEXT_KEYS else value
     if isinstance(value, list):
-        return [_localize_value(item, glossary) for item in value]
+        return [_localize_value(item, glossary, key) for item in value]
     if isinstance(value, dict):
-        return {key: _localize_value(item, glossary) for key, item in value.items()}
+        return {child_key: _localize_value(item, glossary, child_key) for child_key, item in value.items()}
     return value
 
 

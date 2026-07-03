@@ -85,6 +85,11 @@ def assert_visible_terms_localized(text: str, required_terms: dict[str, str]) ->
         assert canonical not in text
 
 
+def assert_terms_absent(text: str, canonical_terms: list[str]) -> None:
+    for canonical in canonical_terms:
+        assert canonical not in text
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -128,10 +133,27 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         "Corbitt's Hiding Place": "科比特的藏身处",
         "Corbitt Attacks": "科比特袭击",
     }
+    visible_scene_terms = {
+        "Ruth Blake": "露丝·布莱克",
+        "morgue": "剪报档案室",
+        "Handout": "线索资料",
+        "basement door": "地下室门",
+        "basement": "地下室",
+        "spare bedroom": "备用卧室",
+        "three-Y symbol": "三叉眼符号",
+        "Mythos material": "神话材料",
+        "dagger": "匕首",
+    }
+    report_scene_terms = {
+        "basement stairs": "地下室楼梯",
+        "pushed basement search": "推骰地下室搜索",
+        "own-weapon clue": "以其人之物反制的线索",
+        "three-Y eye symbol": "三叉眼符号",
+    }
 
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
-    assert_zh_hans_locale(metadata, zh_terms)
+    assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
     assert "Ada King -> 艾达·金" in run_setup
@@ -146,10 +168,18 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
     assert bullet_count(scene_replay) >= significant_scene_replay_count(run_dir)
+    assert "- basement:" in scene_replay
+    assert "- 地下室:" not in scene_replay
+    assert "自家地下室" in scene_replay
+    assert "地下室楼梯" in scene_replay
+    assert "推骰地下室搜索" in scene_replay
+    assert "以其人之物反制的线索" in scene_replay
+    assert_terms_absent(scene_replay, ["own-weapon clue", "three-Y eye symbol", "spare bedroom", "basement stairs", "pushed 地下室 search"])
     assert "## Actual Play Replay" in battle_text
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_visible_terms_localized(actual_play, zh_terms)
     assert "诺特先生把一枚旧钥匙" in actual_play
+    assert_visible_terms_localized("\n".join(visible_play_texts(run_dir)), visible_scene_terms)
     meta_events = [
         event
         for event in transcript_events(run_dir)
@@ -180,7 +210,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "The Haunting Module Playthrough" in battle_text
     assert "Mr. Knott" in battle_text
     assert "Arty Wilmot" in battle_text
-    assert "Handout 2" in battle_text
+    assert "线索资料 2" in battle_text
     assert "Chapel of Contemplation" in battle_text
     assert zh_terms["The Old Corbitt Place"] in battle_text
     assert "Bed Attack" in battle_text
@@ -215,10 +245,24 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         "Ada King": "艾达·金",
         "Nathaniel Crowe": "内森尼尔·克劳",
     }
+    visible_scene_terms = {
+        "print shop roof": "印刷店屋顶",
+        "print-shop roof": "印刷店屋顶",
+        "rain gutter": "雨水槽",
+        "slick skylight hazard": "湿滑天窗危险点",
+        "slick skylight": "湿滑天窗",
+        "skylight": "天窗",
+        "locked roof door barrier": "上锁屋顶门障碍",
+        "roof door": "屋顶门",
+        "laundry sheets": "晾衣布单",
+        "laundry roof": "晾衣屋顶",
+        "key ring": "钥匙串",
+        "two locations": "两个位置",
+    }
 
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
-    assert_zh_hans_locale(metadata, zh_terms)
+    assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
     assert "Ada King -> 艾达·金" in run_setup
@@ -235,8 +279,16 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
     assert bullet_count(scene_replay) >= significant_scene_replay_count(run_dir)
+    assert "- print-shop-roof:" in scene_replay
+    assert "- 印刷店屋顶:" not in scene_replay
+    assert "clue:ledger-clue" in scene_replay
+    assert "clue:账本-clue" not in scene_replay
+    assert "艾达·金在印刷店屋顶发现内森尼尔·克劳" in scene_replay
+    assert "湿滑天窗" in scene_replay
+    assert_terms_absent(scene_replay, ["print shop roof", "print-shop roof", "rain gutter", "locked roof door barrier", "slick 天窗"])
     assert "## Actual Play Replay" in battle_text
     assert_visible_terms_localized(section_text(battle_text, "## Actual Play Replay"), zh_terms)
+    assert_visible_terms_localized("\n".join(visible_play_texts(run_dir)), visible_scene_terms)
     assert all("Ada King" not in text for text in visible_play_texts(run_dir))
     assert all("Nathaniel Crowe" not in text for text in visible_play_texts(run_dir))
     assert all("ledger" not in text for text in visible_play_texts(run_dir))
