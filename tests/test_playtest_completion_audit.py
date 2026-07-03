@@ -473,6 +473,45 @@ def test_completion_audit_fails_when_feedback_source_lacks_rating_and_comment(tm
     assert "feedback text" in finding["missing_evidence"]
 
 
+def test_completion_audit_fails_when_view_sources_lack_player_and_keeper_evidence(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_jsonl(run_dir / "player-view.jsonl", [
+        {"view": "player"},
+    ])
+    write_jsonl(run_dir / "keeper-view.jsonl", [
+        {"view": "keeper"},
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_incomplete")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "player-view.jsonl" in finding["incomplete_files"]
+    assert "keeper-view.jsonl" in finding["incomplete_files"]
+    assert "player public character state" in finding["missing_evidence"]
+    assert "player view transcript turn" in finding["missing_evidence"]
+    assert "keeper context" in finding["missing_evidence"]
+    assert "keeper view transcript turn" in finding["missing_evidence"]
+    assert "keeper secret id list" in finding["missing_evidence"]
+
+
 def test_completion_audit_fails_when_battle_report_missing_required_anchors(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

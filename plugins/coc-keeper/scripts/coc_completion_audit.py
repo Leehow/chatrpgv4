@@ -606,6 +606,8 @@ def _malformed_relative_files(base: Path, relative_paths: list[str], display_pre
 def _source_structure_findings(run_id: str, run_dir: Path) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    player_view = _read_jsonl(run_dir / "player-view.jsonl")
+    keeper_view = _read_jsonl(run_dir / "keeper-view.jsonl")
     feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
     missing_evidence: list[str] = []
     incomplete_files: list[str] = []
@@ -629,6 +631,51 @@ def _source_structure_findings(run_id: str, run_dir: Path) -> list[dict[str, Any
     if not has_keeper_turn or not has_player_turn:
         incomplete_files.append("transcript.jsonl")
 
+    has_player_public_state = any(
+        row.get("view") == "player"
+        and row.get("type") == "public_character_state"
+        for row in player_view
+    )
+    has_player_view_turn = any(
+        row.get("view") == "player"
+        and row.get("type") == "transcript_turn"
+        and isinstance(row.get("text"), str)
+        and bool(row["text"].strip())
+        for row in player_view
+    )
+    if not has_player_public_state:
+        missing_evidence.append("player public character state")
+    if not has_player_view_turn:
+        missing_evidence.append("player view transcript turn")
+    if not has_player_public_state or not has_player_view_turn:
+        incomplete_files.append("player-view.jsonl")
+
+    has_keeper_context = any(
+        row.get("view") == "keeper"
+        and row.get("type") == "keeper_context"
+        for row in keeper_view
+    )
+    has_keeper_view_turn = any(
+        row.get("view") == "keeper"
+        and row.get("type") == "transcript_turn"
+        and isinstance(row.get("text"), str)
+        and bool(row["text"].strip())
+        for row in keeper_view
+    )
+    has_keeper_secret_ids = any(
+        row.get("view") == "keeper"
+        and isinstance(row.get("keeper_secret_ids"), list)
+        for row in keeper_view
+    )
+    if not has_keeper_context:
+        missing_evidence.append("keeper context")
+    if not has_keeper_view_turn:
+        missing_evidence.append("keeper view transcript turn")
+    if not has_keeper_secret_ids:
+        missing_evidence.append("keeper secret id list")
+    if not has_keeper_context or not has_keeper_view_turn or not has_keeper_secret_ids:
+        incomplete_files.append("keeper-view.jsonl")
+
     has_feedback_score = any(
         isinstance(row.get("score"), (int, float))
         and not isinstance(row.get("score"), bool)
@@ -651,7 +698,7 @@ def _source_structure_findings(run_id: str, run_dir: Path) -> list[dict[str, Any
             "active_run_source_files_incomplete",
             "test_gap",
             f"{run_id} source files {', '.join(incomplete_files)} lack required evidence: {', '.join(missing_evidence)}.",
-            "Regenerate the active run so transcript.jsonl and player-feedback.jsonl contain structured Keeper, player, rating, and feedback text evidence before completion audit.",
+            "Regenerate the active run so transcript, view, and feedback source files contain structured Keeper, player, view-separation, rating, and feedback text evidence before completion audit.",
             run_id=run_id,
             incomplete_files=incomplete_files,
             missing_evidence=missing_evidence,
