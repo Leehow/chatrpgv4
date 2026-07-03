@@ -87,6 +87,30 @@ def _format_state_event(event: dict[str, Any]) -> str:
     return f"- {event_type}: {actor} - {payload}"
 
 
+def _event_summary(event: dict[str, Any], fallback: str = "") -> str:
+    payload = event.get("payload", {})
+    return str(payload.get("summary") or payload.get("text") or fallback).strip()
+
+
+def _format_decision(event: dict[str, Any]) -> str:
+    actor = event.get("actor", "unknown")
+    summary = _event_summary(event, "decision recorded")
+    return f"- {actor}: {summary}"
+
+
+def _format_clue(event: dict[str, Any]) -> str:
+    payload = event.get("payload", {})
+    clue_id = payload.get("clue_id", "unknown")
+    summary = _event_summary(event, "clue recorded")
+    return f"- {clue_id}: {summary}"
+
+
+def _format_subsystem_event(event: dict[str, Any]) -> str:
+    actor = event.get("actor", "unknown")
+    summary = _event_summary(event, f"{event.get('type', 'event')} recorded")
+    return f"- {actor}: {summary}"
+
+
 def _list_lines(items: list[str], empty: str) -> list[str]:
     return items if items else [empty]
 
@@ -264,6 +288,11 @@ def generate_battle_report(run_dir: Path) -> Path:
         transcript_lines.extend(_format_transcript_event(event))
     roll_lines = [_format_roll(event) for event in rolls]
     state_lines = [_format_state_event(event) for event in state_events]
+    decision_lines = [_format_decision(event) for event in state_events if event.get("type") == "decision"]
+    clue_lines = [_format_clue(event) for event in state_events if event.get("type") == "clue"]
+    combat_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "combat"]
+    chase_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "chase"]
+    sanity_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "sanity"]
     character_lines: list[str] = []
     for character in characters:
         character_lines.extend(_format_character(character))
@@ -294,7 +323,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         *_list_lines(transcript_lines, "- No transcript events recorded."),
         "",
         "## Major Player Decisions",
-        "- No major decision extraction in V1 report.",
+        *_list_lines(decision_lines, "- No major decisions recorded."),
         "",
         "## Mechanical Log",
         "### Important Rolls",
@@ -304,16 +333,16 @@ def generate_battle_report(run_dir: Path) -> Path:
         *_list_lines(state_lines, "- No state changes recorded."),
         "",
         "## Combat Summary",
-        "- No combat summary recorded.",
+        *_list_lines(combat_lines, "- No combat summary recorded."),
         "",
         "## Chase Summary",
-        "- No chase summary recorded.",
+        *_list_lines(chase_lines, "- No chase summary recorded."),
         "",
         "## Sanity Summary",
-        "- No sanity summary recorded.",
+        *_list_lines(sanity_lines, "- No sanity summary recorded."),
         "",
         "## Clues Found",
-        "- No clue extraction in V1 report.",
+        *_list_lines(clue_lines, "- No clues recorded."),
         "",
         "## Session Ending",
         "- Session ending not recorded.",

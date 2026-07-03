@@ -89,3 +89,21 @@ def test_coc_playtest_skill_documents_battle_report_inputs():
     ]
     for term in required_terms:
         assert term in text
+
+
+def test_coc_playtest_skill_documents_rulebook_audit_loop():
+    skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
+    required_terms = [
+        "coc_playtest_harness.py",
+        "coc_playtest_audit.py",
+        "rulebook-audit.md",
+        "test_gap",
+        "system_gap",
+        "report_gap",
+        "Blueprint Cross-Check",
+        "Next Loop Fix Target",
+    ]
+    for term in required_terms:
+        assert term in skill_text
+        assert term in spec_text

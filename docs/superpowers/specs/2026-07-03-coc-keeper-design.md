@@ -956,6 +956,27 @@ Required sections:
 
 The battle report should read like a detailed actual-play replay. It should identify the campaign, module, reusable investigators, key parameters, virtual player utterances, KP utterances, mechanical rolls, durable state changes, story memory, and player feedback on the KP experience. It should avoid exposing Keeper-only material unless the report is explicitly marked as evaluator-only.
 
+### Rulebook Alignment Audit
+
+Every serious playtest run must also generate `rulebook-audit.md` with `coc_playtest_audit.py`. This is the control loop for deciding whether the battle report resembles a real Call of Cthulhu session as described in the Keeper Rulebook, rather than a smoke-test transcript with nicer formatting.
+
+`coc_playtest_harness.py` provides the reproducible baseline for this loop. It should generate a small The Haunting-derived run with a real opening hook, player intent, Keeper rulings, an investigation roll, clue flow, a sanity prompt, memory, feedback, and then run the report and audit generators.
+
+The audit loop is:
+
+1. Generate `battle-report.md` and `evaluation-report.md`.
+2. Run `coc_playtest_audit.py <run-dir>` and inspect `artifacts/rulebook-audit.md`.
+3. If the audit fails, classify the blocker before changing code:
+   - `test_gap`: the simulated test did not exercise enough COC play.
+   - `system_gap`: the Keeper system did not execute or record rulebook-required behavior.
+   - `report_gap`: the source data exists, but the battle report did not show it.
+   - `design_gap`: the blueprint does not yet require the behavior.
+4. Read `## Blueprint Cross-Check` to decide whether the problem is missing design or `designed_not_implemented`.
+5. Apply the smallest fix named in `## Next Loop Fix Target`.
+6. Regenerate reports and rerun the audit until it passes or exposes the next highest-priority gap.
+
+`rulebook-audit.md` must contain `## Root Cause Classification`, `## Blueprint Cross-Check`, and `## Next Loop Fix Target`.
+
 ### Evaluation Report Output
 
 `evaluation-report.md` is the engineering assessment.

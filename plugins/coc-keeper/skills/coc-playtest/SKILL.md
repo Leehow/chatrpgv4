@@ -17,10 +17,16 @@ Playtests write to `.coc/playtests/<run-id>/` and must not mutate real `.coc/cam
 
 ## Reports
 
+Use `../../scripts/coc_playtest_harness.py` when you need a reproducible rulebook-shaped baseline run before testing richer modules.
+
 Use `../../scripts/coc_playtest_report.py` to generate:
 
 - `artifacts/battle-report.md`
 - `artifacts/evaluation-report.md`
+
+Use `../../scripts/coc_playtest_audit.py` after report generation to generate:
+
+- `artifacts/rulebook-audit.md`
 
 Before generating reports, record the run context:
 
@@ -47,3 +53,18 @@ Before generating reports, record the run context:
 - `## Player Feedback On KP`
 
 Flag spoiler leaks, state errors, unlogged rolls, poor pacing, and incorrect rules.
+
+## Rulebook Audit Loop
+
+Every serious playtest follows this loop:
+
+1. Generate `battle-report.md` and `evaluation-report.md`.
+2. Run `coc_playtest_audit.py <run-dir>` and read `rulebook-audit.md`.
+3. If the audit fails, classify the first blocker before changing files:
+   - `test_gap`: the simulated test did not actually exercise enough COC play.
+   - `system_gap`: the Keeper system did not record or execute a rulebook-required behavior.
+   - `report_gap`: the data exists, but the battle report did not show it.
+   - `design_gap`: the blueprint does not require the behavior yet.
+4. Read `## Blueprint Cross-Check` to decide whether the problem is missing design or designed-but-not-implemented behavior.
+5. Apply the smallest targeted fix named in `## Next Loop Fix Target`.
+6. Rerun the playtest reports and rulebook audit.
