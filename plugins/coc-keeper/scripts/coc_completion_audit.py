@@ -1561,6 +1561,7 @@ ZH_HANS_ALLOWED_PUBLIC_STATE_TOKENS = {
     "MOV",
     "DB",
 }
+ZH_HANS_ALLOWED_PLAYER_VIEW_SPEAKER_TOKENS = ZH_HANS_ALLOWED_PUBLIC_STATE_TOKENS | {"KP"}
 
 
 def _public_state_english_tokens(public_strings: list[str], play_language: str) -> list[str]:
@@ -1611,6 +1612,60 @@ def _player_view_public_state_findings(
         leaked_public_state_terms=leaked_terms,
         english_public_state_tokens=english_tokens,
         public_state_samples=public_strings[:8],
+    )]
+
+
+def _player_view_speaker_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    localized_terms = _metadata_localized_terms(metadata)
+    play_language = str(metadata.get("play_language") or "")
+    speakers = [
+        str(row["speaker"])
+        for row in _read_jsonl(run_dir / "player-view.jsonl")
+        if row.get("view") == "player"
+        and row.get("type") == "transcript_turn"
+        and isinstance(row.get("speaker"), str)
+        and row["speaker"].strip()
+    ]
+    if not speakers:
+        return []
+
+    leaked_speakers = sorted({
+        speaker
+        for speaker in speakers
+        for canonical, display in localized_terms.items()
+        if canonical
+        and display != canonical
+        and canonical in speaker
+    })
+    english_tokens: list[str] = []
+    if play_language == "zh-Hans":
+        english_tokens = sorted({
+            token
+            for speaker in speakers
+            for token in re.findall(r"[A-Za-z_]{3,}", speaker)
+            if token not in ZH_HANS_ALLOWED_PLAYER_VIEW_SPEAKER_TOKENS
+        })
+
+    if not leaked_speakers and not english_tokens:
+        return []
+    issue_parts = []
+    if leaked_speakers:
+        issue_parts.append(f"canonical speaker display values: {', '.join(leaked_speakers[:8])}")
+    if english_tokens:
+        issue_parts.append(f"non-localized English speaker tokens: {', '.join(english_tokens[:8])}")
+    return [_finding(
+        "player_view_speaker_not_localized",
+        "report_gap",
+        f"{run_id} player-view.jsonl transcript speaker display leaks {'; '.join(issue_parts)}.",
+        "Regenerate the active run so player-view.jsonl transcript_turn speaker values render through play_language, player_profile_labels, speaker_labels, and localized_terms while preserving canonical transcript source files.",
+        run_id=run_id,
+        leaked_player_view_speakers=leaked_speakers,
+        english_player_view_speaker_tokens=english_tokens,
+        player_view_speaker_samples=speakers[:12],
     )]
 
 
@@ -2156,6 +2211,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
         ))
     findings.extend(_source_structure_findings(run_id, run_dir))
     findings.extend(_player_view_public_state_findings(run_id, run_dir, metadata))
+    findings.extend(_player_view_speaker_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_roll_text_findings(run_id, run_dir, campaign_dir, metadata))
     findings.extend(_pushed_roll_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))
     findings.extend(_multi_profile_structure_findings(run_id, run_dir, audit_profile))

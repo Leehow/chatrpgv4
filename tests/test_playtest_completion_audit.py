@@ -1294,6 +1294,42 @@ def test_completion_audit_fails_when_player_view_public_state_leaks_english_for_
     assert {"house", "careful", "research", "opening_phase"}.issubset(set(finding["english_public_state_tokens"]))
 
 
+def test_completion_audit_fails_when_player_view_transcript_speakers_are_not_localized(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    player_view = read_jsonl(run_dir / "player-view.jsonl")
+    write_jsonl(run_dir / "player-view.jsonl", [
+        {
+            **row,
+            "speaker": "Ada King" if row.get("type") == "transcript_turn" else row.get("speaker"),
+        }
+        for row in player_view
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "player_view_speaker_not_localized")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "Ada King" in finding["leaked_player_view_speakers"]
+    assert {"Ada", "King"}.issubset(set(finding["english_player_view_speaker_tokens"]))
+
+
 def test_completion_audit_fails_when_campaign_logs_and_memory_lack_structured_evidence(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
