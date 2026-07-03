@@ -145,6 +145,9 @@ BASE_FEEDBACK_LABELS = {
     "fairness": "fairness",
     "agency": "agency",
     "meta_quality": "meta_quality",
+    "module_fidelity": "module_fidelity",
+    "combat_readability": "combat_readability",
+    "chase_readability": "chase_readability",
 }
 
 BASE_CHASE_TRACKER_LABELS = {
@@ -288,6 +291,9 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "fairness": "公平性",
             "agency": "自主性",
             "meta_quality": "超游质量",
+            "module_fidelity": "模组忠实度",
+            "combat_readability": "战斗可读性",
+            "chase_readability": "追逐可读性",
         },
         "chase_tracker_labels": {
             "Chase ID": "追逐 ID",
@@ -485,6 +491,9 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "fairness": "公平性",
             "agency": "主体性",
             "meta_quality": "メタ相談の質",
+            "module_fidelity": "モジュール忠実度",
+            "combat_readability": "戦闘の読みやすさ",
+            "chase_readability": "チェイスの読みやすさ",
         },
         "chase_tracker_labels": {
             "Chase ID": "チェイス ID",

@@ -715,7 +715,11 @@ def _chronicle_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list
     return sorted(set(leaks))
 
 
-def _feedback_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+def _feedback_label_leaks(
+    battle_report: str,
+    metadata: dict[str, Any],
+    feedback_entries: list[dict[str, Any]],
+) -> list[str]:
     play_language = str(metadata.get("play_language") or "")
     if play_language in {"", "en-US"}:
         return []
@@ -726,11 +730,13 @@ def _feedback_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[
     labels = profile.get("feedback_labels", {})
     if not isinstance(labels, dict):
         return []
+    categories = set(FEEDBACK_REQUIRED_LABELS)
+    for entry in feedback_entries:
+        category = entry.get("category") if isinstance(entry, dict) else None
+        if category not in (None, "", [], {}):
+            categories.add(str(category))
     leaks: list[str] = []
-    for canonical in FEEDBACK_REQUIRED_LABELS:
-        label = labels.get(canonical)
-        if not label or label == canonical:
-            continue
+    for canonical in categories:
         if f"- {canonical}:" in section:
             leaks.append(canonical)
     return sorted(set(leaks))
@@ -1331,7 +1337,7 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Active localized transcript sections expose unlocalized detail values: " + ", ".join(transcript_detail_gaps),
             "Render intent/ruling display values from localized_text while preserving canonical values in JSON.",
         ))
-    feedback_label_leaks = _feedback_label_leaks(battle_report, metadata)
+    feedback_label_leaks = _feedback_label_leaks(battle_report, metadata, context["feedback"])
     if active_profile and feedback_label_leaks:
         findings.append(_finding(
             "player_feedback_labels_not_localized",

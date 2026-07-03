@@ -489,9 +489,14 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert has_cjk(section_text(battle_text, "## Story Recap"))
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert has_cjk(feedback)
-    assert_feedback_labels_localized(feedback, ["KP 清晰度: 5", "沉浸感: 4"], ["kp_clarity:", "immersion:"])
+    assert_feedback_labels_localized(
+        feedback,
+        ["KP 清晰度: 5", "沉浸感: 4", "模组忠实度: 4", "战斗可读性: 4"],
+        ["kp_clarity:", "immersion:", "module_fidelity:", "combat_readability:"],
+    )
     assert "清单" in feedback
     assert "checklist" not in feedback
+    assert "playtest" not in feedback
     assert "Mr. Knott" in battle_text
     assert "Arty Wilmot" in battle_text
     assert "线索资料 2" in battle_text
@@ -540,7 +545,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "最终 HP: 3" in battle_text
     assert "最终 SAN: 49" in battle_text
     assert "Player Feedback On KP" in battle_text
-    assert "module_fidelity: 4" in battle_text
+    assert "模组忠实度: 4" in battle_text
     assert "No combat summary recorded." not in battle_text
     chase_summary = section_text(battle_text, "## Chase Summary")
     assert "本模组不包含必需追逐场景" in chase_summary
@@ -748,7 +753,11 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "rooftop 追逐" not in story_recap
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert has_cjk(feedback)
-    assert_feedback_labels_localized(feedback, ["KP 清晰度: 5", "沉浸感: 4"], ["kp_clarity:", "immersion:"])
+    assert_feedback_labels_localized(
+        feedback,
+        ["KP 清晰度: 5", "追逐可读性: 5", "沉浸感: 4"],
+        ["kp_clarity:", "chase_readability:", "immersion:"],
+    )
     assert "规则裁定" in feedback
     assert "rule decisions" not in feedback
     assert "escapes" not in feedback

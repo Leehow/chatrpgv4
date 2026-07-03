@@ -1161,7 +1161,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
     _write_jsonl_localized(run_dir / "player-feedback.jsonl", [
         {"category": "kp_clarity", "score": 5, "text": "KP 在重要检定前说明了目标、风险和后果。"},
         {"category": "immersion", "score": 4, "text": "这场更像一连串调查选择和场景推进，而不是机械 checklist。"},
-        {"category": "module_fidelity", "score": 4, "text": "playtest 覆盖了 The Haunting 从 Mr. Knott 到 Rewards 的主要节点。"},
+        {"category": "module_fidelity", "score": 4, "text": "这次跑团覆盖了 The Haunting 从 Mr. Knott 到 Rewards 的主要节点。"},
         {"category": "combat_readability", "score": 4, "text": "combat round 顺序、opposed rolls、damage 和 Corbitt 的败亡都能读懂。"},
     ], ZH_HANS_HAUNTING_GLOSSARY)
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [

@@ -1081,6 +1081,46 @@ def test_active_audit_rejects_unlocalized_feedback_labels(tmp_path):
     assert "player_feedback_labels_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_actual_feedback_categories(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-dynamic-feedback-labels"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata_path.write_text(json.dumps(metadata))
+    (run_dir / "player-feedback.jsonl").write_text(
+        "\n".join([
+            json.dumps({"category": "module_fidelity", "score": 4, "text": "覆盖主要模组节点。"}),
+            json.dumps({"category": "combat_readability", "score": 4, "text": "战斗轮清楚。"}),
+        ])
+        + "\n"
+    )
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- 这是中文场景回放。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- 第 1 轮 KP: \"诺特先生给出钥匙。\"\n\n"
+        "## Session Transcript / 会话记录\n"
+        "- 第 1 轮 KP: 诺特先生给出钥匙。\n"
+        "  - 模式: play\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- module_fidelity: 4 - 覆盖主要模组节点。\n"
+        "- combat_readability: 4 - 战斗轮清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "player_feedback_labels_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_rejects_unlocalized_run_setup_values(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "localized-run-setup-values"
     create_final_rulebook_run(run_dir)
