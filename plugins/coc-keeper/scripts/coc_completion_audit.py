@@ -16,6 +16,16 @@ REQUIRED_ARTIFACTS = [
     "semantic-eval-request.json",
     "semantic-eval-result.json",
 ]
+REQUIRED_COVERAGE_DIMENSIONS = [
+    "character_dossier",
+    "kp_player_transcript",
+    "mechanical_rolls",
+    "combat",
+    "chase",
+    "sanity",
+    "meta_game",
+    "player_feedback",
+]
 REQUIRED_QUALITY_DIMENSIONS = [
     "module_fidelity",
     "rulebook_procedure",
@@ -171,6 +181,52 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
                 "Use the LLM semantic evaluator artifact for completion-oriented suites.",
                 run_id=run_id,
             ))
+        if not isinstance(semantic.get("coverage"), dict) or not semantic.get("coverage"):
+            findings.append(_finding(
+                "semantic_coverage_missing",
+                "test_gap",
+                f"{run_id} semantic-eval-result.json does not contain a coverage object.",
+                "Regenerate semantic-eval-result.json with structured coverage dimensions.",
+                run_id=run_id,
+            ))
+        else:
+            for dimension in REQUIRED_COVERAGE_DIMENSIONS:
+                coverage_value = semantic["coverage"].get(dimension)
+                if not isinstance(coverage_value, dict):
+                    findings.append(_finding(
+                        "semantic_coverage_dimension_invalid",
+                        "test_gap",
+                        f"{run_id} coverage.{dimension} is missing or not an object.",
+                        "Regenerate semantic-eval-result.json so each coverage dimension has covered and reason.",
+                        run_id=run_id,
+                        key=dimension,
+                    ))
+                    continue
+                missing_fields = [
+                    field
+                    for field in ("covered", "reason")
+                    if field not in coverage_value
+                ]
+                if missing_fields:
+                    findings.append(_finding(
+                        "semantic_coverage_dimension_invalid",
+                        "test_gap",
+                        f"{run_id} coverage.{dimension} missing fields: {', '.join(missing_fields)}.",
+                        "Regenerate semantic-eval-result.json so each coverage dimension has covered and reason.",
+                        run_id=run_id,
+                        key=dimension,
+                        missing_fields=missing_fields,
+                    ))
+                    continue
+                if not isinstance(coverage_value.get("covered"), bool):
+                    findings.append(_finding(
+                        "semantic_coverage_dimension_invalid",
+                        "test_gap",
+                        f"{run_id} coverage.{dimension}.covered is not a boolean.",
+                        "Regenerate semantic-eval-result.json so each coverage dimension has covered and reason.",
+                        run_id=run_id,
+                        key=dimension,
+                    ))
         if not isinstance(semantic.get("quality"), dict) or not semantic.get("quality"):
             findings.append(_finding(
                 "semantic_quality_missing",

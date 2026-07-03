@@ -276,3 +276,36 @@ def test_completion_audit_fails_when_semantic_quality_dimension_missing_required
         and finding["key"] == "rulebook_procedure"
         for finding in audit["findings"]
     )
+
+
+def test_completion_audit_fails_when_semantic_coverage_dimension_missing_required_fields(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    semantic_path = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "artifacts" / "semantic-eval-result.json"
+    semantic = json.loads(semantic_path.read_text())
+    semantic["coverage"]["chase"] = True
+    write_json(semantic_path, semantic)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(
+        finding["code"] == "semantic_coverage_dimension_invalid"
+        and finding["run_id"] == "v2-haunting-module"
+        and finding["key"] == "chase"
+        for finding in audit["findings"]
+    )

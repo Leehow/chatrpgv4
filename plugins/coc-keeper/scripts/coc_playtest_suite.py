@@ -279,12 +279,20 @@ def _normalize_evaluation(raw: dict[str, Any], default_evaluator_id: str) -> tup
     reasons: dict[str, str] = {}
     for key in CORE_COVERAGE:
         value = raw_coverage.get(key, False)
-        if isinstance(value, dict):
+        if isinstance(value, dict) and all(field in value for field in ("covered", "reason")):
             coverage[key] = bool(value.get("covered", False))
             reasons[key] = str(value.get("reason", "No reason recorded."))
+        elif isinstance(value, dict):
+            missing = [
+                field
+                for field in ("covered", "reason")
+                if field not in value
+            ]
+            coverage[key] = False
+            reasons[key] = f"Evaluator coverage result missing required field(s): {', '.join(missing)}."
         else:
-            coverage[key] = bool(value)
-            reasons[key] = "Evaluator returned a boolean result without a reason."
+            coverage[key] = False
+            reasons[key] = "Evaluator did not return a structured coverage result with covered and reason."
     return evaluator_id, coverage, reasons
 
 
