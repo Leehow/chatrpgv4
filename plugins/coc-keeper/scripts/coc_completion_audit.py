@@ -175,10 +175,15 @@ def _evaluation_report_evidence_findings(run_id: str, run_dir: Path, evaluation_
 
 
 def _evaluation_report_section_findings(run_id: str, evaluation_report: str) -> list[dict[str, Any]]:
+    headings = {
+        line.strip()
+        for line in evaluation_report.splitlines()
+        if line.startswith("#")
+    }
     missing_sections = [
         section
         for section in REQUIRED_EVALUATION_REPORT_SECTIONS
-        if section not in evaluation_report
+        if section not in headings
     ]
     if not missing_sections:
         return []

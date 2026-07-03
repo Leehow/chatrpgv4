@@ -345,6 +345,52 @@ def test_completion_audit_fails_when_evaluation_report_missing_required_sections
     assert any(finding["code"] == "evaluation_report_sections_missing" for finding in audit["findings"])
 
 
+def test_completion_audit_requires_evaluation_sections_as_markdown_headings(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(
+        run_dir / "artifacts" / "evaluation-report.md",
+        "\n".join([
+            "# Evaluation Report",
+            "## Overall Result",
+            "PASS",
+            "## Scorecard",
+            "- The remaining required sections are mentioned, but not rendered as headings:",
+            "- ## Passed Test Cases",
+            "- ## Failed Test Cases",
+            "- ## Rule Accuracy Findings",
+            "- ## State Integrity Findings",
+            "- ## Spoiler Safety Findings",
+            "- ## Immersion Findings",
+            "- ## Meta-Game Findings",
+            "- ## Reproducible Bugs",
+            "- ## Recommended Fixes",
+            "- ## Regression Tests To Add",
+        ]) + "\n",
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "evaluation_report_sections_missing")
+    assert "## Passed Test Cases" in finding["missing_sections"]
+
+
 def test_completion_audit_fails_without_llm_semantic_provenance(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
