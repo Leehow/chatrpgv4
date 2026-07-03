@@ -75,6 +75,24 @@ def semantic_result(run_id: str, *, virtual_pressure: bool = False) -> dict:
     }
 
 
+def evaluation_report_fixture() -> str:
+    return "\n\n".join([
+        "# Evaluation Report",
+        "## Overall Result\nPASS",
+        "## Scorecard\n- rulebook_procedure: 4",
+        "## Passed Test Cases\n- fixture pass",
+        "## Failed Test Cases\n- none",
+        "## Rule Accuracy Findings\n- none",
+        "## State Integrity Findings\n- none",
+        "## Spoiler Safety Findings\n- none",
+        "## Immersion Findings\n- none",
+        "## Meta-Game Findings\n- none",
+        "## Reproducible Bugs\n- none",
+        "## Recommended Fixes\n- none",
+        "## Regression Tests To Add\n- none",
+    ]) + "\n"
+
+
 def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: bool = False):
     run_dir = root / ".coc" / "playtests" / run_id
     write_json(run_dir / "playtest.json", {
@@ -93,7 +111,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         "localized_terms": {"zh-Hans": {"Ada King": "艾达·金"}},
     })
     write_text(run_dir / "artifacts" / "battle-report.md", "# Battle Report\n\n## Actual Play Replay\n")
-    write_text(run_dir / "artifacts" / "evaluation-report.md", "# Evaluation Report\n")
+    write_text(run_dir / "artifacts" / "evaluation-report.md", evaluation_report_fixture())
     write_text(run_dir / "artifacts" / "rulebook-audit.md", "# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
     write_json(run_dir / "artifacts" / "semantic-eval-request.json", request_payload(run_id))
     write_json(run_dir / "artifacts" / "semantic-eval-result.json", semantic_result(run_id, virtual_pressure=virtual_pressure))
@@ -295,6 +313,36 @@ def test_completion_audit_fails_when_evaluation_report_omits_note_evidence(tmp_p
 
     assert audit["result"] == "fail"
     assert any(finding["code"] == "evaluation_report_evidence_missing" for finding in audit["findings"])
+
+
+def test_completion_audit_fails_when_evaluation_report_missing_required_sections(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_jsonl(run_dir / "evaluator-notes.jsonl", [])
+    write_text(
+        run_dir / "artifacts" / "evaluation-report.md",
+        "# Evaluation Report\n\n## Overall Result\nPASS\n\n## Scorecard\n- state_integrity: 5\n",
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(finding["code"] == "evaluation_report_sections_missing" for finding in audit["findings"])
 
 
 def test_completion_audit_fails_without_llm_semantic_provenance(tmp_path):

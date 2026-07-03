@@ -38,6 +38,21 @@ REQUIRED_QUALITY_DIMENSIONS = [
     "virtual_player_pressure",
     "report_completeness",
 ]
+REQUIRED_EVALUATION_REPORT_SECTIONS = [
+    "# Evaluation Report",
+    "## Overall Result",
+    "## Scorecard",
+    "## Passed Test Cases",
+    "## Failed Test Cases",
+    "## Rule Accuracy Findings",
+    "## State Integrity Findings",
+    "## Spoiler Safety Findings",
+    "## Immersion Findings",
+    "## Meta-Game Findings",
+    "## Reproducible Bugs",
+    "## Recommended Fixes",
+    "## Regression Tests To Add",
+]
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -159,6 +174,24 @@ def _evaluation_report_evidence_findings(run_id: str, run_dir: Path, evaluation_
     return findings
 
 
+def _evaluation_report_section_findings(run_id: str, evaluation_report: str) -> list[dict[str, Any]]:
+    missing_sections = [
+        section
+        for section in REQUIRED_EVALUATION_REPORT_SECTIONS
+        if section not in evaluation_report
+    ]
+    if not missing_sections:
+        return []
+    return [_finding(
+        "evaluation_report_sections_missing",
+        "report_gap",
+        f"{run_id} evaluation-report.md missing sections: {', '.join(missing_sections)}.",
+        "Regenerate evaluation-report.md with all required engineering assessment sections from the blueprint.",
+        run_id=run_id,
+        missing_sections=missing_sections,
+    )]
+
+
 def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     run_id = str(run.get("run_id"))
@@ -231,6 +264,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
         ))
 
     evaluation_report = _read_text(artifacts_dir / "evaluation-report.md")
+    findings.extend(_evaluation_report_section_findings(run_id, evaluation_report))
     findings.extend(_evaluation_report_evidence_findings(run_id, run_dir, evaluation_report))
 
     semantic_request = _read_json(artifacts_dir / "semantic-eval-request.json", {})
