@@ -646,6 +646,55 @@ def test_active_audit_rejects_actor_ids_in_player_readable_report_sections(tmp_p
     assert "report_actor_ids_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_state_ids_in_player_readable_report_sections(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata_path.write_text(json.dumps(metadata))
+    write_jsonl(run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop" / "logs" / "events.jsonl", [
+        {
+            "type": "scene",
+            "actor": "keeper_under_test",
+            "payload": {"scene_id": "knott-office", "summary": "诺特先生给出委托。"},
+        },
+        {
+            "type": "clue",
+            "actor": "ada-king",
+            "payload": {"clue_id": "deed-note", "summary": "艾达找到房契旁注。"},
+        },
+        {
+            "type": "session_ending",
+            "actor": "keeper_under_test",
+            "payload": {"summary": "本幕结束。"},
+        },
+    ])
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- knott-office: 诺特先生给出委托。\n"
+        "- clue:deed-note: 艾达找到房契旁注。\n"
+        "- session ending: KP - 本幕结束。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- Turn 1 KP: \"诺特先生给出钥匙。\"\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Clues Found / 已发现线索\n"
+        "- deed-note: 艾达找到房契旁注。\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- kp_clarity: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "report_state_ids_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_rejects_repeated_actor_labels_in_report_sections(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
     create_final_rulebook_run(run_dir)

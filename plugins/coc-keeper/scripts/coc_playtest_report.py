@@ -376,10 +376,8 @@ def _format_clue(
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
 ) -> str:
-    payload = event.get("payload", {})
-    clue_id = payload.get("clue_id", "unknown")
     summary = _event_summary(event, "clue recorded", localized_terms, play_language)
-    return f"- {clue_id}: {summary}"
+    return f"- {summary}"
 
 
 def _format_subsystem_event(
@@ -409,15 +407,12 @@ def _format_scene_replay_event(
     terms = localized_terms or {}
     names = actor_names or {}
     event_type = event.get("type", "event")
-    payload = event.get("payload", {})
     if event_type == "scene":
-        scene_id = payload.get("scene_id") or "scene"
         summary = _event_summary(event, "scene recorded", terms, play_language)
-        return f"- {scene_id}: {summary}"
+        return f"- {summary}"
     if event_type == "clue":
-        clue_id = payload.get("clue_id") or "clue"
         summary = _event_summary(event, "clue recorded", terms, play_language)
-        return f"- clue:{clue_id}: {summary}"
+        return f"- {summary}"
     event_label = event_type.replace("_", " ")
     actor = _display_roll_actor(event.get("actor", "unknown"), names)
     summary = _event_summary(event, f"{event_label} recorded", terms, play_language)

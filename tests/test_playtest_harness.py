@@ -149,6 +149,13 @@ def assert_localized_character_dossier_labels(text: str) -> None:
     assert "Antiquarian" not in text
 
 
+def assert_player_readable_state_ids_absent(text: str, ids: list[str]) -> None:
+    for state_id in ids:
+        assert f"- {state_id}:" not in text
+        assert f"- clue:{state_id}:" not in text
+        assert f"- {state_id} -" not in text
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -260,8 +267,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
     assert bullet_count(scene_replay) >= significant_scene_replay_count(run_dir)
-    assert "- basement:" in scene_replay
-    assert "- 地下室:" not in scene_replay
+    assert_player_readable_state_ids_absent(
+        scene_replay,
+        ["basement", "corbitt-dagger", "own-weapon-clue", "corbitt-defeated"],
+    )
     assert "自家地下室" in scene_replay
     assert "地下室楼梯" in scene_replay
     assert "推骰地下室搜索" in scene_replay
@@ -412,6 +421,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "chase subsystem coverage deferred to separate scenario" not in chase_summary
     assert "No chase summary recorded." not in battle_text
     assert "Session ending not recorded." not in battle_text
+    clues_found = section_text(battle_text, "## Clues Found")
+    assert_player_readable_state_ids_absent(
+        clues_found,
+        ["globe-clipping", "chapel-journal", "corbitt-dagger", "own-weapon-clue"],
+    )
     assert bullet_count(major_decisions) >= 5
     assert "{'" not in battle_text
     assert "'}" not in battle_text
@@ -491,10 +505,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
     assert bullet_count(scene_replay) >= significant_scene_replay_count(run_dir)
-    assert "- print-shop-roof:" in scene_replay
-    assert "- 印刷店屋顶:" not in scene_replay
-    assert "clue:ledger-clue" in scene_replay
-    assert "clue:账本-clue" not in scene_replay
+    assert_player_readable_state_ids_absent(scene_replay, ["print-shop-roof", "ledger-clue"])
     assert "ada-king-chase -" not in scene_replay
     assert "- chase: 艾达·金 -" in scene_replay
     assert "艾达·金在印刷店屋顶发现内森尼尔·克劳" in scene_replay
@@ -621,6 +632,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "conflict" in battle_text
     assert "quarry escapes" in battle_text
     assert "No chase summary recorded." not in battle_text
+    clues_found = section_text(battle_text, "## Clues Found")
+    assert_player_readable_state_ids_absent(clues_found, ["ledger-clue"])
     assert (run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json").exists()
 
 
@@ -678,6 +691,13 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Status: pending_player_rolls" in chronicle
     assert "Skill Checks Earned: Library Use; Spot Hidden" in chronicle
     assert "Carryover Notes: 后续故事入口保留为沉思教堂记录" in chronicle
+    scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
+    assert_player_readable_state_ids_absent(
+        scene_replay,
+        ["knott-office", "deed-note", "fresh-scratches"],
+    )
+    clues_found = section_text(battle_text, "## Clues Found")
+    assert_player_readable_state_ids_absent(clues_found, ["deed-note", "fresh-scratches"])
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert "谨慎调查员:" in feedback

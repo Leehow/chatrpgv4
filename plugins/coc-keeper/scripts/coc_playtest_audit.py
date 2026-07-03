@@ -415,6 +415,43 @@ def _report_actor_id_leaks(battle_report: str, characters: list[dict[str, Any]])
     return sorted(set(leaks))
 
 
+def _event_state_ids(events: list[dict[str, Any]]) -> list[str]:
+    ids: list[str] = []
+    for event in events:
+        payload = event.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        for key in ("scene_id", "clue_id"):
+            value = payload.get(key)
+            if value not in (None, "", [], {}):
+                ids.append(str(value))
+    return sorted(set(ids), key=len, reverse=True)
+
+
+def _state_id_prefix_leaked(section: str, state_id: str) -> bool:
+    prefixes = [
+        f"- {state_id}:",
+        f"- {state_id} -",
+        f"- clue:{state_id}:",
+        f"- clue: {state_id}:",
+        f"- clue: {state_id} -",
+    ]
+    return any(prefix in section for prefix in prefixes)
+
+
+def _report_state_id_leaks(battle_report: str, events: list[dict[str, Any]]) -> list[str]:
+    state_ids = _event_state_ids(events)
+    leaks: list[str] = []
+    for heading in PLAYER_READABLE_REPORT_SECTIONS:
+        section = _section_text(battle_report, heading)
+        if not section:
+            continue
+        for state_id in state_ids:
+            if _state_id_prefix_leaked(section, state_id):
+                leaks.append(f"{heading}:{state_id}")
+    return sorted(set(leaks))
+
+
 def _character_display_names(characters: list[dict[str, Any]], terms: dict[str, str]) -> list[str]:
     names: list[str] = []
     for character in characters:
@@ -1005,6 +1042,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Player-readable report sections expose internal actor ids: " + ", ".join(actor_id_leaks),
             "Render localized actor display names in player-readable report sections; reserve canonical ids for Character Dossier, Mechanical Log, Chase Tracker, and stored JSON.",
+        ))
+    state_id_leaks = _report_state_id_leaks(battle_report, context["events"])
+    if active_profile and state_id_leaks:
+        findings.append(_finding(
+            "report_state_ids_not_localized",
+            "report_gap",
+            "medium",
+            "Player-readable report sections expose internal state ids: " + ", ".join(state_id_leaks),
+            "Render scene and clue summaries without machine ids in player-readable report sections; reserve canonical ids for Mechanical Log, Chase Tracker, and stored JSON.",
         ))
     repeated_actor_labels = _report_repeated_actor_labels(battle_report, context["characters"], locale_terms)
     if active_profile and repeated_actor_labels:
