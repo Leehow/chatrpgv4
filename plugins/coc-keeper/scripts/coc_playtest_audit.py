@@ -344,8 +344,11 @@ def _load_context(run_dir: Path) -> dict[str, Any]:
         "locations": _read_json(scenario_dir / "locations.json", []) if scenario_dir else [],
         "npcs": _read_json(scenario_dir / "npcs.json", []) if scenario_dir else [],
         "timeline": _read_json(scenario_dir / "timeline.json", []) if scenario_dir else [],
+        "keeper_secrets": _read_json(scenario_dir / "keeper-secrets.json", []) if scenario_dir else [],
         "characters": _load_characters(run_dir, party),
         "transcript": _read_jsonl(run_dir / "transcript.jsonl"),
+        "player_view": _read_jsonl(run_dir / "player-view.jsonl"),
+        "keeper_view": _read_jsonl(run_dir / "keeper-view.jsonl"),
         "rolls": _read_jsonl(logs_dir / "rolls.jsonl") if logs_dir else [],
         "events": _read_jsonl(logs_dir / "events.jsonl") if logs_dir else [],
         "memory": _read_jsonl(memory_dir / "session-summaries.jsonl") if memory_dir else [],
@@ -372,6 +375,40 @@ def _nonempty_text(value: Any) -> bool:
 
 def _nonempty_list(value: Any) -> bool:
     return isinstance(value, list) and len(value) > 0
+
+
+def _view_separation_gaps(context: dict[str, Any]) -> list[str]:
+    player_view = context["player_view"]
+    keeper_view = context["keeper_view"]
+    gaps: list[str] = []
+    if not player_view:
+        gaps.append("player-view.jsonl missing or empty")
+    if not keeper_view:
+        gaps.append("keeper-view.jsonl missing or empty")
+    if player_view and any(event.get("view") != "player" for event in player_view):
+        gaps.append("player-view.jsonl contains non-player view events")
+    if keeper_view and any(event.get("view") != "keeper" for event in keeper_view):
+        gaps.append("keeper-view.jsonl contains non-keeper view events")
+    if player_view and not any(event.get("type") == "public_character_state" for event in player_view):
+        gaps.append("player-view.jsonl lacks public_character_state")
+    if keeper_view and not any(event.get("type") == "keeper_context" for event in keeper_view):
+        gaps.append("keeper-view.jsonl lacks keeper_context")
+    return gaps
+
+
+def _player_view_secret_leaks(context: dict[str, Any]) -> list[str]:
+    secret_ids = [
+        str(secret["id"])
+        for secret in context["keeper_secrets"]
+        if isinstance(secret, dict) and secret.get("id")
+    ]
+    if not secret_ids or not context["player_view"]:
+        return []
+    player_view_text = "\n".join(
+        json.dumps(event, ensure_ascii=False, sort_keys=True)
+        for event in context["player_view"]
+    )
+    return [secret_id for secret_id in secret_ids if secret_id in player_view_text]
 
 
 def _backstory_field_present(value: Any) -> bool:
@@ -1500,6 +1537,10 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
         f"Roll protocol: {len(rolls)} roll log entries; protocol gaps: {len(_roll_protocol_gaps(rolls))}.",
         f"Pushed rolls: {len(pushed_rolls)}; skill checks earned: {len(skill_checks)}.",
         (
+            f"View streams: player {len(context['player_view'])}; keeper {len(context['keeper_view'])}; "
+            f"keeper secrets {len(context['keeper_secrets'])}."
+        ),
+        (
             f"Sanity procedure: {len(sanity_rolls)} SAN roll entries; "
             f"temporary_insanity_triggered markers: {len(temporary_insanity_markers)}; "
             f"Bout of Madness events: {_event_type_count(events, 'bout_of_madness')}; "
@@ -1734,6 +1775,26 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "high",
             "; ".join(skill_allocation_mismatch_gaps),
             "Keep skill_allocation final values identical to character.json skills so the creation record, dossier, and roll targets describe the same investigator.",
+        ))
+
+    view_separation_gaps = _view_separation_gaps(context) if active_profile else []
+    if view_separation_gaps:
+        findings.append(_finding(
+            "view_separation_missing",
+            "system_gap",
+            "high",
+            "; ".join(view_separation_gaps),
+            "Write player-view.jsonl and keeper-view.jsonl for every active playtest so player-safe state and Keeper-only context are separated.",
+        ))
+
+    player_view_secret_leaks = _player_view_secret_leaks(context) if active_profile else []
+    if player_view_secret_leaks:
+        findings.append(_finding(
+            "player_view_secret_leak",
+            "system_gap",
+            "high",
+            "player-view.jsonl contains Keeper secret ids: " + ", ".join(player_view_secret_leaks),
+            "Keep keeper-secrets.json ids and Keeper-only context out of player-view.jsonl; reserve them for keeper-view.jsonl.",
         ))
 
     non_chinese_turns = _non_chinese_dialogue_turns(transcript)

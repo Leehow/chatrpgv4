@@ -40,6 +40,16 @@ def transcript_events(run_dir: Path) -> list[dict]:
     ]
 
 
+def run_jsonl(run_dir: Path, filename: str) -> list[dict]:
+    import json
+
+    return [
+        json.loads(line)
+        for line in (run_dir / filename).read_text().splitlines()
+        if line.strip()
+    ]
+
+
 def playtest_metadata(run_dir: Path) -> dict:
     import json
 
@@ -86,6 +96,68 @@ def assert_creation_allocation_matches_character(run_dir: Path, investigator_id:
     allocation = creation["skill_allocation"]["skills"]
     allocation_finals = {skill: entry["final"] for skill, entry in allocation.items()}
     assert allocation_finals == character["skills"]
+
+
+def assert_view_streams_separated(run_dir: Path, secret_ids: list[str]) -> None:
+    player_view = run_jsonl(run_dir, "player-view.jsonl")
+    keeper_view = run_jsonl(run_dir, "keeper-view.jsonl")
+    assert player_view
+    assert keeper_view
+    assert {event["view"] for event in player_view} == {"player"}
+    assert {event["view"] for event in keeper_view} == {"keeper"}
+    assert any(event.get("type") == "public_character_state" for event in player_view)
+    assert any(event.get("type") == "keeper_context" for event in keeper_view)
+    player_text = "\n".join(str(event) for event in player_view)
+    keeper_text = "\n".join(str(event) for event in keeper_view)
+    for secret_id in secret_ids:
+        assert secret_id not in player_text
+        assert secret_id in keeper_text
+
+
+PUSHED_ROLL_PROTOCOL_STAGES = [
+    "player_reframes_action",
+    "keeper_foreshadows_failure",
+    "player_confirms_risk",
+    "roll_resolved",
+]
+
+
+def assert_pushed_roll_protocol(run_dir: Path, expected_roll_ids: list[str]) -> None:
+    transcript_protocols: dict[str, list[dict]] = {}
+    for event in transcript_events(run_dir):
+        protocol = event.get("pushed_roll_protocol")
+        if not isinstance(protocol, dict):
+            continue
+        roll_id = protocol.get("roll_id")
+        if isinstance(roll_id, str):
+            transcript_protocols.setdefault(roll_id, []).append(event)
+
+    assert set(transcript_protocols) == set(expected_roll_ids)
+    for roll_id in expected_roll_ids:
+        events = transcript_protocols[roll_id]
+        stages = [event["pushed_roll_protocol"]["stage"] for event in events]
+        roles = [event["role"] for event in events]
+        assert stages == PUSHED_ROLL_PROTOCOL_STAGES
+        assert roles == ["player_simulator", "keeper_under_test", "player_simulator", "system"]
+        keeper_protocol = events[1]["pushed_roll_protocol"]
+        confirmation_protocol = events[2]["pushed_roll_protocol"]
+        assert keeper_protocol["failure_consequence_source"] == "keeper"
+        assert confirmation_protocol["risk_confirmed"] is True
+
+    pushed_roll_payloads = [
+        event["payload"]
+        for event in campaign_roll_events(run_dir)
+        if event.get("payload", {}).get("pushed") is True
+    ]
+    assert {
+        payload.get("pushed_roll_protocol", {}).get("roll_id")
+        for payload in pushed_roll_payloads
+    } == set(expected_roll_ids)
+    for payload in pushed_roll_payloads:
+        protocol = payload["pushed_roll_protocol"]
+        assert protocol["failure_consequence_source"] == "keeper"
+        assert protocol["player_confirmation_recorded"] is True
+        assert protocol["keeper_foreshadowed_failure"] is True
 
 
 def significant_scene_replay_count(run_dir: Path) -> int:
@@ -495,6 +567,12 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         "final": 40,
     }
     assert_creation_allocation_matches_character(run_dir, "ada-king-haunting")
+    assert_view_streams_separated(run_dir, ["secret-corbitt-body", "secret-floating-knife"])
+    assert_pushed_roll_protocol(run_dir, [
+        "haunting-arty-persuade-push",
+        "haunting-basement-descent-push",
+        "haunting-basement-search-push",
+    ])
     creation_section = section_text(battle_text, "## Investigator Creation")
     assert "## 角色创建记录 <!-- report-anchor: Investigator Creation -->" in battle_text
     assert battle_text.index("report-anchor: Investigator Creation") < battle_text.index("report-anchor: Actual Play Replay")
@@ -858,6 +936,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Locksmith: 30" not in character_dossier
     assert "Stealth: 45" not in character_dossier
     assert_creation_allocation_matches_character(run_dir, "ada-king-chase")
+    assert_view_streams_separated(run_dir, ["secret-warehouse"])
+    assert_pushed_roll_protocol(run_dir, ["chase-ledger-confirmation-push"])
     assert investigator_jsonl(run_dir, "ada-king-chase", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-chase", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")
@@ -1144,6 +1224,8 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Library Use: 60" not in character_dossier
     assert "Spot Hidden: 55" not in character_dossier
     assert_creation_allocation_matches_character(run_dir, "ada-king-pressure")
+    assert_view_streams_separated(run_dir, ["secret-corbitt-body"])
+    assert_pushed_roll_protocol(run_dir, ["pressure-reckless-entry-push"])
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-pressure", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")

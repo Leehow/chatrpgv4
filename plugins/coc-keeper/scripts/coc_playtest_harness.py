@@ -363,6 +363,123 @@ def _write_jsonl(path: Path, events: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
 
 
+def _read_json(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _select_campaign_dir(run_dir: Path) -> Path | None:
+    metadata = _read_json(run_dir / "playtest.json", {})
+    campaign_id = metadata.get("campaign_id") or metadata.get("run_id")
+    if campaign_id:
+        candidate = run_dir / "sandbox" / ".coc" / "campaigns" / str(campaign_id)
+        if candidate.exists():
+            return candidate
+    campaigns_root = run_dir / "sandbox" / ".coc" / "campaigns"
+    if not campaigns_root.exists():
+        return None
+    campaign_dirs = sorted(path for path in campaigns_root.iterdir() if path.is_dir())
+    return campaign_dirs[0] if campaign_dirs else None
+
+
+def _public_character_states(run_dir: Path, campaign_dir: Path | None) -> list[dict[str, Any]]:
+    if campaign_dir is None:
+        return []
+    party = _read_json(campaign_dir / "party.json", {})
+    investigator_ids = party.get("investigator_ids", [])
+    states: list[dict[str, Any]] = []
+    for investigator_id in investigator_ids if isinstance(investigator_ids, list) else []:
+        character = _read_json(
+            run_dir / "sandbox" / ".coc" / "investigators" / str(investigator_id) / "character.json",
+            {},
+        )
+        if not character:
+            continue
+        states.append({
+            "investigator_id": str(investigator_id),
+            "name": character.get("name"),
+            "occupation": character.get("occupation"),
+            "era": character.get("era"),
+            "characteristics": character.get("characteristics", {}),
+            "derived": character.get("derived", {}),
+            "skills": character.get("skills", {}),
+            "backstory": character.get("backstory", {}),
+        })
+    return states
+
+
+def _keeper_secret_ids(campaign_dir: Path | None) -> list[str]:
+    if campaign_dir is None:
+        return []
+    secrets = _read_json(campaign_dir / "scenario" / "keeper-secrets.json", [])
+    if not isinstance(secrets, list):
+        return []
+    return [str(secret["id"]) for secret in secrets if isinstance(secret, dict) and secret.get("id")]
+
+
+def _write_view_streams(run_dir: Path) -> None:
+    campaign_dir = _select_campaign_dir(run_dir)
+    metadata = _read_json(run_dir / "playtest.json", {})
+    scenario = _read_json(campaign_dir / "scenario" / "scenario.json", {}) if campaign_dir else {}
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    public_state = {
+        "view": "player",
+        "type": "public_character_state",
+        "campaign_id": metadata.get("campaign_id"),
+        "scenario": {
+            "title": scenario.get("title"),
+            "player_safe_summary": scenario.get("player_safe_summary"),
+            "opening_scene": scenario.get("opening_scene"),
+            "current_phase": scenario.get("current_phase"),
+        },
+        "investigators": _public_character_states(run_dir, campaign_dir),
+    }
+    keeper_context = {
+        "view": "keeper",
+        "type": "keeper_context",
+        "campaign_id": metadata.get("campaign_id"),
+        "scenario_id": scenario.get("scenario_id"),
+        "keeper_secret_ids": _keeper_secret_ids(campaign_dir),
+    }
+    player_events = [public_state] + [
+        {**event, "view": "player", "type": "transcript_turn"}
+        for event in transcript
+    ]
+    keeper_events = [keeper_context] + [
+        {**event, "view": "keeper", "type": "transcript_turn"}
+        for event in transcript
+    ]
+    _write_jsonl(run_dir / "player-view.jsonl", player_events)
+    _write_jsonl(run_dir / "keeper-view.jsonl", keeper_events)
+
+
+def _pushed_roll_transcript_protocol(
+    roll_id: str,
+    stage: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    protocol = {"roll_id": roll_id, "stage": stage}
+    if extra:
+        protocol.update(extra)
+    return protocol
+
+
+def _pushed_roll_payload_protocol(roll_id: str) -> dict[str, Any]:
+    return {
+        "roll_id": roll_id,
+        "failure_consequence_source": "keeper",
+        "keeper_foreshadowed_failure": True,
+        "player_confirmation_recorded": True,
+    }
+
+
 def _write_investigator_chronicle(
     investigator_dir: Path,
     history: list[dict[str, Any]],
@@ -1000,6 +1117,7 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
         {"severity": "low", "category": "state_integrity", "text": "Clue, decision, sanity, memory, and feedback logs are present."},
     ])
 
+    _write_view_streams(run_dir)
     generate_battle_report(run_dir)
     generate_evaluation_report(run_dir)
     generate_rulebook_audit(run_dir)
@@ -1235,11 +1353,12 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"turn": 4, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "choose first research route", "text": "我先去 The Boston Globe，礼貌地要求查看旧剪报档案，不急着进那栋房子。"},
         {"turn": 5, "role": "keeper_under_test", "speaker": "Arty Wilmot", "speaker_role": "npc", "mode": "play", "ruling": "persuade_regular", "text": "Arty Wilmot 挡在 morgue 门口：“剪报档案室不是给陌生人随便翻的。”你的目标是说服他放行，做 Persuade，Regular difficulty。"},
         {"turn": 6, "role": "system", "speaker": "system", "mode": "roll", "text": "Persuade 72 vs 55 -> failure."},
-        {"turn": 7, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "push Arty social access", "text": "我把 Mr. Knott 的钥匙亮出来，压低声音说这可能阻止下一场悲剧；我接受失败时 Arty 会叫维护工把我赶出去。"},
+        {"turn": 7, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "push Arty social access", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-arty-persuade-push", "player_reframes_action"), "text": "我把 Mr. Knott 的钥匙亮出来，压低声音说这可能阻止下一场悲剧。我换个说法：请 Arty 只让我在 Ruth Blake 监督下看相关剪报。"},
         {"turn": "7a", "role": "player_simulator", "speaker": "Ada King", "mode": "meta", "intent": "ask pushed-roll ruling", "text": "[meta] 我想确认一下：为什么这里可以 pushed roll？失败后果是不是要先说清楚？[/meta]"},
         {"turn": "7b", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "pushed_roll_explanation", "text": "[meta] 可以，因为你不是重掷同一个动作，而是改变策略：亮出钥匙、强调可能阻止悲剧。失败后果会先摆明：阿蒂会叫维护工，你今天失去查档机会。确认后我们回到场景。[/meta]"},
-        {"turn": 8, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_persuade", "text": "这构成 pushed Persuade。失败后果是，Arty 会叫来强壮的维护工，你今天彻底失去查档机会。"},
-        {"turn": 9, "role": "system", "speaker": "system", "mode": "roll", "text": "Pushed Persuade 38 vs 55 -> regular_success."},
+        {"turn": 8, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_persuade", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-arty-persuade-push", "keeper_foreshadows_failure", {"failure_consequence_source": "keeper"}), "text": "这可以算推骰，因为你改变了施压方式。若失败，Arty 会叫来强壮的维护工，你今天彻底失去查档机会。你确定吗？"},
+        {"turn": "8a", "role": "player_simulator", "speaker": "Ada King", "mode": "play", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-arty-persuade-push", "player_confirms_risk", {"risk_confirmed": True}), "text": "确定。我把钥匙放在桌上，继续请他通融这一次。"},
+        {"turn": 9, "role": "system", "speaker": "system", "mode": "roll", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-arty-persuade-push", "roll_resolved"), "text": "Pushed Persuade 38 vs 55 -> regular_success."},
         {"turn": 10, "role": "keeper_under_test", "speaker": "Arty Wilmot", "speaker_role": "npc", "mode": "play", "text": "Arty 终于让开：“好吧，金小姐。Ruth Blake 会带你进去，但别把剪报顺序弄乱。”Ruth Blake 带你进满是灰尘的 morgue，Handout 2 写着事故、疾病、自杀，以及 Macario 一家仓皇逃离。"},
         {"turn": 11, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "follow public record trail", "text": "我把剪报收好，下午去 Hall of Records，查 Walter Corbitt、遗嘱和任何教会记录。"},
         {"turn": 12, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "library_use_regular", "text": "做 Library Use。你的目标是把 Corbitt 和某个机构或遗嘱执行人联系起来，难度为 Regular。"},
@@ -1262,14 +1381,17 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"turn": 29, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "continue to basement despite injury", "text": "我简单包扎手臂，虽然发抖，还是去 basement door，扶着墙慢慢往下走。"},
         {"turn": 30, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "combined_dex_climb", "text": "楼梯漆黑，而且脚下像活物一样挪动。做 DEX 或 Climb 的 combined roll。"},
         {"turn": 31, "role": "system", "speaker": "system", "mode": "roll", "text": "DEX/Climb 71 vs DEX 50 and Climb 20 -> failure."},
-        {"turn": 32, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "push basement descent", "text": "我想 push：我坐低身体，双手抓住扶手，一阶一阶挪下去；如果失败，我接受摔下楼梯的后果。"},
-        {"turn": 33, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_dex_climb", "text": "接受 pushed roll。失败的话你会摔下去，受到 1D6 HP damage。"},
-        {"turn": 34, "role": "system", "speaker": "system", "mode": "roll", "text": "Pushed DEX 44 vs 50 -> regular_success."},
+        {"turn": 32, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "push basement descent", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-basement-descent-push", "player_reframes_action"), "text": "我不想停在楼梯口。我坐低身体，双手抓住扶手，一阶一阶挪下去。"},
+        {"turn": 33, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_dex_climb", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-basement-descent-push", "keeper_foreshadows_failure", {"failure_consequence_source": "keeper"}), "text": "这可以作为推骰。若失败，你会摔下楼梯，受到 1D6 HP 伤害。你确定继续吗？"},
+        {"turn": "33a", "role": "player_simulator", "speaker": "Ada King", "mode": "play", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-basement-descent-push", "player_confirms_risk", {"risk_confirmed": True}), "text": "确定。我把重心压低，慢慢往下挪。"},
+        {"turn": 34, "role": "system", "speaker": "system", "mode": "roll", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-basement-descent-push", "roll_resolved"), "text": "Pushed DEX 44 vs 50 -> regular_success."},
         {"turn": 35, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "search basement clutter", "text": "我在 basement 的杂物里找和 chapel 或 Corbitt 有关的东西，尤其是像仪式用品或武器的物件。"},
         {"turn": 36, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "basement_spot_hidden", "text": "这是 Obscure clue。做 Spot Hidden；如果之后 push 且失败，尖锐碎片或那把刀可能会伤到你。"},
         {"turn": 37, "role": "system", "speaker": "system", "mode": "roll", "text": "Spot Hidden 88 vs 55 -> failure."},
-        {"turn": 38, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "push basement search", "text": "我脱下手套，用手摸进碎木和破布下面继续找；我知道失败时可能被割伤。"},
-        {"turn": 39, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "伤害 4 HP；HP 7 -> 3。浮空匕首开始震动。", "text": "Pushed Spot Hidden 91 vs 55 -> failure. Damage: 4 HP. HP 7 -> 3. The Floating Knife stirs."},
+        {"turn": 38, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "push basement search", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-basement-search-push", "player_reframes_action"), "text": "我脱下手套，用指尖慢慢摸进碎木和破布下面，想确认那块锈红色的金属到底是什么。"},
+        {"turn": "38a", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_spot_hidden", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-basement-search-push", "keeper_foreshadows_failure", {"failure_consequence_source": "keeper"}), "text": "可以推骰，但这会让你直接接触危险杂物。若失败，你的手会碰到藏在里面的刀刃并立刻受伤。你确定吗？"},
+        {"turn": "38b", "role": "player_simulator", "speaker": "Ada King", "mode": "play", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-basement-search-push", "player_confirms_risk", {"risk_confirmed": True}), "text": "确定。我屏住呼吸，继续摸下去。"},
+        {"turn": 39, "role": "system", "speaker": "system", "mode": "roll", "pushed_roll_protocol": _pushed_roll_transcript_protocol("haunting-basement-search-push", "roll_resolved"), "outcome_note": "伤害 4 HP；HP 7 -> 3。浮空匕首开始震动。", "text": "Pushed Spot Hidden 91 vs 55 -> failure. Damage: 4 HP. HP 7 -> 3. The Floating Knife stirs."},
         {"turn": 40, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "floating_knife_combat", "text": "The Floating Knife 从杂物里升起。combat round 开始；刀用 Corbitt 的 POW 发动攻击，Ada 可以 Dodge。"},
         {"turn": 41, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "SAN 损失 1；SAN 52 -> 51。", "text": "SAN 29 vs 52 -> success; SAN loss 1. SAN 52 -> 51."},
         {"turn": 42, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 2, "outcome_note": "浮空匕首刺空。", "text": "Corbitt POW 34 vs 90 -> hard_success; Ada Dodge 18 vs 25 -> hard_success, so the knife misses."},
@@ -1286,16 +1408,16 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
 
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Persuade", "goal": "gain access to The Boston Globe clipping files from Arty Wilmot", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Arty is an obstructive but ordinary editor, so the social skill check is Regular.", "roll": 72, "outcome": "failure", "push_eligible": True, "failure_consequence": "Arty refuses access unless Ada escalates with a pushed approach.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "获得《波士顿环球报》剪报档案的查阅许可", "difficulty_rationale": "阿蒂·威尔莫特只是普通编辑，不是超自然威胁；这次社交检定按普通难度处理。", "failure_consequence": "艾达·金会被阿蒂拒绝；除非改变策略并承担推骰风险，否则无法进入剪报档案室。"}}}},
-        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Persuade", "goal": "gain access to The Boston Globe clipping files from Arty Wilmot", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed roll keeps the same social difficulty after Ada changes pressure.", "roll": 38, "outcome": "regular_success", "pushed": True, "push_justification": "Ada shows Mr. Knott's keys and argues that access may prevent another tragedy.", "foreshadowed_failure": "On failure, Arty calls maintenance and Ada loses access to the morgue.", "failure_consequence": "Arty would call strong-armed maintenance men and bar Ada from the files.", "skill_check_earned": True}},
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Persuade", "goal": "gain access to The Boston Globe clipping files from Arty Wilmot", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed roll keeps the same social difficulty after Ada changes pressure.", "roll": 38, "outcome": "regular_success", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("haunting-arty-persuade-push"), "push_justification": "Ada shows Mr. Knott's keys and requests supervised access to relevant clippings.", "foreshadowed_failure": "On failure, Arty calls maintenance and Ada loses access to the morgue.", "failure_consequence": "Arty would call strong-armed maintenance men and bar Ada from the files.", "skill_check_earned": True}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Library Use", "goal": "connect Walter Corbitt to an executor and church records", "target": 60, "effective_target": 60, "difficulty": "regular", "difficulty_rationale": "The Hall of Records contains the entry, but it takes focused archive work.", "roll": 22, "outcome": "hard_success", "failure_consequence": "Ada would spend another half day and risk pressure from Mr. Knott.", "skill_check_earned": True}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "find the chapel journal under the ruined cabinet", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The journal is hidden under debris but can be found with a careful search.", "roll": 28, "outcome": "regular_success", "failure_consequence": "Ada would miss the explicit basement burial clue.", "skill_check_earned": True}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "notice the Bed Attack before impact", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The bed lurches suddenly, but a watchful investigator can react.", "roll": 47, "outcome": "regular_success", "failure_consequence": "Ada would have no chance to Dodge before the bed hit.", "skill_check_earned": True}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Dodge", "goal": "avoid being thrown through the spare bedroom window by the Bed Attack", "target": 25, "effective_target": 25, "difficulty": "regular", "difficulty_rationale": "Bed Attack allows a Dodge after the Spot Hidden success.", "roll": 68, "outcome": "failure", "failure_consequence": "Ada is thrown through glass and takes 1D6+2 damage.", "skill_check_earned": False}},
         {"type": "sanity", "actor": investigator_id, "payload": {"skill": "SAN", "goal": "withstand seeing the bed move of its own accord", "target": 55, "effective_target": 55, "difficulty": "sanity", "difficulty_rationale": "The Bed Attack calls for SAN 1/1D4.", "roll": 74, "outcome": "failure", "failure_consequence": "Ada loses 1D4 SAN.", "san_loss": 3}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "DEX/Climb", "goal": "descend the moving basement stairs", "target": 50, "effective_target": 50, "difficulty": "combined", "difficulty_rationale": "The rulebook treats the basement stairs as a combined DEX or Climb roll.", "roll": 71, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada must stop or push and risk a fall.", "skill_check_earned": False}},
-        {"type": "roll", "actor": investigator_id, "payload": {"skill": "DEX", "goal": "push through the dangerous basement descent", "target": 50, "effective_target": 50, "difficulty": "regular", "difficulty_rationale": "Ada changes tactics by sitting low and bracing on the rail.", "roll": 44, "outcome": "regular_success", "pushed": True, "push_justification": "Ada inches down while braced and accepts a fall if it goes wrong.", "foreshadowed_failure": "On failure, Ada falls down the stairs for 1D6 HP damage.", "failure_consequence": "Ada would fall and lose 1D6 HP.", "skill_check_earned": True}},
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "DEX", "goal": "push through the dangerous basement descent", "target": 50, "effective_target": 50, "difficulty": "regular", "difficulty_rationale": "Ada changes tactics by sitting low and bracing on the rail.", "roll": 44, "outcome": "regular_success", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("haunting-basement-descent-push"), "push_justification": "Ada inches down while seated low and braced on the rail.", "foreshadowed_failure": "On failure, Ada falls down the stairs for 1D6 HP damage.", "failure_consequence": "Ada would fall and lose 1D6 HP.", "skill_check_earned": True}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "find Corbitt's blood-rusted dagger in basement clutter", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The knife is an Obscure clue hidden among dangerous clutter.", "roll": 88, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada misses the knife unless she risks a more dangerous search.", "skill_check_earned": False}},
-        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "find Corbitt's blood-rusted dagger in basement clutter", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed search takes more time and exposes Ada to sharp debris.", "roll": 91, "outcome": "failure", "pushed": True, "push_justification": "Ada removes her gloves and searches by touch despite the risk.", "foreshadowed_failure": "On failure, Ada catches her hand on the possessed knife and takes automatic damage.", "failure_consequence": "Ada takes 1D4+2 HP damage from the knife.", "skill_check_earned": False}},
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "find Corbitt's blood-rusted dagger in basement clutter", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed search takes more time and exposes Ada to sharp debris.", "roll": 91, "outcome": "failure", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("haunting-basement-search-push"), "push_justification": "Ada removes her gloves and searches the clutter by touch.", "foreshadowed_failure": "On failure, Ada catches her hand on the possessed knife and takes automatic damage.", "failure_consequence": "Ada takes 1D4+2 HP damage from the knife.", "skill_check_earned": False}},
         {"type": "sanity", "actor": investigator_id, "payload": {"skill": "SAN", "goal": "withstand seeing The Floating Knife attack", "target": 52, "effective_target": 52, "difficulty": "sanity", "difficulty_rationale": "The Floating Knife calls for SAN 1/1D4.", "roll": 29, "outcome": "success", "failure_consequence": "Ada would lose 1D4 SAN.", "san_loss": 1}},
         {"type": "combat", "actor": corbitt_id, "payload": {"skill": "POW", "goal": "drive The Floating Knife into Ada", "target": 90, "effective_target": 90, "difficulty": "opposed", "difficulty_rationale": "The knife attacks using Corbitt's POW against Ada's Dodge.", "roll": 34, "outcome": "hard_success", "failure_consequence": "The knife would miss if Corbitt failed."}},
         {"type": "combat", "actor": investigator_id, "payload": {"skill": "Dodge", "goal": "avoid The Floating Knife", "target": 25, "effective_target": 25, "difficulty": "opposed", "difficulty_rationale": "Ada compares Dodge success level against Corbitt's POW success level.", "roll": 18, "outcome": "hard_success", "failure_consequence": "Ada would take 1D4+2 damage if Corbitt achieved the higher success level.", "skill_check_earned": True}},
@@ -1309,7 +1431,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-hiring", "summary": "Mr. Knott 雇用 Ada，给出 Handout 1、钥匙和 20 美元预付款。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 选择先去 The Boston Globe 查剪报，而不是直接进入凶宅。"}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "第一次 Persuade 失败后，Ada 用 Mr. Knott 的钥匙向 Arty Wilmot 施压，并接受被赶出档案室的风险。"}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "第一次 Persuade 失败后，Ada 用 Mr. Knott 的钥匙向 Arty Wilmot 施压，并在 KP 说明会被赶出档案室后确认继续。"}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "handout-2", "summary": "Ada 在说服 Arty Wilmot 后取得 Handout 2，读到事故、疾病、自杀和 Macario 一家逃离的记录。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 选择沿着法律记录追查 Hall of Records。"}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "handout-7", "summary": "Ada 将 Walter Corbitt、Reverend Michael Thomas 和 Chapel of Contemplation 联系起来。"}},
@@ -1324,7 +1446,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"type": "sanity", "actor": investigator_id, "payload": {"summary": "Ada 因 Bed Attack 失败 SAN 1/1D4，失去 3 SAN；SAN 55 -> 52。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Bed Attack 让 Ada 受伤后，她仍选择下地下室。"}},
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "basement", "summary": "Ada 通过 pushed DEX roll 下到会移动的 basement stairs。"}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 脱下手套用触摸继续搜索地下室杂物，接受受伤风险。"}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 脱下手套用触摸继续搜索地下室杂物，并在 KP 说明受伤风险后确认继续。"}},
         {"type": "damage", "actor": investigator_id, "payload": {"summary": "pushed basement search 失败造成 Damage: 4 HP；HP 7 -> 3。"}},
         {"type": "combat", "actor": "keeper_under_test", "payload": {"summary": "The Floating Knife 开始 combat round；Corbitt POW hard success 与 Ada Dodge hard success 打平，所以 Ada 避开攻击。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 选择用外套抓住 The Floating Knife，而不是逃跑。"}},
@@ -1359,6 +1481,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"severity": "medium", "category": "immersion", "text": "The scripted test compresses a full scenario and should later be replaced by an LLM-vs-KP interactive transcript."},
     ])
 
+    _write_view_streams(run_dir)
     generate_battle_report(run_dir)
     generate_evaluation_report(run_dir)
     generate_rulebook_audit(run_dir)
@@ -1614,9 +1737,10 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "spot the stolen ledger", "text": "我先不暴露自己，压低身体看他的外套，确认他是不是带着那本 ledger。"},
         {"turn": 3, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "spot_hidden_regular", "text": "做 Spot Hidden。目标是在 Nathaniel 发现你之前确认 ledger，难度 Regular。"},
         {"turn": 4, "role": "system", "speaker": "system", "mode": "roll", "text": "Spot Hidden 82 vs 55 -> failure."},
-        {"turn": 5, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "push ledger confirmation", "text": "我想 push：我探身越过 skylight 多看一眼，接受失败时他会直接发现我。"},
-        {"turn": 6, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_spot_hidden", "text": "可以 pushed roll。失败的话 Nathaniel 会看见你，chase 开始时双方没有距离差。"},
-        {"turn": 7, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "艾达·金看见账本；内森尼尔·克劳听见屋瓦移动。", "text": "Pushed Spot Hidden 33 vs 55 -> regular_success. Ada sees the ledger, but Nathaniel hears the roof tile shift."},
+        {"turn": 5, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "push ledger confirmation", "pushed_roll_protocol": _pushed_roll_transcript_protocol("chase-ledger-confirmation-push", "player_reframes_action"), "text": "我不甘心就这样放过线索。我压低身体，冒险往 skylight 外再探一点，想看清他外套下面是不是那本 ledger。"},
+        {"turn": 6, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_spot_hidden", "pushed_roll_protocol": _pushed_roll_transcript_protocol("chase-ledger-confirmation-push", "keeper_foreshadows_failure", {"failure_consequence_source": "keeper"}), "text": "这可以算推骰，因为你换了更危险的观察位置。若失败，Nathaniel 会看见你，追逐开始时双方没有距离差。你确定吗？"},
+        {"turn": "6a", "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "pushed_roll_protocol": _pushed_roll_transcript_protocol("chase-ledger-confirmation-push", "player_confirms_risk", {"risk_confirmed": True}), "text": "确定。我赌这一眼。"},
+        {"turn": 7, "role": "system", "speaker": "system", "mode": "roll", "pushed_roll_protocol": _pushed_roll_transcript_protocol("chase-ledger-confirmation-push", "roll_resolved"), "outcome_note": "艾达·金看见账本；内森尼尔·克劳听见屋瓦移动。", "text": "Pushed Spot Hidden 33 vs 55 -> regular_success. Ada sees the ledger, but Nathaniel hears the roof tile shift."},
         {"turn": 8, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "chase_setup", "text": "Nathaniel 猛地扑向你。你现在是 quarry，他是 pursuer。我们做 speed roll checks 来建立 chase。"},
         {"turn": 9, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "MOV 保持 8。", "text": "Ada CON speed roll 42 vs 55 -> success; MOV remains 8."},
         {"turn": 10, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "MOV 从 8 升到 9。", "text": "Nathaniel CON speed roll 9 vs 50 -> extreme_success; MOV rises from 8 to 9."},
@@ -1638,7 +1762,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     ], ZH_HANS_CHASE_GLOSSARY)
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The ledger is partly visible under Nathaniel's coat.", "roll": 82, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada cannot confirm the ledger without risking detection.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "确认内森尼尔·克劳行动前是否带着邪教账本", "difficulty_rationale": "账本只从内森尼尔·克劳的外套下露出一角，需要仔细观察。", "failure_consequence": "艾达·金无法确认账本，除非冒着被发现的风险继续观察。"}}}},
-        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Ada changes position for a better angle, keeping the same difficulty.", "roll": 33, "outcome": "regular_success", "pushed": True, "push_justification": "Ada leans over the skylight for a better look and accepts being noticed.", "foreshadowed_failure": "On failure, Nathaniel sees Ada and starts the chase with no gap.", "failure_consequence": "Nathaniel would begin the chase at the same location as Ada.", "skill_check_earned": True}},
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Ada changes position for a better angle, keeping the same difficulty.", "roll": 33, "outcome": "regular_success", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("chase-ledger-confirmation-push"), "push_justification": "Ada leans over the skylight for a better look.", "foreshadowed_failure": "On failure, Nathaniel sees Ada and starts the chase with no gap.", "failure_consequence": "Nathaniel would begin the chase at the same location as Ada.", "skill_check_earned": True}},
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "CON", "goal": "speed roll to establish Ada's adjusted MOV for the chase", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "On-foot chases use CON as the speed roll.", "roll": 42, "outcome": "success", "failure_consequence": "Ada's MOV would drop by 1 for this chase.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "用速度检定确定艾达·金在本次追逐中的调整后 MOV", "difficulty_rationale": "步行追逐使用 CON 作为速度检定。", "failure_consequence": "艾达·金的 MOV 会在本次追逐中降低 1。"}}}},
         {"type": "chase", "actor": pursuer_id, "payload": {"skill": "CON", "goal": "speed roll to establish Nathaniel's adjusted MOV for the chase", "target": 50, "effective_target": 50, "difficulty": "regular", "difficulty_rationale": "On-foot chases use CON as the speed roll.", "roll": 9, "outcome": "extreme_success", "failure_consequence": "Nathaniel's MOV would drop by 1 for this chase.", "localized_text": {"zh-Hans": {"goal": "用速度检定确定内森尼尔·克劳在本次追逐中的调整后 MOV", "difficulty_rationale": "步行追逐使用 CON 作为速度检定。", "failure_consequence": "内森尼尔·克劳的 MOV 会在本次追逐中降低 1。"}}}},
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "Dodge", "goal": "negotiate the slick skylight hazard", "target": 35, "effective_target": 35, "difficulty": "regular", "difficulty_rationale": "The skylight is a Regular foot-chase hazard.", "roll": 24, "outcome": "regular_success", "failure_consequence": "Ada would lose 1D3 movement actions and risk falling glass damage.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "越过湿滑天窗危险点", "difficulty_rationale": "湿滑天窗是普通难度的步行追逐危险点。", "failure_consequence": "艾达·金会失去 1D3 次移动行动，并冒着被碎玻璃伤到的风险。"}}}},
@@ -1683,6 +1807,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"severity": "low", "category": "immersion", "text": "The scripted multi-profile drill reads as a coherent chase scene with table pressure."},
     ])
 
+    _write_view_streams(run_dir)
     generate_battle_report(run_dir)
     generate_evaluation_report(run_dir)
     generate_rulebook_audit(run_dir)
@@ -1868,9 +1993,10 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"turn": 6, "role": "player_simulator", "speaker": "Reckless Player", "player_profile": "reckless_investigator", "mode": "play", "intent": "rush into danger", "text": "我直接去二楼，拿钥匙开门进去，不等其他调查。"},
         {"turn": 7, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "spot_hidden_regular", "text": "可以直接行动，但这会让你少拿一部分准备信息。先做 Spot Hidden，普通难度，看你是否注意到门框内侧的新划痕。"},
         {"turn": 8, "role": "system", "speaker": "system", "mode": "roll", "text": "Spot Hidden 84 vs 55 -> failure."},
-        {"turn": 9, "role": "player_simulator", "speaker": "Reckless Player", "player_profile": "reckless_investigator", "mode": "play", "intent": "push reckless entry", "text": "我推骰：把手电贴近门缝，再冒险伸手摸门闩；如果失败，我接受惊动屋内东西的后果。"},
-        {"turn": 10, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_spot_hidden", "text": "这是有效推骰，因为你改变了方法并承担更大风险。失败后果是屋内的动静会先一步锁定你。"},
-        {"turn": 11, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "你看见门闩边缘有新划痕，没有触发额外危险。", "text": "Pushed Spot Hidden 22 vs 55 -> hard_success."},
+        {"turn": 9, "role": "player_simulator", "speaker": "Reckless Player", "player_profile": "reckless_investigator", "mode": "play", "intent": "push reckless entry", "pushed_roll_protocol": _pushed_roll_transcript_protocol("pressure-reckless-entry-push", "player_reframes_action"), "text": "我把手电贴近门缝，不只看门框，还冒险伸手去摸门闩，想知道里面是不是刚有人动过。"},
+        {"turn": 10, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_spot_hidden", "pushed_roll_protocol": _pushed_roll_transcript_protocol("pressure-reckless-entry-push", "keeper_foreshadows_failure", {"failure_consequence_source": "keeper"}), "text": "这是有效推骰，因为你改变了方法并靠得更近。若失败，屋内的动静会先一步锁定你。你确定吗？"},
+        {"turn": "10a", "role": "player_simulator", "speaker": "Reckless Player", "player_profile": "reckless_investigator", "mode": "play", "pushed_roll_protocol": _pushed_roll_transcript_protocol("pressure-reckless-entry-push", "player_confirms_risk", {"risk_confirmed": True}), "text": "确定。我就赌门缝里这一点线索。"},
+        {"turn": 11, "role": "system", "speaker": "system", "mode": "roll", "pushed_roll_protocol": _pushed_roll_transcript_protocol("pressure-reckless-entry-push", "roll_resolved"), "outcome_note": "你看见门闩边缘有新划痕，没有触发额外危险。", "text": "Pushed Spot Hidden 22 vs 55 -> hard_success."},
         {"turn": 12, "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "intent": "challenge keeper ruling", "text": "[meta] 我想质疑一下：谨慎玩家查资料、鲁莽玩家直接进屋，为什么 KP 给的是不同检定和风险？[/meta]"},
         {"turn": 13, "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "profile_pressure_explanation", "text": "[meta] 规则裁定：检定不是惩罚玩家风格，而是根据行动方式和风险来定。谨慎路线用 Library Use 获取线索；鲁莽路线也允许，但信息少、后果更近。推骰前我必须先说明失败代价。[/meta]"},
         {"turn": 14, "role": "player_simulator", "speaker": "Careful Player", "player_profile": "careful_investigator", "mode": "play", "intent": "use clue to shape plan", "text": "那我把档案线索告诉大家，建议先找沉思教堂的记录，再决定是否进地下室。"},
@@ -1879,13 +2005,13 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Library Use", "goal": "research deed and newspaper records before entering the house", "target": 60, "effective_target": 60, "difficulty": "regular", "difficulty_rationale": "Public records can reveal a useful lead with focused archive work.", "roll": 29, "outcome": "hard_success", "failure_consequence": "Ada would spend half a day and enter the house with fewer leads.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "进屋前查房契和旧报纸记录", "difficulty_rationale": "公开记录能通过专注查档找到有用线索。", "failure_consequence": "艾达·金会多花半天，并带着更少线索进屋。"}}}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "notice fresh marks before reckless entry", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The marks are visible only if the investigator slows down at the door.", "roll": 84, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada misses the warning and risks entering without preparation.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "鲁莽进屋前注意到新划痕", "difficulty_rationale": "只有在门口稍作停顿才能看到这些痕迹。", "failure_consequence": "艾达·金会错过警告，冒着准备不足的风险进屋。"}}}},
-        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "push the door inspection by checking the latch by touch", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed approach changes method by touching the latch and accepting immediate risk.", "roll": 22, "outcome": "hard_success", "pushed": True, "push_justification": "Ada moves the flashlight close and reaches into the door gap by touch.", "foreshadowed_failure": "On failure, the house notices Ada first.", "failure_consequence": "Ada would trigger a noise inside the house before she could warn the others.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "用触摸门闩的方式推骰检查门口", "difficulty_rationale": "推骰方法改变为触摸门闩，并接受即时风险。", "push_justification": "艾达·金把手电贴近门缝，伸手摸向门闩。", "foreshadowed_failure": "若失败，屋内的东西会先注意到艾达·金。", "failure_consequence": "艾达·金会在警告同伴前先触发屋内动静。"}}}},
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "push the door inspection by checking the latch by touch", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed approach changes method by touching the latch at close range.", "roll": 22, "outcome": "hard_success", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("pressure-reckless-entry-push"), "push_justification": "Ada moves the flashlight close and reaches into the door gap by touch.", "foreshadowed_failure": "On failure, the house notices Ada first.", "failure_consequence": "Ada would trigger a noise inside the house before she could warn the others.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "用触摸门闩的方式推骰检查门口", "difficulty_rationale": "推骰方法改变为近距离触摸门闩。", "push_justification": "艾达·金把手电贴近门缝，伸手摸向门闩。", "foreshadowed_failure": "若失败，屋内的东西会先注意到艾达·金。", "failure_consequence": "艾达·金会在警告同伴前先触发屋内动静。"}}}},
     ]))
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-office", "summary": "诺特先生给出钥匙、预付款和科比特宅邸的委托。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "谨慎玩家选择先查房契和旧报纸，避免无准备进屋。"}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "deed-note", "summary": "艾达·金发现沃尔特·科比特与沉思教堂有关。"}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "鲁莽玩家选择直接进二楼，并在失败后接受更危险的推骰。"}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "鲁莽玩家选择直接进二楼，并在 KP 说明失败后果后继续推骰。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑玩家以超游模式要求 KP 解释不同玩家风格对应的检定和风险。"}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "fresh-scratches", "summary": "推骰成功后，艾达·金看见门闩边缘的新划痕。"}},
         {"type": "status", "actor": investigator_id, "payload": {"summary": "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。"}},
@@ -1908,6 +2034,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"severity": "low", "category": "immersion", "text": "The run remains a compact pressure test rather than a full module session, but it exercises multiple virtual player styles."},
     ])
 
+    _write_view_streams(run_dir)
     generate_battle_report(run_dir)
     generate_evaluation_report(run_dir)
     generate_rulebook_audit(run_dir)

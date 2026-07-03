@@ -1816,6 +1816,31 @@ def test_haunting_module_audit_rejects_skill_allocation_character_mismatch(tmp_p
     assert "investigator_skill_allocation_mismatch" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_view_separation_streams(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    (run_dir / "player-view.jsonl").unlink()
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "view_separation_missing" in finding_codes(audit)
+
+
+def test_haunting_module_audit_rejects_secret_id_in_player_view(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    with (run_dir / "player-view.jsonl").open("a") as handle:
+        handle.write(json.dumps({
+            "view": "player",
+            "type": "transcript_turn",
+            "text": "secret-corbitt-body",
+        }) + "\n")
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "player_view_secret_leak" in finding_codes(audit)
+
+
 def test_chase_drill_audit_requires_multi_profile_pressure(tmp_path):
     run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
     metadata_path = run_dir / "playtest.json"
