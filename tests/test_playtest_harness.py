@@ -1104,8 +1104,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Session ending not recorded." not in battle_text
     handouts = section_text(battle_text, "## Handouts")
     assert "线索资料 1：诺特先生的委托" in handouts
+    assert "钥匙、地址、20 美元预付款，以及先查公共记录的委托前提" in handouts
     assert "线索资料 2：未刊登的《波士顿环球报》报道" in handouts
+    assert "事故、疾病、自杀和马卡里奥一家逃离的剪报记录" in handouts
     assert "线索资料 7：教堂遗嘱执行人记录" in handouts
+    assert "遗嘱执行人指向迈克尔·托马斯牧师和沉思教堂" in handouts
     assert "handout-1" not in handouts
     clues_found = section_text(battle_text, "## Clues Found")
     assert_player_readable_state_ids_absent(

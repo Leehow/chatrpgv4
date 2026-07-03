@@ -1495,25 +1495,29 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "id": "handout-1",
             "label": "Handout 1",
             "title": "Mr. Knott's job",
-            "localized_text": {"zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托"}},
+            "summary": "The address, key, $20 advance, and the premise that Ada should research public records before entering the house.",
+            "localized_text": {"zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托", "summary": "钥匙、地址、20 美元预付款，以及先查公共记录的委托前提"}},
         },
         {
             "id": "handout-2",
             "label": "Handout 2",
             "title": "Unpublished Boston Globe story",
-            "localized_text": {"zh-Hans": {"label": "线索资料 2", "title": "未刊登的《波士顿环球报》报道"}},
+            "summary": "Newspaper records of accidents, illness, suicide, and the Macario family fleeing the house.",
+            "localized_text": {"zh-Hans": {"label": "线索资料 2", "title": "未刊登的《波士顿环球报》报道", "summary": "事故、疾病、自杀和马卡里奥一家逃离的剪报记录"}},
         },
         {
             "id": "handout-7",
             "label": "Handout 7",
             "title": "Chapel executor record",
-            "localized_text": {"zh-Hans": {"label": "线索资料 7", "title": "教堂遗嘱执行人记录"}},
+            "summary": "The will executor points toward Reverend Michael Thomas and the Chapel of Contemplation.",
+            "localized_text": {"zh-Hans": {"label": "线索资料 7", "title": "教堂遗嘱执行人记录", "summary": "遗嘱执行人指向迈克尔·托马斯牧师和沉思教堂"}},
         },
         {
             "id": "handout-9",
             "label": "Handout 9",
             "title": "Chapel symbol",
-            "localized_text": {"zh-Hans": {"label": "线索资料 9", "title": "教堂符号"}},
+            "summary": "The Chapel sign shows a three-Y eye symbol that connects the cult records to Corbitt.",
+            "localized_text": {"zh-Hans": {"label": "线索资料 9", "title": "教堂符号", "summary": "沉思教堂标志上的三叉眼符号把教团记录与科比特联系起来"}},
         },
     ])
     _write_json(scenario_dir / "keeper-secrets.json", [
@@ -1912,7 +1916,8 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "id": "ledger-handout",
             "label": "Ledger handout",
             "title": "Cult warehouse ledger",
-            "localized_text": {"zh-Hans": {"label": "账本线索资料", "title": "邪教仓库账本"}},
+            "summary": "The stolen ledger names a warehouse and gives Nathaniel a reason to flee across the rooftops.",
+            "localized_text": {"zh-Hans": {"label": "账本线索资料", "title": "邪教仓库账本", "summary": "被盗账本写着仓库线索，也是内森尼尔·克劳越过屋顶逃跑的原因"}},
         },
     ])
     _write_json(scenario_dir / "keeper-secrets.json", [
@@ -2289,13 +2294,15 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             "id": "handout-1",
             "label": "Handout 1",
             "title": "Mr. Knott's job",
-            "localized_text": {"zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托"}},
+            "summary": "Mr. Knott's key, address, advance, and warning that research should come before entering the house.",
+            "localized_text": {"zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托", "summary": "诺特先生给出的钥匙、地址、预付款，以及进屋前先查资料的提醒"}},
         },
         {
             "id": "deed-note",
             "label": "Records lead",
             "title": "Records lead",
-            "localized_text": {"zh-Hans": {"label": "档案线索", "title": "房契旁注"}},
+            "summary": "City records point from Walter Corbitt's deed trail toward the Chapel of Contemplation.",
+            "localized_text": {"zh-Hans": {"label": "档案线索", "title": "房契旁注", "summary": "城市档案把沃尔特·科比特的房契线索指向沉思教堂"}},
         },
     ])
     _write_json(scenario_dir / "keeper-secrets.json", [

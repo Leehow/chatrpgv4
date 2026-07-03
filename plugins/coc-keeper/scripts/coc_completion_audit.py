@@ -1885,6 +1885,36 @@ def _player_view_transcript_detail_findings(
     )]
 
 
+def _source_handout_summary_findings(
+    run_id: str,
+    campaign_dir: Path,
+    campaign_prefix: str,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    handouts = _read_json(campaign_dir / "scenario" / "handouts.json", [])
+    if not isinstance(handouts, list):
+        return []
+    localized_terms = _metadata_localized_terms(metadata)
+    missing_ids: list[str] = []
+    for index, handout in enumerate(handouts, start=1):
+        if not isinstance(handout, dict):
+            continue
+        if _localized_source_field(handout, "summary", metadata, localized_terms):
+            continue
+        missing_ids.append(str(handout.get("id") or handout.get("title") or f"handout-{index}"))
+    if not missing_ids:
+        return []
+    return [_finding(
+        "source_handout_summary_missing",
+        "system_gap",
+        f"{run_id} scenario/handouts.json has {len(missing_ids)} handout rows without a player-visible summary.",
+        "Regenerate the active run so every scenario handout records a player-visible summary for the report Handouts section.",
+        run_id=run_id,
+        incomplete_files=[f"{campaign_prefix}scenario/handouts.json"],
+        handout_ids_missing_summary=missing_ids[:20],
+    )]
+
+
 def _campaign_structure_findings(
     run_id: str,
     campaign_dir: Path,
@@ -2377,6 +2407,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             run_id=run_id,
         ))
     findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix, audit_profile))
+    findings.extend(_source_handout_summary_findings(run_id, campaign_dir, campaign_prefix, metadata))
 
     for investigator_id in investigator_ids:
         investigator_prefix = f"sandbox/.coc/investigators/{investigator_id}/"
