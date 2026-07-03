@@ -1642,6 +1642,15 @@ def _transcript_display_findings(
             if row.get("role") == "system" and row.get("mode") == "roll"
         )
 
+    for row in transcript:
+        text_display = row.get("text_display")
+        if (
+            isinstance(text_display, str)
+            and text_display.strip()
+            and _display_transcript_text(text_display).strip() != text_display.strip()
+        ):
+            missing_fields.append(f"turn {row.get('turn')} text_display protocol_wrapper")
+
     if not missing_fields and not missing_roll_texts:
         return []
     return [_finding(

@@ -285,6 +285,26 @@ def assert_source_transcript_display_fields_localized(run_dir: Path) -> None:
     assert has_cjk(first_roll["text_display"])
 
 
+def assert_source_transcript_display_text_strips_protocol_wrappers(run_dir: Path) -> None:
+    wrapped_rows = [
+        event
+        for event in transcript_events(run_dir)
+        if isinstance(event.get("text"), str)
+        and (
+            event["text"].startswith("[meta]")
+            or event["text"].startswith("[spoiler_warning]")
+        )
+    ]
+    assert wrapped_rows
+    for event in wrapped_rows:
+        assert "[meta]" in event["text"] or "[spoiler_warning]" in event["text"]
+        assert "[meta]" not in event["text_display"]
+        assert "[/meta]" not in event["text_display"]
+        assert "[spoiler_warning]" not in event["text_display"]
+        assert "[/spoiler_warning]" not in event["text_display"]
+        assert has_cjk(event["text_display"])
+
+
 def assert_player_view_localized_text_values_localized(run_dir: Path) -> None:
     metadata = playtest_metadata(run_dir)
     play_language = metadata["play_language"]
@@ -755,6 +775,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
     assert_source_transcript_display_fields_localized(run_dir)
+    assert_source_transcript_display_text_strips_protocol_wrappers(run_dir)
     assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- 游玩语言: zh-Hans" in run_setup
@@ -1620,6 +1641,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert_player_view_transcript_details_localized(run_dir)
     assert_player_view_localized_text_values_localized(run_dir)
     assert_player_profile_displays_localized(run_dir)
+    assert_source_transcript_display_text_strips_protocol_wrappers(run_dir)
     assert_pushed_roll_protocol(run_dir, ["pressure-reckless-entry-push"])
     assert_spoiler_reveal_protocol(run_dir, ["pressure-corbitt-basement-reveal"])
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")

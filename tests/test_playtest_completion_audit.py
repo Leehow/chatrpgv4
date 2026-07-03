@@ -1450,6 +1450,39 @@ def test_completion_audit_fails_when_source_transcript_lacks_localized_display_f
     assert "Spot Hidden：艾达·金掷出 33 / 55，结果普通成功；Spot Hidden：艾达·金掷出 22 / 55，结果困难成功。" in finding["missing_transcript_roll_samples"]
 
 
+def test_completion_audit_fails_when_source_transcript_display_leaks_protocol_wrappers(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    transcript = read_jsonl(run_dir / "transcript.jsonl")
+    for row in transcript:
+        if row.get("turn") == 20:
+            row["text"] = "[meta] fixture meta player question [/meta]"
+            row["text_display"] = "[meta] fixture meta player question [/meta]"
+    write_jsonl(run_dir / "transcript.jsonl", transcript)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "transcript_display_not_localized")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "turn 20 text_display protocol_wrapper" in finding["missing_transcript_display_fields"]
+
+
 def test_completion_audit_fails_when_player_view_transcript_details_lack_display_values(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

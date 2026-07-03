@@ -16,6 +16,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from coc_playtest_audit import generate_rulebook_audit
 from coc_playtest_report import (
     _display_transcript_speaker,
+    _display_transcript_text,
     _event_roll_count,
     _format_roll_recap,
     _format_roll_transcript_text,
@@ -557,7 +558,7 @@ def _transcript_event_with_display_fields(
     if rendered_text is not None:
         visible["text_display"] = rendered_text
     elif isinstance(visible.get("text"), str):
-        visible["text_display"] = _localize_text(visible["text"], glossary)
+        visible["text_display"] = _display_transcript_text(_localize_text(visible["text"], glossary))
 
     localized_text = visible.get("localized_text", {})
     language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
