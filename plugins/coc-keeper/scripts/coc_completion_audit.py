@@ -2784,6 +2784,16 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
                 "Write the semantic evaluation request before accepting a semantic result.",
                 run_id=run_id,
             ))
+        elif provenance.get("reviewed_artifact") != "artifacts/semantic-eval-request.json":
+            findings.append(_finding(
+                "semantic_reviewed_artifact_mismatch",
+                "test_gap",
+                f"{run_id} evaluation_provenance.reviewed_artifact={provenance.get('reviewed_artifact')}",
+                "Regenerate semantic-eval-result.json so evaluation_provenance.reviewed_artifact points to artifacts/semantic-eval-request.json.",
+                run_id=run_id,
+                expected_reviewed_artifact="artifacts/semantic-eval-request.json",
+                actual_reviewed_artifact=provenance.get("reviewed_artifact"),
+            ))
         elif provenance.get("request_sha256") != _json_sha256(semantic_request):
             findings.append(_finding(
                 "semantic_request_hash_mismatch",
