@@ -87,6 +87,16 @@ REQUIRED_RULEBOOK_AUDIT_SECTIONS = [
     "## Blueprint Cross-Check",
     "## Next Loop Fix Target",
 ]
+REQUIRED_SEMANTIC_REQUEST_FIELDS = [
+    "schema_version",
+    "run_id",
+    "evaluator_id",
+    "evaluation_provenance",
+    "coverage",
+    "quality",
+    "root_cause_classification",
+    "next_loop_fix_target",
+]
 REPORT_ANCHOR_PREFIX = "<!-- report-anchor: "
 REPORT_ANCHOR_SUFFIX = " -->"
 
@@ -119,6 +129,16 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 def _json_sha256(payload: Any) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _entry_keys(value: Any) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+    return {
+        str(entry.get("key"))
+        for entry in value
+        if isinstance(entry, dict) and entry.get("key")
+    }
 
 
 def _playtests_dir(root: Path) -> Path:
@@ -357,6 +377,65 @@ def _rulebook_audit_result_findings(run_id: str, rulebook_audit: str) -> list[di
     )]
 
 
+def _semantic_request_contract_findings(run_id: str, semantic_request: dict[str, Any]) -> list[dict[str, Any]]:
+    if not semantic_request:
+        return []
+
+    missing_fields: list[str] = []
+    invalid_fields: list[str] = []
+    if semantic_request.get("schema_version") != 1:
+        invalid_fields.append("schema_version")
+    if semantic_request.get("kind") != "coc_semantic_coverage_request":
+        invalid_fields.append("kind")
+    if semantic_request.get("run_id") != run_id:
+        invalid_fields.append("run_id")
+
+    coverage_keys = _entry_keys(semantic_request.get("coverage_keys"))
+    if not coverage_keys:
+        missing_fields.append("coverage_keys")
+    missing_coverage_keys = [
+        key
+        for key in REQUIRED_COVERAGE_DIMENSIONS
+        if key not in coverage_keys
+    ]
+
+    quality_keys = _entry_keys(semantic_request.get("quality_dimensions"))
+    if not quality_keys:
+        missing_fields.append("quality_dimensions")
+    missing_quality_keys = [
+        key
+        for key in REQUIRED_QUALITY_DIMENSIONS
+        if key not in quality_keys
+    ]
+
+    expected_output = semantic_request.get("expected_output_schema")
+    expected_required = expected_output.get("required") if isinstance(expected_output, dict) else None
+    if not isinstance(expected_required, list):
+        missing_fields.append("expected_output_schema.required")
+        missing_expected_fields = REQUIRED_SEMANTIC_REQUEST_FIELDS
+    else:
+        missing_expected_fields = [
+            field
+            for field in REQUIRED_SEMANTIC_REQUEST_FIELDS
+            if field not in expected_required
+        ]
+
+    if not any((missing_fields, invalid_fields, missing_coverage_keys, missing_quality_keys, missing_expected_fields)):
+        return []
+    return [_finding(
+        "semantic_request_contract_invalid",
+        "test_gap",
+        f"{run_id} semantic-eval-request.json does not expose the full LLM evaluator contract.",
+        "Regenerate semantic-eval-request.json with coverage_keys, quality_dimensions, and expected_output_schema.required before accepting semantic results.",
+        run_id=run_id,
+        missing_fields=missing_fields,
+        invalid_fields=invalid_fields,
+        missing_coverage_keys=missing_coverage_keys,
+        missing_quality_keys=missing_quality_keys,
+        missing_expected_fields=missing_expected_fields,
+    )]
+
+
 def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     run_id = str(run.get("run_id"))
@@ -443,6 +522,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     semantic_request = _read_json(artifacts_dir / "semantic-eval-request.json", {})
     semantic = _read_json(artifacts_dir / "semantic-eval-result.json", {})
     if semantic:
+        findings.extend(_semantic_request_contract_findings(run_id, semantic_request))
         missing_required_fields = [
             field
             for field in ("root_cause_classification", "next_loop_fix_target")

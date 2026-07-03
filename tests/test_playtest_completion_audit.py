@@ -37,7 +37,27 @@ def request_payload(run_id: str) -> dict:
         "schema_version": 1,
         "kind": "coc_semantic_coverage_request",
         "run_id": run_id,
+        "coverage_keys": [
+            {"key": key, "label": key}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        ],
+        "quality_dimensions": [
+            {"key": key, "label": key}
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        ],
         "inputs": {"battle_report": "fixture evidence"},
+        "expected_output_schema": {
+            "required": [
+                "schema_version",
+                "run_id",
+                "evaluator_id",
+                "evaluation_provenance",
+                "coverage",
+                "quality",
+                "root_cause_classification",
+                "next_loop_fix_target",
+            ]
+        },
     }
 
 
@@ -778,5 +798,43 @@ def test_completion_audit_fails_when_semantic_loop_fields_are_missing(tmp_path):
         finding["code"] == "semantic_required_field_missing"
         and finding["run_id"] == "v2-haunting-module"
         and set(finding["missing_fields"]) == {"root_cause_classification", "next_loop_fix_target"}
+        for finding in audit["findings"]
+    )
+
+
+def test_completion_audit_fails_when_semantic_request_contract_is_incomplete(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    request_path = run_dir / "artifacts" / "semantic-eval-request.json"
+    malformed_request = request_payload("v2-haunting-module")
+    malformed_request.pop("coverage_keys")
+    write_json(request_path, malformed_request)
+    semantic_path = run_dir / "artifacts" / "semantic-eval-result.json"
+    semantic = json.loads(semantic_path.read_text())
+    semantic["evaluation_provenance"]["request_sha256"] = request_hash(malformed_request)
+    write_json(semantic_path, semantic)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(
+        finding["code"] == "semantic_request_contract_invalid"
+        and finding["run_id"] == "v2-haunting-module"
+        and "coverage_keys" in finding["missing_fields"]
         for finding in audit["findings"]
     )
