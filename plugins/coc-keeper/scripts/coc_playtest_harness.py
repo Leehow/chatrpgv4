@@ -43,6 +43,7 @@ ZH_HANS_BASE_GLOSSARY = {
     "Final HP": "最终 HP",
     "Final SAN": "最终 SAN",
     "temporary insanity": "临时疯狂",
+    "Bout of Madness": "疯狂发作",
     "opposed rolls": "对抗检定",
     "opposed POW": "POW 对抗",
     "hard success": "困难成功",

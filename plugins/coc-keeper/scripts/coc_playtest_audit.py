@@ -960,6 +960,16 @@ def _bout_duration_roll_count(events: list[dict[str, Any]]) -> int:
     )
 
 
+def _bout_of_madness_rendered(battle_report: str, metadata: dict[str, Any]) -> bool:
+    terms = _localized_terms(metadata)
+    label = terms.get("Bout of Madness", "Bout of Madness")
+    sections = "\n".join(
+        _section_text(battle_report, heading)
+        for heading in ("Scene-by-Scene Replay", "Actual Play Replay", "Session Transcript", "Sanity Summary")
+    )
+    return label in sections
+
+
 def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
     metadata = context["metadata"]
     transcript = context["transcript"]
@@ -1478,12 +1488,12 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "; ".join(duration_gaps),
                 "Record the actual Bout of Madness duration_roll and duration_rounds from the 1D10 duration roll.",
             ))
-        if "Bout of Madness" not in battle_report:
+        if not _bout_of_madness_rendered(battle_report, metadata):
             findings.append(_finding(
                 "temporary_insanity_bout_not_rendered",
                 "report_gap",
                 "high",
-                "Temporary insanity was triggered, but the battle report does not render a Bout of Madness entry.",
+                "Temporary insanity was triggered, but the battle report does not render a localized Bout of Madness entry.",
                 "Render bout_of_madness events in the Scene-by-Scene Replay and Sanity Summary.",
             ))
 

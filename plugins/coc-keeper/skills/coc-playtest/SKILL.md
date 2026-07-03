@@ -75,7 +75,7 @@ Before generating reports, record the run context:
 - `transcript.jsonl`: every virtual player, KP, system, and meta turn with role, text, mode, and player intent when available. In serious active runs, visible KP and virtual-player dialogue should follow `play_language`, defaulting to `zh-Hans`; for `zh-Hans`, names and setting terms should use `localized_terms` such as Chinese transliterations or conventional translated names, while machine markers, JSON keys, skill names, rule enum values, and system roll text remain stable.
 - `sandbox/.coc/campaigns/<campaign-id>/logs/rolls.jsonl`: rolls and mechanical outcomes.
 - `sandbox/.coc/campaigns/<campaign-id>/logs/events.jsonl`: scenes, clues, state changes, combat, chase, sanity, and other durable events.
-- If a roll payload sets `temporary_insanity_triggered: true`, `events.jsonl` must include a `bout_of_madness` event with the Bout of Madness behavior, 1D10-round duration, actual `duration_roll` and `duration_rounds`, Keeper control boundary, and recovery note.
+- If a roll payload sets `temporary_insanity_triggered: true`, `events.jsonl` must include a `bout_of_madness` event with the `疯狂发作` behavior, 1D10-round duration, actual `duration_roll` and `duration_rounds`, Keeper control boundary, and recovery note.
 - `sandbox/.coc/campaigns/<campaign-id>/memory/session-summaries.jsonl`: player-safe story recap and campaign memory.
 - `player-feedback.jsonl`: virtual player ratings and comments about the KP experience.
 - `evaluator-notes.jsonl`: full evaluator findings, including spoiler, state, pacing, and rules issues.
@@ -95,7 +95,7 @@ Before generating reports, record the run context:
 - `## Story Recap`
 - `## Player Feedback On KP`
 
-`## Scene-by-Scene Replay` should render each significant structured play event from `events.jsonl` before the transcript appendix: scene, clue, damage, sanity, Bout of Madness, combat, chase, and session-ending events. This section is a table-readable episode map for the actual play report, not just a list of opening locations.
+`## Scene-by-Scene Replay` should render each significant structured play event from `events.jsonl` before the transcript appendix: scene, clue, damage, sanity, `疯狂发作` (`bout_of_madness`), combat, chase, and session-ending events. This section is a table-readable episode map for the actual play report, not just a list of opening locations.
 
 `## Investigator Chronicle` should render sandbox `history.jsonl` and `development.jsonl`, proving that the playtest can describe what would carry into a later story without writing sandbox changes into the real investigator library.
 
@@ -111,7 +111,7 @@ Every serious playtest follows this loop:
 
 1. Generate `battle-report.md` and `evaluation-report.md`.
 2. Run `coc_playtest_audit.py <run-dir>` and read `rulebook-audit.md`.
-   - Passing audits should include `## Positive Rulebook Evidence` with structured counts for transcript turns, roll protocol, pushed rolls, sanity/Bout of Madness, subsystems, and profile-specific module or chase evidence.
+   - Passing audits should include `## Positive Rulebook Evidence` with structured counts for transcript turns, roll protocol, pushed rolls, sanity/`疯狂发作`, subsystems, and profile-specific module or chase evidence.
 3. If the audit fails, classify the first blocker before changing files:
    - `test_gap`: the simulated test did not actually exercise enough COC play.
    - `system_gap`: the Keeper system did not record or execute a rulebook-required behavior.
@@ -129,7 +129,7 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit must also 
 
 - do not cover the required The Haunting beats in `module_coverage`
 - omit social, pushed-roll, sanity, damage, or combat subsystem coverage
-- trigger temporary insanity without a `bout_of_madness` event, actual `duration_roll`, and visible `Bout of Madness` report entry
+- trigger temporary insanity without a `bout_of_madness` event, actual `duration_roll`, and visible `疯狂发作` report entry
 - have too few player decisions or too thin a KP/player transcript
 - fail to record Corbitt combat resolution
 - omit final HP, final SAN, rewards, or unresolved state

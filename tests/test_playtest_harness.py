@@ -504,7 +504,12 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     combat_summary = section_text(battle_text, "## Combat Summary")
     assert "奖励" in battle_text
     assert "临时疯狂" in battle_text
-    assert "Bout of Madness" in battle_text
+    bout_visible_sections = "\n".join(
+        section_text(battle_text, heading)
+        for heading in ["## Scene-by-Scene Replay", "## Actual Play Replay", "## Session Transcript", "## Sanity Summary"]
+    )
+    assert "疯狂发作" in bout_visible_sections
+    assert "Bout of Madness" not in bout_visible_sections
     assert "1D10 回合" in battle_text
     assert "1D10 掷出 4，所以持续 4 回合" in battle_text
     assert "艾达·金在临时疯狂中把左轮丢到地下室角落" in battle_text
