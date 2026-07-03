@@ -495,6 +495,10 @@ def _battle_report_event_summary_findings(
     campaign_dir: Path,
     battle_report: str,
 ) -> list[dict[str, Any]]:
+    event_sections = "\n".join([
+        _battle_report_anchor_section(battle_report, "Scene-by-Scene Replay"),
+        _battle_report_anchor_section(battle_report, "State Changes"),
+    ])
     events = _read_jsonl(campaign_dir / "logs" / "events.jsonl")
     required_summaries = [
         row["payload"]["summary"].strip()
@@ -506,7 +510,7 @@ def _battle_report_event_summary_findings(
     missing_summaries = [
         summary
         for summary in required_summaries
-        if summary not in battle_report
+        if summary not in event_sections
     ]
     if not missing_summaries:
         return []
