@@ -65,6 +65,18 @@ REQUIRED_BACKSTORY_FIELDS = [
     "treasured_possessions",
     "traits",
 ]
+PLAYER_READABLE_REPORT_SECTIONS = [
+    "Scene-by-Scene Replay",
+    "Actual Play Replay",
+    "Major Player Decisions",
+    "Combat Summary",
+    "Chase Summary",
+    "Sanity Summary",
+    "Clues Found",
+    "Session Ending",
+    "Story Recap",
+    "Player Feedback On KP",
+]
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -337,6 +349,29 @@ def _report_unlocalized_glossary_terms(battle_report: str, terms: dict[str, str]
     ]
     leaked.extend(_unlocalized_terms_in_text("\n".join(actual_play_lines), terms))
     return sorted(set(leaked))
+
+
+def _character_actor_ids(characters: list[dict[str, Any]]) -> list[str]:
+    ids: list[str] = []
+    for character in characters:
+        for key in ("id", "investigator_id"):
+            value = character.get(key)
+            if value not in (None, "", [], {}):
+                ids.append(str(value))
+    return sorted(set(ids), key=len, reverse=True)
+
+
+def _report_actor_id_leaks(battle_report: str, characters: list[dict[str, Any]]) -> list[str]:
+    actor_ids = _character_actor_ids(characters)
+    leaks: list[str] = []
+    for heading in PLAYER_READABLE_REPORT_SECTIONS:
+        section = _section_text(battle_report, heading)
+        if not section:
+            continue
+        for actor_id in actor_ids:
+            if f"{actor_id}:" in section or f"{actor_id} -" in section:
+                leaks.append(f"{heading}:{actor_id}")
+    return sorted(set(leaks))
 
 
 def _event_type_count(events: list[dict[str, Any]], event_type: str) -> int:
@@ -738,6 +773,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Player-readable report sections still contain canonical glossary terms: " + ", ".join(unlocalized_report_terms),
             "Render scene replay, actual-play replay, major decisions, recap, and feedback through the run glossary for the selected play_language.",
+        ))
+    actor_id_leaks = _report_actor_id_leaks(battle_report, context["characters"])
+    if active_profile and actor_id_leaks:
+        findings.append(_finding(
+            "report_actor_ids_not_localized",
+            "report_gap",
+            "medium",
+            "Player-readable report sections expose internal actor ids: " + ", ".join(actor_id_leaks),
+            "Render localized actor display names in player-readable report sections; reserve canonical ids for Character Dossier, Mechanical Log, Chase Tracker, and stored JSON.",
         ))
 
     if "{'" in battle_report or "'}" in battle_report:

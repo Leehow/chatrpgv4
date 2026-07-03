@@ -614,6 +614,38 @@ def test_active_audit_rejects_unlocalized_visible_glossary_terms(tmp_path):
     assert "report_glossary_terms_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_actor_ids_in_player_readable_report_sections(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report\n\n"
+        "## Scene-by-Scene Replay\n"
+        "- combat: ada-king - 艾达挡开匕首。\n\n"
+        "## Actual Play Replay\n"
+        "- Turn 1 KP: \"这是中文主持描述。\"\n\n"
+        "## Major Player Decisions\n"
+        "- Ada 选择继续调查。\n\n"
+        "## Combat Summary\n"
+        "- ada-king: 艾达挡开匕首。\n\n"
+        "## Sanity Summary\n"
+        "- ada-king: 艾达保持清醒。\n\n"
+        "## Story Recap\n"
+        "- Ada 接受委托并找到线索。\n\n"
+        "## Player Feedback On KP\n"
+        "- kp_clarity: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "report_actor_ids_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_requires_investigator_backstory_fields(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
     create_final_rulebook_run(run_dir)

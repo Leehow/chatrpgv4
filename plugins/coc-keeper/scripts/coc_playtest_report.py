@@ -386,8 +386,9 @@ def _format_subsystem_event(
     event: dict[str, Any],
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
+    actor_names: dict[str, str] | None = None,
 ) -> str:
-    actor = _display_actor(event.get("actor", "unknown"))
+    actor = _display_roll_actor(event.get("actor", "unknown"), actor_names or {})
     summary = _event_summary(
         event,
         f"{event.get('type', 'event')} recorded",
@@ -401,8 +402,10 @@ def _format_scene_replay_event(
     event: dict[str, Any],
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
+    actor_names: dict[str, str] | None = None,
 ) -> str:
     terms = localized_terms or {}
+    names = actor_names or {}
     event_type = event.get("type", "event")
     payload = event.get("payload", {})
     if event_type == "scene":
@@ -414,7 +417,7 @@ def _format_scene_replay_event(
         summary = _event_summary(event, "clue recorded", terms, play_language)
         return f"- clue:{clue_id}: {summary}"
     event_label = event_type.replace("_", " ")
-    actor = _display_actor(event.get("actor", "unknown"))
+    actor = _display_roll_actor(event.get("actor", "unknown"), names)
     summary = _event_summary(event, f"{event_label} recorded", terms, play_language)
     return f"- {event_label}: {actor} - {summary}"
 
@@ -970,26 +973,26 @@ def generate_battle_report(run_dir: Path) -> Path:
         if event.get("type") == "clue"
     ]
     scene_replay_lines = [
-        _format_scene_replay_event(event, localized_terms, str(play_language))
+        _format_scene_replay_event(event, localized_terms, str(play_language), actor_names)
         for event in _scene_replay_events(state_events)
     ]
     combat_lines = [
-        _format_subsystem_event(event, localized_terms, str(play_language))
+        _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
         for event in state_events
         if event.get("type") == "combat"
     ]
     chase_lines = [
-        _format_subsystem_event(event, localized_terms, str(play_language))
+        _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
         for event in state_events
         if event.get("type") == "chase"
     ]
     sanity_lines = [
-        _format_subsystem_event(event, localized_terms, str(play_language))
+        _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
         for event in state_events
         if event.get("type") in {"sanity", "bout_of_madness"}
     ]
     ending_lines = [
-        _format_subsystem_event(event, localized_terms, str(play_language))
+        _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
         for event in state_events
         if event.get("type") == "session_ending"
     ]

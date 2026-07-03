@@ -230,6 +230,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "以其人之物反制的线索" in scene_replay
     assert "伤害: 5 HP" in scene_replay
     assert "DEX 检定" in scene_replay
+    assert "ada-king-haunting -" not in scene_replay
+    assert "- damage: 艾达·金 -" in scene_replay
+    assert "- combat: 艾达·金 -" in scene_replay
     assert_terms_absent(scene_replay, ["own-weapon clue", "three-Y eye symbol", "spare bedroom", "basement stairs", "pushed 地下室 search"])
     assert_terms_absent(scene_replay, ["Damage:", "DEX roll"])
     assert "## Actual Play Replay" in battle_text
@@ -336,11 +339,16 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Bout duration rolls: 1" in audit_text
     assert "战斗轮" in battle_text
     assert "combat round" not in combat_summary
+    assert "ada-king-haunting:" not in combat_summary
+    assert "- 艾达·金:" in combat_summary
     assert "in a 战斗轮" not in combat_summary
     assert "DEX order" not in combat_summary
     assert "opposed POW" not in combat_summary
     assert "DEX 顺序" in combat_summary
     assert "POW 对抗" in combat_summary
+    sanity_summary = section_text(battle_text, "## Sanity Summary")
+    assert "ada-king-haunting:" not in sanity_summary
+    assert "- 艾达·金:" in sanity_summary
     state_changes = section_text(battle_text, "### State Changes")
     story_recap = section_text(battle_text, "## Story Recap")
     assert "worm-eaten book" not in state_changes
@@ -442,6 +450,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 印刷店屋顶:" not in scene_replay
     assert "clue:ledger-clue" in scene_replay
     assert "clue:账本-clue" not in scene_replay
+    assert "ada-king-chase -" not in scene_replay
+    assert "- chase: 艾达·金 -" in scene_replay
     assert "艾达·金在印刷店屋顶发现内森尼尔·克劳" in scene_replay
     assert "湿滑天窗" in scene_replay
     assert_terms_absent(scene_replay, ["print shop roof", "print-shop roof", "rain gutter", "locked roof door barrier", "slick 天窗"])
@@ -539,6 +549,9 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "save/追逐.json" not in battle_text
     assert "Rooftop Chase Drill" in battle_text
     assert "Chase Summary" in battle_text
+    chase_summary = section_text(battle_text, "## Chase Summary")
+    assert "ada-king-chase:" not in chase_summary
+    assert "- 艾达·金:" in chase_summary
     assert "## Chase Tracker" in battle_text
     chase_tracker = section_text(battle_text, "## Chase Tracker")
     assert "- Chase ID: rooftop-chase" in chase_tracker
