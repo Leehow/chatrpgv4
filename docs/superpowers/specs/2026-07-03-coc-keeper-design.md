@@ -1065,7 +1065,7 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit should add
 - sandbox inventory-history records for carryover keys, handouts, weapons, cash, evidence, and optional items; otherwise emit `investigator_inventory_history_missing`
 - enough transcript turns, player intents, Keeper rulings, and major player decisions to resemble an actual-play report
 - recorded floating-knife and Corbitt combat resolution
-- if a structured roll payload sets `temporary_insanity_triggered: true`, a `bout_of_madness` event and battle-report `疯狂发作` entry showing the 1D10-round loss-of-control episode, the actual `duration_roll`/`duration_rounds`, Keeper control boundary, and recovery note
+- if a structured roll payload sets `temporary_insanity_triggered: true`, a `bout_of_madness` event and battle-report `疯狂发作` entry showing the 1D10-round loss-of-control episode, the actual `duration_roll`/`duration_rounds`, one keeper-controlled `rounds[]` entry for each bout round, `control_returned: true`, Keeper control boundary, and recovery note
 - final HP, final SAN, rewards, and unresolved state
 - a Chase Summary entry explaining that The Haunting has no required chase sequence, unless the run intentionally adds a chase scene
 
@@ -1113,7 +1113,7 @@ Before claiming a Keeper implementation is ready for real play, it must pass:
 - no unlogged rolls
 - no permanent investigator changes written from a sandbox run
 - no `investigator_creation_missing`, `investigator_chronicle_missing`, or `investigator_chronicle_not_rendered` findings in serious active runs
-- no `temporary_insanity_bout_missing`, `temporary_insanity_bout_duration_missing`, or `temporary_insanity_bout_not_rendered` findings when a sanity result triggers temporary insanity
+- no `temporary_insanity_bout_missing`, `temporary_insanity_bout_duration_missing`, `temporary_insanity_bout_rounds_missing`, or `temporary_insanity_bout_not_rendered` findings when a sanity result triggers temporary insanity
 - evaluator score of at least 4 for state integrity and spoiler safety
 
 ## Version Roadmap

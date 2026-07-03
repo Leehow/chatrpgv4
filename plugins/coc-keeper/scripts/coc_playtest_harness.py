@@ -1608,6 +1608,38 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         ],
     )
 
+    bout_rounds = [
+        {
+            "round": 1,
+            "control": "keeper",
+            "summary": "疯狂发作第 1 回合：艾达·金尖叫着丢下左轮并后退，仍死死抓着科比特匕首；科比特拖着木板床的残骸靠近。",
+        },
+        {
+            "round": 2,
+            "control": "keeper",
+            "summary": "疯狂发作第 2 回合：艾达·金背撞在地下室墙边，只能防御和抽泣；KP 暂时不接受玩家的主动攻击宣告。",
+        },
+        {
+            "round": 3,
+            "control": "keeper",
+            "summary": "疯狂发作第 3 回合：维托里奥“用自己的武器”的话在她脑中反复回响，她停止后退并重新看向手里的匕首。",
+        },
+        {
+            "round": 4,
+            "control": "keeper",
+            "summary": "疯狂发作第 4 回合：艾达·金终于把注意力固定在科比特匕首上；发作结束，控制权回到玩家，但她仍处于临时疯狂的底层状态。",
+        },
+    ]
+    bout_summary = (
+        "疯狂发作：艾达·金在临时疯狂中把左轮丢到地下室角落；持续 1D10 回合；"
+        "1D10 掷出 4，所以持续 4 回合；KP 暂时接管失控行为，只让她尖叫、防御和后退，"
+        "直到维托里奥的提示让她重新抓住科比特匕首。"
+        " 疯狂发作第 1 回合：艾达·金尖叫着丢下左轮并后退。"
+        " 疯狂发作第 2 回合：她背撞墙边，只能防御和抽泣。"
+        " 疯狂发作第 3 回合：维托里奥的提示让她重新看向手里的匕首。"
+        " 疯狂发作第 4 回合：她把注意力固定在科比特匕首上；发作结束，控制权回到玩家。"
+    )
+
     _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
         {"turn": 1, "role": "keeper_under_test", "speaker": "Mr. Knott", "speaker_role": "npc", "mode": "play", "text": "Mr. Knott 把一枚旧钥匙推到桌面中央：“金小姐，我需要的是事实，不是传闻。每天二十美元，查清 Corbitt House 为什么赶走房客。”"},
         {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "ask terms and immediate leads", "text": "我先不接钥匙，问 Mr. Knott：Macario 一家到底出了什么事？如果我要查，最好从哪里开始？"},
@@ -1662,7 +1694,11 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"turn": 45, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "木板后面露出 Corbitt's Hiding Place，墙上刻着 Chapel of Contemplation 的字样。"},
         {"turn": 46, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "corbitt_sanity", "text": "Corbitt Attacks：尸体从木板床上坐起，皮肤像旧纸一样裂开。做 SAN 1/1D8。"},
         {"turn": 47, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 2, "outcome_note": "SAN 损失 6；临时疯狂触发；Bout of Madness 持续 1D10 回合；1D10 掷出 4，所以持续 4 回合。", "text": "SAN 63 vs 51 -> failure; SAN loss 6. INT 35 vs 70 -> success, so temporary insanity occurs; Bout of Madness lasts 1D10 rounds; duration roll 4, so it lasts 4 rounds."},
-        {"turn": 48, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "corbitt_combat_round", "text": "combat round 的行动顺序是 Ada DEX 50，然后 Corbitt DEX 35。Ada 尖叫着丢下左轮，但还死死抓着那把 dagger。"},
+        {"turn": 48, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "corbitt_combat_round", "text": "combat round 的行动顺序是 Ada DEX 50，然后 Corbitt DEX 35。因为刚触发临时疯狂，接下来 4 个 combat round 由 KP 暂时接管 Ada 的失控行为。"},
+        {"turn": "48a", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_round", "text": bout_rounds[0]["summary"], "localized_text": {"zh-Hans": {"ruling": "疯狂发作回合"}}},
+        {"turn": "48b", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_round", "text": bout_rounds[1]["summary"], "localized_text": {"zh-Hans": {"ruling": "疯狂发作回合"}}},
+        {"turn": "48c", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_round", "text": bout_rounds[2]["summary"], "localized_text": {"zh-Hans": {"ruling": "疯狂发作回合"}}},
+        {"turn": "48d", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_round", "text": bout_rounds[3]["summary"], "localized_text": {"zh-Hans": {"ruling": "疯狂发作回合"}}},
         {"turn": 49, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "attack Corbitt with his own weapon", "text": "Vittorio 的话突然对上了：用他自己的武器。我不退，拿 Corbitt 的 dagger 刺向他。"},
         {"turn": 50, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "科比特被自己的匕首摧毁。", "text": "Fighting (Brawl) 21 vs 40 -> regular_success. Corbitt is destroyed by his own dagger."},
         {"turn": 51, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Rewards：Corbitt 化成尘土，Mr. Knott 支付报酬和 30 美元奖金，Ada 恢复 4 SAN。Final HP: 3。Final SAN: 49。"},
@@ -1715,7 +1751,19 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"type": "combat", "actor": investigator_id, "payload": {"summary": "Ada 用 coat-assisted Fighting Maneuver 抓住 The Floating Knife；Corbitt opposed POW 失败。"}},
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "corbitt-hiding-place", "summary": "Ada 在地下室木板后发现 Corbitt's Hiding Place。"}},
         {"type": "sanity", "actor": investigator_id, "payload": {"summary": "Corbitt 起身时 Ada 失败 SAN 1/1D8，失去 6 SAN，并因 INT 成功触发 temporary insanity。"}},
-        {"type": "bout_of_madness", "actor": investigator_id, "payload": {"summary": "Bout of Madness：艾达·金在临时疯狂中把左轮丢到地下室角落；持续 1D10 回合；1D10 掷出 4，所以持续 4 回合；KP 暂时接管失控行为，只让她尖叫、防御和后退，直到维托里奥的提示让她重新抓住科比特匕首。", "duration_die": "1D10", "duration_roll": 4, "duration_rounds": 4}},
+        {
+            "type": "bout_of_madness",
+            "actor": investigator_id,
+            "payload": {
+                "summary": bout_summary,
+                "duration_die": "1D10",
+                "duration_roll": 4,
+                "duration_rounds": 4,
+                "rounds": bout_rounds,
+                "control_returned": True,
+                "recovery_note": "第 4 回合结束后控制权回到玩家；艾达·金仍处于临时疯狂的底层状态。",
+            },
+        },
         {"type": "combat", "actor": "keeper_under_test", "payload": {"summary": "Corbitt Attacks in a combat round；DEX order 是 Ada 50 先于 Corbitt 35。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 相信 Vittorio 的提示，用 Corbitt 自己的匕首刺向他。"}},
         {"type": "combat", "actor": investigator_id, "payload": {"summary": "Ada 用 Corbitt 自己的 dagger 刺中他，在 Corbitt 行动前结束战斗。"}},

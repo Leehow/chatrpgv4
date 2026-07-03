@@ -726,6 +726,14 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Module coverage: 10/10" in audit_text
     assert "Bout of Madness events: 1" in audit_text
     assert "temporary_insanity_triggered markers: 1" in audit_text
+    bout_event = next(event for event in campaign_state_events(run_dir) if event.get("type") == "bout_of_madness")
+    bout_payload = bout_event["payload"]
+    assert bout_payload["duration_die"] == "1D10"
+    assert bout_payload["duration_roll"] == 4
+    assert bout_payload["duration_rounds"] == 4
+    assert [round_entry["round"] for round_entry in bout_payload["rounds"]] == [1, 2, 3, 4]
+    assert all(round_entry["control"] == "keeper" for round_entry in bout_payload["rounds"])
+    assert bout_payload["control_returned"] is True
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
     assert_localized_report_shell(battle_text)
@@ -884,6 +892,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "地下室楼梯" in scene_replay
     assert "推骰地下室搜索" in scene_replay
     assert "以其人之物反制的线索" in scene_replay
+    assert "疯狂发作第 1 回合" in scene_replay
+    assert "疯狂发作第 4 回合" in scene_replay
+    assert "控制权回到玩家" in scene_replay
     assert "床铺袭击造成艾达·金 5 HP 伤害；HP 12 -> 7。" in scene_replay
     assert "推骰地下室搜索失败造成艾达·金 4 HP 伤害；HP 7 -> 3。" in scene_replay
     assert "最终 HP: 3；最终 SAN: 49；奖励: +4 SAN、30 美元奖金，并可选择保留虫蛀书。" in scene_replay
@@ -914,6 +925,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "KP[Gabriela Macario]" not in actual_play
     assert "第 6 轮 系统: 说服：艾达·金掷出 72 / 55，结果失败。" in actual_play
     assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
+    assert "第 48a 轮 KP: \"疯狂发作第 1 回合" in actual_play
+    assert "第 48d 轮 KP: \"疯狂发作第 4 回合" in actual_play
+    assert actual_play.index("第 48d 轮 KP") < actual_play.index("第 49 轮 玩家")
+    assert "控制权回到玩家" in actual_play
     assert "Persuade 72 vs 55" not in actual_play
     assert "Persuade：" not in actual_play
     assert "Dodge：" not in actual_play
@@ -1089,6 +1104,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "- 艾达·金因床铺袭击失败 SAN 1/1D4" in sanity_summary
     assert "- 科比特起身时艾达·金失败 SAN 1/1D8" in sanity_summary
     assert "- 疯狂发作：艾达·金在临时疯狂中把左轮丢到地下室角落" in sanity_summary
+    assert "疯狂发作第 1 回合" in sanity_summary
+    assert "疯狂发作第 2 回合" in sanity_summary
+    assert "疯狂发作第 3 回合" in sanity_summary
+    assert "疯狂发作第 4 回合" in sanity_summary
+    assert "控制权回到玩家" in sanity_summary
     state_changes = section_text(battle_text, "### State Changes")
     story_recap = section_text(battle_text, "## Story Recap")
     assert_player_readable_state_ids_absent(

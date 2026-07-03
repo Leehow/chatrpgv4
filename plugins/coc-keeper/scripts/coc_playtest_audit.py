@@ -1516,6 +1516,49 @@ def _bout_duration_roll_count(events: list[dict[str, Any]]) -> int:
     )
 
 
+def _bout_round_sequence_gaps(events: list[dict[str, Any]]) -> list[str]:
+    gaps: list[str] = []
+    for index, event in enumerate(
+        [event for event in events if event.get("type") == "bout_of_madness"],
+        start=1,
+    ):
+        payload = event.get("payload", {})
+        try:
+            duration_rounds = int(payload.get("duration_rounds"))
+        except (TypeError, ValueError):
+            continue
+        rounds = payload.get("rounds")
+        if not isinstance(rounds, list) or len(rounds) != duration_rounds:
+            gaps.append(
+                f"bout_of_madness {index} has {len(rounds) if isinstance(rounds, list) else 0} "
+                f"round entries, expected {duration_rounds}"
+            )
+            continue
+        expected_rounds = list(range(1, duration_rounds + 1))
+        actual_rounds = [round_entry.get("round") for round_entry in rounds if isinstance(round_entry, dict)]
+        if actual_rounds != expected_rounds:
+            gaps.append(f"bout_of_madness {index} rounds are {actual_rounds}, expected {expected_rounds}")
+        non_keeper_rounds = [
+            str(round_entry.get("round"))
+            for round_entry in rounds
+            if not isinstance(round_entry, dict) or round_entry.get("control") != "keeper"
+        ]
+        if non_keeper_rounds:
+            gaps.append(f"bout_of_madness {index} round(s) not controlled by keeper: {', '.join(non_keeper_rounds)}")
+        if payload.get("control_returned") is not True:
+            gaps.append(f"bout_of_madness {index} does not record control_returned=true")
+    return gaps
+
+
+def _bout_round_sequence_count(events: list[dict[str, Any]]) -> int:
+    return sum(
+        1
+        for event in events
+        if event.get("type") == "bout_of_madness"
+        and not _bout_round_sequence_gaps([event])
+    )
+
+
 def _bout_of_madness_rendered(battle_report: str, metadata: dict[str, Any]) -> bool:
     terms = _localized_terms(metadata)
     label = terms.get("Bout of Madness", "Bout of Madness")
@@ -1560,7 +1603,8 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             f"Sanity procedure: {len(sanity_rolls)} SAN roll entries; "
             f"temporary_insanity_triggered markers: {len(temporary_insanity_markers)}; "
             f"Bout of Madness events: {_event_type_count(events, 'bout_of_madness')}; "
-            f"Bout duration rolls: {_bout_duration_roll_count(events)}."
+            f"Bout duration rolls: {_bout_duration_roll_count(events)}; "
+            f"Bout round sequences: {_bout_round_sequence_count(events)}."
         ),
         f"Subsystems covered: {', '.join(covered_subsystems) if covered_subsystems else 'none'}.",
     ]
@@ -2233,6 +2277,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "; ".join(duration_gaps),
                 "Record the actual Bout of Madness duration_roll and duration_rounds from the 1D10 duration roll.",
+            ))
+        round_sequence_gaps = _bout_round_sequence_gaps(context["events"])
+        if round_sequence_gaps:
+            findings.append(_finding(
+                "temporary_insanity_bout_rounds_missing",
+                "system_gap",
+                "high",
+                "; ".join(round_sequence_gaps),
+                "Record one keeper-controlled bout round entry for each duration_round and record when control returns to the player.",
             ))
         if not _bout_of_madness_rendered(battle_report, metadata):
             findings.append(_finding(
