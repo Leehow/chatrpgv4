@@ -179,6 +179,44 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
                 "Regenerate semantic-eval-result.json with structured quality dimensions.",
                 run_id=run_id,
             ))
+        else:
+            for dimension in REQUIRED_QUALITY_DIMENSIONS:
+                quality_value = semantic["quality"].get(dimension)
+                if not isinstance(quality_value, dict):
+                    findings.append(_finding(
+                        "semantic_quality_dimension_invalid",
+                        "test_gap",
+                        f"{run_id} quality.{dimension} is missing or not an object.",
+                        "Regenerate semantic-eval-result.json so each quality dimension has score, passed, and reason.",
+                        run_id=run_id,
+                        key=dimension,
+                    ))
+                    continue
+                missing_fields = [
+                    field
+                    for field in ("score", "passed", "reason")
+                    if field not in quality_value
+                ]
+                if missing_fields:
+                    findings.append(_finding(
+                        "semantic_quality_dimension_invalid",
+                        "test_gap",
+                        f"{run_id} quality.{dimension} missing fields: {', '.join(missing_fields)}.",
+                        "Regenerate semantic-eval-result.json so each quality dimension has score, passed, and reason.",
+                        run_id=run_id,
+                        key=dimension,
+                        missing_fields=missing_fields,
+                    ))
+                    continue
+                if not isinstance(quality_value.get("passed"), bool):
+                    findings.append(_finding(
+                        "semantic_quality_dimension_invalid",
+                        "test_gap",
+                        f"{run_id} quality.{dimension}.passed is not a boolean.",
+                        "Regenerate semantic-eval-result.json so each quality dimension has score, passed, and reason.",
+                        run_id=run_id,
+                        key=dimension,
+                    ))
         provenance = semantic.get("evaluation_provenance")
         if not isinstance(provenance, dict) or not provenance:
             findings.append(_finding(

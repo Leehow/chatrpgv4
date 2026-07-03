@@ -295,10 +295,19 @@ def _normalize_quality(raw: dict[str, Any]) -> tuple[dict[str, int], dict[str, b
     reasons: dict[str, str] = {}
     for key in QUALITY_DIMENSIONS:
         value = raw_quality.get(key, {})
-        if isinstance(value, dict):
+        if isinstance(value, dict) and all(field in value for field in ("score", "passed", "reason")):
             score = int(value.get("score", 0) or 0)
-            passed = bool(value.get("passed", score >= 4))
+            passed = bool(value.get("passed")) and score >= 4
             reason = str(value.get("reason", "No quality reason recorded."))
+        elif isinstance(value, dict):
+            score = int(value.get("score", 0) or 0)
+            missing = [
+                field
+                for field in ("score", "passed", "reason")
+                if field not in value
+            ]
+            passed = False
+            reason = f"Evaluator quality result missing required field(s): {', '.join(missing)}."
         else:
             score = 0
             passed = False

@@ -267,6 +267,57 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
     assert "LLM semantic judge scored rulebook_procedure as table-ready." in report_text
 
 
+def test_suite_report_requires_explicit_semantic_quality_passed_flag(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "semantic-artifact-run"
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "semantic-artifact-run",
+        "campaign_title": "Semantic Artifact Fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": "semantic_fixture",
+        "player_profile": "careful_investigator",
+    }))
+    (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    quality = {
+        key: {
+            "score": 4,
+            "passed": True,
+            "reason": f"LLM semantic judge scored {key} as table-ready.",
+        }
+        for key in coc_playtest_suite.QUALITY_DIMENSIONS
+    }
+    quality["rulebook_procedure"] = {
+        "score": 4,
+        "reason": "Missing the explicit passed flag should not be accepted.",
+    }
+    (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "semantic-artifact-run",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "coverage": {
+            key: {"covered": True, "reason": f"{key} covered by fixture."}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": quality,
+        "root_cause_classification": ["test_gap"],
+        "next_loop_fix_target": "Regenerate semantic-eval-result.json with explicit quality passed flags.",
+    }))
+
+    coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["quality"]["rulebook_procedure"]["status"] == "needs_fix"
+    assert "rulebook_procedure" in index["quality_gaps"]
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["blockers"][0]["type"] == "quality_gap"
+    assert index["loop_decision"]["blockers"][0]["key"] == "rulebook_procedure"
+
+
 def test_suite_report_flags_missing_virtual_player_pressure_quality(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "single-profile-run"
     artifacts_dir = run_dir / "artifacts"
