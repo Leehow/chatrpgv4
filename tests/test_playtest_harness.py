@@ -216,6 +216,24 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert " dagger" not in major_decisions
     assert "艾达·金选择先去《波士顿环球报》查剪报" in major_decisions
     assert "艾达·金相信维托里奥的提示" in major_decisions
+    rules_recap = section_text(battle_text, "## Rules & Rolls Recap")
+    assert has_cjk(rules_recap)
+    assert "Persuade：艾达·金掷出 72 / 55，结果失败。" in rules_recap
+    assert "目的：获得《波士顿环球报》剪报档案的查阅许可" in rules_recap
+    assert "难度说明：阿蒂·威尔莫特只是普通编辑" in rules_recap
+    assert "失败后果：艾达·金会被阿蒂拒绝" in rules_recap
+    assert "推骰：yes" in rules_recap
+    assert "成长标记：yes" in rules_recap
+    assert "SAN 损失：6" in rules_recap
+    assert "POW：沃尔特·科比特掷出 34 / 90" in rules_recap
+    assert "gain access to" not in rules_recap
+    assert "clipping files" not in rules_recap
+    assert "obstructive but ordinary editor" not in rules_recap
+    assert " would " not in rules_recap
+    assert "Goal:" not in rules_recap
+    assert "Failure Consequence:" not in rules_recap
+    assert "Pushed Roll:" not in rules_recap
+    assert "ada-king-haunting rolled" not in rules_recap
     assert has_cjk(section_text(battle_text, "## Story Recap"))
     assert has_cjk(section_text(battle_text, "## Player Feedback On KP"))
     assert "The Haunting Module Playthrough" in battle_text
@@ -355,6 +373,26 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "ledger" not in chase_decisions
     assert "艾达·金冒着被发现的风险继续观察" in chase_decisions
     assert "是否带着账本" in chase_decisions
+    rules_recap = section_text(battle_text, "## Rules & Rolls Recap")
+    assert has_cjk(rules_recap)
+    assert "Spot Hidden：艾达·金掷出 82 / 55，结果失败。" in rules_recap
+    assert "CON：艾达·金掷出 42 / 55，结果成功。" in rules_recap
+    assert "CON：内森尼尔·克劳掷出 9 / 50，结果极难成功。" in rules_recap
+    assert "速度检定" in rules_recap
+    assert "移动行动" in rules_recap
+    assert "被追者逃脱" in rules_recap
+    assert "邪教账本" in rules_recap
+    assert "确认内森尼尔·克劳行动前是否带着邪教账本" in rules_recap
+    assert "步行追逐使用 CON 作为速度检定" in rules_recap
+    assert "艾达·金的 MOV 会在本次追逐中降低 1" in rules_recap
+    assert "confirm " not in rules_recap
+    assert "before acting" not in rules_recap
+    assert "On-foot chases" not in rules_recap
+    assert " would " not in rules_recap
+    assert "Goal:" not in rules_recap
+    assert "Failure Consequence:" not in rules_recap
+    assert "ada-king-chase rolled" not in rules_recap
+    assert "nathaniel-crowe rolled" not in rules_recap
     story_recap = section_text(battle_text, "## Story Recap")
     assert has_cjk(story_recap)
     assert "屋顶追逐" in story_recap

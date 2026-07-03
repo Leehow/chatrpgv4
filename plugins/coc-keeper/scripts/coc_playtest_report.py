@@ -9,6 +9,23 @@ from typing import Any
 
 SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
+ZH_HANS_OUTCOME_LABELS = {
+    "critical": "大成功",
+    "extreme_success": "极难成功",
+    "hard_success": "困难成功",
+    "regular_success": "普通成功",
+    "success": "成功",
+    "failure": "失败",
+    "fumble": "大失败",
+}
+ZH_HANS_DIFFICULTY_LABELS = {
+    "regular": "普通",
+    "hard": "困难",
+    "extreme": "极难",
+    "opposed": "对抗",
+    "combined": "联合",
+    "sanity": "理智",
+}
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -99,6 +116,107 @@ def _format_roll(event: dict[str, Any]) -> str:
         lines.append(f"  - Skill Check Earned: {earned}")
     if payload.get("san_loss") not in (None, "", [], {}):
         lines.append(f"  - SAN Loss: {payload['san_loss']}")
+    return "\n".join(lines)
+
+
+def _slug(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-")
+
+
+def _localized_actor_names(characters: list[dict[str, Any]], localized_terms: dict[str, str]) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for character in characters:
+        investigator_id = character.get("investigator_id") or character.get("id")
+        canonical_name = character.get("name")
+        localized_name = _localize_text(canonical_name or investigator_id or "Unknown Investigator", localized_terms)
+        for key in (investigator_id, canonical_name, _slug(canonical_name or "")):
+            if key:
+                names[str(key)] = localized_name
+    for canonical, localized in sorted(localized_terms.items(), key=lambda item: len(item[0]), reverse=True):
+        names.setdefault(_slug(canonical), localized)
+    return names
+
+
+def _display_roll_actor(actor: Any, actor_names: dict[str, str]) -> str:
+    actor_text = str(actor or "unknown")
+    if actor_text in {"keeper_under_test", "player_simulator"}:
+        return _display_actor(actor_text)
+    if actor_text in actor_names:
+        return actor_names[actor_text]
+    actor_slug = _slug(actor_text)
+    if actor_slug in actor_names:
+        return actor_names[actor_slug]
+    for canonical_slug, localized_name in actor_names.items():
+        if actor_slug.startswith(f"{canonical_slug}-") or canonical_slug.startswith(f"{actor_slug}-"):
+            return localized_name
+    return actor_text
+
+
+def _localized_rule_value(value: Any, labels: dict[str, str], localized_terms: dict[str, str]) -> str:
+    value_text = str(value)
+    return labels.get(value_text, _localize_text(value_text, localized_terms))
+
+
+def _localized_payload_text(
+    payload: dict[str, Any],
+    key: str,
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> str | None:
+    localized_text = payload.get("localized_text", {})
+    if isinstance(localized_text, dict):
+        language_text = localized_text.get(play_language, {})
+        if isinstance(language_text, dict) and language_text.get(key) not in (None, "", [], {}):
+            return _localize_text(language_text[key], localized_terms)
+    if play_language == "zh-Hans":
+        return None
+    if payload.get(key) not in (None, "", [], {}):
+        return _localize_text(payload[key], localized_terms)
+    return None
+
+
+def _format_roll_recap(
+    event: dict[str, Any],
+    actor_names: dict[str, str],
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> str:
+    if play_language != "zh-Hans":
+        return _format_roll(event)
+
+    payload = event.get("payload", {})
+    skill = payload.get("skill", "check")
+    actor = _display_roll_actor(event.get("actor", "unknown"), actor_names)
+    roll = payload.get("roll", "?")
+    target = payload.get("effective_target", payload.get("target", "?"))
+    outcome = _localized_rule_value(payload.get("outcome", "unknown"), ZH_HANS_OUTCOME_LABELS, localized_terms)
+    lines = [f"- {skill}：{actor}掷出 {roll} / {target}，结果{outcome}。"]
+    for key, label, labels in [("difficulty", "难度", ZH_HANS_DIFFICULTY_LABELS)]:
+        if payload.get(key) in (None, "", [], {}):
+            continue
+        value = _localized_rule_value(payload[key], labels, localized_terms)
+        lines.append(f"  - {label}：{value}")
+    for key, label in [
+        ("goal", "目的"),
+        ("difficulty_rationale", "难度说明"),
+        ("failure_consequence", "失败后果"),
+    ]:
+        value = _localized_payload_text(payload, key, localized_terms, play_language)
+        if value is not None:
+            lines.append(f"  - {label}：{value}")
+    if payload.get("pushed"):
+        lines.append("  - 推骰：yes")
+    push_justification = _localized_payload_text(payload, "push_justification", localized_terms, play_language)
+    if push_justification is not None:
+        lines.append(f"  - 推骰理由：{push_justification}")
+    foreshadowed_failure = _localized_payload_text(payload, "foreshadowed_failure", localized_terms, play_language)
+    if foreshadowed_failure is not None:
+        lines.append(f"  - 预告失败后果：{foreshadowed_failure}")
+    if "skill_check_earned" in payload:
+        earned = "yes" if payload.get("skill_check_earned") else "no"
+        lines.append(f"  - 成长标记：{earned}")
+    if payload.get("san_loss") not in (None, "", [], {}):
+        lines.append(f"  - SAN 损失：{payload['san_loss']}")
     return "\n".join(lines)
 
 
@@ -412,6 +530,11 @@ def generate_battle_report(run_dir: Path) -> Path:
     for event in transcript:
         transcript_lines.extend(_format_transcript_event(event))
         actual_play_lines.extend(_format_actual_play_event(event))
+    actor_names = _localized_actor_names(characters, localized_terms)
+    roll_recap_lines = [
+        _format_roll_recap(event, actor_names, localized_terms, str(play_language))
+        for event in rolls
+    ]
     roll_lines = [_format_roll(event) for event in rolls]
     state_lines = [_format_state_event(event) for event in state_events]
     decision_lines = [
@@ -464,6 +587,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         "",
         "## Major Player Decisions",
         *_list_lines(decision_lines, "- No major decisions recorded."),
+        "",
+        "## Rules & Rolls Recap",
+        *_list_lines(roll_recap_lines, "- No roll recap recorded."),
         "",
         "## Mechanical Log",
         "### Important Rolls",
