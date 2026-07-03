@@ -876,6 +876,7 @@ V1 should include small deterministic test suites:
 V2 should add authored-module tests:
 
 - `module_import`: import a module PDF and produce scenario structure.
+- `haunting_module_playthrough`: run a reproducible The Haunting module-level transcript from Mr. Knott through Corbitt's defeat, including social access, pushed rolls, Chapel clues, house exploration, Bed Attack, basement hazards, The Floating Knife, Corbitt combat, final HP/SAN, rewards, and player feedback.
 - `clue_graph`: verify important clues are discoverable through more than one route when the module supports it.
 - `npc_state`: track NPC attitude, location, secrets, and status changes.
 - `scene_transition`: move through linked scenes without losing source references.
@@ -960,7 +961,7 @@ The battle report should read like a detailed actual-play replay. It should iden
 
 Every serious playtest run must also generate `rulebook-audit.md` with `coc_playtest_audit.py`. This is the control loop for deciding whether the battle report resembles a real Call of Cthulhu session as described in the Keeper Rulebook, rather than a smoke-test transcript with nicer formatting.
 
-`coc_playtest_harness.py` provides the reproducible baseline for this loop. It should generate a small The Haunting-derived run with a real opening hook, player intent, Keeper rulings, an investigation roll, clue flow, a sanity prompt, memory, feedback, and then run the report and audit generators.
+`coc_playtest_harness.py` provides reproducible baselines for this loop. The `rulebook-smoke` profile should generate a small The Haunting-derived run with a real opening hook, player intent, Keeper rulings, an investigation roll, clue flow, a sanity prompt, memory, feedback, and then run the report and audit generators. The `haunting-module` profile should generate a module-level The Haunting transcript with Mr. Knott, Arty Wilmot, Chapel clues, The Old Corbitt Place, Bed Attack, basement hazards, The Floating Knife, Corbitt's Hiding Place, Corbitt combat, final HP/SAN, rewards, explicit Chase Summary non-applicability, and player feedback.
 
 The audit loop is:
 
@@ -978,6 +979,15 @@ The audit loop is:
 `rulebook-audit.md` must contain `## Root Cause Classification`, `## Blueprint Cross-Check`, and `## Next Loop Fix Target`.
 
 The baseline audit should reject a run when the battle report omits a pushed roll, session ending, mechanical detail such as roll goals and difficulty rationale, or when report text leaks raw payload dictionaries instead of player-readable prose.
+
+When `playtest.json` sets `audit_profile: haunting_module`, the audit should additionally require:
+
+- required The Haunting beats in `module_coverage`
+- social, pushed-roll, sanity, damage, and combat subsystem coverage
+- enough transcript turns, player intents, Keeper rulings, and major player decisions to resemble an actual-play report
+- recorded floating-knife and Corbitt combat resolution
+- final HP, final SAN, rewards, and unresolved state
+- a Chase Summary entry explaining that The Haunting has no required chase sequence, unless the run intentionally adds a chase scene
 
 ### Evaluation Report Output
 
@@ -1087,6 +1097,7 @@ Acceptance:
 
 - imported modules have useful locations, NPCs, clues, and Keeper secrets
 - Codex can run a module scene without accidentally exposing secrets
+- the The Haunting module-level playtest produces a detailed battle report and passes `audit_profile: haunting_module`
 - Codex can explain why a check is requested
 - Codex can recover from or correct an erroneous ruling
 - session memory tracks discovered facts and unresolved threads

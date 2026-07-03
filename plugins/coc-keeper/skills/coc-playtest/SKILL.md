@@ -17,7 +17,10 @@ Playtests write to `.coc/playtests/<run-id>/` and must not mutate real `.coc/cam
 
 ## Reports
 
-Use `../../scripts/coc_playtest_harness.py` when you need a reproducible rulebook-shaped baseline run before testing richer modules.
+Use `../../scripts/coc_playtest_harness.py` when you need a reproducible baseline run:
+
+- `--profile rulebook-smoke`: short The Haunting-derived smoke run for the ordinary investigation loop.
+- `--profile haunting-module`: module-level The Haunting run that reaches Mr. Knott, Arty Wilmot, Chapel clues, the Corbitt House, Bed Attack, basement hazards, The Floating Knife, Corbitt combat, final state, rewards, and player feedback.
 
 Use `../../scripts/coc_playtest_report.py` to generate:
 
@@ -70,3 +73,12 @@ Every serious playtest follows this loop:
 6. Rerun the playtest reports and rulebook audit.
 
 The baseline audit should reject reports that omit a pushed roll, session ending, mechanical detail such as goals and difficulty rationale, or that leak raw payload dictionaries into player-readable prose.
+
+When `playtest.json` sets `audit_profile: haunting_module`, the audit must also reject runs that:
+
+- do not cover the required The Haunting beats in `module_coverage`
+- omit social, pushed-roll, sanity, damage, or combat subsystem coverage
+- have too few player decisions or too thin a KP/player transcript
+- fail to record Corbitt combat resolution
+- omit final HP, final SAN, rewards, or unresolved state
+- leave Chase Summary empty instead of explaining that The Haunting has no required chase sequence

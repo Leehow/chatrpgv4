@@ -362,3 +362,24 @@ def test_final_audit_rejects_raw_payload_rendering(tmp_path):
 
     assert audit["result"] == "fail"
     assert "raw_payload_rendered" in finding_codes(audit)
+
+
+def test_haunting_module_audit_requires_module_coverage_and_resolution(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["module_coverage"] = ["knott_hiring", "research_route"]
+    metadata["subsystems_covered"] = ["investigation", "sanity"]
+    metadata_path.write_text(json.dumps(metadata))
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "module_coverage_incomplete" in finding_codes(audit)
+    assert "subsystem_coverage_incomplete" in finding_codes(audit)
+    assert "combat_resolution_missing" in finding_codes(audit)
+    assert "final_state_missing" in finding_codes(audit)
+    assert "module_decisions_too_thin" in finding_codes(audit)
+    assert "chase_context_missing" in finding_codes(audit)

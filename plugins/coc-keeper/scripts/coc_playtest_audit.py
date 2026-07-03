@@ -9,6 +9,40 @@ from typing import Any
 
 Finding = dict[str, Any]
 
+HAUNTING_MODULE_COVERAGE = [
+    "knott_hiring",
+    "research_route",
+    "chapel_of_contemplation",
+    "old_corbitt_place",
+    "bed_attack",
+    "basement",
+    "floating_knife",
+    "corbitt_hiding_place",
+    "corbitt_confrontation",
+    "conclusion_rewards",
+]
+
+HAUNTING_MODULE_SUBSYSTEMS = [
+    "investigation",
+    "social",
+    "pushed_roll",
+    "sanity",
+    "damage",
+    "combat",
+]
+
+HAUNTING_REPORT_MOMENTS = [
+    "Mr. Knott",
+    "Arty Wilmot",
+    "Chapel of Contemplation",
+    "The Old Corbitt Place",
+    "Bed Attack",
+    "The Floating Knife",
+    "Corbitt's Hiding Place",
+    "Corbitt Attacks",
+    "Rewards",
+]
+
 
 def _read_json(path: Path, default: Any) -> Any:
     if not path.exists():
@@ -141,6 +175,21 @@ def _has_skill_check(rolls: list[dict[str, Any]]) -> bool:
 
 def _report_contains_all(text: str, markers: list[str]) -> list[str]:
     return [marker for marker in markers if marker not in text]
+
+
+def _haunting_module_required(metadata: dict[str, Any]) -> bool:
+    return metadata.get("audit_profile") == "haunting_module"
+
+
+def _payload_summaries(events: list[dict[str, Any]], event_type: str) -> list[str]:
+    summaries: list[str] = []
+    for event in events:
+        if event.get("type") != event_type:
+            continue
+        payload = event.get("payload", {})
+        summary = payload.get("summary") or payload.get("text") or ""
+        summaries.append(str(summary))
+    return summaries
 
 
 def audit_run(run_dir: Path) -> dict[str, Any]:
@@ -289,6 +338,96 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             f"subsystems_covered={sorted(covered_subsystems)}.",
             "Declare and exercise at least investigation in every rulebook-alignment playtest; add sanity/combat/chase per scenario.",
         ))
+
+    metadata = context["metadata"]
+    if _haunting_module_required(metadata):
+        module_coverage = set(metadata.get("module_coverage", []))
+        missing_coverage = [
+            item for item in HAUNTING_MODULE_COVERAGE
+            if item not in module_coverage
+        ]
+        if missing_coverage:
+            findings.append(_finding(
+                "module_coverage_incomplete",
+                "test_gap",
+                "high",
+                "Missing The Haunting coverage: " + ", ".join(missing_coverage),
+                "Run a module-level harness that reaches the research routes, Chapel, Corbitt House, bed attack, basement knife, Corbitt confrontation, and conclusion.",
+            ))
+
+        missing_subsystems = [
+            item for item in HAUNTING_MODULE_SUBSYSTEMS
+            if item not in covered_subsystems
+        ]
+        if missing_subsystems:
+            findings.append(_finding(
+                "subsystem_coverage_incomplete",
+                "test_gap",
+                "high",
+                "Missing subsystem coverage: " + ", ".join(missing_subsystems),
+                "Exercise the social, pushed-roll, sanity, damage, and combat procedures that The Haunting introduces.",
+            ))
+
+        if len(transcript) < 30 or _player_intent_count(transcript) < 8 or _keeper_ruling_count(transcript) < 6:
+            findings.append(_finding(
+                "module_transcript_too_thin",
+                "test_gap",
+                "high",
+                f"Transcript has {len(transcript)} turns, {_player_intent_count(transcript)} player intents, "
+                f"and {_keeper_ruling_count(transcript)} Keeper rulings.",
+                "Simulate enough KP/player exchange to show setup, investigation, exploration, hazards, combat, and aftermath.",
+            ))
+
+        decision_count = _event_type_count(context["events"], "decision")
+        if decision_count < 5:
+            findings.append(_finding(
+                "module_decisions_too_thin",
+                "report_gap",
+                "medium",
+                f"Only {decision_count} major player decision events were recorded.",
+                "Record the player's major route choices, pushed-roll choices, risk acceptances, and final tactical decisions.",
+            ))
+
+        combat_summaries = _payload_summaries(context["events"], "combat")
+        combat_text = " ".join(combat_summaries).lower()
+        if len(combat_summaries) < 2 or "combat round" not in combat_text or "corbitt" not in combat_text:
+            findings.append(_finding(
+                "combat_resolution_missing",
+                "system_gap",
+                "high",
+                "Combat summaries do not show a combat round and Corbitt resolution.",
+                "Record floating-knife and Corbitt combat rounds, including action order, opposed rolls, damage, and outcome.",
+            ))
+
+        status_text = " ".join(_payload_summaries(context["events"], "status"))
+        if "Final HP:" not in status_text or "Final SAN:" not in status_text:
+            findings.append(_finding(
+                "final_state_missing",
+                "system_gap",
+                "high",
+                "No status event records final HP and SAN.",
+                "Record final investigator HP, SAN, rewards, and unresolved conditions at the end of a module playthrough.",
+            ))
+
+        chase_summaries = _payload_summaries(context["events"], "chase")
+        if "chase" not in covered_subsystems and not chase_summaries:
+            findings.append(_finding(
+                "chase_context_missing",
+                "report_gap",
+                "medium",
+                "No chase event explains whether chase rules were covered or not applicable.",
+                "For modules without chase scenes, record an explicit non-applicable chase summary instead of leaving the report empty.",
+            ))
+
+        missing_report_moments = _report_contains_all(battle_report, HAUNTING_REPORT_MOMENTS)
+        if missing_report_moments:
+            findings.append(_finding(
+                "module_report_missing_key_moments",
+                "report_gap",
+                "high",
+                "Battle report misses key module moments: " + ", ".join(missing_report_moments),
+                "Render the named module beats in the transcript, state changes, combat summary, and ending sections.",
+            ))
 
     return {
         "run_dir": str(run_dir),
