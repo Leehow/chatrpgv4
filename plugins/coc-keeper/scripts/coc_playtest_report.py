@@ -275,6 +275,12 @@ def _format_feedback(event: dict[str, Any]) -> str:
     return f"- {category}: {score} - {text}".rstrip()
 
 
+def _format_csv(values: Any) -> str:
+    if isinstance(values, list) and values:
+        return ", ".join(str(value) for value in values)
+    return "none recorded"
+
+
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
     context = _load_campaign_context(run_dir, metadata)
@@ -418,7 +424,14 @@ def generate_evaluation_report(run_dir: Path) -> Path:
         "# Evaluation Report",
         "",
         "## Overall Result",
-        "V1 report generated from available transcript and evaluator notes.",
+        "Report generated from available transcript and evaluator notes.",
+        "",
+        "## Playtest Profile",
+        f"- Run ID: {metadata.get('run_id', 'unknown')}",
+        f"- Audit Profile: {metadata.get('audit_profile', 'baseline')}",
+        f"- Player Profile: {metadata.get('player_profile', 'unknown')}",
+        f"- Module Coverage: {_format_csv(metadata.get('module_coverage', []))}",
+        f"- Subsystems Covered: {_format_csv(metadata.get('subsystems_covered', []))}",
         "",
         "## Scorecard",
         *(score_lines or ["- No scores recorded."]),

@@ -141,6 +141,9 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
         "player_profile": "careful_investigator",
+        "audit_profile": "haunting_module",
+        "module_coverage": ["knott_hiring", "bed_attack"],
+        "subsystems_covered": ["investigation", "sanity"],
         "scores": {"immersion": 4, "rules_accuracy": 3},
         "passed_test_cases": ["activation_resume", "basic_roll"],
         "failed_test_cases": ["spoiler_warning"],
@@ -181,6 +184,12 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "No roll extraction in V1 report" not in battle_text
     assert "No state diff extraction in V1 report" not in battle_text
 
+    assert "V1 report generated" not in evaluation_text
+    assert "## Playtest Profile" in evaluation_text
+    assert "Audit Profile: haunting_module" in evaluation_text
+    assert "Player Profile: careful_investigator" in evaluation_text
+    assert "Module Coverage: knott_hiring, bed_attack" in evaluation_text
+    assert "Subsystems Covered: investigation, sanity" in evaluation_text
     assert "## Scorecard" in evaluation_text
     assert "rules_accuracy: 3" in evaluation_text
     assert "- activation_resume" in evaluation_text
