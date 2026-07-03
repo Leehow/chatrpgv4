@@ -829,6 +829,14 @@ def _chase_tracker_value(value: Any, metadata: dict[str, Any], localized_terms: 
     return _localize_text(value_text, localized_terms)
 
 
+def _chase_difficulty_value(value: Any, metadata: dict[str, Any], localized_terms: dict[str, str]) -> str:
+    value_text = str(value)
+    localized = _profile_label(metadata, "difficulty_labels", value_text)
+    if localized != value_text:
+        return localized
+    return _localize_text(value_text, localized_terms)
+
+
 def _display_chase_location_ref(location_id: Any, localized_terms: dict[str, str]) -> str:
     raw_id = str(location_id or "unknown")
     display = _localize_text(raw_id.replace("-", " "), localized_terms)
@@ -902,6 +910,8 @@ def _chase_tracker_required_texts(chase_state: dict[str, Any], metadata: dict[st
                 value = location[key]
                 if key == "label":
                     required_texts.append(_chase_tracker_value(value, metadata, localized_terms))
+                elif key == "difficulty":
+                    required_texts.append(_chase_difficulty_value(value, metadata, localized_terms))
                 else:
                     required_texts.append(_localize_text(str(value), localized_terms))
 
@@ -922,7 +932,12 @@ def _chase_tracker_text_rendered(
     metadata: dict[str, Any],
     localized_terms: dict[str, str],
 ) -> bool:
-    candidates = {text, _localize_text(text, localized_terms), _chase_tracker_value(text, metadata, localized_terms)}
+    candidates = {
+        text,
+        _localize_text(text, localized_terms),
+        _chase_tracker_value(text, metadata, localized_terms),
+        _chase_difficulty_value(text, metadata, localized_terms),
+    }
     return any(candidate and candidate in battle_report for candidate in candidates)
 
 
@@ -932,6 +947,7 @@ def _battle_report_chase_tracker_findings(
     metadata: dict[str, Any],
     battle_report: str,
 ) -> list[dict[str, Any]]:
+    chase_tracker = _battle_report_anchor_section(battle_report, "Chase Tracker")
     chase_state = _read_json(campaign_dir / "save" / "chase.json", {})
     if not isinstance(chase_state, dict) or not chase_state:
         return []
@@ -940,7 +956,7 @@ def _battle_report_chase_tracker_findings(
     missing_texts = [
         text
         for text in required_texts
-        if not _chase_tracker_text_rendered(text, battle_report, metadata, localized_terms)
+        if not _chase_tracker_text_rendered(text, chase_tracker, metadata, localized_terms)
     ]
     if not missing_texts:
         return []

@@ -193,6 +193,17 @@ def battle_report_chase_tracker_fixture_text() -> str:
     ])
 
 
+def battle_report_with_localized_chase_difficulty() -> str:
+    localized_tracker = battle_report_chase_tracker_fixture_text().replace(
+        ", regular,",
+        ", 普通,",
+    )
+    return battle_report_fixture().replace(
+        battle_report_chase_tracker_fixture_text(),
+        localized_tracker,
+    )
+
+
 def battle_report_character_dossier_fixture_text() -> str:
     return "\n".join([
         "- Ada King (v2-haunting-module-investigator)",
@@ -491,6 +502,25 @@ def battle_report_with_sources_but_without_chase_tracker_state() -> str:
         "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n"
         + battle_report_chase_tracker_fixture_text(),
         "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n- Fixture chase tracker.",
+    )
+
+
+def battle_report_with_chase_tracker_only_outside_chase_tracker_section() -> str:
+    return (
+        battle_report_fixture()
+        .replace(
+            "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n"
+            + battle_report_chase_tracker_fixture_text(),
+            "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n- Fixture chase tracker.",
+        )
+        .replace(
+            "## Story Recap <!-- report-anchor: Story Recap -->\n"
+            + battle_report_memory_fixture_text(),
+            "## Story Recap <!-- report-anchor: Story Recap -->\n"
+            + battle_report_memory_fixture_text()
+            + "\n"
+            + battle_report_chase_tracker_fixture_text(),
+        )
     )
 
 
@@ -1815,6 +1845,72 @@ def test_completion_audit_fails_when_battle_report_omits_chase_tracker_state(tmp
     assert "fixture-chase" in finding["missing_chase_samples"]
     assert "fixture chase round one" in finding["missing_chase_samples"]
     assert "quarry escapes" in finding["missing_chase_samples"]
+
+
+def test_completion_audit_fails_when_chase_tracker_state_is_outside_chase_tracker_section(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v3-chase-drill"
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        battle_report_with_chase_tracker_only_outside_chase_tracker_section(),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(
+        finding for finding in audit["findings"]
+        if finding["code"] == "battle_report_chase_tracker_missing"
+    )
+    assert finding["run_id"] == "v3-chase-drill"
+    assert "fixture-chase" in finding["missing_chase_samples"]
+    assert "quarry escapes" in finding["missing_chase_samples"]
+
+
+def test_completion_audit_accepts_localized_chase_difficulty_labels(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v3-chase-drill"
+    playtest = json.loads((run_dir / "playtest.json").read_text())
+    playtest["language_profile"]["difficulty_labels"] = {"regular": "普通"}
+    write_json(run_dir / "playtest.json", playtest)
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        battle_report_with_localized_chase_difficulty(),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "pass"
 
 
 def test_completion_audit_fails_when_battle_report_omits_character_dossier_records(tmp_path):
