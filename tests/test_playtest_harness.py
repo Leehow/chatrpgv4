@@ -89,8 +89,15 @@ def significant_scene_replay_count(run_dir: Path) -> int:
 
 
 def section_text(markdown: str, heading: str) -> str:
-    start = markdown.index(heading)
-    rest = markdown[start + len(heading):]
+    canonical_heading = heading.lstrip("#").strip()
+    anchor = f"<!-- report-anchor: {canonical_heading} -->"
+    if anchor in markdown:
+        start = markdown.index(anchor)
+        line_end = markdown.find("\n", start)
+        rest = markdown[line_end + 1:]
+    else:
+        start = markdown.index(heading)
+        rest = markdown[start + len(heading):]
     next_heading = rest.find("\n## ")
     return rest if next_heading == -1 else rest[:next_heading]
 
@@ -139,19 +146,21 @@ def assert_terms_absent(text: str, canonical_terms: list[str]) -> None:
 
 
 def assert_localized_report_shell(text: str) -> None:
-    assert "# Battle Report / 跑团战报" in text
-    assert "## Run Setup / 运行设置" in text
-    assert "## Actual Play Replay / 实际跑团回放" in text
-    assert "## Session Transcript / 会话记录" in text
-    assert "## Player Feedback On KP / 玩家对 KP 的反馈" in text
+    assert "# 跑团战报 <!-- report-anchor: Battle Report -->" in text
+    assert "## 运行设置 <!-- report-anchor: Run Setup -->" in text
+    assert "## 实际跑团回放 <!-- report-anchor: Actual Play Replay -->" in text
+    assert "## 会话记录 <!-- report-anchor: Session Transcript -->" in text
+    assert "## 玩家对 KP 的反馈 <!-- report-anchor: Player Feedback On KP -->" in text
+    assert "# Battle Report / 跑团战报" not in text
+    assert "## Run Setup / 运行设置" not in text
     run_setup = section_text(text, "## Run Setup")
-    assert "Campaign:" in run_setup
-    assert "（战役）" in run_setup
-    assert "Play Language: zh-Hans" in run_setup
-    assert "（游玩语言）" in run_setup
+    assert "战役:" in run_setup
+    assert "Campaign:" not in run_setup
+    assert "游玩语言: zh-Hans" in run_setup
+    assert "Play Language:" not in run_setup
     module_section = section_text(text, "## Module")
-    assert "Opening Scene:" in module_section
-    assert "（开场场景）" in module_section
+    assert "开场场景:" in module_section
+    assert "Opening Scene:" not in module_section
 
 
 def assert_localized_character_dossier_labels(text: str) -> None:
@@ -257,16 +266,20 @@ def assert_feedback_labels_localized(text: str, expected: list[str], forbidden: 
 
 def assert_run_setup_values_localized(text: str, expected_profile: str) -> None:
     expected = [
-        "Dice Mode: Codex 掷骰（骰子模式）",
-        "Spoiler Policy: 剧透前警告（剧透策略）",
-        "Language Profile: 简体中文（语言配置）",
-        "条（见本地化附录）（本地化术语）",
-        f"Player Profile: {expected_profile}（玩家画像）",
+        "骰子模式: Codex 掷骰",
+        "剧透策略: 剧透前警告",
+        "语言配置: 简体中文",
+        "本地化术语: ",
+        "条（见本地化附录）",
+        f"玩家画像: {expected_profile}",
     ]
     forbidden = [
         "Dice Mode: codex",
+        "Dice Mode:",
         "Spoiler Policy: warn_before_reveal",
+        "Spoiler Policy:",
         "Language Profile: Simplified Chinese",
+        "Language Profile:",
         "entries (see Localization Appendix)",
         "careful_investigator",
         "reckless_investigator",
@@ -289,9 +302,9 @@ def assert_module_metadata_values_localized(
 ) -> None:
     combined = f"{run_setup}\n{module_section}"
     expected = [
-        f"Campaign: {campaign}（战役）",
-        f"Scenario: {scenario}（模组）",
-        f"Source: {source}（来源）",
+        f"战役: {campaign}",
+        f"模组: {scenario}",
+        f"来源: {source}",
     ]
     for value in expected:
         assert value in combined
@@ -370,8 +383,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
     assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
-    assert "- Play Language: zh-Hans" in run_setup
-    assert "Localized Terms: " in run_setup
+    assert "- 游玩语言: zh-Hans" in run_setup
+    assert "本地化术语: " in run_setup
     assert_run_setup_values_localized(run_setup, "谨慎调查员")
     assert "Ada King -> 艾达·金" not in run_setup
     assert "Mr. Knott -> 诺特先生" not in run_setup
@@ -394,7 +407,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
             "pdf/Call Of Cthulhu Keeper Rulebook",
         ],
     )
-    assert "- Opening Scene: 诺特先生" in battle_text
+    assert "- 开场场景: 诺特先生" in battle_text
     assert "诺特先生在 1920 年的波士顿与艾达·金会面" in module_section
     assert "meets" not in module_section
     assert "- 艾达·金 (ada-king-haunting)" in battle_text
@@ -438,7 +451,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "左轮：临时疯狂中丢失，战后找回" in chronicle
     assert "虫蛀书：可选择保留，需下次开团前确认" in chronicle
     assert "现金: 50 美元" in chronicle
-    assert "## Scene-by-Scene Replay" in battle_text
+    assert "<!-- report-anchor: Scene-by-Scene Replay -->" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
     assert bullet_count(scene_replay) >= significant_scene_replay_count(run_dir)
@@ -464,7 +477,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "- 艾达·金用借助外套战技" in scene_replay
     assert_terms_absent(scene_replay, ["own-weapon clue", "three-Y eye symbol", "spare bedroom", "basement stairs", "pushed 地下室 search"])
     assert_terms_absent(scene_replay, ["Damage:", "DEX roll"])
-    assert "## Actual Play Replay" in battle_text
+    assert "<!-- report-anchor: Actual Play Replay -->" in battle_text
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_visible_terms_localized(actual_play, zh_terms)
     assert_localized_transcript_chrome(actual_play)
@@ -718,8 +731,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     }
     assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
-    assert "- Play Language: zh-Hans" in run_setup
-    assert "Localized Terms: " in run_setup
+    assert "- 游玩语言: zh-Hans" in run_setup
+    assert "本地化术语: " in run_setup
     assert_run_setup_values_localized(run_setup, "鲁莽调查员")
     assert "Ada King -> 艾达·金" not in run_setup
     assert "Nathaniel Crowe -> 内森尼尔·克劳" not in run_setup
@@ -742,7 +755,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
             "internal drill based on Keeper Rulebook Chapter 7: Chases",
         ],
     )
-    assert "- Opening Scene: 艾达·金" in battle_text
+    assert "- 开场场景: 艾达·金" in battle_text
     assert "艾达·金发现内森尼尔·克劳带着账本离开印刷店" in module_section
     assert "ledger" not in module_section
     assert "spots" not in module_section
@@ -774,7 +787,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "最终 SAN: 55" in chronicle
     assert "获得成长标记: 侦查; 闪避; 锁匠; 潜行" in chronicle
     assert "继承备注: 账本线索可带入后续模组" in chronicle
-    assert "## Scene-by-Scene Replay" in battle_text
+    assert "<!-- report-anchor: Scene-by-Scene Replay -->" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
     assert bullet_count(scene_replay) >= significant_scene_replay_count(run_dir)
@@ -791,7 +804,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "location" not in scene_replay
     assert "湿滑天窗" in scene_replay
     assert_terms_absent(scene_replay, ["print shop roof", "print-shop roof", "rain gutter", "locked roof door barrier", "slick 天窗"])
-    assert "## Actual Play Replay" in battle_text
+    assert "<!-- report-anchor: Actual Play Replay -->" in battle_text
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_visible_terms_localized(actual_play, zh_terms)
     assert_localized_transcript_chrome(actual_play)
@@ -937,7 +950,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 艾达·金的闪避成功，穿过湿滑天窗且没有损失移动行动。" in chase_summary
     assert "- 艾达·金用锁匠通过上锁屋顶门障碍，到达晾衣屋顶。" in chase_summary
     assert "- 艾达·金的潜行胜过内森尼尔·克劳失败的侦查，带着账本结束追逐。" in chase_summary
-    assert "## Chase Tracker" in battle_text
+    assert "<!-- report-anchor: Chase Tracker -->" in battle_text
     chase_tracker = section_text(battle_text, "## Chase Tracker")
     assert "- 追逐 ID: rooftop-chase" in chase_tracker
     assert "- 状态: 已解决" in chase_tracker

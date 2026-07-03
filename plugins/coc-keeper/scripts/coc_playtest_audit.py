@@ -719,11 +719,11 @@ def _localized_report_shell_gaps(battle_report: str, metadata: dict[str, Any]) -
     gaps: list[str] = []
     for heading, prefix in REPORT_SHELL_REQUIRED_HEADINGS.items():
         label = heading_labels.get(heading) if isinstance(heading_labels, dict) else None
-        if label and label != heading and f"{prefix} {heading} / {label}" not in battle_report:
+        if label and label != heading and f"{prefix} {label} <!-- report-anchor: {heading} -->" not in battle_report:
             gaps.append(f"heading:{heading}")
     for field in REPORT_SHELL_REQUIRED_FIELDS:
         label = field_labels.get(field) if isinstance(field_labels, dict) else None
-        if label and label != field and f"（{label}）" not in battle_report:
+        if label and label != field and f"- {label}:" not in battle_report:
             gaps.append(f"field:{field}")
     return gaps
 
@@ -1385,7 +1385,7 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             field for field in ["participants", "location_chain", "rounds", "outcome"]
             if chase_state.get(field) not in (None, "", [], {})
         ]
-        tracker_rendered = "yes" if "## Chase Tracker" in context["battle_report"] else "no"
+        tracker_rendered = "yes" if _section_text(context["battle_report"], "Chase Tracker") else "no"
         profile_pressure = ", ".join(metadata.get("player_profiles_tested", [])) or "none"
         lines.append(
             f"Chase evidence: {_event_type_count(events, 'chase')} chase events; "
@@ -1416,9 +1416,19 @@ def _report_contains_required_moments(text: str, markers: list[str], terms: dict
 def _section_text(markdown: str, heading: str) -> str:
     marker = f"## {heading}"
     start = markdown.find(marker)
-    if start == -1:
+    if start != -1:
+        rest = markdown[start + len(marker):]
+        next_heading = rest.find("\n## ")
+        return rest if next_heading == -1 else rest[:next_heading]
+
+    anchor = f"<!-- report-anchor: {heading} -->"
+    anchor_start = markdown.find(anchor)
+    if anchor_start == -1:
         return ""
-    rest = markdown[start + len(marker):]
+    heading_end = markdown.find("\n", anchor_start)
+    if heading_end == -1:
+        return ""
+    rest = markdown[heading_end + 1:]
     next_heading = rest.find("\n## ")
     return rest if next_heading == -1 else rest[:next_heading]
 
@@ -1626,7 +1636,7 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Render recorded story memory, decisions, clues, and player feedback instead of placeholder text.",
         ))
 
-    if active_profile and "## Actual Play Replay" not in battle_report:
+    if active_profile and not _section_text(battle_report, "Actual Play Replay"):
         findings.append(_finding(
             "actual_play_replay_missing",
             "report_gap",
@@ -1641,7 +1651,7 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "report_gap",
             "medium",
             "Active localized battle report lacks localized report chrome: " + ", ".join(report_shell_gaps),
-            "Render canonical report headings with localized aliases and append localized field labels from language_profile.",
+            "Render localized report headings and fields while preserving canonical ASCII anchors for tooling.",
         ))
     run_setup_value_leaks = _run_setup_value_leaks(battle_report, metadata)
     if active_profile and run_setup_value_leaks:
@@ -1661,10 +1671,8 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Active localized report exposes raw module metadata values: " + ", ".join(module_metadata_value_leaks),
             "Render Campaign, Scenario, and Source display values through localized_terms while preserving canonical values in JSON.",
         ))
-    if active_profile and (
-        "## Investigator Chronicle" not in battle_report
-        or "No investigator chronicle recorded." in battle_report
-    ):
+    investigator_chronicle = _section_text(battle_report, "Investigator Chronicle")
+    if active_profile and (not investigator_chronicle or "No investigator chronicle recorded." in investigator_chronicle):
         findings.append(_finding(
             "investigator_chronicle_not_rendered",
             "report_gap",
@@ -2145,28 +2153,27 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "save/chase.json is missing or incomplete: " + ", ".join(missing_state_fields),
                 "Persist chase participants, location chain, round log, and outcome under save/chase.json.",
             ))
-        elif (
-            "## Chase Tracker" not in battle_report
-            or "No chase tracker recorded." in _section_text(battle_report, "Chase Tracker")
-        ):
-            findings.append(_finding(
-                "chase_tracker_not_rendered",
-                "report_gap",
-                "high",
-                "save/chase.json has participants, location chain, round log, and outcome, but the battle report does not render a populated ## Chase Tracker section.",
-                "Render save/chase.json participants, DEX order, location chain, rounds, and outcome in ## Chase Tracker.",
-            ))
         else:
-            chase_tracker_label_leaks = _chase_tracker_label_leaks(battle_report, metadata)
-            if chase_tracker_label_leaks:
+            chase_tracker_section = _section_text(battle_report, "Chase Tracker")
+            if not chase_tracker_section or "No chase tracker recorded." in chase_tracker_section:
                 findings.append(_finding(
-                    "chase_tracker_labels_not_localized",
+                    "chase_tracker_not_rendered",
                     "report_gap",
-                    "medium",
-                    "Active localized Chase Tracker exposes unlocalized labels, roles, status, or difficulty values: "
-                    + ", ".join(chase_tracker_label_leaks),
-                    "Render Chase Tracker labels and display values from language_profile.chase_tracker_labels, localized_terms, and localized_text while preserving canonical ids as audit anchors.",
+                    "high",
+                    "save/chase.json has participants, location chain, round log, and outcome, but the battle report does not render a populated ## Chase Tracker section.",
+                    "Render save/chase.json participants, DEX order, location chain, rounds, and outcome in ## Chase Tracker.",
                 ))
+            else:
+                chase_tracker_label_leaks = _chase_tracker_label_leaks(battle_report, metadata)
+                if chase_tracker_label_leaks:
+                    findings.append(_finding(
+                        "chase_tracker_labels_not_localized",
+                        "report_gap",
+                        "medium",
+                        "Active localized Chase Tracker exposes unlocalized labels, roles, status, or difficulty values: "
+                        + ", ".join(chase_tracker_label_leaks),
+                        "Render Chase Tracker labels and display values from language_profile.chase_tracker_labels, localized_terms, and localized_text while preserving canonical ids as audit anchors.",
+                    ))
 
         chase_text = " ".join(_payload_summaries(context["events"], "chase"))
         if (

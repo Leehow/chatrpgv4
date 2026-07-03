@@ -380,8 +380,13 @@ def test_battle_report_uses_selected_language_profile_and_localized_text(tmp_pat
     battle_path = coc_playtest_report.generate_battle_report(run_dir)
     battle_text = battle_path.read_text()
 
-    assert "Play Language: ja-JP" in battle_text
-    assert "Language Profile: Table Japanese" in battle_text
+    assert "# プレイ報告 <!-- report-anchor: Battle Report -->" in battle_text
+    assert "## 実行設定 <!-- report-anchor: Run Setup -->" in battle_text
+    assert "プレイ言語: ja-JP" in battle_text
+    assert "言語プロファイル: Table Japanese" in battle_text
+    assert "# Battle Report / プレイ報告" not in battle_text
+    assert "Play Language: ja-JP" not in battle_text
+    assert "Language Profile: Table Japanese" not in battle_text
     assert "エイダ・キングはコービット屋敷に到着する。" in battle_text
     assert "玄関の扉を調べます。" in battle_text
     assert "狙い：コービット屋敷の扉についた傷に気づく" in battle_text

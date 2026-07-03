@@ -214,6 +214,8 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "test_gap",
         "system_gap",
         "report_gap",
+        "report-anchor",
+        "field-anchor",
         "report_skill_names_not_localized",
         "transcript_mode_labels",
         "report_actor_dash_prefix",

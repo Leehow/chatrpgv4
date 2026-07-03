@@ -474,14 +474,16 @@ def _localized_report_label(language_profile: dict[str, Any], group: str, canoni
 
 def _report_heading(level: int, canonical: str, language_profile: dict[str, Any]) -> str:
     localized = _localized_report_label(language_profile, "report_heading_labels", canonical)
-    suffix = f" / {localized}" if localized != canonical else ""
-    return f"{'#' * level} {canonical}{suffix}"
+    if localized != canonical:
+        return f"{'#' * level} {localized} <!-- report-anchor: {canonical} -->"
+    return f"{'#' * level} {canonical}"
 
 
 def _report_field(label: str, value: Any, language_profile: dict[str, Any]) -> str:
     localized = _localized_report_label(language_profile, "report_field_labels", label)
-    suffix = f"（{localized}）" if localized != label else ""
-    return f"- {label}: {value}{suffix}"
+    if localized != label:
+        return f"- {localized}: {value} <!-- field-anchor: {label} -->"
+    return f"- {label}: {value}"
 
 
 def _localized_report_value(value: Any, language_profile: dict[str, Any], localized_terms: dict[str, str]) -> str:
