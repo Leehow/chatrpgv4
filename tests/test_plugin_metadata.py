@@ -159,6 +159,8 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "resource_change",
         "haunting_corbitt_magic_points_missing",
         "Corbitt Magic points",
+        "flesh_ward",
+        "Flesh Ward",
         "report_actor_ids_not_localized",
         "report_actor_label_repeated",
         "report_actor_dash_prefix",
@@ -255,6 +257,8 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "resource_change",
         "haunting_corbitt_magic_points_missing",
         "Corbitt Magic points",
+        "flesh_ward",
+        "Flesh Ward",
         "Blueprint Cross-Check",
         "Next Loop Fix Target",
     ]

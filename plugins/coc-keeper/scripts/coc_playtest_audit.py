@@ -1765,8 +1765,16 @@ def _corbitt_magic_point_gaps(events: list[dict[str, Any]]) -> list[str]:
         return ["no resource_change event records Walter Corbitt Magic point spending"]
 
     required_spends = {
-        "floating_knife_attack": {"cost": 1, "before": 18, "after": 17, "source_turn": 40},
-        "animate_body": {"cost": 2, "before": 17, "after": 15, "source_turn": 46},
+        "flesh_ward": {
+            "cost": 2,
+            "before": 18,
+            "after": 16,
+            "source_turn": 21,
+            "armor_rolls": [4, 3],
+            "armor_points": 7,
+        },
+        "floating_knife_attack": {"cost": 1, "before": 16, "after": 15, "source_turn": 40},
+        "animate_body": {"cost": 2, "before": 15, "after": 13, "source_turn": 46},
     }
     gaps: list[str] = []
     for reason, expected in required_spends.items():
@@ -1783,12 +1791,12 @@ def _corbitt_magic_point_gaps(events: list[dict[str, Any]]) -> list[str]:
     return gaps
 
 
-def _resource_change_matches(payload: dict[str, Any], expected: dict[str, int]) -> bool:
+def _resource_change_matches(payload: dict[str, Any], expected: dict[str, Any]) -> bool:
     cost = payload.get("cost")
     before = payload.get("before")
     after = payload.get("after")
     delta = payload.get("delta")
-    return (
+    resource_totals_match = (
         cost == expected["cost"]
         and before == expected["before"]
         and after == expected["after"]
@@ -1796,6 +1804,13 @@ def _resource_change_matches(payload: dict[str, Any], expected: dict[str, int]) 
         and delta == -expected["cost"]
         and before + delta == after
     )
+    if not resource_totals_match:
+        return False
+    if "armor_rolls" in expected and payload.get("armor_rolls") != expected["armor_rolls"]:
+        return False
+    if "armor_points" in expected and payload.get("armor_points") != expected["armor_points"]:
+        return False
+    return True
 
 
 def _normalize_report_text(text: str) -> str:
@@ -2488,7 +2503,7 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "system_gap",
                 "high",
                 "; ".join(corbitt_magic_point_gaps),
-                "Record resource_change events for Corbitt Magic points when The Floating Knife attacks and when Corbitt spends 2 Magic points to move his body.",
+                "Record resource_change events for Corbitt Magic points when he casts Flesh Ward, when The Floating Knife attacks, and when Corbitt spends 2 Magic points to move his body.",
             ))
 
         status_text = " ".join(_payload_summaries(context["events"], "status"))
