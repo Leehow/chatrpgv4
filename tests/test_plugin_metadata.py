@@ -149,3 +149,19 @@ def test_coc_playtest_skill_documents_suite_report_index():
     for term in required_terms:
         assert term in skill_text
         assert term in spec_text
+
+
+def test_coc_playtest_skill_documents_semantic_matcher_constitution():
+    skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
+    required_terms = [
+        "Semantic Matcher Constitution",
+        "natural-language matcher",
+        "LLM semantic evaluator",
+        "machine-controlled schema fields",
+        "coverage_evaluator",
+        "coverage_reasons",
+    ]
+    for term in required_terms:
+        assert term in skill_text
+        assert term in spec_text

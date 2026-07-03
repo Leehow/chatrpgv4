@@ -64,3 +64,77 @@ def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     assert "- No non-passing runs in this suite." in report_text
     assert "## Remaining Gaps" in report_text
     assert "- No gaps detected across indexed playtest runs." in report_text
+
+
+class FixtureSemanticEvaluator:
+    evaluator_id = "fixture-semantic-evaluator"
+
+    def evaluate_run(self, context):
+        assert context.run_id == "semantic-run"
+        assert "semantic evidence without canonical headings" in context.battle_report
+        return {
+            "character_dossier": {
+                "covered": True,
+                "reason": "Semantic evaluator found an investigator profile even without the canonical heading.",
+            },
+            "kp_player_transcript": {
+                "covered": True,
+                "reason": "Semantic evaluator found alternating keeper and player utterances.",
+            },
+            "mechanical_rolls": {
+                "covered": True,
+                "reason": "Semantic evaluator found a resolved skill check with goal, difficulty, and outcome.",
+            },
+            "combat": {
+                "covered": False,
+                "reason": "Semantic evaluator found no opposed combat exchange.",
+            },
+            "chase": {
+                "covered": True,
+                "reason": "Semantic evaluator found pursuit pacing and an escape outcome.",
+            },
+            "sanity": {
+                "covered": False,
+                "reason": "Semantic evaluator found no SAN loss or bout handling.",
+            },
+            "player_feedback": {
+                "covered": True,
+                "reason": "Semantic evaluator found player-facing feedback on Keeper clarity.",
+            },
+        }
+
+
+def test_suite_report_uses_semantic_evaluator_instead_of_text_shape(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "semantic-run"
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "semantic-run",
+        "campaign_title": "Semantic Coverage Fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": "semantic_fixture",
+        "player_profile": "careful_investigator",
+        "subsystems_covered": [],
+    }))
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    (artifacts_dir / "battle-report.md").write_text(
+        "A semantic evidence without canonical headings transcript: the investigator is profiled, "
+        "the keeper and player speak back and forth, a skill check resolves, a pursuit ends in escape, "
+        "and the player comments on Keeper clarity."
+    )
+
+    report_path = coc_playtest_suite.generate_suite_report(tmp_path, evaluator=FixtureSemanticEvaluator())
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+    report_text = report_path.read_text()
+
+    run = index["runs"][0]
+    assert run["coverage_evaluator"] == "fixture-semantic-evaluator"
+    assert run["coverage"]["chase"] is True
+    assert run["coverage_reasons"]["chase"] == "Semantic evaluator found pursuit pacing and an escape outcome."
+    assert index["coverage"]["chase"]["runs"] == ["semantic-run"]
+    assert index["coverage"]["chase"]["reasons"] == {
+        "semantic-run": "Semantic evaluator found pursuit pacing and an escape outcome."
+    }
+    assert "Coverage Evidence" in report_text
+    assert "fixture-semantic-evaluator" in report_text
+    assert "Semantic evaluator found pursuit pacing and an escape outcome." in report_text

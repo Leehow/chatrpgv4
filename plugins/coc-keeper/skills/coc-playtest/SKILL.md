@@ -39,6 +39,12 @@ Use `../../scripts/coc_playtest_suite.py` after multiple serious runs to generat
 
 `suite-report.md` should include `## Run Index`, `## Non-Passing Runs`, and a `## Core Coverage Matrix` with `character_dossier`, `kp_player_transcript`, `mechanical_rolls`, `combat`, `chase`, `sanity`, and `player_feedback`, so the evaluator can see whether the current playtest set covers the requested Keeper Rulebook workflows without hiding failed or missing audits.
 
+## Semantic Matcher Constitution
+
+Do not use a natural-language matcher based on literal headings, keyword hits, or fixed prose fragments to prove playtest coverage, module fidelity, rule intent, spoiler safety, player intent, or KP answer quality. If a judgment depends on what human-language text means, route it through an LLM semantic evaluator and record the evaluator id plus `coverage_reasons`.
+
+Exact matching is allowed only for machine-controlled schema fields, enum values, JSON keys, file paths, and system markers such as `coverage_evaluator`, `coverage_reasons`, `run_id`, `audit_profile`, or `subsystems_covered`. Offline deterministic tests may inject a fixture evaluator. The default non-LLM path may use structured source data only; it must not claim semantic coverage from Markdown section titles or keyword snippets.
+
 Before generating reports, record the run context:
 
 - `playtest.json`: run id, campaign id, scenario id, era, dice mode, spoiler policy, player profile, scores, pass/fail cases, recommendations.
