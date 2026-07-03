@@ -1499,13 +1499,13 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Player[reckless_investigator]" not in actual_play
     assert "Player[skeptical_rules_lawyer]" not in actual_play
     run_setup = section_text(battle_text, "## Run Setup")
-    assert_run_setup_values_localized(run_setup, "多玩家画像矩阵")
+    assert_run_setup_values_localized(run_setup, "多调查风格开局")
     module_section = section_text(battle_text, "## Module")
     assert_module_metadata_values_localized(
         run_setup,
         module_section,
-        campaign="守秘人多玩家画像压力测试",
-        scenario="《鬼屋》开场压力矩阵",
+        campaign="科比特宅邸的三条路",
+        scenario="《鬼屋》开场分歧",
         source="《克苏鲁的呼唤守秘人规则书》40周年纪念版 PDF",
         forbidden=[
             "Keeper Multi-Profile Pressure Test",
@@ -1513,6 +1513,11 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
             "pdf/Call Of Cthulhu Keeper Rulebook",
         ],
     )
+    story_facing_setup = run_setup + "\n" + module_section
+    assert "压力测试" not in story_facing_setup
+    assert "压力矩阵" not in story_facing_setup
+    assert "多玩家画像矩阵" not in story_facing_setup
+    assert "科比特宅邸的三条路" in story_facing_setup
     assert "先查房契和旧报纸" in actual_play
     assert "我直接去二楼" in actual_play
     assert "[meta] 我想质疑一下" in actual_play

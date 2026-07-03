@@ -281,7 +281,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "careful_investigator": "谨慎调查员",
             "reckless_investigator": "鲁莽调查员",
             "skeptical_rules_lawyer": "规则质疑玩家",
-            "multi_profile_matrix": "多玩家画像矩阵",
+            "multi_profile_matrix": "多调查风格开局",
         },
         "character_dossier_labels": {
             "Player": "玩家",
