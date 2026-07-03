@@ -1081,6 +1081,48 @@ def test_active_audit_rejects_unlocalized_feedback_labels(tmp_path):
     assert "player_feedback_labels_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_run_setup_values(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-run-setup-values"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata["dice_mode"] = "codex"
+    metadata["spoiler_policy"] = "warn_before_reveal"
+    metadata["player_profile"] = "careful_investigator"
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report / 跑团战报\n\n"
+        "## Run Setup / 运行设置\n"
+        "- Dice Mode: codex（骰子模式）\n"
+        "- Spoiler Policy: warn_before_reveal（剧透策略）\n"
+        "- Play Language: zh-Hans（游玩语言）\n"
+        "- Language Profile: Simplified Chinese（语言配置）\n"
+        "- Localized Terms: 73 entries (see Localization Appendix)（本地化术语）\n"
+        "- Player Profile: careful_investigator（玩家画像）\n\n"
+        "## Scene-by-Scene Replay / 逐场景回放\n"
+        "- 这是中文场景回放。\n\n"
+        "## Actual Play Replay / 实际跑团回放\n"
+        "- 第 1 轮 KP: \"诺特先生给出钥匙。\"\n\n"
+        "## Session Transcript / 会话记录\n"
+        "- 第 1 轮 KP: 诺特先生给出钥匙。\n"
+        "  - 模式: play\n\n"
+        "## Major Player Decisions / 玩家关键决定\n"
+        "- 艾达选择先查资料。\n\n"
+        "## Story Recap / 剧情回顾\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## Player Feedback On KP / 玩家对 KP 的反馈\n"
+        "- KP 清晰度: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "run_setup_values_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_rejects_unlocalized_report_shell_for_localized_runs(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "localized-shell"
     create_final_rulebook_run(run_dir)

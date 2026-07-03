@@ -20,6 +20,7 @@ BASE_REPORT_LABELS = {
     "san_loss": "SAN Loss",
     "yes": "yes",
     "no": "no",
+    "localized_terms_summary": "{count} entries (see Localization Appendix)",
 }
 
 BASE_EMPTY_REPORT_LINES = {
@@ -81,6 +82,18 @@ BASE_REPORT_FIELD_LABELS = {
     "Scenario ID": "Scenario ID",
     "Source": "Source",
     "Opening Scene": "Opening Scene",
+}
+
+BASE_REPORT_VALUE_LABELS = {
+    "codex": "codex",
+    "warn_before_reveal": "warn_before_reveal",
+    "Simplified Chinese": "Simplified Chinese",
+    "English": "English",
+    "Japanese": "Japanese",
+    "careful_investigator": "careful_investigator",
+    "reckless_investigator": "reckless_investigator",
+    "skeptical_rules_lawyer": "skeptical_rules_lawyer",
+    "multi_profile_matrix": "multi_profile_matrix",
 }
 
 BASE_CHARACTER_DOSSIER_LABELS = {
@@ -174,6 +187,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "san_loss": "SAN 损失",
             "yes": "yes",
             "no": "no",
+            "localized_terms_summary": "{count} 条（见本地化附录）",
         },
         "report_heading_labels": {
             "Battle Report": "跑团战报",
@@ -213,6 +227,17 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Scenario ID": "模组 ID",
             "Source": "来源",
             "Opening Scene": "开场场景",
+        },
+        "report_value_labels": {
+            "codex": "Codex 掷骰",
+            "warn_before_reveal": "剧透前警告",
+            "Simplified Chinese": "简体中文",
+            "English": "英语",
+            "Japanese": "日语",
+            "careful_investigator": "谨慎调查员",
+            "reckless_investigator": "鲁莽调查员",
+            "skeptical_rules_lawyer": "规则质疑玩家",
+            "multi_profile_matrix": "多玩家画像矩阵",
         },
         "character_dossier_labels": {
             "Player": "玩家",
@@ -326,6 +351,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "report_labels": BASE_REPORT_LABELS,
         "report_heading_labels": BASE_REPORT_HEADING_LABELS,
         "report_field_labels": BASE_REPORT_FIELD_LABELS,
+        "report_value_labels": BASE_REPORT_VALUE_LABELS,
         "character_dossier_labels": BASE_CHARACTER_DOSSIER_LABELS,
         "chronicle_labels": BASE_CHRONICLE_LABELS,
         "feedback_labels": BASE_FEEDBACK_LABELS,
@@ -356,6 +382,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "san_loss": "SAN 喪失",
             "yes": "yes",
             "no": "no",
+            "localized_terms_summary": "{count} 件（ローカライズ付録を参照）",
         },
         "report_heading_labels": {
             "Battle Report": "プレイ報告",
@@ -395,6 +422,17 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Scenario ID": "シナリオ ID",
             "Source": "出典",
             "Opening Scene": "導入シーン",
+        },
+        "report_value_labels": {
+            "codex": "Codex ダイス",
+            "warn_before_reveal": "ネタバレ前に警告",
+            "Simplified Chinese": "簡体字中国語",
+            "English": "英語",
+            "Japanese": "日本語",
+            "careful_investigator": "慎重な探索者",
+            "reckless_investigator": "無謀な探索者",
+            "skeptical_rules_lawyer": "ルール確認型プレイヤー",
+            "multi_profile_matrix": "複数プロファイル行列",
         },
         "character_dossier_labels": {
             "Player": "プレイヤー",
@@ -518,6 +556,7 @@ def language_profile(play_language: str | None = None) -> dict[str, Any]:
     profile["speaker_labels"] = BASE_SPEAKER_LABELS
     profile["report_heading_labels"] = BASE_REPORT_HEADING_LABELS
     profile["report_field_labels"] = BASE_REPORT_FIELD_LABELS
+    profile["report_value_labels"] = BASE_REPORT_VALUE_LABELS
     profile["character_dossier_labels"] = BASE_CHARACTER_DOSSIER_LABELS
     profile["chronicle_labels"] = BASE_CHRONICLE_LABELS
     profile["feedback_labels"] = BASE_FEEDBACK_LABELS

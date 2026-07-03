@@ -104,6 +104,11 @@ REPORT_SHELL_REQUIRED_FIELDS = [
     "Scenario",
     "Opening Scene",
 ]
+RUN_SETUP_VALUE_FIELDS = [
+    "dice_mode",
+    "spoiler_policy",
+    "player_profile",
+]
 CHARACTER_DOSSIER_REQUIRED_LABELS = [
     "Occupation",
     "Era",
@@ -587,6 +592,35 @@ def _localized_report_shell_gaps(battle_report: str, metadata: dict[str, Any]) -
         if label and label != field and f"（{label}）" not in battle_report:
             gaps.append(f"field:{field}")
     return gaps
+
+
+def _run_setup_value_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    section = _section_text(battle_report, "Run Setup")
+    if not section:
+        return []
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("report_value_labels", {})
+    if not isinstance(labels, dict):
+        labels = {}
+    candidates = [
+        str(metadata.get(field))
+        for field in RUN_SETUP_VALUE_FIELDS
+        if metadata.get(field) not in (None, "", [], {})
+    ]
+    display_name = profile.get("display_name")
+    if display_name not in (None, "", [], {}):
+        candidates.append(str(display_name))
+    leaks: list[str] = []
+    for canonical in candidates:
+        label = labels.get(canonical)
+        if label and label != canonical and canonical in section:
+            leaks.append(canonical)
+    if "entries (see Localization Appendix)" in section:
+        leaks.append("localized_terms_summary")
+    return sorted(set(leaks))
 
 
 def _character_dossier_label_gaps(battle_report: str, metadata: dict[str, Any]) -> list[str]:
@@ -1151,6 +1185,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Active localized battle report lacks localized report chrome: " + ", ".join(report_shell_gaps),
             "Render canonical report headings with localized aliases and append localized field labels from language_profile.",
+        ))
+    run_setup_value_leaks = _run_setup_value_leaks(battle_report, metadata)
+    if active_profile and run_setup_value_leaks:
+        findings.append(_finding(
+            "run_setup_values_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized Run Setup exposes raw configuration values: " + ", ".join(run_setup_value_leaks),
+            "Render Run Setup display values from language_profile.report_value_labels while preserving canonical values in JSON.",
         ))
     if active_profile and (
         "## Investigator Chronicle" not in battle_report

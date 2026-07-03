@@ -455,6 +455,14 @@ def _report_field(label: str, value: Any, language_profile: dict[str, Any]) -> s
     return f"- {label}: {value}{suffix}"
 
 
+def _localized_report_value(value: Any, language_profile: dict[str, Any], localized_terms: dict[str, str]) -> str:
+    value_text = str(value)
+    labels = language_profile.get("report_value_labels", {})
+    if isinstance(labels, dict) and labels.get(value_text):
+        return str(labels[value_text])
+    return _localize_text(value_text, localized_terms)
+
+
 def _first_value(default: Any, *values: Any) -> Any:
     for value in values:
         if value not in (None, "", [], {}):
@@ -512,10 +520,17 @@ def _localized_profile_labels(metadata: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def _format_localized_terms_summary(terms: dict[str, str]) -> str:
+def _format_localized_terms_summary(terms: dict[str, str], language_profile: dict[str, Any] | None = None) -> str:
     if not terms:
         return "none"
-    return f"{len(terms)} entries (see Localization Appendix)"
+    profile = language_profile or {}
+    report_labels = profile.get("report_labels", {})
+    template = (
+        str(report_labels.get("localized_terms_summary"))
+        if isinstance(report_labels, dict) and report_labels.get("localized_terms_summary")
+        else "{count} entries (see Localization Appendix)"
+    )
+    return template.format(count=len(terms))
 
 
 def _format_localization_appendix(terms: dict[str, str]) -> list[str]:
@@ -1249,12 +1264,20 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_field("Run ID", metadata.get("run_id", "unknown"), language_profile),
         _report_field("Campaign", _localize_text(campaign_title, localized_terms), language_profile),
         _report_field("Era", era, language_profile),
-        _report_field("Dice Mode", dice_mode, language_profile),
-        _report_field("Spoiler Policy", spoiler_policy, language_profile),
+        _report_field("Dice Mode", _localized_report_value(dice_mode, language_profile, localized_terms), language_profile),
+        _report_field("Spoiler Policy", _localized_report_value(spoiler_policy, language_profile, localized_terms), language_profile),
         _report_field("Play Language", play_language, language_profile),
-        _report_field("Language Profile", language_profile.get("display_name", play_language), language_profile),
-        _report_field("Localized Terms", _format_localized_terms_summary(localized_terms), language_profile),
-        _report_field("Player Profile", metadata.get("player_profile", "unknown"), language_profile),
+        _report_field(
+            "Language Profile",
+            _localized_report_value(language_profile.get("display_name", play_language), language_profile, localized_terms),
+            language_profile,
+        ),
+        _report_field("Localized Terms", _format_localized_terms_summary(localized_terms, language_profile), language_profile),
+        _report_field(
+            "Player Profile",
+            _localized_report_value(metadata.get("player_profile", "unknown"), language_profile, localized_terms),
+            language_profile,
+        ),
         "",
         _report_heading(2, "Module", language_profile),
         _report_field("Scenario", _localize_text(scenario_title, localized_terms), language_profile),

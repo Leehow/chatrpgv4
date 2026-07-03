@@ -207,6 +207,29 @@ def assert_feedback_labels_localized(text: str, expected: list[str], forbidden: 
         assert value not in text
 
 
+def assert_run_setup_values_localized(text: str, expected_profile: str) -> None:
+    expected = [
+        "Dice Mode: Codex 掷骰（骰子模式）",
+        "Spoiler Policy: 剧透前警告（剧透策略）",
+        "Language Profile: 简体中文（语言配置）",
+        "条（见本地化附录）（本地化术语）",
+        f"Player Profile: {expected_profile}（玩家画像）",
+    ]
+    forbidden = [
+        "Dice Mode: codex",
+        "Spoiler Policy: warn_before_reveal",
+        "Language Profile: Simplified Chinese",
+        "entries (see Localization Appendix)",
+        "careful_investigator",
+        "reckless_investigator",
+        "multi_profile_matrix",
+    ]
+    for value in expected:
+        assert value in text
+    for value in forbidden:
+        assert value not in text
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -280,7 +303,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
     assert "Localized Terms: " in run_setup
-    assert "see Localization Appendix" in run_setup
+    assert_run_setup_values_localized(run_setup, "谨慎调查员")
     assert "Ada King -> 艾达·金" not in run_setup
     assert "Mr. Knott -> 诺特先生" not in run_setup
     assert "The Old Corbitt Place -> 科比特老宅" not in run_setup
@@ -530,7 +553,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
     assert "Localized Terms: " in run_setup
-    assert "see Localization Appendix" in run_setup
+    assert_run_setup_values_localized(run_setup, "鲁莽调查员")
     assert "Ada King -> 艾达·金" not in run_setup
     assert "Nathaniel Crowe -> 内森尼尔·克劳" not in run_setup
     assert "ledger -> 账本" not in run_setup
@@ -763,6 +786,8 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Player[careful_investigator]" not in actual_play
     assert "Player[reckless_investigator]" not in actual_play
     assert "Player[skeptical_rules_lawyer]" not in actual_play
+    run_setup = section_text(battle_text, "## Run Setup")
+    assert_run_setup_values_localized(run_setup, "多玩家画像矩阵")
     assert "先查房契和旧报纸" in actual_play
     assert "我直接去二楼" in actual_play
     assert "[meta] 我想质疑一下" in actual_play
