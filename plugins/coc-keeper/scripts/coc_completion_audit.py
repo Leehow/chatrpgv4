@@ -421,6 +421,38 @@ def _battle_report_mechanical_log_findings(
     )]
 
 
+def _battle_report_event_summary_findings(
+    run_id: str,
+    campaign_dir: Path,
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    events = _read_jsonl(campaign_dir / "logs" / "events.jsonl")
+    required_summaries = [
+        row["payload"]["summary"].strip()
+        for row in events
+        if isinstance(row.get("payload"), dict)
+        and isinstance(row["payload"].get("summary"), str)
+        and row["payload"]["summary"].strip()
+    ]
+    missing_summaries = [
+        summary
+        for summary in required_summaries
+        if summary not in battle_report
+    ]
+    if not missing_summaries:
+        return []
+    return [_finding(
+        "battle_report_event_summaries_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_summaries)} of {len(required_summaries)} source event summaries from logs/events.jsonl.",
+        "Regenerate battle-report.md so Scene-by-Scene Replay or State Changes renders each structured source event summary.",
+        run_id=run_id,
+        missing_event_count=len(missing_summaries),
+        required_event_count=len(required_summaries),
+        missing_event_samples=missing_summaries[:5],
+    )]
+
+
 def _markdown_headings(markdown: str) -> set[str]:
     return {
         line.strip()
@@ -1305,6 +1337,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_anchor_findings(run_id, battle_report))
     findings.extend(_battle_report_source_dialogue_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_mechanical_log_findings(run_id, campaign_dir, battle_report))
+    findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
 
     rulebook_audit = _read_text(artifacts_dir / "rulebook-audit.md")
     findings.extend(_rulebook_audit_section_findings(run_id, rulebook_audit))

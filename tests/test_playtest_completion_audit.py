@@ -123,6 +123,19 @@ def battle_report_mechanical_fixture_text() -> str:
     return "\n".join(lines)
 
 
+def battle_report_event_fixture_text() -> str:
+    event_summaries = [
+        "fixture scene",
+        "fixture combat",
+        "fixture sanity",
+        "fixture status",
+        "fixture ending",
+        "fixture chase",
+        "fixture decision",
+    ]
+    return "\n".join(f"- {summary}" for summary in event_summaries)
+
+
 def battle_report_fixture() -> str:
     return "\n\n".join([
         "# Battle Report <!-- report-anchor: Battle Report -->",
@@ -131,7 +144,8 @@ def battle_report_fixture() -> str:
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n- Fixture creation record.",
         "## Character Dossier <!-- report-anchor: Character Dossier -->\n- Fixture character dossier.",
         "## Investigator Chronicle <!-- report-anchor: Investigator Chronicle -->\n- Fixture chronicle.",
-        "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n- Fixture scene.",
+        "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n"
+        + battle_report_event_fixture_text(),
         "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n"
         "- fixture keeper turn\n"
         "- fixture player turn\n"
@@ -185,6 +199,14 @@ def battle_report_with_dialogue_but_without_roll_log() -> str:
         "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n"
         + battle_report_mechanical_fixture_text(),
         "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n- Fixture roll.",
+    )
+
+
+def battle_report_with_dialogue_and_rolls_but_without_events() -> str:
+    return battle_report_fixture().replace(
+        "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n"
+        + battle_report_event_fixture_text(),
+        "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n- Fixture scene.",
     )
 
 
@@ -989,6 +1011,35 @@ def test_completion_audit_fails_when_battle_report_omits_source_roll_results(tmp
     assert finding["run_id"] == "v2-haunting-module"
     assert "Spot Hidden: v2-haunting-module-investigator rolled 33 vs 55 -> regular_success" in finding["missing_roll_samples"]
     assert "Spot Hidden: v2-haunting-module-investigator rolled 22 vs 55 -> hard_success" in finding["missing_roll_samples"]
+
+
+def test_completion_audit_fails_when_battle_report_omits_source_event_summaries(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(run_dir / "artifacts" / "battle-report.md", battle_report_with_dialogue_and_rolls_but_without_events())
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_event_summaries_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "fixture scene" in finding["missing_event_samples"]
+    assert "fixture combat" in finding["missing_event_samples"]
 
 
 def test_completion_audit_fails_when_suite_report_missing_required_sections(tmp_path):
