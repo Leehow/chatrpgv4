@@ -1643,7 +1643,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
                 "summary": "艾达·金经历了三种玩家风格压测，确认公开记录、鲁莽进屋和规则质疑都能进入同一故事。",
                 "final_hp": 12,
                 "final_san": 55,
-                "notable_events": ["谨慎路线找到科比特与沉思教堂线索", "鲁莽路线通过推骰发现新划痕", "meta 质疑获得独立规则解释"],
+                "notable_events": ["谨慎路线找到科比特与沉思教堂线索", "鲁莽路线通过推骰发现新划痕", "规则质疑获得独立规则解释"],
                 "unresolved_threads": ["后续故事入口保留为沉思教堂记录"],
             }
         ],
@@ -1687,7 +1687,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "谨慎玩家选择先查房契和旧报纸，避免无准备进屋。"}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "deed-note", "summary": "艾达·金发现沃尔特·科比特与沉思教堂有关。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "鲁莽玩家选择直接进二楼，并在失败后接受更危险的推骰。"}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑玩家用 meta 模式要求 KP 解释不同玩家风格对应的检定和风险。"}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑玩家以超游模式要求 KP 解释不同玩家风格对应的检定和风险。"}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "fresh-scratches", "summary": "推骰成功后，艾达·金看见门闩边缘的新划痕。"}},
         {"type": "status", "actor": investigator_id, "payload": {"summary": "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。"}},
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "多玩家画像压测结束，后续入口记录为先追查沉思教堂，再决定是否进入科比特宅邸深处。"}},

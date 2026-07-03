@@ -893,6 +893,8 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     chronicle = section_text(battle_text, "## Investigator Chronicle")
     assert_localized_chronicle_labels(chronicle)
     assert "艾达·金经历了三种玩家风格压测" in chronicle
+    assert "规则质疑获得独立规则解释" in chronicle
+    assert "meta 质疑" not in chronicle
     assert "获得成长标记: Library Use; Spot Hidden" in chronicle
     assert "继承备注: 后续故事入口保留为沉思教堂记录" in chronicle
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
@@ -901,6 +903,9 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
         ["knott-office", "deed-note", "fresh-scratches"],
     )
     assert_player_readable_event_prefixes_absent(scene_replay, ["session ending"])
+    major_decisions = section_text(battle_text, "## Major Player Decisions")
+    assert "规则质疑玩家以超游模式要求 KP 解释不同玩家风格对应的检定和风险" in major_decisions
+    assert "meta 模式" not in major_decisions
     clues_found = section_text(battle_text, "## Clues Found")
     assert_player_readable_state_ids_absent(clues_found, ["deed-note", "fresh-scratches"])
     story_recap = section_text(battle_text, "## Story Recap")
