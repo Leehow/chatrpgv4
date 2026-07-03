@@ -177,6 +177,36 @@ def assert_transcript_detail_values_localized(text: str, expected: list[str], fo
         assert value not in text
 
 
+def assert_localized_chronicle_labels(text: str) -> None:
+    expected = [
+        "经历:",
+        "成长:",
+        "成长阶段摘要",
+        "状态: 等待玩家成长检定",
+        "获得成长标记:",
+        "继承备注:",
+    ]
+    forbidden = [
+        "History:",
+        "Development:",
+        "Development Phase Summary",
+        "Status: pending_player_rolls",
+        "Skill Checks Earned:",
+        "Carryover Notes:",
+    ]
+    for value in expected:
+        assert value in text
+    for value in forbidden:
+        assert value not in text
+
+
+def assert_feedback_labels_localized(text: str, expected: list[str], forbidden: list[str]) -> None:
+    for value in expected:
+        assert value in text
+    for value in forbidden:
+        assert value not in text
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -276,14 +306,12 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert investigator_jsonl(run_dir, "ada-king-haunting", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-haunting", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")
-    assert "History:" in chronicle
+    assert_localized_chronicle_labels(chronicle)
     assert "艾达·金在 The Haunting 中幸存" in chronicle
     assert "最终 HP: 3" in chronicle
     assert "最终 SAN: 49" in chronicle
-    assert "Development:" in chronicle
-    assert "Status: pending_player_rolls" in chronicle
-    assert "Skill Checks Earned: Persuade; Library Use; Spot Hidden; Dodge; Fighting (Brawl)" in chronicle
-    assert "Carryover Notes: 下次导入前先结算成长检定" in chronicle
+    assert "获得成长标记: Persuade; Library Use; Spot Hidden; Dodge; Fighting (Brawl)" in chronicle
+    assert "继承备注: 下次导入前先结算成长检定" in chronicle
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
@@ -401,6 +429,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert has_cjk(section_text(battle_text, "## Story Recap"))
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert has_cjk(feedback)
+    assert_feedback_labels_localized(feedback, ["KP 清晰度: 5", "沉浸感: 4"], ["kp_clarity:", "immersion:"])
     assert "清单" in feedback
     assert "checklist" not in feedback
     assert "The Haunting Module Playthrough" in battle_text
@@ -529,14 +558,12 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert investigator_jsonl(run_dir, "ada-king-chase", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-chase", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")
-    assert "History:" in chronicle
+    assert_localized_chronicle_labels(chronicle)
     assert "艾达·金带着邪教账本逃脱" in chronicle
     assert "最终 HP: 12" in chronicle
     assert "最终 SAN: 55" in chronicle
-    assert "Development:" in chronicle
-    assert "Status: pending_player_rolls" in chronicle
-    assert "Skill Checks Earned: Spot Hidden; Dodge; Locksmith; Stealth" in chronicle
-    assert "Carryover Notes: 账本线索可带入后续模组" in chronicle
+    assert "获得成长标记: Spot Hidden; Dodge; Locksmith; Stealth" in chronicle
+    assert "继承备注: 账本线索可带入后续模组" in chronicle
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
@@ -645,6 +672,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "rooftop 追逐" not in story_recap
     feedback = section_text(battle_text, "## Player Feedback On KP")
     assert has_cjk(feedback)
+    assert_feedback_labels_localized(feedback, ["KP 清晰度: 5", "沉浸感: 4"], ["kp_clarity:", "immersion:"])
     assert "规则裁定" in feedback
     assert "rule decisions" not in feedback
     assert "escapes" not in feedback
@@ -739,12 +767,10 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-pressure", "development.jsonl")
     chronicle = section_text(battle_text, "## Investigator Chronicle")
-    assert "History:" in chronicle
+    assert_localized_chronicle_labels(chronicle)
     assert "艾达·金经历了三种玩家风格压测" in chronicle
-    assert "Development:" in chronicle
-    assert "Status: pending_player_rolls" in chronicle
-    assert "Skill Checks Earned: Library Use; Spot Hidden" in chronicle
-    assert "Carryover Notes: 后续故事入口保留为沉思教堂记录" in chronicle
+    assert "获得成长标记: Library Use; Spot Hidden" in chronicle
+    assert "继承备注: 后续故事入口保留为沉思教堂记录" in chronicle
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert_player_readable_state_ids_absent(
         scene_replay,
@@ -755,6 +781,11 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert_player_readable_state_ids_absent(clues_found, ["deed-note", "fresh-scratches"])
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     feedback = section_text(battle_text, "## Player Feedback On KP")
+    assert_feedback_labels_localized(
+        feedback,
+        ["KP 清晰度: 5", "自主性: 4", "超游质量: 5"],
+        ["kp_clarity:", "agency:", "meta_quality:"],
+    )
     assert "谨慎调查员:" in feedback
     assert "鲁莽调查员:" in feedback
     assert "规则质疑玩家:" in feedback

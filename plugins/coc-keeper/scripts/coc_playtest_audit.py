@@ -118,6 +118,30 @@ CHARACTER_DOSSIER_REQUIRED_LABELS = [
     "Treasured Possessions",
     "Traits",
 ]
+CHRONICLE_REQUIRED_LABELS = [
+    "History",
+    "Development",
+    "Final HP",
+    "Final SAN",
+    "Notable Events",
+    "Unresolved Threads",
+    "Development Phase Summary",
+    "Status",
+    "Skill Checks Earned",
+    "Rewards",
+    "Permanent Changes",
+    "Carryover Notes",
+    "pending_player_rolls",
+]
+FEEDBACK_REQUIRED_LABELS = [
+    "kp_clarity",
+    "rules_helpfulness",
+    "immersion",
+    "pacing",
+    "fairness",
+    "agency",
+    "meta_quality",
+]
 TRANSCRIPT_LABEL_REQUIRED_KEYS = ["turn_format", "mode", "intent", "ruling"]
 
 
@@ -565,6 +589,48 @@ def _character_dossier_label_gaps(battle_report: str, metadata: dict[str, Any]) 
         if f"{canonical}:" in section:
             gaps.append(f"leaked:{canonical}")
     return sorted(set(gaps))
+
+
+def _chronicle_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    section = _section_text(battle_report, "Investigator Chronicle")
+    if not section:
+        return []
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("chronicle_labels", {})
+    if not isinstance(labels, dict):
+        return []
+    leaks: list[str] = []
+    for canonical in CHRONICLE_REQUIRED_LABELS:
+        label = labels.get(canonical)
+        if not label or label == canonical:
+            continue
+        if canonical in section:
+            leaks.append(canonical)
+    return sorted(set(leaks))
+
+
+def _feedback_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
+    play_language = str(metadata.get("play_language") or "")
+    if play_language in {"", "en-US"}:
+        return []
+    section = _section_text(battle_report, "Player Feedback On KP")
+    if not section:
+        return []
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("feedback_labels", {})
+    if not isinstance(labels, dict):
+        return []
+    leaks: list[str] = []
+    for canonical in FEEDBACK_REQUIRED_LABELS:
+        label = labels.get(canonical)
+        if not label or label == canonical:
+            continue
+        if f"- {canonical}:" in section:
+            leaks.append(canonical)
+    return sorted(set(leaks))
 
 
 def _transcript_label_gaps(battle_report: str, metadata: dict[str, Any]) -> list[str]:
@@ -1047,6 +1113,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Battle report does not render reusable investigator history and development records.",
             "Render sandbox investigator history.jsonl and development.jsonl in an Investigator Chronicle section.",
         ))
+    chronicle_label_leaks = _chronicle_label_leaks(battle_report, metadata)
+    if active_profile and chronicle_label_leaks:
+        findings.append(_finding(
+            "investigator_chronicle_labels_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized Investigator Chronicle exposes unlocalized labels or status values: "
+            + ", ".join(chronicle_label_leaks),
+            "Render investigator chronicle labels and player-visible status values from language_profile.chronicle_labels.",
+        ))
     character_label_gaps = _character_dossier_label_gaps(battle_report, metadata)
     if active_profile and character_label_gaps:
         findings.append(_finding(
@@ -1082,6 +1158,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Active localized transcript sections expose unlocalized detail values: " + ", ".join(transcript_detail_gaps),
             "Render intent/ruling display values from localized_text while preserving canonical values in JSON.",
+        ))
+    feedback_label_leaks = _feedback_label_leaks(battle_report, metadata)
+    if active_profile and feedback_label_leaks:
+        findings.append(_finding(
+            "player_feedback_labels_not_localized",
+            "report_gap",
+            "medium",
+            "Active localized Player Feedback On KP exposes internal feedback category ids: "
+            + ", ".join(feedback_label_leaks),
+            "Render feedback metric labels from language_profile.feedback_labels while preserving category ids in JSON.",
         ))
 
     scene_replay = _section_text(battle_report, "Scene-by-Scene Replay") if active_profile else ""

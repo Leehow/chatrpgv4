@@ -101,6 +101,37 @@ BASE_CHARACTER_DOSSIER_LABELS = {
     "Phobias & Manias": "Phobias & Manias",
 }
 
+BASE_CHRONICLE_LABELS = {
+    "History": "History",
+    "Development": "Development",
+    "Inventory History": "Inventory History",
+    "Final HP": "Final HP",
+    "Final SAN": "Final SAN",
+    "Notable Events": "Notable Events",
+    "Unresolved Threads": "Unresolved Threads",
+    "Development Entry": "Development Entry",
+    "Development Phase Summary": "Development Phase Summary",
+    "Status": "Status",
+    "Skill Checks Earned": "Skill Checks Earned",
+    "Rewards": "Rewards",
+    "Permanent Changes": "Permanent Changes",
+    "Carryover Notes": "Carryover Notes",
+    "Items": "Items",
+    "Cash": "Cash",
+    "Notes": "Notes",
+    "pending_player_rolls": "pending_player_rolls",
+}
+
+BASE_FEEDBACK_LABELS = {
+    "kp_clarity": "kp_clarity",
+    "rules_helpfulness": "rules_helpfulness",
+    "immersion": "immersion",
+    "pacing": "pacing",
+    "fairness": "fairness",
+    "agency": "agency",
+    "meta_quality": "meta_quality",
+}
+
 LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
     "zh-Hans": {
         "language": "zh-Hans",
@@ -178,6 +209,35 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Injuries & Scars": "伤疤与伤势",
             "Phobias & Manias": "恐惧与躁狂",
         },
+        "chronicle_labels": {
+            "History": "经历",
+            "Development": "成长",
+            "Inventory History": "物品经历",
+            "Final HP": "最终 HP",
+            "Final SAN": "最终 SAN",
+            "Notable Events": "重要事件",
+            "Unresolved Threads": "未解线索",
+            "Development Entry": "成长条目",
+            "Development Phase Summary": "成长阶段摘要",
+            "Status": "状态",
+            "Skill Checks Earned": "获得成长标记",
+            "Rewards": "奖励",
+            "Permanent Changes": "永久变化",
+            "Carryover Notes": "继承备注",
+            "Items": "物品",
+            "Cash": "现金",
+            "Notes": "备注",
+            "pending_player_rolls": "等待玩家成长检定",
+        },
+        "feedback_labels": {
+            "kp_clarity": "KP 清晰度",
+            "rules_helpfulness": "规则帮助度",
+            "immersion": "沉浸感",
+            "pacing": "节奏",
+            "fairness": "公平性",
+            "agency": "自主性",
+            "meta_quality": "超游质量",
+        },
         "empty_report_lines": {
             "combat_summary": "- 本轮没有触发战斗场面。",
             "chase_summary": "- 本轮没有触发追逐场面。",
@@ -224,6 +284,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "report_heading_labels": BASE_REPORT_HEADING_LABELS,
         "report_field_labels": BASE_REPORT_FIELD_LABELS,
         "character_dossier_labels": BASE_CHARACTER_DOSSIER_LABELS,
+        "chronicle_labels": BASE_CHRONICLE_LABELS,
+        "feedback_labels": BASE_FEEDBACK_LABELS,
         "empty_report_lines": BASE_EMPTY_REPORT_LINES,
         "speaker_labels": BASE_SPEAKER_LABELS,
         "transcript_labels": BASE_TRANSCRIPT_LABELS,
@@ -307,6 +369,35 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Injuries & Scars": "負傷と傷跡",
             "Phobias & Manias": "恐怖症と躁症",
         },
+        "chronicle_labels": {
+            "History": "履歴",
+            "Development": "成長",
+            "Inventory History": "所持品履歴",
+            "Final HP": "最終 HP",
+            "Final SAN": "最終 SAN",
+            "Notable Events": "主な出来事",
+            "Unresolved Threads": "未解決の糸口",
+            "Development Entry": "成長記録",
+            "Development Phase Summary": "成長フェイズ要約",
+            "Status": "状態",
+            "Skill Checks Earned": "獲得した成長チェック",
+            "Rewards": "報酬",
+            "Permanent Changes": "恒久的な変化",
+            "Carryover Notes": "引き継ぎメモ",
+            "Items": "アイテム",
+            "Cash": "現金",
+            "Notes": "メモ",
+            "pending_player_rolls": "プレイヤーの成長ロール待ち",
+        },
+        "feedback_labels": {
+            "kp_clarity": "KP の明瞭さ",
+            "rules_helpfulness": "ルール説明の有用性",
+            "immersion": "没入感",
+            "pacing": "進行速度",
+            "fairness": "公平性",
+            "agency": "主体性",
+            "meta_quality": "メタ相談の質",
+        },
         "empty_report_lines": {
             "combat_summary": "- 今回は戦闘場面は発生していない。",
             "chase_summary": "- 今回はチェイス場面は発生していない。",
@@ -363,4 +454,6 @@ def language_profile(play_language: str | None = None) -> dict[str, Any]:
     profile["report_heading_labels"] = BASE_REPORT_HEADING_LABELS
     profile["report_field_labels"] = BASE_REPORT_FIELD_LABELS
     profile["character_dossier_labels"] = BASE_CHARACTER_DOSSIER_LABELS
+    profile["chronicle_labels"] = BASE_CHRONICLE_LABELS
+    profile["feedback_labels"] = BASE_FEEDBACK_LABELS
     return profile

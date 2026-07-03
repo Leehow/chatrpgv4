@@ -684,17 +684,37 @@ def _format_character(
     return lines
 
 
-def _format_record_value(value: Any, localized_terms: dict[str, str]) -> str:
+def _chronicle_label(language_profile: dict[str, Any] | None, canonical: str) -> str:
+    return _localized_report_label(language_profile or {}, "chronicle_labels", canonical)
+
+
+def _chronicle_value(
+    value: Any,
+    localized_terms: dict[str, str],
+    language_profile: dict[str, Any] | None,
+) -> str:
+    value_text = str(value)
+    localized = _chronicle_label(language_profile, value_text)
+    if localized != value_text:
+        return localized
+    return _localize_text(value_text, localized_terms)
+
+
+def _format_record_value(
+    value: Any,
+    localized_terms: dict[str, str],
+    language_profile: dict[str, Any] | None = None,
+) -> str:
     if isinstance(value, list):
-        return "; ".join(_format_record_value(item, localized_terms) for item in value)
+        return "; ".join(_format_record_value(item, localized_terms, language_profile) for item in value)
     if isinstance(value, dict):
         parts = [
-            f"{key}: {_format_record_value(child, localized_terms)}"
+            f"{_chronicle_label(language_profile, str(key))}: {_format_record_value(child, localized_terms, language_profile)}"
             for key, child in value.items()
             if child not in (None, "", [], {})
         ]
         return "; ".join(parts)
-    return _localize_text(value, localized_terms)
+    return _chronicle_value(value, localized_terms, language_profile)
 
 
 def _localized_record_field(
@@ -702,27 +722,30 @@ def _localized_record_field(
     key: str,
     localized_terms: dict[str, str],
     play_language: str,
+    language_profile: dict[str, Any] | None = None,
 ) -> str | None:
     localized = _localized_field(record, key, localized_terms, play_language)
     if localized is not None:
         return localized
     if record.get(key) not in (None, "", [], {}):
-        return _format_record_value(record[key], localized_terms)
+        return _format_record_value(record[key], localized_terms, language_profile)
     return None
 
 
-def _format_record_type(value: Any, fallback: str) -> str:
+def _format_record_type(value: Any, fallback: str, language_profile: dict[str, Any] | None = None) -> str:
     if value in (None, "", [], {}):
-        return fallback
-    return str(value).replace("_", " ").title()
+        return _chronicle_label(language_profile, fallback)
+    canonical = str(value).replace("_", " ").title()
+    return _chronicle_label(language_profile, canonical)
 
 
 def _format_history_entry(
     record: dict[str, Any],
     localized_terms: dict[str, str],
     play_language: str,
+    language_profile: dict[str, Any] | None = None,
 ) -> list[str]:
-    summary = _localized_record_field(record, "summary", localized_terms, play_language)
+    summary = _localized_record_field(record, "summary", localized_terms, play_language, language_profile)
     lines = [f"    - {summary or record.get('type', 'history entry')}"]
     for key, label in [
         ("final_hp", "Final HP"),
@@ -730,9 +753,9 @@ def _format_history_entry(
         ("notable_events", "Notable Events"),
         ("unresolved_threads", "Unresolved Threads"),
     ]:
-        value = _localized_record_field(record, key, localized_terms, play_language)
+        value = _localized_record_field(record, key, localized_terms, play_language, language_profile)
         if value is not None:
-            lines.append(f"      - {label}: {value}")
+            lines.append(f"      - {_chronicle_label(language_profile, label)}: {value}")
     return lines
 
 
@@ -740,8 +763,9 @@ def _format_development_entry(
     record: dict[str, Any],
     localized_terms: dict[str, str],
     play_language: str,
+    language_profile: dict[str, Any] | None = None,
 ) -> list[str]:
-    title = _format_record_type(record.get("type"), "Development Entry")
+    title = _format_record_type(record.get("type"), "Development Entry", language_profile)
     lines = [f"    - {title}"]
     for key, label in [
         ("status", "Status"),
@@ -750,9 +774,9 @@ def _format_development_entry(
         ("permanent_changes", "Permanent Changes"),
         ("carryover_notes", "Carryover Notes"),
     ]:
-        value = _localized_record_field(record, key, localized_terms, play_language)
+        value = _localized_record_field(record, key, localized_terms, play_language, language_profile)
         if value is not None:
-            lines.append(f"      - {label}: {value}")
+            lines.append(f"      - {_chronicle_label(language_profile, label)}: {value}")
     return lines
 
 
@@ -760,13 +784,14 @@ def _format_inventory_entry(
     record: dict[str, Any],
     localized_terms: dict[str, str],
     play_language: str,
+    language_profile: dict[str, Any] | None = None,
 ) -> list[str]:
-    summary = _localized_record_field(record, "summary", localized_terms, play_language)
+    summary = _localized_record_field(record, "summary", localized_terms, play_language, language_profile)
     lines = [f"    - {summary or record.get('type', 'inventory entry')}"]
     for key, label in [("items", "Items"), ("cash", "Cash"), ("notes", "Notes")]:
-        value = _localized_record_field(record, key, localized_terms, play_language)
+        value = _localized_record_field(record, key, localized_terms, play_language, language_profile)
         if value is not None:
-            lines.append(f"      - {label}: {value}")
+            lines.append(f"      - {_chronicle_label(language_profile, label)}: {value}")
     return lines
 
 
@@ -774,6 +799,7 @@ def _format_investigator_chronicle(
     character: dict[str, Any],
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
+    language_profile: dict[str, Any] | None = None,
 ) -> list[str]:
     terms = localized_terms or {}
     history = character.get("_history", [])
@@ -786,17 +812,17 @@ def _format_investigator_chronicle(
     name = _localize_text(character.get("name") or investigator_id or "Unknown Investigator", terms)
     lines = [f"- {name} ({investigator_id})"]
     if history:
-        lines.append("  - History:")
+        lines.append(f"  - {_chronicle_label(language_profile, 'History')}:")
         for record in history:
-            lines.extend(_format_history_entry(record, terms, play_language))
+            lines.extend(_format_history_entry(record, terms, play_language, language_profile))
     if development:
-        lines.append("  - Development:")
+        lines.append(f"  - {_chronicle_label(language_profile, 'Development')}:")
         for record in development:
-            lines.extend(_format_development_entry(record, terms, play_language))
+            lines.extend(_format_development_entry(record, terms, play_language, language_profile))
     if inventory:
-        lines.append("  - Inventory History:")
+        lines.append(f"  - {_chronicle_label(language_profile, 'Inventory History')}:")
         for record in inventory:
-            lines.extend(_format_inventory_entry(record, terms, play_language))
+            lines.extend(_format_inventory_entry(record, terms, play_language, language_profile))
     return lines
 
 
@@ -902,14 +928,16 @@ def _format_feedback(
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
     profile_labels: dict[str, str] | None = None,
+    language_profile: dict[str, Any] | None = None,
 ) -> str:
     category = event.get("category", "general")
+    category_label = _localized_report_label(language_profile or {}, "feedback_labels", str(category))
     score = event.get("score", "unscored")
     profile = event.get("player_profile")
     display_profile = (profile_labels or {}).get(str(profile), str(profile)) if profile else ""
     prefix = f"{display_profile}: " if display_profile else ""
     text = _event_summary(event, "", localized_terms, play_language)
-    return f"- {category}: {score} - {prefix}{text}".rstrip()
+    return f"- {category_label}: {score} - {prefix}{text}".rstrip()
 
 
 def _format_csv(values: Any) -> str:
@@ -1115,13 +1143,18 @@ def generate_battle_report(run_dir: Path) -> Path:
         character_lines.extend(_format_character(character, localized_terms, language_profile))
     chronicle_lines: list[str] = []
     for character in characters:
-        chronicle_lines.extend(_format_investigator_chronicle(character, localized_terms, str(play_language)))
+        chronicle_lines.extend(_format_investigator_chronicle(
+            character,
+            localized_terms,
+            str(play_language),
+            language_profile,
+        ))
     recap_lines = [
         _format_session_summary(event, localized_terms, str(play_language))
         for event in session_summaries
     ]
     feedback_lines = [
-        _format_feedback(event, localized_terms, str(play_language), profile_labels)
+        _format_feedback(event, localized_terms, str(play_language), profile_labels, language_profile)
         for event in player_feedback
     ]
     chase_tracker_lines = _format_chase_tracker(chase_state)
