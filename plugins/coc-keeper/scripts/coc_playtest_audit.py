@@ -383,6 +383,45 @@ def _has_bout_of_madness_event(events: list[dict[str, Any]]) -> bool:
     return any(event.get("type") == "bout_of_madness" for event in events)
 
 
+def _bout_duration_roll_gaps(events: list[dict[str, Any]]) -> list[str]:
+    gaps: list[str] = []
+    for index, event in enumerate(
+        [event for event in events if event.get("type") == "bout_of_madness"],
+        start=1,
+    ):
+        payload = event.get("payload", {})
+        missing = [
+            field for field in ["duration_die", "duration_roll", "duration_rounds"]
+            if payload.get(field) in (None, "", [], {})
+        ]
+        if missing:
+            gaps.append(f"bout_of_madness {index} missing {', '.join(missing)}")
+            continue
+        if payload.get("duration_die") != "1D10":
+            gaps.append(f"bout_of_madness {index} duration_die is {payload.get('duration_die')}, expected 1D10")
+        try:
+            duration_roll = int(payload.get("duration_roll"))
+            duration_rounds = int(payload.get("duration_rounds"))
+        except (TypeError, ValueError):
+            gaps.append(f"bout_of_madness {index} duration_roll and duration_rounds must be integers")
+            continue
+        if not 1 <= duration_roll <= 10:
+            gaps.append(f"bout_of_madness {index} duration_roll {duration_roll} outside 1D10 range")
+        if duration_rounds != duration_roll:
+            gaps.append(f"bout_of_madness {index} duration_rounds {duration_rounds} does not match duration_roll {duration_roll}")
+    return gaps
+
+
+def _bout_duration_roll_count(events: list[dict[str, Any]]) -> int:
+    return sum(
+        1 for event in events
+        if event.get("type") == "bout_of_madness"
+        and event.get("payload", {}).get("duration_die") == "1D10"
+        and event.get("payload", {}).get("duration_roll") not in (None, "", [], {})
+        and event.get("payload", {}).get("duration_rounds") not in (None, "", [], {})
+    )
+
+
 def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
     metadata = context["metadata"]
     transcript = context["transcript"]
@@ -412,7 +451,8 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
         (
             f"Sanity procedure: {len(sanity_rolls)} SAN roll entries; "
             f"temporary_insanity_triggered markers: {len(temporary_insanity_markers)}; "
-            f"Bout of Madness events: {_event_type_count(events, 'bout_of_madness')}."
+            f"Bout of Madness events: {_event_type_count(events, 'bout_of_madness')}; "
+            f"Bout duration rolls: {_bout_duration_roll_count(events)}."
         ),
         f"Subsystems covered: {', '.join(covered_subsystems) if covered_subsystems else 'none'}.",
     ]
@@ -737,6 +777,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "A structured roll payload sets temporary_insanity_triggered=true, but events.jsonl has no bout_of_madness event.",
                 "Record a bout_of_madness event with the episode, duration, Keeper control boundary, player-facing behavior, and recovery note.",
+            ))
+        duration_gaps = _bout_duration_roll_gaps(context["events"])
+        if duration_gaps:
+            findings.append(_finding(
+                "temporary_insanity_bout_duration_missing",
+                "system_gap",
+                "high",
+                "; ".join(duration_gaps),
+                "Record the actual Bout of Madness duration_roll and duration_rounds from the 1D10 duration roll.",
             ))
         if "Bout of Madness" not in battle_report:
             findings.append(_finding(

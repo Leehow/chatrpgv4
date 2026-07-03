@@ -1025,7 +1025,7 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit should add
 - social, pushed-roll, sanity, damage, and combat subsystem coverage
 - enough transcript turns, player intents, Keeper rulings, and major player decisions to resemble an actual-play report
 - recorded floating-knife and Corbitt combat resolution
-- if a structured roll payload sets `temporary_insanity_triggered: true`, a `bout_of_madness` event and battle-report `Bout of Madness` entry showing the 1D10-round loss-of-control episode, Keeper control boundary, and recovery note
+- if a structured roll payload sets `temporary_insanity_triggered: true`, a `bout_of_madness` event and battle-report `Bout of Madness` entry showing the 1D10-round loss-of-control episode, the actual `duration_roll`/`duration_rounds`, Keeper control boundary, and recovery note
 - final HP, final SAN, rewards, and unresolved state
 - a Chase Summary entry explaining that The Haunting has no required chase sequence, unless the run intentionally adds a chase scene
 
@@ -1071,7 +1071,7 @@ Before claiming a Keeper implementation is ready for real play, it must pass:
 - no unlogged rolls
 - no permanent investigator changes written from a sandbox run
 - no `investigator_chronicle_missing` or `investigator_chronicle_not_rendered` findings in serious active runs
-- no `temporary_insanity_bout_missing` or `temporary_insanity_bout_not_rendered` findings when a sanity result triggers temporary insanity
+- no `temporary_insanity_bout_missing`, `temporary_insanity_bout_duration_missing`, or `temporary_insanity_bout_not_rendered` findings when a sanity result triggers temporary insanity
 - evaluator score of at least 4 for state integrity and spoiler safety
 
 ## Version Roadmap

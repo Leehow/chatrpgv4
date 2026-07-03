@@ -75,7 +75,7 @@ Before generating reports, record the run context:
 - `transcript.jsonl`: every virtual player, KP, system, and meta turn with role, text, mode, and player intent when available. In serious active runs, visible KP and virtual-player dialogue should follow `play_language`, defaulting to `zh-Hans`; for `zh-Hans`, names and setting terms should use `localized_terms` such as Chinese transliterations or conventional translated names, while machine markers, JSON keys, skill names, rule enum values, and system roll text remain stable.
 - `sandbox/.coc/campaigns/<campaign-id>/logs/rolls.jsonl`: rolls and mechanical outcomes.
 - `sandbox/.coc/campaigns/<campaign-id>/logs/events.jsonl`: scenes, clues, state changes, combat, chase, sanity, and other durable events.
-- If a roll payload sets `temporary_insanity_triggered: true`, `events.jsonl` must include a `bout_of_madness` event with the Bout of Madness behavior, 1D10-round duration, Keeper control boundary, and recovery note.
+- If a roll payload sets `temporary_insanity_triggered: true`, `events.jsonl` must include a `bout_of_madness` event with the Bout of Madness behavior, 1D10-round duration, actual `duration_roll` and `duration_rounds`, Keeper control boundary, and recovery note.
 - `sandbox/.coc/campaigns/<campaign-id>/memory/session-summaries.jsonl`: player-safe story recap and campaign memory.
 - `player-feedback.jsonl`: virtual player ratings and comments about the KP experience.
 - `evaluator-notes.jsonl`: full evaluator findings, including spoiler, state, pacing, and rules issues.
@@ -98,7 +98,7 @@ Before generating reports, record the run context:
 
 `## Investigator Chronicle` should render sandbox `history.jsonl` and `development.jsonl`, proving that the playtest can describe what would carry into a later story without writing sandbox changes into the real investigator library.
 
-Flag spoiler leaks, state errors, unlogged rolls, poor pacing, incorrect rules, `investigator_chronicle_missing`, `investigator_chronicle_not_rendered`, `temporary_insanity_bout_missing`, and `temporary_insanity_bout_not_rendered`.
+Flag spoiler leaks, state errors, unlogged rolls, poor pacing, incorrect rules, `investigator_chronicle_missing`, `investigator_chronicle_not_rendered`, `temporary_insanity_bout_missing`, `temporary_insanity_bout_duration_missing`, and `temporary_insanity_bout_not_rendered`.
 
 ## Rulebook Audit Loop
 
@@ -124,7 +124,7 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit must also 
 
 - do not cover the required The Haunting beats in `module_coverage`
 - omit social, pushed-roll, sanity, damage, or combat subsystem coverage
-- trigger temporary insanity without a `bout_of_madness` event and visible `Bout of Madness` report entry
+- trigger temporary insanity without a `bout_of_madness` event, actual `duration_roll`, and visible `Bout of Madness` report entry
 - have too few player decisions or too thin a KP/player transcript
 - fail to record Corbitt combat resolution
 - omit final HP, final SAN, rewards, or unresolved state
