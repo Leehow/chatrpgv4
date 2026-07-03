@@ -305,6 +305,31 @@ def assert_source_transcript_display_text_strips_protocol_wrappers(run_dir: Path
         assert has_cjk(event["text_display"])
 
 
+def assert_player_view_text_strips_protocol_wrappers(run_dir: Path) -> None:
+    source_wrapped_rows = [
+        event
+        for event in transcript_events(run_dir)
+        if isinstance(event.get("text"), str)
+        and (
+            event["text"].startswith("[meta]")
+            or event["text"].startswith("[spoiler_warning]")
+        )
+    ]
+    player_rows = [
+        event
+        for event in run_jsonl(run_dir, "player-view.jsonl")
+        if event.get("type") == "transcript_turn"
+        and isinstance(event.get("text"), str)
+    ]
+    assert source_wrapped_rows
+    assert player_rows
+    player_text = "\n".join(event["text"] for event in player_rows)
+    assert "[meta]" not in player_text
+    assert "[/meta]" not in player_text
+    assert "[spoiler_warning]" not in player_text
+    assert "[/spoiler_warning]" not in player_text
+
+
 def assert_player_view_localized_text_values_localized(run_dir: Path) -> None:
     metadata = playtest_metadata(run_dir)
     play_language = metadata["play_language"]
@@ -872,6 +897,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_player_view_public_state_localized(run_dir)
     assert_player_view_transcript_speakers_localized(run_dir)
     assert_player_view_transcript_details_localized(run_dir)
+    assert_player_view_text_strips_protocol_wrappers(run_dir)
     assert_player_view_localized_text_values_localized(run_dir)
     assert_player_profile_displays_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, [
@@ -1302,6 +1328,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_player_view_public_state_localized(run_dir)
     assert_player_view_transcript_speakers_localized(run_dir)
     assert_player_view_transcript_details_localized(run_dir)
+    assert_player_view_text_strips_protocol_wrappers(run_dir)
     assert_player_view_localized_text_values_localized(run_dir)
     assert_player_profile_displays_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, ["chase-ledger-confirmation-push"])
@@ -1639,6 +1666,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert_player_view_public_state_localized(run_dir)
     assert_player_view_transcript_speakers_localized(run_dir)
     assert_player_view_transcript_details_localized(run_dir)
+    assert_player_view_text_strips_protocol_wrappers(run_dir)
     assert_player_view_localized_text_values_localized(run_dir)
     assert_player_profile_displays_localized(run_dir)
     assert_source_transcript_display_text_strips_protocol_wrappers(run_dir)

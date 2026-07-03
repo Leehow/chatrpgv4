@@ -895,9 +895,9 @@ Rules:
 - `keeper_under_test` may access scenario secrets but must not reveal them unless the simulated player confirms a `[spoiler_warning]`.
 - `evaluator` may inspect all files, but evaluator observations must not be fed back into the player simulator mid-run unless the test case explicitly tests correction behavior.
 - Any accidental secret exposure is recorded as a spoiler failure.
-- `player-view.jsonl` contains player-safe public character state and visible transcript turns only.
+- `player-view.jsonl` contains player-safe public character state and visible transcript turns only; source transcript rows may preserve `[meta]` and `[spoiler_warning]` protocol wrappers for tooling, but player-view visible fields must render only the display body.
 - `keeper-view.jsonl` contains Keeper context, including `keeper_secret_ids`, plus the transcript view available to the Keeper.
-- Active audits emit `view_separation_missing` if either view stream is missing or malformed, and `player_view_secret_leak` if any `keeper-secrets.json` id appears in `player-view.jsonl`.
+- Active audits emit `view_separation_missing` if either view stream is missing or malformed, `player_view_secret_leak` if any `keeper-secrets.json` id appears in `player-view.jsonl`, and `player_view_protocol_wrapper_leak` if player-visible fields expose transcript protocol wrappers.
 
 ### Pushed Roll Protocol
 
@@ -1053,7 +1053,7 @@ The audit loop is:
 
 `rulebook-audit.md` must contain `## Positive Rulebook Evidence`, `## Root Cause Classification`, `## Blueprint Cross-Check`, and `## Next Loop Fix Target`.
 
-The baseline audit should reject a run when the battle report omits a pushed roll, status event, session ending, mechanical detail such as roll goals and difficulty rationale, or when report text leaks raw payload dictionaries instead of player-readable prose. Active serious runs must also reject missing `player-view.jsonl` / `keeper-view.jsonl` with `view_separation_missing`, and reject Keeper secret ids in `player-view.jsonl` with `player_view_secret_leak`.
+The baseline audit should reject a run when the battle report omits a pushed roll, status event, session ending, mechanical detail such as roll goals and difficulty rationale, or when report text leaks raw payload dictionaries instead of player-readable prose. Active serious runs must also reject missing `player-view.jsonl` / `keeper-view.jsonl` with `view_separation_missing`, reject Keeper secret ids in `player-view.jsonl` with `player_view_secret_leak`, and reject player-visible protocol wrappers in `player-view.jsonl` with `player_view_protocol_wrapper_leak`.
 
 When `playtest.json` sets `audit_profile: haunting_module`, the audit should additionally require:
 

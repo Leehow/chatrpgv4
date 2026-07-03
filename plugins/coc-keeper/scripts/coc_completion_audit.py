@@ -103,6 +103,12 @@ SPOILER_REVEAL_PROTOCOL_STAGES = [
     "player_confirmed",
     "limited_reveal",
 ]
+PLAYER_VISIBLE_PROTOCOL_WRAPPERS = (
+    "[meta]",
+    "[/meta]",
+    "[spoiler_warning]",
+    "[/spoiler_warning]",
+)
 REQUIRED_EVALUATION_REPORT_SECTIONS = [
     "# Evaluation Report",
     "## Overall Result",
@@ -1923,6 +1929,68 @@ def _player_view_localized_text_findings(
     )]
 
 
+def _protocol_wrappers_in_text(text: str) -> list[str]:
+    return [
+        wrapper
+        for wrapper in PLAYER_VISIBLE_PROTOCOL_WRAPPERS
+        if wrapper in text
+    ]
+
+
+def _player_view_protocol_wrapper_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    play_language = str(metadata.get("play_language") or "")
+    if not play_language or play_language == "en-US":
+        return []
+
+    leaked_wrappers: list[str] = []
+    samples: list[str] = []
+
+    def record(row: dict[str, Any], field_path: str, value: Any) -> None:
+        if not isinstance(value, str) or not value.strip():
+            return
+        wrappers = _protocol_wrappers_in_text(value)
+        if not wrappers:
+            return
+        for wrapper in wrappers:
+            if wrapper not in leaked_wrappers:
+                leaked_wrappers.append(wrapper)
+        if len(samples) < 8:
+            samples.append(f"turn {row.get('turn')} {field_path}: {value}")
+
+    def visit(row: dict[str, Any], field_path: str, value: Any) -> None:
+        if isinstance(value, str):
+            record(row, field_path, value)
+        elif isinstance(value, dict):
+            for key, nested in value.items():
+                visit(row, f"{field_path}.{key}", nested)
+        elif isinstance(value, list):
+            for index, nested in enumerate(value):
+                visit(row, f"{field_path}[{index}]", nested)
+
+    for row in _read_jsonl(run_dir / "player-view.jsonl"):
+        if row.get("view") != "player" or row.get("type") != "transcript_turn":
+            continue
+        for field in ("text", "localized_text", "intent_display", "ruling_display"):
+            if field in row:
+                visit(row, field, row[field])
+
+    if not leaked_wrappers:
+        return []
+    return [_finding(
+        "player_view_protocol_wrapper_leak",
+        "system_gap",
+        f"{run_id} player-view.jsonl leaks transcript protocol wrappers in player-visible fields: {', '.join(leaked_wrappers)}.",
+        "Regenerate the active run so player-view.jsonl renders player-visible transcript text through display text normalization while preserving protocol wrappers only in source transcript fields.",
+        run_id=run_id,
+        leaked_player_view_protocol_wrappers=leaked_wrappers,
+        player_view_protocol_wrapper_samples=samples,
+    )]
+
+
 def _player_view_transcript_detail_findings(
     run_id: str,
     run_dir: Path,
@@ -2541,6 +2609,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_player_view_speaker_findings(run_id, run_dir, metadata))
     findings.extend(_player_profile_display_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_localized_text_findings(run_id, run_dir, metadata))
+    findings.extend(_player_view_protocol_wrapper_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_transcript_detail_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_roll_text_findings(run_id, run_dir, campaign_dir, metadata))
     findings.extend(_transcript_display_findings(run_id, run_dir, campaign_dir, metadata))

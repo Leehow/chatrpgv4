@@ -238,6 +238,7 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "investigator_skill_allocation_mismatch",
         "view_separation_missing",
         "player_view_secret_leak",
+        "player_view_protocol_wrapper_leak",
         "skill_allocation",
         "skill_allocation final values must match character.json skills",
         "Investigator Creation",

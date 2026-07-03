@@ -1565,6 +1565,46 @@ def test_completion_audit_fails_when_player_view_localized_text_leaks_canonical_
     assert finding["leaked_player_view_localized_text_terms"] == ["Spot Hidden"]
 
 
+def test_completion_audit_fails_when_player_view_text_leaks_protocol_wrappers(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    player_view = read_jsonl(run_dir / "player-view.jsonl")
+    write_jsonl(run_dir / "player-view.jsonl", [
+        {
+            **row,
+            "text": "[meta] fixture player-visible rules question [/meta]",
+        }
+        if row.get("type") == "transcript_turn" and row.get("role") == "player_simulator"
+        else row
+        for row in player_view
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "player_view_protocol_wrapper_leak")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert finding["leaked_player_view_protocol_wrappers"] == ["[meta]", "[/meta]"]
+    assert finding["player_view_protocol_wrapper_samples"] == [
+        "turn 2 text: [meta] fixture player-visible rules question [/meta]"
+    ]
+
+
 def test_completion_audit_fails_when_player_profile_display_values_are_missing(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
