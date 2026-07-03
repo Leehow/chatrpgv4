@@ -212,6 +212,25 @@ def _report_contains_all(text: str, markers: list[str]) -> list[str]:
     return [marker for marker in markers if marker not in text]
 
 
+def _section_text(markdown: str, heading: str) -> str:
+    marker = f"## {heading}"
+    start = markdown.find(marker)
+    if start == -1:
+        return ""
+    rest = markdown[start + len(marker):]
+    next_heading = rest.find("\n## ")
+    return rest if next_heading == -1 else rest[:next_heading]
+
+
+def _player_report_sections_without_chinese(battle_report: str) -> list[str]:
+    headings = ["Major Player Decisions", "Story Recap", "Player Feedback On KP"]
+    return [
+        heading
+        for heading in headings
+        if not _has_cjk(_section_text(battle_report, heading))
+    ]
+
+
 def _haunting_module_required(metadata: dict[str, Any]) -> bool:
     return metadata.get("audit_profile") == "haunting_module"
 
@@ -347,6 +366,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "high",
             "Battle report does not include the Actual Play Replay section for visible table dialogue.",
             "Render the KP/player/system transcript as an actual-play replay before the structured transcript appendix.",
+        ))
+
+    non_chinese_report_sections = _player_report_sections_without_chinese(battle_report) if active_profile else []
+    if non_chinese_report_sections:
+        findings.append(_finding(
+            "player_report_sections_not_chinese",
+            "report_gap",
+            "medium",
+            "Player-facing battle report sections lack Chinese text: " + ", ".join(non_chinese_report_sections),
+            "Render major decisions, story recap, and virtual player feedback in Chinese while preserving stable machine-readable headings and markers.",
         ))
 
     if "{'" in battle_report or "'}" in battle_report:

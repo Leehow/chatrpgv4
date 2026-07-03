@@ -430,3 +430,4 @@ def test_active_audit_requires_chinese_visible_kp_and_player_dialogue(tmp_path):
 
     assert audit["result"] == "fail"
     assert "visible_dialogue_not_chinese" in finding_codes(audit)
+    assert "player_report_sections_not_chinese" in finding_codes(audit)

@@ -30,6 +30,13 @@ def visible_play_texts(run_dir: Path) -> list[str]:
     ]
 
 
+def section_text(markdown: str, heading: str) -> str:
+    start = markdown.index(heading)
+    rest = markdown[start + len(heading):]
+    next_heading = rest.find("\n## ")
+    return rest if next_heading == -1 else rest[:next_heading]
+
+
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
@@ -68,6 +75,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "PASS" in audit_text
     assert "## Actual Play Replay" in battle_text
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
+    assert has_cjk(section_text(battle_text, "## Major Player Decisions"))
+    assert has_cjk(section_text(battle_text, "## Story Recap"))
+    assert has_cjk(section_text(battle_text, "## Player Feedback On KP"))
     assert "The Haunting Module Playthrough" in battle_text
     assert "Mr. Knott" in battle_text
     assert "Arty Wilmot" in battle_text
@@ -106,6 +116,9 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "PASS" in audit_text
     assert "## Actual Play Replay" in battle_text
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
+    assert has_cjk(section_text(battle_text, "## Major Player Decisions"))
+    assert has_cjk(section_text(battle_text, "## Story Recap"))
+    assert has_cjk(section_text(battle_text, "## Player Feedback On KP"))
     assert "Rooftop Chase Drill" in battle_text
     assert "Chase Summary" in battle_text
     assert "speed roll" in battle_text
