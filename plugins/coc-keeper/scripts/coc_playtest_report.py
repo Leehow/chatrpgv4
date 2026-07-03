@@ -329,6 +329,10 @@ def _format_state_event(
     event_type = event.get("type", "event")
     event_label = event_type.replace("_", " ")
     payload = event.get("payload", {})
+    if play_language not in {"", "unknown", "en-US"}:
+        summary = _payload_summary(event, terms, play_language)
+        if summary:
+            return f"- {summary}"
     if event_type == "scene":
         scene_id = payload.get("scene_id", "unknown")
         summary = _payload_summary(event, terms, play_language)

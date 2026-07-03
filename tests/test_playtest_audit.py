@@ -792,6 +792,60 @@ def test_active_audit_rejects_state_ids_in_player_readable_report_sections(tmp_p
     assert "report_state_ids_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_raw_state_change_prefixes(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-state-changes"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata_path.write_text(json.dumps(metadata))
+    write_jsonl(run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop" / "logs" / "events.jsonl", [
+        {
+            "type": "scene",
+            "actor": "keeper_under_test",
+            "payload": {"scene_id": "knott-office", "summary": "诺特先生给出委托。"},
+        },
+        {
+            "type": "clue",
+            "actor": "ada-king",
+            "payload": {"clue_id": "deed-note", "summary": "艾达找到房契旁注。"},
+        },
+        {
+            "type": "session_ending",
+            "actor": "keeper_under_test",
+            "payload": {"summary": "本幕结束。"},
+        },
+    ])
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# 跑团战报 <!-- report-anchor: Battle Report -->\n\n"
+        "## 逐场景回放 <!-- report-anchor: Scene-by-Scene Replay -->\n"
+        "- 诺特先生给出委托。\n"
+        "- 艾达找到房契旁注。\n"
+        "- 本幕结束。\n\n"
+        "## 机制日志 <!-- report-anchor: Mechanical Log -->\n"
+        "### 状态变化 <!-- report-anchor: State Changes -->\n"
+        "- scene: knott-office - 诺特先生给出委托。\n"
+        "- clue: deed-note - 艾达找到房契旁注。\n"
+        "- session ending: KP - 本幕结束。\n\n"
+        "## 实际跑团回放 <!-- report-anchor: Actual Play Replay -->\n"
+        "- 第 1 轮 KP: \"诺特先生给出钥匙。\"\n\n"
+        "## 玩家关键决定 <!-- report-anchor: Major Player Decisions -->\n"
+        "- 艾达选择先查资料。\n\n"
+        "## 剧情回顾 <!-- report-anchor: Story Recap -->\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## 玩家对 KP 的反馈 <!-- report-anchor: Player Feedback On KP -->\n"
+        "- KP 清晰度 5/5：玩家反馈：“KP 解释清楚。”\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "report_state_ids_not_localized" in finding_codes(audit)
+    assert "report_event_type_labels_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_rejects_memory_ids_in_story_recap(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "localized-memory-ids"
     create_final_rulebook_run(run_dir)

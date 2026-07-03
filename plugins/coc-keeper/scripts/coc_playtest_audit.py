@@ -140,6 +140,7 @@ PLAYER_READABLE_REPORT_SECTIONS = [
     "Story Recap",
     "Player Feedback On KP",
 ]
+PLAYER_READABLE_STATE_SECTIONS = PLAYER_READABLE_REPORT_SECTIONS + ["State Changes"]
 SUBSYSTEM_SUMMARY_SECTIONS = [
     "Combat Summary",
     "Chase Summary",
@@ -738,6 +739,7 @@ def _state_id_prefix_leaked(section: str, state_id: str) -> bool:
     prefixes = [
         f"- {state_id}:",
         f"- {state_id} -",
+        f"- scene: {state_id} -",
         f"- clue:{state_id}:",
         f"- clue: {state_id}:",
         f"- clue: {state_id} -",
@@ -748,7 +750,7 @@ def _state_id_prefix_leaked(section: str, state_id: str) -> bool:
 def _report_state_id_leaks(battle_report: str, events: list[dict[str, Any]]) -> list[str]:
     state_ids = _event_state_ids(events)
     leaks: list[str] = []
-    for heading in PLAYER_READABLE_REPORT_SECTIONS:
+    for heading in PLAYER_READABLE_STATE_SECTIONS:
         section = _section_text(battle_report, heading)
         if not section:
             continue
@@ -790,14 +792,28 @@ def _scene_replay_event_type_labels(events: list[dict[str, Any]]) -> list[str]:
     return sorted(set(labels), key=len, reverse=True)
 
 
-def _scene_replay_event_type_label_leaks(battle_report: str, events: list[dict[str, Any]]) -> list[str]:
-    section = _section_text(battle_report, "Scene-by-Scene Replay")
-    if not section:
-        return []
+def _state_change_event_type_labels(events: list[dict[str, Any]]) -> list[str]:
+    labels: list[str] = []
+    for event in events:
+        event_type = event.get("type")
+        if event_type:
+            labels.append(str(event_type).replace("_", " "))
+    return sorted(set(labels), key=len, reverse=True)
+
+
+def _event_type_label_leaks(battle_report: str, events: list[dict[str, Any]]) -> list[str]:
     leaks: list[str] = []
-    for label in _scene_replay_event_type_labels(events):
-        if f"- {label}:" in section:
-            leaks.append(label)
+    section_checks = {
+        "Scene-by-Scene Replay": _scene_replay_event_type_labels(events),
+        "State Changes": _state_change_event_type_labels(events),
+    }
+    for heading, labels in section_checks.items():
+        section = _section_text(battle_report, heading)
+        if not section:
+            continue
+        for label in labels:
+            if f"- {label}:" in section:
+                leaks.append(f"{heading}:{label}")
     return sorted(set(leaks))
 
 
@@ -2105,14 +2121,14 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Player-readable Story Recap exposes internal memory ids: " + ", ".join(memory_id_leaks),
             "Render story memory summaries without session_id or memory ids; reserve canonical ids for stored JSON.",
         ))
-    scene_event_label_leaks = _scene_replay_event_type_label_leaks(battle_report, context["events"])
+    scene_event_label_leaks = _event_type_label_leaks(battle_report, context["events"])
     if active_profile and scene_event_label_leaks:
         findings.append(_finding(
             "report_event_type_labels_not_localized",
             "report_gap",
             "medium",
-            "Scene-by-Scene Replay exposes raw event type labels: " + ", ".join(scene_event_label_leaks),
-            "Render scene replay entries as player-readable summaries without raw event type prefixes; reserve event type enums for logs and Mechanical Log.",
+            "Player-readable report sections expose raw event type labels: " + ", ".join(scene_event_label_leaks),
+            "Render player-readable report entries as natural summaries without raw event type prefixes; reserve event type enums for logs and stored JSON.",
         ))
     repeated_actor_labels = _report_repeated_actor_labels(battle_report, context["characters"], locale_terms)
     if active_profile and repeated_actor_labels:

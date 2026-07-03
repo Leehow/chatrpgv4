@@ -817,6 +817,14 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "- 疯狂发作：艾达·金在临时疯狂中把左轮丢到地下室角落" in sanity_summary
     state_changes = section_text(battle_text, "### State Changes")
     story_recap = section_text(battle_text, "## Story Recap")
+    assert_player_readable_state_ids_absent(
+        state_changes,
+        ["knott-hiring", "arty-clipping", "corbitt-will", "bed-attack", "corbitt-defeated"],
+    )
+    assert_player_readable_event_prefixes_absent(
+        state_changes,
+        ["scene", "clue", "damage", "sanity", "combat", "bout of madness", "status", "session ending"],
+    )
     assert "worm-eaten book" not in state_changes
     assert "worm-eaten book" not in story_recap
     assert "虫蛀书" in state_changes
@@ -1078,6 +1086,13 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert detail_count(rules_recap, "目的") == roll_event_count
     assert detail_count(rules_recap, "难度说明") == roll_event_count
     assert detail_count(rules_recap, "失败后果") == roll_event_count
+    state_changes = section_text(battle_text, "### State Changes")
+    assert_player_readable_state_ids_absent(state_changes, ["print-shop-roof", "ledger-clue"])
+    assert_player_readable_event_prefixes_absent(
+        state_changes,
+        ["scene", "decision", "clue", "chase", "status", "session ending"],
+    )
+    assert "ada-king-chase -" not in state_changes
     story_recap = section_text(battle_text, "## Story Recap")
     assert has_cjk(story_recap)
     assert "session-1:" not in story_recap
@@ -1242,6 +1257,16 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     )
     assert_player_readable_event_prefixes_absent(scene_replay, ["session ending"])
     assert "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。" in scene_replay
+    state_changes = section_text(battle_text, "### State Changes")
+    assert_player_readable_state_ids_absent(
+        state_changes,
+        ["knott-office", "deed-note", "fresh-scratches"],
+    )
+    assert_player_readable_event_prefixes_absent(
+        state_changes,
+        ["scene", "decision", "clue", "status", "session ending"],
+    )
+    assert "ada-king-pressure -" not in state_changes
     major_decisions = section_text(battle_text, "## Major Player Decisions")
     assert "规则质疑玩家以超游模式要求 KP 解释不同玩家风格对应的检定和风险" in major_decisions
     assert "meta 模式" not in major_decisions
