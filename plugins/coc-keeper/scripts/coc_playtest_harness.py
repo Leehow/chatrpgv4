@@ -46,6 +46,9 @@ ZH_HANS_BASE_GLOSSARY = {
     "in a 战斗轮": "在战斗轮中",
     "DEX order": "DEX 顺序",
     "Conclusion Rewards": "结局奖励",
+    "opening_investigation": "开场调查",
+    "conclusion_rewards": "结局奖励",
+    "opening_pressure": "开场压力测试",
     "Rewards": "奖励",
     "Final HP": "最终 HP",
     "Final SAN": "最终 SAN",
@@ -170,6 +173,7 @@ ZH_HANS_CHASE_GLOSSARY = {
     "movement actions": "移动行动",
     "movement action": "移动行动",
     "quarry escapes": "被追者逃脱",
+    "quarry_escapes": "被追者逃脱",
     "quarry": "被追者",
     "pursuer": "追赶者",
     "adjusted MOV": "调整后 MOV",
@@ -513,6 +517,43 @@ def _player_view_transcript_events(
     return events
 
 
+def _localize_public_value(value: Any, glossary: dict[str, str]) -> Any:
+    if isinstance(value, str):
+        return _localize_text(value, glossary)
+    if isinstance(value, list):
+        return [_localize_public_value(item, glossary) for item in value]
+    if isinstance(value, dict):
+        return {key: _localize_public_value(item, glossary) for key, item in value.items()}
+    return value
+
+
+def _localize_public_character_state(character: dict[str, Any], glossary: dict[str, str]) -> dict[str, Any]:
+    visible = dict(character)
+    for field in ("name", "occupation", "era"):
+        if isinstance(visible.get(field), str):
+            visible[field] = _localize_text(visible[field], glossary)
+
+    skills = visible.get("skills", {})
+    if isinstance(skills, dict):
+        visible["skills"] = {
+            _localize_text(str(skill), glossary): value
+            for skill, value in skills.items()
+        }
+
+    for field in ("derived", "backstory"):
+        visible[field] = _localize_public_value(visible.get(field, {}), glossary)
+    return visible
+
+
+def _localize_public_scenario_state(scenario: dict[str, Any], glossary: dict[str, str]) -> dict[str, Any]:
+    return {
+        "title": _localize_public_value(scenario.get("title"), glossary),
+        "player_safe_summary": _localize_public_value(scenario.get("player_safe_summary"), glossary),
+        "opening_scene": _localize_public_value(scenario.get("opening_scene"), glossary),
+        "current_phase": _localize_public_value(scenario.get("current_phase"), glossary),
+    }
+
+
 def _write_view_streams(run_dir: Path) -> None:
     campaign_dir = _select_campaign_dir(run_dir)
     metadata = _read_json(run_dir / "playtest.json", {})
@@ -534,13 +575,11 @@ def _write_view_streams(run_dir: Path) -> None:
         "view": "player",
         "type": "public_character_state",
         "campaign_id": metadata.get("campaign_id"),
-        "scenario": {
-            "title": scenario.get("title"),
-            "player_safe_summary": scenario.get("player_safe_summary"),
-            "opening_scene": scenario.get("opening_scene"),
-            "current_phase": scenario.get("current_phase"),
-        },
-        "investigators": public_characters,
+        "scenario": _localize_public_scenario_state(scenario, player_glossary),
+        "investigators": [
+            _localize_public_character_state(character, player_glossary)
+            for character in public_characters
+        ],
     }
     keeper_context = {
         "view": "keeper",
@@ -883,7 +922,7 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
         "title": "The Haunting",
         "module_source": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf",
         "summary": "A landlord hires investigators to learn why tenants keep fleeing the Corbitt House.",
-        "player_safe_summary": "Mr. Knott asks Ada King to inspect a supposedly haunted Boston house.",
+        "player_safe_summary": "诺特先生请艾达·金调查一栋据说闹鬼的波士顿旧宅。",
         "opening_scene": "Mr. Knott meets Ada in his office and asks her to investigate the Corbitt House.",
         "current_phase": "opening_investigation",
     })
@@ -1331,7 +1370,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         "title": "The Haunting",
         "module_source": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf",
         "summary": "Investigators trace Walter Corbitt through Boston records, the Chapel of Contemplation, and the Corbitt House basement.",
-        "player_safe_summary": "Mr. Knott hires Ada King to inspect a haunted Boston house and learn why tenants keep fleeing it.",
+        "player_safe_summary": "诺特先生雇用艾达·金调查一栋闹鬼的波士顿旧宅，并查明房客不断逃离的原因。",
         "opening_scene": "Mr. Knott 在 1920 年的波士顿与 Ada King 会面，交给她钥匙和预付款，并建议她进屋前先做调查。",
         "current_phase": "conclusion_rewards",
     })
@@ -1742,7 +1781,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         "title": "Rooftop Chase Drill",
         "module_source": "internal drill based on Keeper Rulebook Chapter 7: Chases",
         "summary": "Ada steals a cult ledger and flees across rainy Boston rooftops while Nathaniel Crowe pursues her.",
-        "player_safe_summary": "Ada must escape a pursuer after finding a stolen cult ledger.",
+        "player_safe_summary": "艾达·金找到被偷走的邪教账本后，必须从追赶者手中逃脱。",
         "opening_scene": "Ada King 发现 Nathaniel Crowe 带着 ledger 离开印刷店，并跟着他上到屋顶。",
         "current_phase": "quarry_escapes",
     })
@@ -2113,7 +2152,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         "title": "The Haunting Opening Pressure Matrix",
         "module_source": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf",
         "summary": "Three virtual player profiles pressure-test the Keeper's opening handling for The Haunting.",
-        "player_safe_summary": "Mr. Knott hires Ada King to inspect the Corbitt House, while different player styles ask for research, risk, and rule clarity.",
+        "player_safe_summary": "诺特先生雇用艾达·金调查科比特宅邸，不同玩家风格会分别要求调查路线、风险选择和规则说明。",
         "opening_scene": "诺特先生将科比特宅邸的钥匙放在桌上，等待艾达·金决定先调查还是直接进屋。",
         "current_phase": "opening_pressure",
     })

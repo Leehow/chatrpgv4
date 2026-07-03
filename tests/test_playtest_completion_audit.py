@@ -32,6 +32,10 @@ def write_jsonl(path: Path, rows: list[dict]):
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
 
+def read_jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def request_payload(run_id: str) -> dict:
     return {
         "schema_version": 1,
@@ -1118,6 +1122,106 @@ def test_completion_audit_fails_when_player_view_roll_text_is_not_localized(tmp_
     assert finding["missing_player_view_roll_samples"] == [
         "Spot Hidden：艾达·金掷出 33 / 55，结果普通成功；Spot Hidden：艾达·金掷出 22 / 55，结果困难成功。"
     ]
+
+
+def test_completion_audit_fails_when_player_view_public_state_leaks_canonical_terms(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["localized_terms"]["zh-Hans"].update({
+        "Fixture Scenario": "《夹具剧本》",
+        "Antiquarian": "古物学者",
+        "Spot Hidden": "侦查",
+    })
+    write_json(metadata_path, metadata)
+    player_view = [
+        row
+        for row in read_jsonl(run_dir / "player-view.jsonl")
+        if row.get("type") != "public_character_state"
+    ]
+    write_jsonl(run_dir / "player-view.jsonl", [
+        {
+            "view": "player",
+            "type": "public_character_state",
+            "campaign_id": "v2-haunting-module",
+            "scenario": {"title": "Fixture Scenario"},
+            "investigators": [
+                {"name": "Ada King", "occupation": "Antiquarian", "skills": {"Spot Hidden": 55}},
+            ],
+        },
+        *player_view,
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "player_view_public_state_not_localized")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert set(finding["leaked_public_state_terms"]) == {"Fixture Scenario", "Ada King", "Antiquarian", "Spot Hidden"}
+
+
+def test_completion_audit_fails_when_player_view_public_state_leaks_english_for_zh_hans(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    player_view = [
+        row
+        for row in read_jsonl(run_dir / "player-view.jsonl")
+        if row.get("type") != "public_character_state"
+    ]
+    write_jsonl(run_dir / "player-view.jsonl", [
+        {
+            "view": "player",
+            "type": "public_character_state",
+            "campaign_id": "v2-haunting-module",
+            "scenario": {
+                "title": "《夹具剧本》",
+                "player_safe_summary": "An old house asks for careful research.",
+                "current_phase": "opening_phase",
+            },
+            "investigators": [
+                {"name": "艾达·金", "occupation": "古物学者", "skills": {"侦查": 55}},
+            ],
+        },
+        *player_view,
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "player_view_public_state_not_localized")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert {"house", "careful", "research", "opening_phase"}.issubset(set(finding["english_public_state_tokens"]))
 
 
 def test_completion_audit_fails_when_campaign_logs_and_memory_lack_structured_evidence(tmp_path):

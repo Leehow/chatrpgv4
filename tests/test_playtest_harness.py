@@ -141,6 +141,69 @@ def assert_player_view_roll_outcomes_localized(run_dir: Path) -> None:
     assert english_tokens == set()
 
 
+def nested_string_values(value) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        strings: list[str] = []
+        for item in value:
+            strings.extend(nested_string_values(item))
+        return strings
+    if isinstance(value, dict):
+        strings: list[str] = []
+        for item in value.values():
+            strings.extend(nested_string_values(item))
+        return strings
+    return []
+
+
+def public_state_visible_strings(public_state: dict) -> list[str]:
+    strings: list[str] = []
+    strings.extend(nested_string_values(public_state.get("scenario", {})))
+    for investigator in public_state.get("investigators", []):
+        strings.extend(str(investigator.get(field, "")) for field in ("name", "occupation", "era"))
+        skills = investigator.get("skills", {})
+        if isinstance(skills, dict):
+            strings.extend(str(skill) for skill in skills)
+        strings.extend(nested_string_values(investigator.get("derived", {})))
+        strings.extend(nested_string_values(investigator.get("backstory", {})))
+    return [text for text in strings if text]
+
+
+def assert_player_view_public_state_localized(run_dir: Path) -> None:
+    metadata = playtest_metadata(run_dir)
+    glossary = metadata["localized_terms"][metadata["play_language"]]
+    public_state = next(
+        event
+        for event in run_jsonl(run_dir, "player-view.jsonl")
+        if event.get("type") == "public_character_state"
+    )
+    visible_strings = public_state_visible_strings(public_state)
+
+    for canonical, display in glossary.items():
+        if canonical in {"DEX", "POW", "INT", "SAN"}:
+            continue
+        if any(canonical in text for text in visible_strings):
+            assert display == canonical
+
+    scenario = public_state["scenario"]
+    assert scenario["title"] == glossary.get(metadata["scenario"], metadata["scenario"])
+    for investigator in public_state["investigators"]:
+        assert investigator["name"] not in glossary
+        assert investigator["occupation"] not in glossary
+        for skill in investigator["skills"]:
+            assert skill not in glossary
+    if metadata["play_language"] == "zh-Hans":
+        allowed_tokens = {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK", "HP", "MP", "SAN", "MOV", "DB"}
+        english_tokens = {
+            token
+            for text in visible_strings
+            for token in re.findall(r"[A-Za-z_]{3,}", text)
+            if token not in allowed_tokens
+        }
+        assert english_tokens == set()
+
+
 PUSHED_ROLL_PROTOCOL_STAGES = [
     "player_reframes_action",
     "keeper_foreshadows_failure",
@@ -600,6 +663,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_creation_allocation_matches_character(run_dir, "ada-king-haunting")
     assert_view_streams_separated(run_dir, ["secret-corbitt-body", "secret-floating-knife"])
     assert_player_view_roll_outcomes_localized(run_dir)
+    assert_player_view_public_state_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, [
         "haunting-arty-persuade-push",
         "haunting-basement-descent-push",
@@ -978,6 +1042,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_creation_allocation_matches_character(run_dir, "ada-king-chase")
     assert_view_streams_separated(run_dir, ["secret-warehouse"])
     assert_player_view_roll_outcomes_localized(run_dir)
+    assert_player_view_public_state_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, ["chase-ledger-confirmation-push"])
     assert investigator_jsonl(run_dir, "ada-king-chase", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-chase", "development.jsonl")
@@ -1284,6 +1349,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert_creation_allocation_matches_character(run_dir, "ada-king-pressure")
     assert_view_streams_separated(run_dir, ["secret-corbitt-body"])
     assert_player_view_roll_outcomes_localized(run_dir)
+    assert_player_view_public_state_localized(run_dir)
     assert_pushed_roll_protocol(run_dir, ["pressure-reckless-entry-push"])
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-pressure", "development.jsonl")

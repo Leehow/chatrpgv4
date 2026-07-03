@@ -1496,6 +1496,118 @@ def _player_view_roll_text_findings(
     )]
 
 
+def _nested_string_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, list):
+        strings: list[str] = []
+        for item in value:
+            strings.extend(_nested_string_values(item))
+        return strings
+    if isinstance(value, dict):
+        strings: list[str] = []
+        for item in value.values():
+            strings.extend(_nested_string_values(item))
+        return strings
+    return []
+
+
+def _public_state_visible_strings(row: dict[str, Any]) -> list[str]:
+    strings: list[str] = []
+    scenario = row.get("scenario", {})
+    if isinstance(scenario, dict):
+        for field in ("title", "player_safe_summary", "opening_scene", "current_phase"):
+            value = scenario.get(field)
+            if isinstance(value, str) and value.strip():
+                strings.append(value)
+
+    investigators = row.get("investigators", [])
+    if not isinstance(investigators, list):
+        return strings
+    for investigator in investigators:
+        if not isinstance(investigator, dict):
+            continue
+        for field in ("name", "occupation", "era"):
+            value = investigator.get(field)
+            if isinstance(value, str) and value.strip():
+                strings.append(value)
+        skills = investigator.get("skills", {})
+        if isinstance(skills, dict):
+            strings.extend(str(skill) for skill in skills if str(skill).strip())
+        strings.extend(_nested_string_values(investigator.get("derived", {})))
+        strings.extend(_nested_string_values(investigator.get("backstory", {})))
+    return strings
+
+
+ZH_HANS_ALLOWED_PUBLIC_STATE_TOKENS = {
+    "STR",
+    "CON",
+    "SIZ",
+    "DEX",
+    "APP",
+    "INT",
+    "POW",
+    "EDU",
+    "LUCK",
+    "HP",
+    "MP",
+    "SAN",
+    "MOV",
+    "DB",
+}
+
+
+def _public_state_english_tokens(public_strings: list[str], play_language: str) -> list[str]:
+    if play_language != "zh-Hans":
+        return []
+    return sorted({
+        token
+        for text in public_strings
+        for token in re.findall(r"[A-Za-z_]{3,}", text)
+        if token not in ZH_HANS_ALLOWED_PUBLIC_STATE_TOKENS
+    })
+
+
+def _player_view_public_state_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    localized_terms = _metadata_localized_terms(metadata)
+    play_language = str(metadata.get("play_language") or "")
+
+    public_strings: list[str] = []
+    for row in _read_jsonl(run_dir / "player-view.jsonl"):
+        if row.get("view") == "player" and row.get("type") == "public_character_state":
+            public_strings.extend(_public_state_visible_strings(row))
+
+    leaked_terms = sorted({
+        canonical
+        for canonical, display in localized_terms.items()
+        if canonical
+        and display != canonical
+        and any(canonical in text for text in public_strings)
+    })
+    english_tokens = _public_state_english_tokens(public_strings, play_language)
+    if not leaked_terms and not english_tokens:
+        return []
+    issue_parts = []
+    if leaked_terms:
+        issue_parts.append(f"canonical player-visible terms: {', '.join(leaked_terms[:8])}")
+    if english_tokens:
+        issue_parts.append(f"non-localized English tokens: {', '.join(english_tokens[:8])}")
+    return [_finding(
+        "player_view_public_state_not_localized",
+        "report_gap",
+        f"{run_id} player-view.jsonl public_character_state leaks {'; '.join(issue_parts)}.",
+        "Regenerate the active run so player-view.jsonl public_character_state renders scenario, investigator, occupation, skill, and backstory display values through localized_terms while preserving canonical source files.",
+        run_id=run_id,
+        leaked_public_state_terms=leaked_terms,
+        english_public_state_tokens=english_tokens,
+        public_state_samples=public_strings[:8],
+    )]
+
+
 def _campaign_structure_findings(
     run_id: str,
     campaign_dir: Path,
@@ -1922,6 +2034,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             malformed_files=malformed_files,
         ))
     findings.extend(_source_structure_findings(run_id, run_dir))
+    findings.extend(_player_view_public_state_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_roll_text_findings(run_id, run_dir, campaign_dir, metadata))
     findings.extend(_pushed_roll_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))
     findings.extend(_multi_profile_structure_findings(run_id, run_dir, audit_profile))
