@@ -505,6 +505,9 @@ Automated and semi-automated tests write to `.coc/playtests/` so they do not pol
         ├── state-diffs/
         ├── artifacts/
         │   ├── battle-report.md
+        │   ├── rulebook-audit.md
+        │   ├── semantic-eval-request.json
+        │   ├── semantic-eval-result.json
         │   └── evaluation-report.md
         └── sandbox/
             └── .coc/
@@ -521,6 +524,8 @@ Playtest data is disposable by default. Any investigator or campaign created ins
 The COC Keeper plugin must not use a natural-language matcher based on literal headings, keyword hits, or fixed prose fragments to prove playtest coverage, module fidelity, rule intent, spoiler safety, player intent, or KP answer quality. If a judgment depends on what human-language text means, it must be routed through an LLM semantic evaluator and must record the evaluator id plus `coverage_reasons`.
 
 Exact matching is allowed only for machine-controlled schema fields, enum values, JSON keys, file paths, and system markers such as `coverage_evaluator`, `coverage_reasons`, `run_id`, `audit_profile`, or `subsystems_covered`. Offline deterministic tests may inject a fixture evaluator. The default non-LLM path may use structured source data only; it must not claim semantic coverage from Markdown section titles or keyword snippets.
+
+`coc_playtest_suite.py --write-semantic-requests --root <repo-root>` writes `artifacts/semantic-eval-request.json` for each run. Codex or another LLM semantic evaluator reads that request and writes `artifacts/semantic-eval-result.json` with `schema_version`, `run_id`, `evaluator_id`, `coverage`, `root_cause_classification`, and `next_loop_fix_target`. Then `coc_playtest_suite.py --evaluator semantic-artifact --root <repo-root>` consumes those results and records the LLM evaluator id and reasons in the suite index. Missing result files must be treated as missing semantic evidence, not as permission to fall back to a natural-language matcher.
 
 ## Campaign File Examples
 
@@ -973,6 +978,8 @@ The battle report should read like a detailed actual-play replay. It should iden
 After multiple serious playtests, `coc_playtest_suite.py` should generate `.coc/playtests/index.json` and `.coc/playtests/suite-report.md`.
 
 `suite-report.md` is the cross-run table of contents and coverage proof. It should include `## Run Index`, `## Non-Passing Runs`, `## Core Coverage Matrix`, `## Coverage Evidence`, and `## Remaining Gaps`. The coverage matrix must report `character_dossier`, `kp_player_transcript`, `mechanical_rolls`, `combat`, `chase`, `sanity`, and `player_feedback` so the evaluator can see whether the current playtest set covers the requested Keeper workflows without hiding failed or missing audits.
+
+The `semantic-artifact` evaluator is the preferred path when Codex is available as evaluator. It should read `semantic-eval-result.json`, preserve `root_cause_classification`, and surface `next_loop_fix_target` for the next repair loop.
 
 ### Rulebook Alignment Audit
 

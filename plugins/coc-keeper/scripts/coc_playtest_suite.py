@@ -17,6 +17,9 @@ CORE_COVERAGE = {
     "player_feedback": "Player feedback",
 }
 
+SEMANTIC_EVAL_REQUEST = "semantic-eval-request.json"
+SEMANTIC_EVAL_RESULT = "semantic-eval-result.json"
+
 
 class CoverageContext:
     def __init__(
@@ -103,6 +106,41 @@ class StructuredSourceCoverageEvaluator:
         return {
             "covered": covered,
             "reason": yes if covered else no,
+        }
+
+
+class SemanticArtifactCoverageEvaluator:
+    evaluator_id = "semantic-artifact-evaluator"
+
+    def evaluate_run(self, context: CoverageContext) -> dict[str, Any]:
+        relative_result = f"artifacts/{SEMANTIC_EVAL_RESULT}"
+        result_path = context.run_dir / relative_result
+        if not result_path.exists():
+            return {
+                "coverage_evaluator": self.evaluator_id,
+                "semantic_eval_result": relative_result,
+                "coverage": {
+                    key: {
+                        "covered": False,
+                        "reason": f"Missing {relative_result}; write a semantic eval request and have an LLM semantic evaluator fill the result.",
+                    }
+                    for key in CORE_COVERAGE
+                },
+                "root_cause_classification": ["test_gap"],
+                "next_loop_fix_target": f"Fill {relative_result} from artifacts/{SEMANTIC_EVAL_REQUEST}.",
+            }
+
+        payload = _read_json(result_path, {})
+        if payload.get("schema_version") != 1:
+            raise ValueError(f"{result_path} must use schema_version 1")
+        if payload.get("run_id") != context.run_id:
+            raise ValueError(f"{result_path} run_id must be {context.run_id}")
+        return {
+            "coverage_evaluator": payload.get("evaluator_id", self.evaluator_id),
+            "semantic_eval_result": relative_result,
+            "coverage": payload.get("coverage", {}),
+            "root_cause_classification": payload.get("root_cause_classification", []),
+            "next_loop_fix_target": payload.get("next_loop_fix_target", "none"),
         }
 
 
@@ -202,18 +240,20 @@ def _coverage_context(run_dir: Path, metadata: dict[str, Any], battle_text: str,
     )
 
 
-def _normalize_coverage(raw: dict[str, Any]) -> tuple[dict[str, bool], dict[str, str]]:
+def _normalize_evaluation(raw: dict[str, Any], default_evaluator_id: str) -> tuple[str, dict[str, bool], dict[str, str]]:
+    evaluator_id = str(raw.get("coverage_evaluator") or raw.get("evaluator_id") or default_evaluator_id)
+    raw_coverage = raw.get("coverage", raw)
     coverage: dict[str, bool] = {}
     reasons: dict[str, str] = {}
     for key in CORE_COVERAGE:
-        value = raw.get(key, False)
+        value = raw_coverage.get(key, False)
         if isinstance(value, dict):
             coverage[key] = bool(value.get("covered", False))
             reasons[key] = str(value.get("reason", "No reason recorded."))
         else:
             coverage[key] = bool(value)
             reasons[key] = "Evaluator returned a boolean result without a reason."
-    return coverage, reasons
+    return evaluator_id, coverage, reasons
 
 
 def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, Any]]:
@@ -225,8 +265,9 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
         battle_text = _read_text(run_dir / "artifacts" / "battle-report.md")
         run_id = str(metadata.get("run_id") or run_dir.name)
         context = _coverage_context(run_dir, metadata, battle_text, run_id)
-        coverage, coverage_reasons = _normalize_coverage(evaluator.evaluate_run(context))
-        runs.append({
+        raw_evaluation = evaluator.evaluate_run(context)
+        coverage_evaluator, coverage, coverage_reasons = _normalize_evaluation(raw_evaluation, evaluator.evaluator_id)
+        run = {
             "run_id": run_id,
             "path": str(run_dir),
             "campaign_title": metadata.get("campaign_title", "unknown"),
@@ -235,10 +276,14 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
             "audit_result": _audit_result(run_dir),
             "player_profile": metadata.get("player_profile", "unknown"),
             "subsystems_covered": metadata.get("subsystems_covered", []),
-            "coverage_evaluator": evaluator.evaluator_id,
+            "coverage_evaluator": coverage_evaluator,
             "coverage": coverage,
             "coverage_reasons": coverage_reasons,
-        })
+        }
+        for optional_key in ("semantic_eval_result", "root_cause_classification", "next_loop_fix_target"):
+            if optional_key in raw_evaluation:
+                run[optional_key] = raw_evaluation[optional_key]
+        runs.append(run)
     return runs
 
 
@@ -278,6 +323,97 @@ def _non_passing_runs(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _coverage_key_contracts() -> list[dict[str, str]]:
+    questions = {
+        "character_dossier": "Does the evidence let a reader understand the investigator identity, reusable character sheet, core parameters, skills, and derived values used in play?",
+        "kp_player_transcript": "Does the evidence show actual Keeper/player exchange, player intent, Keeper rulings, and enough dialogue to replay the session?",
+        "mechanical_rolls": "Does the evidence show rule calls, roll goals, difficulties, outcomes, consequences, and durable state changes?",
+        "combat": "Does the evidence semantically include a Call of Cthulhu combat exchange with order, opposed or attack rolls, damage or resolution, and state impact?",
+        "chase": "Does the evidence semantically include a Call of Cthulhu chase with speed setup, locations, movement actions, obstacles or conflict, and an ending?",
+        "sanity": "Does the evidence semantically include sanity checks or sanity loss with rule consequence such as temporary insanity or recovery?",
+        "player_feedback": "Does the evidence include a player-facing assessment of Keeper clarity, immersion, rules readability, or pacing?",
+    }
+    return [
+        {
+            "key": key,
+            "label": label,
+            "question": questions[key],
+        }
+        for key, label in CORE_COVERAGE.items()
+    ]
+
+
+def _semantic_eval_request(context: CoverageContext) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "kind": "coc_semantic_coverage_request",
+        "run_id": context.run_id,
+        "instructions": (
+            "Act as an LLM semantic evaluator for a Call of Cthulhu Keeper playtest. "
+            "Judge meaning from the provided evidence. Do not award coverage from headings, keyword hits, or fixed prose fragments alone. "
+            "Return only JSON matching expected_output_schema."
+        ),
+        "constitution": {
+            "title": "Semantic Matcher Constitution",
+            "forbidden_methods": [
+                "literal headings",
+                "keyword hits",
+                "fixed prose fragments",
+                "section-name presence as coverage proof",
+            ],
+            "allowed_exact_matching": [
+                "machine-controlled schema fields",
+                "enum values",
+                "JSON keys",
+                "file paths",
+                "system markers",
+            ],
+        },
+        "coverage_keys": _coverage_key_contracts(),
+        "root_cause_labels": ["test_gap", "system_gap", "report_gap", "design_gap"],
+        "inputs": {
+            "playtest": context.metadata,
+            "campaign": context.campaign,
+            "party": context.party,
+            "characters": context.characters,
+            "battle_report": context.battle_report,
+            "transcript": context.transcript,
+            "player_feedback": context.player_feedback,
+            "rolls": context.rolls,
+            "state_events": context.state_events,
+            "session_summaries": context.session_summaries,
+        },
+        "expected_output_schema": {
+            "required": [
+                "schema_version",
+                "run_id",
+                "evaluator_id",
+                "coverage",
+                "root_cause_classification",
+                "next_loop_fix_target",
+            ],
+            "coverage_value": {
+                "covered": "boolean",
+                "reason": "short semantic justification based on evidence, not keyword matching",
+            },
+        },
+    }
+
+
+def write_semantic_eval_requests(root: Path) -> list[Path]:
+    request_paths: list[Path] = []
+    for playtest_path in sorted(_playtests_dir(root).glob("*/playtest.json")):
+        run_dir = playtest_path.parent
+        metadata = _read_json(playtest_path, {})
+        run_id = str(metadata.get("run_id") or run_dir.name)
+        battle_text = _read_text(run_dir / "artifacts" / "battle-report.md")
+        context = _coverage_context(run_dir, metadata, battle_text, run_id)
+        request_path = run_dir / "artifacts" / SEMANTIC_EVAL_REQUEST
+        _write_json(request_path, _semantic_eval_request(context))
+        request_paths.append(request_path)
+    return request_paths
 
 
 def _write_report(path: Path, index: dict[str, Any]) -> None:
@@ -347,8 +483,19 @@ def generate_suite_report(root: Path, evaluator: CoverageEvaluator | None = None
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".")
+    parser.add_argument("--write-semantic-requests", action="store_true")
+    parser.add_argument("--evaluator", choices=["structured-source", "semantic-artifact"], default="structured-source")
     args = parser.parse_args()
-    print(generate_suite_report(Path(args.root)))
+    root = Path(args.root)
+    if args.write_semantic_requests:
+        for request_path in write_semantic_eval_requests(root):
+            print(request_path)
+    evaluator: CoverageEvaluator
+    if args.evaluator == "semantic-artifact":
+        evaluator = SemanticArtifactCoverageEvaluator()
+    else:
+        evaluator = StructuredSourceCoverageEvaluator()
+    print(generate_suite_report(root, evaluator=evaluator))
     return 0
 
 

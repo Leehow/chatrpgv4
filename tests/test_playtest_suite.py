@@ -138,3 +138,83 @@ def test_suite_report_uses_semantic_evaluator_instead_of_text_shape(tmp_path):
     assert "Coverage Evidence" in report_text
     assert "fixture-semantic-evaluator" in report_text
     assert "Semantic evaluator found pursuit pacing and an escape outcome." in report_text
+
+
+def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
+    coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="v3-chase-drill")
+
+    request_paths = coc_playtest_suite.write_semantic_eval_requests(tmp_path)
+
+    assert request_paths == [
+        tmp_path / ".coc" / "playtests" / "v3-chase-drill" / "artifacts" / "semantic-eval-request.json"
+    ]
+    request = json.loads(request_paths[0].read_text())
+    coverage_keys = {entry["key"] for entry in request["coverage_keys"]}
+
+    assert request["schema_version"] == 1
+    assert request["kind"] == "coc_semantic_coverage_request"
+    assert request["run_id"] == "v3-chase-drill"
+    assert request["constitution"]["title"] == "Semantic Matcher Constitution"
+    assert "literal headings" in request["constitution"]["forbidden_methods"]
+    assert "keyword hits" in request["constitution"]["forbidden_methods"]
+    assert "machine-controlled schema fields" in request["constitution"]["allowed_exact_matching"]
+    assert "LLM semantic evaluator" in request["instructions"]
+    assert coverage_keys == set(coc_playtest_suite.CORE_COVERAGE)
+    assert "battle_report" in request["inputs"]
+    assert "transcript" in request["inputs"]
+    assert "state_events" in request["inputs"]
+    assert request["expected_output_schema"]["required"] == [
+        "schema_version",
+        "run_id",
+        "evaluator_id",
+        "coverage",
+        "root_cause_classification",
+        "next_loop_fix_target",
+    ]
+
+
+def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "semantic-artifact-run"
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "semantic-artifact-run",
+        "campaign_title": "Semantic Artifact Fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": "semantic_fixture",
+        "player_profile": "careful_investigator",
+        "subsystems_covered": [],
+    }))
+    (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "semantic-artifact-run",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "coverage": {
+            key: {
+                "covered": True,
+                "reason": f"LLM semantic judge found {key} in the run evidence.",
+            }
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "root_cause_classification": [],
+        "next_loop_fix_target": "none",
+    }))
+
+    report_path = coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+    report_text = report_path.read_text()
+
+    run = index["runs"][0]
+    assert run["coverage_evaluator"] == "codex-llm-semantic-v1"
+    assert run["semantic_eval_result"] == "artifacts/semantic-eval-result.json"
+    assert index["gaps"] == []
+    assert index["coverage"]["chase"]["reasons"] == {
+        "semantic-artifact-run": "LLM semantic judge found chase in the run evidence."
+    }
+    assert "codex-llm-semantic-v1" in report_text
+    assert "LLM semantic judge found chase in the run evidence." in report_text

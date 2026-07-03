@@ -165,3 +165,18 @@ def test_coc_playtest_skill_documents_semantic_matcher_constitution():
     for term in required_terms:
         assert term in skill_text
         assert term in spec_text
+
+
+def test_coc_playtest_skill_documents_semantic_eval_artifact_workflow():
+    skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
+    required_terms = [
+        "semantic-eval-request.json",
+        "semantic-eval-result.json",
+        "semantic-artifact",
+        "root_cause_classification",
+        "next_loop_fix_target",
+    ]
+    for term in required_terms:
+        assert term in skill_text
+        assert term in spec_text

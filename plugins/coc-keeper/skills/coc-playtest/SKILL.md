@@ -45,6 +45,14 @@ Do not use a natural-language matcher based on literal headings, keyword hits, o
 
 Exact matching is allowed only for machine-controlled schema fields, enum values, JSON keys, file paths, and system markers such as `coverage_evaluator`, `coverage_reasons`, `run_id`, `audit_profile`, or `subsystems_covered`. Offline deterministic tests may inject a fixture evaluator. The default non-LLM path may use structured source data only; it must not claim semantic coverage from Markdown section titles or keyword snippets.
 
+## LLM Semantic Evaluation Artifacts
+
+For semantic review, run `../../scripts/coc_playtest_suite.py --write-semantic-requests --root <repo-root>` to write `artifacts/semantic-eval-request.json` for each playtest run. Codex or another LLM semantic evaluator should read that request and write `artifacts/semantic-eval-result.json`.
+
+`semantic-eval-result.json` must include `schema_version`, `run_id`, `evaluator_id`, `coverage`, `root_cause_classification`, and `next_loop_fix_target`. The `coverage` object uses the same keys as the suite matrix and each value must include `covered` plus a semantic `reason`.
+
+After result files exist, run `../../scripts/coc_playtest_suite.py --evaluator semantic-artifact --root <repo-root>`. The suite must use the result file's `evaluator_id` and reasons instead of fallback structured-source coverage. If the result file is missing, the `semantic-artifact` evaluator should mark coverage missing rather than inventing a natural-language match.
+
 Before generating reports, record the run context:
 
 - `playtest.json`: run id, campaign id, scenario id, era, dice mode, spoiler policy, player profile, scores, pass/fail cases, recommendations.
