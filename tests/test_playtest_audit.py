@@ -13,6 +13,7 @@ def load_module(name: str, relative_path: str):
 
 
 coc_playtest_audit = load_module("coc_playtest_audit", "plugins/coc-keeper/scripts/coc_playtest_audit.py")
+coc_playtest_harness = load_module("coc_playtest_harness", "plugins/coc-keeper/scripts/coc_playtest_harness.py")
 
 
 def write_json(path: Path, payload: dict):
@@ -1749,6 +1750,20 @@ def test_active_audit_rejects_missing_status_event_in_scene_replay(tmp_path):
 
     assert audit["result"] == "fail"
     assert "status_event_not_rendered" in finding_codes(audit)
+
+
+def test_chase_drill_audit_requires_multi_profile_pressure(tmp_path):
+    run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.pop("player_profiles_tested", None)
+    metadata.pop("player_profile_labels", None)
+    metadata_path.write_text(json.dumps(metadata))
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "chase_player_profile_pressure_missing" in finding_codes(audit)
 
 
 def test_active_audit_requires_investigator_backstory_fields(tmp_path):

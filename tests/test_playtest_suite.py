@@ -41,7 +41,7 @@ def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     assert index["coverage"]["sanity"]["status"] == "covered"
     assert index["coverage"]["sanity"]["runs"] == ["v2-haunting-module"]
     assert index["coverage"]["meta_game"]["status"] == "covered"
-    assert index["coverage"]["meta_game"]["runs"] == ["v2-haunting-module"]
+    assert index["coverage"]["meta_game"]["runs"] == ["v2-haunting-module", "v3-chase-drill"]
     assert index["coverage"]["player_feedback"]["status"] == "covered"
     assert index["gaps"] == []
     assert index["non_passing_runs"] == []

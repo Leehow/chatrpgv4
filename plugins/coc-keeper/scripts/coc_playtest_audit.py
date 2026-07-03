@@ -63,6 +63,12 @@ CHASE_REPORT_MOMENTS = [
     "quarry escapes",
 ]
 
+CHASE_DRILL_REQUIRED_PLAYER_PROFILES = [
+    "reckless_investigator",
+    "skeptical_rules_lawyer",
+    "genre_savvy_player",
+]
+
 TRANSCRIPT_DETAIL_ALLOWED_ASCII_TOKENS = {
     "APP",
     "Brawl",
@@ -1137,6 +1143,33 @@ def _profile_ids(metadata: dict[str, Any]) -> list[str]:
     return sorted(set(ids), key=len, reverse=True)
 
 
+def _chase_profile_pressure_gaps(metadata: dict[str, Any], transcript: list[dict[str, Any]]) -> list[str]:
+    tested = set(_profile_ids(metadata))
+    gaps = [
+        f"missing_profile:{profile_id}"
+        for profile_id in CHASE_DRILL_REQUIRED_PLAYER_PROFILES
+        if profile_id not in tested
+    ]
+    if not any(
+        event.get("player_profile") == "skeptical_rules_lawyer" and event.get("mode") == "meta"
+        for event in transcript
+    ):
+        gaps.append("missing_skeptical_meta_challenge")
+    if not any(
+        event.get("player_profile") == "genre_savvy_player" and event.get("mode") == "meta"
+        for event in transcript
+    ):
+        gaps.append("missing_genre_savvy_spoiler_probe")
+    labels = metadata.get("player_profile_labels", {})
+    language_labels = labels.get(str(metadata.get("play_language") or ""), {}) if isinstance(labels, dict) else {}
+    if not isinstance(language_labels, dict):
+        language_labels = {}
+    for profile_id in CHASE_DRILL_REQUIRED_PLAYER_PROFILES:
+        if profile_id in tested and profile_id not in language_labels:
+            gaps.append(f"missing_label:{profile_id}")
+    return gaps
+
+
 def _profile_label_leaks(battle_report: str, metadata: dict[str, Any]) -> list[str]:
     play_language = str(metadata.get("play_language") or "")
     if play_language in {"", "en-US"}:
@@ -1297,11 +1330,13 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             if chase_state.get(field) not in (None, "", [], {})
         ]
         tracker_rendered = "yes" if "## Chase Tracker" in context["battle_report"] else "no"
+        profile_pressure = ", ".join(metadata.get("player_profiles_tested", [])) or "none"
         lines.append(
             f"Chase evidence: {_event_type_count(events, 'chase')} chase events; "
             f"save/chase.json fields present: {', '.join(state_fields) if state_fields else 'none'}; "
             f"Chase Tracker rendered: {tracker_rendered}."
         )
+        lines.append(f"Chase player pressure: {profile_pressure}.")
     return lines
 
 
@@ -2007,6 +2042,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 f"subsystems_covered={sorted(covered_subsystems)}.",
                 "Exercise and declare the chase subsystem in a dedicated chase drill playtest.",
+            ))
+
+        profile_pressure_gaps = _chase_profile_pressure_gaps(metadata, transcript)
+        if profile_pressure_gaps:
+            findings.append(_finding(
+                "chase_player_profile_pressure_missing",
+                "test_gap",
+                "medium",
+                "Chase drill lacks multi-profile player pressure: " + ", ".join(profile_pressure_gaps),
+                "Exercise the chase drill with reckless, skeptical-rules, and genre-savvy player profiles, including meta pressure on movement actions, pushed-roll boundaries, and spoiler-safe answers.",
             ))
 
         chase_state = context["chase_state"]

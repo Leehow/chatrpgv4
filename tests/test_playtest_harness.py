@@ -682,6 +682,16 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "PASS" in audit_text
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
+    assert metadata["player_profiles_tested"] == [
+        "reckless_investigator",
+        "skeptical_rules_lawyer",
+        "genre_savvy_player",
+    ]
+    assert metadata["player_profile_labels"]["zh-Hans"] == {
+        "reckless_investigator": "鲁莽调查员",
+        "skeptical_rules_lawyer": "规则质疑玩家",
+        "genre_savvy_player": "类型片熟手",
+    }
     assert_localized_report_shell(battle_text)
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- Play Language: zh-Hans" in run_setup
@@ -773,6 +783,16 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Pushed Spot Hidden 33" not in actual_play
     assert "MOV remains" not in actual_play
     assert "extreme_success" not in actual_play
+    assert "玩家[鲁莽调查员]" in actual_play
+    assert "玩家[规则质疑玩家]" in actual_play
+    assert "玩家[类型片熟手]" in actual_play
+    assert "追逐内部为什么不让推骰" in actual_play
+    assert "MOV 差值怎么变成移动行动" in actual_play
+    assert "我是不是能猜到他会在屋顶门后设伏" in actual_play
+    assert "这接近剧透推断" in actual_play
+    assert "Player[reckless_investigator]" not in actual_play
+    assert "Player[skeptical_rules_lawyer]" not in actual_play
+    assert "Player[genre_savvy_player]" not in actual_play
     session_transcript = section_text(battle_text, "## Session Transcript")
     assert_localized_transcript_chrome(session_transcript)
     assert_transcript_detail_values_localized(
@@ -785,6 +805,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Pushed Spot Hidden 33" not in session_transcript
     assert "MOV remains" not in session_transcript
     assert "extreme_success" not in session_transcript
+    assert "玩家[规则质疑玩家]" in session_transcript
+    assert "玩家[类型片熟手]" in session_transcript
     visible_dialogue = "\n".join(visible_play_texts(run_dir))
     assert_visible_terms_localized(visible_dialogue, visible_scene_terms)
     assert_terms_absent(
@@ -868,10 +890,15 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert has_cjk(feedback)
     assert_feedback_labels_localized(
         feedback,
-        ["KP 清晰度 5/5", "追逐可读性 5/5", "沉浸感 4/5"],
+        ["KP 清晰度 5/5", "追逐可读性 5/5", "沉浸感 4/5", "超游质量 5/5", "剧透安全 5/5"],
         ["kp_clarity:", "chase_readability:", "immersion:", "KP 清晰度: 5 -"],
     )
-    assert "玩家反馈：“我能看懂每个人在位置链的位置，也知道被追者为什么逃脱。”" in feedback
+    assert "鲁莽调查员反馈：“我能看懂每个人在位置链的位置，也知道被追者为什么逃脱。”" in feedback
+    assert "规则质疑玩家反馈：“KP 把 MOV、移动行动和追逐内不能推骰的边界解释清楚。" in feedback
+    assert "类型片熟手反馈：“KP 没有直接确认我的剧透猜测" in feedback
+    assert "reckless_investigator:" not in feedback
+    assert "skeptical_rules_lawyer:" not in feedback
+    assert "genre_savvy_player:" not in feedback
     assert "规则裁定" in feedback
     assert "rule decisions" not in feedback
     assert "escapes" not in feedback

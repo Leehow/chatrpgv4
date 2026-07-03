@@ -290,7 +290,9 @@ ZH_HANS_TRANSCRIPT_DETAIL_TEXT = {
     "bed_attack_dodge": "床铺袭击 Dodge 检定",
     "bed_attack_sanity": "床铺袭击理智检定",
     "bed_attack_spot_hidden": "床铺袭击前的 Spot Hidden 检定",
+    "challenge chase push boundary": "质疑追逐推骰边界",
     "challenge keeper ruling": "质疑 KP 裁定",
+    "chase_rules_explanation": "追逐规则说明",
     "chase_setup": "建立追逐",
     "check sanitarium clue": "调查疗养院线索",
     "choose first research route": "选择先查公开记录",
@@ -332,6 +334,8 @@ ZH_HANS_TRANSCRIPT_DETAIL_TEXT = {
     "san_roll": "SAN 检定",
     "search basement clutter": "搜索地下室杂物",
     "session_wrap": "收束本轮",
+    "spoiler_boundary_probe": "试探剧透边界",
+    "spoiler_safe_chase_answer": "剧透安全回应",
     "spot the stolen ledger": "确认被偷走的账本",
     "spot_hidden_regular": "Spot Hidden 普通难度",
     "use clue to shape plan": "用线索调整计划",
@@ -1209,6 +1213,18 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
         "player_profile": "reckless_investigator",
+        "player_profiles_tested": [
+            "reckless_investigator",
+            "skeptical_rules_lawyer",
+            "genre_savvy_player",
+        ],
+        "player_profile_labels": {
+            "zh-Hans": {
+                "reckless_investigator": "鲁莽调查员",
+                "skeptical_rules_lawyer": "规则质疑玩家",
+                "genre_savvy_player": "类型片熟手",
+            }
+        },
         "module_coverage": [
             "chase_setup",
             "speed_roll",
@@ -1228,6 +1244,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "meta_quality": 4,
             "pacing": 4,
             "chase_readability": 5,
+            "virtual_player_pressure": 4,
         },
         "passed_test_cases": [
             "chase_setup",
@@ -1241,7 +1258,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         ],
         "failed_test_cases": [],
         "recommended_fixes": [
-            "Future loop should turn this deterministic drill into an LLM-vs-KP chase with multiple player profiles.",
+            "Future loop should replace this scripted multi-profile chase drill with a live LLM-vs-KP chase stress test.",
         ],
         "regression_tests": ["Chase drill audit must pass for a report with real chase state."],
     }, ZH_HANS_CHASE_GLOSSARY))
@@ -1426,10 +1443,10 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
 
     _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
         {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "雨点像针一样打在印刷店屋顶上。Nathaniel Crowe 把 cult ledger 塞在外套里，正朝屋脊另一侧退。"},
-        {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "spot the stolen ledger", "text": "我先不暴露自己，压低身体看他的外套，确认他是不是带着那本 ledger。"},
+        {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "spot the stolen ledger", "text": "我先不暴露自己，压低身体看他的外套，确认他是不是带着那本 ledger。"},
         {"turn": 3, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "spot_hidden_regular", "text": "做 Spot Hidden。目标是在 Nathaniel 发现你之前确认 ledger，难度 Regular。"},
         {"turn": 4, "role": "system", "speaker": "system", "mode": "roll", "text": "Spot Hidden 82 vs 55 -> failure."},
-        {"turn": 5, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "push ledger confirmation", "text": "我想 push：我探身越过 skylight 多看一眼，接受失败时他会直接发现我。"},
+        {"turn": 5, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "push ledger confirmation", "text": "我想 push：我探身越过 skylight 多看一眼，接受失败时他会直接发现我。"},
         {"turn": 6, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_spot_hidden", "text": "可以 pushed roll。失败的话 Nathaniel 会看见你，chase 开始时双方没有距离差。"},
         {"turn": 7, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "艾达·金看见账本；内森尼尔·克劳听见屋瓦移动。", "text": "Pushed Spot Hidden 33 vs 55 -> regular_success. Ada sees the ledger, but Nathaniel hears the roof tile shift."},
         {"turn": 8, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "chase_setup", "text": "Nathaniel 猛地扑向你。你现在是 quarry，他是 pursuer。我们做 speed roll checks 来建立 chase。"},
@@ -1438,12 +1455,16 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"turn": 11, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "cut_to_chase", "text": "因为 pursuer 的 adjusted MOV 不低于 quarry，chase 成立。我切到追逐场面：Nathaniel 暂时落后你 two locations。"},
         {"turn": 12, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "location_chain", "text": "location chain 是 print-shop roof、rain gutter、slick skylight hazard、locked roof door barrier、laundry roof。DEX order 是 Nathaniel 60，然后 Ada 50。"},
         {"turn": 13, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "movement_actions", "text": "Ada 有 1 movement action。Nathaniel 的 adjusted MOV 比最慢参与者高 1，所以他有 2 movement actions。"},
-        {"turn": 14, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "cross hazard", "text": "我抱紧 ledger，冲过湿滑的 skylight，往 roof door 那边跑。"},
+        {"turn": "13a", "role": "player_simulator", "speaker": "Rules Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "intent": "challenge chase push boundary", "text": "[meta] 我想问清楚：追逐内部为什么不让推骰？MOV 差值怎么变成移动行动？[/meta]"},
+        {"turn": "13b", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "chase_rules_explanation", "text": "[meta] 追逐里的危险点、障碍和冲突是逐轮行动经济的一部分，失败会立即改变位置、行动数或伤害，所以这里不再用推骰重开同一障碍。MOV 比最慢参与者每高 1，就多 1 个移动行动；内森尼尔·克劳的调整后 MOV 9 比艾达·金 8 高 1，所以他有 2 个移动行动。[/meta]"},
+        {"turn": "13c", "role": "player_simulator", "speaker": "Genre-Savvy Player", "player_profile": "genre_savvy_player", "mode": "meta", "intent": "spoiler_boundary_probe", "text": "[meta] 我是不是能猜到他会在屋顶门后设伏，或者那里其实有邪教仓库线索？[/meta]"},
+        {"turn": "13d", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "spoiler_safe_chase_answer", "text": "[meta] 这接近剧透推断。我不会确认屋顶门后有没有隐藏安排；玩家安全信息是：上锁屋顶门是一个障碍，后面有晾衣布单可以遮蔽，你可以选择冲门、绕路或制造误导。[/meta]"},
+        {"turn": 14, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "cross hazard", "text": "我抱紧 ledger，冲过湿滑的 skylight，往 roof door 那边跑。"},
         {"turn": 15, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "hazard_dodge", "text": "这是 hazard，用 Dodge，Regular difficulty。chase 内部不使用 pushed rolls。"},
         {"turn": 16, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "艾达·金穿过湿滑天窗危险点。", "text": "Dodge 24 vs 35 -> regular_success. Ada crosses the slick skylight hazard."},
         {"turn": 17, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "conflict", "text": "Nathaniel 花 movement actions 追上来，抡起短棍砸向你。这个 conflict 消耗他一个 movement action。"},
         {"turn": 18, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 2, "outcome_note": "内森尼尔·克劳的短棍攻击落空。", "text": "Ada Dodge 19 vs 35 -> regular_success; Nathaniel Fighting 62 vs 45 -> failure."},
-        {"turn": 19, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "pass barrier and hide", "text": "我把偷来的 key ring 插进 locked roof door barrier，挤过去后立刻钻进 laundry sheets 之间躲起来。"},
+        {"turn": 19, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "pass barrier and hide", "text": "我把偷来的 key ring 插进 locked roof door barrier，挤过去后立刻钻进 laundry sheets 之间躲起来。"},
         {"turn": 20, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 3, "outcome_note": "艾达·金带着账本逃脱。", "text": "Locksmith 21 vs 30 -> regular_success. Stealth 18 vs 45 -> hard_success. Nathaniel Spot Hidden 77 vs 40 -> failure."},
         {"turn": 21, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "quarry escapes。Nathaniel 从 laundry roof 另一头冲过去，没有看见你；Ada 抱着 ledger，听见脚步声渐渐落到楼下。"},
     ], ZH_HANS_CHASE_GLOSSARY)
@@ -1480,14 +1501,18 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         },
     ], ZH_HANS_CHASE_GLOSSARY)
     _write_jsonl_localized(run_dir / "player-feedback.jsonl", [
-        {"category": "kp_clarity", "score": 5, "text": "KP 清楚解释了 speed roll、MOV、movement actions、hazard、barrier 和结果。"},
-        {"category": "chase_readability", "score": 5, "text": "我能看懂每个人在 location chain 的位置，也知道 quarry 为什么 escapes。"},
-        {"category": "immersion", "score": 4, "text": "追逐保持紧张感，同时没有把 rule decisions 藏起来。"},
+        {"player_profile": "reckless_investigator", "category": "kp_clarity", "score": 5, "text": "KP 清楚解释了 speed roll、MOV、movement actions、hazard、barrier 和结果。"},
+        {"player_profile": "reckless_investigator", "category": "chase_readability", "score": 5, "text": "我能看懂每个人在 location chain 的位置，也知道 quarry 为什么 escapes。"},
+        {"player_profile": "reckless_investigator", "category": "immersion", "score": 4, "text": "追逐保持紧张感，同时没有把 rule decisions 藏起来。"},
+        {"player_profile": "skeptical_rules_lawyer", "category": "meta_quality", "score": 5, "text": "KP 把 MOV、movement actions 和追逐内不能推骰的边界解释清楚。"},
+        {"player_profile": "genre_savvy_player", "category": "spoiler_safety", "score": 5, "text": "KP 没有直接确认我的剧透猜测，只给了玩家安全的障碍和遮蔽信息。"},
     ], ZH_HANS_CHASE_GLOSSARY)
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
         {"severity": "low", "category": "rules_accuracy", "text": "Chase setup includes speed roll, MOV adjustment, location chain, DEX order, and movement actions."},
         {"severity": "low", "category": "state_integrity", "text": "save/chase.json records participants, location chain, rounds, and outcome."},
-        {"severity": "low", "category": "immersion", "text": "The drill is deterministic but reads as a coherent chase scene."},
+        {"severity": "low", "category": "meta_quality", "text": "A skeptical rules profile challenges chase pushed-roll and movement-action boundaries in meta mode."},
+        {"severity": "low", "category": "spoiler_safety", "text": "A genre-savvy profile probes a possible hidden setup and receives a player-safe boundary answer."},
+        {"severity": "low", "category": "immersion", "text": "The scripted multi-profile drill reads as a coherent chase scene with table pressure."},
     ])
 
     generate_battle_report(run_dir)

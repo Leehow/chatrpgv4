@@ -1038,6 +1038,7 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit should additio
 
 - `chase` declared in `subsystems_covered`
 - `save/chase.json` with participants, location chain, round log, and outcome
+- multi-profile chase pressure from reckless, skeptical-rules, and genre-savvy player profiles, including meta questions about movement actions, pushed-roll boundaries, and spoiler-safe answers; otherwise emit `chase_player_profile_pressure_missing`
 - Chase Summary text that explains speed roll, MOV, movement actions, DEX order, hazards, barriers, conflict, and escape/capture
 - populated `## Chase Tracker` text that renders `save/chase.json` participants, DEX order, location chain, rounds, and outcome; otherwise emit `chase_tracker_not_rendered`
 - player feedback and evaluator notes specific to chase readability
