@@ -126,15 +126,15 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
             missing_artifacts=missing_artifacts,
         ))
 
-    if metadata.get("play_language") != "zh-Hans":
+    play_language = str(metadata.get("play_language") or "")
+    if not play_language:
         findings.append(_finding(
-            "play_language_not_default_chinese",
+            "play_language_missing",
             "system_gap",
-            f"{run_id} play_language={metadata.get('play_language')}",
-            "Serious localized runs should persist play_language=zh-Hans unless the player explicitly chose another language.",
+            f"{run_id} does not contain play_language.",
+            "Persist the selected play_language; default it to zh-Hans unless the player explicitly chose another language.",
             run_id=run_id,
         ))
-    play_language = str(metadata.get("play_language") or "")
     language_profile = metadata.get("language_profile")
     if not isinstance(language_profile, dict) or not language_profile:
         findings.append(_finding(
@@ -161,11 +161,11 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
             run_id=run_id,
         ))
     localized_terms = metadata.get("localized_terms", {})
-    if not isinstance(localized_terms, dict) or not localized_terms.get("zh-Hans"):
+    if not isinstance(localized_terms, dict) or not localized_terms.get(play_language):
         findings.append(_finding(
             "localized_terms_missing",
             "system_gap",
-            f"{run_id} does not contain localized_terms.zh-Hans.",
+            f"{run_id} does not contain localized_terms.{play_language}.",
             "Persist localized_terms for the selected play language.",
             run_id=run_id,
         ))

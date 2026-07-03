@@ -217,6 +217,40 @@ def test_completion_audit_fails_without_language_profile(tmp_path):
     assert any(finding["code"] == "language_profile_missing" for finding in audit["findings"])
 
 
+def test_completion_audit_accepts_selected_non_default_play_language(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    metadata_path = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["play_language"] = "ja-JP"
+    metadata["language_profile"] = {
+        "language": "ja-JP",
+        "display_name": "Japanese",
+        "term_policy": "Use localized_terms.ja-JP for people, places, factions, handouts, scenario titles, and special terms.",
+    }
+    metadata["localized_terms"] = {"ja-JP": {"Ada King": "エイダ・キング"}}
+    write_json(metadata_path, metadata)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "pass"
+    assert audit["findings"] == []
+
+
 def test_completion_audit_fails_without_llm_semantic_provenance(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
