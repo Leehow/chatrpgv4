@@ -975,6 +975,26 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "控制权回到玩家" in scene_replay
     assert "床铺袭击造成艾达·金 5 HP 伤害；HP 12 -> 7。" in scene_replay
     assert "推骰地下室搜索失败造成艾达·金 4 HP 伤害；HP 7 -> 3。" in scene_replay
+    resource_events = campaign_events_by_type(run_dir, "resource_change")
+    corbitt_magic_points = [
+        event for event in resource_events
+        if event.get("actor") == "walter-corbitt" and event.get("payload", {}).get("resource") == "magic_points"
+    ]
+    assert len(corbitt_magic_points) == 2
+    by_reason = {event["payload"]["reason"]: event["payload"] for event in corbitt_magic_points}
+    assert by_reason["floating_knife_attack"]["before"] == 18
+    assert by_reason["floating_knife_attack"]["cost"] == 1
+    assert by_reason["floating_knife_attack"]["delta"] == -1
+    assert by_reason["floating_knife_attack"]["after"] == 17
+    assert by_reason["floating_knife_attack"]["source_turn"] == 40
+    assert by_reason["animate_body"]["before"] == 17
+    assert by_reason["animate_body"]["cost"] == 2
+    assert by_reason["animate_body"]["delta"] == -2
+    assert by_reason["animate_body"]["after"] == 15
+    assert by_reason["animate_body"]["source_turn"] == 46
+    assert "沃尔特·科比特花费 1 点魔法值驱使浮空匕首本轮攻击；魔法值 18 -> 17。" in scene_replay
+    assert "沃尔特·科比特花费 2 点魔法值让身体活动五个战斗轮；魔法值 17 -> 15。" in scene_replay
+    assert "resource_change" not in scene_replay
     assert "最终 HP: 3；最终 SAN: 49；奖励: +4 SAN、30 美元奖金，并可选择保留虫蛀书。" in scene_replay
     assert "DEX 检定" in scene_replay
     assert "ada-king-haunting -" not in scene_replay

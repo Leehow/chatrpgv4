@@ -132,6 +132,7 @@ def battle_report_event_fixture_text() -> str:
     event_summaries = [
         "fixture scene",
         "fixture combat",
+        "fixture resource change",
         "fixture sanity",
         "fixture status",
         "fixture ending",
@@ -778,6 +779,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     if audit_profile == "haunting_module":
         event_rows.extend([
             {"type": "combat", "actor": investigator_id, "payload": {"summary": "fixture combat"}},
+            {"type": "resource_change", "actor": "walter-corbitt", "payload": {"summary": "fixture resource change"}},
             {"type": "sanity", "actor": investigator_id, "payload": {"summary": "fixture sanity"}},
             {"type": "status", "actor": investigator_id, "payload": {"summary": "fixture status"}},
             {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "fixture ending"}},
@@ -1742,6 +1744,7 @@ def test_completion_audit_fails_when_profile_event_logs_lack_required_event_type
     ]
     by_run = {finding["run_id"]: finding for finding in findings}
     assert "haunting_module event type combat" in by_run["v2-haunting-module"]["missing_evidence"]
+    assert "haunting_module event type resource_change" in by_run["v2-haunting-module"]["missing_evidence"]
     assert "haunting_module event type sanity" in by_run["v2-haunting-module"]["missing_evidence"]
     assert "haunting_module event type status" in by_run["v2-haunting-module"]["missing_evidence"]
     assert "haunting_module event type session_ending" in by_run["v2-haunting-module"]["missing_evidence"]

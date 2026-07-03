@@ -1885,6 +1885,22 @@ def test_haunting_module_audit_requires_inventory_history_for_carryover(tmp_path
     assert "investigator_inventory_history_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_corbitt_magic_point_tracking(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    events_path = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-module" / "logs" / "events.jsonl"
+    events = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    write_jsonl(events_path, [event for event in events if event.get("type") != "resource_change"])
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "haunting_corbitt_magic_points_missing" in finding_codes(audit)
+
+
 def test_haunting_module_audit_requires_investigator_creation_record(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
     creation_path = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting" / "creation.json"

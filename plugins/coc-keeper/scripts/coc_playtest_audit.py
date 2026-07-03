@@ -110,6 +110,7 @@ SCENE_REPLAY_EVENT_TYPES = {
     "combat",
     "chase",
     "item_transfer",
+    "resource_change",
     "status",
     "session_ending",
 }
@@ -1752,6 +1753,51 @@ def _chase_object_transfer_gaps(events: list[dict[str, Any]], chase_state: dict[
     return ["item_transfer event is present but lacks item_id, from_actor, to_actor, source_turn, or matching chase_id"]
 
 
+def _corbitt_magic_point_gaps(events: list[dict[str, Any]]) -> list[str]:
+    resource_events = [
+        event
+        for event in events
+        if event.get("type") == "resource_change"
+        and event.get("actor") == "walter-corbitt"
+        and event.get("payload", {}).get("resource") == "magic_points"
+    ]
+    if not resource_events:
+        return ["no resource_change event records Walter Corbitt Magic point spending"]
+
+    required_spends = {
+        "floating_knife_attack": {"cost": 1, "before": 18, "after": 17, "source_turn": 40},
+        "animate_body": {"cost": 2, "before": 17, "after": 15, "source_turn": 46},
+    }
+    gaps: list[str] = []
+    for reason, expected in required_spends.items():
+        matches = [
+            event
+            for event in resource_events
+            if event.get("payload", {}).get("reason") == reason
+        ]
+        if not matches:
+            gaps.append(f"missing Corbitt Magic point spend reason {reason}")
+            continue
+        if not any(_resource_change_matches(event.get("payload", {}), expected) for event in matches):
+            gaps.append(f"incomplete Corbitt Magic point payload for {reason}")
+    return gaps
+
+
+def _resource_change_matches(payload: dict[str, Any], expected: dict[str, int]) -> bool:
+    cost = payload.get("cost")
+    before = payload.get("before")
+    after = payload.get("after")
+    delta = payload.get("delta")
+    return (
+        cost == expected["cost"]
+        and before == expected["before"]
+        and after == expected["after"]
+        and payload.get("source_turn") == expected["source_turn"]
+        and delta == -expected["cost"]
+        and before + delta == after
+    )
+
+
 def _normalize_report_text(text: str) -> str:
     return " ".join(text.split())
 
@@ -2433,6 +2479,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "Combat summaries do not show a combat round and Corbitt resolution.",
                 "Record floating-knife and Corbitt combat rounds, including action order, opposed rolls, damage, and outcome.",
+            ))
+
+        corbitt_magic_point_gaps = _corbitt_magic_point_gaps(context["events"])
+        if corbitt_magic_point_gaps:
+            findings.append(_finding(
+                "haunting_corbitt_magic_points_missing",
+                "system_gap",
+                "high",
+                "; ".join(corbitt_magic_point_gaps),
+                "Record resource_change events for Corbitt Magic points when The Floating Knife attacks and when Corbitt spends 2 Magic points to move his body.",
             ))
 
         status_text = " ".join(_payload_summaries(context["events"], "status"))

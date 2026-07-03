@@ -23,6 +23,7 @@ SCENE_REPLAY_EVENT_TYPES = {
     "combat",
     "chase",
     "item_transfer",
+    "resource_change",
     "status",
     "session_ending",
 }
