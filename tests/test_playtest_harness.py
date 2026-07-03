@@ -30,6 +30,12 @@ def visible_play_texts(run_dir: Path) -> list[str]:
     ]
 
 
+def playtest_metadata(run_dir: Path) -> dict:
+    import json
+
+    return json.loads((run_dir / "playtest.json").read_text())
+
+
 def campaign_state_events(run_dir: Path) -> list[dict]:
     import json
 
@@ -54,6 +60,19 @@ def section_text(markdown: str, heading: str) -> str:
 
 def bullet_count(text: str) -> int:
     return sum(1 for line in text.splitlines() if line.startswith("- "))
+
+
+def assert_zh_hans_locale(metadata: dict, required_terms: dict[str, str]) -> None:
+    assert metadata["play_language"] == "zh-Hans"
+    glossary = metadata["localized_terms"]["zh-Hans"]
+    for canonical, localized in required_terms.items():
+        assert glossary[canonical] == localized
+
+
+def assert_visible_terms_localized(text: str, required_terms: dict[str, str]) -> None:
+    for canonical, localized in required_terms.items():
+        assert localized in text
+        assert canonical not in text
 
 
 def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
@@ -89,14 +108,36 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     audit = coc_playtest_audit.audit_run(run_dir)
     battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
     audit_text = (run_dir / "artifacts" / "rulebook-audit.md").read_text()
+    metadata = playtest_metadata(run_dir)
+    zh_terms = {
+        "Ada King": "艾达·金",
+        "Mr. Knott": "诺特先生",
+        "Arty Wilmot": "阿蒂·威尔莫特",
+        "Walter Corbitt": "沃尔特·科比特",
+        "The Old Corbitt Place": "科比特老宅",
+        "Corbitt's Hiding Place": "科比特的藏身处",
+        "Corbitt Attacks": "科比特袭击",
+    }
 
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
+    assert_zh_hans_locale(metadata, zh_terms)
+    module_section = section_text(battle_text, "## Module")
+    assert "- Opening Scene: 诺特先生" in battle_text
+    assert "诺特先生在 1920 年的波士顿与艾达·金会面" in module_section
+    assert "meets" not in module_section
+    assert "- 艾达·金 (ada-king-haunting)" in battle_text
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
     assert bullet_count(scene_replay) >= significant_scene_replay_count(run_dir)
     assert "## Actual Play Replay" in battle_text
+    actual_play = section_text(battle_text, "## Actual Play Replay")
+    assert_visible_terms_localized(actual_play, zh_terms)
+    assert "诺特先生把一枚旧钥匙" in actual_play
+    assert all("Ada King" not in text for text in visible_play_texts(run_dir))
+    assert all("Mr. Knott" not in text for text in visible_play_texts(run_dir))
+    assert all("Walter Corbitt" not in text for text in visible_play_texts(run_dir))
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     assert has_cjk(section_text(battle_text, "## Major Player Decisions"))
     assert has_cjk(section_text(battle_text, "## Story Recap"))
@@ -106,11 +147,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Arty Wilmot" in battle_text
     assert "Handout 2" in battle_text
     assert "Chapel of Contemplation" in battle_text
-    assert "The Old Corbitt Place" in battle_text
+    assert zh_terms["The Old Corbitt Place"] in battle_text
     assert "Bed Attack" in battle_text
     assert "The Floating Knife" in battle_text
-    assert "Corbitt's Hiding Place" in battle_text
-    assert "Corbitt Attacks" in battle_text
+    assert zh_terms["Corbitt's Hiding Place"] in battle_text
+    assert zh_terms["Corbitt Attacks"] in battle_text
     assert "Rewards" in battle_text
     assert "temporary insanity" in battle_text
     assert "combat round" in battle_text
@@ -123,7 +164,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "The Haunting does not include a required chase sequence" in battle_text
     assert "No chase summary recorded." not in battle_text
     assert "Session ending not recorded." not in battle_text
-    assert battle_text.count("- ada-king-haunting: Ada chose") >= 5
+    assert bullet_count(section_text(battle_text, "## Major Player Decisions")) >= 5
     assert "{'" not in battle_text
     assert "'}" not in battle_text
 
@@ -134,14 +175,29 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     audit = coc_playtest_audit.audit_run(run_dir)
     battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
     audit_text = (run_dir / "artifacts" / "rulebook-audit.md").read_text()
+    metadata = playtest_metadata(run_dir)
+    zh_terms = {
+        "Ada King": "艾达·金",
+        "Nathaniel Crowe": "内森尼尔·克劳",
+    }
 
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
+    assert_zh_hans_locale(metadata, zh_terms)
+    module_section = section_text(battle_text, "## Module")
+    assert "- Opening Scene: 艾达·金" in battle_text
+    assert "艾达·金发现内森尼尔·克劳带着 ledger 离开印刷店" in module_section
+    assert "spots" not in module_section
+    assert "leaving" not in module_section
+    assert "- 艾达·金 (ada-king-chase)" in battle_text
     assert "## Scene-by-Scene Replay" in battle_text
     scene_replay = section_text(battle_text, "## Scene-by-Scene Replay")
     assert has_cjk(scene_replay)
     assert bullet_count(scene_replay) >= significant_scene_replay_count(run_dir)
     assert "## Actual Play Replay" in battle_text
+    assert_visible_terms_localized(section_text(battle_text, "## Actual Play Replay"), zh_terms)
+    assert all("Ada King" not in text for text in visible_play_texts(run_dir))
+    assert all("Nathaniel Crowe" not in text for text in visible_play_texts(run_dir))
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     assert has_cjk(section_text(battle_text, "## Major Player Decisions"))
     assert has_cjk(section_text(battle_text, "## Story Recap"))

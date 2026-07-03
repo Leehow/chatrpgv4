@@ -71,6 +71,34 @@ def test_reference_documents_exist_and_use_ascii_system_markers():
             assert marker not in text
 
 
+def test_mode_protocol_documents_play_language_and_localized_terms():
+    text = (PLUGIN_ROOT / "references" / "mode-protocol.md").read_text()
+    required_terms = [
+        "play_language",
+        "zh-Hans",
+        "localized_terms",
+        "Chinese transliterations",
+        "conventional translated names",
+        "machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text",
+    ]
+    for term in required_terms:
+        assert term in text
+
+
+def test_design_blueprint_documents_play_language_and_localized_terms():
+    text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
+    required_terms = [
+        "play_language",
+        "zh-Hans",
+        "localized_terms",
+        "Chinese transliterations",
+        "conventional translated names",
+        "machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text",
+    ]
+    for term in required_terms:
+        assert term in text
+
+
 def test_coc_playtest_skill_documents_battle_report_inputs():
     text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
     required_terms = [

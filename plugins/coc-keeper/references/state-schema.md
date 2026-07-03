@@ -46,6 +46,7 @@ Campaigns store temporary and scenario-specific state:
 ```
 
 `party.json` references reusable investigator ids. Campaign-specific HP, SAN, conditions, and scene position live under `save/`.
+`campaign.json` persists `play_language` and a `localized_terms` map keyed by language, so resumed campaigns keep the same visible narration language and name/term localization.
 
 ## Logs And Memory
 

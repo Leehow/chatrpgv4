@@ -65,10 +65,19 @@ Activation always starts with campaign selection or creation. The flow is:
 ```text
 activate COC mode
 -> choose/create campaign
+-> choose visible play language, defaulting to `zh-Hans`
 -> bind/import scenario
 -> choose/create investigators
 -> start or resume immersive play
 ```
+
+## Language And Localized Terms
+
+Each campaign persists `play_language`, defaulting to `zh-Hans`, plus a `localized_terms` map keyed by language. The player may choose another visible play language at setup; if they do not choose, the Keeper uses Chinese for player-visible narration and table dialogue.
+
+For `zh-Hans`, foreign people, places, factions, handouts, scenario titles, and special terms should use `localized_terms` with Chinese transliterations or conventional translated names. For other languages, the same map holds customary local forms for that language.
+
+The localization layer applies only to player-visible narration, NPC speech, player prompts, recaps, and reports. Keep machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text stable.
 
 ## System Markers
 

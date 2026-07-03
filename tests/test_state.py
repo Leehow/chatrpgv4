@@ -32,6 +32,24 @@ def test_create_campaign_workspace_and_party(tmp_path):
     assert (tmp_path / ".coc" / "campaigns" / "haunting-test" / "logs").exists()
 
 
+def test_create_campaign_persists_play_language(tmp_path):
+    default_campaign_path = coc_state.create_campaign(tmp_path, "default-language", "Default Language")
+    custom_campaign_path = coc_state.create_campaign(
+        tmp_path,
+        "custom-language",
+        "Custom Language",
+        play_language="en-US",
+    )
+
+    default_campaign = json.loads(default_campaign_path.read_text())
+    custom_campaign = json.loads(custom_campaign_path.read_text())
+
+    assert default_campaign["play_language"] == "zh-Hans"
+    assert default_campaign["localized_terms"] == {"zh-Hans": {}}
+    assert custom_campaign["play_language"] == "en-US"
+    assert custom_campaign["localized_terms"] == {"en-US": {}}
+
+
 def test_append_jsonl_and_snapshot(tmp_path):
     coc_state.ensure_workspace(tmp_path)
     coc_state.create_campaign(tmp_path, "case-1", "Case 1")

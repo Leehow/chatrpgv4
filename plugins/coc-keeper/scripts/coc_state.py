@@ -74,6 +74,7 @@ def create_campaign(
     campaign_id: str,
     title: str,
     era: str = "1920s",
+    play_language: str = "zh-Hans",
 ) -> Path:
     ensure_workspace(root)
     campaign_dir = coc_root(root) / "campaigns" / campaign_id
@@ -91,6 +92,8 @@ def create_campaign(
         "active_scene_id": None,
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
+        "play_language": play_language,
+        "localized_terms": {play_language: {}},
         "active_subsystem": "setup",
         "created_at": created_at,
         "updated_at": created_at,

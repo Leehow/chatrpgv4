@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,43 @@ from coc_playtest_audit import generate_rulebook_audit
 from coc_playtest_report import generate_battle_report, generate_evaluation_report
 
 
+ZH_HANS_BASE_GLOSSARY = {
+    "Ada King": "艾达·金",
+    "Ada": "艾达·金",
+}
+
+ZH_HANS_HAUNTING_GLOSSARY = {
+    **ZH_HANS_BASE_GLOSSARY,
+    "Mr. Knott": "诺特先生",
+    "Arty Wilmot": "阿蒂·威尔莫特",
+    "Arty": "阿蒂",
+    "Walter Corbitt": "沃尔特·科比特",
+    "Corbitt's Hiding Place": "科比特的藏身处",
+    "Corbitt Attacks": "科比特袭击",
+    "Corbitt House": "科比特宅邸",
+    "Corbitt": "科比特",
+    "The Old Corbitt Place": "科比特老宅",
+    "The Boston Globe": "《波士顿环球报》",
+    "Hall of Records": "档案馆",
+    "Roxbury Sanitarium": "罗克斯伯里疗养院",
+    "Chapel of Contemplation": "沉思教堂",
+    "The Floating Knife": "浮空匕首",
+    "Bed Attack": "床铺袭击",
+    "Reverend Michael Thomas": "迈克尔·托马斯牧师",
+    "Gabriela": "加布里埃拉",
+    "Vittorio": "维托里奥",
+    "Macario": "马卡里奥",
+}
+
+ZH_HANS_CHASE_GLOSSARY = {
+    **ZH_HANS_BASE_GLOSSARY,
+    "Nathaniel Crowe": "内森尼尔·克劳",
+    "Nathaniel": "内森尼尔·克劳",
+}
+
+CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
+
+
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -24,6 +62,46 @@ def _write_json(path: Path, payload: Any) -> None:
 def _write_jsonl(path: Path, events: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+
+def _localize_text(text: str, glossary: dict[str, str]) -> str:
+    localized = text
+    for canonical, replacement in sorted(glossary.items(), key=lambda item: len(item[0]), reverse=True):
+        localized = localized.replace(canonical, replacement)
+    return CJK_BOUNDARY_SPACE.sub("", localized)
+
+
+def _localize_value(value: Any, glossary: dict[str, str]) -> Any:
+    if isinstance(value, str):
+        return _localize_text(value, glossary)
+    if isinstance(value, list):
+        return [_localize_value(item, glossary) for item in value]
+    if isinstance(value, dict):
+        return {key: _localize_value(item, glossary) for key, item in value.items()}
+    return value
+
+
+def _write_jsonl_localized(path: Path, events: list[dict[str, Any]], glossary: dict[str, str]) -> None:
+    _write_jsonl(path, [_localize_value(event, glossary) for event in events])
+
+
+def _write_transcript_jsonl_localized(path: Path, events: list[dict[str, Any]], glossary: dict[str, str]) -> None:
+    localized_events: list[dict[str, Any]] = []
+    for event in events:
+        localized = dict(event)
+        if localized.get("role") in {"keeper_under_test", "player_simulator"}:
+            for key in ("speaker", "text"):
+                if isinstance(localized.get(key), str):
+                    localized[key] = _localize_text(localized[key], glossary)
+        localized_events.append(localized)
+    _write_jsonl(path, localized_events)
+
+
+def _with_play_language(payload: dict[str, Any], glossary: dict[str, str]) -> dict[str, Any]:
+    localized = dict(payload)
+    localized["play_language"] = "zh-Hans"
+    localized["localized_terms"] = {"zh-Hans": glossary}
+    return localized
 
 
 def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> Path:
@@ -434,7 +512,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
     corbitt_id = "walter-corbitt"
 
-    _write_json(run_dir / "playtest.json", {
+    _write_json(run_dir / "playtest.json", _with_play_language({
         "run_id": run_id,
         "campaign_id": run_id,
         "campaign_title": "The Haunting Module Playthrough",
@@ -491,7 +569,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "Future loop should add a chase-specific scenario because The Haunting does not naturally exercise chase rules.",
         ],
         "regression_tests": ["Haunting module audit must pass for the module-level harness."],
-    })
+    }, ZH_HANS_HAUNTING_GLOSSARY))
     _write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,
         "campaign_id": run_id,
@@ -517,7 +595,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         "module_source": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf",
         "summary": "Investigators trace Walter Corbitt through Boston records, the Chapel of Contemplation, and the Corbitt House basement.",
         "player_safe_summary": "Mr. Knott hires Ada King to inspect a haunted Boston house and learn why tenants keep fleeing it.",
-        "opening_scene": "Mr. Knott meets Ada in 1920 Boston, gives her the keys and an advance, and suggests research before visiting the house.",
+        "opening_scene": "Mr. Knott 在 1920 年的波士顿与 Ada King 会面，交给她钥匙和预付款，并建议她进屋前先做调查。",
         "current_phase": "conclusion_rewards",
     })
     _write_json(scenario_dir / "clues.json", [
@@ -600,7 +678,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         },
     })
 
-    _write_jsonl(run_dir / "transcript.jsonl", [
+    _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
         {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Mr. Knott 把一枚旧钥匙推到桌面中央，说只要 Ada 能查清 Corbitt House 为什么赶走房客，他每天付 20 美元。"},
         {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "ask terms and immediate leads", "text": "我先不接钥匙，问 Mr. Knott：Macario 一家到底出了什么事？如果我要查，最好从哪里开始？"},
         {"turn": 3, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "no_roll_needed", "text": "这个问题不需要检定。Mr. Knott 给你 Handout 1、钥匙和地址，并建议你在进屋前先查公共记录。"},
@@ -652,7 +730,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"turn": 49, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "attack Corbitt with his own weapon", "text": "Vittorio 的话突然对上了：用他自己的武器。我不退，拿 Corbitt 的 dagger 刺向他。"},
         {"turn": 50, "role": "system", "speaker": "system", "mode": "roll", "text": "Fighting (Brawl) 21 vs 40 -> regular_success. Corbitt is destroyed by his own dagger."},
         {"turn": 51, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Rewards：Corbitt 化成尘土，Mr. Knott 支付报酬和 30 美元奖金，Ada 恢复 4 SAN。Final HP: 3。Final SAN: 49。"},
-    ])
+    ], ZH_HANS_HAUNTING_GLOSSARY)
 
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Persuade", "goal": "gain access to The Boston Globe clipping files from Arty Wilmot", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Arty is an obstructive but ordinary editor, so the social skill check is Regular.", "roll": 72, "outcome": "failure", "push_eligible": True, "failure_consequence": "Arty refuses access unless Ada escalates with a pushed approach.", "skill_check_earned": False}},
@@ -676,7 +754,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"type": "combat", "actor": investigator_id, "payload": {"skill": "Fighting (Brawl)", "goal": "stab Corbitt with his own dagger", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "Ada attacks with the seized dagger before Corbitt's DEX 35 action.", "roll": 21, "outcome": "regular_success", "failure_consequence": "Corbitt would take his action and continue the combat.", "skill_check_earned": True}},
     ])
 
-    _write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+    _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-hiring", "summary": "Mr. Knott 雇用 Ada，给出 Handout 1、钥匙和 20 美元预付款。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada chose The Boston Globe as her first research route（Ada 选择先去 The Boston Globe 查剪报）。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada chose to push Arty Wilmot with Mr. Knott's keys after the first Persuade roll failed（第一次 Persuade 失败后，Ada 用 Mr. Knott 的钥匙施压并接受后果）。"}},
@@ -707,19 +785,19 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "The Haunting does not include a required chase sequence（The Haunting 不包含必需追逐场景）；chase subsystem coverage deferred to separate scenario。"}},
         {"type": "status", "actor": investigator_id, "payload": {"summary": "Final HP: 3；Final SAN: 49；Rewards: +4 SAN、30 美元奖金，并可选择保留 worm-eaten book。"}},
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "Conclusion Rewards：Corbitt 被摧毁，Mr. Knott 支付报酬，后续冒险仍留下阴谋线索。"}},
-    ])
-    _write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [
+    ], ZH_HANS_HAUNTING_GLOSSARY)
+    _write_jsonl_localized(campaign_dir / "memory" / "session-summaries.jsonl", [
         {
             "session_id": "session-1",
             "summary": "Ada 接下 Mr. Knott 的委托，逼退 Arty Wilmot，追查到 Chapel of Contemplation，确认 Corbitt 的地下室埋葬线索，熬过 Bed Attack 和 The Floating Knife，并用 Corbitt 自己的 dagger 摧毁他。Final HP: 3；Final SAN: 49。",
         },
-    ])
-    _write_jsonl(run_dir / "player-feedback.jsonl", [
+    ], ZH_HANS_HAUNTING_GLOSSARY)
+    _write_jsonl_localized(run_dir / "player-feedback.jsonl", [
         {"category": "kp_clarity", "score": 5, "text": "KP 在重要检定前说明了目标、风险和后果。"},
         {"category": "immersion", "score": 4, "text": "这场更像一连串调查选择和场景推进，而不是机械 checklist。"},
         {"category": "module_fidelity", "score": 4, "text": "playtest 覆盖了 The Haunting 从 Mr. Knott 到 Rewards 的主要节点。"},
         {"category": "combat_readability", "score": 4, "text": "combat round 顺序、opposed rolls、damage 和 Corbitt 的败亡都能读懂。"},
-    ])
+    ], ZH_HANS_HAUNTING_GLOSSARY)
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
         {"severity": "low", "category": "rules_accuracy", "text": "Pushed rolls state changed tactics and foreshadowed consequences."},
         {"severity": "low", "category": "rules_accuracy", "text": "The Floating Knife uses opposed POW versus Dodge and a Fighting Maneuver to grab it."},
@@ -741,7 +819,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     pursuer_id = "nathaniel-crowe"
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
 
-    _write_json(run_dir / "playtest.json", {
+    _write_json(run_dir / "playtest.json", _with_play_language({
         "run_id": run_id,
         "campaign_id": run_id,
         "campaign_title": "Rooftop Chase Drill",
@@ -787,7 +865,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "Future loop should turn this deterministic drill into an LLM-vs-KP chase with multiple player profiles.",
         ],
         "regression_tests": ["Chase drill audit must pass for a report with real chase state."],
-    })
+    }, ZH_HANS_CHASE_GLOSSARY))
     _write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,
         "campaign_id": run_id,
@@ -813,7 +891,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         "module_source": "internal drill based on Keeper Rulebook Chapter 7: Chases",
         "summary": "Ada steals a cult ledger and flees across rainy Boston rooftops while Nathaniel Crowe pursues her.",
         "player_safe_summary": "Ada must escape a pursuer after finding a stolen cult ledger.",
-        "opening_scene": "Ada spots Nathaniel Crowe leaving the print shop with a ledger and follows him onto the roof.",
+        "opening_scene": "Ada King 发现 Nathaniel Crowe 带着 ledger 离开印刷店，并跟着他上到屋顶。",
         "current_phase": "quarry_escapes",
     })
     _write_json(scenario_dir / "clues.json", [
@@ -921,7 +999,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         "outcome": "quarry escapes",
     })
 
-    _write_jsonl(run_dir / "transcript.jsonl", [
+    _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
         {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "雨点像针一样打在印刷店屋顶上。Nathaniel Crowe 把 cult ledger 塞在外套里，正朝屋脊另一侧退。"},
         {"turn": 2, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "spot the stolen ledger", "text": "我先不暴露自己，压低身体看他的外套，确认他是不是带着那本 ledger。"},
         {"turn": 3, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "spot_hidden_regular", "text": "做 Spot Hidden。目标是在 Nathaniel 发现你之前确认 ledger，难度 Regular。"},
@@ -943,7 +1021,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"turn": 19, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "pass barrier and hide", "text": "我把偷来的 key ring 插进 locked roof door barrier，挤过去后立刻钻进 laundry sheets 之间躲起来。"},
         {"turn": 20, "role": "system", "speaker": "system", "mode": "roll", "text": "Locksmith 21 vs 30 -> regular_success. Stealth 18 vs 45 -> hard_success. Nathaniel Spot Hidden 77 vs 40 -> failure."},
         {"turn": 21, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "quarry escapes。Nathaniel 从 laundry roof 另一头冲过去，没有看见你；Ada 抱着 ledger，听见脚步声渐渐落到楼下。"},
-    ])
+    ], ZH_HANS_CHASE_GLOSSARY)
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The ledger is partly visible under Nathaniel's coat.", "roll": 82, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada cannot confirm the ledger without risking detection.", "skill_check_earned": False}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Ada changes position for a better angle, keeping the same difficulty.", "roll": 33, "outcome": "regular_success", "pushed": True, "push_justification": "Ada leans over the skylight for a better look and accepts being noticed.", "foreshadowed_failure": "On failure, Nathaniel sees Ada and starts the chase with no gap.", "failure_consequence": "Nathaniel would begin the chase at the same location as Ada.", "skill_check_earned": True}},
@@ -956,7 +1034,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "Stealth", "goal": "hide on the laundry roof after passing the barrier", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "Ada has a brief lead and concealment among laundry sheets.", "roll": 18, "outcome": "hard_success", "failure_consequence": "Nathaniel would keep the chase active.", "skill_check_earned": True}},
         {"type": "chase", "actor": pursuer_id, "payload": {"skill": "Spot Hidden", "goal": "find Ada after she hides", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "The pursuer searches the laundry roof after losing line of sight.", "roll": 77, "outcome": "failure", "failure_consequence": "The quarry escapes."}},
     ])
-    _write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+    _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "print-shop-roof", "summary": "Ada 在 print shop roof 发现 Nathaniel Crowe，确认他带着 cult ledger。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada chose to push the ledger confirmation roll despite the risk of being noticed（Ada 冒着被发现的风险 push ledger confirmation roll）。"}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "ledger-clue", "summary": "Ada 确认 cult ledger，并在 chase 后保住这条线索。"}},
@@ -969,18 +1047,18 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"type": "chase", "actor": investigator_id, "payload": {"summary": "quarry escapes：Ada 的 Stealth 胜过 Nathaniel 失败的 Spot Hidden，带着 ledger 结束 chase。"}},
         {"type": "status", "actor": investigator_id, "payload": {"summary": "Final chase state：Ada 保持 HP 12、SAN 55、MOV 8，并带走 cult ledger；Nathaniel 落后一处 location。"}},
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "quarry escapes 后 session ended，chase state 已保存到 save/chase.json。"}},
-    ])
-    _write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [
+    ], ZH_HANS_CHASE_GLOSSARY)
+    _write_jsonl_localized(campaign_dir / "memory" / "session-summaries.jsonl", [
         {
             "session_id": "session-1",
             "summary": "Ada 确认 Nathaniel 带着 ledger，随后成为 rooftop chase 的 quarry；她穿过 hazard 和 barrier，躲过 chase conflict，藏进 laundry roof，最终带着线索逃脱。",
         },
-    ])
-    _write_jsonl(run_dir / "player-feedback.jsonl", [
+    ], ZH_HANS_CHASE_GLOSSARY)
+    _write_jsonl_localized(run_dir / "player-feedback.jsonl", [
         {"category": "kp_clarity", "score": 5, "text": "KP 清楚解释了 speed roll、MOV、movement actions、hazard、barrier 和结果。"},
         {"category": "chase_readability", "score": 5, "text": "我能看懂每个人在 location chain 的位置，也知道 quarry 为什么 escapes。"},
         {"category": "immersion", "score": 4, "text": "追逐保持紧张感，同时没有把 rule decisions 藏起来。"},
-    ])
+    ], ZH_HANS_CHASE_GLOSSARY)
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
         {"severity": "low", "category": "rules_accuracy", "text": "Chase setup includes speed roll, MOV adjustment, location chain, DEX order, and movement actions."},
         {"severity": "low", "category": "state_integrity", "text": "save/chase.json records participants, location chain, rounds, and outcome."},

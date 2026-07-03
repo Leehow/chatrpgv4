@@ -12,6 +12,18 @@ COC mode is passive. Activate it only after explicit user intent such as:
 
 Do not ask about COC mode during unrelated Codex work.
 
+## Language
+
+At campaign setup, allow the player to choose the visible play language. If
+they do not choose one, set `play_language` to `zh-Hans`.
+
+Player-visible narration, NPC speech, player prompts, recaps, and report prose
+follow `play_language`. For `zh-Hans`, foreign names, places, factions,
+handouts, scenario titles, and special terms should use `localized_terms` with
+Chinese transliterations or conventional translated names.
+
+Keep machine-facing markers, JSON keys, filenames, skill names, rule enum values, and roll text stable. Do not translate those fields even when ordinary dialogue is Chinese.
+
 ## Roles
 
 - Codex is the Keeper after activation.

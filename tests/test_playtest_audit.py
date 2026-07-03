@@ -460,3 +460,54 @@ def test_active_audit_rejects_thin_scene_replay_when_significant_events_exist(tm
 
     assert audit["result"] == "fail"
     assert "scene_replay_too_thin" in finding_codes(audit)
+
+
+def test_active_audit_rejects_unlocalized_visible_glossary_terms(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata["localized_terms"] = {
+        "zh-Hans": {
+            "Ada King": "艾达·金",
+            "Mr. Knott": "诺特先生",
+            "Walter Corbitt": "沃尔特·科比特",
+        }
+    }
+    metadata_path.write_text(json.dumps(metadata))
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {"turn": 1, "role": "keeper_under_test", "mode": "play", "text": "Mr. Knott 把钥匙交给 Ada King。"},
+        {"turn": 2, "role": "player_simulator", "mode": "play", "intent": "ask terms", "text": "我问 Mr. Knott 关于 Walter Corbitt 的事。"},
+        {"turn": 3, "role": "keeper_under_test", "mode": "play", "ruling": "no_roll_needed", "text": "这里不需要检定。"},
+        {"turn": 4, "role": "player_simulator", "mode": "play", "intent": "continue", "text": "我继续调查。"},
+        {"turn": 5, "role": "keeper_under_test", "mode": "play", "ruling": "library_use_regular", "text": "做 Library Use，Regular difficulty。"},
+        {"turn": 6, "role": "system", "mode": "roll", "text": "Library Use 42 vs 60 -> regular_success."},
+        {"turn": 7, "role": "keeper_under_test", "mode": "play", "text": "你找到线索。"},
+        {"turn": 8, "role": "player_simulator", "mode": "play", "intent": "end", "text": "我记录线索。"},
+    ])
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report\n\n"
+        "## Scene-by-Scene Replay\n"
+        "- intro: Mr. Knott 把钥匙交给 Ada King。\n"
+        "- clue: Walter Corbitt 的线索出现。\n"
+        "- sanity: 艾达保持冷静。\n"
+        "- session ending: KP - 本幕结束。\n\n"
+        "## Actual Play Replay\n"
+        "- Turn 1 KP: \"Mr. Knott 把钥匙交给 Ada King。\"\n"
+        "- Turn 2 Player: \"我问 Mr. Knott 关于 Walter Corbitt 的事。\"\n\n"
+        "## Major Player Decisions\n"
+        "- Ada 选择继续调查。\n\n"
+        "## Story Recap\n"
+        "- Ada 接受委托并找到线索。\n\n"
+        "## Player Feedback On KP\n"
+        "- kp_clarity: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "visible_glossary_terms_not_localized" in finding_codes(audit)
+    assert "report_glossary_terms_not_localized" in finding_codes(audit)

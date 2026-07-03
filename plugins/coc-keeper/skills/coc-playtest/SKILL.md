@@ -60,12 +60,12 @@ After result files exist, run `../../scripts/coc_playtest_suite.py --evaluator s
 
 Before generating reports, record the run context:
 
-- `playtest.json`: run id, campaign id, scenario id, era, dice mode, spoiler policy, player profile, scores, pass/fail cases, recommendations.
+- `playtest.json`: run id, campaign id, scenario id, era, dice mode, spoiler policy, player profile, `play_language`, `localized_terms`, scores, pass/fail cases, recommendations.
 - `sandbox/.coc/campaigns/<campaign-id>/campaign.json`: campaign title and runtime settings.
 - `sandbox/.coc/campaigns/<campaign-id>/party.json`: investigator ids used in the playtest.
 - `sandbox/.coc/campaigns/<campaign-id>/scenario/scenario.json`: module title, scenario id, source PDF, opening scene.
 - `sandbox/.coc/investigators/<investigator-id>/character.json`: characteristics, derived values, skills, occupation, and reusable investigator id.
-- `transcript.jsonl`: every virtual player, KP, system, and meta turn with role, text, mode, and player intent when available. In serious active runs, visible KP and virtual-player dialogue should be Chinese, while machine markers, JSON keys, skill names, rule enum values, and system roll text remain stable.
+- `transcript.jsonl`: every virtual player, KP, system, and meta turn with role, text, mode, and player intent when available. In serious active runs, visible KP and virtual-player dialogue should follow `play_language`, defaulting to `zh-Hans`; for `zh-Hans`, names and setting terms should use `localized_terms` such as Chinese transliterations or conventional translated names, while machine markers, JSON keys, skill names, rule enum values, and system roll text remain stable.
 - `sandbox/.coc/campaigns/<campaign-id>/logs/rolls.jsonl`: rolls and mechanical outcomes.
 - `sandbox/.coc/campaigns/<campaign-id>/logs/events.jsonl`: scenes, clues, state changes, combat, chase, sanity, and other durable events.
 - `sandbox/.coc/campaigns/<campaign-id>/memory/session-summaries.jsonl`: player-safe story recap and campaign memory.
@@ -105,6 +105,8 @@ Every serious playtest follows this loop:
 
 The baseline audit should reject reports that omit a pushed roll, session ending, mechanical detail such as goals and difficulty rationale, or that leak raw payload dictionaries into player-readable prose.
 
+For active localized runs, the audit must also reject visible KP/player dialogue or player-readable report sections that leak canonical glossary terms from `localized_terms[play_language]`. This exact check is allowed because it uses machine-controlled glossary entries, not natural-language semantic matching.
+
 When `playtest.json` sets `audit_profile: haunting_module`, the audit must also reject runs that:
 
 - do not cover the required The Haunting beats in `module_coverage`
@@ -112,7 +114,7 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit must also 
 - have too few player decisions or too thin a KP/player transcript
 - fail to record Corbitt combat resolution
 - omit final HP, final SAN, rewards, or unresolved state
-- omit Chinese visible KP/player dialogue or the `## Actual Play Replay` section
+- omit Chinese visible KP/player dialogue, leak unlocalized glossary terms, or omit the `## Actual Play Replay` section
 - render a thin `## Scene-by-Scene Replay` that omits significant structured play events
 - leave Chase Summary empty instead of explaining that The Haunting has no required chase sequence
 
@@ -122,5 +124,5 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit must also reje
 - omit `save/chase.json` or leave out participants, location chain, rounds, or outcome
 - fail to show speed roll, MOV, movement actions, hazard, barrier, conflict, and quarry escapes in Chase Summary
 - claim a chase happened without recording the state and rolls that explain how it resolved
-- omit Chinese visible KP/player dialogue or the `## Actual Play Replay` section
+- omit Chinese visible KP/player dialogue, leak unlocalized glossary terms, or omit the `## Actual Play Replay` section
 - render a thin `## Scene-by-Scene Replay` that omits significant structured play events

@@ -177,6 +177,49 @@ def _non_chinese_dialogue_turns(transcript: list[dict[str, Any]]) -> list[str]:
     return turns
 
 
+def _localized_terms(metadata: dict[str, Any]) -> dict[str, str]:
+    play_language = metadata.get("play_language")
+    localized_terms = metadata.get("localized_terms", {})
+    terms = localized_terms.get(play_language, {}) if isinstance(localized_terms, dict) else {}
+    if not isinstance(terms, dict):
+        return {}
+    return {
+        str(canonical): str(localized)
+        for canonical, localized in terms.items()
+        if canonical and localized and str(canonical) != str(localized)
+    }
+
+
+def _unlocalized_terms_in_text(text: str, terms: dict[str, str]) -> list[str]:
+    return [canonical for canonical in terms if canonical in text]
+
+
+def _visible_unlocalized_glossary_terms(transcript: list[dict[str, Any]], terms: dict[str, str]) -> list[str]:
+    leaked: list[str] = []
+    for event in _visible_dialogue_events(transcript):
+        leaked.extend(_unlocalized_terms_in_text(str(event.get("text", "")), terms))
+    return sorted(set(leaked))
+
+
+def _report_unlocalized_glossary_terms(battle_report: str, terms: dict[str, str]) -> list[str]:
+    visible_sections = [
+        "Scene-by-Scene Replay",
+        "Major Player Decisions",
+        "Story Recap",
+        "Player Feedback On KP",
+    ]
+    leaked: list[str] = []
+    for heading in visible_sections:
+        leaked.extend(_unlocalized_terms_in_text(_section_text(battle_report, heading), terms))
+    actual_play_lines = [
+        line
+        for line in _section_text(battle_report, "Actual Play Replay").splitlines()
+        if line.startswith("- Turn") and (" KP:" in line or " Player:" in line)
+    ]
+    leaked.extend(_unlocalized_terms_in_text("\n".join(actual_play_lines), terms))
+    return sorted(set(leaked))
+
+
 def _event_type_count(events: list[dict[str, Any]], event_type: str) -> int:
     return sum(1 for event in events if event.get("type") == event_type)
 
@@ -212,6 +255,15 @@ def _has_skill_check(rolls: list[dict[str, Any]]) -> bool:
 
 def _report_contains_all(text: str, markers: list[str]) -> list[str]:
     return [marker for marker in markers if marker not in text]
+
+
+def _report_contains_required_moments(text: str, markers: list[str], terms: dict[str, str]) -> list[str]:
+    missing: list[str] = []
+    for marker in markers:
+        localized = terms.get(marker)
+        if marker not in text and (not localized or localized not in text):
+            missing.append(marker)
+    return missing
 
 
 def _section_text(markdown: str, heading: str) -> str:
@@ -303,6 +355,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "high",
             "Visible KP/player dialogue lacks Chinese text on turns: " + ", ".join(non_chinese_turns),
             "Generate KP and virtual player visible dialogue in Chinese while preserving machine-readable markers, JSON keys, skills, and enum values.",
+        ))
+    locale_terms = _localized_terms(metadata)
+    unlocalized_visible_terms = _visible_unlocalized_glossary_terms(transcript, locale_terms)
+    if active_profile and locale_terms and unlocalized_visible_terms:
+        findings.append(_finding(
+            "visible_glossary_terms_not_localized",
+            "system_gap",
+            "high",
+            "Visible KP/player dialogue still contains canonical glossary terms: " + ", ".join(unlocalized_visible_terms),
+            "Render player-visible names and setting terms through play_language localized_terms while preserving canonical ids, JSON keys, skills, and enum values.",
         ))
 
     roll_gaps = _roll_protocol_gaps(context["rolls"])
@@ -407,6 +469,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Player-facing battle report sections lack Chinese text: " + ", ".join(non_chinese_report_sections),
             "Render major decisions, story recap, and virtual player feedback in Chinese while preserving stable machine-readable headings and markers.",
         ))
+    unlocalized_report_terms = _report_unlocalized_glossary_terms(battle_report, locale_terms)
+    if active_profile and locale_terms and unlocalized_report_terms:
+        findings.append(_finding(
+            "report_glossary_terms_not_localized",
+            "report_gap",
+            "medium",
+            "Player-readable report sections still contain canonical glossary terms: " + ", ".join(unlocalized_report_terms),
+            "Render scene replay, actual-play replay, major decisions, recap, and feedback through the run glossary for the selected play_language.",
+        ))
 
     if "{'" in battle_report or "'}" in battle_report:
         findings.append(_finding(
@@ -507,8 +578,14 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             ))
 
         combat_summaries = _payload_summaries(context["events"], "combat")
-        combat_text = " ".join(combat_summaries).lower()
-        if len(combat_summaries) < 2 or "combat round" not in combat_text or "corbitt" not in combat_text:
+        combat_text = " ".join(combat_summaries)
+        corbitt_markers = [
+            "Corbitt",
+            locale_terms.get("Corbitt", ""),
+            locale_terms.get("Walter Corbitt", ""),
+        ]
+        has_corbitt_resolution = any(marker and marker in combat_text for marker in corbitt_markers)
+        if len(combat_summaries) < 2 or "combat round" not in combat_text.lower() or not has_corbitt_resolution:
             findings.append(_finding(
                 "combat_resolution_missing",
                 "system_gap",
@@ -537,7 +614,11 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "For modules without chase scenes, record an explicit non-applicable chase summary instead of leaving the report empty.",
             ))
 
-        missing_report_moments = _report_contains_all(battle_report, HAUNTING_REPORT_MOMENTS)
+        missing_report_moments = _report_contains_required_moments(
+            battle_report,
+            HAUNTING_REPORT_MOMENTS,
+            locale_terms,
+        )
         if missing_report_moments:
             findings.append(_finding(
                 "module_report_missing_key_moments",
@@ -586,7 +667,11 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "Record the chase setup, DEX order, movement action economy, hazards/barriers, conflict, and final outcome.",
             ))
 
-        missing_chase_moments = _report_contains_all(battle_report, CHASE_REPORT_MOMENTS)
+        missing_chase_moments = _report_contains_required_moments(
+            battle_report,
+            CHASE_REPORT_MOMENTS,
+            locale_terms,
+        )
         if missing_chase_moments:
             findings.append(_finding(
                 "chase_report_missing_key_moments",

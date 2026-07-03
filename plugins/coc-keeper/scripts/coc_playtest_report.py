@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 
 SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
+CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -182,6 +184,26 @@ def _first_value(default: Any, *values: Any) -> Any:
     return default
 
 
+def _localized_terms(metadata: dict[str, Any]) -> dict[str, str]:
+    play_language = metadata.get("play_language")
+    localized_terms = metadata.get("localized_terms", {})
+    terms = localized_terms.get(play_language, {}) if isinstance(localized_terms, dict) else {}
+    if not isinstance(terms, dict):
+        return {}
+    return {
+        str(canonical): str(localized)
+        for canonical, localized in terms.items()
+        if canonical and localized and str(canonical) != str(localized)
+    }
+
+
+def _localize_text(text: Any, terms: dict[str, str]) -> str:
+    localized = str(text)
+    for canonical, replacement in sorted(terms.items(), key=lambda item: len(item[0]), reverse=True):
+        localized = localized.replace(canonical, replacement)
+    return CJK_BOUNDARY_SPACE.sub("", localized)
+
+
 def _party_investigator_ids(party: dict[str, Any]) -> list[str]:
     ids: list[str] = []
     for key in ("investigator_ids", "active_investigator_ids", "investigators", "members"):
@@ -239,9 +261,10 @@ def _format_key_values(values: dict[str, Any], preferred_order: list[str] | None
     return ", ".join(f"{key}: {values[key]}" for key in keys)
 
 
-def _format_character(character: dict[str, Any]) -> list[str]:
+def _format_character(character: dict[str, Any], localized_terms: dict[str, str] | None = None) -> list[str]:
+    terms = localized_terms or {}
     investigator_id = character.get("investigator_id") or character.get("id") or "unknown"
-    name = character.get("name") or investigator_id or "Unknown Investigator"
+    name = _localize_text(character.get("name") or investigator_id or "Unknown Investigator", terms)
     lines = [f"- {name} ({investigator_id})"]
     if character.get("player_name"):
         lines.append(f"  - Player: {character['player_name']}")
@@ -331,6 +354,7 @@ def _format_csv(values: Any) -> str:
 
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
+    localized_terms = _localized_terms(metadata)
     context = _load_campaign_context(run_dir, metadata)
     campaign = context["campaign"]
     scenario = context["scenario"]
@@ -389,7 +413,7 @@ def generate_battle_report(run_dir: Path) -> Path:
     ending_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "session_ending"]
     character_lines: list[str] = []
     for character in characters:
-        character_lines.extend(_format_character(character))
+        character_lines.extend(_format_character(character, localized_terms))
     recap_lines = [_format_session_summary(event) for event in session_summaries]
     feedback_lines = [_format_feedback(event) for event in player_feedback]
 
@@ -408,7 +432,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         f"- Scenario: {scenario_title}",
         f"- Scenario ID: {scenario_id}",
         f"- Source: {module_source}",
-        f"- Opening Scene: {scenario.get('opening_scene', 'not recorded')}",
+        f"- Opening Scene: {_localize_text(scenario.get('opening_scene', 'not recorded'), localized_terms)}",
         "",
         "## Character Dossier",
         *_list_lines(character_lines, "- No character sheets recorded."),
