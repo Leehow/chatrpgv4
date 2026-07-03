@@ -233,6 +233,20 @@ def _evaluation_report_section_findings(run_id: str, evaluation_report: str) -> 
     )]
 
 
+def _evaluation_report_result_findings(run_id: str, evaluation_report: str) -> list[dict[str, Any]]:
+    overall_result = _markdown_section_first_value(evaluation_report, "## Overall Result")
+    if overall_result == "PASS":
+        return []
+    return [_finding(
+        "evaluation_report_result_not_pass",
+        "report_gap",
+        f"{run_id} evaluation-report.md Overall Result={overall_result or 'missing'}",
+        "Regenerate evaluation-report.md after resolving evaluator findings before completion audit.",
+        run_id=run_id,
+        overall_result=overall_result or "missing",
+    )]
+
+
 def _battle_report_anchors(battle_report: str) -> set[str]:
     anchors: set[str] = set()
     for line in battle_report.splitlines():
@@ -423,6 +437,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
 
     evaluation_report = _read_text(artifacts_dir / "evaluation-report.md")
     findings.extend(_evaluation_report_section_findings(run_id, evaluation_report))
+    findings.extend(_evaluation_report_result_findings(run_id, evaluation_report))
     findings.extend(_evaluation_report_evidence_findings(run_id, run_dir, evaluation_report))
 
     semantic_request = _read_json(artifacts_dir / "semantic-eval-request.json", {})

@@ -241,6 +241,7 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "No state diff extraction in V1 report" not in battle_text
 
     assert "V1 report generated" not in evaluation_text
+    assert "## Overall Result\nFAIL" in evaluation_text
     assert "## Playtest Profile" in evaluation_text
     assert "Audit Profile: haunting_module" in evaluation_text
     assert "Player Profile: careful_investigator" in evaluation_text
@@ -255,6 +256,29 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "[low] spoiler_safety: No leaks observed." in evaluation_text
     assert "[low] meta_quality: Meta question paused play and returned cleanly." in evaluation_text
     assert "- Populate spoiler warning transcript checks." in evaluation_text
+
+
+def test_evaluation_report_overall_result_passes_without_failed_cases_or_serious_notes(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "run-pass"
+    write_json(run_dir / "playtest.json", {
+        "run_id": "run-pass",
+        "audit_profile": "haunting_module",
+        "player_profile": "careful_investigator",
+        "module_coverage": ["knott_hiring"],
+        "subsystems_covered": ["investigation"],
+        "scores": {"rules_accuracy": 4},
+        "passed_test_cases": ["opening_contract"],
+        "failed_test_cases": [],
+    })
+    write_jsonl(run_dir / "evaluator-notes.jsonl", [
+        {"severity": "low", "category": "rules_accuracy", "text": "Structured rule checks passed."},
+    ])
+
+    evaluation_path = coc_playtest_report.generate_evaluation_report(run_dir)
+    evaluation_text = evaluation_path.read_text()
+
+    assert "## Overall Result\nPASS" in evaluation_text
+    assert "Report generated from available transcript and evaluator notes." not in evaluation_text
 
 
 def test_battle_report_uses_selected_language_profile_and_localized_text(tmp_path):

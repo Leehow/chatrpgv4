@@ -1643,6 +1643,14 @@ def generate_evaluation_report(run_dir: Path) -> Path:
     failed_lines = [f"- {case}" for case in metadata.get("failed_test_cases", [])]
     fix_lines = [f"- {fix}" for fix in metadata.get("recommended_fixes", [])]
     regression_lines = [f"- {item}" for item in metadata.get("regression_tests", [])]
+    failing_note_severities = {"critical", "high", "error", "fail", "failed"}
+    overall_result = "FAIL" if failed_lines else "PASS"
+    for note in notes:
+        severity = str(note.get("severity", "")).lower()
+        category = str(note.get("category", "")).lower()
+        if severity in failing_note_severities or category == "bug":
+            overall_result = "FAIL"
+            break
 
     def format_evidence(note: dict[str, Any]) -> str:
         evidence = note.get("evidence")
@@ -1680,7 +1688,7 @@ def generate_evaluation_report(run_dir: Path) -> Path:
         "# Evaluation Report",
         "",
         "## Overall Result",
-        "Report generated from available transcript and evaluator notes.",
+        overall_result,
         "",
         "## Playtest Profile",
         f"- Run ID: {metadata.get('run_id', 'unknown')}",
