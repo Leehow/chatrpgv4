@@ -52,6 +52,19 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
 def _json_sha256(payload: Any) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -97,6 +110,53 @@ def _monitor_status(automation_path: Path | None) -> tuple[str, str]:
     if 'status = "ACTIVE"' in text:
         return "active_without_latest_prompt", str(automation_path)
     return "inactive", str(automation_path)
+
+
+def _format_note_evidence(evidence: Any) -> str:
+    if not isinstance(evidence, dict):
+        return ""
+    parts: list[str] = []
+    evidence_labels = [
+        ("transcript_turns", "transcript turns"),
+        ("transcript_event_ids", "transcript events"),
+        ("log_paths", "logs"),
+        ("state_files", "state"),
+        ("artifact_paths", "artifacts"),
+    ]
+    for key, label in evidence_labels:
+        value = evidence.get(key)
+        if value in (None, "", [], {}):
+            continue
+        values = value if isinstance(value, list) else [value]
+        parts.append(f"{label} {', '.join(str(item) for item in values)}")
+    return "; ".join(parts)
+
+
+def _evaluation_report_evidence_findings(run_id: str, run_dir: Path, evaluation_report: str) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    notes = _read_jsonl(run_dir / "evaluator-notes.jsonl")
+    for index, note in enumerate(notes, start=1):
+        evidence_text = _format_note_evidence(note.get("evidence"))
+        if not evidence_text:
+            findings.append(_finding(
+                "evaluation_note_evidence_missing",
+                "test_gap",
+                f"{run_id} evaluator-notes.jsonl note {index} does not contain structured evidence.",
+                "Record transcript_turns, log_paths, state_files, or artifact_paths on evaluator notes so evaluation reports can cite evidence.",
+                run_id=run_id,
+                note_index=index,
+            ))
+            continue
+        if f"Evidence: {evidence_text}" not in evaluation_report:
+            findings.append(_finding(
+                "evaluation_report_evidence_missing",
+                "report_gap",
+                f"{run_id} evaluation-report.md does not cite evidence for evaluator note {index}.",
+                "Regenerate evaluation-report.md so each evaluator finding cites transcript turns, log paths, state files, or artifact paths.",
+                run_id=run_id,
+                note_index=index,
+            ))
+    return findings
 
 
 def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, Any]]:
@@ -169,6 +229,9 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
             "Persist localized_terms for the selected play language.",
             run_id=run_id,
         ))
+
+    evaluation_report = _read_text(artifacts_dir / "evaluation-report.md")
+    findings.extend(_evaluation_report_evidence_findings(run_id, run_dir, evaluation_report))
 
     semantic_request = _read_json(artifacts_dir / "semantic-eval-request.json", {})
     semantic = _read_json(artifacts_dir / "semantic-eval-result.json", {})

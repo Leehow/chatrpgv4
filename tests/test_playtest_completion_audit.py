@@ -27,6 +27,11 @@ def write_text(path: Path, text: str):
     path.write_text(text, encoding="utf-8")
 
 
+def write_jsonl(path: Path, rows: list[dict]):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+
 def request_payload(run_id: str) -> dict:
     return {
         "schema_version": 1,
@@ -249,6 +254,47 @@ def test_completion_audit_accepts_selected_non_default_play_language(tmp_path):
 
     assert audit["result"] == "pass"
     assert audit["findings"] == []
+
+
+def test_completion_audit_fails_when_evaluation_report_omits_note_evidence(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_jsonl(run_dir / "evaluator-notes.jsonl", [
+        {
+            "severity": "low",
+            "category": "state_integrity",
+            "text": "State files agree with the transcript.",
+            "evidence": {
+                "transcript_turns": [1, 2],
+                "log_paths": ["sandbox/.coc/campaigns/v2-haunting-module/logs/events.jsonl"],
+                "state_files": ["sandbox/.coc/investigators/ada-king/character.json"],
+            },
+        }
+    ])
+    write_text(
+        run_dir / "artifacts" / "evaluation-report.md",
+        "# Evaluation Report\n\n## State Integrity Findings\n- [low] state_integrity: State files agree with the transcript.\n",
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(finding["code"] == "evaluation_report_evidence_missing" for finding in audit["findings"])
 
 
 def test_completion_audit_fails_without_llm_semantic_provenance(tmp_path):
