@@ -147,6 +147,13 @@ def _format_subsystem_event(event: dict[str, Any]) -> str:
     return f"- {actor}: {summary}"
 
 
+def _format_scene_replay_event(event: dict[str, Any]) -> str:
+    payload = event.get("payload", {})
+    scene_id = payload.get("scene_id") or "scene"
+    summary = _event_summary(event, "scene recorded")
+    return f"- {scene_id}: {summary}"
+
+
 def _list_lines(items: list[str], empty: str) -> list[str]:
     return items if items else [empty]
 
@@ -358,6 +365,7 @@ def generate_battle_report(run_dir: Path) -> Path:
     state_lines = [_format_state_event(event) for event in state_events]
     decision_lines = [_format_decision(event) for event in state_events if event.get("type") == "decision"]
     clue_lines = [_format_clue(event) for event in state_events if event.get("type") == "clue"]
+    scene_replay_lines = [_format_scene_replay_event(event) for event in state_events if event.get("type") == "scene"]
     combat_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "combat"]
     chase_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "chase"]
     sanity_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "sanity"]
@@ -387,6 +395,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         "",
         "## Character Dossier",
         *_list_lines(character_lines, "- No character sheets recorded."),
+        "",
+        "## Scene-by-Scene Replay",
+        *_list_lines(scene_replay_lines, "- No scene replay recorded."),
         "",
         "## Actual Play Replay",
         *_list_lines(actual_play_lines, "- No actual play events recorded."),

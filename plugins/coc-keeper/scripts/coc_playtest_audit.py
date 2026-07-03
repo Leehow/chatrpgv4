@@ -368,6 +368,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Render the KP/player/system transcript as an actual-play replay before the structured transcript appendix.",
         ))
 
+    scene_replay = _section_text(battle_report, "Scene-by-Scene Replay") if active_profile else ""
+    if active_profile and not _has_cjk(scene_replay):
+        findings.append(_finding(
+            "scene_replay_missing",
+            "report_gap",
+            "medium",
+            "Battle report does not include a Chinese Scene-by-Scene Replay section.",
+            "Render scene events as a Chinese scene-by-scene replay so evaluators can read the session as table scenes before the turn transcript.",
+        ))
+
     non_chinese_report_sections = _player_report_sections_without_chinese(battle_report) if active_profile else []
     if non_chinese_report_sections:
         findings.append(_finding(

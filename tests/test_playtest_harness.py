@@ -73,6 +73,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
 
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
+    assert "## Scene-by-Scene Replay" in battle_text
+    assert has_cjk(section_text(battle_text, "## Scene-by-Scene Replay"))
     assert "## Actual Play Replay" in battle_text
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     assert has_cjk(section_text(battle_text, "## Major Player Decisions"))
@@ -114,6 +116,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
 
     assert audit["result"] == "pass"
     assert "PASS" in audit_text
+    assert "## Scene-by-Scene Replay" in battle_text
+    assert has_cjk(section_text(battle_text, "## Scene-by-Scene Replay"))
     assert "## Actual Play Replay" in battle_text
     assert all(has_cjk(text) for text in visible_play_texts(run_dir))
     assert has_cjk(section_text(battle_text, "## Major Player Decisions"))
