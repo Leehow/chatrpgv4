@@ -376,6 +376,51 @@ def _battle_report_source_dialogue_findings(run_id: str, run_dir: Path, battle_r
     )]
 
 
+def _mechanical_roll_line(row: dict[str, Any]) -> str | None:
+    payload = row.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    roll = payload.get("roll")
+    target = payload.get("effective_target", payload.get("target"))
+    outcome = payload.get("outcome")
+    if roll in (None, "") or target in (None, "") or not isinstance(outcome, str) or not outcome.strip():
+        return None
+    skill = payload.get("skill", "check")
+    actor = row.get("actor", "unknown")
+    return f"{skill}: {actor} rolled {roll} vs {target} -> {outcome}"
+
+
+def _battle_report_mechanical_log_findings(
+    run_id: str,
+    campaign_dir: Path,
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
+    required_roll_lines = [
+        line
+        for row in rolls
+        for line in [_mechanical_roll_line(row)]
+        if line
+    ]
+    missing_roll_lines = [
+        line
+        for line in required_roll_lines
+        if line not in battle_report
+    ]
+    if not missing_roll_lines:
+        return []
+    return [_finding(
+        "battle_report_mechanical_log_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_roll_lines)} of {len(required_roll_lines)} source mechanical roll lines from logs/rolls.jsonl.",
+        "Regenerate battle-report.md so Mechanical Log renders each structured source roll with skill, actor, roll, target, and outcome.",
+        run_id=run_id,
+        missing_roll_count=len(missing_roll_lines),
+        required_roll_count=len(required_roll_lines),
+        missing_roll_samples=missing_roll_lines[:5],
+    )]
+
+
 def _markdown_headings(markdown: str) -> set[str]:
     return {
         line.strip()
@@ -1188,6 +1233,8 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     run_dir = _playtests_dir(root) / run_id
     metadata = _read_json(run_dir / "playtest.json", {})
     artifacts_dir = run_dir / "artifacts"
+    campaign_id = str(metadata.get("campaign_id") or run_id)
+    campaign_dir = run_dir / f"sandbox/.coc/campaigns/{campaign_id}/"
     findings.extend(_active_run_source_findings(run_id, run_dir, metadata))
 
     if run.get("audit_result") != "PASS":
@@ -1257,6 +1304,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     battle_report = _read_text(artifacts_dir / "battle-report.md")
     findings.extend(_battle_report_anchor_findings(run_id, battle_report))
     findings.extend(_battle_report_source_dialogue_findings(run_id, run_dir, battle_report))
+    findings.extend(_battle_report_mechanical_log_findings(run_id, campaign_dir, battle_report))
 
     rulebook_audit = _read_text(artifacts_dir / "rulebook-audit.md")
     findings.extend(_rulebook_audit_section_findings(run_id, rulebook_audit))

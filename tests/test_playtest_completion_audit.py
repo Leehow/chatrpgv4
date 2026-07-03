@@ -113,6 +113,16 @@ def evaluation_report_fixture() -> str:
     ]) + "\n"
 
 
+def battle_report_mechanical_fixture_text() -> str:
+    run_ids = ["v2-haunting-module", "v3-chase-drill", "v4-multi-profile-pressure"]
+    lines: list[str] = []
+    for run_id in run_ids:
+        investigator_id = f"{run_id}-investigator"
+        lines.append(f"- Spot Hidden: {investigator_id} rolled 33 vs 55 -> regular_success")
+        lines.append(f"- Spot Hidden: {investigator_id} rolled 22 vs 55 -> hard_success")
+    return "\n".join(lines)
+
+
 def battle_report_fixture() -> str:
     return "\n\n".join([
         "# Battle Report <!-- report-anchor: Battle Report -->",
@@ -144,7 +154,8 @@ def battle_report_fixture() -> str:
         "- fixture skeptical rules profile turn\n"
         "- fixture meta player question\n"
         "- fixture meta keeper answer",
-        "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n- Fixture roll.",
+        "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n"
+        + battle_report_mechanical_fixture_text(),
         "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n- Fixture chase tracker.",
         "## Story Recap <!-- report-anchor: Story Recap -->\n- Fixture recap.",
         "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n- Fixture feedback.",
@@ -167,6 +178,14 @@ def battle_report_shell_with_required_anchors() -> str:
         "## Story Recap <!-- report-anchor: Story Recap -->\n- Fixture recap.",
         "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n- Fixture feedback.",
     ]) + "\n"
+
+
+def battle_report_with_dialogue_but_without_roll_log() -> str:
+    return battle_report_fixture().replace(
+        "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n"
+        + battle_report_mechanical_fixture_text(),
+        "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n- Fixture roll.",
+    )
 
 
 def suite_report_fixture() -> str:
@@ -941,6 +960,35 @@ def test_completion_audit_fails_when_battle_report_omits_source_dialogue_text(tm
     assert finding["run_id"] == "v2-haunting-module"
     assert "fixture keeper turn" in finding["missing_dialogue_samples"]
     assert "fixture player turn" in finding["missing_dialogue_samples"]
+
+
+def test_completion_audit_fails_when_battle_report_omits_source_roll_results(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(run_dir / "artifacts" / "battle-report.md", battle_report_with_dialogue_but_without_roll_log())
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_mechanical_log_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "Spot Hidden: v2-haunting-module-investigator rolled 33 vs 55 -> regular_success" in finding["missing_roll_samples"]
+    assert "Spot Hidden: v2-haunting-module-investigator rolled 22 vs 55 -> hard_success" in finding["missing_roll_samples"]
 
 
 def test_completion_audit_fails_when_suite_report_missing_required_sections(tmp_path):
