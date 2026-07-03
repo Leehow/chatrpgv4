@@ -800,6 +800,80 @@ def _format_creation_credit_rating(
     return f"  - {label}: {credit_rating} ({range_label} {rating_range})"
 
 
+def _format_skill_allocation(
+    creation: dict[str, Any],
+    localized_terms: dict[str, str],
+    language_profile: dict[str, Any] | None,
+    play_language: str,
+) -> list[str]:
+    allocation = creation.get("skill_allocation", {})
+    if not isinstance(allocation, dict) or not allocation:
+        return []
+    occupation_available = creation.get("occupation", {}).get("skill_points_available", "?")
+    personal_available = creation.get("personal_interest", {}).get("skill_points_available", "?")
+    occupation_spent = allocation.get("occupation_points_spent", "?")
+    personal_spent = allocation.get("personal_interest_points_spent", "?")
+    unallocated_occupation = allocation.get("unallocated_occupation_points", "?")
+    unallocated_personal = allocation.get("unallocated_personal_interest_points", "?")
+    skill_allocation_label = _creation_label(language_profile, "Skill Allocation")
+    occupation_label = _creation_label(language_profile, "Occupation")
+    personal_label = _creation_label(language_profile, "Personal Interest")
+    unallocated_label = _creation_label(language_profile, "Unallocated")
+    if play_language == "zh-Hans":
+        lines = [
+            (
+                f"  - {skill_allocation_label}: {occupation_label} {occupation_spent}/{occupation_available}，"
+                f"{personal_label} {personal_spent}/{personal_available}，"
+                f"{unallocated_label} {unallocated_occupation}/{unallocated_personal}"
+            )
+        ]
+    else:
+        lines = [
+            (
+                f"  - {skill_allocation_label}: {occupation_label} {occupation_spent}/{occupation_available}; "
+                f"{personal_label} {personal_spent}/{personal_available}; "
+                f"{unallocated_label} {unallocated_occupation}/{unallocated_personal}"
+            )
+        ]
+    skills = allocation.get("skills", {})
+    if not isinstance(skills, dict):
+        return lines
+    preferred = [
+        "Credit Rating",
+        "Appraise",
+        "Art/Craft (Antiques)",
+        "History",
+        "Library Use",
+        "Other Language (Latin)",
+        "Persuade",
+        "Spot Hidden",
+        "Psychology",
+        "Charm",
+        "Climb",
+        "Dodge",
+        "Fighting (Brawl)",
+        "Firearms (Handgun)",
+        "First Aid",
+        "Listen",
+        "Stealth",
+        "Occult",
+    ]
+    ordered_skills = [skill for skill in preferred if skill in skills]
+    ordered_skills.extend(sorted(skill for skill in skills if skill not in ordered_skills))
+    for skill in ordered_skills:
+        entry = skills.get(skill)
+        if not isinstance(entry, dict):
+            continue
+        display_skill = _display_skill_name(skill, localized_terms)
+        lines.append(
+            f"    - {display_skill}: base {entry.get('base', '?')} + "
+            f"{occupation_label} {entry.get('occupation_points', 0)} + "
+            f"{personal_label} {entry.get('personal_interest_points', 0)} = "
+            f"{entry.get('final', '?')}"
+        )
+    return lines
+
+
 def _format_equipment(values: Any, localized_terms: dict[str, str]) -> str:
     if not isinstance(values, list) or not values:
         return "none recorded"
@@ -849,6 +923,7 @@ def _format_investigator_creation(
     credit_line = _format_creation_credit_rating(creation, profile, play_language)
     if credit_line:
         lines.append(credit_line)
+    lines.extend(_format_skill_allocation(creation, terms, profile, play_language))
     if creation.get("equipment") not in (None, "", [], {}):
         lines.append(
             f"  - {_creation_label(profile, 'Equipment')}: "

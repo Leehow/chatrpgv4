@@ -480,6 +480,64 @@ def _character_creation_gaps(characters: list[dict[str, Any]]) -> list[str]:
     return gaps
 
 
+def _character_skill_allocation_gaps(characters: list[dict[str, Any]]) -> list[str]:
+    if not characters:
+        return ["no investigator character files loaded"]
+
+    gaps: list[str] = []
+    for character in characters:
+        investigator_id = str(character.get("id") or character.get("investigator_id") or "unknown")
+        creation = character.get("_creation")
+        if not isinstance(creation, dict) or not creation:
+            gaps.append(f"{investigator_id} missing creation.json")
+            continue
+        allocation = creation.get("skill_allocation")
+        if not isinstance(allocation, dict) or not allocation:
+            gaps.append(f"{investigator_id} missing skill_allocation")
+            continue
+        occupation = creation.get("occupation", {})
+        personal_interest = creation.get("personal_interest", {})
+        occupation_available = occupation.get("skill_points_available") if isinstance(occupation, dict) else None
+        personal_available = personal_interest.get("skill_points_available") if isinstance(personal_interest, dict) else None
+        occupation_spent = allocation.get("occupation_points_spent")
+        personal_spent = allocation.get("personal_interest_points_spent")
+        if occupation_spent != occupation_available:
+            gaps.append(f"{investigator_id} occupation points spent {occupation_spent} != available {occupation_available}")
+        if personal_spent != personal_available:
+            gaps.append(f"{investigator_id} personal interest points spent {personal_spent} != available {personal_available}")
+        if allocation.get("unallocated_occupation_points") != 0:
+            gaps.append(f"{investigator_id} has unallocated occupation points")
+        if allocation.get("unallocated_personal_interest_points") != 0:
+            gaps.append(f"{investigator_id} has unallocated personal interest points")
+        skills = allocation.get("skills", {})
+        if not isinstance(skills, dict) or not skills:
+            gaps.append(f"{investigator_id} skill_allocation missing skills map")
+            continue
+        computed_occupation = 0
+        computed_personal = 0
+        for skill, entry in skills.items():
+            if not isinstance(entry, dict):
+                gaps.append(f"{investigator_id} skill_allocation {skill} must be an object")
+                continue
+            for field in ["base", "occupation_points", "personal_interest_points", "final"]:
+                if entry.get(field) in (None, "", [], {}):
+                    gaps.append(f"{investigator_id} skill_allocation {skill} missing {field}")
+            base = entry.get("base")
+            occupation_points = entry.get("occupation_points")
+            personal_points = entry.get("personal_interest_points")
+            final = entry.get("final")
+            if all(isinstance(value, int) for value in [base, occupation_points, personal_points, final]):
+                computed_occupation += occupation_points
+                computed_personal += personal_points
+                if base + occupation_points + personal_points != final:
+                    gaps.append(f"{investigator_id} skill_allocation {skill} total does not match final")
+        if computed_occupation != occupation_spent:
+            gaps.append(f"{investigator_id} occupation allocation sum {computed_occupation} != recorded {occupation_spent}")
+        if computed_personal != personal_spent:
+            gaps.append(f"{investigator_id} personal allocation sum {computed_personal} != recorded {personal_spent}")
+    return gaps
+
+
 def _player_intent_count(transcript: list[dict[str, Any]]) -> int:
     return sum(1 for event in transcript if event.get("role") == "player_simulator" and event.get("intent"))
 
@@ -1423,9 +1481,15 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
         ]
         inventory_records = sum(len(character.get("_inventory_history", [])) for character in context["characters"])
         creation_records = sum(1 for character in context["characters"] if character.get("_creation"))
+        skill_allocation_records = sum(
+            1
+            for character in context["characters"]
+            if character.get("_creation", {}).get("skill_allocation")
+        )
         lines.append(f"Module coverage: {covered_count}/{len(HAUNTING_MODULE_COVERAGE)} required The Haunting beats recorded.")
         lines.append(f"NPC roleplay turns: {len(npc_speakers)}; speakers: {', '.join(sorted(set(npc_speakers))) if npc_speakers else 'none'}.")
         lines.append(f"Investigator creation records: {creation_records}.")
+        lines.append(f"Investigator skill allocation records: {skill_allocation_records}.")
         lines.append(f"Investigator inventory history records: {inventory_records}.")
         lines.append(
             f"Combat evidence: {_event_type_count(events, 'combat')} combat events; "
@@ -1612,6 +1676,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "; ".join(creation_gaps),
             "Record sandbox investigator creation.json with the rulebook Chapter 3 creation steps, characteristics, occupation skill points, personal interest skill points, credit rating, backstory, and starting equipment.",
+        ))
+
+    skill_allocation_gaps = _character_skill_allocation_gaps(context["characters"]) if active_profile else []
+    if skill_allocation_gaps:
+        findings.append(_finding(
+            "investigator_skill_allocation_missing",
+            "system_gap",
+            "medium",
+            "; ".join(skill_allocation_gaps),
+            "Record skill_allocation inside creation.json with occupation and personal-interest point spending, base values, final skill values, and zero unallocated points.",
         ))
 
     non_chinese_turns = _non_chinese_dialogue_turns(transcript)

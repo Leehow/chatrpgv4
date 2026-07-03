@@ -1790,6 +1790,19 @@ def test_haunting_module_audit_requires_investigator_creation_record(tmp_path):
     assert "investigator_creation_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_investigator_skill_allocation(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    creation_path = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting" / "creation.json"
+    creation = json.loads(creation_path.read_text())
+    creation.pop("skill_allocation", None)
+    creation_path.write_text(json.dumps(creation))
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "investigator_skill_allocation_missing" in finding_codes(audit)
+
+
 def test_chase_drill_audit_requires_multi_profile_pressure(tmp_path):
     run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
     metadata_path = run_dir / "playtest.json"

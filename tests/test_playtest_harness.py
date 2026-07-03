@@ -134,12 +134,20 @@ def assert_visible_terms_localized(text: str, required_terms: dict[str, str]) ->
 
 
 ZH_SKILL_TERMS = {
+    "Appraise": "估价",
+    "Art/Craft (Antiques)": "艺术/手艺（古董修复）",
+    "History": "历史",
+    "Other Language (Latin)": "其他语言（拉丁语）",
     "Persuade": "说服",
     "Library Use": "图书馆使用",
     "Spot Hidden": "侦查",
     "Dodge": "闪避",
     "Fighting (Brawl)": "格斗（斗殴）",
+    "Firearms (Handgun)": "射击（手枪）",
+    "First Aid": "急救",
+    "Listen": "聆听",
     "Locksmith": "锁匠",
+    "Occult": "神秘学",
     "Stealth": "潜行",
     "Charm": "魅惑",
     "Climb": "攀爬",
@@ -455,6 +463,29 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert creation["personal_interest"]["skill_points_available"] == 140
     assert creation["finances"]["credit_rating"] == 40
     assert "裂柄铜放大镜" in creation["equipment"]
+    allocation = creation["skill_allocation"]
+    assert allocation["occupation_points_spent"] == 300
+    assert allocation["personal_interest_points_spent"] == 140
+    assert allocation["unallocated_occupation_points"] == 0
+    assert allocation["unallocated_personal_interest_points"] == 0
+    assert allocation["skills"]["Credit Rating"] == {
+        "base": 0,
+        "occupation_points": 40,
+        "personal_interest_points": 0,
+        "final": 40,
+    }
+    assert allocation["skills"]["Library Use"] == {
+        "base": 20,
+        "occupation_points": 40,
+        "personal_interest_points": 0,
+        "final": 60,
+    }
+    assert allocation["skills"]["Fighting (Brawl)"] == {
+        "base": 25,
+        "occupation_points": 0,
+        "personal_interest_points": 15,
+        "final": 40,
+    }
     creation_section = section_text(battle_text, "## Investigator Creation")
     assert "## 角色创建记录 <!-- report-anchor: Investigator Creation -->" in battle_text
     assert battle_text.index("report-anchor: Investigator Creation") < battle_text.index("report-anchor: Actual Play Replay")
@@ -463,6 +494,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "职业技能点: EDU × 4 = 300" in creation_section
     assert "个人兴趣技能点: INT × 2 = 140" in creation_section
     assert "信用评级: 40（规则书职业范围 30-70）" in creation_section
+    assert "技能分配: 职业 300/300，个人兴趣 140/140，未分配 0/0" in creation_section
+    assert "信用评级: base 0 + 职业 40 + 个人兴趣 0 = 40" in creation_section
+    assert "图书馆使用: base 20 + 职业 40 + 个人兴趣 0 = 60" in creation_section
+    assert "格斗（斗殴）: base 25 + 职业 0 + 个人兴趣 15 = 40" in creation_section
     assert "装备: 裂柄铜放大镜; 笔记本; 钢笔; 左轮" in creation_section
     assert "Call of Cthulhu Keeper Rulebook Chapter 3" not in creation_section
     assert investigator_jsonl(run_dir, "ada-king-haunting", "history.jsonl")

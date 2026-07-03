@@ -225,6 +225,8 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "player_feedback_voice_missing",
         "status_event_not_rendered",
         "investigator_creation_missing",
+        "investigator_skill_allocation_missing",
+        "skill_allocation",
         "Investigator Creation",
         "investigator_inventory_history_missing",
         "haunting_npc_dialogue_missing",
