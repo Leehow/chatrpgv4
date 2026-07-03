@@ -73,6 +73,9 @@ PUSHED_ROLL_PROTOCOL_STAGES = [
     "player_confirms_risk",
     "roll_resolved",
 ]
+MULTI_PROFILE_SOURCE_REQUIREMENTS = {
+    "multi_profile_pressure": ["careful_investigator", "reckless_investigator", "skeptical_rules_lawyer"],
+}
 REQUIRED_EVALUATION_REPORT_SECTIONS = [
     "# Evaluation Report",
     "## Overall Result",
@@ -886,6 +889,61 @@ def _pushed_roll_structure_findings(
     return findings
 
 
+def _multi_profile_structure_findings(run_id: str, run_dir: Path, audit_profile: str) -> list[dict[str, Any]]:
+    required_profiles = MULTI_PROFILE_SOURCE_REQUIREMENTS.get(audit_profile, [])
+    if not required_profiles:
+        return []
+
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
+    transcript_profiles = {
+        row.get("player_profile")
+        for row in transcript
+        if row.get("role") == "player_simulator"
+        and isinstance(row.get("text"), str)
+        and row["text"].strip()
+    }
+    feedback_profiles = {
+        row.get("player_profile")
+        for row in feedback
+        if isinstance(row.get("score"), (int, float))
+        and not isinstance(row.get("score"), bool)
+        and isinstance(row.get("text"), str)
+        and row["text"].strip()
+    }
+
+    missing_evidence: list[str] = []
+    incomplete_files: list[str] = []
+    missing_transcript_profiles = [
+        profile for profile in required_profiles
+        if profile not in transcript_profiles
+    ]
+    missing_feedback_profiles = [
+        profile for profile in required_profiles
+        if profile not in feedback_profiles
+    ]
+    for profile in missing_transcript_profiles:
+        missing_evidence.append(f"{audit_profile} transcript profile {profile}")
+    for profile in missing_feedback_profiles:
+        missing_evidence.append(f"{audit_profile} feedback profile {profile}")
+    if missing_transcript_profiles:
+        incomplete_files.append("transcript.jsonl")
+    if missing_feedback_profiles:
+        incomplete_files.append("player-feedback.jsonl")
+
+    if not missing_evidence:
+        return []
+    return [_finding(
+        "active_run_source_files_incomplete",
+        "test_gap",
+        f"{run_id} multi-profile source files lack required player profiles: {', '.join(missing_evidence)}.",
+        "Regenerate the active run so multi-profile pressure transcripts and feedback include each required player_profile enum with visible text.",
+        run_id=run_id,
+        incomplete_files=incomplete_files,
+        missing_evidence=missing_evidence,
+    )]
+
+
 def _investigator_structure_findings(run_id: str, investigator_dir: Path, investigator_prefix: str) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     missing_evidence: list[str] = []
@@ -1051,6 +1109,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
         ))
     findings.extend(_source_structure_findings(run_id, run_dir))
     findings.extend(_pushed_roll_structure_findings(run_id, run_dir, campaign_dir, campaign_prefix, audit_profile))
+    findings.extend(_multi_profile_structure_findings(run_id, run_dir, audit_profile))
     return findings
 
 
