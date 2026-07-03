@@ -120,6 +120,7 @@ def test_coc_playtest_skill_documents_battle_report_inputs():
         "## Run Setup",
         "## Character Dossier",
         "## Investigator Chronicle",
+        "## Chase Tracker",
         "## Player Feedback On KP",
     ]
     for term in required_terms:
@@ -135,6 +136,7 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "investigator_chronicle_missing",
         "temporary_insanity_bout_missing",
         "temporary_insanity_bout_duration_missing",
+        "chase_tracker_not_rendered",
         "Bout of Madness",
         "duration_roll",
         "playtests prove investigator reuse without writing sandbox changes into the real investigator library",
@@ -177,6 +179,7 @@ def test_coc_playtest_skill_documents_chase_drill_profile():
         "chase-drill",
         "chase_drill",
         "save/chase.json",
+        "## Chase Tracker",
         "movement actions",
         "location chain",
         "hazard",

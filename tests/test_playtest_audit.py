@@ -409,6 +409,101 @@ def test_chase_drill_audit_requires_chase_state_and_resolution(tmp_path):
     assert "chase_report_missing_key_moments" in finding_codes(audit)
 
 
+def test_chase_drill_audit_requires_chase_tracker_rendering(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "chase-drill"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "chase_drill"
+    metadata["subsystems_covered"] = ["investigation", "chase"]
+    metadata_path.write_text(json.dumps(metadata))
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop"
+    write_json(campaign_dir / "save" / "chase.json", {
+        "chase_id": "rooftop-chase",
+        "status": "resolved",
+        "round": 2,
+        "participants": [
+            {
+                "id": "ada-king-chase",
+                "role": "quarry",
+                "base_mov": 8,
+                "adjusted_mov": 8,
+                "dex": 50,
+                "movement_actions": 1,
+                "position": "laundry-roof",
+            },
+            {
+                "id": "nathaniel-crowe",
+                "role": "pursuer",
+                "base_mov": 8,
+                "adjusted_mov": 9,
+                "dex": 60,
+                "movement_actions": 2,
+                "position": "locked-roof-door",
+            },
+        ],
+        "dex_order": ["nathaniel-crowe", "ada-king-chase"],
+        "location_chain": [
+            {"id": "print-shop-roof", "label": "start"},
+            {"id": "slick-skylight", "label": "hazard", "difficulty": "regular", "skill": "Dodge"},
+            {"id": "locked-roof-door", "label": "barrier", "difficulty": "regular", "skill": "Locksmith"},
+            {"id": "laundry-roof", "label": "escape"},
+        ],
+        "rounds": [
+            {"round": 1, "summary": "Round 1 shows speed roll, MOV, movement actions, location chain, and hazard."},
+            {"round": 2, "summary": "Round 2 shows DEX order, barrier, conflict, and why the quarry escapes."},
+        ],
+        "outcome": "quarry escapes",
+    })
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {
+            "type": "clue",
+            "actor": "ada-king",
+            "payload": {"clue_id": "ledger-clue", "summary": "Ada finds the ledger."},
+        },
+        {
+            "type": "chase",
+            "actor": "keeper_under_test",
+            "payload": {
+                "summary": "speed roll, MOV, movement actions, location chain, DEX order, hazard, barrier, conflict, quarry escapes",
+            },
+        },
+        {
+            "type": "session_ending",
+            "actor": "keeper_under_test",
+            "payload": {"summary": "The chase ends with the quarry escapes result."},
+        },
+    ])
+    (run_dir / "artifacts" / "battle-report.md").write_text(
+        "# Battle Report\n\n"
+        "## Scene-by-Scene Replay\n"
+        "- chase: KP - 追逐结束。\n"
+        "- session ending: KP - 本幕结束。\n\n"
+        "## Actual Play Replay\n"
+        "- Turn 1 KP: \"追逐开始。\"\n"
+        "- Turn 2 Player: \"我继续跑。\"\n\n"
+        "## Major Player Decisions\n"
+        "- Ada 选择继续追逐。\n\n"
+        "## Story Recap\n"
+        "- Ada 完成屋顶追逐。\n\n"
+        "## Player Feedback On KP\n"
+        "- kp_clarity: 5 - KP 规则解释清楚。\n\n"
+        "## Rules & Rolls Recap\n"
+        "- Goal: chase drill. Difficulty: regular. Difficulty Rationale: drill. Failure Consequence: escape changes.\n\n"
+        "## Chase Summary\n"
+        "- speed roll, MOV, movement actions, location chain, DEX order, hazard, barrier, conflict, quarry escapes.\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    codes = finding_codes(audit)
+    assert "chase_tracker_not_rendered" in codes
+    assert "chase_state_missing" not in codes
+    assert "chase_resolution_missing" not in codes
+    assert "chase_report_missing_key_moments" not in codes
+
+
 def test_active_audit_requires_chinese_visible_kp_and_player_dialogue(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
     create_final_rulebook_run(run_dir)

@@ -91,6 +91,7 @@ Before generating reports, record the run context:
 - `## Actual Play Replay`
 - `## Session Transcript`
 - `## Mechanical Log`
+- `## Chase Tracker`
 - `## Story Recap`
 - `## Player Feedback On KP`
 
@@ -98,7 +99,9 @@ Before generating reports, record the run context:
 
 `## Investigator Chronicle` should render sandbox `history.jsonl` and `development.jsonl`, proving that the playtest can describe what would carry into a later story without writing sandbox changes into the real investigator library.
 
-Flag spoiler leaks, state errors, unlogged rolls, poor pacing, incorrect rules, `investigator_chronicle_missing`, `investigator_chronicle_not_rendered`, `temporary_insanity_bout_missing`, `temporary_insanity_bout_duration_missing`, and `temporary_insanity_bout_not_rendered`.
+`## Chase Tracker` should render `save/chase.json` whenever chase state exists: participants with MOV/DEX/action economy, DEX order, location chain with hazards and barriers, per-round summaries, and final outcome. This is the report proof that the chase subsystem recorded the rulebook procedure instead of only narrating that someone escaped.
+
+Flag spoiler leaks, state errors, unlogged rolls, poor pacing, incorrect rules, `investigator_chronicle_missing`, `investigator_chronicle_not_rendered`, `temporary_insanity_bout_missing`, `temporary_insanity_bout_duration_missing`, `temporary_insanity_bout_not_rendered`, and `chase_tracker_not_rendered`.
 
 ## Rulebook Audit Loop
 
@@ -137,6 +140,7 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit must also reje
 - do not declare `chase` in `subsystems_covered`
 - omit `save/chase.json` or leave out participants, location chain, rounds, or outcome
 - fail to show speed roll, MOV, movement actions, hazard, barrier, conflict, and quarry escapes in Chase Summary
+- fail to render a populated `## Chase Tracker` from `save/chase.json`
 - claim a chase happened without recording the state and rolls that explain how it resolved
 - omit Chinese visible KP/player dialogue, leak unlocalized glossary terms, or omit the `## Actual Play Replay` section
 - render a thin `## Scene-by-Scene Replay` that omits significant structured play events

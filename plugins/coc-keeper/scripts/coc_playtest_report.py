@@ -816,6 +816,71 @@ def _format_csv(values: Any) -> str:
     return "none recorded"
 
 
+def _format_chase_location(location: dict[str, Any]) -> str:
+    location_id = location.get("id", "unknown")
+    tags = [
+        str(location[field])
+        for field in ["label", "difficulty", "skill"]
+        if location.get(field) not in (None, "", [], {})
+    ]
+    return f"  - {location_id} [{', '.join(tags)}]" if tags else f"  - {location_id}"
+
+
+def _format_chase_tracker(chase_state: dict[str, Any]) -> list[str]:
+    if not chase_state:
+        return []
+
+    lines = [
+        f"- Chase ID: {chase_state.get('chase_id', 'unknown')}",
+        f"- Status: {chase_state.get('status', 'unknown')}",
+        f"- Round: {chase_state.get('round', 'unknown')}",
+    ]
+    dex_order = chase_state.get("dex_order", [])
+    if isinstance(dex_order, list) and dex_order:
+        lines.append(f"- DEX order: {' -> '.join(str(participant_id) for participant_id in dex_order)}")
+
+    participants = chase_state.get("participants", [])
+    if isinstance(participants, list) and participants:
+        lines.append("- Participants:")
+        for participant in participants:
+            if not isinstance(participant, dict):
+                continue
+            participant_id = participant.get("id", "unknown")
+            role = participant.get("role", "unknown")
+            base_mov = participant.get("base_mov", "?")
+            adjusted_mov = participant.get("adjusted_mov", "?")
+            dex = participant.get("dex", "?")
+            actions = participant.get("movement_actions", "?")
+            position = participant.get("position", "unknown")
+            lines.append(
+                f"  - {participant_id} | {role} | MOV {base_mov} -> {adjusted_mov} | "
+                f"DEX {dex} | actions {actions} | position {position}"
+            )
+
+    location_chain = chase_state.get("location_chain", [])
+    if isinstance(location_chain, list) and location_chain:
+        lines.append("- Location Chain:")
+        lines.extend(
+            _format_chase_location(location)
+            for location in location_chain
+            if isinstance(location, dict)
+        )
+
+    rounds = chase_state.get("rounds", [])
+    if isinstance(rounds, list) and rounds:
+        lines.append("- Rounds:")
+        for chase_round in rounds:
+            if not isinstance(chase_round, dict):
+                continue
+            round_number = chase_round.get("round", "?")
+            summary = chase_round.get("summary", "no summary")
+            lines.append(f"  - Round {round_number}: {summary}")
+
+    if chase_state.get("outcome") not in (None, "", [], {}):
+        lines.append(f"- Outcome: {chase_state['outcome']}")
+    return lines
+
+
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
     localized_terms = _localized_terms(metadata)
@@ -828,6 +893,11 @@ def generate_battle_report(run_dir: Path) -> Path:
     state_events = _read_jsonl_files(_campaign_log_paths(run_dir, "events.jsonl"))
     session_summaries = _read_jsonl_files(_campaign_memory_paths(run_dir, "session-summaries.jsonl"))
     player_feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
+    chase_state = (
+        _read_json(context["campaign_dir"] / "save" / "chase.json", {})
+        if context["campaign_dir"]
+        else {}
+    )
     output = _artifacts_dir(run_dir) / "battle-report.md"
 
     campaign_title = _first_value(
@@ -937,6 +1007,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         _format_feedback(event, localized_terms, str(play_language))
         for event in player_feedback
     ]
+    chase_tracker_lines = _format_chase_tracker(chase_state)
 
     body = [
         "# Battle Report",
@@ -991,6 +1062,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         "",
         "## Chase Summary",
         *_list_lines(chase_lines, "- No chase summary recorded."),
+        "",
+        "## Chase Tracker",
+        *_list_lines(chase_tracker_lines, "- No chase tracker recorded."),
         "",
         "## Sanity Summary",
         *_list_lines(sanity_lines, "- No sanity summary recorded."),

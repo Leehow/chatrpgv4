@@ -470,9 +470,11 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             field for field in ["participants", "location_chain", "rounds", "outcome"]
             if chase_state.get(field) not in (None, "", [], {})
         ]
+        tracker_rendered = "yes" if "## Chase Tracker" in context["battle_report"] else "no"
         lines.append(
             f"Chase evidence: {_event_type_count(events, 'chase')} chase events; "
-            f"save/chase.json fields present: {', '.join(state_fields) if state_fields else 'none'}."
+            f"save/chase.json fields present: {', '.join(state_fields) if state_fields else 'none'}; "
+            f"Chase Tracker rendered: {tracker_rendered}."
         )
     return lines
 
@@ -944,6 +946,17 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "save/chase.json is missing or incomplete: " + ", ".join(missing_state_fields),
                 "Persist chase participants, location chain, round log, and outcome under save/chase.json.",
+            ))
+        elif (
+            "## Chase Tracker" not in battle_report
+            or "No chase tracker recorded." in _section_text(battle_report, "Chase Tracker")
+        ):
+            findings.append(_finding(
+                "chase_tracker_not_rendered",
+                "report_gap",
+                "high",
+                "save/chase.json has participants, location chain, round log, and outcome, but the battle report does not render a populated ## Chase Tracker section.",
+                "Render save/chase.json participants, DEX order, location chain, rounds, and outcome in ## Chase Tracker.",
             ))
 
         chase_text = " ".join(_payload_summaries(context["events"], "chase"))

@@ -539,6 +539,20 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "save/追逐.json" not in battle_text
     assert "Rooftop Chase Drill" in battle_text
     assert "Chase Summary" in battle_text
+    assert "## Chase Tracker" in battle_text
+    chase_tracker = section_text(battle_text, "## Chase Tracker")
+    assert "- Chase ID: rooftop-chase" in chase_tracker
+    assert "- Status: resolved" in chase_tracker
+    assert "- Round: 2" in chase_tracker
+    assert "- DEX order: nathaniel-crowe -> ada-king-chase" in chase_tracker
+    assert "- ada-king-chase | quarry | MOV 8 -> 8 | DEX 50 | actions 1 | position laundry-roof" in chase_tracker
+    assert "- nathaniel-crowe | pursuer | MOV 8 -> 9 | DEX 60 | actions 2 | position locked-roof-door" in chase_tracker
+    assert "- print-shop-roof [start]" in chase_tracker
+    assert "- slick-skylight [hazard, regular, Dodge]" in chase_tracker
+    assert "- locked-roof-door [barrier, regular, Locksmith]" in chase_tracker
+    assert "- Round 1:" in chase_tracker
+    assert "- Round 2:" in chase_tracker
+    assert "- Outcome: quarry escapes" in chase_tracker
     assert "speed roll" in battle_text
     assert "MOV" in battle_text
     assert "movement actions" in battle_text

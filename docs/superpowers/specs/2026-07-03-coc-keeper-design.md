@@ -979,6 +979,7 @@ Required sections:
 ## Mechanical Log
 ## Combat Summary
 ## Chase Summary
+## Chase Tracker
 ## Sanity Summary
 ## Clues Found
 ## Session Ending
@@ -986,7 +987,7 @@ Required sections:
 ## Player Feedback On KP
 ```
 
-The battle report should read like a detailed actual-play replay. It should identify the campaign, module, reusable investigators, key parameters, virtual player utterances, KP utterances, mechanical rolls, durable state changes, story memory, and player feedback on the KP experience. `## Investigator Chronicle` must render sandbox investigator `history.jsonl` and `development.jsonl` entries so the evaluator can see what would carry into a later story without mutating the real investigator library. It should avoid exposing Keeper-only material unless the report is explicitly marked as evaluator-only.
+The battle report should read like a detailed actual-play replay. It should identify the campaign, module, reusable investigators, key parameters, virtual player utterances, KP utterances, mechanical rolls, durable state changes, story memory, and player feedback on the KP experience. `## Investigator Chronicle` must render sandbox investigator `history.jsonl` and `development.jsonl` entries so the evaluator can see what would carry into a later story without mutating the real investigator library. When a run writes `save/chase.json`, `## Chase Tracker` must render participants, DEX order, location chain, rounds, and outcome from that JSON so the chase can be audited without reverse-engineering prose. It should avoid exposing Keeper-only material unless the report is explicitly marked as evaluator-only.
 
 ### Suite Report Output
 
@@ -1000,7 +1001,7 @@ The `semantic-artifact` evaluator is the preferred path when Codex is available 
 
 Every serious playtest run must also generate `rulebook-audit.md` with `coc_playtest_audit.py`. This is the control loop for deciding whether the battle report resembles a real Call of Cthulhu session as described in the Keeper Rulebook, rather than a smoke-test transcript with nicer formatting.
 
-`coc_playtest_harness.py` provides reproducible baselines for this loop. The `rulebook-smoke` profile should generate a small The Haunting-derived run with a real opening hook, player intent, Keeper rulings, an investigation roll, clue flow, a sanity prompt, memory, feedback, and then run the report and audit generators. The `haunting-module` profile should generate a module-level The Haunting transcript with Mr. Knott, Arty Wilmot, Chapel clues, The Old Corbitt Place, Bed Attack, basement hazards, The Floating Knife, Corbitt's Hiding Place, Corbitt combat, final HP/SAN, rewards, explicit Chase Summary non-applicability, sandbox investigator `history.jsonl` and `development.jsonl`, and player feedback. The `chase-drill` profile should generate a rulebook chase drill that writes `save/chase.json`, writes sandbox investigator `history.jsonl` and `development.jsonl`, and shows speed roll, MOV, movement actions, location chain, DEX order, hazard, barrier, conflict, and why the quarry escapes.
+`coc_playtest_harness.py` provides reproducible baselines for this loop. The `rulebook-smoke` profile should generate a small The Haunting-derived run with a real opening hook, player intent, Keeper rulings, an investigation roll, clue flow, a sanity prompt, memory, feedback, and then run the report and audit generators. The `haunting-module` profile should generate a module-level The Haunting transcript with Mr. Knott, Arty Wilmot, Chapel clues, The Old Corbitt Place, Bed Attack, basement hazards, The Floating Knife, Corbitt's Hiding Place, Corbitt combat, final HP/SAN, rewards, explicit Chase Summary non-applicability, sandbox investigator `history.jsonl` and `development.jsonl`, and player feedback. The `chase-drill` profile should generate a rulebook chase drill that writes `save/chase.json`, writes sandbox investigator `history.jsonl` and `development.jsonl`, shows speed roll, MOV, movement actions, location chain, DEX order, hazard, barrier, conflict, and why the quarry escapes, and renders `save/chase.json` as `## Chase Tracker`.
 
 The audit loop is:
 
@@ -1034,6 +1035,7 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit should additio
 - `chase` declared in `subsystems_covered`
 - `save/chase.json` with participants, location chain, round log, and outcome
 - Chase Summary text that explains speed roll, MOV, movement actions, DEX order, hazards, barriers, conflict, and escape/capture
+- populated `## Chase Tracker` text that renders `save/chase.json` participants, DEX order, location chain, rounds, and outcome; otherwise emit `chase_tracker_not_rendered`
 - player feedback and evaluator notes specific to chase readability
 
 ### Evaluation Report Output
