@@ -60,6 +60,7 @@ ZH_HANS_BASE_GLOSSARY = {
     "Charm": "魅惑",
     "Climb": "攀爬",
     "Psychology": "心理学",
+    "Credit Rating": "信用评级",
     "coat-assisted": "借助外套",
     "Obscure clue": "隐晦线索",
     "worm-eaten book": "虫蛀书",
@@ -365,6 +366,81 @@ def _write_investigator_chronicle(
     _write_jsonl(investigator_dir / "inventory-history.jsonl", inventory or [])
 
 
+def _ada_king_creation_record(equipment: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "method": "standard_rulebook_chapter_3",
+        "rulebook_source": "Call of Cthulhu Keeper Rulebook Chapter 3",
+        "rulebook_steps": [
+            "generate_characteristics",
+            "determine_occupation",
+            "allocate_skill_points",
+            "create_backstory",
+            "equip_investigator",
+        ],
+        "characteristics": {
+            "STR": {"formula": "3D6 × 5", "roll_total": 12, "final": 60},
+            "CON": {"formula": "3D6 × 5", "roll_total": 11, "final": 55},
+            "SIZ": {"formula": "2D6+6 × 5", "roll_total": 13, "final": 65},
+            "DEX": {"formula": "3D6 × 5", "roll_total": 10, "final": 50},
+            "APP": {"formula": "3D6 × 5", "roll_total": 9, "final": 45},
+            "INT": {"formula": "2D6+6 × 5", "roll_total": 14, "final": 70},
+            "POW": {"formula": "3D6 × 5", "roll_total": 11, "final": 55},
+            "EDU": {"formula": "2D6+6 × 5", "roll_total": 15, "final": 75},
+            "LUCK": {"formula": "3D6 × 5", "roll_total": 11, "final": 55},
+        },
+        "age": {
+            "value": 32,
+            "range": "20-39",
+            "adjustments": ["EDU improvement check available; no fixture increase applied"],
+        },
+        "derived": {
+            "HP": {"formula": "(CON + SIZ) / 10", "value": 12},
+            "MP": {"formula": "POW / 5", "value": 11},
+            "SAN": {"formula": "POW", "value": 55},
+            "MOV": {"formula": "STR or DEX equals/exceeds SIZ rule", "value": 8},
+            "damage_bonus": {"formula": "STR + SIZ = 125", "value": "0"},
+            "build": {"formula": "STR + SIZ = 125", "value": 0},
+        },
+        "occupation": {
+            "name": "Antiquarian",
+            "skill_point_formula": "EDU × 4",
+            "skill_points_available": 300,
+            "credit_rating_range": "30-70",
+            "occupation_skills": [
+                "Appraise",
+                "Art/Craft",
+                "History",
+                "Library Use",
+                "Other Language",
+                "Persuade",
+                "Spot Hidden",
+                "Psychology",
+            ],
+        },
+        "personal_interest": {
+            "skill_point_formula": "INT × 2",
+            "skill_points_available": 140,
+        },
+        "finances": {
+            "credit_rating": 40,
+            "living_standard": "Average",
+        },
+        "backstory": {
+            "description": "艾达·金是一名研究旧宅产权和民俗传闻的古物学者。",
+            "ideology_beliefs": "老房子会留下居住者的记忆，公开记录能让这些记忆开口。",
+            "significant_people": "莱兰·哈特教授",
+            "meaningful_locations": "斯科利广场附近的旧书店",
+            "treasured_possessions": "裂柄铜放大镜",
+            "traits": ["谨慎记笔记", "先询问目击者再进入危险地点"],
+        },
+        "equipment": equipment or ["裂柄铜放大镜", "笔记本", "钢笔", "左轮"],
+        "notes": [
+            "创建流程按规则书第 3 章记录，战役结束后的物品变化另写入 inventory-history.jsonl。",
+        ],
+    }
+
+
 def _localize_text(text: str, glossary: dict[str, str]) -> str:
     localized = text
     for canonical, replacement in sorted(glossary.items(), key=lambda item: len(item[0]), reverse=True):
@@ -569,6 +645,7 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
             "Psychology": 40,
         },
     })
+    _write_json(investigator_dir / "creation.json", _ada_king_creation_record())
 
     _write_jsonl(run_dir / "transcript.jsonl", [
         {
@@ -1029,6 +1106,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "traits": ["谨慎记笔记", "先询问目击者再进入危险地点"],
         },
     })
+    _write_json(investigator_dir / "creation.json", _ada_king_creation_record())
     _write_investigator_chronicle(
         investigator_dir,
         [
@@ -1375,6 +1453,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "traits": ["观察细致", "遇到追逐时会先找遮蔽物和退路"],
         },
     })
+    _write_json(investigator_dir / "creation.json", _ada_king_creation_record())
     _write_investigator_chronicle(
         investigator_dir,
         [
@@ -1687,6 +1766,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             "traits": ["谨慎记笔记", "愿意听完同伴的鲁莽想法再提出风险"],
         },
     })
+    _write_json(investigator_dir / "creation.json", _ada_king_creation_record())
     _write_investigator_chronicle(
         investigator_dir,
         [

@@ -235,8 +235,10 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
     investigator_ids = _party_investigator_ids(party)
     characters: list[dict[str, Any]] = []
     for investigator_id in investigator_ids:
-        character = _read_json(sandbox_investigators / investigator_id / "character.json", {})
+        path = sandbox_investigators / investigator_id / "character.json"
+        character = _read_json(path, {})
         if character:
+            character["_creation"] = _read_json(path.parent / "creation.json", {})
             characters.append(character)
 
     if characters or not sandbox_investigators.exists():
@@ -245,6 +247,7 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
     for path in sorted(sandbox_investigators.glob("*/character.json")):
         character = _read_json(path, {})
         if character:
+            character["_creation"] = _read_json(path.parent / "creation.json", {})
             characters.append(character)
     return characters
 

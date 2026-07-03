@@ -73,6 +73,13 @@ def investigator_jsonl(run_dir: Path, investigator_id: str, filename: str) -> li
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
+def investigator_json(run_dir: Path, investigator_id: str, filename: str) -> dict:
+    import json
+
+    path = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id / filename
+    return json.loads(path.read_text())
+
+
 def significant_scene_replay_count(run_dir: Path) -> int:
     significant_types = {
         "scene",
@@ -430,6 +437,34 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Spot Hidden: 55" not in character_dossier
     assert "Dodge: 25" not in character_dossier
     assert "Fighting (Brawl): 40" not in character_dossier
+    creation = investigator_json(run_dir, "ada-king-haunting", "creation.json")
+    assert creation["method"] == "standard_rulebook_chapter_3"
+    assert creation["rulebook_steps"] == [
+        "generate_characteristics",
+        "determine_occupation",
+        "allocate_skill_points",
+        "create_backstory",
+        "equip_investigator",
+    ]
+    assert creation["characteristics"]["STR"]["final"] == 60
+    assert creation["occupation"]["name"] == "Antiquarian"
+    assert creation["occupation"]["skill_point_formula"] == "EDU × 4"
+    assert creation["occupation"]["skill_points_available"] == 300
+    assert creation["occupation"]["credit_rating_range"] == "30-70"
+    assert creation["personal_interest"]["skill_point_formula"] == "INT × 2"
+    assert creation["personal_interest"]["skill_points_available"] == 140
+    assert creation["finances"]["credit_rating"] == 40
+    assert "裂柄铜放大镜" in creation["equipment"]
+    creation_section = section_text(battle_text, "## Investigator Creation")
+    assert "## 角色创建记录 <!-- report-anchor: Investigator Creation -->" in battle_text
+    assert battle_text.index("report-anchor: Investigator Creation") < battle_text.index("report-anchor: Actual Play Replay")
+    assert "生成属性: STR 60, CON 55, SIZ 65, DEX 50, APP 45, INT 70, POW 55, EDU 75, LUCK 55" in creation_section
+    assert "职业: 古物学者" in creation_section
+    assert "职业技能点: EDU × 4 = 300" in creation_section
+    assert "个人兴趣技能点: INT × 2 = 140" in creation_section
+    assert "信用评级: 40（规则书职业范围 30-70）" in creation_section
+    assert "装备: 裂柄铜放大镜; 笔记本; 钢笔; 左轮" in creation_section
+    assert "Call of Cthulhu Keeper Rulebook Chapter 3" not in creation_section
     assert investigator_jsonl(run_dir, "ada-king-haunting", "history.jsonl")
     assert investigator_jsonl(run_dir, "ada-king-haunting", "development.jsonl")
     inventory_history = investigator_jsonl(run_dir, "ada-king-haunting", "inventory-history.jsonl")

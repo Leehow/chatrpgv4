@@ -121,6 +121,13 @@ REQUIRED_BACKSTORY_FIELDS = [
     "treasured_possessions",
     "traits",
 ]
+REQUIRED_CREATION_STEPS = [
+    "generate_characteristics",
+    "determine_occupation",
+    "allocate_skill_points",
+    "create_backstory",
+    "equip_investigator",
+]
 PLAYER_READABLE_REPORT_SECTIONS = [
     "Scene-by-Scene Replay",
     "Actual Play Replay",
@@ -300,6 +307,7 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
         path = sandbox_investigators / investigator_id / "character.json"
         character = _read_json(path, {})
         if character:
+            character["_creation"] = _read_json(path.parent / "creation.json", {})
             character["_history"] = _read_jsonl(path.parent / "history.jsonl")
             character["_development"] = _read_jsonl(path.parent / "development.jsonl")
             character["_inventory_history"] = _read_jsonl(path.parent / "inventory-history.jsonl")
@@ -311,6 +319,7 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
     for path in sorted(sandbox_investigators.glob("*/character.json")):
         character = _read_json(path, {})
         if character:
+            character["_creation"] = _read_json(path.parent / "creation.json", {})
             character["_history"] = _read_jsonl(path.parent / "history.jsonl")
             character["_development"] = _read_jsonl(path.parent / "development.jsonl")
             character["_inventory_history"] = _read_jsonl(path.parent / "inventory-history.jsonl")
@@ -427,6 +436,47 @@ def _character_inventory_history_gaps(characters: list[dict[str, Any]]) -> list[
         inventory = character.get("_inventory_history", [])
         if not inventory:
             gaps.append(f"{investigator_id} missing inventory-history.jsonl carryover record")
+    return gaps
+
+
+def _character_creation_gaps(characters: list[dict[str, Any]]) -> list[str]:
+    if not characters:
+        return ["no investigator character files loaded"]
+
+    gaps: list[str] = []
+    for character in characters:
+        investigator_id = str(character.get("id") or character.get("investigator_id") or "unknown")
+        creation = character.get("_creation")
+        if not isinstance(creation, dict) or not creation:
+            gaps.append(f"{investigator_id} missing creation.json")
+            continue
+        steps = creation.get("rulebook_steps", [])
+        if not isinstance(steps, list):
+            gaps.append(f"{investigator_id} creation rulebook_steps must be a list")
+        else:
+            missing_steps = [step for step in REQUIRED_CREATION_STEPS if step not in steps]
+            if missing_steps:
+                gaps.append(f"{investigator_id} creation missing steps: {', '.join(missing_steps)}")
+        characteristics = creation.get("characteristics", {})
+        if not isinstance(characteristics, dict) or not all(
+            isinstance(characteristics.get(key), dict)
+            and characteristics.get(key, {}).get("final") not in (None, "", [], {})
+            for key in ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"]
+        ):
+            gaps.append(f"{investigator_id} creation missing generated characteristics")
+        occupation = creation.get("occupation", {})
+        if not isinstance(occupation, dict) or occupation.get("skill_point_formula") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing occupation skill point formula")
+        if not isinstance(occupation, dict) or occupation.get("credit_rating_range") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing occupation credit rating range")
+        personal_interest = creation.get("personal_interest", {})
+        if not isinstance(personal_interest, dict) or personal_interest.get("skill_point_formula") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing personal interest skill point formula")
+        finances = creation.get("finances", {})
+        if not isinstance(finances, dict) or finances.get("credit_rating") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing selected credit rating")
+        if not _nonempty_list(creation.get("equipment")):
+            gaps.append(f"{investigator_id} creation missing starting equipment")
     return gaps
 
 
@@ -1372,8 +1422,10 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             if event.get("role") == "keeper_under_test" and event.get("speaker_role") == "npc"
         ]
         inventory_records = sum(len(character.get("_inventory_history", [])) for character in context["characters"])
+        creation_records = sum(1 for character in context["characters"] if character.get("_creation"))
         lines.append(f"Module coverage: {covered_count}/{len(HAUNTING_MODULE_COVERAGE)} required The Haunting beats recorded.")
         lines.append(f"NPC roleplay turns: {len(npc_speakers)}; speakers: {', '.join(sorted(set(npc_speakers))) if npc_speakers else 'none'}.")
+        lines.append(f"Investigator creation records: {creation_records}.")
         lines.append(f"Investigator inventory history records: {inventory_records}.")
         lines.append(
             f"Combat evidence: {_event_type_count(events, 'combat')} combat events; "
@@ -1552,6 +1604,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Write sandbox investigator history.jsonl and development.jsonl records so the playtest proves cross-campaign carryover without mutating the real investigator library.",
         ))
 
+    creation_gaps = _character_creation_gaps(context["characters"]) if active_profile else []
+    if creation_gaps:
+        findings.append(_finding(
+            "investigator_creation_missing",
+            "system_gap",
+            "medium",
+            "; ".join(creation_gaps),
+            "Record sandbox investigator creation.json with the rulebook Chapter 3 creation steps, characteristics, occupation skill points, personal interest skill points, credit rating, backstory, and starting equipment.",
+        ))
+
     non_chinese_turns = _non_chinese_dialogue_turns(transcript)
     if active_profile and non_chinese_turns:
         findings.append(_finding(
@@ -1679,6 +1741,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Battle report does not render reusable investigator history and development records.",
             "Render sandbox investigator history.jsonl and development.jsonl in an Investigator Chronicle section.",
+        ))
+    investigator_creation = _section_text(battle_report, "Investigator Creation")
+    if active_profile and (not investigator_creation or "No investigator creation recorded." in investigator_creation):
+        findings.append(_finding(
+            "investigator_creation_missing",
+            "report_gap",
+            "medium",
+            "Battle report does not render the investigator creation workflow.",
+            "Render sandbox investigator creation.json in an Investigator Creation section before the Character Dossier.",
         ))
     chronicle_label_leaks = _chronicle_label_leaks(battle_report, metadata)
     if active_profile and chronicle_label_leaks:

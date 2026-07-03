@@ -56,6 +56,7 @@ BASE_REPORT_HEADING_LABELS = {
     "Battle Report": "Battle Report",
     "Run Setup": "Run Setup",
     "Module": "Module",
+    "Investigator Creation": "Investigator Creation",
     "Character Dossier": "Character Dossier",
     "Investigator Chronicle": "Investigator Chronicle",
     "Scene-by-Scene Replay": "Scene-by-Scene Replay",
@@ -123,6 +124,25 @@ BASE_CHARACTER_DOSSIER_LABELS = {
     "Traits": "Traits",
     "Injuries & Scars": "Injuries & Scars",
     "Phobias & Manias": "Phobias & Manias",
+}
+
+BASE_CREATION_LABELS = {
+    "Rulebook Source": "Rulebook Source",
+    "Method": "Method",
+    "Rulebook Steps": "Rulebook Steps",
+    "Characteristics": "Characteristics",
+    "Age": "Age",
+    "Derived Attributes": "Derived Attributes",
+    "Occupation": "Occupation",
+    "Occupation Skill Points": "Occupation Skill Points",
+    "Personal Interest Skill Points": "Personal Interest Skill Points",
+    "Credit Rating": "Credit Rating",
+    "Rulebook Occupation Range": "rulebook occupation range",
+    "Backstory": "Backstory",
+    "Equipment": "Equipment",
+    "Notes": "Notes",
+    "standard_rulebook_chapter_3": "standard rulebook Chapter 3",
+    "Call of Cthulhu Keeper Rulebook Chapter 3": "Call of Cthulhu Keeper Rulebook Chapter 3",
 }
 
 BASE_CHRONICLE_LABELS = {
@@ -211,6 +231,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Battle Report": "跑团战报",
             "Run Setup": "运行设置",
             "Module": "模组",
+            "Investigator Creation": "角色创建记录",
             "Character Dossier": "角色档案",
             "Investigator Chronicle": "调查员经历",
             "Scene-by-Scene Replay": "逐场景回放",
@@ -275,6 +296,24 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Traits": "特质",
             "Injuries & Scars": "伤疤与伤势",
             "Phobias & Manias": "恐惧与躁狂",
+        },
+        "creation_labels": {
+            "Rulebook Source": "规则书来源",
+            "Method": "创建方法",
+            "Rulebook Steps": "规则书步骤",
+            "Characteristics": "生成属性",
+            "Age": "年龄",
+            "Derived Attributes": "衍生值",
+            "Occupation": "职业",
+            "Occupation Skill Points": "职业技能点",
+            "Personal Interest Skill Points": "个人兴趣技能点",
+            "Credit Rating": "信用评级",
+            "Rulebook Occupation Range": "规则书职业范围",
+            "Backstory": "背景",
+            "Equipment": "装备",
+            "Notes": "备注",
+            "standard_rulebook_chapter_3": "规则书第 3 章标准创建",
+            "Call of Cthulhu Keeper Rulebook Chapter 3": "《克苏鲁的呼唤守秘人规则书》第 3 章",
         },
         "chronicle_labels": {
             "History": "经历",
@@ -382,6 +421,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "report_field_labels": BASE_REPORT_FIELD_LABELS,
         "report_value_labels": BASE_REPORT_VALUE_LABELS,
         "character_dossier_labels": BASE_CHARACTER_DOSSIER_LABELS,
+        "creation_labels": BASE_CREATION_LABELS,
         "chronicle_labels": BASE_CHRONICLE_LABELS,
         "feedback_labels": BASE_FEEDBACK_LABELS,
         "chase_tracker_labels": BASE_CHASE_TRACKER_LABELS,
@@ -421,6 +461,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Battle Report": "プレイ報告",
             "Run Setup": "実行設定",
             "Module": "シナリオ",
+            "Investigator Creation": "探索者作成記録",
             "Character Dossier": "キャラクター記録",
             "Investigator Chronicle": "探索者履歴",
             "Scene-by-Scene Replay": "シーン別リプレイ",
@@ -485,6 +526,24 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Traits": "特徴",
             "Injuries & Scars": "負傷と傷跡",
             "Phobias & Manias": "恐怖症と躁症",
+        },
+        "creation_labels": {
+            "Rulebook Source": "ルールブック出典",
+            "Method": "作成方法",
+            "Rulebook Steps": "ルールブック手順",
+            "Characteristics": "能力値生成",
+            "Age": "年齢",
+            "Derived Attributes": "派生値",
+            "Occupation": "職業",
+            "Occupation Skill Points": "職業技能ポイント",
+            "Personal Interest Skill Points": "個人的興味技能ポイント",
+            "Credit Rating": "信用",
+            "Rulebook Occupation Range": "ルールブック職業範囲",
+            "Backstory": "背景",
+            "Equipment": "装備",
+            "Notes": "メモ",
+            "standard_rulebook_chapter_3": "ルールブック第3章標準作成",
+            "Call of Cthulhu Keeper Rulebook Chapter 3": "Call of Cthulhu Keeper Rulebook 第3章",
         },
         "chronicle_labels": {
             "History": "履歴",
@@ -603,6 +662,7 @@ def language_profile(play_language: str | None = None) -> dict[str, Any]:
     profile["report_field_labels"] = BASE_REPORT_FIELD_LABELS
     profile["report_value_labels"] = BASE_REPORT_VALUE_LABELS
     profile["character_dossier_labels"] = BASE_CHARACTER_DOSSIER_LABELS
+    profile["creation_labels"] = BASE_CREATION_LABELS
     profile["chronicle_labels"] = BASE_CHRONICLE_LABELS
     profile["feedback_labels"] = BASE_FEEDBACK_LABELS
     profile["chase_tracker_labels"] = BASE_CHASE_TRACKER_LABELS

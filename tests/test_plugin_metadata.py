@@ -224,6 +224,8 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "feedback_voice_profile",
         "player_feedback_voice_missing",
         "status_event_not_rendered",
+        "investigator_creation_missing",
+        "Investigator Creation",
         "investigator_inventory_history_missing",
         "haunting_npc_dialogue_missing",
         "chase_player_profile_pressure_missing",

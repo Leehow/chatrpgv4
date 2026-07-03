@@ -601,6 +601,7 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
         path = sandbox_investigators / investigator_id / "character.json"
         character = _read_json(path, {})
         if character:
+            character["_creation"] = _read_json(path.parent / "creation.json", {})
             character["_history"] = _read_jsonl(path.parent / "history.jsonl")
             character["_development"] = _read_jsonl(path.parent / "development.jsonl")
             character["_inventory_history"] = _read_jsonl(path.parent / "inventory-history.jsonl")
@@ -612,6 +613,7 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
     for path in sorted(sandbox_investigators.glob("*/character.json")):
         character = _read_json(path, {})
         if character:
+            character["_creation"] = _read_json(path.parent / "creation.json", {})
             character["_history"] = _read_jsonl(path.parent / "history.jsonl")
             character["_development"] = _read_jsonl(path.parent / "development.jsonl")
             character["_inventory_history"] = _read_jsonl(path.parent / "inventory-history.jsonl")
@@ -742,6 +744,116 @@ def _format_character(
         )
     )
     lines.extend(_format_backstory(character.get("backstory"), terms, profile))
+    return lines
+
+
+def _creation_label(language_profile: dict[str, Any] | None, canonical: str) -> str:
+    return _localized_report_label(language_profile or {}, "creation_labels", canonical)
+
+
+def _format_characteristic_creation_values(creation: dict[str, Any]) -> str:
+    values = creation.get("characteristics", {})
+    if not isinstance(values, dict):
+        return "none recorded"
+    ordered = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"]
+    parts: list[str] = []
+    for key in ordered:
+        value = values.get(key)
+        if isinstance(value, dict) and value.get("final") not in (None, "", [], {}):
+            parts.append(f"{key} {value['final']}")
+    for key in sorted(values):
+        if key in ordered:
+            continue
+        value = values[key]
+        if isinstance(value, dict) and value.get("final") not in (None, "", [], {}):
+            parts.append(f"{key} {value['final']}")
+    return ", ".join(parts) if parts else "none recorded"
+
+
+def _format_formula_points(formula: Any, points: Any) -> str:
+    if formula in (None, "", [], {}):
+        return str(points) if points not in (None, "", [], {}) else "none recorded"
+    if points in (None, "", [], {}):
+        return str(formula)
+    return f"{formula} = {points}"
+
+
+def _format_creation_credit_rating(
+    creation: dict[str, Any],
+    language_profile: dict[str, Any] | None,
+    play_language: str,
+) -> str | None:
+    occupation = creation.get("occupation", {})
+    finances = creation.get("finances", {})
+    if not isinstance(occupation, dict) or not isinstance(finances, dict):
+        return None
+    credit_rating = finances.get("credit_rating")
+    if credit_rating in (None, "", [], {}):
+        return None
+    rating_range = occupation.get("credit_rating_range")
+    label = _creation_label(language_profile, "Credit Rating")
+    if rating_range in (None, "", [], {}):
+        return f"  - {label}: {credit_rating}"
+    range_label = _creation_label(language_profile, "Rulebook Occupation Range")
+    if play_language == "zh-Hans":
+        return f"  - {label}: {credit_rating}（{range_label} {rating_range}）"
+    return f"  - {label}: {credit_rating} ({range_label} {rating_range})"
+
+
+def _format_equipment(values: Any, localized_terms: dict[str, str]) -> str:
+    if not isinstance(values, list) or not values:
+        return "none recorded"
+    return "; ".join(_localize_text(value, localized_terms) for value in values)
+
+
+def _format_investigator_creation(
+    character: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+    language_profile: dict[str, Any] | None = None,
+) -> list[str]:
+    creation = character.get("_creation", {})
+    if not isinstance(creation, dict) or not creation:
+        return []
+
+    terms = localized_terms or {}
+    profile = language_profile or {}
+    investigator_id = character.get("investigator_id") or character.get("id") or "unknown"
+    name = _localize_text(character.get("name") or investigator_id or "Unknown Investigator", terms)
+    lines = [f"- {name} ({investigator_id})"]
+    lines.append(
+        f"  - {_creation_label(profile, 'Characteristics')}: "
+        f"{_format_characteristic_creation_values(creation)}"
+    )
+    occupation = creation.get("occupation", {})
+    if isinstance(occupation, dict):
+        if occupation.get("name") not in (None, "", [], {}):
+            lines.append(
+                f"  - {_creation_label(profile, 'Occupation')}: "
+                f"{_localize_text(occupation['name'], terms)}"
+            )
+        if occupation.get("skill_point_formula") not in (None, "", [], {}) or occupation.get("skill_points_available") not in (None, "", [], {}):
+            lines.append(
+                f"  - {_creation_label(profile, 'Occupation Skill Points')}: "
+                f"{_format_formula_points(occupation.get('skill_point_formula'), occupation.get('skill_points_available'))}"
+            )
+    personal_interest = creation.get("personal_interest", {})
+    if isinstance(personal_interest, dict) and (
+        personal_interest.get("skill_point_formula") not in (None, "", [], {})
+        or personal_interest.get("skill_points_available") not in (None, "", [], {})
+    ):
+        lines.append(
+            f"  - {_creation_label(profile, 'Personal Interest Skill Points')}: "
+            f"{_format_formula_points(personal_interest.get('skill_point_formula'), personal_interest.get('skill_points_available'))}"
+        )
+    credit_line = _format_creation_credit_rating(creation, profile, play_language)
+    if credit_line:
+        lines.append(credit_line)
+    if creation.get("equipment") not in (None, "", [], {}):
+        lines.append(
+            f"  - {_creation_label(profile, 'Equipment')}: "
+            f"{_format_equipment(creation.get('equipment'), terms)}"
+        )
     return lines
 
 
@@ -1303,6 +1415,14 @@ def generate_battle_report(run_dir: Path) -> Path:
         for event in state_events
         if event.get("type") == "session_ending"
     ]
+    creation_lines: list[str] = []
+    for character in characters:
+        creation_lines.extend(_format_investigator_creation(
+            character,
+            localized_terms,
+            str(play_language),
+            language_profile,
+        ))
     character_lines: list[str] = []
     for character in characters:
         character_lines.extend(_format_character(character, localized_terms, language_profile))
@@ -1357,6 +1477,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_field("Scenario ID", scenario_id, language_profile),
         _report_field("Source", _localize_text(module_source, localized_terms), language_profile),
         _report_field("Opening Scene", _localize_text(scenario.get("opening_scene", "not recorded"), localized_terms), language_profile),
+        "",
+        _report_heading(2, "Investigator Creation", language_profile),
+        *_list_lines(creation_lines, "- No investigator creation recorded."),
         "",
         _report_heading(2, "Character Dossier", language_profile),
         *_list_lines(character_lines, "- No character sheets recorded."),
