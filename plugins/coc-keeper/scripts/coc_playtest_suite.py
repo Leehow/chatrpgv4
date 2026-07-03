@@ -163,6 +163,15 @@ class SemanticArtifactCoverageEvaluator:
             raise ValueError(f"{result_path} must use schema_version 1")
         if payload.get("run_id") != context.run_id:
             raise ValueError(f"{result_path} run_id must be {context.run_id}")
+        schema_errors: list[str] = []
+        if "root_cause_classification" not in payload:
+            schema_errors.append("root_cause_classification")
+        elif not isinstance(payload.get("root_cause_classification"), list):
+            schema_errors.append("root_cause_classification")
+        if "next_loop_fix_target" not in payload:
+            schema_errors.append("next_loop_fix_target")
+        elif not isinstance(payload.get("next_loop_fix_target"), str) or not payload.get("next_loop_fix_target"):
+            schema_errors.append("next_loop_fix_target")
         return {
             "coverage_evaluator": payload.get("evaluator_id", self.evaluator_id),
             "semantic_eval_result": relative_result,
@@ -170,6 +179,7 @@ class SemanticArtifactCoverageEvaluator:
             "quality": payload.get("quality", {}),
             "root_cause_classification": payload.get("root_cause_classification", []),
             "next_loop_fix_target": payload.get("next_loop_fix_target", "none"),
+            "semantic_artifact_schema_errors": schema_errors,
         }
 
 
@@ -354,7 +364,12 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
             "quality_passes": quality_passes,
             "quality_reasons": quality_reasons,
         }
-        for optional_key in ("semantic_eval_result", "root_cause_classification", "next_loop_fix_target"):
+        for optional_key in (
+            "semantic_eval_result",
+            "root_cause_classification",
+            "next_loop_fix_target",
+            "semantic_artifact_schema_errors",
+        ):
             if optional_key in raw_evaluation:
                 run[optional_key] = raw_evaluation[optional_key]
         runs.append(run)
@@ -443,6 +458,14 @@ def _loop_decision(index: dict[str, Any]) -> dict[str, Any]:
                 "run_id": run["run_id"],
                 "root_cause_classification": run.get("root_cause_classification", ["test_gap"]),
                 "next_loop_fix_target": run.get("next_loop_fix_target", f"Fix audit failure for {run['run_id']}."),
+            })
+        elif run.get("semantic_artifact_schema_errors"):
+            errors = ", ".join(run["semantic_artifact_schema_errors"])
+            blockers.append({
+                "type": "semantic_artifact_schema_invalid",
+                "run_id": run["run_id"],
+                "root_cause_classification": ["test_gap"],
+                "next_loop_fix_target": f"Regenerate semantic-eval-result.json with required field(s): {errors}.",
             })
         elif _run_needs_semantic_result(run):
             blockers.append({

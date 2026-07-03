@@ -173,6 +173,44 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     semantic_request = _read_json(artifacts_dir / "semantic-eval-request.json", {})
     semantic = _read_json(artifacts_dir / "semantic-eval-result.json", {})
     if semantic:
+        missing_required_fields = [
+            field
+            for field in ("root_cause_classification", "next_loop_fix_target")
+            if field not in semantic
+        ]
+        if missing_required_fields:
+            findings.append(_finding(
+                "semantic_required_field_missing",
+                "test_gap",
+                f"{run_id} semantic-eval-result.json missing fields: {', '.join(missing_required_fields)}.",
+                "Regenerate semantic-eval-result.json with all required loop fields.",
+                run_id=run_id,
+                missing_fields=missing_required_fields,
+            ))
+        if "root_cause_classification" in semantic and not isinstance(semantic.get("root_cause_classification"), list):
+            findings.append(_finding(
+                "semantic_required_field_invalid",
+                "test_gap",
+                f"{run_id} root_cause_classification is not a list.",
+                "Regenerate semantic-eval-result.json so root_cause_classification is a list of root-cause labels.",
+                run_id=run_id,
+                key="root_cause_classification",
+            ))
+        if (
+            "next_loop_fix_target" in semantic
+            and (
+                not isinstance(semantic.get("next_loop_fix_target"), str)
+                or not semantic.get("next_loop_fix_target")
+            )
+        ):
+            findings.append(_finding(
+                "semantic_required_field_invalid",
+                "test_gap",
+                f"{run_id} next_loop_fix_target is not a non-empty string.",
+                "Regenerate semantic-eval-result.json so next_loop_fix_target names the next loop action or none.",
+                run_id=run_id,
+                key="next_loop_fix_target",
+            ))
         if semantic.get("evaluator_id") != "codex-llm-semantic-v1":
             findings.append(_finding(
                 "semantic_evaluator_unexpected",

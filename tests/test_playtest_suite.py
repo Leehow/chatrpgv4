@@ -362,6 +362,46 @@ def test_suite_report_requires_structured_semantic_coverage_reason(tmp_path):
     assert index["loop_decision"]["blockers"][0]["key"] == "chase"
 
 
+def test_suite_report_requires_semantic_result_loop_fields(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "semantic-artifact-run"
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "semantic-artifact-run",
+        "campaign_title": "Semantic Artifact Fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": "semantic_fixture",
+        "player_profile": "careful_investigator",
+    }))
+    (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "semantic-artifact-run",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "coverage": {
+            key: {"covered": True, "reason": f"{key} covered by fixture."}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": {
+            key: {"score": 4, "passed": True, "reason": f"{key} passed by fixture."}
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        },
+        "next_loop_fix_target": "none",
+    }))
+
+    coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["blockers"][0]["type"] == "semantic_artifact_schema_invalid"
+    assert index["loop_decision"]["blockers"][0]["run_id"] == "semantic-artifact-run"
+    assert "root_cause_classification" in index["loop_decision"]["blockers"][0]["next_loop_fix_target"]
+
+
 def test_suite_report_flags_missing_virtual_player_pressure_quality(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "single-profile-run"
     artifacts_dir = run_dir / "artifacts"
