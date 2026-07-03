@@ -341,6 +341,45 @@ def test_completion_audit_fails_when_rulebook_audit_missing_required_sections(tm
     assert "## Next Loop Fix Target" in finding["missing_sections"]
 
 
+def test_completion_audit_fails_when_rulebook_audit_artifact_is_not_pass(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(
+        run_dir / "artifacts" / "rulebook-audit.md",
+        "\n\n".join([
+            "# Rulebook Alignment Audit",
+            "## Overall Result\nFAIL",
+            "## Positive Rulebook Evidence\n- Fixture evidence.",
+            "## Root Cause Classification\n- report_gap",
+            "## Blueprint Cross-Check\n- designed_not_implemented",
+            "## Next Loop Fix Target\n- Regenerate report.",
+        ]) + "\n",
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(
+        finding["code"] == "rulebook_audit_result_not_pass" and finding["run_id"] == "v2-haunting-module"
+        for finding in audit["findings"]
+    )
+
+
 def test_completion_audit_fails_when_required_coverage_dimension_missing_from_index(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

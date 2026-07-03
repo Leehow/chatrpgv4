@@ -314,6 +314,35 @@ def _rulebook_audit_section_findings(run_id: str, rulebook_audit: str) -> list[d
     )]
 
 
+def _markdown_section_first_value(markdown: str, heading: str) -> str:
+    lines = markdown.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() != heading:
+            continue
+        for value in lines[index + 1:]:
+            stripped = value.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("#"):
+                return ""
+            return stripped
+    return ""
+
+
+def _rulebook_audit_result_findings(run_id: str, rulebook_audit: str) -> list[dict[str, Any]]:
+    overall_result = _markdown_section_first_value(rulebook_audit, "## Overall Result")
+    if overall_result == "PASS":
+        return []
+    return [_finding(
+        "rulebook_audit_result_not_pass",
+        "test_gap",
+        f"{run_id} rulebook-audit.md Overall Result={overall_result or 'missing'}",
+        "Regenerate the run and fix rulebook-audit findings before completion audit.",
+        run_id=run_id,
+        overall_result=overall_result or "missing",
+    )]
+
+
 def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     run_id = str(run.get("run_id"))
@@ -390,6 +419,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
 
     rulebook_audit = _read_text(artifacts_dir / "rulebook-audit.md")
     findings.extend(_rulebook_audit_section_findings(run_id, rulebook_audit))
+    findings.extend(_rulebook_audit_result_findings(run_id, rulebook_audit))
 
     evaluation_report = _read_text(artifacts_dir / "evaluation-report.md")
     findings.extend(_evaluation_report_section_findings(run_id, evaluation_report))
