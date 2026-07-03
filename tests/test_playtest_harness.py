@@ -968,6 +968,17 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "[/meta]" not in session_transcript
     assert "为什么这里可以推骰" in actual_play
     assert "失败后果" in actual_play
+    assert (
+        '第 7a 轮 玩家: "我想确认一下：为什么这里可以推骰？失败后果是不是要先说清楚？"\n'
+        "  - 意图: 询问推骰裁定\n"
+        "  - 模式: 超游"
+    ) in actual_play
+    assert (
+        '第 7b 轮 KP: "可以，因为你不是重掷同一个动作，而是改变策略：亮出钥匙、强调可能阻止悲剧。'
+        '失败后果会先摆明：阿蒂会叫维护工，你今天失去查档机会。确认后我们回到场景。"\n'
+        "  - 裁定: 推骰说明\n"
+        "  - 模式: 超游"
+    ) in actual_play
     assert all("Ada King" not in text for text in visible_play_texts(run_dir))
     assert all("Mr. Knott" not in text for text in visible_play_texts(run_dir))
     assert all("Walter Corbitt" not in text for text in visible_play_texts(run_dir))

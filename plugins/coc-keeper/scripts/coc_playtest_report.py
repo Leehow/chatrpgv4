@@ -1226,7 +1226,7 @@ def _format_actual_play_event(
     if event.get("ruling"):
         ruling = _localized_field(event, "ruling", terms, play_language) or str(event["ruling"])
         lines.append(f"  - {_transcript_label(language_profile, 'ruling', 'Ruling')}: {ruling}")
-    if event.get("mode") == "roll":
+    if event.get("mode") and event.get("mode") != "play":
         mode = _transcript_mode_label(language_profile, event["mode"])
         lines.append(f"  - {_transcript_label(language_profile, 'mode', 'Mode')}: {mode}")
     return lines
