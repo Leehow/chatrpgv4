@@ -547,6 +547,47 @@ def test_completion_audit_fails_when_campaign_logs_and_memory_lack_structured_ev
     assert "session memory summary" in finding["missing_evidence"]
 
 
+def test_completion_audit_fails_when_investigator_sources_lack_reusable_character_evidence(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    investigator_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "sandbox" / ".coc" / "investigators" / "v2-haunting-module-investigator"
+    write_json(investigator_dir / "creation.json", {})
+    write_json(investigator_dir / "character.json", {})
+    write_jsonl(investigator_dir / "history.jsonl", [{}])
+    write_jsonl(investigator_dir / "development.jsonl", [{}])
+    write_jsonl(investigator_dir / "inventory-history.jsonl", [{}])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_incomplete")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "sandbox/.coc/investigators/v2-haunting-module-investigator/creation.json" in finding["incomplete_files"]
+    assert "sandbox/.coc/investigators/v2-haunting-module-investigator/character.json" in finding["incomplete_files"]
+    assert "sandbox/.coc/investigators/v2-haunting-module-investigator/history.jsonl" in finding["incomplete_files"]
+    assert "sandbox/.coc/investigators/v2-haunting-module-investigator/development.jsonl" in finding["incomplete_files"]
+    assert "sandbox/.coc/investigators/v2-haunting-module-investigator/inventory-history.jsonl" in finding["incomplete_files"]
+    assert "investigator skill allocation" in finding["missing_evidence"]
+    assert "investigator character skills" in finding["missing_evidence"]
+    assert "investigator history summary" in finding["missing_evidence"]
+    assert "investigator development record" in finding["missing_evidence"]
+    assert "investigator inventory summary" in finding["missing_evidence"]
+
+
 def test_completion_audit_fails_when_battle_report_missing_required_anchors(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

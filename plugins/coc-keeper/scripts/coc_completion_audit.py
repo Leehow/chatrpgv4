@@ -758,6 +758,71 @@ def _campaign_structure_findings(run_id: str, campaign_dir: Path, campaign_prefi
     return findings
 
 
+def _investigator_structure_findings(run_id: str, investigator_dir: Path, investigator_prefix: str) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    missing_evidence: list[str] = []
+    incomplete_files: list[str] = []
+
+    creation = _read_json(investigator_dir / "creation.json", {})
+    character = _read_json(investigator_dir / "character.json", {})
+    history = _read_jsonl(investigator_dir / "history.jsonl")
+    development = _read_jsonl(investigator_dir / "development.jsonl")
+    inventory = _read_jsonl(investigator_dir / "inventory-history.jsonl")
+
+    has_skill_allocation = (
+        isinstance(creation, dict)
+        and isinstance(creation.get("skill_allocation"), dict)
+        and bool(creation["skill_allocation"])
+    )
+    has_character_skills = (
+        isinstance(character, dict)
+        and isinstance(character.get("skills"), dict)
+        and bool(character["skills"])
+    )
+    has_history_summary = any(
+        isinstance(row.get("summary"), str)
+        and bool(row["summary"].strip())
+        for row in history
+    )
+    has_development_record = any(
+        any(key in row for key in ("summary", "status", "rewards", "carryover_notes", "skill_checks_earned"))
+        for row in development
+    )
+    has_inventory_summary = any(
+        isinstance(row.get("summary"), str)
+        and bool(row["summary"].strip())
+        for row in inventory
+    )
+
+    if not has_skill_allocation:
+        missing_evidence.append("investigator skill allocation")
+        incomplete_files.append(f"{investigator_prefix}creation.json")
+    if not has_character_skills:
+        missing_evidence.append("investigator character skills")
+        incomplete_files.append(f"{investigator_prefix}character.json")
+    if not has_history_summary:
+        missing_evidence.append("investigator history summary")
+        incomplete_files.append(f"{investigator_prefix}history.jsonl")
+    if not has_development_record:
+        missing_evidence.append("investigator development record")
+        incomplete_files.append(f"{investigator_prefix}development.jsonl")
+    if not has_inventory_summary:
+        missing_evidence.append("investigator inventory summary")
+        incomplete_files.append(f"{investigator_prefix}inventory-history.jsonl")
+
+    if missing_evidence:
+        findings.append(_finding(
+            "active_run_source_files_incomplete",
+            "test_gap",
+            f"{run_id} investigator source files lack reusable character evidence: {', '.join(missing_evidence)}.",
+            "Regenerate the active run so reusable investigator source files contain creation, character, history, development, and inventory evidence before completion audit.",
+            run_id=run_id,
+            incomplete_files=incomplete_files,
+            missing_evidence=missing_evidence,
+        ))
+    return findings
+
+
 def _investigator_ids_from_party(party: dict[str, Any]) -> list[str]:
     investigator_ids: list[str] = []
     for key in ("active_investigator_ids", "investigator_ids"):
@@ -826,6 +891,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             REQUIRED_INVESTIGATOR_SOURCE_FILES,
             display_prefix=investigator_prefix,
         ))
+        findings.extend(_investigator_structure_findings(run_id, investigator_dir, investigator_prefix))
 
     if missing_files:
         findings.append(_finding(
