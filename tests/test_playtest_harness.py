@@ -1,4 +1,5 @@
 import importlib.util
+import re
 from pathlib import Path
 
 
@@ -129,6 +130,15 @@ def assert_player_view_roll_outcomes_localized(run_dir: Path) -> None:
     for canonical in labels:
         assert canonical not in visible_text
     assert any(display in visible_text for display in labels.values())
+    allowed_rule_abbreviations = {"CON", "DEX", "POW", "INT", "HP", "SAN", "MOV"}
+    english_tokens = {
+        token
+        for event in run_jsonl(run_dir, "player-view.jsonl")
+        if event.get("role") == "system" and event.get("mode") == "roll"
+        for token in re.findall(r"[A-Za-z]{3,}", str(event.get("text", "")))
+        if token not in allowed_rule_abbreviations
+    }
+    assert english_tokens == set()
 
 
 PUSHED_ROLL_PROTOCOL_STAGES = [

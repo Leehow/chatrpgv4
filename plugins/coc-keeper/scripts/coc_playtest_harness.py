@@ -14,7 +14,14 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from coc_playtest_audit import generate_rulebook_audit
-from coc_playtest_report import generate_battle_report, generate_evaluation_report
+from coc_playtest_report import (
+    _event_roll_count,
+    _format_roll_recap,
+    _format_roll_transcript_text,
+    _localized_actor_names,
+    generate_battle_report,
+    generate_evaluation_report,
+)
 from coc_language import language_profile
 
 
@@ -475,11 +482,35 @@ def _player_view_glossary(metadata: dict[str, Any]) -> dict[str, str]:
     return glossary
 
 
-def _player_view_event(event: dict[str, Any], glossary: dict[str, str]) -> dict[str, Any]:
+def _player_view_event(
+    event: dict[str, Any],
+    glossary: dict[str, str],
+    rendered_text: str | None = None,
+) -> dict[str, Any]:
     visible = dict(event)
-    if isinstance(visible.get("text"), str):
+    if rendered_text is not None:
+        visible["text"] = rendered_text
+    elif isinstance(visible.get("text"), str):
         visible["text"] = _localize_text(visible["text"], glossary)
     return {**visible, "view": "player", "type": "transcript_turn"}
+
+
+def _player_view_transcript_events(
+    transcript: list[dict[str, Any]],
+    roll_recaps: list[str],
+    glossary: dict[str, str],
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    roll_cursor = 0
+    for event in transcript:
+        rendered_text = None
+        if event.get("mode") == "roll":
+            roll_count = _event_roll_count(event, len(roll_recaps) - roll_cursor)
+            recaps = roll_recaps[roll_cursor: roll_cursor + roll_count]
+            rendered_text = _format_roll_transcript_text(event, recaps, glossary)
+            roll_cursor += roll_count
+        events.append(_player_view_event(event, glossary, rendered_text))
+    return events
 
 
 def _write_view_streams(run_dir: Path) -> None:
@@ -488,6 +519,17 @@ def _write_view_streams(run_dir: Path) -> None:
     scenario = _read_json(campaign_dir / "scenario" / "scenario.json", {}) if campaign_dir else {}
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
     player_glossary = _player_view_glossary(metadata)
+    public_characters = _public_character_states(run_dir, campaign_dir)
+    language_profile = metadata.get("language_profile", {})
+    if not isinstance(language_profile, dict):
+        language_profile = {}
+    play_language = str(metadata.get("play_language") or "en-US")
+    actor_names = _localized_actor_names(public_characters, player_glossary)
+    roll_events = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl") if campaign_dir else []
+    roll_recaps = [
+        _format_roll_recap(event, actor_names, player_glossary, play_language, language_profile)
+        for event in roll_events
+    ]
     public_state = {
         "view": "player",
         "type": "public_character_state",
@@ -498,7 +540,7 @@ def _write_view_streams(run_dir: Path) -> None:
             "opening_scene": scenario.get("opening_scene"),
             "current_phase": scenario.get("current_phase"),
         },
-        "investigators": _public_character_states(run_dir, campaign_dir),
+        "investigators": public_characters,
     }
     keeper_context = {
         "view": "keeper",
@@ -507,7 +549,7 @@ def _write_view_streams(run_dir: Path) -> None:
         "scenario_id": scenario.get("scenario_id"),
         "keeper_secret_ids": _keeper_secret_ids(campaign_dir),
     }
-    player_events = [public_state] + [_player_view_event(event, player_glossary) for event in transcript]
+    player_events = [public_state] + _player_view_transcript_events(transcript, roll_recaps, player_glossary)
     keeper_events = [keeper_context] + [
         {**event, "view": "keeper", "type": "transcript_turn"}
         for event in transcript
