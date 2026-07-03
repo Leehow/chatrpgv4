@@ -27,3 +27,33 @@ def test_validate_rules_script_accepts_seed_rules():
     spec.loader.exec_module(module)
 
     assert module.validate_rules(PLUGIN_ROOT) == []
+
+
+def test_all_v1_skills_have_valid_frontmatter():
+    expected = {
+        "coc-main",
+        "coc-campaign-state",
+        "coc-rules-engine",
+        "coc-character",
+        "coc-scenario-import",
+        "coc-keeper-play",
+        "coc-meta",
+        "coc-playtest",
+        "coc-combat",
+        "coc-chase",
+        "coc-sanity",
+        "coc-mythos-reference",
+    }
+    found = set()
+    for skill_path in (PLUGIN_ROOT / "skills").glob("*/SKILL.md"):
+        text = skill_path.read_text()
+        assert text.startswith("---\n")
+        header = text.split("---", 2)[1]
+        name_line = next(line for line in header.splitlines() if line.startswith("name: "))
+        description_line = next(line for line in header.splitlines() if line.startswith("description: "))
+        name = name_line.split(": ", 1)[1].strip()
+        description = description_line.split(": ", 1)[1].strip()
+        assert name == skill_path.parent.name
+        assert len(description) > 40
+        found.add(name)
+    assert found == expected

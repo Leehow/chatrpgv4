@@ -1,3 +1,5 @@
 .DS_Store
 pdf/
 .coc/
+__pycache__/
+.pytest_cache/
