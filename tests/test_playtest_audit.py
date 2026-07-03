@@ -432,3 +432,31 @@ def test_active_audit_requires_chinese_visible_kp_and_player_dialogue(tmp_path):
     assert "visible_dialogue_not_chinese" in finding_codes(audit)
     assert "player_report_sections_not_chinese" in finding_codes(audit)
     assert "scene_replay_missing" in finding_codes(audit)
+
+
+def test_active_audit_rejects_thin_scene_replay_when_significant_events_exist(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# Battle Report\n\n"
+        "## Scene-by-Scene Replay\n"
+        "- intro: 这是一条中文场景回放。\n\n"
+        "## Actual Play Replay\n"
+        "- Turn 1 KP: \"这是中文主持描述。\"\n\n"
+        "## Major Player Decisions\n"
+        "- Ada 选择继续调查。\n\n"
+        "## Story Recap\n"
+        "- Ada 接受委托并找到线索。\n\n"
+        "## Player Feedback On KP\n"
+        "- kp_clarity: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "scene_replay_too_thin" in finding_codes(audit)

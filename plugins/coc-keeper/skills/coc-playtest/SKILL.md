@@ -77,11 +77,14 @@ Before generating reports, record the run context:
 - `## Run Setup`
 - `## Module`
 - `## Character Dossier`
+- `## Scene-by-Scene Replay`
 - `## Actual Play Replay`
 - `## Session Transcript`
 - `## Mechanical Log`
 - `## Story Recap`
 - `## Player Feedback On KP`
+
+`## Scene-by-Scene Replay` should render each significant structured play event from `events.jsonl` before the transcript appendix: scene, clue, damage, sanity, combat, chase, and session-ending events. This section is a table-readable episode map for the actual play report, not just a list of opening locations.
 
 Flag spoiler leaks, state errors, unlogged rolls, poor pacing, and incorrect rules.
 
@@ -110,6 +113,7 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit must also 
 - fail to record Corbitt combat resolution
 - omit final HP, final SAN, rewards, or unresolved state
 - omit Chinese visible KP/player dialogue or the `## Actual Play Replay` section
+- render a thin `## Scene-by-Scene Replay` that omits significant structured play events
 - leave Chase Summary empty instead of explaining that The Haunting has no required chase sequence
 
 When `playtest.json` sets `audit_profile: chase_drill`, the audit must also reject runs that:
@@ -119,3 +123,4 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit must also reje
 - fail to show speed roll, MOV, movement actions, hazard, barrier, conflict, and quarry escapes in Chase Summary
 - claim a chase happened without recording the state and rolls that explain how it resolved
 - omit Chinese visible KP/player dialogue or the `## Actual Play Replay` section
+- render a thin `## Scene-by-Scene Replay` that omits significant structured play events

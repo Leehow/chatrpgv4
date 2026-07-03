@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 
+SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
+
+
 def _read_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
@@ -148,10 +151,24 @@ def _format_subsystem_event(event: dict[str, Any]) -> str:
 
 
 def _format_scene_replay_event(event: dict[str, Any]) -> str:
+    event_type = event.get("type", "event")
     payload = event.get("payload", {})
-    scene_id = payload.get("scene_id") or "scene"
-    summary = _event_summary(event, "scene recorded")
-    return f"- {scene_id}: {summary}"
+    if event_type == "scene":
+        scene_id = payload.get("scene_id") or "scene"
+        summary = _event_summary(event, "scene recorded")
+        return f"- {scene_id}: {summary}"
+    if event_type == "clue":
+        clue_id = payload.get("clue_id") or "clue"
+        summary = _event_summary(event, "clue recorded")
+        return f"- clue:{clue_id}: {summary}"
+    event_label = event_type.replace("_", " ")
+    actor = _display_actor(event.get("actor", "unknown"))
+    summary = _event_summary(event, f"{event_label} recorded")
+    return f"- {event_label}: {actor} - {summary}"
+
+
+def _scene_replay_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [event for event in events if event.get("type") in SCENE_REPLAY_EVENT_TYPES]
 
 
 def _list_lines(items: list[str], empty: str) -> list[str]:
@@ -365,7 +382,7 @@ def generate_battle_report(run_dir: Path) -> Path:
     state_lines = [_format_state_event(event) for event in state_events]
     decision_lines = [_format_decision(event) for event in state_events if event.get("type") == "decision"]
     clue_lines = [_format_clue(event) for event in state_events if event.get("type") == "clue"]
-    scene_replay_lines = [_format_scene_replay_event(event) for event in state_events if event.get("type") == "scene"]
+    scene_replay_lines = [_format_scene_replay_event(event) for event in _scene_replay_events(state_events)]
     combat_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "combat"]
     chase_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "chase"]
     sanity_lines = [_format_subsystem_event(event) for event in state_events if event.get("type") == "sanity"]

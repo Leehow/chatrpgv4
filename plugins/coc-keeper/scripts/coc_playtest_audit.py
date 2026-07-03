@@ -55,6 +55,8 @@ CHASE_REPORT_MOMENTS = [
     "quarry escapes",
 ]
 
+SCENE_REPLAY_EVENT_TYPES = {"scene", "clue", "damage", "sanity", "combat", "chase", "session_ending"}
+
 
 def _read_json(path: Path, default: Any) -> Any:
     if not path.exists():
@@ -231,6 +233,14 @@ def _player_report_sections_without_chinese(battle_report: str) -> list[str]:
     ]
 
 
+def _scene_replay_bullet_count(section: str) -> int:
+    return sum(1 for line in section.splitlines() if line.startswith("- "))
+
+
+def _significant_scene_replay_event_count(events: list[dict[str, Any]]) -> int:
+    return sum(1 for event in events if event.get("type") in SCENE_REPLAY_EVENT_TYPES)
+
+
 def _haunting_module_required(metadata: dict[str, Any]) -> bool:
     return metadata.get("audit_profile") == "haunting_module"
 
@@ -376,6 +386,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "Battle report does not include a Chinese Scene-by-Scene Replay section.",
             "Render scene events as a Chinese scene-by-scene replay so evaluators can read the session as table scenes before the turn transcript.",
+        ))
+    significant_scene_events = _significant_scene_replay_event_count(context["events"])
+    scene_replay_bullets = _scene_replay_bullet_count(scene_replay)
+    if active_profile and _has_cjk(scene_replay) and scene_replay_bullets < significant_scene_events:
+        findings.append(_finding(
+            "scene_replay_too_thin",
+            "report_gap",
+            "medium",
+            f"Scene-by-Scene Replay renders {scene_replay_bullets} bullets for {significant_scene_events} significant play events.",
+            "Render each significant scene, clue, damage, sanity, combat, chase, and session-ending event in the scene replay before the transcript appendix.",
         ))
 
     non_chinese_report_sections = _player_report_sections_without_chinese(battle_report) if active_profile else []
