@@ -525,6 +525,23 @@ def test_chase_drill_audit_requires_object_transfer_for_carried_chase_prize(tmp_
     assert "chase_object_transfer_missing" in finding_codes(audit)
 
 
+def test_chase_drill_audit_rejects_round_turns_out_of_dex_order(tmp_path):
+    run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
+    chase_path = run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json"
+    chase_state = json.loads(chase_path.read_text())
+    chase_state["dex_order"] = ["nathaniel-crowe", "ada-king-chase"]
+    chase_state["rounds"][0]["turns"] = [
+        {"actor_id": "ada-king-chase", "action": "cross_hazard"},
+        {"actor_id": "nathaniel-crowe", "action": "close_distance"},
+    ]
+    chase_path.write_text(json.dumps(chase_state))
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "chase_dex_order_not_proven" in finding_codes(audit)
+
+
 def test_active_audit_rejects_unlocalized_chase_tracker_labels(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "chase-tracker-labels"
     create_final_rulebook_run(run_dir)

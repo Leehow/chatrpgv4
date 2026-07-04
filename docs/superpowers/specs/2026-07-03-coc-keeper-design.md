@@ -356,6 +356,7 @@ Responsibilities:
 - establish chase groups
 - MOV and speed adjustments
 - location chains
+- DEX order and per-round turn order
 - barriers and hazards
 - movement actions
 - conflict during chases
@@ -548,7 +549,7 @@ The completion audit must also reject battle reports whose Investigator Creation
 
 The completion audit must also reject battle reports whose Character Dossier omits structured reusable-investigator `character.json` values for name/id, occupation, era, characteristics, derived values, skills, and backstory, allowing language-profile labels and glossary localization for player-visible names, occupations, skills, and character-sheet terms.
 
-The completion audit must also reject battle reports whose Chase Tracker omits structured `save/chase.json` values for participants, DEX order, location chain, round summaries, and outcome, allowing language-profile labels and glossary localization for player-visible chase terms.
+The completion audit must also reject battle reports whose Chase Tracker omits structured `save/chase.json` values for participants, DEX order, location chain, round summaries, and outcome, allowing language-profile labels and glossary localization for player-visible chase terms. Chase drills must also persist `rounds[].turns[].actor_id` entries ordered as a DEX-order subsequence, so `chase_dex_order_not_proven` can catch runs whose saved chase state cannot prove who acted first in each chase round.
 
 ## Campaign File Examples
 
@@ -1077,6 +1078,7 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit should additio
 
 - `chase` declared in `subsystems_covered`
 - `save/chase.json` with participants, location chain, round log, and outcome
+- DEX-order proof through participant `dex`, `dex_order`, and `rounds[].turns[].actor_id`; otherwise emit `chase_dex_order_not_proven`
 - multi-profile chase pressure from reckless, skeptical-rules, and genre-savvy player profiles, including meta questions about movement actions, pushed-roll boundaries, and spoiler-safe answers; otherwise emit `chase_player_profile_pressure_missing`
 - Chase Summary text that explains speed roll, MOV, movement actions, DEX order, hazards, barriers, conflict, and escape/capture
 - populated `## Chase Tracker` text that renders `save/chase.json` participants, DEX order, location chain, rounds, and outcome; otherwise emit `chase_tracker_not_rendered`

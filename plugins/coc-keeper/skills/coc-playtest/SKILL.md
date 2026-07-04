@@ -165,6 +165,7 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit must also reje
 
 - do not declare `chase` in `subsystems_covered`
 - omit `save/chase.json` or leave out participants, location chain, rounds, or outcome
+- fail to prove chase-round action order from participant `dex`, `dex_order`, and `rounds[].turns[].actor_id`; otherwise emit `chase_dex_order_not_proven`
 - omit multi-profile chase pressure from reckless, skeptical-rules, and genre-savvy player profiles, including meta questions about movement actions, pushed-roll boundaries, and spoiler-safe answers; otherwise emit `chase_player_profile_pressure_missing`
 - fail to show speed roll, MOV, movement actions, hazard, barrier, conflict, and quarry escapes in Chase Summary
 - fail to render a populated `## Chase Tracker` from `save/chase.json`

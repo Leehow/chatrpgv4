@@ -2260,12 +2260,12 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
                 "role": "pursuer",
                 "base_mov": 8,
                 "adjusted_mov": 9,
-                "dex": 60,
+                "dex": 45,
                 "movement_actions": 2,
                 "position": "locked-roof-door",
             },
         ],
-        "dex_order": [pursuer_id, investigator_id],
+        "dex_order": [investigator_id, pursuer_id],
         "location_chain": [
             {"id": "print-shop-roof", "label": "start"},
             {"id": "rain-gutter", "label": "clear"},
@@ -2276,19 +2276,51 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         "rounds": [
             {
                 "round": 1,
-                "summary": "Nathaniel has two movement actions and closes from two locations behind to one location behind; Ada spends one action crossing the slick skylight hazard.",
+                "summary": "Ada acts first in DEX order and spends one movement action crossing the slick skylight hazard; Nathaniel then spends movement actions to close the gap and force a conflict.",
+                "turns": [
+                    {
+                        "actor_id": investigator_id,
+                        "action": "cross_hazard",
+                        "movement_actions_spent": 1,
+                        "start_position": "slick-skylight",
+                        "end_position": "locked-roof-door",
+                    },
+                    {
+                        "actor_id": pursuer_id,
+                        "action": "close_distance_and_attack",
+                        "movement_actions_spent": 1,
+                        "start_position": "rain-gutter",
+                        "end_position": "locked-roof-door",
+                    },
+                ],
                 "localized_text": {
                     "zh-Hans": {
-                        "summary": "内森尼尔·克劳有 2 个移动行动，从落后两个位置缩短到落后一个位置；艾达·金花费 1 个行动穿过湿滑天窗危险点。"
+                        "summary": "艾达·金按 DEX 顺序先行动，花费 1 个移动行动穿过湿滑天窗危险点；内森尼尔·克劳随后花费移动行动缩短距离并发动冲突。"
                     }
                 },
             },
             {
                 "round": 2,
-                "summary": "Nathaniel spends one movement action to attack in conflict; Ada Dodges, opens the locked roof door barrier, hides on the laundry roof, and the quarry escapes.",
+                "summary": "Ada opens the locked roof door barrier and hides on the laundry roof; Nathaniel searches after losing line of sight, and the quarry escapes.",
+                "turns": [
+                    {
+                        "actor_id": investigator_id,
+                        "action": "pass_barrier_and_hide",
+                        "movement_actions_spent": 1,
+                        "start_position": "locked-roof-door",
+                        "end_position": "laundry-roof",
+                    },
+                    {
+                        "actor_id": pursuer_id,
+                        "action": "search_after_losing_line_of_sight",
+                        "movement_actions_spent": 1,
+                        "start_position": "locked-roof-door",
+                        "end_position": "locked-roof-door",
+                    },
+                ],
                 "localized_text": {
                     "zh-Hans": {
-                        "summary": "内森尼尔·克劳花费 1 个移动行动发动追逐冲突；艾达·金 Dodge、打开上锁屋顶门障碍并躲进晾衣屋顶，被追者逃脱。"
+                        "summary": "艾达·金打开上锁屋顶门障碍并躲进晾衣屋顶；内森尼尔·克劳失去视线后搜索失败，被追者逃脱。"
                     }
                 },
             },
@@ -2309,7 +2341,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"turn": 9, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "MOV 保持 8。", "text": "Ada CON speed roll 42 vs 55 -> success; MOV remains 8."},
         {"turn": 10, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "MOV 从 8 升到 9。", "text": "Nathaniel CON speed roll 9 vs 50 -> extreme_success; MOV rises from 8 to 9."},
         {"turn": 11, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "cut_to_chase", "text": "因为 pursuer 的 adjusted MOV 不低于 quarry，chase 成立。我切到追逐场面：Nathaniel 暂时落后你 two locations。"},
-        {"turn": 12, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "location_chain", "text": "location chain 是 print-shop roof、rain gutter、slick skylight hazard、locked roof door barrier、laundry roof。DEX order 是 Nathaniel 60，然后 Ada 50。"},
+        {"turn": 12, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "location_chain", "text": "location chain 是 print-shop roof、rain gutter、slick skylight hazard、locked roof door barrier、laundry roof。DEX order 是 Ada 50，然后 Nathaniel 45。"},
         {"turn": 13, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "movement_actions", "text": "Ada 有 1 movement action。Nathaniel 的 adjusted MOV 比最慢参与者高 1，所以他有 2 movement actions。"},
         {"turn": "13a", "role": "player_simulator", "speaker": "Rules Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "intent": "challenge chase push boundary", "text": "[meta] 我想问清楚：追逐内部为什么不让推骰？MOV 差值怎么变成移动行动？[/meta]"},
         {"turn": "13b", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "chase_rules_explanation", "text": "[meta] 追逐里的危险点、障碍和冲突是逐轮行动经济的一部分，失败会立即改变位置、行动数或伤害，所以这里不再用推骰重开同一障碍。MOV 比最慢参与者每高 1，就多 1 个移动行动；内森尼尔·克劳的调整后 MOV 9 比艾达·金 8 高 1，所以他有 2 个移动行动。[/meta]"},
@@ -2359,7 +2391,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         },
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "ledger-clue", "summary": "Ada 确认 cult ledger，并在 chase 后保住这条线索。"}},
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "speed roll setup：Ada CON 成功保持 MOV 8；Nathaniel CON extreme success 让 MOV 8 升到 MOV 9，因此 pursuer 可以 establish the chase。"}},
-        {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "location chain：print-shop roof -> rain gutter -> slick skylight hazard -> locked roof door barrier -> laundry roof；DEX order 是 Nathaniel 60，然后 Ada 50。"}},
+        {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "location chain：print-shop roof -> rain gutter -> slick skylight hazard -> locked roof door barrier -> laundry roof；DEX order 是 Ada 50，然后 Nathaniel 45。"}},
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "movement actions：Ada 有 1 movement action；Nathaniel 因 adjusted MOV 比最慢者高 1，拥有 2 movement actions。"}},
         {"type": "chase", "actor": investigator_id, "payload": {"summary": "hazard：Ada 的 Dodge 成功，穿过 slick skylight 且没有损失 movement actions。"}},
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "conflict：Nathaniel 花一个 movement action 用短棍攻击；Ada Dodge 成功，攻击落空。"}},

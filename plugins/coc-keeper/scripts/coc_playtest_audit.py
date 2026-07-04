@@ -1663,6 +1663,14 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             field for field in ["participants", "location_chain", "rounds", "outcome"]
             if chase_state.get(field) not in (None, "", [], {})
         ]
+        rounds = chase_state.get("rounds", [])
+        turn_sequence_count = sum(
+            1
+            for chase_round in rounds
+            if isinstance(chase_round, dict)
+            and isinstance(chase_round.get("turns"), list)
+            and chase_round["turns"]
+        ) if isinstance(rounds, list) else 0
         tracker_rendered = "yes" if _section_text(context["battle_report"], "Chase Tracker") else "no"
         profile_pressure = ", ".join(metadata.get("player_profiles_tested", [])) or "none"
         lines.append(
@@ -1670,6 +1678,7 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             f"save/chase.json fields present: {', '.join(state_fields) if state_fields else 'none'}; "
             f"Chase Tracker rendered: {tracker_rendered}."
         )
+        lines.append(f"Chase DEX turn sequences: {turn_sequence_count}/{len(rounds) if isinstance(rounds, list) else 0} rounds recorded.")
         lines.append(f"Chase player pressure: {profile_pressure}.")
     return lines
 
@@ -1774,6 +1783,88 @@ def _chase_object_transfer_gaps(events: list[dict[str, Any]], chase_state: dict[
         return []
 
     return ["item_transfer event is present but lacks item_id, from_actor, to_actor, source_turn, or matching chase_id"]
+
+
+def _chase_dex_order_gaps(chase_state: dict[str, Any]) -> list[str]:
+    gaps: list[str] = []
+    participants = chase_state.get("participants", [])
+    dex_order = chase_state.get("dex_order", [])
+    rounds = chase_state.get("rounds", [])
+
+    if not isinstance(participants, list) or not participants:
+        return gaps
+    if not isinstance(dex_order, list) or not dex_order:
+        return ["save/chase.json does not record dex_order"]
+
+    participant_dex: dict[str, int] = {}
+    for participant in participants:
+        if not isinstance(participant, dict):
+            continue
+        participant_id = participant.get("id")
+        dex = participant.get("dex")
+        if participant_id in (None, "", [], {}):
+            continue
+        if not isinstance(dex, int):
+            gaps.append(f"participant {participant_id} does not record integer DEX")
+            continue
+        participant_dex[str(participant_id)] = dex
+
+    unknown_order_ids = [str(actor_id) for actor_id in dex_order if str(actor_id) not in participant_dex]
+    if unknown_order_ids:
+        gaps.append("dex_order references unknown participant ids: " + ", ".join(unknown_order_ids))
+
+    if participant_dex and not unknown_order_ids:
+        expected_dex_order = [
+            actor_id
+            for actor_id, _dex in sorted(participant_dex.items(), key=lambda item: (-item[1], item[0]))
+        ]
+        if [str(actor_id) for actor_id in dex_order] != expected_dex_order:
+            gaps.append(
+                "dex_order "
+                + ", ".join(str(actor_id) for actor_id in dex_order)
+                + " does not match participant DEX order "
+                + ", ".join(expected_dex_order)
+            )
+
+    if not isinstance(rounds, list) or not rounds:
+        return gaps
+
+    dex_order_ids = [str(actor_id) for actor_id in dex_order]
+    for chase_round in rounds:
+        if not isinstance(chase_round, dict):
+            gaps.append("chase round is not an object")
+            continue
+        round_number = chase_round.get("round", "?")
+        turns = chase_round.get("turns")
+        if not isinstance(turns, list) or not turns:
+            gaps.append(f"round {round_number} does not record turns")
+            continue
+        turn_actor_ids: list[str] = []
+        for turn in turns:
+            if not isinstance(turn, dict):
+                gaps.append(f"round {round_number} has a non-object turn")
+                continue
+            actor_id = turn.get("actor_id")
+            if actor_id in (None, "", [], {}):
+                gaps.append(f"round {round_number} has a turn without actor_id")
+                continue
+            actor_id_text = str(actor_id)
+            turn_actor_ids.append(actor_id_text)
+            if actor_id_text not in dex_order_ids:
+                gaps.append(f"round {round_number} turn references actor outside dex_order: {actor_id_text}")
+        expected_turn_order = [
+            actor_id
+            for actor_id in dex_order_ids
+            if actor_id in turn_actor_ids
+        ]
+        if turn_actor_ids and turn_actor_ids != expected_turn_order:
+            gaps.append(
+                f"round {round_number} turn order "
+                + ", ".join(turn_actor_ids)
+                + " does not follow dex_order "
+                + ", ".join(dex_order_ids)
+            )
+    return gaps
 
 
 def _corbitt_magic_point_gaps(events: list[dict[str, Any]]) -> list[str]:
@@ -2675,6 +2766,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "Chase drill does not prove objective possession continuity: " + "; ".join(object_transfer_gaps),
                 "Record an item_transfer event with item_id, from_actor, to_actor, source_turn, and chase_id before the chase report claims the quarry escaped with a carried objective.",
+            ))
+
+        dex_order_gaps = _chase_dex_order_gaps(context["chase_state"])
+        if dex_order_gaps:
+            findings.append(_finding(
+                "chase_dex_order_not_proven",
+                "system_gap",
+                "high",
+                "Chase drill does not prove round actions followed DEX order: " + "; ".join(dex_order_gaps),
+                "Record dex_order from participant DEX and add rounds[].turns actor_id entries ordered by DEX for each chase round.",
             ))
 
         missing_chase_moments = _report_contains_required_moments(

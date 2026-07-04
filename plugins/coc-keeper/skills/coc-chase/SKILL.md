@@ -11,9 +11,10 @@ description: Resolve Call of Cthulhu chase scenes during COC mode. Use for estab
 2. Establish pursuers, quarry, and goals.
 3. Compare MOV and relevant speed rolls.
 4. Create or import a location chain.
-5. Resolve movement, hazards, barriers, and conflict.
-6. Update world state and logs.
-7. Return to immersive play when the chase ends.
+5. Determine DEX order and record each chase round's `turns[].actor_id` in that order.
+6. Resolve movement, hazards, barriers, and conflict.
+7. Update world state and logs.
+8. Return to immersive play when the chase ends.
 
 ## V1 Scope
 

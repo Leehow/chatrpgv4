@@ -125,6 +125,14 @@ def assert_creation_allocation_matches_character(run_dir: Path, investigator_id:
     assert allocation_finals == character["skills"]
 
 
+def assert_chase_round_turns_follow_dex_order(chase_state: dict) -> None:
+    dex_order = chase_state["dex_order"]
+    for chase_round in chase_state["rounds"]:
+        turn_actor_ids = [turn["actor_id"] for turn in chase_round["turns"]]
+        expected_order = [actor_id for actor_id in dex_order if actor_id in turn_actor_ids]
+        assert turn_actor_ids == expected_order
+
+
 def assert_view_streams_separated(run_dir: Path, secret_ids: list[str]) -> None:
     player_view = run_jsonl(run_dir, "player-view.jsonl")
     keeper_view = run_jsonl(run_dir, "keeper-view.jsonl")
@@ -1575,13 +1583,17 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 艾达·金的潜行胜过内森尼尔·克劳失败的侦查，带着账本结束追逐。" in chase_summary
     assert "<!-- report-anchor: Chase Tracker -->" in battle_text
     chase_tracker = section_text(battle_text, "## Chase Tracker")
+    import json
+
+    chase_state = json.loads((run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json").read_text())
+    assert_chase_round_turns_follow_dex_order(chase_state)
     assert "- 追逐 ID: rooftop-chase" in chase_tracker
     assert "- 状态: 已解决" in chase_tracker
     assert "- 当前轮数: 2" in chase_tracker
-    assert "- DEX 顺序: 内森尼尔·克劳 (nathaniel-crowe) -> 艾达·金 (ada-king-chase)" in chase_tracker
+    assert "- DEX 顺序: 艾达·金 (ada-king-chase) -> 内森尼尔·克劳 (nathaniel-crowe)" in chase_tracker
     assert "- 参与者:" in chase_tracker
     assert "- 艾达·金 (ada-king-chase) | 被追者 | MOV 8 -> 8 | DEX 50 | 移动行动 1 | 位置 晾衣屋顶 (laundry-roof)" in chase_tracker
-    assert "- 内森尼尔·克劳 (nathaniel-crowe) | 追赶者 | MOV 8 -> 9 | DEX 60 | 移动行动 2 | 位置 上锁屋顶门 (locked-roof-door)" in chase_tracker
+    assert "- 内森尼尔·克劳 (nathaniel-crowe) | 追赶者 | MOV 8 -> 9 | DEX 45 | 移动行动 2 | 位置 上锁屋顶门 (locked-roof-door)" in chase_tracker
     assert "- 位置链:" in chase_tracker
     assert "- 印刷店屋顶 (print-shop-roof) [起点]" in chase_tracker
     assert "- 湿滑天窗 (slick-skylight) [危险点, 普通, 闪避]" in chase_tracker
@@ -1589,8 +1601,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 轮次:" in chase_tracker
     assert "- 第 1 轮:" in chase_tracker
     assert "- 第 2 轮:" in chase_tracker
-    assert "内森尼尔·克劳有 2 个移动行动" in chase_tracker
-    assert "艾达·金花费 1 个行动穿过湿滑天窗危险点" in chase_tracker
+    assert "艾达·金按 DEX 顺序先行动" in chase_tracker
+    assert "内森尼尔·克劳随后花费移动行动缩短距离并发动冲突" in chase_tracker
     assert "- 结果: 被追者逃脱" in chase_tracker
     session_ending = section_text(battle_text, "## Session Ending")
     assert "save/chase.json" not in session_ending
