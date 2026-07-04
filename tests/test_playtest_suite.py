@@ -1003,3 +1003,112 @@ def test_loop_decision_ignores_historical_baseline_missing_semantic_result(tmp_p
     assert "old-baseline: Fill artifacts/semantic-eval-result.json" not in report_text
     assert "- active-module: none" in report_text
     assert report_path == tmp_path / ".coc" / "playtests" / "suite-report.md"
+
+
+def test_suite_matrices_ignore_historical_baseline_coverage_and_quality(tmp_path):
+    baseline_dir = tmp_path / ".coc" / "playtests" / "old-baseline"
+    baseline_artifacts = baseline_dir / "artifacts"
+    baseline_artifacts.mkdir(parents=True)
+    (baseline_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "old-baseline",
+        "campaign_title": "Old Baseline",
+        "scenario": "Old Smoke",
+        "audit_profile": "baseline",
+        "player_profile": "careful_investigator",
+        "subsystems_covered": ["combat", "chase", "sanity"],
+    }))
+    (baseline_artifacts / "battle-report.md").write_text("Old smoke report with stale semantic result.")
+    baseline_request = write_semantic_eval_request(
+        baseline_artifacts,
+        "old-baseline",
+        "Old smoke report with stale semantic result.",
+    )
+    (baseline_artifacts / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "old-baseline",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance_for(baseline_request),
+        "coverage": {
+            key: {"covered": True, "reason": f"{key} covered only by ignored historical run."}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": {
+            key: {"score": 5, "passed": True, "reason": f"{key} passed only by ignored historical run."}
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        },
+        "root_cause_classification": [],
+        "next_loop_fix_target": "none",
+    }))
+
+    active_dir = tmp_path / ".coc" / "playtests" / "active-module"
+    active_artifacts = active_dir / "artifacts"
+    active_artifacts.mkdir(parents=True)
+    (active_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "active-module",
+        "campaign_title": "Active Module",
+        "scenario": "Active Scenario",
+        "audit_profile": "haunting_module",
+        "player_profile": "careful_investigator",
+        "subsystems_covered": ["combat", "sanity"],
+    }))
+    (active_artifacts / "battle-report.md").write_text("Active report missing chase and actual-play quality.")
+    (active_artifacts / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    active_request = write_semantic_eval_request(
+        active_artifacts,
+        "active-module",
+        "Active report missing chase and actual-play quality.",
+    )
+    (active_artifacts / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "active-module",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance_for(active_request),
+        "coverage": {
+            key: {
+                "covered": key != "chase",
+                "reason": (
+                    "Active run has no chase evidence."
+                    if key == "chase"
+                    else f"{key} covered by active run."
+                ),
+            }
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": {
+            key: {
+                "score": 3 if key == "actual_play_replay" else 4,
+                "passed": key != "actual_play_replay",
+                "reason": (
+                    "Active report is too compressed to replay like a real session."
+                    if key == "actual_play_replay"
+                    else f"{key} passed by active run."
+                ),
+            }
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        },
+        "root_cause_classification": ["test_gap"],
+        "next_loop_fix_target": "Add active chase and actual-play replay evidence.",
+    }))
+
+    report_path = coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+    report_text = report_path.read_text()
+
+    assert index["coverage"]["chase"]["status"] == "missing"
+    assert index["coverage"]["chase"]["runs"] == []
+    assert "chase" in index["gaps"]
+    assert index["quality"]["actual_play_replay"]["status"] == "needs_fix"
+    assert index["quality"]["actual_play_replay"]["runs"] == []
+    assert "actual_play_replay" in index["quality_gaps"]
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["evaluated_runs"] == ["active-module"]
+    assert index["loop_decision"]["ignored_historical_runs"] == ["old-baseline"]
+    assert index["loop_decision"]["blockers"][0]["type"] == "coverage_gap"
+    assert index["loop_decision"]["blockers"][0]["key"] == "chase"
+    assert "chase: missing (none)" in report_text
+    assert "actual_play_replay: needs_fix (none)" in report_text
+    assert "old-baseline [codex-llm-semantic-v1]: chase covered only by ignored historical run." not in report_text
+    assert report_path == tmp_path / ".coc" / "playtests" / "suite-report.md"

@@ -887,8 +887,8 @@ def generate_suite_report(root: Path, evaluator: CoverageEvaluator | None = None
     base = _playtests_dir(root)
     runs = _discover_runs(root, evaluator)
     active_runs = _active_evaluation_runs(runs)
-    matrix = _coverage_matrix(runs)
-    quality = _quality_matrix(runs)
+    matrix = _coverage_matrix(active_runs)
+    quality = _quality_matrix(active_runs)
     index = {
         "schema_version": 1,
         "runs": runs,
