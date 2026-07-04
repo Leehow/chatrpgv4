@@ -1068,6 +1068,20 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "duration_rounds" not in bout_payload
     assert "rounds" not in bout_payload
     assert bout_payload["control_returned"] is True
+    status_payload = next(
+        event["payload"]
+        for event in campaign_state_events(run_dir)
+        if event.get("type") == "status" and event.get("payload", {}).get("final_hp") == 3
+    )
+    assert status_payload["unresolved_conditions"] == [
+        {
+            "condition": "temporary_insanity_underlying",
+            "label": "临时疯狂底层状态",
+            "duration_hours": 1,
+            "remaining_hours": 1,
+            "summary": "艾达·金在摘要疯狂后恢复玩家控制，但仍处于临时疯狂的底层状态；若在 1 小时内再次损失 SAN，会再次触发疯狂发作。",
+        }
+    ]
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
     assert_source_transcript_display_fields_localized(run_dir)
@@ -1303,7 +1317,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "科比特自己的匕首命中特例" in scene_replay
     assert "血肉护盾不再保护他" in scene_replay
     assert "resource_change" not in scene_replay
-    assert "最终 HP: 3；最终 SAN: 49；奖励: +4 SAN、30 美元奖金，并可选择保留虫蛀书。" in scene_replay
+    assert "最终 HP: 3；最终 SAN: 49；奖励: +4 SAN、30 美元奖金，并可选择保留虫蛀书；临时疯狂底层状态仍持续，若在 1 小时内再次损失 SAN，会再次触发疯狂发作。" in scene_replay
     assert "DEX 检定" in scene_replay
     assert "ada-king-haunting -" not in scene_replay
     assert "艾达·金 - 艾达·金" not in scene_replay
@@ -1513,6 +1527,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "改用 Summary" not in bout_visible_sections
     assert "1D10 掷出 4" in battle_text
     assert "1D10 小时掷出 1" in battle_text
+    assert "临时疯狂底层状态" in battle_text
+    assert "若在 1 小时内再次损失 SAN，会再次触发疯狂发作" in battle_text
     assert "摘要表" in battle_text
     assert "疯狂发作第 1 回合" not in battle_text
     assert "艾达·金独处在地下室" in battle_text

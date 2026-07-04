@@ -2392,11 +2392,19 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "type": "status",
             "actor": investigator_id,
             "payload": {
-                "summary": "Final HP: 3；Final SAN: 49；Rewards: +4 SAN、30 美元奖金，并可选择保留 worm-eaten book。",
+                "summary": "最终 HP: 3；最终 SAN: 49；奖励: +4 SAN、30 美元奖金，并可选择保留虫蛀书；临时疯狂底层状态仍持续，若在 1 小时内再次损失 SAN，会再次触发疯狂发作。",
                 "final_hp": 3,
                 "final_san": 49,
                 "rewards": ["+4 SAN", "30 美元奖金"],
-                "unresolved_conditions": [],
+                "unresolved_conditions": [
+                    {
+                        "condition": "temporary_insanity_underlying",
+                        "label": "临时疯狂底层状态",
+                        "duration_hours": 1,
+                        "remaining_hours": 1,
+                        "summary": "艾达·金在摘要疯狂后恢复玩家控制，但仍处于临时疯狂的底层状态；若在 1 小时内再次损失 SAN，会再次触发疯狂发作。",
+                    }
+                ],
             },
         },
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "Conclusion Rewards：Corbitt 被摧毁，Mr. Knott 支付报酬，后续冒险仍留下阴谋线索。"}},

@@ -2002,6 +2002,41 @@ def _final_state_gaps(events: list[dict[str, Any]]) -> list[str]:
     return ["no status event records integer final_hp and final_san"]
 
 
+def _temporary_insanity_final_state_gaps(events: list[dict[str, Any]]) -> list[str]:
+    final_status_payloads = [
+        event["payload"]
+        for event in events
+        if event.get("type") == "status"
+        and isinstance(event.get("payload"), dict)
+        and isinstance(event["payload"].get("final_hp"), int)
+        and isinstance(event["payload"].get("final_san"), int)
+    ]
+    if not final_status_payloads:
+        return ["no final status payload available for temporary insanity state"]
+    for payload in final_status_payloads:
+        if payload.get("temporary_insanity_resolved") is True:
+            return []
+        unresolved_conditions = payload.get("unresolved_conditions")
+        if not isinstance(unresolved_conditions, list):
+            continue
+        for condition in unresolved_conditions:
+            if not isinstance(condition, dict):
+                continue
+            if condition.get("condition") != "temporary_insanity_underlying":
+                continue
+            missing = [
+                field
+                for field in ["duration_hours", "remaining_hours", "summary"]
+                if condition.get(field) in (None, "", [], {})
+            ]
+            if missing:
+                return ["temporary_insanity_underlying condition missing " + ", ".join(missing)]
+            return []
+    return [
+        "temporary insanity was triggered, but final status does not record temporary_insanity_resolved=true or unresolved condition temporary_insanity_underlying"
+    ]
+
+
 def _chase_decision_kind_gaps(events: list[dict[str, Any]]) -> list[str]:
     decision_kinds = {
         event.get("payload", {}).get("decision_kind")
@@ -3022,6 +3057,17 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "; ".join(final_state_gaps),
                 "Record final investigator HP and SAN as status payload final_hp/final_san fields, with rewards and unresolved conditions at the end of a module playthrough.",
             ))
+
+        if _temporary_insanity_triggered(context["rolls"]):
+            temporary_insanity_final_state_gaps = _temporary_insanity_final_state_gaps(context["events"])
+            if temporary_insanity_final_state_gaps:
+                findings.append(_finding(
+                    "temporary_insanity_final_state_missing",
+                    "system_gap",
+                    "high",
+                    "; ".join(temporary_insanity_final_state_gaps),
+                    "When temporary insanity is triggered, record either temporary_insanity_resolved=true or an unresolved_conditions entry with condition=temporary_insanity_underlying, duration_hours, remaining_hours, and a player-readable summary.",
+                ))
 
         chase_summaries = _payload_summaries(context["events"], "chase")
         if "chase" not in covered_subsystems and not chase_summaries:
