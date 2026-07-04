@@ -543,6 +543,7 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
         coverage_evaluator, coverage, coverage_reasons = _normalize_evaluation(raw_evaluation, evaluator.evaluator_id)
         _source_gate_subsystem_coverage(coverage, coverage_reasons, metadata)
         quality_scores, quality_passes, quality_reasons = _normalize_quality(raw_evaluation)
+        party_size = len(_party_investigator_ids(context.party)) if context.party else None
         run = {
             "run_id": run_id,
             "path": str(run_dir),
@@ -561,6 +562,7 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
             "audit_result": _audit_result(run_dir),
             "player_profile": metadata.get("player_profile", "unknown"),
             "player_profile_display": _suite_player_profile_display(metadata.get("player_profile", "unknown"), metadata),
+            "party_size": party_size,
             "subsystems_covered": metadata.get("subsystems_covered", []),
             "coverage_evaluator": coverage_evaluator,
             "coverage": coverage,
@@ -942,11 +944,16 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
         "## Run Index",
     ]
     for run in index["runs"]:
+        party_suffix = ""
+        party_size = run.get("party_size")
+        if isinstance(party_size, int):
+            party_suffix = f" | party: {party_size} investigator{'s' if party_size != 1 else ''}"
         lines.append(
             f"- {run['run_id']}: {run.get('campaign_title_display') or run['campaign_title']} | "
             f"{run.get('audit_profile_display') or run['audit_profile']} {run['audit_result']} | "
             f"scenario: {run.get('scenario_display') or run['scenario']} | language: {run.get('play_language', 'unknown')} | "
             f"player: {run.get('player_profile_display') or run['player_profile']}"
+            f"{party_suffix}"
         )
 
     lines.extend(["", "## Non-Passing Evaluated Runs"])
