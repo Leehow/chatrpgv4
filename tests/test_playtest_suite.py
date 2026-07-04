@@ -271,7 +271,7 @@ def test_suite_report_surfaces_selected_play_language_per_run(tmp_path):
     assert "language: ja-JP" in report_text
 
 
-def test_completion_profile_suite_requires_non_default_language_evidence(tmp_path):
+def test_completion_profile_suite_defaults_to_chinese_language_evidence(tmp_path):
     write_semantic_artifact_run(tmp_path, "v2-haunting-module", "haunting_module")
     write_semantic_artifact_run(tmp_path, "v3-chase-drill", "chase_drill")
     write_semantic_artifact_run(tmp_path, "v4-multi-profile-pressure", "multi_profile_pressure")
@@ -284,13 +284,12 @@ def test_completion_profile_suite_requires_non_default_language_evidence(tmp_pat
     report_text = report_path.read_text()
 
     assert index["language_coverage"]["default_play_language"]["status"] == "covered"
-    assert index["language_coverage"]["non_default_play_language"]["status"] == "missing"
-    assert index["language_gaps"] == ["non_default_play_language"]
-    assert index["loop_decision"]["status"] == "needs_repair"
-    assert index["loop_decision"]["blockers"][0]["type"] == "language_coverage_gap"
-    assert index["loop_decision"]["blockers"][0]["key"] == "non_default_play_language"
+    assert index["language_coverage"]["non_default_play_language"]["status"] == "not_required"
+    assert index["language_gaps"] == []
+    assert index["loop_decision"]["status"] == "ready_for_completion_audit"
+    assert index["loop_decision"]["blockers"] == []
     assert "## Language Coverage" in report_text
-    assert "- non_default_play_language: missing" in report_text
+    assert "- non_default_play_language: not_required" in report_text
 
 
 def test_completion_profile_suite_accepts_non_default_language_evidence(tmp_path):

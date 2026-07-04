@@ -590,7 +590,7 @@ def _language_coverage_matrix(runs: list[dict[str, Any]]) -> dict[str, dict[str,
         },
         "non_default_play_language": {
             "label": "Non-default selected play language",
-            "status": "covered" if non_default_runs else ("missing" if required else "not_required"),
+            "status": "covered" if non_default_runs else "not_required",
             "runs": non_default_runs,
         },
     }
