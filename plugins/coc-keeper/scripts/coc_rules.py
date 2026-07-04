@@ -141,6 +141,32 @@ def movement_rate(
     raise ValueError(f"no movement-rate rule matched STR={str_value} DEX={dex_value} SIZ={siz_value}")
 
 
+def derived_attributes_rule() -> dict[str, Any]:
+    table = load_rule_table("derived-attributes")
+    hit_points = table["hit_points"]
+    magic_points = table["magic_points"]
+    sanity = table["sanity"]
+    luck_default = table["luck_default"]
+    return {
+        "hit_points": {
+            "sources": [str(source) for source in hit_points["sources"]],
+            "divisor": int(hit_points["divisor"]),
+            "rounding": str(hit_points["rounding"]),
+        },
+        "magic_points": {
+            "source": str(magic_points["source"]),
+            "divisor": int(magic_points["divisor"]),
+            "rounding": str(magic_points["rounding"]),
+        },
+        "sanity": {
+            "source": str(sanity["source"]),
+        },
+        "luck_default": {
+            "source": str(luck_default["source"]),
+        },
+    }
+
+
 def age_adjustment(age: int) -> dict[str, Any]:
     table = load_rule_table("age-adjustments")
     minimum_age = int(table.get("minimum_age", 0))

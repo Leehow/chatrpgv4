@@ -32,6 +32,11 @@ def derive_values(
     *,
     age_mov_penalty: int = 0,
 ) -> dict[str, int | str]:
+    derived_rules = coc_rules.derived_attributes_rule()
+    hp_rule = derived_rules["hit_points"]
+    mp_rule = derived_rules["magic_points"]
+    sanity_rule = derived_rules["sanity"]
+    luck_rule = derived_rules["luck_default"]
     db_build = coc_rules.damage_bonus_build(characteristics["STR"], characteristics["SIZ"])
     movement = coc_rules.movement_rate(
         characteristics["STR"],
@@ -40,10 +45,10 @@ def derive_values(
         age_mov_penalty=age_mov_penalty,
     )
     return {
-        "HP": (characteristics["CON"] + characteristics["SIZ"]) // 10,
-        "MP": characteristics["POW"] // 5,
-        "SAN": characteristics["POW"],
-        "Luck": luck if luck is not None else characteristics["POW"],
+        "HP": sum(characteristics[source] for source in hp_rule["sources"]) // int(hp_rule["divisor"]),
+        "MP": characteristics[mp_rule["source"]] // int(mp_rule["divisor"]),
+        "SAN": characteristics[sanity_rule["source"]],
+        "Luck": luck if luck is not None else characteristics[luck_rule["source"]],
         "DB": db_build["damage_bonus"],
         "Build": db_build["build"],
         "MOV": movement["mov"],

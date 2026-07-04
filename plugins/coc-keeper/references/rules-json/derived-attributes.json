@@ -1,0 +1,20 @@
+{
+  "source_rule_id": "core.character_creation.derived_attributes",
+  "source_note": "Keeper Rulebook Chapter 3 derived attributes: HP is one tenth of CON plus SIZ, Magic points are one fifth of POW, initial SAN is POW, and Luck defaults to POW when not otherwise generated.",
+  "hit_points": {
+    "sources": ["CON", "SIZ"],
+    "divisor": 10,
+    "rounding": "floor"
+  },
+  "magic_points": {
+    "source": "POW",
+    "divisor": 5,
+    "rounding": "floor"
+  },
+  "sanity": {
+    "source": "POW"
+  },
+  "luck_default": {
+    "source": "POW"
+  }
+}

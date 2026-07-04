@@ -61,6 +61,34 @@ def test_derive_values_uses_rules_json_movement_rate(monkeypatch):
     assert result["MOV"] == 8
 
 
+def test_derive_values_uses_rules_json_derived_attributes(monkeypatch):
+    def fake_derived_attributes_rule():
+        return {
+            "hit_points": {"sources": ["CON", "SIZ"], "divisor": 20, "rounding": "floor"},
+            "magic_points": {"source": "POW", "divisor": 10, "rounding": "floor"},
+            "sanity": {"source": "EDU"},
+            "luck_default": {"source": "APP"},
+        }
+
+    monkeypatch.setattr(coc_character.coc_rules, "derived_attributes_rule", fake_derived_attributes_rule, raising=False)
+
+    result = coc_character.derive_values({
+        "STR": 60,
+        "CON": 50,
+        "SIZ": 70,
+        "DEX": 55,
+        "APP": 45,
+        "INT": 65,
+        "POW": 60,
+        "EDU": 70,
+    })
+
+    assert result["HP"] == 6
+    assert result["MP"] == 6
+    assert result["SAN"] == 70
+    assert result["Luck"] == 45
+
+
 def test_derive_values_applies_age_movement_penalty():
     characteristics = {
         "STR": 80,

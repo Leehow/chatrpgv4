@@ -102,6 +102,30 @@ def test_movement_rate_uses_structured_table():
     assert coc_rules.movement_rate(80, 75, 65, age_mov_penalty=1)["mov"] == 8
 
 
+def test_derived_attributes_rule_uses_structured_table():
+    table = coc_rules.load_rule_table("derived-attributes")
+
+    assert table["hit_points"]["divisor"] == 10
+    assert coc_rules.derived_attributes_rule() == {
+        "hit_points": {
+            "sources": ["CON", "SIZ"],
+            "divisor": 10,
+            "rounding": "floor",
+        },
+        "magic_points": {
+            "source": "POW",
+            "divisor": 5,
+            "rounding": "floor",
+        },
+        "sanity": {
+            "source": "POW",
+        },
+        "luck_default": {
+            "source": "POW",
+        },
+    }
+
+
 def test_difficulty_target_uses_structured_table():
     table = coc_rules.load_rule_table("difficulty-levels")
 
@@ -151,6 +175,7 @@ def test_rule_index_exposes_stable_ids_for_playtest_traceability():
         "core.percentile_check",
         "core.difficulty.regular",
         "core.success_level",
+        "core.character_creation.derived_attributes",
         "core.character_creation.movement_rate",
         "core.pushed_roll",
         "core.sanity.temporary_insanity_threshold",

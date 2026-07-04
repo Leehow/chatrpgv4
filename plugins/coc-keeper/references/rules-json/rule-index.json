@@ -61,6 +61,12 @@
       "source_note": "Keeper Rulebook Chapter 3 Movement Rate table compares STR and DEX against SIZ, then applies the age MOV penalty."
     },
     {
+      "id": "core.character_creation.derived_attributes",
+      "category": "character_creation",
+      "source_table": "derived-attributes.json",
+      "source_note": "Keeper Rulebook Chapter 3 derived HP, Magic points, initial SAN, and default Luck values."
+    },
+    {
       "id": "core.character_creation.cash_and_assets",
       "category": "character_creation",
       "source_note": "Keeper Rulebook Chapter 3 Table II cross-references Credit Rating and period to determine living standard, cash, assets, and spending level.",
