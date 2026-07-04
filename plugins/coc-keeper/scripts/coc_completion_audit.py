@@ -4152,8 +4152,8 @@ def _multi_profile_structure_findings(run_id: str, run_dir: Path, audit_profile:
     return [_finding(
         "active_run_source_files_incomplete",
         "test_gap",
-        f"{run_id} multi-profile source files lack required player profiles: {', '.join(missing_evidence)}.",
-        "Regenerate the active run so multi-profile pressure transcripts and feedback include each required player_profile enum with visible text plus structured intent and localized intent_display evidence.",
+        f"{run_id} single-player style-profile source files lack required style-profile evidence: {', '.join(missing_evidence)}.",
+        "Regenerate the active run so single-player style-pressure transcripts and feedback include each required player_profile enum with visible text plus structured intent and localized intent_display evidence.",
         run_id=run_id,
         incomplete_files=incomplete_files,
         missing_evidence=missing_evidence,

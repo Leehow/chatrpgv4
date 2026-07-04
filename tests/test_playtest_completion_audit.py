@@ -5101,6 +5101,11 @@ def test_completion_audit_fails_when_multi_profile_transcript_lacks_intent_evide
     finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_incomplete")
     assert finding["run_id"] == "v4-multi-profile-pressure"
     assert "multi_profile_pressure transcript intent evidence skeptical_rules_lawyer" in finding["missing_evidence"]
+    human_message = f"{finding['evidence']} {finding['recommendation']}"
+    assert "single-player style-profile source files" in human_message
+    assert "single-player style-pressure transcripts" in human_message
+    assert "required player profiles" not in human_message
+    assert "multi-profile pressure transcripts" not in human_message
 
 
 def test_completion_audit_fails_without_language_profile(tmp_path):
