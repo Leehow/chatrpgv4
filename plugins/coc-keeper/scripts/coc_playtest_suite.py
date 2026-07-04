@@ -52,7 +52,7 @@ SOURCE_GATED_SUBSYSTEM_COVERAGE = {
     "sanity": "sanity",
 }
 
-BLOCKING_EVALUATOR_NOTE_SEVERITIES = {"medium", "high", "critical"}
+BLOCKING_EVALUATOR_NOTE_SEVERITIES = {"medium", "high", "critical", "error", "fail", "failed"}
 DEFAULT_EVALUATOR_NOTE_ROOT_CAUSES = ["test_gap", "system_gap", "report_gap", "design_gap"]
 
 
@@ -802,7 +802,7 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
         for run, note in note_blockers:
             lines.append(f"- {run['run_id']} [{note['severity']}/{note['category']}]: {note['text']}")
     else:
-        lines.append("- No medium-or-higher evaluator notes in active playtest runs.")
+        lines.append("- No blocking evaluator notes in active playtest runs.")
 
     lines.extend(["", "## Core Coverage Matrix"])
     for key, value in index["coverage"].items():

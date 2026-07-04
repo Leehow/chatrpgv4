@@ -332,6 +332,7 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
     assert "Thread Goal: active_not_complete" in report_text
     assert "Artifact audit ready; keep the watchdog goal active after completion audit." in report_text
     assert "## Quality Matrix" in report_text
+    assert "- No blocking evaluator notes in active playtest runs." in report_text
     assert "## Remaining Quality Gaps" in report_text
     assert "- No quality gaps detected across indexed playtest runs." in report_text
     assert "## Repair Targets" in report_text
@@ -460,6 +461,55 @@ def test_suite_report_blocks_medium_or_higher_evaluator_notes(tmp_path):
     assert "## Evaluator Note Blockers" in report_text
     assert "semantic-artifact-run [medium/immersion]" in report_text
     assert "scripted compression" in report_text
+
+
+def test_suite_report_blocks_error_evaluator_notes(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "semantic-artifact-run"
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "semantic-artifact-run",
+        "campaign_title": "Semantic Artifact Fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": "haunting_module",
+        "player_profile": "careful_investigator",
+        "subsystems_covered": ["combat", "chase", "sanity"],
+    }))
+    (run_dir / "evaluator-notes.jsonl").write_text(json.dumps({
+        "severity": "error",
+        "category": "state_integrity",
+        "text": "Fixture evaluator found a blocking state error.",
+        "evidence": {"artifact_paths": ["artifacts/battle-report.md"]},
+    }) + "\n")
+    (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    request = write_semantic_eval_request(artifacts_dir, "semantic-artifact-run")
+    (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "semantic-artifact-run",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance_for(request),
+        "coverage": {
+            key: {"covered": True, "reason": f"{key} covered by fixture."}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": {
+            key: {"score": 4, "passed": True, "reason": f"{key} passed by fixture."}
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        },
+        "root_cause_classification": [],
+        "next_loop_fix_target": "none",
+    }))
+
+    coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["blockers"][0]["type"] == "evaluator_note_blocker"
+    assert index["loop_decision"]["blockers"][0]["severity"] == "error"
 
 
 def test_suite_report_rejects_stale_semantic_result_request_hash(tmp_path):

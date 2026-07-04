@@ -27,7 +27,7 @@ from coc_rules import rule_ids
 
 
 REQUIRED_AUDIT_PROFILES = ["haunting_module", "chase_drill", "multi_profile_pressure"]
-BLOCKING_EVALUATOR_NOTE_SEVERITIES = {"medium", "high", "critical"}
+BLOCKING_EVALUATOR_NOTE_SEVERITIES = {"medium", "high", "critical", "error", "fail", "failed"}
 REQUIRED_ARTIFACTS = [
     "battle-report.md",
     "evaluation-report.md",
