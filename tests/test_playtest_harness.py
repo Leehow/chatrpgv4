@@ -428,6 +428,18 @@ def assert_player_view_text_strips_protocol_wrappers(run_dir: Path) -> None:
     assert "[/spoiler_warning]" not in player_text
 
 
+def assert_player_view_spoiler_protocol_sanitized(run_dir: Path) -> None:
+    spoiler_protocols = [
+        event["spoiler_protocol"]
+        for event in run_jsonl(run_dir, "player-view.jsonl")
+        if isinstance(event.get("spoiler_protocol"), dict)
+    ]
+    assert spoiler_protocols
+    for protocol in spoiler_protocols:
+        assert "keeper_secret_id" not in protocol
+        assert "scope" not in protocol
+
+
 def assert_player_view_localized_text_values_localized(run_dir: Path) -> None:
     metadata = playtest_metadata(run_dir)
     play_language = metadata["play_language"]
@@ -2520,6 +2532,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert_player_view_localized_text_values_localized(run_dir)
     assert_player_profile_displays_localized(run_dir)
     assert_source_transcript_display_text_strips_protocol_wrappers(run_dir)
+    assert_player_view_spoiler_protocol_sanitized(run_dir)
     assert_pushed_roll_protocol(run_dir, ["pressure-reckless-entry-push"])
     assert_spoiler_reveal_protocol(run_dir, ["pressure-corbitt-basement-reveal"])
     assert investigator_jsonl(run_dir, "ada-king-pressure", "history.jsonl")

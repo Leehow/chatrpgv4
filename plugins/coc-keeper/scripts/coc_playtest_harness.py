@@ -1045,7 +1045,7 @@ def _player_view_event(
         visible["spoiler_protocol"] = {
             key: value
             for key, value in spoiler_protocol.items()
-            if key != "keeper_secret_id"
+            if key not in {"keeper_secret_id", "scope"}
         }
     return {**visible, "view": "player", "type": "transcript_turn"}
 

@@ -2728,6 +2728,44 @@ def _player_view_protocol_wrapper_findings(
     )]
 
 
+def _player_view_spoiler_protocol_findings(
+    run_id: str,
+    run_dir: Path,
+) -> list[dict[str, Any]]:
+    leaked_fields: list[str] = []
+    samples: list[dict[str, Any]] = []
+    for row in _read_jsonl(run_dir / "player-view.jsonl"):
+        if row.get("view") != "player" or row.get("type") != "transcript_turn":
+            continue
+        protocol = row.get("spoiler_protocol")
+        if not isinstance(protocol, dict):
+            continue
+        for field in ("keeper_secret_id", "scope"):
+            if protocol.get(field) in (None, "", [], {}):
+                continue
+            label = f"spoiler_protocol.{field} on turn {row.get('turn')}"
+            if label not in leaked_fields:
+                leaked_fields.append(label)
+            if len(samples) < 8:
+                samples.append({
+                    "turn": row.get("turn"),
+                    "field": field,
+                    "value": protocol.get(field),
+                })
+
+    if not leaked_fields:
+        return []
+    return [_finding(
+        "player_view_secret_leak",
+        "system_gap",
+        f"{run_id} player-view.jsonl exposes Keeper-only spoiler protocol fields: {', '.join(leaked_fields)}.",
+        "Regenerate player-view.jsonl so spoiler_protocol in player view retains only public flow state and omits keeper_secret_id and scope; keep full protocol details in transcript.jsonl and keeper-view/audit logs.",
+        run_id=run_id,
+        missing_evidence=leaked_fields,
+        player_view_spoiler_protocol_samples=samples,
+    )]
+
+
 def _player_view_transcript_detail_findings(
     run_id: str,
     run_dir: Path,
@@ -4013,6 +4051,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_player_view_localized_text_findings(run_id, run_dir, metadata))
     findings.extend(_transcript_localized_text_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_protocol_wrapper_findings(run_id, run_dir, metadata))
+    findings.extend(_player_view_spoiler_protocol_findings(run_id, run_dir))
     findings.extend(_player_view_transcript_detail_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_roll_text_findings(run_id, run_dir, campaign_dir, metadata))
     findings.extend(_transcript_display_findings(run_id, run_dir, campaign_dir, metadata))
