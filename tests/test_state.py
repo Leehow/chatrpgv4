@@ -27,6 +27,10 @@ def test_create_campaign_workspace_and_party(tmp_path):
     party_path = coc_state.link_party(tmp_path, "haunting-test", ["ada-king"])
 
     assert investigator_path == tmp_path / ".coc" / "investigators" / "ada-king" / "character.json"
+    assert (tmp_path / ".coc" / "investigators" / "ada-king" / "creation.json").exists()
+    creation = json.loads((tmp_path / ".coc" / "investigators" / "ada-king" / "creation.json").read_text())
+    assert creation["investigator_id"] == "ada-king"
+    assert creation["status"] == "creation_record_pending"
     assert campaign_path == tmp_path / ".coc" / "campaigns" / "haunting-test" / "campaign.json"
     assert json.loads(party_path.read_text())["investigator_ids"] == ["ada-king"]
     assert (tmp_path / ".coc" / "campaigns" / "haunting-test" / "memory").exists()
@@ -49,6 +53,7 @@ def test_workspace_indexes_campaigns_and_reusable_investigators(tmp_path):
     assert investigator_index["investigators"]["ada-king"] == {
         "id": "ada-king",
         "name": "Ada King",
+        "creation_path": ".coc/investigators/ada-king/creation.json",
         "path": ".coc/investigators/ada-king/character.json",
         "history_path": ".coc/investigators/ada-king/history.jsonl",
         "development_path": ".coc/investigators/ada-king/development.jsonl",
@@ -67,6 +72,27 @@ def test_workspace_indexes_campaigns_and_reusable_investigators(tmp_path):
         "logs_path": ".coc/campaigns/haunting-test/logs",
         "investigator_ids": ["ada-king"],
     }
+
+
+def test_create_investigator_persists_supplied_creation_record(tmp_path):
+    investigator_path = coc_state.create_investigator(
+        tmp_path,
+        "ada-king",
+        {"schema_version": 1, "id": "ada-king", "name": "Ada King", "characteristics": {}},
+        creation={
+            "schema_version": 1,
+            "investigator_id": "ada-king",
+            "method": "standard_rulebook_chapter_3",
+            "occupation": "Antiquarian",
+            "skill_allocation": {"occupation_points": {"spent": 300}},
+        },
+    )
+
+    creation = json.loads((investigator_path.parent / "creation.json").read_text())
+
+    assert creation["investigator_id"] == "ada-king"
+    assert creation["method"] == "standard_rulebook_chapter_3"
+    assert creation["skill_allocation"]["occupation_points"]["spent"] == 300
 
 
 def test_create_campaign_persists_play_language(tmp_path):

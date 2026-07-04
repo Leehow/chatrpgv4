@@ -7,7 +7,7 @@ description: Create and maintain reusable Call of Cthulhu investigators. Use for
 
 ## Character Storage
 
-Reusable investigators live under `.coc/investigators/<investigator-id>/`. Campaigns link to investigators instead of owning them.
+Reusable investigators live under `.coc/investigators/<investigator-id>/`. Campaigns link to investigators instead of owning them. Keep the original creation workflow in `creation.json` and the reusable long-term sheet in `character.json`.
 
 Temporary campaign-specific investigator state lives under `.coc/campaigns/<campaign-id>/save/investigator-state/`.
 

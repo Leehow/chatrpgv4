@@ -123,6 +123,30 @@ def _upsert_campaign_index(root: Path, campaign_id: str) -> None:
     )
 
 
+def _creation_record(
+    investigator_id: str,
+    sheet: dict[str, Any],
+    creation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if creation is None and isinstance(sheet.get("creation"), dict):
+        payload = dict(sheet["creation"])
+    elif creation is not None:
+        payload = dict(creation)
+    else:
+        payload = {
+            "schema_version": 1,
+            "investigator_id": investigator_id,
+            "name": sheet.get("name", investigator_id),
+            "method": "imported_character_sheet",
+            "status": "creation_record_pending",
+            "notes": "No full rulebook creation workflow was supplied when this reusable investigator was created.",
+        }
+    payload.setdefault("schema_version", 1)
+    payload.setdefault("investigator_id", investigator_id)
+    payload.setdefault("name", sheet.get("name", investigator_id))
+    return payload
+
+
 def ensure_workspace(root: Path) -> dict[str, str]:
     base = coc_root(root)
     for directory in TOP_LEVEL_DIRS:
@@ -130,11 +154,19 @@ def ensure_workspace(root: Path) -> dict[str, str]:
     return {"coc_root": str(base)}
 
 
-def create_investigator(root: Path, investigator_id: str, sheet: dict[str, Any]) -> Path:
+def create_investigator(
+    root: Path,
+    investigator_id: str,
+    sheet: dict[str, Any],
+    *,
+    creation: dict[str, Any] | None = None,
+) -> Path:
     ensure_workspace(root)
     investigator_dir = coc_root(root) / "investigators" / investigator_id
     investigator_dir.mkdir(parents=True, exist_ok=True)
+    creation_path = investigator_dir / "creation.json"
     character_path = investigator_dir / "character.json"
+    write_json_atomic(creation_path, _creation_record(investigator_id, sheet, creation))
     write_json_atomic(character_path, sheet)
     for log_name in ("history.jsonl", "development.jsonl", "inventory-history.jsonl"):
         (investigator_dir / log_name).touch(exist_ok=True)
@@ -146,6 +178,7 @@ def create_investigator(root: Path, investigator_id: str, sheet: dict[str, Any])
         {
             "id": investigator_id,
             "name": sheet.get("name", investigator_id),
+            "creation_path": _relative_to_root(root, creation_path),
             "path": _relative_to_root(root, character_path),
             "history_path": _relative_to_root(root, investigator_dir / "history.jsonl"),
             "development_path": _relative_to_root(root, investigator_dir / "development.jsonl"),
