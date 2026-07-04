@@ -748,7 +748,7 @@ def assert_run_setup_values_localized(text: str, expected_profile: str) -> None:
         "剧透策略: 剧透前警告",
         "语言配置: 简体中文",
         "本地化术语: ",
-        "条（见本地化附录）",
+        "条（记录于 playtest.json）",
         f"玩家画像: {expected_profile}",
     ]
     forbidden = [
@@ -758,6 +758,7 @@ def assert_run_setup_values_localized(text: str, expected_profile: str) -> None:
         "Spoiler Policy:",
         "Language Profile: Simplified Chinese",
         "Language Profile:",
+        "见本地化附录",
         "entries (see Localization Appendix)",
         "careful_investigator",
         "reckless_investigator",
@@ -1082,10 +1083,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Mr. Knott -> 诺特先生" not in run_setup
     assert "The Old Corbitt Place -> 科比特老宅" not in run_setup
     assert len(run_setup.splitlines()) <= 10
-    localization_appendix = section_text(battle_text, "## Localization Appendix")
-    assert "Ada King -> 艾达·金" in localization_appendix
-    assert "Mr. Knott -> 诺特先生" in localization_appendix
-    assert "The Old Corbitt Place -> 科比特老宅" in localization_appendix
+    assert "## 本地化附录 <!-- report-anchor: Localization Appendix -->" not in battle_text
+    assert "<!-- report-anchor: Localization Appendix -->" not in battle_text
+    assert "Ada King -> 艾达·金" not in battle_text
+    assert "Mr. Knott -> 诺特先生" not in battle_text
+    assert "The Old Corbitt Place -> 科比特老宅" not in battle_text
     module_section = section_text(battle_text, "## Module")
     assert_module_metadata_values_localized(
         run_setup,
@@ -1460,13 +1462,13 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "清单" in feedback
     assert "checklist" not in feedback
     assert "playtest" not in feedback
-    assert "Mr. Knott" in battle_text
-    assert "Arty Wilmot" in battle_text
+    glossary = metadata["localized_terms"]["zh-Hans"]
+    for canonical in ["Mr. Knott", "Arty Wilmot", "Chapel of Contemplation", "Bed Attack", "The Floating Knife"]:
+        assert canonical in glossary
+        assert glossary[canonical] in battle_text
+        assert canonical not in battle_text
     assert "线索资料 2" in battle_text
-    assert "Chapel of Contemplation" in battle_text
     assert zh_terms["The Old Corbitt Place"] in battle_text
-    assert "Bed Attack" in battle_text
-    assert "The Floating Knife" in battle_text
     assert zh_terms["Corbitt's Hiding Place"] in battle_text
     assert zh_terms["Corbitt Attacks"] in battle_text
     combat_summary = section_text(battle_text, "## Combat Summary")
@@ -1626,10 +1628,11 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Nathaniel Crowe -> 内森尼尔·克劳" not in run_setup
     assert "ledger -> 账本" not in run_setup
     assert len(run_setup.splitlines()) <= 10
-    localization_appendix = section_text(battle_text, "## Localization Appendix")
-    assert "Ada King -> 艾达·金" in localization_appendix
-    assert "Nathaniel Crowe -> 内森尼尔·克劳" in localization_appendix
-    assert "ledger -> 账本" in localization_appendix
+    assert "## 本地化附录 <!-- report-anchor: Localization Appendix -->" not in battle_text
+    assert "<!-- report-anchor: Localization Appendix -->" not in battle_text
+    assert "Ada King -> 艾达·金" not in battle_text
+    assert "Nathaniel Crowe -> 内森尼尔·克劳" not in battle_text
+    assert "ledger -> 账本" not in battle_text
     module_section = section_text(battle_text, "## Module")
     assert_module_metadata_values_localized(
         run_setup,
@@ -1942,15 +1945,19 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "position laundry-roof" not in chase_tracker
     assert "Round 1: Nathaniel has" not in chase_tracker
     assert "Outcome: quarry escapes" not in chase_tracker
-    assert "speed roll" in battle_text
+    assert any(
+        "speed roll" in str(event.get("payload", {}).get("goal", ""))
+        for event in campaign_roll_events(run_dir)
+    )
+    assert "速度检定" in battle_text
     assert "MOV" in battle_text
-    assert "movement actions" in battle_text
-    assert "location chain" in battle_text
-    assert "DEX order" in battle_text
-    assert "hazard" in battle_text
-    assert "barrier" in battle_text
-    assert "conflict" in battle_text
-    assert "quarry escapes" in battle_text
+    assert "移动行动" in battle_text
+    assert "位置链" in battle_text
+    assert "DEX 顺序" in battle_text
+    assert "危险点" in battle_text
+    assert "障碍" in battle_text
+    assert "冲突" in battle_text
+    assert "被追者逃脱" in battle_text
     assert "No chase summary recorded." not in battle_text
     clues_found = section_text(battle_text, "## Clues Found")
     assert_player_readable_state_ids_absent(clues_found, ["ledger-clue"])

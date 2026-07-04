@@ -1016,7 +1016,10 @@ def _run_setup_value_leaks(battle_report: str, metadata: dict[str, Any]) -> list
         label = labels.get(canonical)
         if label and label != canonical and canonical in section:
             leaks.append(canonical)
-    if "entries (see Localization Appendix)" in section:
+    if (
+        "entries (see Localization Appendix)" in section
+        or "entries (recorded in playtest.json)" in section
+    ):
         leaks.append("localized_terms_summary")
     return sorted(set(leaks))
 

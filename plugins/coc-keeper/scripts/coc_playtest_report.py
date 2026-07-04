@@ -684,13 +684,9 @@ def _format_localized_terms_summary(terms: dict[str, str], language_profile: dic
     template = (
         str(report_labels.get("localized_terms_summary"))
         if isinstance(report_labels, dict) and report_labels.get("localized_terms_summary")
-        else "{count} entries (see Localization Appendix)"
+        else "{count} entries (recorded in playtest.json)"
     )
     return template.format(count=len(terms))
-
-
-def _format_localization_appendix(terms: dict[str, str]) -> list[str]:
-    return [f"- {canonical} -> {localized}" for canonical, localized in sorted(terms.items())]
 
 
 def _localize_text(text: Any, terms: dict[str, str]) -> str:
@@ -1788,9 +1784,6 @@ def generate_battle_report(run_dir: Path) -> Path:
         "",
         _report_heading(2, "Player Feedback On KP", language_profile),
         *_list_lines(feedback_lines, "- No player feedback recorded."),
-        "",
-        _report_heading(2, "Localization Appendix", language_profile),
-        *_list_lines(_format_localization_appendix(localized_terms), "- No localized terms recorded."),
         "",
     ]
     output.write_text("\n".join(body), encoding="utf-8")

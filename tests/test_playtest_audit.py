@@ -1803,7 +1803,7 @@ def test_active_audit_rejects_unlocalized_run_setup_values(tmp_path):
         "- Spoiler Policy: warn_before_reveal（剧透策略）\n"
         "- Play Language: zh-Hans（游玩语言）\n"
         "- Language Profile: Simplified Chinese（语言配置）\n"
-        "- Localized Terms: 73 entries (see Localization Appendix)（本地化术语）\n"
+        "- Localized Terms: 73 entries (recorded in playtest.json)（本地化术语）\n"
         "- Player Profile: careful_investigator（玩家画像）\n\n"
         "## Scene-by-Scene Replay / 逐场景回放\n"
         "- 这是中文场景回放。\n\n"
@@ -1824,6 +1824,24 @@ def test_active_audit_rejects_unlocalized_run_setup_values(tmp_path):
 
     assert audit["result"] == "fail"
     assert "run_setup_values_not_localized" in finding_codes(audit)
+
+
+def test_run_setup_value_leaks_rejects_english_localized_terms_summary():
+    metadata = {"play_language": "zh-Hans"}
+    battle_report = (
+        "# 跑团战报 <!-- report-anchor: Battle Report -->\n\n"
+        "## 运行设置 <!-- report-anchor: Run Setup -->\n"
+        "- 骰子模式: Codex 掷骰\n"
+        "- 剧透策略: 剧透前警告\n"
+        "- 游玩语言: 简体中文\n"
+        "- 语言配置: 简体中文\n"
+        "- 本地化术语: 73 entries (recorded in playtest.json)\n"
+        "- 玩家画像: 谨慎调查员\n\n"
+    )
+
+    leaks = coc_playtest_audit._run_setup_value_leaks(battle_report, metadata)
+
+    assert "localized_terms_summary" in leaks
 
 
 def test_active_audit_rejects_unlocalized_roll_boolean_values(tmp_path):
