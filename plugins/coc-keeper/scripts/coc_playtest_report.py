@@ -1562,6 +1562,7 @@ def _display_transcript_speaker(
         player_profile = event.get("player_profile")
         player_label = str(speaker_labels.get("player", "Player"))
         if player_profile:
+            player_label = str(speaker_labels.get("single_player", player_label))
             display_profile = (profile_labels or {}).get(str(player_profile), str(player_profile))
             return f"{player_label}[{display_profile}]"
         return player_label

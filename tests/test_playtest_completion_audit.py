@@ -2915,7 +2915,7 @@ def test_completion_audit_fails_when_player_profile_display_values_are_missing(t
             "type": "transcript_turn",
             "turn": 7,
             "role": "player_simulator",
-            "speaker": "玩家[谨慎风格]",
+            "speaker": "单人玩家[谨慎风格]",
             "mode": "play",
             "player_profile": "careful_investigator",
             "text": "fixture careful profile visible turn",

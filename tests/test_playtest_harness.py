@@ -2198,9 +2198,12 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Pushed Spot Hidden 33" not in actual_play
     assert "MOV remains" not in actual_play
     assert "extreme_success" not in actual_play
-    assert "玩家[鲁莽风格]" in actual_play
-    assert "玩家[规则质疑风格]" in actual_play
-    assert "玩家[类型片直觉风格]" in actual_play
+    assert "单人玩家[鲁莽风格]" in actual_play
+    assert "单人玩家[规则质疑风格]" in actual_play
+    assert "单人玩家[类型片直觉风格]" in actual_play
+    assert " 玩家[鲁莽风格]" not in actual_play
+    assert " 玩家[规则质疑风格]" not in actual_play
+    assert " 玩家[类型片直觉风格]" not in actual_play
     assert "追逐内部为什么不让推骰" in actual_play
     assert "MOV 差值怎么变成移动行动" in actual_play
     assert "我是不是能猜到他会在屋顶门后设伏" in actual_play
@@ -2223,8 +2226,10 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Pushed Spot Hidden 33" not in session_transcript
     assert "MOV remains" not in session_transcript
     assert "extreme_success" not in session_transcript
-    assert "玩家[规则质疑风格]" in session_transcript
-    assert "玩家[类型片直觉风格]" in session_transcript
+    assert "单人玩家[规则质疑风格]" in session_transcript
+    assert "单人玩家[类型片直觉风格]" in session_transcript
+    assert " 玩家[规则质疑风格]" not in session_transcript
+    assert " 玩家[类型片直觉风格]" not in session_transcript
     assert "to 建立追逐" not in session_transcript
     assert "after 被追者逃脱" not in session_transcript
     visible_dialogue = "\n".join(visible_play_texts(run_dir))
@@ -2596,9 +2601,12 @@ def test_multi_profile_pressure_run_records_single_player_virtual_styles(tmp_pat
         ["请求谨慎调查路线", "鲁莽闯入危险", "质疑 KP 裁定", "收束本轮"],
         ["request careful research route", "rush into danger", "challenge keeper ruling", "session_wrap"],
     )
-    assert "玩家[谨慎风格]" in actual_play
-    assert "玩家[鲁莽风格]" in actual_play
-    assert "玩家[规则质疑风格]" in actual_play
+    assert "单人玩家[谨慎风格]" in actual_play
+    assert "单人玩家[鲁莽风格]" in actual_play
+    assert "单人玩家[规则质疑风格]" in actual_play
+    assert " 玩家[谨慎风格]" not in actual_play
+    assert " 玩家[鲁莽风格]" not in actual_play
+    assert " 玩家[规则质疑风格]" not in actual_play
     assert "Player[careful_investigator]" not in actual_play
     assert "Player[reckless_investigator]" not in actual_play
     assert "Player[skeptical_rules_lawyer]" not in actual_play

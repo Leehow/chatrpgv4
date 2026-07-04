@@ -40,6 +40,7 @@ BASE_EMPTY_REPORT_LINES = {
 BASE_SPEAKER_LABELS = {
     "keeper": "KP",
     "player": "Player",
+    "single_player": "Single Player",
     "system": "system",
 }
 
@@ -434,6 +435,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "speaker_labels": {
             "keeper": "KP",
             "player": "玩家",
+            "single_player": "单人玩家",
             "system": "系统",
         },
         "transcript_labels": {
@@ -695,6 +697,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "speaker_labels": {
             "keeper": "KP",
             "player": "プレイヤー",
+            "single_player": "単独プレイヤー",
             "system": "システム",
         },
         "transcript_labels": {
