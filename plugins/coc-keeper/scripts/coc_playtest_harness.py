@@ -1059,6 +1059,12 @@ def _transcript_event_with_display_fields(
         visible["text_display"] = _display_transcript_text(_localize_text(visible["text"], glossary))
 
     localized_text = visible.get("localized_text", {})
+    if isinstance(localized_text, dict) and isinstance(localized_text.get(play_language), dict):
+        visible["localized_text"] = {
+            **localized_text,
+            play_language: _localize_public_value(localized_text[play_language], glossary),
+        }
+        localized_text = visible["localized_text"]
     language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
     for key in ("intent", "ruling"):
         if not isinstance(visible.get(key), str) or not visible[key]:

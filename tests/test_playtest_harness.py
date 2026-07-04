@@ -353,6 +353,10 @@ def assert_source_transcript_display_fields_localized(run_dir: Path) -> None:
     assert first_roll["text_display"] == "说服：艾达·金掷出 72 / 55，结果失败。"
     assert has_cjk(first_roll["text_display"])
 
+    basement_ruling = by_turn[30]["localized_text"]["zh-Hans"]["ruling"]
+    assert basement_ruling == "DEX 或攀爬联合检定"
+    assert "Climb" not in basement_ruling
+
 
 def assert_source_transcript_display_text_strips_protocol_wrappers(run_dir: Path) -> None:
     wrapped_rows = [

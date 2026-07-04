@@ -2391,6 +2391,46 @@ def _player_view_localized_text_findings(
     )]
 
 
+def _transcript_localized_text_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    localized_terms = _metadata_localized_terms(metadata)
+    play_language = str(metadata.get("play_language") or "")
+    if not play_language or not localized_terms:
+        return []
+
+    localized_samples: list[str] = []
+    localized_strings: list[str] = []
+    for row in _read_jsonl(run_dir / "transcript.jsonl"):
+        localized_text = row.get("localized_text", {})
+        language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
+        for text in _nested_string_values(language_text):
+            localized_strings.append(text)
+            if len(localized_samples) < 8:
+                localized_samples.append(f"turn {row.get('turn')}: {text}")
+
+    leaked_terms = sorted({
+        canonical
+        for canonical, display in localized_terms.items()
+        if canonical
+        and display != canonical
+        and any(canonical in text for text in localized_strings)
+    })
+    if not leaked_terms:
+        return []
+    return [_finding(
+        "transcript_localized_text_not_localized",
+        "system_gap",
+        f"{run_id} transcript.jsonl localized_text.{play_language} leaks canonical player-visible terms: {', '.join(leaked_terms[:8])}.",
+        "Regenerate the active run so source transcript localized_text values render through localized_terms[play_language] before they can be used as evaluator or replay evidence.",
+        run_id=run_id,
+        leaked_transcript_localized_text_terms=leaked_terms,
+        transcript_localized_text_samples=localized_samples,
+    )]
+
+
 def _protocol_wrappers_in_text(text: str) -> list[str]:
     return [
         wrapper
@@ -3688,6 +3728,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_player_view_speaker_findings(run_id, run_dir, metadata))
     findings.extend(_player_profile_display_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_localized_text_findings(run_id, run_dir, metadata))
+    findings.extend(_transcript_localized_text_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_protocol_wrapper_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_transcript_detail_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_roll_text_findings(run_id, run_dir, campaign_dir, metadata))
