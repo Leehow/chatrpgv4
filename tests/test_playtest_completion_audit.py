@@ -1378,6 +1378,45 @@ def test_completion_audit_fails_when_campaign_save_files_disagree(tmp_path):
     assert "flags clues_found does not match world-state discovered_clue_ids" in finding["missing_evidence"]
 
 
+def test_completion_audit_fails_when_investigator_state_refs_are_stale(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_id = "v2-haunting-module"
+    investigator_id = f"{run_id}-investigator"
+    campaign_dir = tmp_path / ".coc" / "playtests" / run_id / "sandbox" / ".coc" / "campaigns" / run_id
+    world_state_path = campaign_dir / "save" / "world-state.json"
+    world_state = json.loads(world_state_path.read_text())
+    world_state["investigator_state_refs"] = ["save/investigator-state/missing-investigator.json"]
+    write_json(world_state_path, world_state)
+    state_path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    investigator_state = json.loads(state_path.read_text())
+    investigator_state["character_ref"] = "sandbox/.coc/investigators/missing-investigator/character.json"
+    write_json(state_path, investigator_state)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "campaign_save_integrity_missing")
+    assert finding["run_id"] == run_id
+    assert "world-state investigator_state_refs do not match party investigator ids" in finding["missing_evidence"]
+    assert "world-state investigator_state_refs do not resolve" in finding["missing_evidence"]
+    assert "investigator-state character_ref does not resolve" in finding["missing_evidence"]
+
+
 def test_completion_audit_fails_when_active_run_source_files_are_empty(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

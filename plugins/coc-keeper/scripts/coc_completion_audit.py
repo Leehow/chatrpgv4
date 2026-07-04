@@ -2396,6 +2396,15 @@ def _campaign_relative_file_exists(campaign_dir: Path, value: Any) -> bool:
     return (campaign_dir / relative_path).is_file()
 
 
+def _run_relative_file_exists(run_dir: Path, value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    relative_path = Path(value)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        return False
+    return (run_dir / relative_path).is_file()
+
+
 def _string_set(values: Any) -> set[str]:
     if not isinstance(values, list):
         return set()
@@ -2418,8 +2427,10 @@ def _true_flag_keys(values: Any) -> set[str]:
 
 def _campaign_save_integrity_findings(
     run_id: str,
+    run_dir: Path,
     campaign_dir: Path,
     campaign_prefix: str,
+    investigator_ids: list[str],
 ) -> list[dict[str, Any]]:
     world_state = _read_json(campaign_dir / "save" / "world-state.json", {})
     active_scene = _read_json(campaign_dir / "save" / "active-scene.json", {})
@@ -2467,16 +2478,47 @@ def _campaign_save_integrity_findings(
             missing_evidence.append(evidence_label)
             incomplete_files.append(f"{campaign_prefix}save/world-state.json")
 
+    expected_investigator_state_refs = {
+        f"save/investigator-state/{investigator_id}.json"
+        for investigator_id in investigator_ids
+    }
+    world_investigator_state_refs = _string_set(world_state.get("investigator_state_refs"))
+    if expected_investigator_state_refs and world_investigator_state_refs != expected_investigator_state_refs:
+        missing_evidence.append("world-state investigator_state_refs do not match party investigator ids")
+        incomplete_files.append(f"{campaign_prefix}save/world-state.json")
+    if expected_investigator_state_refs and (
+        not world_investigator_state_refs
+        or any(
+            not _campaign_relative_file_exists(campaign_dir, ref)
+            for ref in world_investigator_state_refs
+        )
+    ):
+        missing_evidence.append("world-state investigator_state_refs do not resolve")
+        incomplete_files.append(f"{campaign_prefix}save/world-state.json")
+
+    for investigator_id in investigator_ids:
+        investigator_state_ref = f"save/investigator-state/{investigator_id}.json"
+        state = _read_json(campaign_dir / investigator_state_ref, {})
+        if state.get("campaign_id") != run_id:
+            missing_evidence.append("investigator-state campaign_id does not match run campaign")
+            incomplete_files.append(f"{campaign_prefix}{investigator_state_ref}")
+        if state.get("investigator_id") != investigator_id:
+            missing_evidence.append("investigator-state investigator_id does not match party investigator id")
+            incomplete_files.append(f"{campaign_prefix}{investigator_state_ref}")
+        if not _run_relative_file_exists(run_dir, state.get("character_ref")):
+            missing_evidence.append("investigator-state character_ref does not resolve")
+            incomplete_files.append(f"{campaign_prefix}{investigator_state_ref}")
+
     if not missing_evidence:
         return []
     return [_finding(
         "campaign_save_integrity_missing",
         "system_gap",
         f"{run_id} recoverable campaign save files disagree: {', '.join(missing_evidence)}.",
-        "Regenerate campaign save files so world-state, active-scene, flags, log refs, and memory refs agree before completion audit.",
+        "Regenerate campaign save files so world-state, active-scene, flags, investigator-state refs, log refs, and memory refs agree before completion audit.",
         run_id=run_id,
         incomplete_files=list(dict.fromkeys(incomplete_files)),
-        missing_evidence=missing_evidence,
+        missing_evidence=list(dict.fromkeys(missing_evidence)),
     )]
 
 
@@ -3116,7 +3158,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             run_id=run_id,
         ))
     findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix, audit_profile))
-    findings.extend(_campaign_save_integrity_findings(run_id, campaign_dir, campaign_prefix))
+    findings.extend(_campaign_save_integrity_findings(run_id, run_dir, campaign_dir, campaign_prefix, investigator_ids))
     findings.extend(_source_map_integrity_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_campaign_index_integrity_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_rule_ref_traceability_findings(run_id, campaign_dir, campaign_prefix))
