@@ -196,6 +196,7 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
         "passed_test_cases": ["activation_resume", "basic_roll"],
         "failed_test_cases": ["spoiler_warning"],
         "recommended_fixes": ["Populate spoiler warning transcript checks."],
+        "future_enhancements": ["Replace scripted baseline with a live LLM-vs-KP probe when subagents are available."],
     })
 
     battle_path = coc_playtest_report.generate_battle_report(run_dir)
@@ -264,6 +265,8 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "[low] spoiler_safety: No leaks observed." in evaluation_text
     assert "[low] meta_quality: Meta question paused play and returned cleanly." in evaluation_text
     assert "- Populate spoiler warning transcript checks." in evaluation_text
+    assert "## Future Enhancements" in evaluation_text
+    assert "- Replace scripted baseline with a live LLM-vs-KP probe when subagents are available." in evaluation_text
 
 
 def test_scene_replay_expands_bout_of_madness_rounds_as_separate_entries(tmp_path):

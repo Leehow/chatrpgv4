@@ -1611,8 +1611,8 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "final_state_and_rewards",
         ],
         "failed_test_cases": [],
-        "recommended_fixes": [
-            "Future loop should add a chase-specific scenario because The Haunting does not naturally exercise chase rules.",
+        "future_enhancements": [
+            "Replace the scripted full-module baseline with an LLM-vs-KP interactive transcript when a live multi-agent playtest runner is available.",
         ],
         "regression_tests": ["Haunting module audit must pass for the module-level harness."],
     }, ZH_HANS_HAUNTING_GLOSSARY))
@@ -2179,8 +2179,8 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "escape_resolution",
         ],
         "failed_test_cases": [],
-        "recommended_fixes": [
-            "Future loop should replace this scripted multi-profile chase scene with a live LLM-vs-KP chase stress test.",
+        "future_enhancements": [
+            "Replace this scripted multi-profile chase scene with a live LLM-vs-KP chase stress test when a live multi-agent playtest runner is available.",
         ],
         "regression_tests": ["Chase drill audit must pass for a report with real chase state."],
     }, ZH_HANS_CHASE_GLOSSARY))

@@ -910,6 +910,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
 
     assert audit["result"] == "pass"
     assert "Evidence:" in evaluation_text
+    assert "## Future Enhancements" in evaluation_text
+    assert "## Recommended Fixes\n- No fixes recorded." in evaluation_text
+    assert "LLM-vs-KP interactive transcript" in evaluation_text
     assert "PASS" in audit_text
     assert "## Positive Rulebook Evidence" in audit_text
     assert transcript_turn_sequence_gaps(run_dir) == []
@@ -931,6 +934,17 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_source_transcript_display_fields_localized(run_dir)
     assert_source_transcript_display_text_strips_protocol_wrappers(run_dir)
     assert_localized_report_shell(battle_text)
+    state_changes = section_text(battle_text, "### State Changes")
+    source_summaries = [
+        event["payload"]["summary"].strip()
+        for event in campaign_state_events(run_dir)
+        if isinstance(event.get("payload"), dict)
+        and isinstance(event["payload"].get("summary"), str)
+        and event["payload"]["summary"].strip()
+    ]
+    assert source_summaries
+    for summary in source_summaries:
+        assert summary in state_changes
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- 游玩语言: zh-Hans" in run_setup
     assert "本地化术语: " in run_setup
@@ -1417,6 +1431,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
 
     audit = coc_playtest_audit.audit_run(run_dir)
     battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    evaluation_text = (run_dir / "artifacts" / "evaluation-report.md").read_text()
     audit_text = (run_dir / "artifacts" / "rulebook-audit.md").read_text()
     metadata = playtest_metadata(run_dir)
     zh_terms = {
@@ -1439,6 +1454,10 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     }
 
     assert audit["result"] == "pass"
+    assert "Evidence:" in evaluation_text
+    assert "## Future Enhancements" in evaluation_text
+    assert "## Recommended Fixes\n- No fixes recorded." in evaluation_text
+    assert "live LLM-vs-KP chase stress test" in evaluation_text
     assert "PASS" in audit_text
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
@@ -1453,6 +1472,17 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         "genre_savvy_player": "类型片熟手",
     }
     assert_localized_report_shell(battle_text)
+    state_changes = section_text(battle_text, "### State Changes")
+    source_summaries = [
+        event["payload"]["summary"].strip()
+        for event in campaign_state_events(run_dir)
+        if isinstance(event.get("payload"), dict)
+        and isinstance(event["payload"].get("summary"), str)
+        and event["payload"]["summary"].strip()
+    ]
+    assert source_summaries
+    for summary in source_summaries:
+        assert summary in state_changes
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- 游玩语言: zh-Hans" in run_setup
     assert "本地化术语: " in run_setup

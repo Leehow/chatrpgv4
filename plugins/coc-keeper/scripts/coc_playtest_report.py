@@ -362,8 +362,6 @@ def _format_state_event(
     if play_language not in {"", "unknown", "en-US"}:
         summary = _payload_summary(event, terms, play_language)
         if summary:
-            actor = _display_roll_actor(event.get("actor", "unknown"), actor_names or {})
-            summary = _naturalize_player_event_summary(str(event_type), actor, summary)
             return f"- {summary}"
     if event_type == "scene":
         scene_id = payload.get("scene_id", "unknown")
@@ -1779,7 +1777,12 @@ def generate_evaluation_report(run_dir: Path) -> Path:
     score_lines = [f"- {key}: {value}" for key, value in scores.items()]
     passed_lines = [f"- {case}" for case in metadata.get("passed_test_cases", [])]
     failed_lines = [f"- {case}" for case in metadata.get("failed_test_cases", [])]
-    fix_lines = [f"- {fix}" for fix in metadata.get("recommended_fixes", [])]
+    recommended_fixes = [
+        *metadata.get("recommended_fixes", []),
+        *metadata.get("recommendations", []),
+    ]
+    fix_lines = [f"- {fix}" for fix in recommended_fixes]
+    future_lines = [f"- {item}" for item in metadata.get("future_enhancements", [])]
     regression_lines = [f"- {item}" for item in metadata.get("regression_tests", [])]
     failing_note_severities = {"critical", "high", "error", "fail", "failed"}
     overall_result = "FAIL" if failed_lines else "PASS"
@@ -1864,6 +1867,9 @@ def generate_evaluation_report(run_dir: Path) -> Path:
         "",
         "## Recommended Fixes",
         *_list_lines(fix_lines, "- No fixes recorded."),
+        "",
+        "## Future Enhancements",
+        *_list_lines(future_lines, "- No future enhancements recorded."),
         "",
         "## Regression Tests To Add",
         *_list_lines(regression_lines, "- No regression tests recorded."),
