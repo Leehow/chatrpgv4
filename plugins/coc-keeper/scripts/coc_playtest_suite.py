@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any, Protocol
 
+from coc_language import language_profile as build_language_profile
+
 
 CORE_COVERAGE = {
     "character_dossier": "Character Dossier",
@@ -60,6 +62,37 @@ SOURCE_GATED_SUBSYSTEM_COVERAGE = {
 
 BLOCKING_EVALUATOR_NOTE_SEVERITIES = {"medium", "high", "critical", "error", "fail", "failed"}
 DEFAULT_EVALUATOR_NOTE_ROOT_CAUSES = ["test_gap", "system_gap", "report_gap", "design_gap"]
+
+
+def _metadata_language_profile(metadata: dict[str, Any]) -> dict[str, Any]:
+    source_profile = metadata.get("language_profile")
+    source_language = metadata.get("play_language")
+    if isinstance(source_profile, dict) and isinstance(source_profile.get("language"), str):
+        play_language = str(source_profile["language"])
+    elif isinstance(source_language, str) and source_language and source_language != "unknown":
+        play_language = source_language
+    else:
+        return source_profile if isinstance(source_profile, dict) else {}
+    profile = build_language_profile(play_language)
+    if not isinstance(source_profile, dict):
+        return profile
+    merged = dict(profile)
+    for key, value in source_profile.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            nested = dict(merged[key])
+            nested.update(value)
+            merged[key] = nested
+        else:
+            merged[key] = value
+    return merged
+
+
+def _suite_report_value(value: Any, metadata: dict[str, Any]) -> str:
+    text = str(value)
+    labels = _metadata_language_profile(metadata).get("report_value_labels", {})
+    if isinstance(labels, dict):
+        return str(labels.get(text, text))
+    return text
 
 
 def _json_sha256(payload: Any) -> str:
@@ -493,6 +526,7 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
             "audit_profile": metadata.get("audit_profile", "baseline"),
             "audit_result": _audit_result(run_dir),
             "player_profile": metadata.get("player_profile", "unknown"),
+            "player_profile_display": _suite_report_value(metadata.get("player_profile", "unknown"), metadata),
             "subsystems_covered": metadata.get("subsystems_covered", []),
             "coverage_evaluator": coverage_evaluator,
             "coverage": coverage,
@@ -877,7 +911,7 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
         lines.append(
             f"- {run['run_id']}: {run['campaign_title']} | {run['audit_profile']} {run['audit_result']} | "
             f"scenario: {run['scenario']} | language: {run.get('play_language', 'unknown')} | "
-            f"player: {run['player_profile']}"
+            f"player: {run.get('player_profile_display') or run['player_profile']}"
         )
 
     lines.extend(["", "## Non-Passing Evaluated Runs"])

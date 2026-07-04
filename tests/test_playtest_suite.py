@@ -271,6 +271,56 @@ def test_suite_report_surfaces_selected_play_language_per_run(tmp_path):
     assert "language: ja-JP" in report_text
 
 
+def test_suite_report_localizes_run_index_player_profile_display(tmp_path):
+    write_semantic_artifact_run(
+        tmp_path,
+        "v4-multi-profile-pressure",
+        "multi_profile_pressure",
+    )
+    run_dir = tmp_path / ".coc" / "playtests" / "v4-multi-profile-pressure"
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["player_profile"] = "multi_profile_matrix"
+    metadata["language_profile"] = {
+        "language": "zh-Hans",
+        "report_value_labels": {
+            "multi_profile_matrix": "单人多风格开局",
+        },
+    }
+    metadata_path.write_text(json.dumps(metadata))
+
+    report_path = coc_playtest_suite.generate_suite_report(tmp_path)
+    report_text = report_path.read_text()
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["runs"][0]["player_profile"] == "multi_profile_matrix"
+    assert index["runs"][0]["player_profile_display"] == "单人多风格开局"
+    assert "player: 单人多风格开局" in report_text
+    assert "player: multi_profile_matrix" not in report_text
+
+
+def test_suite_report_does_not_invent_profile_display_without_language_metadata(tmp_path):
+    write_semantic_artifact_run(
+        tmp_path,
+        "legacy-smoke",
+        "baseline",
+    )
+    metadata_path = tmp_path / ".coc" / "playtests" / "legacy-smoke" / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.pop("play_language", None)
+    metadata.pop("language_profile", None)
+    metadata_path.write_text(json.dumps(metadata))
+
+    report_path = coc_playtest_suite.generate_suite_report(tmp_path)
+    report_text = report_path.read_text()
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["runs"][0]["player_profile"] == "careful_investigator"
+    assert index["runs"][0]["player_profile_display"] == "careful_investigator"
+    assert "player: careful_investigator" in report_text
+    assert "player: 谨慎风格" not in report_text
+
+
 def test_completion_profile_suite_defaults_to_chinese_language_evidence(tmp_path):
     write_semantic_artifact_run(tmp_path, "v2-haunting-module", "haunting_module")
     write_semantic_artifact_run(tmp_path, "v3-chase-drill", "chase_drill")
