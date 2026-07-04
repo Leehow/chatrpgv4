@@ -346,6 +346,21 @@ def test_rulebook_audit_accepts_rulebook_shaped_run(tmp_path):
     assert "Pushed rolls:" in text
 
 
+def test_rulebook_audit_requires_structured_sanity_prompt_before_san_roll(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "sanity-prompt-gap"
+    create_rulebook_shaped_run(run_dir)
+    transcript_path = run_dir / "transcript.jsonl"
+    transcript = [
+        {key: value for key, value in event.items() if key != "ruling"}
+        for event in (json.loads(line) for line in transcript_path.read_text().splitlines() if line.strip())
+    ]
+    write_jsonl(transcript_path, transcript)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert "sanity_prompt_missing" in finding_codes(audit)
+
+
 def test_final_audit_requires_pushed_roll_session_end_and_mechanical_detail(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "haunting-loop"
     create_rulebook_shaped_run(run_dir)

@@ -605,6 +605,36 @@ def _keeper_ruling_count(transcript: list[dict[str, Any]]) -> int:
     return sum(1 for event in transcript if event.get("role") == "keeper_under_test" and event.get("ruling"))
 
 
+def _sanity_roll_count(rolls: list[dict[str, Any]]) -> int:
+    count = 0
+    for event in rolls:
+        payload = event.get("payload", {})
+        if event.get("type") == "sanity" or payload.get("skill") == "SAN":
+            count += 1
+    return count
+
+
+def _is_sanity_ruling(value: Any) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    tokens = [token for token in re.split(r"[_:\-.]+", value.lower()) if token]
+    return "sanity" in tokens or "san" in tokens
+
+
+def _sanity_prompt_gaps(transcript: list[dict[str, Any]], rolls: list[dict[str, Any]]) -> list[str]:
+    sanity_rolls = _sanity_roll_count(rolls)
+    if sanity_rolls == 0:
+        return []
+    sanity_prompts = sum(
+        1
+        for event in transcript
+        if event.get("role") == "keeper_under_test" and _is_sanity_ruling(event.get("ruling"))
+    )
+    if sanity_prompts >= sanity_rolls:
+        return []
+    return [f"{sanity_rolls} SAN roll(s) but only {sanity_prompts} structured Keeper sanity prompt(s)"]
+
+
 def _turn_base(value: Any) -> int | None:
     if isinstance(value, int):
         return value
@@ -2253,6 +2283,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "high",
             "; ".join(roll_gaps),
             "Record each roll goal, difficulty rationale, target, outcome, and failure consequence in rolls.jsonl.",
+        ))
+
+    sanity_prompt_gaps = _sanity_prompt_gaps(transcript, context["rolls"])
+    if sanity_prompt_gaps:
+        findings.append(_finding(
+            "sanity_prompt_missing",
+            "report_gap",
+            "medium",
+            "; ".join(sanity_prompt_gaps),
+            "Before each SAN roll appears in the transcript, record a structured Keeper ruling such as san_roll or scene_sanity so the report reads like actual play rather than a raw mechanical insertion.",
         ))
 
     if not context["clues"] or _event_type_count(context["events"], "clue") < 1:
