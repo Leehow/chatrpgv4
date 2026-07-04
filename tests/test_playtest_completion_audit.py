@@ -805,9 +805,9 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     ]
     if audit_profile == "multi_profile_pressure":
         transcript_rows.extend([
-            {"turn": 7, "role": "player_simulator", "speaker": "Careful Player", "mode": "play", "player_profile": "careful_investigator", "text": "fixture careful profile turn"},
-            {"turn": 8, "role": "player_simulator", "speaker": "Reckless Player", "mode": "play", "player_profile": "reckless_investigator", "text": "fixture reckless profile turn"},
-            {"turn": 9, "role": "player_simulator", "speaker": "Rules Player", "mode": "meta", "player_profile": "skeptical_rules_lawyer", "text": "fixture skeptical rules profile turn"},
+            {"turn": 7, "role": "player_simulator", "speaker": "Careful Player", "mode": "play", "player_profile": "careful_investigator", "intent": "careful_planning", "intent_display": "谨慎规划", "text": "fixture careful profile turn"},
+            {"turn": 8, "role": "player_simulator", "speaker": "Reckless Player", "mode": "play", "player_profile": "reckless_investigator", "intent": "reckless_risk", "intent_display": "鲁莽冒险", "text": "fixture reckless profile turn"},
+            {"turn": 9, "role": "player_simulator", "speaker": "Rules Player", "mode": "meta", "player_profile": "skeptical_rules_lawyer", "intent": "rules_challenge", "intent_display": "规则质疑", "text": "fixture skeptical rules profile turn"},
             {
                 "turn": 10,
                 "role": "keeper_under_test",
@@ -3897,6 +3897,39 @@ def test_completion_audit_fails_without_multi_profile_pressure(tmp_path):
     assert audit["result"] == "fail"
     assert any(finding["code"] == "required_profile_missing" for finding in audit["findings"])
     assert any(finding["code"] == "quality_gap" and finding["key"] == "virtual_player_pressure" for finding in audit["findings"])
+
+
+def test_completion_audit_fails_when_multi_profile_transcript_lacks_intent_evidence(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v4-multi-profile-pressure"
+    transcript = read_jsonl(run_dir / "transcript.jsonl")
+    for row in transcript:
+        if row.get("player_profile") == "skeptical_rules_lawyer":
+            row.pop("intent", None)
+            row.pop("intent_display", None)
+    write_jsonl(run_dir / "transcript.jsonl", transcript)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_incomplete")
+    assert finding["run_id"] == "v4-multi-profile-pressure"
+    assert "multi_profile_pressure transcript intent evidence skeptical_rules_lawyer" in finding["missing_evidence"]
 
 
 def test_completion_audit_fails_without_language_profile(tmp_path):

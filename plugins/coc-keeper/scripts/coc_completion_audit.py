@@ -3250,6 +3250,17 @@ def _multi_profile_structure_findings(run_id: str, run_dir: Path, audit_profile:
         and isinstance(row.get("text"), str)
         and row["text"].strip()
     }
+    transcript_intent_profiles = {
+        row.get("player_profile")
+        for row in transcript
+        if row.get("role") == "player_simulator"
+        and isinstance(row.get("text"), str)
+        and row["text"].strip()
+        and isinstance(row.get("intent"), str)
+        and row["intent"].strip()
+        and isinstance(row.get("intent_display"), str)
+        and row["intent_display"].strip()
+    }
     feedback_profiles = {
         row.get("player_profile")
         for row in feedback
@@ -3269,11 +3280,17 @@ def _multi_profile_structure_findings(run_id: str, run_dir: Path, audit_profile:
         profile for profile in required_profiles
         if profile not in feedback_profiles
     ]
+    missing_intent_profiles = [
+        profile for profile in required_profiles
+        if profile not in transcript_intent_profiles
+    ]
     for profile in missing_transcript_profiles:
         missing_evidence.append(f"{audit_profile} transcript profile {profile}")
+    for profile in missing_intent_profiles:
+        missing_evidence.append(f"{audit_profile} transcript intent evidence {profile}")
     for profile in missing_feedback_profiles:
         missing_evidence.append(f"{audit_profile} feedback profile {profile}")
-    if missing_transcript_profiles:
+    if missing_transcript_profiles or missing_intent_profiles:
         incomplete_files.append("transcript.jsonl")
     if missing_feedback_profiles:
         incomplete_files.append("player-feedback.jsonl")
@@ -3284,7 +3301,7 @@ def _multi_profile_structure_findings(run_id: str, run_dir: Path, audit_profile:
         "active_run_source_files_incomplete",
         "test_gap",
         f"{run_id} multi-profile source files lack required player profiles: {', '.join(missing_evidence)}.",
-        "Regenerate the active run so multi-profile pressure transcripts and feedback include each required player_profile enum with visible text.",
+        "Regenerate the active run so multi-profile pressure transcripts and feedback include each required player_profile enum with visible text plus structured intent and localized intent_display evidence.",
         run_id=run_id,
         incomplete_files=incomplete_files,
         missing_evidence=missing_evidence,
