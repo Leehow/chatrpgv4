@@ -633,7 +633,8 @@ def assert_localized_report_shell(text: str) -> None:
     run_setup = section_text(text, "## Run Setup")
     assert "战役:" in run_setup
     assert "Campaign:" not in run_setup
-    assert "游玩语言: zh-Hans" in run_setup
+    assert "游玩语言: 简体中文" in run_setup
+    assert "游玩语言: zh-Hans" not in run_setup
     assert "Play Language:" not in run_setup
     module_section = section_text(text, "## Module")
     assert "开场场景:" in module_section
@@ -1073,7 +1074,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     for summary in source_summaries:
         assert summary in state_changes
     run_setup = section_text(battle_text, "## Run Setup")
-    assert "- 游玩语言: zh-Hans" in run_setup
+    assert "- 游玩语言: 简体中文" in run_setup
+    assert "- 游玩语言: zh-Hans" not in run_setup
     assert "本地化术语: " in run_setup
     assert_run_setup_values_localized(run_setup, "谨慎调查员")
     assert "Ada King -> 艾达·金" not in run_setup
@@ -1616,7 +1618,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     for summary in source_summaries:
         assert summary in state_changes
     run_setup = section_text(battle_text, "## Run Setup")
-    assert "- 游玩语言: zh-Hans" in run_setup
+    assert "- 游玩语言: 简体中文" in run_setup
+    assert "- 游玩语言: zh-Hans" not in run_setup
     assert "本地化术语: " in run_setup
     assert_run_setup_values_localized(run_setup, "鲁莽调查员")
     assert "Ada King -> 艾达·金" not in run_setup

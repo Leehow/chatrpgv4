@@ -1696,7 +1696,11 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_field("Era", era, language_profile),
         _report_field("Dice Mode", _localized_report_value(dice_mode, language_profile, localized_terms), language_profile),
         _report_field("Spoiler Policy", _localized_report_value(spoiler_policy, language_profile, localized_terms), language_profile),
-        _report_field("Play Language", play_language, language_profile),
+        _report_field(
+            "Play Language",
+            _localized_report_value(language_profile.get("display_name", play_language), language_profile, localized_terms),
+            language_profile,
+        ),
         _report_field(
             "Language Profile",
             _localized_report_value(language_profile.get("display_name", play_language), language_profile, localized_terms),

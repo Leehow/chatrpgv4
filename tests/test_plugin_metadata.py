@@ -101,7 +101,7 @@ def test_mode_protocol_documents_play_language_and_localized_terms():
         "speaker_labels",
         "transcript_mode_labels",
         "player-visible skill display names",
-        "machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text",
+        "machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, stable IDs, and hidden Mechanical Log audit anchors",
     ]
     for term in required_terms:
         assert term in text
@@ -123,7 +123,7 @@ def test_design_blueprint_documents_play_language_and_localized_terms():
         "speaker_labels",
         "transcript_mode_labels",
         "player-visible skill display names",
-        "machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text",
+        "machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, stable IDs, and hidden Mechanical Log audit anchors",
     ]
     for term in required_terms:
         assert term in text

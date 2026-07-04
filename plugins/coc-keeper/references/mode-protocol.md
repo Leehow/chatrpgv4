@@ -38,7 +38,7 @@ KP, player, and system. `language_profile.transcript_mode_labels` stores
 player-visible mode values such as play, roll, and meta while transcript JSON
 keeps the canonical enum values.
 
-Keep machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, and Mechanical Log roll text stable. Stored transcript payload fields also stay canonical. Do not translate those fields even when ordinary dialogue is Chinese; render player-visible skill display names, system roll summaries, success-level labels, difficulty labels, profile display fields such as `player_profile_display`, and transcript detail display fields such as `intent_display`/`ruling_display` in `player-view.jsonl` and `player-feedback.jsonl` through `play_language`.
+Keep machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, stable IDs, and hidden Mechanical Log audit anchors stable. Stored transcript payload fields also stay canonical. Do not translate those fields even when ordinary dialogue is Chinese; render player-visible skill display names, system roll summaries, success-level labels, difficulty labels, visible Mechanical Log summaries, profile display fields such as `player_profile_display`, and transcript detail display fields such as `intent_display`/`ruling_display` in `player-view.jsonl`, reports, and `player-feedback.jsonl` through `play_language`.
 
 ## Roles
 

@@ -489,6 +489,7 @@ def test_battle_report_uses_selected_language_profile_and_localized_text(tmp_pat
             "language": "ja-JP",
             "display_name": "Table Japanese",
             "report_labels": {"goal": "狙い"},
+            "report_value_labels": {"Table Japanese": "卓上日本語"},
         },
         "localized_terms": {
             "ja-JP": {
@@ -504,11 +505,13 @@ def test_battle_report_uses_selected_language_profile_and_localized_text(tmp_pat
 
     assert "# プレイ報告 <!-- report-anchor: Battle Report -->" in battle_text
     assert "## 実行設定 <!-- report-anchor: Run Setup -->" in battle_text
-    assert "プレイ言語: ja-JP" in battle_text
-    assert "言語プロファイル: Table Japanese" in battle_text
+    assert "プレイ言語: 卓上日本語" in battle_text
+    assert "言語プロファイル: 卓上日本語" in battle_text
     assert "# Battle Report / プレイ報告" not in battle_text
     assert "Play Language: ja-JP" not in battle_text
+    assert "プレイ言語: ja-JP" not in battle_text
     assert "Language Profile: Table Japanese" not in battle_text
+    assert "言語プロファイル: Table Japanese" not in battle_text
     assert "エイダ・キングはコービット屋敷に到着する。" in battle_text
     assert "玄関の扉を調べます。" in battle_text
     assert "狙い：コービット屋敷の扉についた傷に気づく" in battle_text
