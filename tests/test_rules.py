@@ -15,10 +15,29 @@ coc_rules = load_module("coc_rules", "plugins/coc-keeper/scripts/coc_rules.py")
 
 
 def test_half_and_fifth_values_round_down():
+    table = coc_rules.load_rule_table("half-fifth-values")
+
+    assert table["half"]["divisor"] == 2
+    assert table["fifth"]["divisor"] == 5
     assert coc_rules.half_value(55) == 27
     assert coc_rules.fifth_value(55) == 11
     assert coc_rules.half_value(100) == 50
     assert coc_rules.fifth_value(100) == 20
+
+
+def test_half_and_fifth_values_use_structured_table(monkeypatch):
+    def fake_load_rule_table(name: str):
+        if name == "half-fifth-values":
+            return {
+                "half": {"divisor": 4, "rounding": "floor"},
+                "fifth": {"divisor": 10, "rounding": "floor"},
+            }
+        return coc_rules.load_rule_table(name)
+
+    monkeypatch.setattr(coc_rules, "load_rule_table", fake_load_rule_table)
+
+    assert coc_rules.half_value(55) == 13
+    assert coc_rules.fifth_value(55) == 5
 
 
 def test_damage_bonus_and_build_use_structured_table():

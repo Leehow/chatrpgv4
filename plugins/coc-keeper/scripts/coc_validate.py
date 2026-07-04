@@ -10,6 +10,7 @@ REQUIRED_RULE_FILES = [
     "metadata.json",
     "age-adjustments.json",
     "damage-bonus-build.json",
+    "half-fifth-values.json",
     "movement-rate.json",
     "success-levels.json",
     "difficulty-levels.json",

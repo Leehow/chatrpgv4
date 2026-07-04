@@ -46,12 +46,18 @@ def resolve_rule_refs(refs: list[str]) -> list[dict[str, Any]]:
     return [by_id[ref] for ref in refs if ref in by_id]
 
 
+def _threshold_value(value: int, key: str) -> int:
+    table = load_rule_table("half-fifth-values")
+    divisor = int(table[key]["divisor"])
+    return value // divisor
+
+
 def half_value(value: int) -> int:
-    return value // 2
+    return _threshold_value(value, "half")
 
 
 def fifth_value(value: int) -> int:
-    return value // 5
+    return _threshold_value(value, "fifth")
 
 
 def difficulty_target(target: int, difficulty: str) -> int:

@@ -631,6 +631,7 @@ references/rules-json/
 ├── occupations.json
 ├── derived-values.json
 ├── damage-bonus-build.json
+├── half-fifth-values.json
 ├── movement-rate.json
 ├── difficulty-levels.json
 ├── rule-index.json

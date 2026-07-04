@@ -56,16 +56,8 @@
     {
       "id": "core.character_creation.half_fifth_values",
       "category": "character_creation",
-      "source_note": "After determining each characteristic or skill percentage, write the full, half, and fifth values on the investigator sheet; Hard uses half and Extreme uses fifth.",
-      "numeric": {
-        "half_divisor": 2,
-        "fifth_divisor": 5,
-        "rounding": "floor",
-        "applies_to_characteristics": true,
-        "applies_to_skills": true,
-        "hard_threshold": "half",
-        "extreme_threshold": "fifth"
-      }
+      "source_table": "half-fifth-values.json",
+      "source_note": "After determining each characteristic or skill percentage, write the full, half, and fifth values on the investigator sheet; runtime calculations use half-fifth-values.json."
     },
     {
       "id": "core.character_creation.movement_rate",
