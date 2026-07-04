@@ -640,6 +640,27 @@ def _field_anchors(section: str) -> set[str]:
     return anchors
 
 
+def _field_anchor_values(section: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in section.splitlines():
+        marker_start = line.find("<!-- field-anchor: ")
+        if marker_start == -1:
+            continue
+        anchor_start = marker_start + len("<!-- field-anchor: ")
+        anchor_end = line.find(" -->", anchor_start)
+        if anchor_end == -1:
+            continue
+        field = line[anchor_start:anchor_end]
+        visible = line[:marker_start].strip()
+        if visible.startswith("- "):
+            visible = visible[2:].strip()
+        _, separator, value = visible.partition(":")
+        if not separator:
+            continue
+        values[field] = value.strip()
+    return values
+
+
 def _battle_report_field_anchor_findings(run_id: str, battle_report: str) -> list[dict[str, Any]]:
     missing_by_section: dict[str, list[str]] = {}
     for section_name, required_fields in REQUIRED_BATTLE_REPORT_FIELD_ANCHORS.items():
@@ -661,6 +682,49 @@ def _battle_report_field_anchor_findings(run_id: str, battle_report: str) -> lis
         "Regenerate battle-report.md so Run Setup and Module expose stable ASCII field-anchor comments for campaign, audit, simulation, and scenario parameters.",
         run_id=run_id,
         missing_field_anchors=missing_by_section,
+    )]
+
+
+def _battle_report_field_value_findings(
+    run_id: str,
+    campaign_dir: Path,
+    metadata: dict[str, Any],
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    scenario = _read_json(campaign_dir / "scenario" / "scenario.json", {})
+    expected_values = {
+        ("Run Setup", "Run ID"): str(metadata.get("run_id") or run_id),
+        ("Run Setup", "Campaign ID"): str(metadata.get("campaign_id") or run_id),
+        ("Run Setup", "Audit Profile"): str(metadata.get("audit_profile") or "baseline"),
+        ("Run Setup", "Simulation Method"): str(metadata.get("simulation_method") or "not recorded"),
+        (
+            "Module",
+            "Scenario ID",
+        ): str(scenario.get("scenario_id") or metadata.get("scenario_id") or "unknown"),
+    }
+    mismatches: dict[str, dict[str, str]] = {}
+    section_values: dict[str, dict[str, str]] = {}
+    for section_name, field_name in expected_values:
+        if section_name not in section_values:
+            section_values[section_name] = _field_anchor_values(
+                _battle_report_anchor_section(battle_report, section_name)
+            )
+        actual = section_values[section_name].get(field_name)
+        expected = expected_values[(section_name, field_name)]
+        if actual is not None and actual != expected:
+            mismatches[f"{section_name}.{field_name}"] = {
+                "expected": expected,
+                "actual": actual,
+            }
+    if not mismatches:
+        return []
+    return [_finding(
+        "battle_report_field_values_mismatch",
+        "report_gap",
+        f"{run_id} battle-report.md setup/module field values do not match structured source values.",
+        "Regenerate battle-report.md from playtest.json and scenario/scenario.json so stable machine-valued setup fields match source data.",
+        run_id=run_id,
+        mismatched_field_values=mismatches,
     )]
 
 
@@ -4305,6 +4369,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     battle_report = _read_text(artifacts_dir / "battle-report.md")
     findings.extend(_battle_report_anchor_findings(run_id, battle_report))
     findings.extend(_battle_report_field_anchor_findings(run_id, battle_report))
+    findings.extend(_battle_report_field_value_findings(run_id, campaign_dir, metadata, battle_report))
     findings.extend(_battle_report_source_dialogue_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_mechanical_log_findings(run_id, run_dir, campaign_dir, metadata, battle_report))
     findings.extend(_battle_report_rule_ref_findings(run_id, campaign_dir, battle_report))

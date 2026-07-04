@@ -263,12 +263,16 @@ def battle_report_chase_tracker_fixture_text() -> str:
     ])
 
 
-def battle_report_with_localized_chase_difficulty() -> str:
+def battle_report_with_localized_chase_difficulty(
+    run_id: str = "fixture",
+    audit_profile: str = "fixture",
+    scenario_id: str = "fixture-scenario",
+) -> str:
     localized_tracker = battle_report_chase_tracker_fixture_text().replace(
         ", regular,",
         ", 普通,",
     )
-    return battle_report_fixture().replace(
+    return battle_report_fixture(run_id, audit_profile, scenario_id=scenario_id).replace(
         battle_report_chase_tracker_fixture_text(),
         localized_tracker,
     )
@@ -296,13 +300,17 @@ def battle_report_character_dossier_fixture_text() -> str:
     ])
 
 
-def battle_report_run_setup_fixture_text() -> str:
+def battle_report_run_setup_fixture_text(
+    run_id: str = "fixture",
+    audit_profile: str = "fixture",
+    simulation_method: str = "transcript_driven_virtual_table",
+) -> str:
     return "\n".join([
-        "- Run ID: fixture <!-- field-anchor: Run ID -->",
-        "- Campaign ID: fixture <!-- field-anchor: Campaign ID -->",
+        f"- Run ID: {run_id} <!-- field-anchor: Run ID -->",
+        f"- Campaign ID: {run_id} <!-- field-anchor: Campaign ID -->",
         "- Campaign: fixture <!-- field-anchor: Campaign -->",
-        "- Audit Profile: fixture <!-- field-anchor: Audit Profile -->",
-        "- Simulation Method: transcript_driven_virtual_table <!-- field-anchor: Simulation Method -->",
+        f"- Audit Profile: {audit_profile} <!-- field-anchor: Audit Profile -->",
+        f"- Simulation Method: {simulation_method} <!-- field-anchor: Simulation Method -->",
         "- Era: 1920s <!-- field-anchor: Era -->",
         "- Dice Mode: codex <!-- field-anchor: Dice Mode -->",
         "- Spoiler Policy: warn_before_reveal <!-- field-anchor: Spoiler Policy -->",
@@ -313,23 +321,28 @@ def battle_report_run_setup_fixture_text() -> str:
     ])
 
 
-def battle_report_module_fixture_text() -> str:
+def battle_report_module_fixture_text(scenario_id: str = "fixture-scenario") -> str:
     return "\n".join([
         "- Scenario: fixture <!-- field-anchor: Scenario -->",
-        "- Scenario ID: fixture-scenario <!-- field-anchor: Scenario ID -->",
-        "<!-- scenario-id: fixture-scenario -->",
+        f"- Scenario ID: {scenario_id} <!-- field-anchor: Scenario ID -->",
+        f"<!-- scenario-id: {scenario_id} -->",
         "- Source: fixture source <!-- field-anchor: Source -->",
         "- Opening Scene: Fixture opening scene. <!-- field-anchor: Opening Scene -->",
     ])
 
 
-def battle_report_fixture() -> str:
+def battle_report_fixture(
+    run_id: str = "fixture",
+    audit_profile: str = "fixture",
+    simulation_method: str = "transcript_driven_virtual_table",
+    scenario_id: str = "fixture-scenario",
+) -> str:
     return "\n\n".join([
         "# Battle Report <!-- report-anchor: Battle Report -->",
         "## Run Setup <!-- report-anchor: Run Setup -->\n"
-        + battle_report_run_setup_fixture_text(),
+        + battle_report_run_setup_fixture_text(run_id, audit_profile, simulation_method),
         "## Module <!-- report-anchor: Module -->\n"
-        + battle_report_module_fixture_text(),
+        + battle_report_module_fixture_text(scenario_id),
         "## Handouts <!-- report-anchor: Handouts -->\n"
         + battle_report_handout_fixture_text(),
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n"
@@ -379,13 +392,18 @@ def battle_report_fixture() -> str:
     ]) + "\n"
 
 
-def battle_report_shell_with_required_anchors() -> str:
+def battle_report_shell_with_required_anchors(
+    run_id: str = "fixture",
+    audit_profile: str = "fixture",
+    simulation_method: str = "transcript_driven_virtual_table",
+    scenario_id: str = "fixture-scenario",
+) -> str:
     return "\n\n".join([
         "# Battle Report <!-- report-anchor: Battle Report -->",
         "## Run Setup <!-- report-anchor: Run Setup -->\n"
-        + battle_report_run_setup_fixture_text(),
+        + battle_report_run_setup_fixture_text(run_id, audit_profile, simulation_method),
         "## Module <!-- report-anchor: Module -->\n"
-        + battle_report_module_fixture_text(),
+        + battle_report_module_fixture_text(scenario_id),
         "## Handouts <!-- report-anchor: Handouts -->\n- Fixture handouts.",
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n- Fixture creation record.",
         "## Character Dossier <!-- report-anchor: Character Dossier -->\n- Fixture character dossier.",
@@ -850,6 +868,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         "campaign_id": run_id,
         "campaign_title": run_id,
         "scenario": "Fixture Scenario",
+        "simulation_method": "transcript_driven_virtual_table",
         "audit_profile": audit_profile,
         "player_profile": "fixture",
         "player_profiles_tested": (
@@ -1260,7 +1279,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         {"campaign_id": run_id, "summary": "fixture inventory"},
     ])
     write_workspace_indexes(run_dir, run_id, investigator_id)
-    write_text(run_dir / "artifacts" / "battle-report.md", battle_report_fixture())
+    write_text(run_dir / "artifacts" / "battle-report.md", battle_report_fixture(run_id, audit_profile))
     write_text(run_dir / "artifacts" / "evaluation-report.md", evaluation_report_fixture())
     write_text(run_dir / "artifacts" / "rulebook-audit.md", rulebook_audit_fixture(run_id, audit_profile))
     write_json(run_dir / "artifacts" / "semantic-eval-request.json", request_payload(run_id))
@@ -3327,6 +3346,43 @@ def test_completion_audit_fails_when_battle_report_missing_setup_field_anchors(t
     }
 
 
+def test_completion_audit_fails_when_battle_report_setup_field_values_do_not_match_source(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    mismatched_report = (
+        battle_report_fixture("wrong-run", "wrong_profile", scenario_id="wrong-scenario")
+        .replace("<!-- scenario-id: wrong-scenario -->", "<!-- scenario-id: fixture-scenario -->")
+    )
+    write_text(run_dir / "artifacts" / "battle-report.md", mismatched_report)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_field_values_mismatch")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert finding["mismatched_field_values"] == {
+        "Run Setup.Run ID": {"expected": "v2-haunting-module", "actual": "wrong-run"},
+        "Run Setup.Campaign ID": {"expected": "v2-haunting-module", "actual": "wrong-run"},
+        "Run Setup.Audit Profile": {"expected": "haunting_module", "actual": "wrong_profile"},
+        "Module.Scenario ID": {"expected": "fixture-scenario", "actual": "wrong-scenario"},
+    }
+
+
 def test_completion_audit_fails_when_battle_report_omits_source_dialogue_text(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
@@ -4176,7 +4232,7 @@ def test_completion_audit_accepts_localized_chase_difficulty_labels(tmp_path):
     write_json(run_dir / "playtest.json", playtest)
     write_text(
         run_dir / "artifacts" / "battle-report.md",
-        battle_report_with_localized_chase_difficulty(),
+        battle_report_with_localized_chase_difficulty("v3-chase-drill", "chase_drill"),
     )
     write_index(tmp_path, runs)
     automation_path = tmp_path / "automation.toml"
@@ -4250,7 +4306,10 @@ def test_completion_audit_accepts_localized_investigator_chronicle_spacing(tmp_p
     ])
     write_text(
         run_dir / "artifacts" / "battle-report.md",
-        battle_report_fixture().replace("fixture history", "fixture history 在《夹具剧本》中完成"),
+        battle_report_fixture("v2-haunting-module", "haunting_module").replace(
+            "fixture history",
+            "fixture history 在《夹具剧本》中完成",
+        ),
     )
     write_index(tmp_path, runs)
     automation_path = tmp_path / "automation.toml"
