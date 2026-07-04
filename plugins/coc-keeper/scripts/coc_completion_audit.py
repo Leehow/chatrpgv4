@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -353,10 +354,12 @@ def _monitor_status(automation_path: Path | None) -> tuple[str, str]:
     text = _read_text(automation_path)
     if not text:
         return "missing", str(automation_path)
-    if 'status = "ACTIVE"' in text and "multi-profile virtual player pressure" in text:
+    try:
+        payload = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return "invalid", str(automation_path)
+    if str(payload.get("status", "")).upper() == "ACTIVE":
         return "ACTIVE", str(automation_path)
-    if 'status = "ACTIVE"' in text:
-        return "active_without_latest_prompt", str(automation_path)
     return "inactive", str(automation_path)
 
 

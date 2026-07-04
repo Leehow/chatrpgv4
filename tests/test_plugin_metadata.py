@@ -338,6 +338,8 @@ def test_coc_playtest_skill_documents_suite_report_index():
         "evaluator_note_blocker",
         "active_evaluator_note_blocker",
         "medium-or-higher or failing-severity evaluator notes",
+        "structured automation status",
+        "monitor prompt text",
         "character_dossier",
         "kp_player_transcript",
         "mechanical_rolls",
