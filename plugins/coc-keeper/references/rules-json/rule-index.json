@@ -8,6 +8,19 @@
       "source_note": "Keeper Rulebook percentile skill and characteristic checks; runtime bounds use percentile-check.json."
     },
     {
+      "id": "core.percentile_check.roll_modifiers",
+      "category": "core_resolution",
+      "source_table": "roll-modifiers.json",
+      "source_note": "Keeper Rulebook bonus and penalty dice for percentile checks cancel one-for-one, then choose the lowest or highest tens digit from extra tens dice.",
+      "numeric": {
+        "bonus_extra_tens_dice_per_die": 1,
+        "penalty_extra_tens_dice_per_die": 1,
+        "cancellation": "one_for_one",
+        "bonus_selected_tens": "lowest",
+        "penalty_selected_tens": "highest"
+      }
+    },
+    {
       "id": "core.difficulty.regular",
       "category": "difficulty",
       "source_table": "difficulty-levels.json",

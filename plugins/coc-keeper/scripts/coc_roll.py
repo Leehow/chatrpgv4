@@ -49,6 +49,21 @@ def _percentile_from_tens_units(tens: int, units: int, *, digit_base: int, zero_
     return zero_zero_result if value == 0 else value
 
 
+def _net_roll_modifiers(bonus: int, penalty: int, modifier_rule: dict[str, Any]) -> tuple[int, int]:
+    cancellation = modifier_rule["cancellation"]
+    if cancellation["method"] != "one_for_one":
+        raise ValueError(f"unsupported roll modifier cancellation: {cancellation['method']}")
+    return max(0, bonus - penalty), max(0, penalty - bonus)
+
+
+def _select_tens_value(tens_values: list[int], selected_tens: str) -> int:
+    if selected_tens == "lowest":
+        return min(tens_values)
+    if selected_tens == "highest":
+        return max(tens_values)
+    raise ValueError(f"unsupported tens selection: {selected_tens}")
+
+
 def _roll_percentile_with_dice(
     rng: random.Random,
     bonus: int,
@@ -56,12 +71,14 @@ def _roll_percentile_with_dice(
     *,
     digit_base: int,
     zero_zero_result: int,
+    modifier_rule: dict[str, Any],
 ) -> tuple[int, list[int], int]:
     units = rng.randrange(digit_base)
     tens_values = [rng.randrange(digit_base)]
-    extra_count = max(bonus, penalty)
+    active_rule = modifier_rule["bonus_die"] if bonus else modifier_rule["penalty_die"]
+    extra_count = max(bonus, penalty) * int(active_rule["extra_tens_dice_per_die"])
     tens_values.extend(rng.randrange(digit_base) for _ in range(extra_count))
-    selected_tens = min(tens_values) if bonus else max(tens_values)
+    selected_tens = _select_tens_value(tens_values, str(active_rule["selected_tens"]))
     return _percentile_from_tens_units(
         selected_tens,
         units,
@@ -78,10 +95,10 @@ def percentile_check(
     rng: random.Random | None = None,
 ) -> dict[str, Any]:
     rng = rng or random.Random()
-    net_bonus = max(0, bonus - penalty)
-    net_penalty = max(0, penalty - bonus)
     effective_target = _effective_target(target, difficulty)
     percentile_rule = coc_rules.percentile_check_rule()
+    modifier_rule = coc_rules.roll_modifiers_rule()
+    net_bonus, net_penalty = _net_roll_modifiers(bonus, penalty, modifier_rule)
 
     if net_bonus == 0 and net_penalty == 0:
         roll = rng.randint(
@@ -97,6 +114,7 @@ def percentile_check(
             net_penalty,
             digit_base=int(percentile_rule["digit_base"]),
             zero_zero_result=int(percentile_rule["zero_zero_result"]),
+            modifier_rule=modifier_rule,
         )
 
     return {

@@ -132,3 +132,31 @@ def test_percentile_bonus_dice_use_rules_json_digit_base(monkeypatch):
     assert result["roll"] == 23
     assert result["tens_values"] == [4, 4]
     assert result["units"] == 3
+
+
+def test_percentile_bonus_dice_selection_uses_rules_json_roll_modifiers(monkeypatch):
+    def fake_roll_modifiers_rule():
+        return {
+            "applies_to": "percentile-check",
+            "cancellation": {
+                "method": "one_for_one",
+                "net_bonus_formula": "max(0, bonus - penalty)",
+                "net_penalty_formula": "max(0, penalty - bonus)",
+            },
+            "bonus_die": {
+                "extra_tens_dice_per_die": 1,
+                "selected_tens": "highest",
+                "uses_same_units_die": True,
+            },
+            "penalty_die": {
+                "extra_tens_dice_per_die": 1,
+                "selected_tens": "lowest",
+                "uses_same_units_die": True,
+            },
+        }
+
+    monkeypatch.setattr(coc_roll.coc_rules, "roll_modifiers_rule", fake_roll_modifiers_rule, raising=False)
+
+    result = coc_roll.percentile_check(100, bonus=1, rng=SequenceRandom([5, 1, 9]))
+
+    assert result["roll"] == 95

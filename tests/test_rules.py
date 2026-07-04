@@ -32,6 +32,30 @@ def test_percentile_check_rule_uses_structured_table():
     }
 
 
+def test_roll_modifiers_rule_uses_structured_table():
+    table = coc_rules.load_rule_table("roll-modifiers")
+
+    assert table["cancellation"]["method"] == "one_for_one"
+    assert coc_rules.roll_modifiers_rule() == {
+        "applies_to": "percentile-check",
+        "cancellation": {
+            "method": "one_for_one",
+            "net_bonus_formula": "max(0, bonus - penalty)",
+            "net_penalty_formula": "max(0, penalty - bonus)",
+        },
+        "bonus_die": {
+            "extra_tens_dice_per_die": 1,
+            "selected_tens": "lowest",
+            "uses_same_units_die": True,
+        },
+        "penalty_die": {
+            "extra_tens_dice_per_die": 1,
+            "selected_tens": "highest",
+            "uses_same_units_die": True,
+        },
+    }
+
+
 def test_success_level_uses_percentile_check_bounds(monkeypatch):
     def fake_percentile_check_rule():
         return {
@@ -196,6 +220,7 @@ def test_rule_index_exposes_stable_ids_for_playtest_traceability():
 
     for rule_id in [
         "core.percentile_check",
+        "core.percentile_check.roll_modifiers",
         "core.difficulty.regular",
         "core.success_level",
         "core.character_creation.derived_attributes",

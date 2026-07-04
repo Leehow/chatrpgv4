@@ -60,6 +60,31 @@ def percentile_check_rule() -> dict[str, Any]:
     }
 
 
+def roll_modifiers_rule() -> dict[str, Any]:
+    table = load_rule_table("roll-modifiers")
+    cancellation = table["cancellation"]
+    bonus_die = table["bonus_die"]
+    penalty_die = table["penalty_die"]
+    return {
+        "applies_to": str(table["applies_to"]),
+        "cancellation": {
+            "method": str(cancellation["method"]),
+            "net_bonus_formula": str(cancellation["net_bonus_formula"]),
+            "net_penalty_formula": str(cancellation["net_penalty_formula"]),
+        },
+        "bonus_die": {
+            "extra_tens_dice_per_die": int(bonus_die["extra_tens_dice_per_die"]),
+            "selected_tens": str(bonus_die["selected_tens"]),
+            "uses_same_units_die": bool(bonus_die["uses_same_units_die"]),
+        },
+        "penalty_die": {
+            "extra_tens_dice_per_die": int(penalty_die["extra_tens_dice_per_die"]),
+            "selected_tens": str(penalty_die["selected_tens"]),
+            "uses_same_units_die": bool(penalty_die["uses_same_units_die"]),
+        },
+    }
+
+
 def _threshold_value(value: int, key: str) -> int:
     table = load_rule_table("half-fifth-values")
     divisor = int(table[key]["divisor"])
