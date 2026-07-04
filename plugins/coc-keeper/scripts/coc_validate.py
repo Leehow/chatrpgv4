@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 
@@ -29,6 +30,8 @@ REQUIRED_CAMPAIGN_DIRS = [
     "logs",
     "snapshots",
 ]
+
+RULE_INDEX_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 
 
 def validate_rules(plugin_root: Path) -> list[str]:
@@ -57,10 +60,14 @@ def validate_rules(plugin_root: Path) -> list[str]:
             for rule in rules:
                 if not isinstance(rule, dict):
                     continue
-                rule_id = rule.get("id") if isinstance(rule.get("id"), str) else "<unknown>"
-                if rule_id in indexed_rule_ids:
-                    errors.append(f"duplicate rule-index id: {rule_id}")
-                indexed_rule_ids.add(rule_id)
+                raw_rule_id = rule.get("id")
+                rule_id = raw_rule_id if isinstance(raw_rule_id, str) else "<unknown>"
+                if not isinstance(raw_rule_id, str) or RULE_INDEX_ID_PATTERN.fullmatch(raw_rule_id) is None:
+                    errors.append(f"invalid rule-index id: {rule_id}")
+                if isinstance(raw_rule_id, str):
+                    if raw_rule_id in indexed_rule_ids:
+                        errors.append(f"duplicate rule-index id: {raw_rule_id}")
+                    indexed_rule_ids.add(raw_rule_id)
                 source_table = rule.get("source_table")
                 if not isinstance(source_table, str):
                     continue
