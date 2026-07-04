@@ -167,7 +167,7 @@ REQUIRED_BATTLE_REPORT_ANCHORS = [
 REQUIRED_SUITE_REPORT_SECTIONS = [
     "# COC Playtest Suite Report",
     "## Run Index",
-    "## Non-Passing Runs",
+    "## Non-Passing Evaluated Runs",
     "## Core Coverage Matrix",
     "## Coverage Evidence",
     "## Quality Matrix",

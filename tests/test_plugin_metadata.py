@@ -494,7 +494,7 @@ def test_coc_playtest_skill_documents_suite_report_index():
         "suite-report.md",
         "index.json",
         "Core Coverage Matrix",
-        "Non-Passing Runs",
+        "Non-Passing Evaluated Runs",
         "Evaluator Note Blockers",
         "evaluator_note_blocker",
         "active_evaluator_note_blocker",

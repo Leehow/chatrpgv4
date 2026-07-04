@@ -121,8 +121,8 @@ def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     assert "sanity: covered" in report_text
     assert "meta_game: covered" in report_text
     assert "player_feedback: covered" in report_text
-    assert "## Non-Passing Runs" in report_text
-    assert "- No non-passing runs in this suite." in report_text
+    assert "## Non-Passing Evaluated Runs" in report_text
+    assert "- No non-passing evaluated runs in this suite." in report_text
     assert "## Remaining Gaps" in report_text
     assert "- No gaps detected across indexed playtest runs." in report_text
 
@@ -991,16 +991,15 @@ def test_loop_decision_ignores_historical_baseline_missing_semantic_result(tmp_p
     index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
     report_text = report_path.read_text()
 
-    assert index["non_passing_runs"] == [{
-        "run_id": "old-baseline",
-        "audit_result": "MISSING",
-        "audit_profile": "baseline",
-    }]
+    assert index["non_passing_runs"] == []
     assert index["loop_decision"]["status"] == "ready_for_completion_audit"
     assert index["loop_decision"]["thread_goal_status"] == "active_not_complete"
     assert index["loop_decision"]["evaluated_runs"] == ["active-module"]
     assert index["loop_decision"]["ignored_historical_runs"] == ["old-baseline"]
     assert index["loop_decision"]["blockers"] == []
+    assert "## Non-Passing Evaluated Runs" in report_text
+    assert "- No non-passing evaluated runs in this suite." in report_text
+    assert "- old-baseline: baseline MISSING" not in report_text
     assert "old-baseline: Fill artifacts/semantic-eval-result.json" not in report_text
     assert "- active-module: none" in report_text
     assert report_path == tmp_path / ".coc" / "playtests" / "suite-report.md"

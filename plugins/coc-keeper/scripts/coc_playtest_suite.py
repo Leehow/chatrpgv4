@@ -783,12 +783,12 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
             f"scenario: {run['scenario']} | player: {run['player_profile']}"
         )
 
-    lines.extend(["", "## Non-Passing Runs"])
+    lines.extend(["", "## Non-Passing Evaluated Runs"])
     if index["non_passing_runs"]:
         for run in index["non_passing_runs"]:
             lines.append(f"- {run['run_id']}: {run['audit_profile']} {run['audit_result']}")
     else:
-        lines.append("- No non-passing runs in this suite.")
+        lines.append("- No non-passing evaluated runs in this suite.")
 
     lines.extend(["", "## Evaluator Note Blockers"])
     active_note_run_ids = set(index.get("loop_decision", {}).get("evaluated_runs", []))
@@ -886,6 +886,7 @@ def generate_suite_report(root: Path, evaluator: CoverageEvaluator | None = None
     evaluator = evaluator or StructuredSourceCoverageEvaluator()
     base = _playtests_dir(root)
     runs = _discover_runs(root, evaluator)
+    active_runs = _active_evaluation_runs(runs)
     matrix = _coverage_matrix(runs)
     quality = _quality_matrix(runs)
     index = {
@@ -895,7 +896,7 @@ def generate_suite_report(root: Path, evaluator: CoverageEvaluator | None = None
         "quality": quality,
         "gaps": _gaps(matrix),
         "quality_gaps": _gaps(quality),
-        "non_passing_runs": _non_passing_runs(runs),
+        "non_passing_runs": _non_passing_runs(active_runs),
     }
     index["loop_decision"] = _loop_decision(index)
     index_path = base / "index.json"

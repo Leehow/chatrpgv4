@@ -635,7 +635,7 @@ def suite_report_fixture() -> str:
     return "\n\n".join([
         "# COC Playtest Suite Report",
         "## Run Index\n- fixture run",
-        "## Non-Passing Runs\n- none",
+        "## Non-Passing Evaluated Runs\n- none",
         "## Core Coverage Matrix\n- character_dossier: covered",
         "## Coverage Evidence\n- fixture coverage evidence",
         "## Quality Matrix\n- report_completeness: passed",

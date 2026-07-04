@@ -43,7 +43,7 @@ Use `../../scripts/coc_completion_audit.py` when `loop-decision.json` reports `r
 - `.coc/playtests/completion-audit.json`
 - `.coc/playtests/completion-audit.md`
 
-`suite-report.md` should include `## Run Index`, `## Non-Passing Runs`, `## Loop Decision`, and a `## Core Coverage Matrix` with `character_dossier`, `kp_player_transcript`, `mechanical_rolls`, `combat`, `chase`, `sanity`, `meta_game`, and `player_feedback`, so the evaluator can see whether the current playtest set covers the requested Keeper Rulebook workflows without hiding failed or missing audits.
+`suite-report.md` should include `## Run Index`, `## Non-Passing Evaluated Runs`, `## Loop Decision`, and a `## Core Coverage Matrix` with `character_dossier`, `kp_player_transcript`, `mechanical_rolls`, `combat`, `chase`, `sanity`, `meta_game`, and `player_feedback`, so the evaluator can see whether the current playtest set covers the requested Keeper Rulebook workflows without hiding failed or missing audits.
 
 `loop-decision.json` is the next-action gate for the continuous loop. It records `evaluated_runs`, `ignored_historical_runs`, `blockers`, status, `thread_goal_status`, and `thread_goal_next_action`. `needs_repair` means fix the first blocker and rerun the loop. `ready_for_completion_audit` means current active runs have no coverage or quality gaps and the artifact audit can run; it is not a thread-goal completion signal. `thread_goal_status` remains `active_not_complete` until the external Codex goal is separately proven complete, so run `coc_completion_audit.py`, inspect `completion-audit.md/json`, and keep the watchdog active unless the thread-level completion audit is truly satisfied.
 
