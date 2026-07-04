@@ -588,9 +588,16 @@ def _loop_decision(index: dict[str, Any]) -> dict[str, Any]:
         })
 
     ignored = [run["run_id"] for run in runs if run["run_id"] not in set(active_run_ids)]
+    thread_goal_next_action = (
+        "Continue the watchdog loop by repairing the first blocker."
+        if blockers
+        else "Artifact audit ready; keep the watchdog goal active after completion audit."
+    )
     return {
         "schema_version": 1,
         "status": "needs_repair" if blockers else "ready_for_completion_audit",
+        "thread_goal_status": "active_not_complete",
+        "thread_goal_next_action": thread_goal_next_action,
         "evaluated_runs": active_run_ids,
         "ignored_historical_runs": ignored,
         "blockers": blockers,
@@ -788,6 +795,10 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
     decision = index["loop_decision"]
     lines.extend(["", "## Loop Decision"])
     lines.append(f"- Status: {decision['status']}")
+    lines.append(f"- Thread Goal: {decision.get('thread_goal_status', 'active_not_complete')}")
+    lines.append(
+        f"- Thread Goal Next Action: {decision.get('thread_goal_next_action', 'Keep the watchdog goal active.')}"
+    )
     lines.append(f"- Next Action: {decision['next_action']}")
     lines.append(f"- Evaluated Runs: {', '.join(decision['evaluated_runs']) if decision['evaluated_runs'] else 'none'}")
     ignored = ", ".join(decision["ignored_historical_runs"]) if decision["ignored_historical_runs"] else "none"

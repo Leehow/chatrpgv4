@@ -322,12 +322,15 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
     }
     assert index["quality_gaps"] == []
     assert index["loop_decision"]["status"] == "ready_for_completion_audit"
+    assert index["loop_decision"]["thread_goal_status"] == "active_not_complete"
     assert index["loop_decision"]["blockers"] == []
     assert index["loop_decision"]["evaluated_runs"] == ["semantic-artifact-run"]
     assert loop_decision == index["loop_decision"]
     assert "codex-llm-semantic-v1" in report_text
     assert "## Loop Decision" in report_text
     assert "ready_for_completion_audit" in report_text
+    assert "Thread Goal: active_not_complete" in report_text
+    assert "Artifact audit ready; keep the watchdog goal active after completion audit." in report_text
     assert "## Quality Matrix" in report_text
     assert "## Remaining Quality Gaps" in report_text
     assert "- No quality gaps detected across indexed playtest runs." in report_text
@@ -879,6 +882,7 @@ def test_loop_decision_ignores_historical_baseline_missing_semantic_result(tmp_p
         "audit_profile": "baseline",
     }]
     assert index["loop_decision"]["status"] == "ready_for_completion_audit"
+    assert index["loop_decision"]["thread_goal_status"] == "active_not_complete"
     assert index["loop_decision"]["evaluated_runs"] == ["active-module"]
     assert index["loop_decision"]["ignored_historical_runs"] == ["old-baseline"]
     assert index["loop_decision"]["blockers"] == []

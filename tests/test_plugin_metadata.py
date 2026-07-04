@@ -392,6 +392,8 @@ def test_coc_playtest_skill_documents_loop_decision_artifact():
         "Loop Decision",
         "ready_for_completion_audit",
         "needs_repair",
+        "thread_goal_status",
+        "active_not_complete",
         "ignored_historical_runs",
         "evaluated_runs",
     ]
