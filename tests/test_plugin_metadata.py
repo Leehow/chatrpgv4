@@ -512,6 +512,14 @@ def test_coc_playtest_skill_documents_chase_drill_profile():
         assert term in spec_text
 
 
+def test_coc_playtest_skill_documents_single_player_pressure_scope():
+    skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+
+    assert "play-style profiles for one virtual player" in skill_text
+    assert "group-table support is outside the current scope" in skill_text
+    assert "virtual player profiles" not in skill_text
+
+
 def test_coc_playtest_skill_documents_suite_report_index():
     skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
     spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
