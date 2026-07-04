@@ -99,7 +99,7 @@ REQUIRED_QUALITY_DIMENSIONS = [
     "module_fidelity",
     "rulebook_procedure",
     "immersion_and_pacing",
-    "chinese_visible_dialogue",
+    "localized_visible_dialogue",
     "actual_play_replay",
     "state_continuity",
     "spoiler_safety",

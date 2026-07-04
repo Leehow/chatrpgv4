@@ -234,14 +234,16 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     assert "LLM semantic evaluator" in request["instructions"]
     assert coverage_keys == set(coc_playtest_suite.CORE_COVERAGE)
     assert quality_keys == set(coc_playtest_suite.QUALITY_DIMENSIONS)
-    assert "chinese_visible_dialogue" in quality_keys
+    assert "localized_visible_dialogue" in quality_keys
+    assert "chinese_visible_dialogue" not in quality_keys
     assert "actual_play_replay" in quality_keys
     assert "virtual_player_pressure" in quality_keys
     quality_questions = {entry["key"]: entry["question"] for entry in request["quality_dimensions"]}
-    assert "Chinese" in quality_questions["chinese_visible_dialogue"]
-    assert "player-visible skill display names" in quality_questions["chinese_visible_dialogue"]
-    assert "canonical skill keys" in quality_questions["chinese_visible_dialogue"]
-    assert "skill names, system roll text" not in quality_questions["chinese_visible_dialogue"]
+    assert "play_language" in quality_questions["localized_visible_dialogue"]
+    assert "zh-Hans" in quality_questions["localized_visible_dialogue"]
+    assert "player-visible skill display names" in quality_questions["localized_visible_dialogue"]
+    assert "canonical skill keys" in quality_questions["localized_visible_dialogue"]
+    assert "skill names, system roll text" not in quality_questions["localized_visible_dialogue"]
     assert "actual-play" in quality_questions["actual_play_replay"]
     assert "multiple player profiles" in quality_questions["virtual_player_pressure"]
     assert "battle_report" in request["inputs"]
@@ -643,6 +645,63 @@ def test_suite_report_rejects_semantic_result_when_request_contract_is_incomplet
     assert index["loop_decision"]["blockers"][0]["type"] == "semantic_artifact_schema_invalid"
     assert index["loop_decision"]["blockers"][0]["run_id"] == "semantic-artifact-run"
     assert "semantic_eval_request.coverage_keys" in index["runs"][0]["semantic_artifact_schema_errors"]
+
+
+def test_suite_report_rejects_legacy_chinese_only_localization_quality_contract(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "semantic-artifact-run"
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "semantic-artifact-run",
+        "campaign_title": "Semantic Artifact Fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": "semantic_fixture",
+        "player_profile": "careful_investigator",
+        "subsystems_covered": ["combat", "chase", "sanity"],
+    }))
+    (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    request = write_semantic_eval_request(artifacts_dir, "semantic-artifact-run")
+    request["quality_dimensions"] = [
+        (
+            {"key": "chinese_visible_dialogue", "label": "Chinese visible dialogue"}
+            if entry["key"] == "localized_visible_dialogue"
+            else entry
+        )
+        for entry in request["quality_dimensions"]
+    ]
+    (artifacts_dir / "semantic-eval-request.json").write_text(json.dumps(request))
+    quality = {
+        (
+            "chinese_visible_dialogue"
+            if key == "localized_visible_dialogue"
+            else key
+        ): {"score": 4, "passed": True, "reason": f"{key} passed by fixture."}
+        for key in coc_playtest_suite.QUALITY_DIMENSIONS
+    }
+    (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "semantic-artifact-run",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance_for(request),
+        "coverage": {
+            key: {"covered": True, "reason": f"{key} covered by fixture."}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": quality,
+        "root_cause_classification": [],
+        "next_loop_fix_target": "none",
+    }))
+
+    coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["blockers"][0]["type"] == "semantic_artifact_schema_invalid"
+    assert "semantic_eval_request.quality_dimensions" in index["runs"][0]["semantic_artifact_schema_errors"]
 
 
 def test_suite_report_rejects_semantic_result_with_wrong_reviewed_artifact(tmp_path):
