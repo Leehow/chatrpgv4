@@ -301,6 +301,8 @@ def test_coc_playtest_skill_documents_chase_drill_profile():
         "decision_kind",
         "chase_decisions_too_thin",
         "chase_object_transfer_missing",
+        "chase_transcript_position_conflict",
+        "participants[].position",
     ]
     for term in required_terms:
         assert term in skill_text

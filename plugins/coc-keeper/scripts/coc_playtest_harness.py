@@ -305,7 +305,7 @@ ZH_HANS_ROLL_TEXT = {
     "Ada has a brief lead and concealment among laundry sheets.": "艾达·金暂时领先，并能借晾衣布单遮蔽自己。",
     "Nathaniel would keep the chase active.": "内森尼尔·克劳会继续保持追逐。",
     "find Ada after she hides": "在艾达·金躲藏后重新找到她",
-    "The pursuer searches the laundry roof after losing line of sight.": "追赶者在失去视线后搜索晾衣屋顶。",
+    "The pursuer searches around the locked roof door after losing line of sight.": "追赶者在上锁屋顶门一带失去视线后搜索。",
     "The quarry escapes.": "被追者逃脱。",
 }
 
@@ -2292,7 +2292,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             },
             {
                 "round": 2,
-                "summary": "Ada opens the locked roof door barrier and hides on the laundry roof; Nathaniel searches after losing line of sight, and the quarry escapes.",
+                "summary": "Ada opens the locked roof door barrier and hides on the laundry roof; Nathaniel loses sight at the locked roof door and searches there, and the quarry escapes.",
                 "turns": [
                     {
                         "actor_id": investigator_id,
@@ -2303,7 +2303,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
                     },
                     {
                         "actor_id": pursuer_id,
-                        "action": "search_after_losing_line_of_sight",
+                        "action": "search_locked_roof_door_after_losing_line_of_sight",
                         "movement_actions_spent": 1,
                         "start_position": "locked-roof-door",
                         "end_position": "locked-roof-door",
@@ -2311,7 +2311,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
                 ],
                 "localized_text": {
                     "zh-Hans": {
-                        "summary": "艾达·金打开上锁屋顶门障碍并躲进晾衣屋顶；内森尼尔·克劳失去视线后搜索失败，被追者逃脱。"
+                        "summary": "艾达·金打开上锁屋顶门障碍并躲进晾衣屋顶；内森尼尔·克劳在上锁屋顶门一带失去视线并搜索失败，被追者逃脱。"
                     }
                 },
             },
@@ -2345,7 +2345,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"turn": 18, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 2, "outcome_note": "内森尼尔·克劳的短棍攻击落空。", "text": "Ada Dodge 19 vs 35 -> regular_success; Nathaniel Fighting 62 vs 45 -> failure."},
         {"turn": 19, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "pass barrier and hide", "text": "我把偷来的 key ring 插进 locked roof door barrier，挤过去后立刻钻进 laundry sheets 之间躲起来。"},
         {"turn": 20, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 3, "outcome_note": "艾达·金带着账本逃脱。", "text": "Locksmith 21 vs 30 -> regular_success. Stealth 18 vs 45 -> hard_success. Nathaniel Spot Hidden 77 vs 40 -> failure."},
-        {"turn": 21, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "quarry escapes。Nathaniel 从 laundry roof 另一头冲过去，没有看见你；Ada 抱着 ledger，听见脚步声渐渐落到楼下。"},
+        {"turn": 21, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "quarry escapes。Nathaniel 在 locked roof door 一带失去视线，只能隔着 laundry sheets 乱搜，没有看见你；Ada 抱着 ledger，听见脚步声渐渐落到楼下。"},
     ], ZH_HANS_CHASE_GLOSSARY)
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The ledger is partly visible under Nathaniel's coat.", "roll": 82, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada cannot confirm the ledger without risking detection.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "确认内森尼尔·克劳行动前是否带着邪教账本", "difficulty_rationale": "账本只从内森尼尔·克劳的外套下露出一角，需要仔细观察。", "failure_consequence": "艾达·金无法确认账本，除非冒着被发现的风险继续观察。"}}}},
@@ -2357,7 +2357,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"type": "chase", "actor": pursuer_id, "payload": {"skill": "Fighting (Brawl)", "goal": "strike Ada with a sap during chase conflict", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "An attack during a chase costs one movement action.", "roll": 62, "outcome": "failure", "failure_consequence": "Ada slips past the attack."}},
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "Locksmith", "goal": "pass the locked roof door barrier", "target": 30, "effective_target": 30, "difficulty": "regular", "difficulty_rationale": "The locked roof door is a Regular barrier with the stolen key ring.", "roll": 21, "outcome": "regular_success", "failure_consequence": "The barrier would stop Ada's movement until another method succeeded.", "skill_check_earned": True}},
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "Stealth", "goal": "hide on the laundry roof after passing the barrier", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "Ada has a brief lead and concealment among laundry sheets.", "roll": 18, "outcome": "hard_success", "failure_consequence": "Nathaniel would keep the chase active.", "skill_check_earned": True}},
-        {"type": "chase", "actor": pursuer_id, "payload": {"skill": "Spot Hidden", "goal": "find Ada after she hides", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "The pursuer searches the laundry roof after losing line of sight.", "roll": 77, "outcome": "failure", "failure_consequence": "The quarry escapes.", "localized_text": {"zh-Hans": {"goal": "在艾达·金躲藏后重新找到她", "difficulty_rationale": "追赶者在失去视线后搜索晾衣屋顶。", "failure_consequence": "被追者逃脱。"}}}},
+        {"type": "chase", "actor": pursuer_id, "payload": {"skill": "Spot Hidden", "goal": "find Ada after she hides", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "The pursuer searches around the locked roof door after losing line of sight.", "roll": 77, "outcome": "failure", "failure_consequence": "The quarry escapes.", "localized_text": {"zh-Hans": {"goal": "在艾达·金躲藏后重新找到她", "difficulty_rationale": "追赶者在上锁屋顶门一带失去视线后搜索。", "failure_consequence": "被追者逃脱。"}}}},
     ]))
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "print-shop-roof", "summary": "Ada 在 print shop roof 发现 Nathaniel Crowe，确认他带着 cult ledger。"}},

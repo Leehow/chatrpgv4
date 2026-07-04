@@ -14,6 +14,7 @@ def load_module(name: str, relative_path: str):
 
 coc_playtest_harness = load_module("coc_playtest_harness", "plugins/coc-keeper/scripts/coc_playtest_harness.py")
 coc_playtest_audit = load_module("coc_playtest_audit", "plugins/coc-keeper/scripts/coc_playtest_audit.py")
+coc_completion_audit = load_module("coc_completion_audit", "plugins/coc-keeper/scripts/coc_completion_audit.py")
 
 
 def has_cjk(text: str) -> bool:
@@ -1677,6 +1678,14 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
 
     chase_state = json.loads((run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json").read_text())
     assert_chase_round_turns_follow_dex_order(chase_state)
+    chase_position_findings = coc_completion_audit._chase_transcript_position_findings(
+        "chase-drill",
+        run_dir,
+        run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill",
+        metadata,
+        battle_text,
+    )
+    assert chase_position_findings == []
     assert "- 追逐 ID: rooftop-chase" in chase_tracker
     assert "- 状态: 已解决" in chase_tracker
     assert "- 当前轮数: 2" in chase_tracker

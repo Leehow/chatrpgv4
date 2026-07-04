@@ -1052,6 +1052,138 @@ def _chase_tracker_text_rendered(
     return any(candidate and candidate in battle_report for candidate in candidates)
 
 
+def _chase_value_aliases(value: Any, metadata: dict[str, Any], localized_terms: dict[str, str]) -> set[str]:
+    value_text = str(value or "")
+    if not value_text:
+        return set()
+    aliases = {
+        value_text,
+        value_text.replace("-", " "),
+        _localize_text(value_text, localized_terms),
+        _localize_text(value_text.replace("-", " "), localized_terms),
+        _chase_tracker_value(value_text, metadata, localized_terms),
+        _chase_difficulty_value(value_text, metadata, localized_terms),
+    }
+    display_ref = _display_chase_location_ref(value_text, localized_terms)
+    aliases.add(display_ref)
+    if " (" in display_ref:
+        aliases.add(display_ref.split(" (", 1)[0])
+    return {alias for alias in aliases if alias}
+
+
+def _chase_participant_aliases(participant: dict[str, Any], metadata: dict[str, Any]) -> set[str]:
+    localized_terms = _metadata_localized_terms(metadata)
+    aliases: set[str] = set()
+    for key in ("id", "name"):
+        value = participant.get(key)
+        if value in (None, "", [], {}):
+            continue
+        aliases.update(_chase_value_aliases(value, metadata, localized_terms))
+    return aliases
+
+
+def _chase_outcome_texts(run_dir: Path, battle_report: str, chase_state: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
+    localized_terms = _metadata_localized_terms(metadata)
+    outcome_aliases = _chase_value_aliases(chase_state.get("outcome"), metadata, localized_terms)
+    texts: list[str] = []
+    for row in _read_jsonl(run_dir / "transcript.jsonl"):
+        for key in ("text_display", "text", "outcome_note"):
+            value = row.get(key)
+            if isinstance(value, str) and any(alias in value for alias in outcome_aliases):
+                texts.append(value)
+    for heading in ("Actual Play Replay", "Session Transcript", "Scene-by-Scene Replay", "Chase Summary", "Story Recap"):
+        section = _battle_report_anchor_section(battle_report, heading)
+        for line in section.splitlines():
+            if any(alias in line for alias in outcome_aliases):
+                texts.append(line)
+    return list(dict.fromkeys(texts))
+
+
+def _localized_text_clauses(text: str) -> list[str]:
+    return [
+        clause.strip()
+        for clause in re.split(r"[。！？!?；;\n]+", text)
+        if clause.strip()
+    ]
+
+
+def _has_actor_location_conflict_clause(
+    text: str,
+    actor_aliases: set[str],
+    conflicting_aliases: set[str],
+    expected_aliases: set[str],
+) -> bool:
+    for clause in _localized_text_clauses(text):
+        if (
+            any(actor_alias in clause for actor_alias in actor_aliases)
+            and any(conflicting_alias in clause for conflicting_alias in conflicting_aliases)
+            and not any(expected_alias in clause for expected_alias in expected_aliases)
+        ):
+            return True
+    return False
+
+
+def _chase_transcript_position_findings(
+    run_id: str,
+    run_dir: Path,
+    campaign_dir: Path,
+    metadata: dict[str, Any],
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    chase_state = _read_json(campaign_dir / "save" / "chase.json", {})
+    if not isinstance(chase_state, dict) or not chase_state:
+        return []
+    participants = chase_state.get("participants", [])
+    location_chain = chase_state.get("location_chain", [])
+    if not isinstance(participants, list) or not isinstance(location_chain, list):
+        return []
+
+    localized_terms = _metadata_localized_terms(metadata)
+    location_aliases: dict[str, set[str]] = {}
+    for location in location_chain:
+        if not isinstance(location, dict) or location.get("id") in (None, "", [], {}):
+            continue
+        location_id = str(location["id"])
+        location_aliases[location_id] = _chase_value_aliases(location_id, metadata, localized_terms)
+
+    outcome_texts = _chase_outcome_texts(run_dir, battle_report, chase_state, metadata)
+    findings: list[dict[str, Any]] = []
+    for participant in participants:
+        if not isinstance(participant, dict) or participant.get("position") in (None, "", [], {}):
+            continue
+        participant_id = str(participant.get("id") or participant.get("name") or "unknown")
+        expected_position = str(participant["position"])
+        actor_aliases = _chase_participant_aliases(participant, metadata)
+        if not actor_aliases:
+            continue
+        expected_aliases = location_aliases.get(expected_position, set())
+        for conflicting_position, aliases in location_aliases.items():
+            if conflicting_position == expected_position:
+                continue
+            conflicting_samples = [
+                text
+                for text in outcome_texts
+                if _has_actor_location_conflict_clause(text, actor_aliases, aliases, expected_aliases)
+            ]
+            if conflicting_samples:
+                findings.append(_finding(
+                    "chase_transcript_position_conflict",
+                    "state_gap",
+                    (
+                        f"{run_id} chase ending text places {participant_id} at {conflicting_position}, "
+                        f"but save/chase.json records final position {expected_position}."
+                    ),
+                    "Regenerate the chase transcript/report or save/chase.json so the final chase narration and saved participant positions agree.",
+                    run_id=run_id,
+                    participant_id=participant_id,
+                    expected_position=expected_position,
+                    conflicting_position=conflicting_position,
+                    conflicting_text_samples=conflicting_samples[:5],
+                ))
+                break
+    return findings
+
+
 def _battle_report_chase_tracker_findings(
     run_id: str,
     campaign_dir: Path,
@@ -2723,6 +2855,13 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     ))
     findings.extend(_battle_report_chase_tracker_findings(
         run_id,
+        campaign_dir,
+        metadata,
+        battle_report,
+    ))
+    findings.extend(_chase_transcript_position_findings(
+        run_id,
+        run_dir,
         campaign_dir,
         metadata,
         battle_report,

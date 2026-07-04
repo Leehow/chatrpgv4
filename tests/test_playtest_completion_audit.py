@@ -2678,6 +2678,65 @@ def test_completion_audit_fails_when_chase_tracker_state_is_outside_chase_tracke
     assert "quarry escapes" in finding["missing_chase_samples"]
 
 
+def test_completion_audit_fails_when_chase_transcript_conflicts_with_saved_position(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v3-chase-drill"
+    playtest_path = run_dir / "playtest.json"
+    playtest = json.loads(playtest_path.read_text())
+    playtest["localized_terms"]["zh-Hans"].update({
+        "Nathaniel Crowe": "内森尼尔·克劳",
+        "fixture barrier": "上锁屋顶门",
+        "fixture finish": "晾衣屋顶",
+        "quarry escapes": "被追者逃脱",
+    })
+    write_json(playtest_path, playtest)
+    conflicting_turn = {
+        "turn": 22,
+        "role": "keeper_under_test",
+        "speaker": "KP",
+        "mode": "play",
+        "text": "被追者逃脱。内森尼尔·克劳从晾衣屋顶另一头冲过去，没有看见你。",
+    }
+    transcript = read_jsonl(run_dir / "transcript.jsonl")
+    transcript.append(conflicting_turn)
+    write_jsonl(run_dir / "transcript.jsonl", transcript)
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        battle_report_fixture().replace(
+            "- fixture meta keeper answer",
+            "- fixture meta keeper answer\n- 被追者逃脱。内森尼尔·克劳从晾衣屋顶另一头冲过去，没有看见你。",
+        ),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(
+        finding for finding in audit["findings"]
+        if finding["code"] == "chase_transcript_position_conflict"
+    )
+    assert finding["run_id"] == "v3-chase-drill"
+    assert finding["participant_id"] == "fixture-pursuer"
+    assert finding["expected_position"] == "fixture-barrier"
+    assert finding["conflicting_position"] == "fixture-finish"
+    assert "内森尼尔·克劳从晾衣屋顶另一头冲过去" in finding["conflicting_text_samples"][0]
+
+
 def test_completion_audit_accepts_localized_chase_difficulty_labels(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
