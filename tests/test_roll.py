@@ -15,6 +15,21 @@ def load_module(name: str, relative_path: str):
 coc_roll = load_module("coc_roll", "plugins/coc-keeper/scripts/coc_roll.py")
 
 
+class SequenceRandom:
+    def __init__(self, values):
+        self.values = list(values)
+
+    def randrange(self, upper):
+        value = self.values.pop(0)
+        assert 0 <= value < upper
+        return value
+
+    def randint(self, lower, upper):
+        value = self.values.pop(0)
+        assert lower <= value <= upper
+        return value
+
+
 def test_roll_expression_returns_total_and_terms():
     result = coc_roll.roll_expression("2D6+3", rng=random.Random(4))
     assert result["expression"] == "2D6+3"
@@ -59,6 +74,7 @@ def test_percentile_check_uses_rules_json_roll_bounds(monkeypatch):
             "minimum_target": 1,
             "maximum_target": 100,
             "success_if_roll_lte_effective_target": True,
+            "zero_zero_result": 20,
         }
 
     monkeypatch.setattr(coc_roll.coc_rules, "percentile_check_rule", fake_percentile_check_rule, raising=False)
@@ -73,3 +89,22 @@ def test_bonus_and_penalty_cancel():
     result = coc_roll.percentile_check(50, bonus=1, penalty=1, rng=random.Random(3))
     assert result["bonus"] == 0
     assert result["penalty"] == 0
+
+
+def test_percentile_bonus_dice_use_rules_json_zero_zero_result(monkeypatch):
+    def fake_percentile_check_rule():
+        return {
+            "die": "1D20",
+            "minimum_roll": 1,
+            "maximum_roll": 20,
+            "minimum_target": 1,
+            "maximum_target": 20,
+            "success_if_roll_lte_effective_target": True,
+            "zero_zero_result": 20,
+        }
+
+    monkeypatch.setattr(coc_roll.coc_rules, "percentile_check_rule", fake_percentile_check_rule, raising=False)
+
+    result = coc_roll.percentile_check(15, bonus=1, rng=SequenceRandom([0, 0, 0]))
+
+    assert result["roll"] == 20

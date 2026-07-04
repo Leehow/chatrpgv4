@@ -55,6 +55,7 @@ def percentile_check_rule() -> dict[str, Any]:
         "minimum_target": int(table["minimum_target"]),
         "maximum_target": int(table["maximum_target"]),
         "success_if_roll_lte_effective_target": bool(table["success_if_roll_lte_effective_target"]),
+        "zero_zero_result": int(table["zero_zero_result"]),
     }
 
 

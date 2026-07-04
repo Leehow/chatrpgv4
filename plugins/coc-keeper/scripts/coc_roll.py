@@ -44,22 +44,24 @@ def _effective_target(target: int, difficulty: str) -> int:
     return coc_rules.difficulty_target(target, difficulty)
 
 
-def _percentile_from_tens_units(tens: int, units: int) -> int:
+def _percentile_from_tens_units(tens: int, units: int, zero_zero_result: int) -> int:
     value = tens * 10 + units
-    return 100 if value == 0 else value
+    return zero_zero_result if value == 0 else value
 
 
 def _roll_percentile_with_dice(
     rng: random.Random,
     bonus: int,
     penalty: int,
+    *,
+    zero_zero_result: int,
 ) -> tuple[int, list[int], int]:
     units = rng.randrange(10)
     tens_values = [rng.randrange(10)]
     extra_count = max(bonus, penalty)
     tens_values.extend(rng.randrange(10) for _ in range(extra_count))
     selected_tens = min(tens_values) if bonus else max(tens_values)
-    return _percentile_from_tens_units(selected_tens, units), tens_values, units
+    return _percentile_from_tens_units(selected_tens, units, zero_zero_result), tens_values, units
 
 
 def percentile_check(
@@ -83,7 +85,12 @@ def percentile_check(
         tens_values: list[int] = []
         units = None
     else:
-        roll, tens_values, units = _roll_percentile_with_dice(rng, net_bonus, net_penalty)
+        roll, tens_values, units = _roll_percentile_with_dice(
+            rng,
+            net_bonus,
+            net_penalty,
+            zero_zero_result=int(percentile_rule["zero_zero_result"]),
+        )
 
     return {
         "target": target,

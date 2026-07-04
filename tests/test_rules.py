@@ -27,6 +27,7 @@ def test_percentile_check_rule_uses_structured_table():
         "minimum_target": 1,
         "maximum_target": 100,
         "success_if_roll_lte_effective_target": True,
+        "zero_zero_result": 100,
     }
 
 
@@ -39,6 +40,7 @@ def test_success_level_uses_percentile_check_bounds(monkeypatch):
             "minimum_target": 10,
             "maximum_target": 20,
             "success_if_roll_lte_effective_target": True,
+            "zero_zero_result": 20,
         }
 
     monkeypatch.setattr(coc_rules, "percentile_check_rule", fake_percentile_check_rule, raising=False)
