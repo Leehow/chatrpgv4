@@ -50,6 +50,22 @@ REQUIRED_CAMPAIGN_SOURCE_FILES = [
     "logs/events.jsonl",
     "memory/session-summaries.jsonl",
 ]
+REQUIRED_CAMPAIGN_SAVE_FILES = [
+    "save/world-state.json",
+    "save/active-scene.json",
+    "save/flags.json",
+]
+REQUIRED_CAMPAIGN_INDEX_FILES = [
+    "index/source-map.json",
+    "index/scene-index.json",
+    "index/npc-index.json",
+    "index/clue-index.json",
+    "index/rule-ref-index.json",
+]
+PROFILE_REQUIRED_CAMPAIGN_SAVE_FILES = {
+    "haunting_module": ["save/combat.json"],
+    "chase_drill": ["save/chase.json"],
+}
 REQUIRED_INVESTIGATOR_SOURCE_FILES = [
     "creation.json",
     "character.json",
@@ -2790,6 +2806,26 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
         REQUIRED_CAMPAIGN_SOURCE_FILES,
         display_prefix=campaign_prefix,
     ))
+    required_campaign_runtime_files = [
+        *REQUIRED_CAMPAIGN_SAVE_FILES,
+        *REQUIRED_CAMPAIGN_INDEX_FILES,
+        *PROFILE_REQUIRED_CAMPAIGN_SAVE_FILES.get(audit_profile, []),
+    ]
+    missing_files.extend(_missing_relative_files(
+        campaign_dir,
+        required_campaign_runtime_files,
+        display_prefix=campaign_prefix,
+    ))
+    empty_files.extend(_empty_relative_files(
+        campaign_dir,
+        required_campaign_runtime_files,
+        display_prefix=campaign_prefix,
+    ))
+    malformed_files.extend(_malformed_relative_files(
+        campaign_dir,
+        required_campaign_runtime_files,
+        display_prefix=campaign_prefix,
+    ))
 
     party = _read_json(campaign_dir / "party.json", {})
     investigator_ids = _investigator_ids_from_party(party) if isinstance(party, dict) else []
@@ -2806,6 +2842,22 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_source_handout_summary_findings(run_id, campaign_dir, campaign_prefix, metadata))
 
     for investigator_id in investigator_ids:
+        investigator_state_file = f"save/investigator-state/{investigator_id}.json"
+        missing_files.extend(_missing_relative_files(
+            campaign_dir,
+            [investigator_state_file],
+            display_prefix=campaign_prefix,
+        ))
+        empty_files.extend(_empty_relative_files(
+            campaign_dir,
+            [investigator_state_file],
+            display_prefix=campaign_prefix,
+        ))
+        malformed_files.extend(_malformed_relative_files(
+            campaign_dir,
+            [investigator_state_file],
+            display_prefix=campaign_prefix,
+        ))
         investigator_prefix = f"sandbox/.coc/investigators/{investigator_id}/"
         investigator_dir = run_dir / investigator_prefix
         missing_files.extend(_missing_relative_files(

@@ -598,6 +598,103 @@ def rulebook_audit_fixture() -> str:
     ]) + "\n"
 
 
+def write_campaign_save_index_fixture(campaign_dir: Path, run_id: str, investigator_id: str, audit_profile: str):
+    write_json(campaign_dir / "save" / "world-state.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "scenario_id": "fixture-scenario",
+        "status": "playtest",
+        "active_scene_id": "fixture-ending",
+        "active_subsystem": audit_profile,
+        "current_phase": "fixture-ending",
+        "discovered_clue_ids": ["fixture-handout"],
+        "major_decisions": [{"summary": "fixture decision"}],
+        "memory_refs": ["memory/session-summaries.jsonl"],
+        "log_refs": ["logs/events.jsonl", "logs/rolls.jsonl"],
+        "investigator_state_refs": [f"save/investigator-state/{investigator_id}.json"],
+    })
+    write_json(campaign_dir / "save" / "active-scene.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "scenario_id": "fixture-scenario",
+        "scene_id": "fixture-ending",
+        "source_event_type": "session_ending",
+        "summary": "fixture ending",
+    })
+    write_json(campaign_dir / "save" / "flags.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "scenario_id": "fixture-scenario",
+        "clues_found": {"fixture-handout": True},
+        "decisions": [{"summary": "fixture decision"}],
+        "spoiler_reveals": [],
+    })
+    write_json(campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "investigator_id": investigator_id,
+        "character_ref": f"sandbox/.coc/investigators/{investigator_id}/character.json",
+        "current_hp": 12,
+        "current_san": 55,
+        "current_mp": 11,
+        "conditions": [],
+        "skill_checks_earned": ["Spot Hidden"],
+    })
+    if audit_profile == "haunting_module":
+        write_json(campaign_dir / "save" / "combat.json", {
+            "schema_version": 1,
+            "campaign_id": run_id,
+            "scenario_id": "fixture-scenario",
+            "combat_id": "fixture-combat",
+            "status": "resolved",
+            "combatants": [
+                {"id": investigator_id, "role": "investigator", "dex": 50},
+                {"id": "walter-corbitt", "role": "npc", "dex": 35},
+            ],
+            "dex_order": [investigator_id, "walter-corbitt"],
+            "rounds": [{"round": 1, "events": ["fixture combat"]}],
+        })
+    write_json(campaign_dir / "index" / "source-map.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "scenario_id": "fixture-scenario",
+        "scenario_files": ["scenario/scenario.json", "scenario/handouts.json"],
+        "source_refs": [{"kind": "module_source", "path": "fixture.pdf"}],
+        "log_refs": ["logs/events.jsonl", "logs/rolls.jsonl"],
+        "memory_refs": ["memory/session-summaries.jsonl"],
+    })
+    write_json(campaign_dir / "index" / "scene-index.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "scenario_id": "fixture-scenario",
+        "active_scene_id": "fixture-ending",
+        "scenes": [{"id": "fixture-ending", "summary": "fixture ending"}],
+    })
+    write_json(campaign_dir / "index" / "npc-index.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "scenario_id": "fixture-scenario",
+        "npcs": [{"id": "walter-corbitt", "name": "Walter Corbitt"}],
+    })
+    write_json(campaign_dir / "index" / "clue-index.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "scenario_id": "fixture-scenario",
+        "clues": [{"id": "fixture-handout", "summary": "Fixture handout summary"}],
+        "handouts": [{"id": "fixture-handout", "summary": "Fixture handout summary"}],
+        "discovered_clue_ids": ["fixture-handout"],
+    })
+    write_json(campaign_dir / "index" / "rule-ref-index.json", {
+        "schema_version": 1,
+        "campaign_id": run_id,
+        "scenario_id": "fixture-scenario",
+        "rule_refs": ["core.percentile_check", "core.success_level", "core.difficulty.regular"],
+        "by_ref": {
+            "core.percentile_check": [{"log": "logs/rolls.jsonl", "row": 1, "type": "roll"}],
+        },
+    })
+
+
 def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: bool = False):
     run_dir = root / ".coc" / "playtests" / run_id
     investigator_id = f"{run_id}-investigator"
@@ -837,6 +934,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [
         {"session_id": "fixture-session", "summary": "fixture memory"},
     ])
+    write_campaign_save_index_fixture(campaign_dir, run_id, investigator_id, audit_profile)
     if audit_profile == "chase_drill":
         write_json(campaign_dir / "save" / "chase.json", {
             "schema_version": 1,
@@ -1092,6 +1190,36 @@ def test_completion_audit_fails_when_active_run_source_files_are_missing(tmp_pat
     finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_missing")
     assert finding["run_id"] == "v2-haunting-module"
     assert "transcript.jsonl" in finding["missing_files"]
+
+
+def test_completion_audit_fails_when_campaign_save_or_index_files_are_missing(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    campaign_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "sandbox" / ".coc" / "campaigns" / "v2-haunting-module"
+    (campaign_dir / "save" / "world-state.json").unlink()
+    (campaign_dir / "index" / "rule-ref-index.json").unlink()
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "sandbox/.coc/campaigns/v2-haunting-module/save/world-state.json" in finding["missing_files"]
+    assert "sandbox/.coc/campaigns/v2-haunting-module/index/rule-ref-index.json" in finding["missing_files"]
 
 
 def test_completion_audit_fails_when_active_run_source_files_are_empty(tmp_path):

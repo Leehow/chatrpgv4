@@ -496,6 +496,318 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def _unique_strings(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+def _campaign_relative_path(campaign_dir: Path, path: Path) -> str:
+    return path.relative_to(campaign_dir).as_posix()
+
+
+def _last_payload(events: list[dict[str, Any]], event_type: str, actor_id: str | None = None) -> dict[str, Any]:
+    for event in reversed(events):
+        if event.get("type") != event_type:
+            continue
+        if actor_id is not None and event.get("actor") != actor_id:
+            continue
+        payload = event.get("payload")
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _event_payload(event: dict[str, Any]) -> dict[str, Any]:
+    payload = event.get("payload")
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_campaign_save_and_indexes(campaign_dir: Path) -> None:
+    campaign = _read_json(campaign_dir / "campaign.json", {})
+    party = _read_json(campaign_dir / "party.json", {})
+    scenario = _read_json(campaign_dir / "scenario" / "scenario.json", {})
+    locations = _read_json(campaign_dir / "scenario" / "locations.json", [])
+    npcs = _read_json(campaign_dir / "scenario" / "npcs.json", [])
+    clues = _read_json(campaign_dir / "scenario" / "clues.json", [])
+    handouts = _read_json(campaign_dir / "scenario" / "handouts.json", [])
+    timeline = _read_json(campaign_dir / "scenario" / "timeline.json", [])
+    events = _read_jsonl(campaign_dir / "logs" / "events.jsonl")
+    rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
+    audit_events = _read_jsonl(campaign_dir / "logs" / "audit.jsonl")
+    memory = _read_jsonl(campaign_dir / "memory" / "session-summaries.jsonl")
+
+    campaign_id = str(campaign.get("campaign_id") or campaign_dir.name)
+    scenario_id = str(scenario.get("scenario_id") or campaign.get("active_scenario_id") or "")
+    investigator_ids = party.get("investigator_ids", [])
+    if not isinstance(investigator_ids, list):
+        investigator_ids = []
+
+    active_scene_id = campaign.get("active_scene_id") or scenario.get("current_phase") or ""
+    active_scene_event = next(
+        (
+            event
+            for event in reversed(events)
+            if _event_payload(event).get("scene_id") == active_scene_id
+        ),
+        None,
+    )
+    if active_scene_event is None:
+        active_scene_event = next(
+            (event for event in reversed(events) if event.get("type") in {"scene", "session_ending"}),
+            events[-1] if events else {},
+        )
+    active_scene_payload = _event_payload(active_scene_event)
+
+    discovered_clue_ids = _unique_strings([
+        _event_payload(event).get("clue_id")
+        for event in events
+        if event.get("type") == "clue"
+    ])
+    decision_rows = [
+        {
+            key: value
+            for key, value in {
+                "decision_id": _event_payload(event).get("decision_id"),
+                "decision_kind": _event_payload(event).get("decision_kind"),
+                "source_turn": _event_payload(event).get("source_turn"),
+                "summary": _event_payload(event).get("summary"),
+            }.items()
+            if value is not None
+        }
+        for event in events
+        if event.get("type") == "decision"
+    ]
+    status_payload = _last_payload(events, "status")
+    memory_refs = ["memory/session-summaries.jsonl"] if memory else []
+
+    _write_json(campaign_dir / "save" / "world-state.json", {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "status": campaign.get("status"),
+        "active_scene_id": active_scene_id,
+        "active_subsystem": campaign.get("active_subsystem"),
+        "current_phase": scenario.get("current_phase"),
+        "discovered_clue_ids": discovered_clue_ids,
+        "major_decisions": decision_rows,
+        "current_status": status_payload,
+        "memory_refs": memory_refs,
+        "log_refs": ["logs/events.jsonl", "logs/rolls.jsonl"],
+        "investigator_state_refs": [
+            f"save/investigator-state/{investigator_id}.json"
+            for investigator_id in investigator_ids
+            if isinstance(investigator_id, str)
+        ],
+        "updated_from_logs": {
+            "events": len(events),
+            "rolls": len(rolls),
+            "memory": len(memory),
+        },
+    })
+    _write_json(campaign_dir / "save" / "active-scene.json", {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "scene_id": active_scene_id,
+        "source_event_type": active_scene_event.get("type"),
+        "source_scene_id": active_scene_payload.get("scene_id"),
+        "summary": active_scene_payload.get("summary") or scenario.get("opening_scene") or scenario.get("summary"),
+        "pending_choices": scenario.get("current_phase"),
+    })
+    _write_json(campaign_dir / "save" / "flags.json", {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "clues_found": {clue_id: True for clue_id in discovered_clue_ids},
+        "decisions": decision_rows,
+        "spoiler_reveals": [
+            event
+            for event in audit_events
+            if event.get("type") == "spoiler_reveal"
+        ],
+    })
+
+    investigators_root = campaign_dir.parents[1] / "investigators"
+    for investigator_id in investigator_ids:
+        if not isinstance(investigator_id, str):
+            continue
+        character = _read_json(investigators_root / investigator_id / "character.json", {})
+        derived = character.get("derived", {}) if isinstance(character.get("derived"), dict) else {}
+        investigator_status = _last_payload(events, "status", investigator_id) or status_payload
+        skill_checks = _unique_strings([
+            _event_payload(row).get("skill")
+            for row in rolls
+            if row.get("actor") == investigator_id
+            and _event_payload(row).get("skill_check_earned") is True
+        ])
+        _write_json(campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json", {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "investigator_id": investigator_id,
+            "character_ref": f"sandbox/.coc/investigators/{investigator_id}/character.json",
+            "current_hp": int(investigator_status.get("final_hp", derived.get("HP", 0))),
+            "current_san": int(investigator_status.get("final_san", derived.get("SAN", 0))),
+            "current_mp": int(investigator_status.get("final_mp", derived.get("MP", 0))),
+            "conditions": investigator_status.get("unresolved_conditions", []),
+            "skill_checks_earned": skill_checks,
+            "last_status_summary": investigator_status.get("summary"),
+        })
+
+    scenario_files = [
+        _campaign_relative_path(campaign_dir, path)
+        for path in sorted((campaign_dir / "scenario").glob("*.json"))
+    ]
+    _write_json(campaign_dir / "index" / "source-map.json", {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "scenario_files": scenario_files,
+        "source_refs": [
+            {
+                "kind": "module_source",
+                "path": scenario.get("module_source"),
+                "scenario_id": scenario_id,
+            }
+        ] if scenario.get("module_source") else [],
+        "log_refs": ["logs/events.jsonl", "logs/rolls.jsonl"],
+        "memory_refs": memory_refs,
+    })
+    scene_rows = []
+    for location in locations if isinstance(locations, list) else []:
+        if isinstance(location, dict):
+            scene_rows.append({
+                "id": location.get("id"),
+                "name": location.get("name"),
+                "purpose": location.get("purpose"),
+                "source_file": "scenario/locations.json",
+            })
+    for entry in timeline if isinstance(timeline, list) else []:
+        if isinstance(entry, dict):
+            scene_rows.append({
+                "id": entry.get("id"),
+                "summary": entry.get("summary"),
+                "source_file": "scenario/timeline.json",
+            })
+    _write_json(campaign_dir / "index" / "scene-index.json", {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "active_scene_id": active_scene_id,
+        "scenes": scene_rows,
+    })
+    _write_json(campaign_dir / "index" / "npc-index.json", {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "npcs": npcs if isinstance(npcs, list) else [],
+    })
+    _write_json(campaign_dir / "index" / "clue-index.json", {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "clues": clues if isinstance(clues, list) else [],
+        "handouts": handouts if isinstance(handouts, list) else [],
+        "discovered_clue_ids": discovered_clue_ids,
+    })
+
+    by_ref: dict[str, list[dict[str, Any]]] = {}
+    for log_name, rows in (("logs/rolls.jsonl", rolls), ("logs/events.jsonl", events)):
+        for row_index, row in enumerate(rows, start=1):
+            refs = _event_payload(row).get("rule_refs", [])
+            if not isinstance(refs, list):
+                continue
+            for ref in refs:
+                if isinstance(ref, str):
+                    by_ref.setdefault(ref, []).append({
+                        "log": log_name,
+                        "row": row_index,
+                        "type": row.get("type"),
+                    })
+    _write_json(campaign_dir / "index" / "rule-ref-index.json", {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "rule_refs": sorted(by_ref),
+        "by_ref": by_ref,
+    })
+
+    combat_rows = [event for event in events if event.get("type") == "combat"]
+    combat_roll_rows = [row for row in rolls if row.get("type") == "combat"]
+    if combat_rows or combat_roll_rows:
+        npc_by_id = {
+            npc.get("id"): npc
+            for npc in npcs
+            if isinstance(npc, dict) and isinstance(npc.get("id"), str)
+        } if isinstance(npcs, list) else {}
+        combat_actor_ids = _unique_strings(
+            [row.get("actor") for row in [*combat_rows, *combat_roll_rows]]
+        )
+        combatants: list[dict[str, Any]] = []
+        dex_values: dict[str, int] = {}
+        for actor_id in combat_actor_ids:
+            if actor_id == "keeper_under_test":
+                continue
+            if actor_id in investigator_ids:
+                character = _read_json(investigators_root / actor_id / "character.json", {})
+                characteristics = character.get("characteristics", {}) if isinstance(character.get("characteristics"), dict) else {}
+                dex = characteristics.get("DEX")
+                if isinstance(dex, int):
+                    dex_values[actor_id] = dex
+                combatants.append({
+                    "id": actor_id,
+                    "name": character.get("name", actor_id),
+                    "role": "investigator",
+                    "dex": dex,
+                })
+            elif actor_id in npc_by_id:
+                combatants.append({
+                    "id": actor_id,
+                    "name": npc_by_id[actor_id].get("name", actor_id),
+                    "role": npc_by_id[actor_id].get("role", "npc"),
+                    "dex": npc_by_id[actor_id].get("DEX"),
+                })
+            else:
+                combatants.append({"id": actor_id, "name": actor_id, "role": "npc", "dex": None})
+        dex_order = [
+            actor_id
+            for actor_id, _dex in sorted(
+                dex_values.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+        ]
+        dex_order.extend([actor_id for actor_id in combat_actor_ids if actor_id not in dex_order and actor_id != "keeper_under_test"])
+        _write_json(campaign_dir / "save" / "combat.json", {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "scenario_id": scenario_id,
+            "combat_id": f"{campaign_id}-combat",
+            "status": "resolved",
+            "combatants": combatants,
+            "dex_order": dex_order,
+            "rounds": [
+                {
+                    "round": 1,
+                    "events": [
+                        _event_payload(event).get("summary")
+                        for event in combat_rows
+                        if _event_payload(event).get("summary")
+                    ],
+                    "roll_count": len(combat_roll_rows),
+                }
+            ],
+            "outcome": _event_payload(combat_rows[-1]).get("summary") if combat_rows else None,
+        })
+
+
 def _select_campaign_dir(run_dir: Path) -> Path | None:
     metadata = _read_json(run_dir / "playtest.json", {})
     campaign_id = metadata.get("campaign_id") or metadata.get("run_id")
@@ -1543,6 +1855,7 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
         },
     ])
 
+    _write_campaign_save_and_indexes(campaign_dir)
     _write_view_streams(run_dir)
     generate_battle_report(run_dir)
     generate_evaluation_report(run_dir)
@@ -2109,6 +2422,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         },
     ])
 
+    _write_campaign_save_and_indexes(campaign_dir)
     _write_view_streams(run_dir)
     generate_battle_report(run_dir)
     generate_evaluation_report(run_dir)
@@ -2592,6 +2906,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         },
     ])
 
+    _write_campaign_save_and_indexes(campaign_dir)
     _write_view_streams(run_dir)
     generate_battle_report(run_dir)
     generate_evaluation_report(run_dir)
@@ -2904,6 +3219,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         },
     ])
 
+    _write_campaign_save_and_indexes(campaign_dir)
     _write_view_streams(run_dir)
     generate_battle_report(run_dir)
     generate_evaluation_report(run_dir)

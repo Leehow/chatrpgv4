@@ -119,6 +119,17 @@ def campaign_roll_events(run_dir: Path) -> list[dict]:
     return events
 
 
+def campaign_dir_for_run(run_dir: Path) -> Path:
+    metadata = playtest_metadata(run_dir)
+    return run_dir / "sandbox" / ".coc" / "campaigns" / metadata["campaign_id"]
+
+
+def read_json(path: Path) -> dict:
+    import json
+
+    return json.loads(path.read_text())
+
+
 def payload_rule_refs(event: dict) -> list[str]:
     payload = event.get("payload", {})
     if not isinstance(payload, dict):
@@ -849,6 +860,90 @@ def test_serious_playtest_logs_reference_structured_rules_json(tmp_path):
             refs = payload_rule_refs(row)
             assert refs, row
             assert set(refs).issubset(known_rule_ids)
+
+
+def test_serious_playtests_persist_recoverable_campaign_save_and_indexes(tmp_path):
+    run_dirs = [
+        coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="v2-haunting-module"),
+        coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="v3-chase-drill"),
+        coc_playtest_harness.create_multi_profile_pressure_run(tmp_path, run_id="v4-multi-profile-pressure"),
+    ]
+    known_rule_ids = coc_rules.rule_ids()
+
+    for run_dir in run_dirs:
+        metadata = playtest_metadata(run_dir)
+        campaign_dir = campaign_dir_for_run(run_dir)
+        campaign_id = metadata["campaign_id"]
+        investigator_ids = read_json(campaign_dir / "party.json")["investigator_ids"]
+
+        for relative_path in [
+            "save/world-state.json",
+            "save/active-scene.json",
+            "save/flags.json",
+            "index/source-map.json",
+            "index/scene-index.json",
+            "index/npc-index.json",
+            "index/clue-index.json",
+            "index/rule-ref-index.json",
+        ]:
+            path = campaign_dir / relative_path
+            assert path.exists(), relative_path
+            assert read_json(path)["campaign_id"] == campaign_id
+
+        world_state = read_json(campaign_dir / "save" / "world-state.json")
+        assert world_state["scenario_id"] == metadata["scenario_id"]
+        assert world_state["memory_refs"] == ["memory/session-summaries.jsonl"]
+        assert isinstance(world_state["discovered_clue_ids"], list)
+        assert isinstance(world_state["major_decisions"], list)
+        assert world_state["log_refs"] == ["logs/events.jsonl", "logs/rolls.jsonl"]
+
+        active_scene = read_json(campaign_dir / "save" / "active-scene.json")
+        assert active_scene["scene_id"] == world_state["active_scene_id"]
+        assert active_scene["source_event_type"] in {"scene", "session_ending"}
+        assert active_scene["summary"]
+
+        flags = read_json(campaign_dir / "save" / "flags.json")
+        assert isinstance(flags["clues_found"], dict)
+        assert isinstance(flags["decisions"], list)
+        assert isinstance(flags["spoiler_reveals"], list)
+
+        source_map = read_json(campaign_dir / "index" / "source-map.json")
+        assert source_map["scenario_files"]
+        assert "scenario/scenario.json" in source_map["scenario_files"]
+        assert source_map["source_refs"]
+
+        scene_index = read_json(campaign_dir / "index" / "scene-index.json")
+        assert scene_index["scenes"]
+        assert scene_index["active_scene_id"] == world_state["active_scene_id"]
+
+        npc_index = read_json(campaign_dir / "index" / "npc-index.json")
+        clue_index = read_json(campaign_dir / "index" / "clue-index.json")
+        assert isinstance(npc_index["npcs"], list)
+        assert isinstance(clue_index["clues"], list)
+
+        rule_ref_index = read_json(campaign_dir / "index" / "rule-ref-index.json")
+        assert set(rule_ref_index["rule_refs"]).issubset(known_rule_ids)
+        assert rule_ref_index["by_ref"]
+
+        for investigator_id in investigator_ids:
+            state = read_json(campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json")
+            assert state["campaign_id"] == campaign_id
+            assert state["investigator_id"] == investigator_id
+            assert state["character_ref"] == f"sandbox/.coc/investigators/{investigator_id}/character.json"
+            assert isinstance(state["current_hp"], int)
+            assert isinstance(state["current_san"], int)
+            assert isinstance(state["skill_checks_earned"], list)
+
+        subsystems = set(metadata["subsystems_covered"])
+        if "combat" in subsystems:
+            combat = read_json(campaign_dir / "save" / "combat.json")
+            assert combat["campaign_id"] == campaign_id
+            assert combat["status"] == "resolved"
+            assert combat["combatants"]
+            assert combat["dex_order"]
+            assert combat["rounds"]
+        if "chase" in subsystems:
+            assert (campaign_dir / "save" / "chase.json").exists()
 
 
 def test_haunting_module_audit_rejects_transcript_turn_sequence_gaps(tmp_path):
