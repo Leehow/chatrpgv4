@@ -38,3 +38,21 @@ def test_success_levels_include_fumbles_and_extreme_success():
     assert coc_rules.success_level(80, 65) == "failure"
     assert coc_rules.success_level(100, 65) == "fumble"
     assert coc_rules.success_level(96, 40) == "fumble"
+
+
+def test_rule_index_exposes_stable_ids_for_playtest_traceability():
+    ids = coc_rules.rule_ids()
+
+    for rule_id in [
+        "core.percentile_check",
+        "core.difficulty.regular",
+        "core.success_level",
+        "core.pushed_roll",
+        "core.sanity.temporary_insanity_threshold",
+        "core.chase.movement_actions",
+        "module.haunting.corbitt_flesh_ward",
+        "module.haunting.corbitt_floating_knife_mp",
+        "module.haunting.corbitt_animate_body",
+        "module.haunting.corbitt_own_dagger",
+    ]:
+        assert rule_id in ids

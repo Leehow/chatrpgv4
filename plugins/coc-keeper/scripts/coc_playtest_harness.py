@@ -379,7 +379,92 @@ def _write_json(path: Path, payload: Any) -> None:
 
 def _write_jsonl(path: Path, events: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.parent.name == "logs" and path.name in {"rolls.jsonl", "events.jsonl"}:
+        events = _with_rule_refs(events)
     path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+
+def _unique_rule_refs(refs: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for ref in refs:
+        if ref in seen:
+            continue
+        seen.add(ref)
+        ordered.append(ref)
+    return ordered
+
+
+def _rule_refs_for_roll(event: dict[str, Any], payload: dict[str, Any]) -> list[str]:
+    refs = ["core.percentile_check", "core.success_level"]
+    difficulty = payload.get("difficulty")
+    if difficulty in {"regular", "hard", "extreme"}:
+        refs.append(f"core.difficulty.{difficulty}")
+    elif difficulty == "combined":
+        refs.append("core.combined_roll")
+    elif difficulty == "opposed":
+        refs.append("core.opposed_roll")
+    elif difficulty == "sanity":
+        refs.append("core.sanity.loss")
+
+    if payload.get("pushed") is True or payload.get("push_eligible") is True or isinstance(payload.get("pushed_roll_protocol"), dict):
+        refs.append("core.pushed_roll")
+    if event.get("type") == "combat":
+        refs.append("core.combat.attack_or_maneuver")
+    if event.get("type") == "chase":
+        refs.append("core.chase.movement_actions")
+    if event.get("type") == "sanity" or payload.get("skill") == "SAN":
+        refs.append("core.sanity.loss")
+    if payload.get("temporary_insanity_triggered") is True:
+        refs.append("core.sanity.temporary_insanity_threshold")
+    damage_interaction = payload.get("damage_interaction")
+    if isinstance(damage_interaction, dict) and damage_interaction.get("rulebook_exception") == "own_dagger_ignores_spells":
+        refs.append("module.haunting.corbitt_own_dagger")
+    return _unique_rule_refs(refs)
+
+
+def _rule_refs_for_state_event(event: dict[str, Any], payload: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    reason = payload.get("reason")
+    if reason == "flesh_ward":
+        refs.append("module.haunting.corbitt_flesh_ward")
+    elif reason == "floating_knife_attack":
+        refs.append("module.haunting.corbitt_floating_knife_mp")
+    elif reason == "animate_body":
+        refs.append("module.haunting.corbitt_animate_body")
+
+    if event.get("type") == "bout_of_madness":
+        refs.extend([
+            "core.sanity.temporary_insanity_threshold",
+            "core.sanity.bout_summary",
+            "module.haunting.corbitt_summary_bout",
+        ])
+    if event.get("type") == "chase":
+        refs.append("core.chase.movement_actions")
+    if payload.get("rulebook_exception") == "own_dagger_ignores_spells":
+        refs.append("module.haunting.corbitt_own_dagger")
+    return _unique_rule_refs(refs)
+
+
+def _with_rule_refs(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for event in events:
+        updated = dict(event)
+        payload = updated.get("payload")
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            existing_refs = payload.get("rule_refs", [])
+            refs = list(existing_refs) if isinstance(existing_refs, list) else []
+            if updated.get("type") in {"roll", "sanity", "combat", "chase"} and "roll" in payload:
+                refs.extend(_rule_refs_for_roll(updated, payload))
+            refs.extend(_rule_refs_for_state_event(updated, payload))
+            if refs:
+                payload["rule_refs"] = _unique_rule_refs([
+                    ref for ref in refs if isinstance(ref, str)
+                ])
+            updated["payload"] = payload
+        enriched.append(updated)
+    return enriched
 
 
 def _evidence(

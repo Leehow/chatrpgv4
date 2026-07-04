@@ -754,7 +754,17 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         {"id": "fixture-handout", "title": "Fixture handout title", "summary": "Fixture handout summary"},
     ])
     write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
-        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "target": 55, "roll": 33, "outcome": "regular_success"}},
+        {
+            "type": "roll",
+            "actor": investigator_id,
+            "payload": {
+                "skill": "Spot Hidden",
+                "target": 55,
+                "roll": 33,
+                "outcome": "regular_success",
+                "rule_refs": ["core.percentile_check", "core.success_level", "core.difficulty.regular"],
+            },
+        },
         {
             "type": "roll",
             "actor": investigator_id,
@@ -763,6 +773,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
                 "target": 55,
                 "roll": 22,
                 "outcome": "hard_success",
+                "rule_refs": ["core.percentile_check", "core.success_level", "core.difficulty.regular", "core.pushed_roll"],
                 "pushed": True,
                 "pushed_roll_protocol": {
                     "roll_id": pushed_roll_id,
@@ -1020,6 +1031,38 @@ def test_completion_audit_passes_for_ready_suite_with_active_monitor(tmp_path):
     assert "Thread goal: not_complete" in markdown
     assert "virtual_player_pressure: passed" in markdown
     assert "Monitor: ACTIVE" in markdown
+
+
+def test_completion_audit_fails_when_active_run_rule_refs_are_missing(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    campaign_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "sandbox" / ".coc" / "campaigns" / "v2-haunting-module"
+    roll_rows = read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
+    for row in roll_rows:
+        if isinstance(row.get("payload"), dict):
+            row["payload"].pop("rule_refs", None)
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", roll_rows)
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_rule_refs_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "sandbox/.coc/campaigns/v2-haunting-module/logs/rolls.jsonl" in finding["incomplete_files"]
 
 
 def test_completion_audit_fails_when_active_run_source_files_are_missing(tmp_path):

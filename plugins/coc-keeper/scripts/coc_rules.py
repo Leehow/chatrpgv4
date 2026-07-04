@@ -21,6 +21,31 @@ def load_rule_table(name: str) -> Any:
         return json.load(handle)
 
 
+def load_rule_index() -> dict[str, Any]:
+    return load_rule_table("rule-index")
+
+
+def rule_ids() -> set[str]:
+    index = load_rule_index()
+    rules = index.get("rules", [])
+    if not isinstance(rules, list):
+        return set()
+    return {
+        rule["id"]
+        for rule in rules
+        if isinstance(rule, dict) and isinstance(rule.get("id"), str)
+    }
+
+
+def resolve_rule_refs(refs: list[str]) -> list[dict[str, Any]]:
+    by_id = {
+        rule["id"]: rule
+        for rule in load_rule_index().get("rules", [])
+        if isinstance(rule, dict) and isinstance(rule.get("id"), str)
+    }
+    return [by_id[ref] for ref in refs if ref in by_id]
+
+
 def half_value(value: int) -> int:
     return value // 2
 

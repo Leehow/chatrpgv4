@@ -22,6 +22,7 @@ from coc_playtest_report import (
     _format_roll_transcript_text,
     _localized_actor_names,
 )
+from coc_rules import rule_ids
 
 
 REQUIRED_AUDIT_PROFILES = ["haunting_module", "chase_drill", "multi_profile_pressure"]
@@ -2280,6 +2281,83 @@ def _campaign_structure_findings(
     return findings
 
 
+def _rule_ref_traceability_findings(
+    run_id: str,
+    campaign_dir: Path,
+    campaign_prefix: str,
+) -> list[dict[str, Any]]:
+    known_rule_ids = rule_ids()
+    rolls_file = f"{campaign_prefix}logs/rolls.jsonl"
+    events_file = f"{campaign_prefix}logs/events.jsonl"
+    rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
+    events = _read_jsonl(campaign_dir / "logs" / "events.jsonl")
+    missing_evidence: list[str] = []
+    incomplete_files: list[str] = []
+    invalid_refs: list[str] = []
+
+    roll_payloads = [
+        row.get("payload")
+        for row in rolls
+        if isinstance(row.get("payload"), dict)
+        and isinstance(row["payload"].get("roll"), (int, float))
+        and not isinstance(row["payload"].get("roll"), bool)
+    ]
+    roll_payloads_without_refs = [
+        payload
+        for payload in roll_payloads
+        if not isinstance(payload.get("rule_refs"), list)
+        or not any(isinstance(ref, str) and ref.strip() for ref in payload.get("rule_refs", []))
+    ]
+    if roll_payloads_without_refs:
+        missing_evidence.append("roll payload rule_refs")
+        incomplete_files.append(rolls_file)
+
+    event_payloads_requiring_refs = [
+        row.get("payload")
+        for row in events
+        if isinstance(row.get("payload"), dict)
+        and isinstance(row["payload"].get("rulebook_ref"), str)
+        and row["payload"]["rulebook_ref"].strip()
+    ]
+    event_payloads_without_refs = [
+        payload
+        for payload in event_payloads_requiring_refs
+        if not isinstance(payload.get("rule_refs"), list)
+        or not any(isinstance(ref, str) and ref.strip() for ref in payload.get("rule_refs", []))
+    ]
+    if event_payloads_without_refs:
+        missing_evidence.append("rulebook_ref event rule_refs")
+        incomplete_files.append(events_file)
+
+    for payload in [*roll_payloads, *event_payloads_requiring_refs]:
+        refs = payload.get("rule_refs")
+        if not isinstance(refs, list):
+            continue
+        for ref in refs:
+            if isinstance(ref, str) and ref not in known_rule_ids:
+                invalid_refs.append(ref)
+
+    if invalid_refs:
+        missing_evidence.append("rule_refs resolving to rule-index.json")
+        if rolls_file not in incomplete_files:
+            incomplete_files.append(rolls_file)
+        if events_file not in incomplete_files and event_payloads_requiring_refs:
+            incomplete_files.append(events_file)
+
+    if not missing_evidence:
+        return []
+    return [_finding(
+        "active_run_rule_refs_missing",
+        "system_gap",
+        f"{run_id} rule source logs lack required structured rule_refs: {', '.join(missing_evidence)}.",
+        "Regenerate the active run so roll and rulebook_ref event payloads include rule_refs that resolve to references/rules-json/rule-index.json.",
+        run_id=run_id,
+        incomplete_files=list(dict.fromkeys(incomplete_files)),
+        missing_evidence=missing_evidence,
+        invalid_rule_refs=sorted(set(invalid_refs)),
+    )]
+
+
 def _pushed_roll_structure_findings(
     run_id: str,
     run_dir: Path,
@@ -2687,6 +2765,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             run_id=run_id,
         ))
     findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix, audit_profile))
+    findings.extend(_rule_ref_traceability_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_source_handout_summary_findings(run_id, campaign_dir, campaign_prefix, metadata))
 
     for investigator_id in investigator_ids:

@@ -15,6 +15,7 @@ def load_module(name: str, relative_path: str):
 coc_playtest_harness = load_module("coc_playtest_harness", "plugins/coc-keeper/scripts/coc_playtest_harness.py")
 coc_playtest_audit = load_module("coc_playtest_audit", "plugins/coc-keeper/scripts/coc_playtest_audit.py")
 coc_completion_audit = load_module("coc_completion_audit", "plugins/coc-keeper/scripts/coc_completion_audit.py")
+coc_rules = load_module("coc_rules", "plugins/coc-keeper/scripts/coc_rules.py")
 
 
 def has_cjk(text: str) -> bool:
@@ -107,6 +108,14 @@ def campaign_roll_events(run_dir: Path) -> list[dict]:
     for path in sorted(campaign_logs.glob("*/logs/rolls.jsonl")):
         events.extend(json.loads(line) for line in path.read_text().splitlines() if line.strip())
     return events
+
+
+def payload_rule_refs(event: dict) -> list[str]:
+    payload = event.get("payload", {})
+    if not isinstance(payload, dict):
+        return []
+    refs = payload.get("rule_refs", [])
+    return refs if isinstance(refs, list) else []
 
 
 def campaign_audit_events(run_dir: Path) -> list[dict]:
@@ -801,6 +810,34 @@ def test_haunting_module_harness_uses_summary_bout_for_solo_corbitt_insanity(tmp
     assert "rounds" not in bout_payload
     assert "Table VIII" in bout_payload["rulebook_ref"]
     assert "独处" in battle_text
+
+
+def test_serious_playtest_logs_reference_structured_rules_json(tmp_path):
+    run_dirs = [
+        coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="v2-haunting-module"),
+        coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="v3-chase-drill"),
+        coc_playtest_harness.create_multi_profile_pressure_run(tmp_path, run_id="v4-multi-profile-pressure"),
+    ]
+    known_rule_ids = coc_rules.rule_ids()
+
+    for run_dir in run_dirs:
+        roll_rows = campaign_roll_events(run_dir)
+        assert roll_rows
+        for row in roll_rows:
+            refs = payload_rule_refs(row)
+            assert refs, row
+            assert set(refs).issubset(known_rule_ids)
+
+        text_rule_rows = [
+            row
+            for row in campaign_state_events(run_dir)
+            if isinstance(row.get("payload"), dict)
+            and "rulebook_ref" in row["payload"]
+        ]
+        for row in text_rule_rows:
+            refs = payload_rule_refs(row)
+            assert refs, row
+            assert set(refs).issubset(known_rule_ids)
 
 
 def test_haunting_module_audit_rejects_transcript_turn_sequence_gaps(tmp_path):

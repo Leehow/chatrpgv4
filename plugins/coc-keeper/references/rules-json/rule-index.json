@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "core.percentile_check",
+      "category": "core_resolution",
+      "source_note": "Keeper Rulebook percentile skill and characteristic checks.",
+      "numeric": {
+        "die": "1D100",
+        "minimum_roll": 1,
+        "maximum_roll": 100,
+        "success_if_roll_lte_effective_target": true
+      }
+    },
+    {
+      "id": "core.difficulty.regular",
+      "category": "difficulty",
+      "source_table": "difficulty-levels.json",
+      "numeric": {
+        "divisor": 1
+      }
+    },
+    {
+      "id": "core.difficulty.hard",
+      "category": "difficulty",
+      "source_table": "difficulty-levels.json",
+      "numeric": {
+        "divisor": 2
+      }
+    },
+    {
+      "id": "core.difficulty.extreme",
+      "category": "difficulty",
+      "source_table": "difficulty-levels.json",
+      "numeric": {
+        "divisor": 5
+      }
+    },
+    {
+      "id": "core.success_level",
+      "category": "success_level",
+      "source_table": "success-levels.json",
+      "numeric": {
+        "critical_roll": 1,
+        "fumble_target_below_50_min": 96,
+        "fumble_target_below_50_max": 100,
+        "fumble_target_50_or_above": 100
+      }
+    },
+    {
+      "id": "core.pushed_roll",
+      "category": "roll_procedure",
+      "source_note": "A pushed roll requires a changed approach and Keeper-stated consequences before rerolling.",
+      "numeric": {
+        "maximum_attempts_after_initial_failure": 1,
+        "requires_changed_approach": true,
+        "requires_foreshadowed_failure": true
+      }
+    },
+    {
+      "id": "core.combined_roll",
+      "category": "roll_procedure",
+      "source_note": "Combined checks use one roll compared against more than one relevant target.",
+      "numeric": {
+        "single_roll": true,
+        "minimum_compared_targets": 2
+      }
+    },
+    {
+      "id": "core.opposed_roll",
+      "category": "roll_procedure",
+      "source_note": "Opposed rolls compare success levels before resolving ties or outcomes.",
+      "numeric": {
+        "compare_success_level": true
+      }
+    },
+    {
+      "id": "core.combat.attack_or_maneuver",
+      "category": "combat",
+      "source_note": "Combat attacks and fighting maneuvers are resolved as percentile combat checks.",
+      "numeric": {
+        "uses_percentile_check": true,
+        "uses_success_level": true
+      }
+    },
+    {
+      "id": "core.sanity.loss",
+      "category": "sanity",
+      "source_table": "sanity.json",
+      "numeric": {
+        "uses_current_sanity_as_target": true
+      }
+    },
+    {
+      "id": "core.sanity.temporary_insanity_threshold",
+      "category": "sanity",
+      "source_table": "sanity.json",
+      "numeric": {
+        "minimum_single_loss": 5,
+        "requires_intelligence_check": true
+      }
+    },
+    {
+      "id": "core.sanity.bout_summary",
+      "category": "sanity",
+      "source_table": "sanity.json",
+      "numeric": {
+        "summary_duration_hours": "1D10"
+      }
+    },
+    {
+      "id": "core.chase.movement_actions",
+      "category": "chase",
+      "source_note": "On-foot chase setup compares adjusted MOV values to assign movement actions.",
+      "numeric": {
+        "base_movement_actions": 1,
+        "extra_actions_per_mov_above_slowest": 1
+      }
+    },
+    {
+      "id": "core.chase.no_pushed_rolls",
+      "category": "chase",
+      "source_note": "The playtest chase drill treats chase-internal hazard and barrier checks as not pushable.",
+      "numeric": {
+        "pushed_rolls_inside_active_chase": false
+      }
+    },
+    {
+      "id": "module.haunting.corbitt_flesh_ward",
+      "category": "module_rule",
+      "module": "The Haunting",
+      "source_note": "Corbitt casts Flesh Ward when investigators enter the house.",
+      "numeric": {
+        "magic_point_cost_in_playtest": 2,
+        "armor_dice_per_magic_point": "1D6",
+        "duration_hours": 24
+      }
+    },
+    {
+      "id": "module.haunting.corbitt_floating_knife_mp",
+      "category": "module_rule",
+      "module": "The Haunting",
+      "source_note": "Corbitt spends Magic points to attack with the floating knife.",
+      "numeric": {
+        "magic_point_cost_per_combat_round": 1
+      }
+    },
+    {
+      "id": "module.haunting.corbitt_animate_body",
+      "category": "module_rule",
+      "module": "The Haunting",
+      "source_note": "Corbitt spends Magic points to animate his body.",
+      "numeric": {
+        "magic_point_cost": 2,
+        "duration_combat_rounds": 5
+      }
+    },
+    {
+      "id": "module.haunting.corbitt_summary_bout",
+      "category": "module_rule",
+      "module": "The Haunting",
+      "source_note": "The solo Corbitt temporary-insanity playtest uses the summary bout table.",
+      "numeric": {
+        "summary_table_roll": "1D10",
+        "playtest_summary_result": 4
+      }
+    },
+    {
+      "id": "module.haunting.corbitt_own_dagger",
+      "category": "module_rule",
+      "module": "The Haunting",
+      "source_note": "Corbitt is destroyed when investigators successfully use his own dagger against him.",
+      "numeric": {
+        "bypasses_spells": true,
+        "requires_successful_attack": true
+      }
+    }
+  ]
+}

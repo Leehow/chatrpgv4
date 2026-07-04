@@ -71,6 +71,20 @@ def test_reference_documents_exist_and_use_ascii_system_markers():
             assert marker not in text
 
 
+def test_rules_json_guide_documents_rule_index_traceability():
+    guide_text = (PLUGIN_ROOT / "references" / "rules-json-guide.md").read_text()
+    spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
+    required_terms = [
+        "rule-index.json",
+        "rule_refs",
+        "core.percentile_check",
+        "module.haunting.corbitt_flesh_ward",
+    ]
+    for term in required_terms:
+        assert term in guide_text
+        assert term in spec_text
+
+
 def test_mode_protocol_documents_play_language_and_localized_terms():
     text = (PLUGIN_ROOT / "references" / "mode-protocol.md").read_text()
     required_terms = [

@@ -11,14 +11,18 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 - `metadata.json`
 - `damage-bonus-build.json`
 - `difficulty-levels.json`
+- `rule-index.json`
 - `success-levels.json`
 - `sanity.json`
+
+`rule-index.json` is the stable traceability index for playtest logs. Campaign `logs/rolls.jsonl` and `logs/events.jsonl` should use payload `rule_refs` containing ids such as `core.percentile_check` or `module.haunting.corbitt_flesh_ward`; those ids must resolve to records in `rule-index.json`.
 
 ## Script Entry Points
 
 Use:
 
 - `scripts/coc_rules.py` for thresholds, success levels, damage bonus, and build.
+- `scripts/coc_rules.py` also exposes `rule_ids()` and `resolve_rule_refs()` for `rule_refs` validation.
 - `scripts/coc_roll.py` for dice expressions and percentile checks.
 - `scripts/coc_validate.py` to verify rule files exist and parse as JSON.
 

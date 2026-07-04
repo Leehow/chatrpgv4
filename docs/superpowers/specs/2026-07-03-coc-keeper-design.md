@@ -624,6 +624,7 @@ references/rules-json/
 ├── derived-values.json
 ├── damage-bonus-build.json
 ├── difficulty-levels.json
+├── rule-index.json
 ├── success-levels.json
 ├── combat.json
 ├── chase.json
@@ -645,6 +646,7 @@ Rules JSON usage:
 - validation
 - deterministic script behavior
 - parameter display in `[meta]`
+- stable `rule_refs` traceability from `logs/rolls.jsonl` and `logs/events.jsonl` back to `rule-index.json`, including core ids such as `core.percentile_check` and module ids such as `module.haunting.corbitt_flesh_ward`
 
 Example `damage-bonus-build.json`:
 
