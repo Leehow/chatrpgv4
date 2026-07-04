@@ -742,7 +742,7 @@ def rulebook_audit_fixture(run_id: str = "fixture-run", audit_profile: str = "fi
         ])
     if audit_profile == "multi_profile_pressure":
         positive_evidence.extend([
-            "- Multi-profile pressure: careful_investigator=谨慎调查员, reckless_investigator=鲁莽调查员, skeptical_rules_lawyer=规则质疑玩家.",
+            "- Multi-profile pressure: careful_investigator=谨慎风格, reckless_investigator=鲁莽风格, skeptical_rules_lawyer=规则质疑风格.",
             "- Pushed-roll protocol stages: "
             f"{run_id}-pushed-roll=player_reframes_action -> keeper_foreshadows_failure -> player_confirms_risk -> roll_resolved.",
             "- Spoiler protocol stages: fixture-spoiler-reveal=warning_issued -> player_confirmed -> limited_reveal.",
@@ -1459,7 +1459,7 @@ def test_completion_audit_accepts_active_monitor_without_prompt_phrase(tmp_path)
         )
     write_index(tmp_path, runs)
     automation_path = tmp_path / "automation.toml"
-    write_text(automation_path, 'status = "ACTIVE"\nprompt = "监工检查：继续 COC Keeper 战报、规则审计和多玩家画像压力循环。"\n')
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "监工检查：继续 COC Keeper 战报、规则审计和单人多风格压力循环。"\n')
 
     coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
     audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
@@ -2901,9 +2901,9 @@ def test_completion_audit_fails_when_player_profile_display_values_are_missing(t
     metadata = json.loads(metadata_path.read_text())
     metadata["player_profile_labels"] = {
         "zh-Hans": {
-            "careful_investigator": "谨慎调查员",
-            "reckless_investigator": "鲁莽调查员",
-            "skeptical_rules_lawyer": "规则质疑玩家",
+            "careful_investigator": "谨慎风格",
+            "reckless_investigator": "鲁莽风格",
+            "skeptical_rules_lawyer": "规则质疑风格",
         }
     }
     write_json(metadata_path, metadata)
@@ -2915,7 +2915,7 @@ def test_completion_audit_fails_when_player_profile_display_values_are_missing(t
             "type": "transcript_turn",
             "turn": 7,
             "role": "player_simulator",
-            "speaker": "玩家[谨慎调查员]",
+            "speaker": "玩家[谨慎风格]",
             "mode": "play",
             "player_profile": "careful_investigator",
             "text": "fixture careful profile visible turn",

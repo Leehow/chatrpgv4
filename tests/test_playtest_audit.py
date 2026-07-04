@@ -1580,7 +1580,7 @@ def test_active_audit_rejects_unlocalized_player_profile_ids_in_reports(tmp_path
     metadata["audit_profile"] = "multi_profile_pressure"
     metadata["play_language"] = "zh-Hans"
     metadata["player_profiles_tested"] = ["careful_investigator"]
-    metadata["player_profile_labels"] = {"zh-Hans": {"careful_investigator": "谨慎调查员"}}
+    metadata["player_profile_labels"] = {"zh-Hans": {"careful_investigator": "谨慎风格"}}
     metadata_path.write_text(json.dumps(metadata))
     report_path = run_dir / "artifacts" / "battle-report.md"
     report_path.write_text(
@@ -1592,7 +1592,7 @@ def test_active_audit_rejects_unlocalized_player_profile_ids_in_reports(tmp_path
         "## Session Transcript\n"
         "- Turn 1 Player[careful_investigator]: 我先查资料。\n\n"
         "## Major Player Decisions\n"
-        "- 谨慎玩家选择继续调查。\n\n"
+        "- 谨慎风格选择继续调查。\n\n"
         "## Story Recap\n"
         "- 艾达接受委托并找到线索。\n\n"
         "## Player Feedback On KP\n"
@@ -1619,9 +1619,9 @@ def test_multi_profile_rulebook_audit_lists_pressure_protocol_evidence(tmp_path)
     ]
     metadata["player_profile_labels"] = {
         "zh-Hans": {
-            "careful_investigator": "谨慎调查员",
-            "reckless_investigator": "鲁莽调查员",
-            "skeptical_rules_lawyer": "规则质疑玩家",
+            "careful_investigator": "谨慎风格",
+            "reckless_investigator": "鲁莽风格",
+            "skeptical_rules_lawyer": "规则质疑风格",
         }
     }
     metadata_path.write_text(json.dumps(metadata))
@@ -1735,7 +1735,7 @@ def test_multi_profile_rulebook_audit_lists_pressure_protocol_evidence(tmp_path)
     artifact = coc_playtest_audit.generate_rulebook_audit(run_dir)
     text = artifact.read_text()
 
-    assert "Multi-profile pressure: careful_investigator=谨慎调查员, reckless_investigator=鲁莽调查员, skeptical_rules_lawyer=规则质疑玩家." in text
+    assert "Multi-profile pressure: careful_investigator=谨慎风格, reckless_investigator=鲁莽风格, skeptical_rules_lawyer=规则质疑风格." in text
     assert "Multi-profile transcript turns: careful_investigator=1, reckless_investigator=2, skeptical_rules_lawyer=2; skeptical meta turns: 2." in text
     assert "Pushed-roll protocol stages: fixture-push=player_reframes_action -> keeper_foreshadows_failure -> player_confirms_risk -> roll_resolved." in text
     assert "Spoiler protocol stages: fixture-spoiler=warning_issued -> player_confirmed -> limited_reveal." in text
@@ -2019,9 +2019,9 @@ def test_active_audit_rejects_unlocalized_feedback_labels(tmp_path):
         "## Story Recap / 剧情回顾\n"
         "- 艾达接受委托并找到线索。\n\n"
         "## Player Feedback On KP / 玩家对 KP 的反馈\n"
-        "- kp_clarity: 5 - 谨慎调查员: KP 解释清楚。\n"
-        "- agency: 4 - 鲁莽调查员: KP 没阻止冒险。\n"
-        "- meta_quality: 5 - 规则质疑玩家: KP 清楚解释裁定。\n"
+        "- kp_clarity: 5 - 谨慎风格: KP 解释清楚。\n"
+        "- agency: 4 - 鲁莽风格: KP 没阻止冒险。\n"
+        "- meta_quality: 5 - 规则质疑风格: KP 清楚解释裁定。\n"
     )
 
     audit = coc_playtest_audit.audit_run(run_dir)
@@ -2125,7 +2125,7 @@ def test_active_audit_rejects_unlocalized_run_setup_values(tmp_path):
         "- Play Language: zh-Hans（游玩语言）\n"
         "- Language Profile: Simplified Chinese（语言配置）\n"
         "- Localized Terms: 73 entries (recorded in playtest.json)（本地化术语）\n"
-        "- Player Profile: careful_investigator（玩家画像）\n\n"
+        "- Player Profile: careful_investigator（游玩风格）\n\n"
         "## Scene-by-Scene Replay / 逐场景回放\n"
         "- 这是中文场景回放。\n\n"
         "## Actual Play Replay / 实际跑团回放\n"
@@ -2157,7 +2157,7 @@ def test_run_setup_value_leaks_rejects_english_localized_terms_summary():
         "- 游玩语言: 简体中文\n"
         "- 语言配置: 简体中文\n"
         "- 本地化术语: 73 entries (recorded in playtest.json)\n"
-        "- 玩家画像: 谨慎调查员\n\n"
+        "- 游玩风格: 谨慎风格\n\n"
     )
 
     leaks = coc_playtest_audit._run_setup_value_leaks(battle_report, metadata)
@@ -2352,7 +2352,7 @@ def test_active_audit_rejects_unlocalized_character_dossier_labels(tmp_path):
         "## Run Setup / 运行设置\n"
         "- Campaign: The Haunting（战役）\n"
         "- Play Language: zh-Hans（游玩语言）\n"
-        "- Player Profile: careful_investigator（玩家画像）\n\n"
+        "- Player Profile: careful_investigator（游玩风格）\n\n"
         "## Module / 模组\n"
         "- Scenario: The Haunting（模组）\n"
         "- Opening Scene: 诺特先生给出委托。（开场场景）\n\n"
@@ -2401,7 +2401,7 @@ def test_active_audit_rejects_unlocalized_character_dossier_terms(tmp_path):
         "## Run Setup / 运行设置\n"
         "- Campaign: The Haunting（战役）\n"
         "- Play Language: zh-Hans（游玩语言）\n"
-        "- Player Profile: careful_investigator（玩家画像）\n\n"
+        "- Player Profile: careful_investigator（游玩风格）\n\n"
         "## Module / 模组\n"
         "- Scenario: The Haunting（模组）\n"
         "- Opening Scene: 诺特先生给出委托。（开场场景）\n\n"
@@ -2457,7 +2457,7 @@ def test_active_audit_rejects_unlocalized_player_visible_skill_names(tmp_path):
         "## Run Setup / 运行设置\n"
         "- Campaign: The Haunting（战役）\n"
         "- Play Language: zh-Hans（游玩语言）\n"
-        "- Player Profile: careful_investigator（玩家画像）\n\n"
+        "- Player Profile: careful_investigator（游玩风格）\n\n"
         "## Module / 模组\n"
         "- Scenario: The Haunting（模组）\n"
         "- Opening Scene: 诺特先生给出委托。（开场场景）\n\n"

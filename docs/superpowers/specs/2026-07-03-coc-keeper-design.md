@@ -322,7 +322,7 @@ The automated playtest and evaluation skill. This skill tests the Keeper system 
 Responsibilities:
 
 - run isolated test campaigns under `.coc/playtests/`
-- coordinate a Keeper-under-test role, one or more simulated player roles, and an evaluator role
+- coordinate a Keeper-under-test role, a single simulated-player role that can be replayed through multiple style profiles, and an evaluator role
 - keep simulated players from reading Keeper-only files
 - define test scenarios for character creation, ordinary investigation, meta questions, combat, chase, sanity, spoilers, save, and resume
 - capture complete transcripts and state transitions
@@ -873,7 +873,7 @@ enter [meta]
 
 ## Playtest And Evaluation Strategy
 
-The system needs a repeatable way to let Codex test the Keeper experience by simulating players while preserving the same immersion, state, and spoiler constraints expected in real play.
+The system needs a repeatable way to let Codex test the Keeper experience by simulating a single player through different play styles while preserving the same immersion, state, and spoiler constraints expected in real play.
 
 The playtest system should be treated as a separate subsystem, not as normal campaign play. Test runs write to `.coc/playtests/<run-id>/` and use sandboxed investigators and campaigns.
 
@@ -887,7 +887,7 @@ Each playtest run uses three role types:
    - Must follow the same spoiler and meta rules as normal play.
 
 2. `player_simulator`
-   - Simulates one or more human players.
+   - Simulates one human player; multi-player table support is deferred.
    - Sees only `player-view` information.
    - May ask in-character questions, take risky actions, ask `[meta]` questions, challenge rulings, forget details, or make suboptimal choices.
    - Must not read Keeper-only files, scenario secrets, hidden clue graphs, or evaluator notes.
@@ -977,9 +977,9 @@ V4 should add engine tests:
 - large module library search.
 - replay/export generation.
 
-### Simulated Player Profiles
+### Simulated Single-Player Styles
 
-Use multiple player simulator profiles to stress different Keeper behaviors:
+Use multiple style profiles for the same simulated player to stress different Keeper behaviors:
 
 - `careful_investigator`: asks questions, searches thoroughly, avoids combat.
 - `reckless_investigator`: pushes rolls, touches dangerous objects, starts conflict.
@@ -987,7 +987,7 @@ Use multiple player simulator profiles to stress different Keeper behaviors:
 - `forgetful_player`: asks for recaps and repeats previously answered questions.
 - `genre_savvy_player`: makes strong inferences that may approach spoilers.
 
-V1 can start with one careful player and one rules lawyer. V2 should add reckless and genre-savvy profiles.
+V1 can start with the careful and rules-questioning styles. V2 should add reckless and genre-savvy styles.
 
 ### Metrics
 
@@ -1109,7 +1109,7 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit should additio
 - DEX-order proof through participant `dex`, `dex_order`, and `rounds[].turns[].actor_id`; otherwise emit `chase_dex_order_not_proven`
 - hazard-resolution proof for each participant turn that crosses a `location_chain[]` entry with `label: hazard`, using `rounds[].turns[].hazard_id`, `hazard_roll_id`, and matching `logs/rolls.jsonl` payload `roll_id`/`chase_hazard_id`; otherwise emit `chase_hazard_resolution_missing`
 - barrier and hide/search proof for escape by hiding, using `rounds[].turns[].barrier_id`, `barrier_roll_id`, `hide_attempt_id`, `hide_roll_id`, `hide_search_actor_id`, `hide_search_roll_id`, and matching `logs/rolls.jsonl` payload `roll_id`/`chase_barrier_id`/`chase_hide_attempt_id`; otherwise emit `chase_barrier_hide_resolution_missing`
-- multi-profile chase pressure from reckless, skeptical-rules, and genre-savvy player profiles, including meta questions about movement actions, pushed-roll boundaries, and spoiler-safe answers; otherwise emit `chase_player_profile_pressure_missing`
+- single-player multi-style chase pressure from reckless, skeptical-rules, and genre-savvy profiles, including meta questions about movement actions, pushed-roll boundaries, and spoiler-safe answers; otherwise emit `chase_player_profile_pressure_missing`
 - typed major-player decision events with stable `decision_kind` values for pushed confirmation, objective possession, hazard choice, and barrier/hide choice; otherwise emit `chase_decisions_too_thin`
 - Chase Summary text that explains speed roll, MOV, movement actions, DEX order, hazards, barriers, conflict, and escape/capture
 - populated `## Chase Tracker` text that renders `save/chase.json` participants, DEX order, location chain, rounds, and outcome; otherwise emit `chase_tracker_not_rendered`
@@ -1220,7 +1220,7 @@ Scope:
 - skill base tables
 - development phase support
 - authored-module playtest suites
-- simulated player profiles beyond the careful baseline
+- simulated single-player style profiles beyond the careful baseline
 
 Acceptance:
 

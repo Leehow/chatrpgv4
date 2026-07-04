@@ -201,7 +201,7 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit must also reje
 - fail to prove chase-round action order from participant `dex`, `dex_order`, and `rounds[].turns[].actor_id`; otherwise emit `chase_dex_order_not_proven`
 - fail to prove every hazard crossing with `rounds[].turns[].hazard_id`, `hazard_roll_id`, and matching `logs/rolls.jsonl` payload `roll_id`/`chase_hazard_id`; otherwise emit `chase_hazard_resolution_missing`
 - fail to prove barrier crossing and hide/search escape links with `rounds[].turns[].barrier_id`, `barrier_roll_id`, `hide_attempt_id`, `hide_roll_id`, `hide_search_actor_id`, `hide_search_roll_id`, and matching `logs/rolls.jsonl` payload `roll_id`/`chase_barrier_id`/`chase_hide_attempt_id`; otherwise emit `chase_barrier_hide_resolution_missing`
-- omit multi-profile chase pressure from reckless, skeptical-rules, and genre-savvy player profiles, including meta questions about movement actions, pushed-roll boundaries, and spoiler-safe answers; otherwise emit `chase_player_profile_pressure_missing`
+- omit single-player multi-style chase pressure from reckless, skeptical-rules, and genre-savvy profiles, including meta questions about movement actions, pushed-roll boundaries, and spoiler-safe answers; otherwise emit `chase_player_profile_pressure_missing`
 - omit typed major-player decision events with stable `decision_kind` values for pushed confirmation, objective possession, hazard choice, and barrier/hide choice; otherwise emit `chase_decisions_too_thin`
 - fail to show speed roll, MOV, movement actions, hazard, barrier, conflict, and quarry escapes in Chase Summary
 - fail to render a populated `## Chase Tracker` from `save/chase.json`

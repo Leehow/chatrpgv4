@@ -3027,9 +3027,9 @@ def create_chase_drill_run(
     localized_terms = _terms_for_play_language(ZH_HANS_CHASE_GLOSSARY, play_language)
     player_profile_labels = _profile_labels_for_play_language(
         {
-            "reckless_investigator": "鲁莽调查员",
-            "skeptical_rules_lawyer": "规则质疑玩家",
-            "genre_savvy_player": "类型片熟手",
+            "reckless_investigator": "鲁莽风格",
+            "skeptical_rules_lawyer": "规则质疑风格",
+            "genre_savvy_player": "类型片直觉风格",
         },
         play_language,
     )
@@ -3549,9 +3549,9 @@ def create_multi_profile_pressure_run(
     localized_terms = _terms_for_play_language(ZH_HANS_HAUNTING_GLOSSARY, play_language)
     player_profile_labels = _profile_labels_for_play_language(
         {
-            "careful_investigator": "谨慎调查员",
-            "reckless_investigator": "鲁莽调查员",
-            "skeptical_rules_lawyer": "规则质疑玩家",
+            "careful_investigator": "谨慎风格",
+            "reckless_investigator": "鲁莽风格",
+            "skeptical_rules_lawyer": "规则质疑风格",
         },
         play_language,
     )
@@ -3782,8 +3782,8 @@ def create_multi_profile_pressure_run(
         {"turn": 10, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "pushed_spot_hidden", "pushed_roll_protocol": _pushed_roll_transcript_protocol("pressure-reckless-entry-push", "keeper_foreshadows_failure", {"failure_consequence_source": "keeper"}), "text": "这是有效推骰，因为你改变了方法并靠得更近。若失败，屋内的动静会先一步锁定你。你确定吗？"},
         {"turn": "10a", "role": "player_simulator", "speaker": "Reckless Player", "player_profile": "reckless_investigator", "mode": "play", "pushed_roll_protocol": _pushed_roll_transcript_protocol("pressure-reckless-entry-push", "player_confirms_risk", {"risk_confirmed": True}), "text": "确定。我就赌门缝里这一点线索。"},
         {"turn": 11, "role": "system", "speaker": "system", "mode": "roll", "pushed_roll_protocol": _pushed_roll_transcript_protocol("pressure-reckless-entry-push", "roll_resolved"), "outcome_note": "你看见门闩边缘有新划痕，没有触发额外危险。", "text": "Pushed Spot Hidden 22 vs 55 -> hard_success."},
-        {"turn": 12, "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "intent": "challenge keeper ruling", "text": "[meta] 我想质疑一下：谨慎玩家查资料、鲁莽玩家直接进屋，为什么 KP 给的是不同检定和风险？[/meta]"},
-        {"turn": 13, "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "profile_pressure_explanation", "text": "[meta] 规则裁定：检定不是惩罚玩家风格，而是根据行动方式和风险来定。谨慎路线用 Library Use 获取线索；鲁莽路线也允许，但信息少、后果更近。推骰前我必须先说明失败代价。[/meta]"},
+        {"turn": 12, "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "intent": "challenge keeper ruling", "text": "[meta] 我想质疑一下：谨慎风格查资料、鲁莽风格直接进屋，为什么 KP 给的是不同检定和风险？[/meta]"},
+        {"turn": 13, "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "profile_pressure_explanation", "text": "[meta] 规则裁定：检定不是惩罚游玩风格，而是根据行动方式和风险来定。谨慎路线用 Library Use 获取线索；鲁莽路线也允许，但信息少、后果更近。推骰前我必须先说明失败代价。[/meta]"},
         {"turn": "13a", "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "intent": "request keeper-only spoiler", "text": "[meta] 如果我现在明确想知道地下室到底藏着什么，能不能直接剧透告诉我？[/meta]"},
         {"turn": "13b", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "spoiler_warning", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "warning_issued", "secret-corbitt-body", "corbitt_basement_presence", {"requires_confirmation": True}), "text": "[spoiler_warning] 这会揭示《鬼屋》的守秘人信息：地下室核心秘密的一部分。确认后我只回答你请求的范围，不展开攻击触发或完整真相。你确认要看吗？[/spoiler_warning]"},
         {"turn": "13c", "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "player_confirmed", "secret-corbitt-body", "corbitt_basement_presence", {"confirmed": True}), "text": "[meta] 确认。我接受这段剧透；只回答地下室这一点，不要展开后面的触发。[/meta]"},
@@ -3824,11 +3824,11 @@ def create_multi_profile_pressure_run(
     ], localized_terms, play_language))
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-office", "summary": "诺特先生给出钥匙、预付款和科比特宅邸的委托。", "localized_text": {"ja-JP": {"summary": "ノット氏は鍵、前金、コービット屋敷の依頼を提示する。"}}}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "谨慎玩家选择先查房契和旧报纸，避免无准备进屋。", "localized_text": {"ja-JP": {"summary": "慎重なプレイヤーは準備なしで屋敷に入らず、先に権利書と古い新聞を調べる。"}}}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "谨慎风格选择先查房契和旧报纸，避免无准备进屋。", "localized_text": {"ja-JP": {"summary": "慎重なプレイヤーは準備なしで屋敷に入らず、先に権利書と古い新聞を調べる。"}}}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "deed-note", "summary": "艾达·金发现沃尔特·科比特与沉思教堂有关。", "localized_text": {"ja-JP": {"summary": "エイダ・キングはウォルター・コービットが瞑想教会と関係していることを見つける。"}}}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "鲁莽玩家选择直接进二楼，并在 KP 说明失败后果后继续推骰。", "localized_text": {"ja-JP": {"summary": "無謀なプレイヤーは直接二階へ入り、KP が失敗時の結果を示した後もプッシュを続ける。"}}}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑玩家以超游模式要求 KP 解释不同调查风格对应的检定和风险。", "localized_text": {"ja-JP": {"summary": "ルール確認型プレイヤーはメタモードで、調査スタイルごとのロールとリスクを KP に説明させる。"}}}},
-        {"type": "decision", "actor": "player_simulator", "payload": {"summary": "规则质疑玩家主动要求查看地下室守秘人剧透；KP 先发出剧透警告并等待确认。", "localized_text": {"ja-JP": {"summary": "ルール確認型プレイヤーは地下室のキーパー情報の開示を求め、KP は先にネタバレ警告を出して確認を待つ。"}}}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "鲁莽风格选择直接进二楼，并在 KP 说明失败后果后继续推骰。", "localized_text": {"ja-JP": {"summary": "無謀なプレイヤーは直接二階へ入り、KP が失敗時の結果を示した後もプッシュを続ける。"}}}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑风格以超游模式要求 KP 解释不同调查风格对应的检定和风险。", "localized_text": {"ja-JP": {"summary": "ルール確認型プレイヤーはメタモードで、調査スタイルごとのロールとリスクを KP に説明させる。"}}}},
+        {"type": "decision", "actor": "player_simulator", "payload": {"summary": "规则质疑风格主动要求查看地下室守秘人剧透；KP 先发出剧透警告并等待确认。", "localized_text": {"ja-JP": {"summary": "ルール確認型プレイヤーは地下室のキーパー情報の開示を求め、KP は先にネタバレ警告を出して確認を待つ。"}}}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "fresh-scratches", "summary": "推骰成功后，艾达·金看见门闩边缘的新划痕。", "localized_text": {"ja-JP": {"summary": "プッシュロール成功後、エイダ・キングはラッチ付近の新しい傷を見る。"}}}},
         {"type": "status", "actor": investigator_id, "payload": {"summary": "三种调查风格都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。", "localized_text": {"ja-JP": {"summary": "三つの調査スタイルはいずれも有効な選択を残し、KP は各ルートの利益、リスク、失敗時の結果を説明した。"}}}},
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "本幕收束，后续入口记录为先追查沉思教堂，再决定是否进入科比特宅邸深处。", "localized_text": {"ja-JP": {"summary": "この場面は終了し、次の入口はまず瞑想教会を追い、それからコービット屋敷の奥へ進むか決める形で記録される。"}}}},
@@ -3849,7 +3849,7 @@ def create_multi_profile_pressure_run(
     _write_jsonl_localized(campaign_dir / "memory" / "session-summaries.jsonl", [
         {
             "session_id": "session-1",
-            "summary": "三个调查风格汇入同一开局：谨慎玩家先查公开记录，鲁莽玩家直接进屋并推骰，规则质疑玩家要求解释裁定并确认一次剧透警告。KP 分别给出风险、失败后果、有限剧透和后续路线。",
+            "summary": "三个调查风格汇入同一开局：谨慎风格先查公开记录，鲁莽风格直接进屋并推骰，规则质疑风格要求解释裁定并确认一次剧透警告。KP 分别给出风险、失败后果、有限剧透和后续路线。",
             "localized_text": {"ja-JP": {"summary": "三つの調査スタイルが同じ導入へ合流した。慎重なプレイヤーは公開記録を調べ、無謀なプレイヤーは直接入ってプッシュし、ルール確認型プレイヤーは裁定説明を求めて一度ネタバレ警告を確認した。KP はそれぞれにリスク、失敗時の結果、限定開示、次のルートを示した。"}},
         },
     ], localized_terms)

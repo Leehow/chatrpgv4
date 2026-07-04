@@ -797,7 +797,7 @@ def assert_run_setup_values_localized(text: str, expected_profile: str) -> None:
         "语言配置: 简体中文",
         "本地化术语: ",
         "条（记录于 playtest.json）",
-        f"玩家画像: {expected_profile}",
+        f"游玩风格: {expected_profile}",
     ]
     forbidden = [
         "Dice Mode: codex",
@@ -809,6 +809,7 @@ def assert_run_setup_values_localized(text: str, expected_profile: str) -> None:
         "Language Profile:",
         "见本地化附录",
         "entries (see Localization Appendix)",
+        "玩家画像",
         "careful_investigator",
         "reckless_investigator",
         "multi_profile_matrix",
@@ -1278,7 +1279,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "- 游玩语言: zh-Hans" not in run_setup
     assert "- 审计画像: 《鬼屋》完整模组审计" in run_setup
     assert "本地化术语: " in run_setup
-    assert_run_setup_values_localized(run_setup, "谨慎调查员")
+    assert_run_setup_values_localized(run_setup, "谨慎风格")
     assert "Ada King -> 艾达·金" not in run_setup
     assert "Mr. Knott -> 诺特先生" not in run_setup
     assert "The Old Corbitt Place -> 科比特老宅" not in run_setup
@@ -2043,9 +2044,9 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         "genre_savvy_player",
     ]
     assert metadata["player_profile_labels"]["zh-Hans"] == {
-        "reckless_investigator": "鲁莽调查员",
-        "skeptical_rules_lawyer": "规则质疑玩家",
-        "genre_savvy_player": "类型片熟手",
+        "reckless_investigator": "鲁莽风格",
+        "skeptical_rules_lawyer": "规则质疑风格",
+        "genre_savvy_player": "类型片直觉风格",
     }
     assert_localized_report_shell(battle_text)
     state_changes = section_text(battle_text, "### State Changes")
@@ -2065,7 +2066,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 游玩语言: zh-Hans" not in run_setup
     assert "- 审计画像: 追逐规则演练" in run_setup
     assert "本地化术语: " in run_setup
-    assert_run_setup_values_localized(run_setup, "鲁莽调查员")
+    assert_run_setup_values_localized(run_setup, "鲁莽风格")
     assert "Ada King -> 艾达·金" not in run_setup
     assert "Nathaniel Crowe -> 内森尼尔·克劳" not in run_setup
     assert "ledger -> 账本" not in run_setup
@@ -2188,9 +2189,9 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Pushed Spot Hidden 33" not in actual_play
     assert "MOV remains" not in actual_play
     assert "extreme_success" not in actual_play
-    assert "玩家[鲁莽调查员]" in actual_play
-    assert "玩家[规则质疑玩家]" in actual_play
-    assert "玩家[类型片熟手]" in actual_play
+    assert "玩家[鲁莽风格]" in actual_play
+    assert "玩家[规则质疑风格]" in actual_play
+    assert "玩家[类型片直觉风格]" in actual_play
     assert "追逐内部为什么不让推骰" in actual_play
     assert "MOV 差值怎么变成移动行动" in actual_play
     assert "我是不是能猜到他会在屋顶门后设伏" in actual_play
@@ -2213,8 +2214,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Pushed Spot Hidden 33" not in session_transcript
     assert "MOV remains" not in session_transcript
     assert "extreme_success" not in session_transcript
-    assert "玩家[规则质疑玩家]" in session_transcript
-    assert "玩家[类型片熟手]" in session_transcript
+    assert "玩家[规则质疑风格]" in session_transcript
+    assert "玩家[类型片直觉风格]" in session_transcript
     assert "to 建立追逐" not in session_transcript
     assert "after 被追者逃脱" not in session_transcript
     visible_dialogue = "\n".join(visible_play_texts(run_dir))
@@ -2342,9 +2343,9 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         ["KP 清晰度 5/5", "追逐可读性 5/5", "沉浸感 4/5", "超游质量 5/5", "剧透安全 5/5"],
         ["kp_clarity:", "chase_readability:", "immersion:", "KP 清晰度: 5 -"],
     )
-    assert "鲁莽调查员反馈：“我能看懂每个人在位置链的位置，也知道被追者为什么逃脱。”" in feedback
-    assert "规则质疑玩家反馈：“KP 把 MOV、移动行动和追逐内不能推骰的边界解释清楚。" in feedback
-    assert "类型片熟手反馈：“KP 没有直接确认我的剧透猜测" in feedback
+    assert "鲁莽风格反馈：“我能看懂每个人在位置链的位置，也知道被追者为什么逃脱。”" in feedback
+    assert "规则质疑风格反馈：“KP 把 MOV、移动行动和追逐内不能推骰的边界解释清楚。" in feedback
+    assert "类型片直觉风格反馈：“KP 没有直接确认我的剧透猜测" in feedback
     assert "reckless_investigator:" not in feedback
     assert "skeptical_rules_lawyer:" not in feedback
     assert "genre_savvy_player:" not in feedback
@@ -2538,7 +2539,7 @@ def test_chase_drill_audit_rejects_thin_major_decision_events(tmp_path):
     assert "chase_decisions_too_thin" in finding_codes
 
 
-def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
+def test_multi_profile_pressure_run_records_single_player_virtual_styles(tmp_path):
     stale_artifacts = tmp_path / ".coc" / "playtests" / "multi-profile-pressure" / "artifacts"
     stale_artifacts.mkdir(parents=True)
     (stale_artifacts / "semantic-eval-request.json").write_text("{}")
@@ -2563,9 +2564,9 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
         "skeptical_rules_lawyer",
     ]
     assert metadata["player_profile_labels"]["zh-Hans"] == {
-        "careful_investigator": "谨慎调查员",
-        "reckless_investigator": "鲁莽调查员",
-        "skeptical_rules_lawyer": "规则质疑玩家",
+        "careful_investigator": "谨慎风格",
+        "reckless_investigator": "鲁莽风格",
+        "skeptical_rules_lawyer": "规则质疑风格",
     }
     inventory_history = investigator_jsonl(run_dir, "ada-king-pressure", "inventory-history.jsonl")
     assert inventory_history
@@ -2586,9 +2587,9 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
         ["请求谨慎调查路线", "鲁莽闯入危险", "质疑 KP 裁定", "收束本轮"],
         ["request careful research route", "rush into danger", "challenge keeper ruling", "session_wrap"],
     )
-    assert "玩家[谨慎调查员]" in actual_play
-    assert "玩家[鲁莽调查员]" in actual_play
-    assert "玩家[规则质疑玩家]" in actual_play
+    assert "玩家[谨慎风格]" in actual_play
+    assert "玩家[鲁莽风格]" in actual_play
+    assert "玩家[规则质疑风格]" in actual_play
     assert "Player[careful_investigator]" not in actual_play
     assert "Player[reckless_investigator]" not in actual_play
     assert "Player[skeptical_rules_lawyer]" not in actual_play
@@ -2618,6 +2619,12 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "多玩家画像矩阵" not in story_facing_setup
     visible_battle_text = visible_markdown_text(battle_text)
     assert "多玩家" not in visible_battle_text
+    assert "玩家画像" not in visible_battle_text
+    assert "谨慎玩家" not in visible_battle_text
+    assert "鲁莽玩家" not in visible_battle_text
+    assert "规则质疑玩家" not in visible_battle_text
+    assert "谨慎调查员" not in visible_battle_text
+    assert "鲁莽调查员" not in visible_battle_text
     assert "同伴" not in visible_battle_text
     assert "告诉大家" not in visible_battle_text
     assert "你们可以" not in visible_battle_text
@@ -2690,7 +2697,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     )
     assert "ada-king-pressure -" not in state_changes
     major_decisions = section_text(battle_text, "## Major Player Decisions")
-    assert "规则质疑玩家以超游模式要求 KP 解释不同调查风格对应的检定和风险" in major_decisions
+    assert "规则质疑风格以超游模式要求 KP 解释不同调查风格对应的检定和风险" in major_decisions
     assert "meta 模式" not in major_decisions
     clues_found = section_text(battle_text, "## Clues Found")
     assert_player_readable_state_ids_absent(clues_found, ["deed-note", "fresh-scratches"])
@@ -2706,9 +2713,9 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
         ["KP 清晰度 5/5", "自主性 4/5", "超游质量 5/5"],
         ["kp_clarity:", "agency:", "meta_quality:", "KP 清晰度: 5 -"],
     )
-    assert "谨慎调查员反馈：“KP 允许我先调查" in feedback
-    assert "鲁莽调查员反馈：“KP 没有阻止我冒险" in feedback
-    assert "规则质疑玩家反馈：“KP 清楚解释" in feedback
+    assert "谨慎风格反馈：“KP 允许我先调查" in feedback
+    assert "鲁莽风格反馈：“KP 没有阻止我冒险" in feedback
+    assert "规则质疑风格反馈：“KP 清楚解释" in feedback
     assert "careful_investigator:" not in feedback
     assert "reckless_investigator:" not in feedback
     assert "skeptical_rules_lawyer:" not in feedback
