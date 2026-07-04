@@ -13,6 +13,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from coc_language import language_profile as build_language_profile
+from coc_playtest_report import _format_roll_recap
 
 
 Finding = dict[str, Any]
@@ -2655,6 +2656,72 @@ def _status_event_render_gaps(
     return gaps
 
 
+def _audit_actor_names(characters: list[dict[str, Any]], terms: dict[str, str]) -> dict[str, str]:
+    actor_names: dict[str, str] = {}
+    for character in characters:
+        if not isinstance(character, dict):
+            continue
+        character_id = character.get("id")
+        name = character.get("name")
+        if character_id and name:
+            actor_names[str(character_id)] = terms.get(str(name), str(name))
+    return actor_names
+
+
+def _non_percentile_roll_rendering_gaps(
+    battle_report: str,
+    rolls: list[dict[str, Any]],
+    characters: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    terms: dict[str, str],
+) -> list[str]:
+    visible_report = _normalize_report_text(_strip_html_comments(battle_report))
+    play_language = str(metadata.get("play_language") or "en-US")
+    profile = _selected_language_profile(metadata)
+    actor_names = _audit_actor_names(characters, terms)
+    report_labels = profile.get("report_labels", {})
+    if not isinstance(report_labels, dict):
+        report_labels = {}
+    roll_sentence = str(report_labels.get("roll_sentence", "- {skill}: {actor} rolled {roll} vs {target} -> {outcome}"))
+    outcome_labels = profile.get("outcome_labels", {})
+    if not isinstance(outcome_labels, dict):
+        outcome_labels = {}
+    gaps: list[str] = []
+
+    for roll in rolls:
+        payload = roll.get("payload")
+        if not isinstance(payload, dict) or not payload.get("die"):
+            continue
+        if (
+            roll.get("type") not in {"damage", "reward"}
+            and payload.get("damage_kind") in (None, "", [], {})
+            and payload.get("reward_kind") in (None, "", [], {})
+        ):
+            continue
+        expected = _format_roll_recap(roll, actor_names, terms, play_language, profile)
+        expected_summary = expected.splitlines()[0].removeprefix("- ").strip() if expected.splitlines() else ""
+        expected_normalized = _normalize_report_text(expected_summary)
+        if expected_normalized and expected_normalized not in visible_report:
+            gaps.append(f"missing dice-formula rendering for {payload.get('roll_id', payload.get('skill', 'unknown'))}")
+
+        skill = terms.get(str(payload.get("skill", "check")), str(payload.get("skill", "check")))
+        actor = actor_names.get(str(roll.get("actor", "unknown")), str(roll.get("actor", "unknown")))
+        outcome = str(payload.get("outcome", "unknown"))
+        outcome = str(outcome_labels.get(outcome, terms.get(outcome, outcome)))
+        target = payload.get("effective_target", payload.get("target", "?"))
+        old_target_line = roll_sentence.format(
+            skill=skill,
+            actor=actor,
+            roll=payload.get("roll", "?"),
+            target=target,
+            outcome=outcome,
+        ).removeprefix("- ").strip()
+        if old_target_line and _normalize_report_text(old_target_line) in visible_report:
+            gaps.append(f"non-percentile roll rendered with target for {payload.get('roll_id', payload.get('skill', 'unknown'))}")
+
+    return sorted(set(gaps))
+
+
 def audit_run(run_dir: Path) -> dict[str, Any]:
     context = _load_context(run_dir)
     findings: list[Finding] = []
@@ -3201,6 +3268,26 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "high",
             "Battle report mechanical log misses: " + ", ".join(missing_mechanical_markers),
             "Render roll goals, difficulty levels, difficulty rationale, and failure consequences for important rolls.",
+        ))
+
+    non_percentile_roll_rendering_gaps = (
+        _non_percentile_roll_rendering_gaps(
+            battle_report,
+            context["rolls"],
+            context["characters"],
+            metadata,
+            locale_terms,
+        )
+        if active_profile
+        else []
+    )
+    if non_percentile_roll_rendering_gaps:
+        findings.append(_finding(
+            "non_percentile_roll_rendering_invalid",
+            "report_gap",
+            "medium",
+            "; ".join(non_percentile_roll_rendering_gaps),
+            "Render damage and reward dice as die formulas with die faces and modifiers, not as percentile-style roll/target checks.",
         ))
 
     if _has_skill_check(context["rolls"]) and not _report_label_value_rendered(

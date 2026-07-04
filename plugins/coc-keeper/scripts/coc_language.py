@@ -9,6 +9,8 @@ DEFAULT_PLAY_LANGUAGE = "zh-Hans"
 
 BASE_REPORT_LABELS = {
     "roll_sentence": "- {skill}: {actor} rolled {roll} vs {target} -> {outcome}",
+    "die_roll_sentence": "- {skill}: {actor} rolled {die} = {roll} ({breakdown}) -> {outcome}",
+    "die_face": "die roll",
     "difficulty": "Difficulty",
     "goal": "Goal",
     "difficulty_rationale": "Difficulty Rationale",
@@ -218,6 +220,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "term_policy": "Use localized_terms.zh-Hans for people, places, factions, handouts, campaign titles, scenario titles, player-visible module source labels, player-visible skill display names, and special terms.",
         "report_labels": {
             "roll_sentence": "- {skill}：{actor}掷出 {roll} / {target}，结果{outcome}。",
+            "die_roll_sentence": "- {skill}：{actor}掷出 {die} = {roll}（{breakdown}），结果{outcome}。",
+            "die_face": "骰面",
             "difficulty": "难度",
             "goal": "目的",
             "difficulty_rationale": "难度说明",
@@ -458,6 +462,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "term_policy": "Use localized_terms.ja-JP for people, places, factions, handouts, campaign titles, scenario titles, player-visible module source labels, player-visible skill display names, and special terms.",
         "report_labels": {
             "roll_sentence": "- {skill}：{actor}は {roll} / {target} を振り、結果は{outcome}。",
+            "die_roll_sentence": "- {skill}：{actor}は {die} = {roll}（{breakdown}）を振り、結果は{outcome}。",
+            "die_face": "出目",
             "difficulty": "難易度",
             "goal": "目的",
             "difficulty_rationale": "難易度の理由",

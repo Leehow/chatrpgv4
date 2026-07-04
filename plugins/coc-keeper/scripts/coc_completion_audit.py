@@ -19,6 +19,7 @@ from coc_playtest_report import (
     _display_transcript_text,
     _event_roll_count,
     _format_roll_recap,
+    _format_roll_source_line,
     _format_roll_transcript_text,
     _localized_actor_names,
 )
@@ -539,9 +540,7 @@ def _mechanical_roll_line(row: dict[str, Any]) -> str | None:
     outcome = payload.get("outcome")
     if roll in (None, "") or target in (None, "") or not isinstance(outcome, str) or not outcome.strip():
         return None
-    skill = payload.get("skill", "check")
-    actor = row.get("actor", "unknown")
-    return f"{skill}: {actor} rolled {roll} vs {target} -> {outcome}"
+    return _format_roll_source_line(row)
 
 
 def _battle_report_mechanical_log_findings(

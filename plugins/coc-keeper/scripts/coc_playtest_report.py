@@ -11,6 +11,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from coc_language import BASE_REPORT_LABELS
 from coc_language import language_profile as build_language_profile
 
 
@@ -96,14 +97,72 @@ def _artifacts_dir(run_dir: Path) -> Path:
     return path
 
 
-def _format_roll(event: dict[str, Any]) -> str:
+def _is_non_percentile_die_roll(event: dict[str, Any]) -> bool:
+    payload = event.get("payload", {})
+    if not isinstance(payload, dict) or not payload.get("die"):
+        return False
+    return (
+        event.get("type") in {"damage", "reward"}
+        or payload.get("damage_kind") not in (None, "", [], {})
+        or payload.get("reward_kind") not in (None, "", [], {})
+    )
+
+
+def _die_roll_breakdown(payload: dict[str, Any], labels: dict[str, Any]) -> str:
+    die_face = str(labels.get("die_face", "die roll"))
+    die_rolls = payload.get("die_rolls")
+    flat_modifier = payload.get("flat_modifier", 0)
+    if isinstance(die_rolls, list) and die_rolls:
+        parts = [str(roll) for roll in die_rolls]
+        if isinstance(flat_modifier, int | float) and flat_modifier:
+            parts.append(f"{flat_modifier:g}")
+        return f"{die_face} {' + '.join(parts).replace('+ -', '- ')}"
+    return f"{die_face} {payload.get('roll', '?')}"
+
+
+def _format_die_roll_line(
+    event: dict[str, Any],
+    skill: str,
+    actor: str,
+    outcome: str,
+    labels: dict[str, Any],
+) -> str:
+    payload = event.get("payload", {})
+    template = labels.get(
+        "die_roll_sentence",
+        "- {skill}: {actor} rolled {die} = {roll} ({breakdown}) -> {outcome}",
+    )
+    return str(template).format(
+        skill=skill,
+        actor=actor,
+        die=payload.get("die", "?"),
+        roll=payload.get("roll", "?"),
+        breakdown=_die_roll_breakdown(payload, labels),
+        outcome=outcome,
+    )
+
+
+def _format_roll_source_line(event: dict[str, Any]) -> str:
     payload = event.get("payload", {})
     skill = payload.get("skill", "check")
     actor = event.get("actor", "unknown")
     roll = payload.get("roll", "?")
     target = payload.get("effective_target", payload.get("target", "?"))
     outcome = payload.get("outcome", "unknown")
-    lines = [f"- {skill}: {actor} rolled {roll} vs {target} -> {outcome}"]
+    if _is_non_percentile_die_roll(event):
+        return _format_die_roll_line(
+            event,
+            str(skill),
+            str(actor),
+            str(outcome),
+            BASE_REPORT_LABELS,
+        ).removeprefix("- ").strip()
+    return f"{skill}: {actor} rolled {roll} vs {target} -> {outcome}"
+
+
+def _format_roll(event: dict[str, Any]) -> str:
+    payload = event.get("payload", {})
+    lines = [f"- {_format_roll_source_line(event)}"]
     detail_fields = [
         ("goal", "Goal"),
         ("difficulty", "Difficulty"),
@@ -246,16 +305,27 @@ def _format_roll_recap(
     roll = payload.get("roll", "?")
     target = payload.get("effective_target", payload.get("target", "?"))
     outcome = _localized_rule_value(payload.get("outcome", "unknown"), outcome_labels, localized_terms)
-    roll_sentence = report_labels.get("roll_sentence", "- {skill}: {actor} rolled {roll} vs {target} -> {outcome}")
-    lines = [
-        roll_sentence.format(
-            skill=skill,
-            actor=actor,
-            roll=roll,
-            target=target,
-            outcome=outcome,
-        )
-    ]
+    if _is_non_percentile_die_roll(event):
+        lines = [
+            _format_die_roll_line(
+                event,
+                skill,
+                actor,
+                outcome,
+                report_labels,
+            )
+        ]
+    else:
+        roll_sentence = report_labels.get("roll_sentence", "- {skill}: {actor} rolled {roll} vs {target} -> {outcome}")
+        lines = [
+            roll_sentence.format(
+                skill=skill,
+                actor=actor,
+                roll=roll,
+                target=target,
+                outcome=outcome,
+            )
+        ]
     for key, label, labels in [("difficulty", report_labels.get("difficulty", "Difficulty"), difficulty_labels)]:
         if payload.get(key) in (None, "", [], {}):
             continue

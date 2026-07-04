@@ -2486,6 +2486,30 @@ def test_haunting_module_audit_requires_hp_damage_rolls(tmp_path):
     assert "haunting_damage_roll_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_rejects_non_percentile_rolls_rendered_as_targets(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_text = report_path.read_text()
+    report_text = report_text.replace(
+        "HP 伤害：艾达·金掷出 1D6+2 = 5（骰面 3 + 2），结果造成伤害。",
+        "HP 伤害：艾达·金掷出 5 / 8，结果造成伤害。",
+    )
+    report_text = report_text.replace(
+        "HP 伤害：艾达·金掷出 1D4+2 = 4（骰面 2 + 2），结果造成伤害。",
+        "HP 伤害：艾达·金掷出 4 / 6，结果造成伤害。",
+    )
+    report_text = report_text.replace(
+        "SAN 奖励：艾达·金掷出 1D6 = 4（骰面 4），结果奖励。",
+        "SAN 奖励：艾达·金掷出 4 / 6，结果奖励。",
+    )
+    report_path.write_text(report_text)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "non_percentile_roll_rendering_invalid" in finding_codes(audit)
+
+
 def test_haunting_module_audit_requires_investigator_creation_record(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
     creation_path = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting" / "creation.json"
