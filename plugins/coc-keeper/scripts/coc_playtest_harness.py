@@ -230,11 +230,22 @@ JA_JP_GLOSSARY_OVERRIDES = {
     "Vittorio Macario": "ヴィットリオ・マカリオ",
     "Nathaniel Crowe": "ナサニエル・クロウ",
     "Nathaniel": "ナサニエル",
+    "Appraise": "鑑定",
+    "Art/Craft (Antiques)": "芸術/製作（骨董品）",
+    "Charm": "魅惑",
+    "Climb": "登攀",
+    "Credit Rating": "信用",
     "Library Use": "図書館",
     "Spot Hidden": "目星",
     "Persuade": "説得",
     "Dodge": "回避",
     "Fighting (Brawl)": "近接戦闘（格闘）",
+    "Firearms (Handgun)": "射撃（拳銃）",
+    "First Aid": "応急手当",
+    "History": "歴史",
+    "Listen": "聞き耳",
+    "Occult": "オカルト",
+    "Other Language (Latin)": "ほかの言語（ラテン語）",
     "Stealth": "隠密",
     "Locksmith": "鍵開け",
     "Psychology": "心理学",
@@ -274,6 +285,17 @@ JA_JP_GLOSSARY_OVERRIDES = {
     "门闩新划痕线索": "ラッチ付近の新しい傷の手がかり",
     "20 美元预付款暂记": "20ドルの前金を仮記録",
     "导入正式战役前由玩家选择谨慎调查路线、鲁莽进屋路线或合并为正史；诺特先生钥匙应在委托结束后归还。": "正式なキャンペーン導入前に、慎重な調査ルート、無謀な侵入ルート、または統合ルートを正史としてプレイヤーが選ぶ。ノット氏の鍵は依頼終了後に返却する。",
+    "进屋前查房契和旧报纸记录": "屋敷に入る前に権利書と古い新聞記録を調べる",
+    "公开记录能通过专注查档找到有用线索。": "公開記録は集中して調べれば有用な手がかりを示す。",
+    "艾达·金会多花半天，并带着更少线索进屋。": "エイダ・キングは半日余計に費やし、手がかりが少ないまま屋敷へ入る。",
+    "鲁莽进屋前注意到新划痕": "無謀に入る前に新しい傷に気づく",
+    "只有在门口稍作停顿才能看到这些痕迹。": "扉の前で少し立ち止まった場合にだけ、その痕跡が見える。",
+    "艾达·金会错过警告，冒着准备不足的风险进屋。": "エイダ・キングは警告を見逃し、準備不足のまま屋敷へ入る危険を負う。",
+    "用触摸门闩的方式推骰检查门口": "ラッチに触れて扉の調査をプッシュする",
+    "推骰方法改变为近距离触摸门闩。": "プッシュでは方法を変え、近距離でラッチに触れる。",
+    "艾达·金把手电贴近门缝，伸手摸向门闩。": "エイダ・キングは懐中電灯を扉の隙間に近づけ、手を伸ばしてラッチに触れる。",
+    "若失败，屋内的东西会先注意到艾达·金。": "失敗すると、屋敷の気配が先にエイダ・キングを捉える。",
+    "艾达·金会在警告同伴前先触发屋内动静。": "エイダ・キングは仲間に警告する前に、屋敷内の物音を引き起こす。",
 }
 
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
@@ -1773,7 +1795,11 @@ def _with_play_language(
     return localized
 
 
-def _with_roll_localization(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _with_roll_localization(
+    events: list[dict[str, Any]],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = DEFAULT_PLAY_LANGUAGE,
+) -> list[dict[str, Any]]:
     for event in events:
         payload = event.get("payload", {})
         if not isinstance(payload, dict):
@@ -1786,6 +1812,17 @@ def _with_roll_localization(events: list[dict[str, Any]]) -> list[dict[str, Any]
                 zh_hans.setdefault(key, ZH_HANS_ROLL_TEXT[value])
         if zh_hans:
             localized_text["zh-Hans"] = zh_hans
+        if localized_terms and play_language != "zh-Hans":
+            language_text = dict(localized_text.get(play_language, {}))
+            for key, value in zh_hans.items():
+                if not isinstance(value, str):
+                    continue
+                localized_value = _localize_text(value, localized_terms)
+                if localized_value != value:
+                    language_text.setdefault(key, localized_value)
+            if language_text:
+                localized_text[play_language] = language_text
+        if localized_text:
             payload["localized_text"] = localized_text
     return events
 
@@ -2741,7 +2778,7 @@ def create_haunting_module_run(
                 "rule_refs": ["core.reward.sanity_gain", "module.haunting.conclusion_sanity_reward"],
             },
         },
-    ]))
+    ], localized_terms, play_language))
 
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-hiring", "summary": "Mr. Knott 雇用 Ada，给出 Handout 1、钥匙和 20 美元预付款。"}},
@@ -3338,7 +3375,7 @@ def create_chase_drill_run(
         {"type": "chase", "actor": investigator_id, "payload": {"roll_id": "chase-ada-roof-door-barrier", "chase_barrier_id": "locked-roof-door", "skill": "Locksmith", "goal": "pass the locked roof door barrier", "target": 30, "effective_target": 30, "difficulty": "regular", "difficulty_rationale": "The locked roof door is a Regular barrier with the stolen key ring.", "roll": 21, "outcome": "regular_success", "failure_consequence": "The barrier would stop Ada's movement until another method succeeded.", "skill_check_earned": True}},
         {"type": "chase", "actor": investigator_id, "payload": {"roll_id": "chase-ada-laundry-hide", "chase_hide_attempt_id": "laundry-roof-hide", "skill": "Stealth", "goal": "hide on the laundry roof after passing the barrier", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "Ada has a brief lead and concealment among laundry sheets.", "roll": 18, "outcome": "hard_success", "failure_consequence": "Nathaniel would keep the chase active.", "skill_check_earned": True}},
         {"type": "chase", "actor": pursuer_id, "payload": {"roll_id": "chase-nathaniel-search-hidden-ada", "chase_hide_attempt_id": "laundry-roof-hide", "skill": "Spot Hidden", "goal": "find Ada after she hides", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "The pursuer searches around the locked roof door after losing line of sight.", "roll": 77, "outcome": "failure", "failure_consequence": "The quarry escapes.", "localized_text": {"zh-Hans": {"goal": "在艾达·金躲藏后重新找到她", "difficulty_rationale": "追赶者在上锁屋顶门一带失去视线后搜索。", "failure_consequence": "被追者逃脱。"}}}},
-    ]))
+    ], localized_terms, play_language))
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "print-shop-roof", "summary": "Ada 在 print shop roof 发现 Nathaniel Crowe，确认他带着 cult ledger。"}},
         {
@@ -3769,7 +3806,7 @@ def create_multi_profile_pressure_run(
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Library Use", "goal": "research deed and newspaper records before entering the house", "target": 60, "effective_target": 60, "difficulty": "regular", "difficulty_rationale": "Public records can reveal a useful lead with focused archive work.", "roll": 29, "outcome": "hard_success", "failure_consequence": "Ada would spend half a day and enter the house with fewer leads.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "进屋前查房契和旧报纸记录", "difficulty_rationale": "公开记录能通过专注查档找到有用线索。", "failure_consequence": "艾达·金会多花半天，并带着更少线索进屋。"}}}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "notice fresh marks before reckless entry", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The marks are visible only if the investigator slows down at the door.", "roll": 84, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada misses the warning and risks entering without preparation.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "鲁莽进屋前注意到新划痕", "difficulty_rationale": "只有在门口稍作停顿才能看到这些痕迹。", "failure_consequence": "艾达·金会错过警告，冒着准备不足的风险进屋。"}}}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "push the door inspection by checking the latch by touch", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed approach changes method by touching the latch at close range.", "roll": 22, "outcome": "hard_success", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("pressure-reckless-entry-push"), "push_justification": "Ada moves the flashlight close and reaches into the door gap by touch.", "foreshadowed_failure": "On failure, the house notices Ada first.", "failure_consequence": "Ada would trigger a noise inside the house before she could warn the others.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "用触摸门闩的方式推骰检查门口", "difficulty_rationale": "推骰方法改变为近距离触摸门闩。", "push_justification": "艾达·金把手电贴近门缝，伸手摸向门闩。", "foreshadowed_failure": "若失败，屋内的东西会先注意到艾达·金。", "failure_consequence": "艾达·金会在警告同伴前先触发屋内动静。"}}}},
-    ]))
+    ], localized_terms, play_language))
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-office", "summary": "诺特先生给出钥匙、预付款和科比特宅邸的委托。", "localized_text": {"ja-JP": {"summary": "ノット氏は鍵、前金、コービット屋敷の依頼を提示する。"}}}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "谨慎玩家选择先查房契和旧报纸，避免无准备进屋。", "localized_text": {"ja-JP": {"summary": "慎重なプレイヤーは準備なしで屋敷に入らず、先に権利書と古い新聞を調べる。"}}}},

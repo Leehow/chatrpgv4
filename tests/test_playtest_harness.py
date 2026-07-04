@@ -911,6 +911,28 @@ def test_serious_harness_accepts_selected_play_language(tmp_path):
     assert "エイダ・キングは旧宅の紛争調査を何度も依頼されてきた古物研究家" in battle_text
     assert "慎重なルートではコービットと瞑想教会の手がかりを見つけた" in battle_text
     assert "ノット氏の鍵" in battle_text
+    glossary = metadata["localized_terms"]["ja-JP"]
+    for canonical_skill in [
+        "Appraise",
+        "Art/Craft (Antiques)",
+        "Credit Rating",
+        "Firearms (Handgun)",
+        "First Aid",
+        "Other Language (Latin)",
+    ]:
+        assert canonical_skill not in battle_text
+        assert glossary[canonical_skill] in battle_text
+    localized_roll_fields = 0
+    for roll in campaign_roll_events(run_dir):
+        payload = roll["payload"]
+        localized = payload["localized_text"]["ja-JP"]
+        for key in ("goal", "difficulty_rationale", "failure_consequence", "push_justification", "foreshadowed_failure"):
+            if key not in localized:
+                continue
+            localized_roll_fields += 1
+            assert payload[key] not in battle_text
+            assert localized[key] in battle_text
+    assert localized_roll_fields >= 10
     assert "質問です。慎重なプレイヤーは資料を調べ" in transcript[12]["text_display"]
     assert "我想质疑一下" not in transcript[12]["text_display"]
     assert "扉のラッチ付近に新しい傷を見つけ" in transcript[11]["text_display"]
