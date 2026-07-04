@@ -149,6 +149,28 @@ def _pushed_roll_protocol_stages() -> list[str]:
     return pushed_roll_rule()["required_stages"]
 
 
+def _pushed_roll_stage_role_is_valid(row: dict[str, Any], stage: Any) -> bool:
+    protocol = row.get("pushed_roll_protocol")
+    if not isinstance(protocol, dict) or not isinstance(stage, str):
+        return False
+    role = row.get("role")
+    if stage.startswith("player_"):
+        if role != "player_simulator":
+            return False
+        if stage == "player_confirms_risk":
+            return protocol.get("risk_confirmed") is True
+        return True
+    if stage.startswith("keeper_"):
+        if role != "keeper_under_test":
+            return False
+        if stage == "keeper_foreshadows_failure":
+            return protocol.get("failure_consequence_source") == "keeper"
+        return True
+    if stage == "roll_resolved":
+        return role == "system"
+    return True
+
+
 REQUIRED_BATTLE_REPORT_ANCHORS = [
     "Battle Report",
     "Run Setup",
@@ -3552,14 +3574,21 @@ def _pushed_roll_structure_findings(
         missing_evidence.append("pushed roll payload protocol")
 
     transcript_roll_ids = set()
+    invalid_stage_roles: list[str] = []
     pushed_roll_stages = _pushed_roll_protocol_stages()
     for roll_id in complete_roll_ids:
-        stages = [
-            row["pushed_roll_protocol"].get("stage")
-            for row in transcript
-            if isinstance(row.get("pushed_roll_protocol"), dict)
-            and row["pushed_roll_protocol"].get("roll_id") == roll_id
-        ]
+        stages = []
+        for row in transcript:
+            if (
+                not isinstance(row.get("pushed_roll_protocol"), dict)
+                or row["pushed_roll_protocol"].get("roll_id") != roll_id
+            ):
+                continue
+            stage = row["pushed_roll_protocol"].get("stage")
+            if _pushed_roll_stage_role_is_valid(row, stage):
+                stages.append(stage)
+            else:
+                invalid_stage_roles.append(f"{roll_id}:{stage}:{row.get('role')}")
         stage_index = 0
         for stage in stages:
             if stage_index < len(pushed_roll_stages) and stage == pushed_roll_stages[stage_index]:
@@ -3567,6 +3596,8 @@ def _pushed_roll_structure_findings(
         if stage_index == len(pushed_roll_stages):
             transcript_roll_ids.add(roll_id)
 
+    if invalid_stage_roles:
+        missing_evidence.append("pushed roll transcript stage roles")
     if not transcript_roll_ids:
         missing_evidence.append("pushed roll transcript protocol")
 
@@ -3584,6 +3615,7 @@ def _pushed_roll_structure_findings(
             run_id=run_id,
             incomplete_files=incomplete_files,
             missing_evidence=missing_evidence,
+            invalid_pushed_roll_stage_roles=invalid_stage_roles[:20],
         ))
     return findings
 

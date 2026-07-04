@@ -2950,6 +2950,68 @@ def test_completion_audit_reads_pushed_roll_stages_from_rules_json(monkeypatch, 
     assert "pushed roll transcript protocol" in findings[0]["missing_evidence"]
 
 
+def test_completion_audit_fails_when_pushed_roll_transcript_stages_have_wrong_roles(tmp_path):
+    run_dir = tmp_path / "run"
+    campaign_dir = tmp_path / "campaign"
+    pushed_roll_id = "fixture-pushed-roll"
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {
+            "turn": 1,
+            "role": "player_simulator",
+            "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "player_reframes_action"},
+        },
+        {
+            "turn": 2,
+            "role": "player_simulator",
+            "pushed_roll_protocol": {
+                "roll_id": pushed_roll_id,
+                "stage": "keeper_foreshadows_failure",
+                "failure_consequence_source": "keeper",
+            },
+        },
+        {
+            "turn": 3,
+            "role": "keeper_under_test",
+            "pushed_roll_protocol": {
+                "roll_id": pushed_roll_id,
+                "stage": "player_confirms_risk",
+                "risk_confirmed": True,
+            },
+        },
+        {
+            "turn": 4,
+            "role": "system",
+            "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "roll_resolved"},
+        },
+    ])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
+        {
+            "type": "roll",
+            "payload": {
+                "pushed": True,
+                "pushed_roll_protocol": {
+                    "roll_id": pushed_roll_id,
+                    "failure_consequence_source": "keeper",
+                    "keeper_foreshadowed_failure": True,
+                    "player_confirmation_recorded": True,
+                },
+            },
+        },
+    ])
+
+    findings = coc_completion_audit._pushed_roll_structure_findings(
+        "fixture-run",
+        run_dir,
+        campaign_dir,
+        "sandbox/.coc/campaigns/fixture-run/",
+        "haunting_module",
+    )
+
+    assert findings
+    assert findings[0]["code"] == "active_run_source_files_incomplete"
+    assert "pushed roll transcript stage roles" in findings[0]["missing_evidence"]
+
+
 def test_completion_audit_fails_when_required_meta_game_source_evidence_is_missing(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
