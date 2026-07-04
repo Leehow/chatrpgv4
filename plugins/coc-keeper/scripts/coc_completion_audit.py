@@ -1729,7 +1729,7 @@ def _handout_required_texts(campaign_dir: Path, metadata: dict[str, Any]) -> lis
     for handout in handouts:
         if not isinstance(handout, dict):
             continue
-        for field in ("label", "title", "summary", "route"):
+        for field in ("label", "title", "summary", "content", "route"):
             value = _localized_source_field(handout, field, metadata, localized_terms)
             if value:
                 required_texts.append(value)
@@ -1758,7 +1758,7 @@ def _battle_report_handout_findings(
         "battle_report_handouts_missing",
         "report_gap",
         f"{run_id} battle-report.md omits {len(missing_texts)} of {len(required_texts)} player-visible handout records from scenario/handouts.json.",
-        "Regenerate battle-report.md so the Handouts section renders scenario/handouts.json labels, titles, summaries, and routes using the active play language.",
+        "Regenerate battle-report.md so the Handouts section renders scenario/handouts.json labels, titles, summaries, content, and routes using the active play language.",
         run_id=run_id,
         missing_handout_count=len(missing_texts),
         required_handout_count=len(required_texts),

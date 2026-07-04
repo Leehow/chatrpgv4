@@ -401,6 +401,23 @@ def test_battle_report_uses_selected_language_profile_and_localized_text(tmp_pat
         "module_source": "pdf/the-haunting.pdf",
         "opening_scene": "Ada King arrives at Corbitt House.",
     })
+    write_json(campaign_dir / "scenario" / "handouts.json", [
+        {
+            "id": "front-door-note",
+            "label": "Handout A",
+            "title": "Door note",
+            "summary": "The note points to fresh scratches.",
+            "content": "Ask Mr. Knott about fresh scratches before entering Corbitt House.",
+            "localized_text": {
+                "ja-JP": {
+                    "label": "ハンドアウトA",
+                    "title": "扉のメモ",
+                    "summary": "メモは新しい傷を示している。",
+                    "content": "コービット屋敷に入る前に、扉の新しい傷についてノット氏に尋ねる。",
+                }
+            },
+        }
+    ])
     write_json(investigator_dir / "character.json", {
         "id": "ada-king",
         "name": "Ada King",
@@ -523,6 +540,10 @@ def test_battle_report_uses_selected_language_profile_and_localized_text(tmp_pat
     assert "プレイ言語: ja-JP" not in battle_text
     assert "Language Profile: Table Japanese" not in battle_text
     assert "言語プロファイル: Table Japanese" not in battle_text
+    assert "ハンドアウトA: 扉のメモ" in battle_text
+    assert "メモは新しい傷を示している。" in battle_text
+    assert "コービット屋敷に入る前に、扉の新しい傷についてノット氏に尋ねる。" in battle_text
+    assert "Ask Mr. Knott about fresh scratches before entering Corbitt House." not in battle_text
     assert "エイダ・キングはコービット屋敷に到着する。" in battle_text
     assert "玄関の扉を調べます。" in battle_text
     assert "狙い：コービット屋敷の扉についた傷に気づく" in battle_text

@@ -2430,28 +2430,32 @@ def create_haunting_module_run(
             "label": "Handout 1",
             "title": "Mr. Knott's job",
             "summary": "The address, key, $20 advance, and the premise that Ada should research public records before entering the house.",
-            "localized_text": {"zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托", "summary": "钥匙、地址、20 美元预付款，以及先查公共记录的委托前提"}},
+            "content": "Mr. Knott asks Ada to examine the Corbitt House, gives the address, keys, and $20 advance, and suggests checking old newspaper records before entering.",
+            "localized_text": {"zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托", "summary": "钥匙、地址、20 美元预付款，以及先查公共记录的委托前提", "content": "诺特先生委托艾达·金调查科比特宅邸，交给她地址、钥匙和 20 美元预付款，并建议进屋前先查旧报纸和公共记录。"}},
         },
         {
             "id": "handout-2",
             "label": "Handout 2",
             "title": "Unpublished Boston Globe story",
             "summary": "Newspaper records of accidents, illness, suicide, and the Macario family fleeing the house.",
-            "localized_text": {"zh-Hans": {"label": "线索资料 2", "title": "未刊登的《波士顿环球报》报道", "summary": "事故、疾病、自杀和马卡里奥一家逃离的剪报记录"}},
+            "content": "The clipping file ties the Corbitt House to repeated accidents, illness, a suicide, and the Macario family leaving after a short tenancy.",
+            "localized_text": {"zh-Hans": {"label": "线索资料 2", "title": "未刊登的《波士顿环球报》报道", "summary": "事故、疾病、自杀和马卡里奥一家逃离的剪报记录", "content": "剪报把科比特宅邸与多起事故、疾病、自杀和马卡里奥一家短暂入住后仓皇离开联系起来。"}},
         },
         {
             "id": "handout-7",
             "label": "Handout 7",
             "title": "Chapel executor record",
             "summary": "The will executor points toward Reverend Michael Thomas and the Chapel of Contemplation.",
-            "localized_text": {"zh-Hans": {"label": "线索资料 7", "title": "教堂遗嘱执行人记录", "summary": "遗嘱执行人指向迈克尔·托马斯牧师和沉思教堂"}},
+            "content": "Civil records name Reverend Michael Thomas of the Chapel of Contemplation as executor for Walter Corbitt's will, with later records noting the chapel's closure.",
+            "localized_text": {"zh-Hans": {"label": "线索资料 7", "title": "教堂遗嘱执行人记录", "summary": "遗嘱执行人指向迈克尔·托马斯牧师和沉思教堂", "content": "民事记录显示沃尔特·科比特遗嘱的执行人与沉思教堂的迈克尔·托马斯牧师有关，后续记录还提到该教堂后来被关闭。"}},
         },
         {
             "id": "handout-9",
             "label": "Handout 9",
             "title": "Chapel symbol",
             "summary": "The Chapel sign shows a three-Y eye symbol that connects the cult records to Corbitt.",
-            "localized_text": {"zh-Hans": {"label": "线索资料 9", "title": "教堂符号", "summary": "沉思教堂标志上的三叉眼符号把教团记录与科比特联系起来"}},
+            "content": "The chapel sign shows a three-pronged eye mark; the same mark helps Ada connect the church records to Corbitt's hidden burial trail.",
+            "localized_text": {"zh-Hans": {"label": "线索资料 9", "title": "教堂符号", "summary": "沉思教堂标志上的三叉眼符号把教团记录与科比特联系起来", "content": "教堂标志上有三叉眼符号；同一符号帮助艾达·金把教团记录与科比特隐藏的埋葬线索联系起来。"}},
         },
     ])
     _write_json(scenario_dir / "keeper-secrets.json", [
@@ -3129,7 +3133,8 @@ def create_chase_drill_run(
             "label": "Ledger handout",
             "title": "Cult warehouse ledger",
             "summary": "The stolen ledger names a warehouse and gives Nathaniel a reason to flee across the rooftops.",
-            "localized_text": {"zh-Hans": {"label": "账本线索资料", "title": "邪教仓库账本", "summary": "被盗账本写着仓库线索，也是内森尼尔·克劳越过屋顶逃跑的原因"}},
+            "content": "The ledger lists a waterfront warehouse, a coded delivery time, and Nathaniel Crowe's initials beside the most recent pickup.",
+            "localized_text": {"zh-Hans": {"label": "账本线索资料", "title": "邪教仓库账本", "summary": "被盗账本写着仓库线索，也是内森尼尔·克劳越过屋顶逃跑的原因", "content": "账本写着一处滨水仓库、加密过的交货时间，以及最近一次取货旁边的内森尼尔·克劳姓名缩写。"}},
         },
     ])
     _write_json(scenario_dir / "keeper-secrets.json", [
@@ -3642,9 +3647,10 @@ def create_multi_profile_pressure_run(
             "label": "Handout 1",
             "title": "Mr. Knott's job",
             "summary": "Mr. Knott's key, address, advance, and warning that research should come before entering the house.",
+            "content": "Mr. Knott gives Ada the key, address, and advance, then warns that the house has a bad history and should be researched before anyone goes inside.",
             "localized_text": {
-                "zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托", "summary": "诺特先生给出的钥匙、地址、预付款，以及进屋前先查资料的提醒"},
-                "ja-JP": {"label": "ハンドアウト 1", "title": "ノット氏の依頼", "summary": "ノット氏が渡した鍵、住所、前金、そして屋敷に入る前に調査すべきという警告。"},
+                "zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托", "summary": "诺特先生给出的钥匙、地址、预付款，以及进屋前先查资料的提醒", "content": "诺特先生把钥匙、地址和预付款交给艾达·金，并提醒她这栋房子名声很坏，最好先查资料再进去。"},
+                "ja-JP": {"label": "ハンドアウト 1", "title": "ノット氏の依頼", "summary": "ノット氏が渡した鍵、住所、前金、そして屋敷に入る前に調査すべきという警告。", "content": "ノット氏はエイダ・キングに鍵、住所、前金を渡し、この屋敷には悪い噂があるため、入る前に資料を調べるべきだと警告する。"},
             },
         },
         {
@@ -3652,9 +3658,10 @@ def create_multi_profile_pressure_run(
             "label": "Records lead",
             "title": "Records lead",
             "summary": "City records point from Walter Corbitt's deed trail toward the Chapel of Contemplation.",
+            "content": "A deed note links Walter Corbitt's estate paperwork to Reverend Michael Thomas and the Chapel of Contemplation.",
             "localized_text": {
-                "zh-Hans": {"label": "档案线索", "title": "房契旁注", "summary": "城市档案把沃尔特·科比特的房契线索指向沉思教堂"},
-                "ja-JP": {"label": "記録の手がかり", "title": "権利書の書き込み", "summary": "市の記録はウォルター・コービットの権利書の痕跡から瞑想教会へつながっている。"},
+                "zh-Hans": {"label": "档案线索", "title": "房契旁注", "summary": "城市档案把沃尔特·科比特的房契线索指向沉思教堂", "content": "房契旁注把沃尔特·科比特的遗产文书、迈克尔·托马斯牧师和沉思教堂联系在一起。"},
+                "ja-JP": {"label": "記録の手がかり", "title": "権利書の書き込み", "summary": "市の記録はウォルター・コービットの権利書の痕跡から瞑想教会へつながっている。", "content": "権利書の書き込みは、ウォルター・コービットの遺産書類、マイケル・トーマス牧師、そして瞑想教会を結びつけている。"},
             },
         },
     ])

@@ -640,6 +640,7 @@ def _format_handout(
     label = _localized_visible_field(handout, "label", localized_terms, play_language)
     title = _localized_visible_field(handout, "title", localized_terms, play_language)
     summary = _localized_visible_field(handout, "summary", localized_terms, play_language)
+    content = _localized_visible_field(handout, "content", localized_terms, play_language)
     route = _localized_visible_field(handout, "route", localized_terms, play_language)
 
     if label and title:
@@ -652,6 +653,8 @@ def _format_handout(
     if details:
         detail_separator = "；" if play_language == "zh-Hans" else "; "
         line = f"{line} — {detail_separator.join(details)}"
+    if content and content not in line:
+        line = f"{line}\n  - {content}"
     return line
 
 

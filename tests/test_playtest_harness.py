@@ -1961,6 +1961,12 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "线索资料 7：教堂遗嘱执行人记录" in handouts
     assert "遗嘱执行人指向迈克尔·托马斯牧师和沉思教堂" in handouts
     assert "handout-1" not in handouts
+    handout_sources = read_json(campaign_dir_for_run(run_dir) / "scenario" / "handouts.json")
+    assert handout_sources
+    for handout_source in handout_sources:
+        localized_content = handout_source["localized_text"]["zh-Hans"]["content"]
+        assert localized_content
+        assert localized_content in handouts
     clues_found = section_text(battle_text, "## Clues Found")
     assert_player_readable_state_ids_absent(
         clues_found,
