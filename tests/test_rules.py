@@ -28,6 +28,7 @@ def test_percentile_check_rule_uses_structured_table():
         "maximum_target": 100,
         "success_if_roll_lte_effective_target": True,
         "zero_zero_result": 100,
+        "digit_base": 10,
     }
 
 

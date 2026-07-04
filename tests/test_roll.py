@@ -75,6 +75,7 @@ def test_percentile_check_uses_rules_json_roll_bounds(monkeypatch):
             "maximum_target": 100,
             "success_if_roll_lte_effective_target": True,
             "zero_zero_result": 20,
+            "digit_base": 10,
         }
 
     monkeypatch.setattr(coc_roll.coc_rules, "percentile_check_rule", fake_percentile_check_rule, raising=False)
@@ -101,6 +102,7 @@ def test_percentile_bonus_dice_use_rules_json_zero_zero_result(monkeypatch):
             "maximum_target": 20,
             "success_if_roll_lte_effective_target": True,
             "zero_zero_result": 20,
+            "digit_base": 10,
         }
 
     monkeypatch.setattr(coc_roll.coc_rules, "percentile_check_rule", fake_percentile_check_rule, raising=False)
@@ -108,3 +110,25 @@ def test_percentile_bonus_dice_use_rules_json_zero_zero_result(monkeypatch):
     result = coc_roll.percentile_check(15, bonus=1, rng=SequenceRandom([0, 0, 0]))
 
     assert result["roll"] == 20
+
+
+def test_percentile_bonus_dice_use_rules_json_digit_base(monkeypatch):
+    def fake_percentile_check_rule():
+        return {
+            "die": "1D25",
+            "minimum_roll": 1,
+            "maximum_roll": 25,
+            "minimum_target": 1,
+            "maximum_target": 25,
+            "success_if_roll_lte_effective_target": True,
+            "zero_zero_result": 25,
+            "digit_base": 5,
+        }
+
+    monkeypatch.setattr(coc_roll.coc_rules, "percentile_check_rule", fake_percentile_check_rule, raising=False)
+
+    result = coc_roll.percentile_check(25, bonus=1, rng=SequenceRandom([3, 4, 4]))
+
+    assert result["roll"] == 23
+    assert result["tens_values"] == [4, 4]
+    assert result["units"] == 3

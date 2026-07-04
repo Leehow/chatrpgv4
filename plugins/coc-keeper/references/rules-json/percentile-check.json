@@ -7,5 +7,6 @@
   "minimum_target": 1,
   "maximum_target": 100,
   "success_if_roll_lte_effective_target": true,
-  "zero_zero_result": 100
+  "zero_zero_result": 100,
+  "digit_base": 10
 }
