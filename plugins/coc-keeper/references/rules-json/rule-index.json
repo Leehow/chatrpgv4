@@ -56,6 +56,12 @@
       "source_note": "After determining each characteristic or skill percentage, write the full, half, and fifth values on the investigator sheet; runtime calculations use half-fifth-values.json."
     },
     {
+      "id": "core.character_creation.damage_bonus_build",
+      "category": "character_creation",
+      "source_table": "damage-bonus-build.json",
+      "source_note": "Keeper Rulebook Chapter 3 damage bonus and build table uses STR+SIZ total."
+    },
+    {
       "id": "core.character_creation.movement_rate",
       "category": "character_creation",
       "source_table": "movement-rate.json",

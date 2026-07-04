@@ -199,6 +199,7 @@ def test_rule_index_exposes_stable_ids_for_playtest_traceability():
         "core.difficulty.regular",
         "core.success_level",
         "core.character_creation.derived_attributes",
+        "core.character_creation.damage_bonus_build",
         "core.character_creation.movement_rate",
         "core.pushed_roll",
         "core.sanity.temporary_insanity_threshold",

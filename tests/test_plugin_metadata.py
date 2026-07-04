@@ -81,6 +81,50 @@ def test_validate_rules_rejects_missing_rule_index_source_table(tmp_path):
     )
 
 
+def test_validate_rules_rejects_unindexed_runtime_rule_file(tmp_path):
+    import importlib.util
+
+    path = PLUGIN_ROOT / "scripts" / "coc_validate.py"
+    spec = importlib.util.spec_from_file_location("coc_validate", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    source_rules_dir = PLUGIN_ROOT / "references" / "rules-json"
+    target_rules_dir = tmp_path / "references" / "rules-json"
+    target_rules_dir.mkdir(parents=True)
+    for source_path in source_rules_dir.glob("*.json"):
+        shutil.copy2(source_path, target_rules_dir / source_path.name)
+
+    rule_index_path = target_rules_dir / "rule-index.json"
+    rule_index = json.loads(rule_index_path.read_text())
+    rule_index["rules"] = [
+        rule
+        for rule in rule_index["rules"]
+        if rule.get("source_table") != "damage-bonus-build.json"
+    ]
+    rule_index_path.write_text(json.dumps(rule_index), encoding="utf-8")
+
+    assert "rule-index missing source_table entry: damage-bonus-build.json" in module.validate_rules(tmp_path)
+
+
+def test_rule_index_covers_all_runtime_rule_json_files():
+    rules_dir = PLUGIN_ROOT / "references" / "rules-json"
+    rule_index = json.loads((rules_dir / "rule-index.json").read_text())
+    indexed_tables = {
+        rule["source_table"]
+        for rule in rule_index["rules"]
+        if isinstance(rule, dict) and isinstance(rule.get("source_table"), str)
+    }
+    runtime_rule_files = {
+        path.name
+        for path in rules_dir.glob("*.json")
+        if path.name not in {"metadata.json", "rule-index.json"}
+    }
+
+    assert runtime_rule_files <= indexed_tables
+
+
 def test_rules_json_guide_lists_all_rule_json_files():
     guide_text = (PLUGIN_ROOT / "references" / "rules-json-guide.md").read_text()
 

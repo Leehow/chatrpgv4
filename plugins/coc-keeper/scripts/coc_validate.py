@@ -52,15 +52,22 @@ def validate_rules(plugin_root: Path) -> list[str]:
     if isinstance(rule_index, dict):
         rules = rule_index.get("rules")
         if isinstance(rules, list):
+            indexed_source_tables: set[str] = set()
             for rule in rules:
                 if not isinstance(rule, dict):
                     continue
                 source_table = rule.get("source_table")
                 if not isinstance(source_table, str):
                     continue
+                indexed_source_tables.add(source_table)
                 if not (rules_dir / source_table).exists():
                     rule_id = rule.get("id") if isinstance(rule.get("id"), str) else "<unknown>"
                     errors.append(f"rule-index source_table missing: {rule_id} -> {source_table}")
+            for filename in REQUIRED_RULE_FILES:
+                if filename in {"metadata.json", "rule-index.json"}:
+                    continue
+                if filename not in indexed_source_tables:
+                    errors.append(f"rule-index missing source_table entry: {filename}")
     return errors
 
 
