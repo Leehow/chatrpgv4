@@ -1,6 +1,7 @@
 import importlib.util
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 
@@ -255,6 +256,30 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
         "request_sha256": "canonical SHA-256 hash of this semantic-eval-request.json",
         "reviewed_artifact": "artifacts/semantic-eval-request.json",
     }
+
+
+def test_suite_cli_defaults_to_semantic_artifact_evaluator(tmp_path, monkeypatch):
+    coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="v2-haunting-module")
+    semantic_result = (
+        tmp_path
+        / ".coc"
+        / "playtests"
+        / "v2-haunting-module"
+        / "artifacts"
+        / "semantic-eval-result.json"
+    )
+    semantic_result.unlink(missing_ok=True)
+    monkeypatch.setattr(sys, "argv", ["coc_playtest_suite.py", "--root", str(tmp_path)])
+
+    assert coc_playtest_suite.main() == 0
+
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+    run = index["runs"][0]
+    assert run["coverage_evaluator"] == "semantic-artifact-evaluator"
+    assert index["coverage"]["character_dossier"]["status"] == "missing"
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["blockers"][0]["type"] == "missing_semantic_result"
+    assert "Fill artifacts/semantic-eval-result.json" in run["next_loop_fix_target"]
 
 
 def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):

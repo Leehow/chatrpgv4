@@ -912,7 +912,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".")
     parser.add_argument("--write-semantic-requests", action="store_true")
-    parser.add_argument("--evaluator", choices=["structured-source", "semantic-artifact"], default="structured-source")
+    parser.add_argument("--evaluator", choices=["structured-source", "semantic-artifact"], default="semantic-artifact")
     args = parser.parse_args()
     root = Path(args.root)
     if args.write_semantic_requests:

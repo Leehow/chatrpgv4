@@ -65,7 +65,7 @@ For semantic review, run `../../scripts/coc_playtest_suite.py --write-semantic-r
 
 The request also includes `quality_dimensions`, and the result `quality` object must score `module_fidelity`, `rulebook_procedure`, `immersion_and_pacing`, `chinese_visible_dialogue`, `actual_play_replay`, `state_continuity`, `spoiler_safety`, `player_agency`, `virtual_player_pressure`, and `report_completeness`. Each dimension must include `score`, `passed`, and `reason`; the suite report surfaces evaluated-run quality in `## Quality Matrix` and records unresolved `quality_gaps`.
 
-After result files exist, run `../../scripts/coc_playtest_suite.py --evaluator semantic-artifact --root <repo-root>`. The suite must use the result file's `evaluator_id` and reasons instead of fallback structured-source coverage. If the result file is missing, the `semantic-artifact` evaluator should mark coverage missing rather than inventing a natural-language match.
+After result files exist, run `../../scripts/coc_playtest_suite.py --root <repo-root>`; the CLI default evaluator is `semantic-artifact`. The suite must use the result file's `evaluator_id` and reasons instead of fallback structured-source coverage. If the result file is missing, the `semantic-artifact` evaluator should mark coverage missing rather than inventing a natural-language match. Use `--evaluator structured-source` only for explicit offline fixture or mechanical source smoke checks, not for completion-oriented quality gates.
 
 Before generating reports, record the run context:
 
