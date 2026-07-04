@@ -725,6 +725,10 @@ def _unlocalized_terms_in_text(text: str, terms: dict[str, str]) -> list[str]:
     return [canonical for canonical in terms if canonical in text]
 
 
+def _strip_html_comments(text: str) -> str:
+    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+
+
 def _visible_unlocalized_glossary_terms(transcript: list[dict[str, Any]], terms: dict[str, str]) -> list[str]:
     leaked: list[str] = []
     for event in _visible_dialogue_events(transcript):
@@ -1195,7 +1199,7 @@ def _chase_tracker_label_leaks(battle_report: str, metadata: dict[str, Any]) -> 
     play_language = str(metadata.get("play_language") or "")
     if play_language in {"", "en-US"}:
         return []
-    section = _section_text(battle_report, "Chase Tracker")
+    section = _strip_html_comments(_section_text(battle_report, "Chase Tracker"))
     if not section:
         return []
     profile = _selected_language_profile(metadata)

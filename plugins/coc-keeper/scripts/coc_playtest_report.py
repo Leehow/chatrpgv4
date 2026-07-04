@@ -697,6 +697,11 @@ def _localize_text(text: Any, terms: dict[str, str]) -> str:
     return CJK_SENTENCE_PERIOD.sub("。", localized)
 
 
+def _html_anchor(key: str, value: Any) -> str:
+    value_text = str(value).replace("--", "-")
+    return f"<!-- {key}: {value_text} -->"
+
+
 def _display_skill_name(skill: Any, localized_terms: dict[str, str]) -> str:
     return _localize_text(skill, localized_terms)
 
@@ -835,7 +840,7 @@ def _format_character(
     profile = language_profile or {}
     investigator_id = character.get("investigator_id") or character.get("id") or "unknown"
     name = _localize_text(character.get("name") or investigator_id or "Unknown Investigator", terms)
-    lines = [f"- {name} ({investigator_id})"]
+    lines = [f"- {name} {_html_anchor('investigator-id', investigator_id)}"]
     if character.get("player_name"):
         lines.append(f"  - {_character_dossier_label(profile, 'Player')}: {character['player_name']}")
     if character.get("occupation"):
@@ -1017,7 +1022,7 @@ def _format_investigator_creation(
     profile = language_profile or {}
     investigator_id = character.get("investigator_id") or character.get("id") or "unknown"
     name = _localize_text(character.get("name") or investigator_id or "Unknown Investigator", terms)
-    lines = [f"- {name} ({investigator_id})"]
+    lines = [f"- {name} {_html_anchor('investigator-id', investigator_id)}"]
     lines.append(
         f"  - {_creation_label(profile, 'Characteristics')}: "
         f"{_format_characteristic_creation_values(creation)}"
@@ -1181,7 +1186,7 @@ def _format_investigator_chronicle(
 
     investigator_id = character.get("investigator_id") or character.get("id") or "unknown"
     name = _localize_text(character.get("name") or investigator_id or "Unknown Investigator", terms)
-    lines = [f"- {name} ({investigator_id})"]
+    lines = [f"- {name} {_html_anchor('investigator-id', investigator_id)}"]
     if history:
         lines.append(f"  - {_chronicle_label(language_profile, 'History')}:")
         for record in history:
@@ -1368,7 +1373,13 @@ def _chase_tracker_value(
 def _display_chase_location_ref(location_id: Any, localized_terms: dict[str, str]) -> str:
     raw_id = str(location_id or "unknown")
     display = _localize_text(raw_id.replace("-", " "), localized_terms)
-    if display == raw_id.replace("-", " "):
+    return display if display != raw_id.replace("-", " ") else raw_id
+
+
+def _display_chase_location_audit_ref(location_id: Any, localized_terms: dict[str, str]) -> str:
+    raw_id = str(location_id or "unknown")
+    display = _display_chase_location_ref(raw_id, localized_terms)
+    if display == raw_id:
         return raw_id
     return f"{display} ({raw_id})"
 
@@ -1379,9 +1390,7 @@ def _display_chase_participant_ref(
 ) -> str:
     raw_id = str(participant_id or "unknown")
     display = participant_names.get(raw_id, raw_id)
-    if display == raw_id:
-        return raw_id
-    return f"{display} ({raw_id})"
+    return display
 
 
 def _format_chase_location(
@@ -1405,7 +1414,11 @@ def _format_chase_location(
         if location.get(field) not in (None, "", [], {})
     ]
     display_location = _display_chase_location_ref(location_id, localized_terms)
-    return f"  - {display_location} [{', '.join(tags)}]" if tags else f"  - {display_location}"
+    anchors = " ".join([
+        _html_anchor("location-id", location_id),
+        _html_anchor("location-ref", _display_chase_location_audit_ref(location_id, localized_terms)),
+    ])
+    return f"  - {display_location} [{', '.join(tags)}] {anchors}" if tags else f"  - {display_location} {anchors}"
 
 
 def _format_chase_round_summary(
@@ -1439,15 +1452,16 @@ def _format_chase_tracker(
     participant_names.update(actor_names or {})
 
     lines = [
-        f"- {_chase_tracker_label(profile, 'Chase ID')}: {chase_state.get('chase_id', 'unknown')}",
-        f"- {_chase_tracker_label(profile, 'State File')}: save/chase.json",
+        _html_anchor("chase-id", chase_state.get("chase_id", "unknown")),
+        _html_anchor("chase-state-file", "save/chase.json"),
         f"- {_chase_tracker_label(profile, 'Status')}: {_chase_tracker_value(chase_state.get('status', 'unknown'), terms, profile)}",
         f"- {_chase_tracker_label(profile, 'Round')}: {chase_state.get('round', 'unknown')}",
     ]
     dex_order = chase_state.get("dex_order", [])
     if isinstance(dex_order, list) and dex_order:
         order = " -> ".join(_display_chase_participant_ref(participant_id, participant_names) for participant_id in dex_order)
-        lines.append(f"- {_chase_tracker_label(profile, 'DEX order')}: {order}")
+        anchors = " ".join(_html_anchor("dex-order-id", participant_id) for participant_id in dex_order)
+        lines.append(f"- {_chase_tracker_label(profile, 'DEX order')}: {order} {anchors}")
 
     participants = chase_state.get("participants", [])
     if isinstance(participants, list) and participants:
@@ -1463,10 +1477,15 @@ def _format_chase_tracker(
             dex = participant.get("dex", "?")
             actions = participant.get("movement_actions", "?")
             position = _display_chase_location_ref(participant.get("position", "unknown"), terms)
+            anchors = " ".join([
+                _html_anchor("participant-id", participant_id),
+                _html_anchor("position-id", participant.get("position", "unknown")),
+                _html_anchor("position-ref", _display_chase_location_audit_ref(participant.get("position", "unknown"), terms)),
+            ])
             lines.append(
                 f"  - {participant_display} | {role} | MOV {base_mov} -> {adjusted_mov} | "
                 f"DEX {dex} | {_chase_tracker_label(profile, 'movement_actions')} {actions} | "
-                f"{_chase_tracker_label(profile, 'position')} {position}"
+                f"{_chase_tracker_label(profile, 'position')} {position} {anchors}"
             )
 
     location_chain = chase_state.get("location_chain", [])
@@ -1711,7 +1730,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         "",
         _report_heading(2, "Module", language_profile),
         _report_field("Scenario", _localize_text(scenario_title, localized_terms), language_profile),
-        _report_field("Scenario ID", scenario_id, language_profile),
+        _html_anchor("scenario-id", scenario_id),
         _report_field("Source", _localize_text(module_source, localized_terms), language_profile),
         _report_field("Opening Scene", _localize_text(scenario.get("opening_scene", "not recorded"), localized_terms), language_profile),
         "",

@@ -569,6 +569,12 @@ def section_text(markdown: str, heading: str) -> str:
     return rest if next_heading == -1 else rest[:next_heading]
 
 
+def visible_markdown_text(markdown: str) -> str:
+    import re
+
+    return re.sub(r"<!--.*?-->", "", markdown, flags=re.DOTALL)
+
+
 def bullet_count(text: str) -> int:
     return sum(1 for line in text.splitlines() if line.startswith("- "))
 
@@ -1089,6 +1095,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Mr. Knott -> 诺特先生" not in battle_text
     assert "The Old Corbitt Place -> 科比特老宅" not in battle_text
     module_section = section_text(battle_text, "## Module")
+    visible_module_section = visible_markdown_text(module_section)
+    assert "scenario-id: the-haunting" in battle_text
+    assert "模组 ID:" not in visible_module_section
+    assert "the-haunting" not in visible_module_section
     assert_module_metadata_values_localized(
         run_setup,
         module_section,
@@ -1104,9 +1114,12 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "- 开场场景: 诺特先生" in battle_text
     assert "诺特先生在 1920 年的波士顿与艾达·金会面" in module_section
     assert "meets" not in module_section
-    assert "- 艾达·金 (ada-king-haunting)" in battle_text
+    assert "- 艾达·金" in battle_text
+    assert "investigator-id: ada-king-haunting" in battle_text
     character_dossier = section_text(battle_text, "## Character Dossier")
+    visible_character_dossier = visible_markdown_text(character_dossier)
     assert_localized_character_dossier_labels(character_dossier)
+    assert "(ada-king-haunting)" not in visible_character_dossier
     assert "描述: 艾达·金" in character_dossier
     assert "信念/理念: 老房子会留下居住者的记忆" in character_dossier
     assert "重要之人: 莱兰·哈特教授" in character_dossier
@@ -1634,6 +1647,10 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Nathaniel Crowe -> 内森尼尔·克劳" not in battle_text
     assert "ledger -> 账本" not in battle_text
     module_section = section_text(battle_text, "## Module")
+    visible_module_section = visible_markdown_text(module_section)
+    assert "scenario-id: rooftop-chase-drill" in battle_text
+    assert "模组 ID:" not in visible_module_section
+    assert "rooftop-chase-drill" not in visible_module_section
     assert_module_metadata_values_localized(
         run_setup,
         module_section,
@@ -1655,9 +1672,12 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "ledger" not in module_section
     assert "spots" not in module_section
     assert "leaving" not in module_section
-    assert "- 艾达·金 (ada-king-chase)" in battle_text
+    assert "- 艾达·金" in battle_text
+    assert "investigator-id: ada-king-chase" in battle_text
     character_dossier = section_text(battle_text, "## Character Dossier")
+    visible_character_dossier = visible_markdown_text(character_dossier)
     assert_localized_character_dossier_labels(character_dossier)
+    assert "(ada-king-chase)" not in visible_character_dossier
     assert "描述: 艾达·金" in character_dossier
     assert "信念/理念: 线索必须在行动前被核实" in character_dossier
     assert "重要之人: 莱兰·哈特教授" in character_dossier
@@ -1894,7 +1914,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "rule decisions" not in feedback
     assert "escapes" not in feedback
     assert "逃脱" in feedback
-    assert "save/chase.json" in battle_text
+    assert "chase-state-file: save/chase.json" in battle_text
+    assert "save/chase.json" not in visible_markdown_text(battle_text)
     assert "save/追逐.json" not in battle_text
     assert "Chase Summary" in battle_text
     chase_summary = section_text(battle_text, "## Chase Summary")
@@ -1919,17 +1940,33 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         battle_text,
     )
     assert chase_position_findings == []
-    assert "- 追逐 ID: rooftop-chase" in chase_tracker
+    visible_chase_tracker = visible_markdown_text(chase_tracker)
+    assert "chase-id: rooftop-chase" in chase_tracker
+    assert "state-file: save/chase.json" in chase_tracker
+    assert "- 追逐 ID:" not in visible_chase_tracker
+    assert "- 状态文件:" not in visible_chase_tracker
     assert "- 状态: 已解决" in chase_tracker
     assert "- 当前轮数: 2" in chase_tracker
-    assert "- DEX 顺序: 艾达·金 (ada-king-chase) -> 内森尼尔·克劳 (nathaniel-crowe)" in chase_tracker
+    assert "- DEX 顺序: 艾达·金 -> 内森尼尔·克劳" in chase_tracker
     assert "- 参与者:" in chase_tracker
-    assert "- 艾达·金 (ada-king-chase) | 被追者 | MOV 8 -> 8 | DEX 50 | 移动行动 1 | 位置 晾衣屋顶 (laundry-roof)" in chase_tracker
-    assert "- 内森尼尔·克劳 (nathaniel-crowe) | 追赶者 | MOV 8 -> 9 | DEX 45 | 移动行动 2 | 位置 上锁屋顶门 (locked-roof-door)" in chase_tracker
+    assert "- 艾达·金 | 被追者 | MOV 8 -> 8 | DEX 50 | 移动行动 1 | 位置 晾衣屋顶" in chase_tracker
+    assert "- 内森尼尔·克劳 | 追赶者 | MOV 8 -> 9 | DEX 45 | 移动行动 2 | 位置 上锁屋顶门" in chase_tracker
     assert "- 位置链:" in chase_tracker
-    assert "- 印刷店屋顶 (print-shop-roof) [起点]" in chase_tracker
-    assert "- 湿滑天窗 (slick-skylight) [危险点, 普通, 闪避]" in chase_tracker
-    assert "- 上锁屋顶门 (locked-roof-door) [障碍, 普通, 锁匠]" in chase_tracker
+    assert "- 印刷店屋顶 [起点]" in chase_tracker
+    assert "- 湿滑天窗 [危险点, 普通, 闪避]" in chase_tracker
+    assert "- 上锁屋顶门 [障碍, 普通, 锁匠]" in chase_tracker
+    for internal_token in [
+        "ada-king-chase",
+        "nathaniel-crowe",
+        "rooftop-chase",
+        "save/chase.json",
+        "print-shop-roof",
+        "rain-gutter",
+        "slick-skylight",
+        "locked-roof-door",
+        "laundry-roof",
+    ]:
+        assert internal_token not in visible_chase_tracker
     assert "- 轮次:" in chase_tracker
     assert "- 第 1 轮:" in chase_tracker
     assert "- 第 2 轮:" in chase_tracker
@@ -2057,6 +2094,10 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     run_setup = section_text(battle_text, "## Run Setup")
     assert_run_setup_values_localized(run_setup, "多调查风格开局")
     module_section = section_text(battle_text, "## Module")
+    visible_module_section = visible_markdown_text(module_section)
+    assert "scenario-id: haunting-opening-pressure" in battle_text
+    assert "模组 ID:" not in visible_module_section
+    assert "haunting-opening-pressure" not in visible_module_section
     assert_module_metadata_values_localized(
         run_setup,
         module_section,
