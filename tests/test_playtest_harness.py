@@ -1985,6 +1985,31 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         "ada-king-chase": ("slick-skylight", "chase-ada-skylight-hazard"),
         "nathaniel-crowe": ("slick-skylight", "chase-nathaniel-skylight-hazard"),
     }
+    round_two_turns = chase_state["rounds"][1]["turns"]
+    ada_escape_turn = next(turn for turn in round_two_turns if turn["actor_id"] == "ada-king-chase")
+    assert {
+        "barrier_id": ada_escape_turn.get("barrier_id"),
+        "barrier_roll_id": ada_escape_turn.get("barrier_roll_id"),
+        "hide_attempt_id": ada_escape_turn.get("hide_attempt_id"),
+        "hide_roll_id": ada_escape_turn.get("hide_roll_id"),
+        "hide_search_actor_id": ada_escape_turn.get("hide_search_actor_id"),
+        "hide_search_roll_id": ada_escape_turn.get("hide_search_roll_id"),
+    } == {
+        "barrier_id": "locked-roof-door",
+        "barrier_roll_id": "chase-ada-roof-door-barrier",
+        "hide_attempt_id": "laundry-roof-hide",
+        "hide_roll_id": "chase-ada-laundry-hide",
+        "hide_search_actor_id": "nathaniel-crowe",
+        "hide_search_roll_id": "chase-nathaniel-search-hidden-ada",
+    }
+    nathaniel_search_turn = next(turn for turn in round_two_turns if turn["actor_id"] == "nathaniel-crowe")
+    assert {
+        "hide_attempt_id": nathaniel_search_turn.get("hide_attempt_id"),
+        "search_roll_id": nathaniel_search_turn.get("search_roll_id"),
+    } == {
+        "hide_attempt_id": "laundry-roof-hide",
+        "search_roll_id": "chase-nathaniel-search-hidden-ada",
+    }
     chase_position_findings = coc_completion_audit._chase_transcript_position_findings(
         "chase-drill",
         run_dir,
@@ -2067,6 +2092,20 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     } == {
         ("ada-king-chase", "chase-ada-skylight-hazard"),
         ("nathaniel-crowe", "chase-nathaniel-skylight-hazard"),
+    }
+    linked_escape_rolls = [
+        event
+        for event in campaign_roll_events(run_dir)
+        if event.get("payload", {}).get("chase_barrier_id") == "locked-roof-door"
+        or event.get("payload", {}).get("chase_hide_attempt_id") == "laundry-roof-hide"
+    ]
+    assert {
+        (event.get("actor"), event.get("payload", {}).get("roll_id"))
+        for event in linked_escape_rolls
+    } == {
+        ("ada-king-chase", "chase-ada-roof-door-barrier"),
+        ("ada-king-chase", "chase-ada-laundry-hide"),
+        ("nathaniel-crowe", "chase-nathaniel-search-hidden-ada"),
     }
 
 

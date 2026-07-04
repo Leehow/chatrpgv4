@@ -2770,6 +2770,12 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
                         "movement_actions_spent": 1,
                         "start_position": "locked-roof-door",
                         "end_position": "laundry-roof",
+                        "barrier_id": "locked-roof-door",
+                        "barrier_roll_id": "chase-ada-roof-door-barrier",
+                        "hide_attempt_id": "laundry-roof-hide",
+                        "hide_roll_id": "chase-ada-laundry-hide",
+                        "hide_search_actor_id": pursuer_id,
+                        "hide_search_roll_id": "chase-nathaniel-search-hidden-ada",
                     },
                     {
                         "actor_id": pursuer_id,
@@ -2777,6 +2783,8 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
                         "movement_actions_spent": 1,
                         "start_position": "locked-roof-door",
                         "end_position": "locked-roof-door",
+                        "hide_attempt_id": "laundry-roof-hide",
+                        "search_roll_id": "chase-nathaniel-search-hidden-ada",
                     },
                 ],
                 "localized_text": {
@@ -2828,9 +2836,9 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"type": "chase", "actor": pursuer_id, "payload": {"roll_id": "chase-nathaniel-skylight-hazard", "chase_hazard_id": "slick-skylight", "skill": "Dodge", "goal": "negotiate the slick skylight hazard while closing in", "target": 30, "effective_target": 30, "difficulty": "regular", "difficulty_rationale": "Nathaniel must cross the same Regular foot-chase hazard before spending his second movement action to attack.", "roll": 27, "outcome": "regular_success", "failure_consequence": "Nathaniel would lose 1D3 movement actions and fail to reach Ada this round.", "localized_text": {"zh-Hans": {"goal": "追赶时越过湿滑天窗危险点", "difficulty_rationale": "内森尼尔·克劳必须先穿过同一个普通难度步行追逐危险点，才能用第二个移动行动攻击。", "failure_consequence": "内森尼尔·克劳会失去 1D3 次移动行动，本轮无法追到艾达·金身边。"}}}},
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "Dodge", "goal": "avoid Nathaniel's sap during chase conflict", "target": 35, "effective_target": 35, "difficulty": "regular", "difficulty_rationale": "Conflict during a chase can be resolved with normal attack and Dodge rolls.", "roll": 19, "outcome": "regular_success", "failure_consequence": "Ada would take damage and lose momentum.", "skill_check_earned": True}},
         {"type": "chase", "actor": pursuer_id, "payload": {"skill": "Fighting (Brawl)", "goal": "strike Ada with a sap during chase conflict", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "An attack during a chase costs one movement action.", "roll": 62, "outcome": "failure", "failure_consequence": "Ada slips past the attack."}},
-        {"type": "chase", "actor": investigator_id, "payload": {"skill": "Locksmith", "goal": "pass the locked roof door barrier", "target": 30, "effective_target": 30, "difficulty": "regular", "difficulty_rationale": "The locked roof door is a Regular barrier with the stolen key ring.", "roll": 21, "outcome": "regular_success", "failure_consequence": "The barrier would stop Ada's movement until another method succeeded.", "skill_check_earned": True}},
-        {"type": "chase", "actor": investigator_id, "payload": {"skill": "Stealth", "goal": "hide on the laundry roof after passing the barrier", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "Ada has a brief lead and concealment among laundry sheets.", "roll": 18, "outcome": "hard_success", "failure_consequence": "Nathaniel would keep the chase active.", "skill_check_earned": True}},
-        {"type": "chase", "actor": pursuer_id, "payload": {"skill": "Spot Hidden", "goal": "find Ada after she hides", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "The pursuer searches around the locked roof door after losing line of sight.", "roll": 77, "outcome": "failure", "failure_consequence": "The quarry escapes.", "localized_text": {"zh-Hans": {"goal": "在艾达·金躲藏后重新找到她", "difficulty_rationale": "追赶者在上锁屋顶门一带失去视线后搜索。", "failure_consequence": "被追者逃脱。"}}}},
+        {"type": "chase", "actor": investigator_id, "payload": {"roll_id": "chase-ada-roof-door-barrier", "chase_barrier_id": "locked-roof-door", "skill": "Locksmith", "goal": "pass the locked roof door barrier", "target": 30, "effective_target": 30, "difficulty": "regular", "difficulty_rationale": "The locked roof door is a Regular barrier with the stolen key ring.", "roll": 21, "outcome": "regular_success", "failure_consequence": "The barrier would stop Ada's movement until another method succeeded.", "skill_check_earned": True}},
+        {"type": "chase", "actor": investigator_id, "payload": {"roll_id": "chase-ada-laundry-hide", "chase_hide_attempt_id": "laundry-roof-hide", "skill": "Stealth", "goal": "hide on the laundry roof after passing the barrier", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "Ada has a brief lead and concealment among laundry sheets.", "roll": 18, "outcome": "hard_success", "failure_consequence": "Nathaniel would keep the chase active.", "skill_check_earned": True}},
+        {"type": "chase", "actor": pursuer_id, "payload": {"roll_id": "chase-nathaniel-search-hidden-ada", "chase_hide_attempt_id": "laundry-roof-hide", "skill": "Spot Hidden", "goal": "find Ada after she hides", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "The pursuer searches around the locked roof door after losing line of sight.", "roll": 77, "outcome": "failure", "failure_consequence": "The quarry escapes.", "localized_text": {"zh-Hans": {"goal": "在艾达·金躲藏后重新找到她", "difficulty_rationale": "追赶者在上锁屋顶门一带失去视线后搜索。", "failure_consequence": "被追者逃脱。"}}}},
     ]))
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "print-shop-roof", "summary": "Ada 在 print shop roof 发现 Nathaniel Crowe，确认他带着 cult ledger。"}},

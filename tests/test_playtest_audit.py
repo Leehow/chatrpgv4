@@ -930,6 +930,47 @@ def test_chase_drill_audit_requires_hazard_rolls_for_all_hazard_crossings(tmp_pa
     assert "chase_hazard_resolution_missing" in finding_codes(audit)
 
 
+def test_chase_drill_audit_requires_barrier_and_hide_roll_links_for_escape(tmp_path):
+    run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill"
+    chase_path = campaign_dir / "save" / "chase.json"
+    chase_state = json.loads(chase_path.read_text())
+    for chase_round in chase_state["rounds"]:
+        for turn in chase_round.get("turns", []):
+            if turn.get("actor_id") == "ada-king-chase" and turn.get("action") == "pass_barrier_and_hide":
+                for field in (
+                    "barrier_id",
+                    "barrier_roll_id",
+                    "hide_attempt_id",
+                    "hide_roll_id",
+                    "hide_search_actor_id",
+                    "hide_search_roll_id",
+                ):
+                    turn.pop(field, None)
+            if turn.get("actor_id") == "nathaniel-crowe":
+                turn.pop("hide_attempt_id", None)
+                turn.pop("search_roll_id", None)
+    chase_path.write_text(json.dumps(chase_state))
+
+    rolls_path = campaign_dir / "logs" / "rolls.jsonl"
+    rolls = [
+        json.loads(line)
+        for line in rolls_path.read_text().splitlines()
+        if line.strip()
+    ]
+    write_jsonl(rolls_path, [
+        roll
+        for roll in rolls
+        if roll.get("payload", {}).get("chase_barrier_id") != "locked-roof-door"
+        and roll.get("payload", {}).get("chase_hide_attempt_id") != "laundry-roof-hide"
+    ])
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "chase_barrier_hide_resolution_missing" in finding_codes(audit)
+
+
 def test_chase_drill_audit_rejects_round_turns_out_of_dex_order(tmp_path):
     run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
     chase_path = run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json"

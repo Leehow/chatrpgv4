@@ -2221,6 +2221,110 @@ def _chase_hazard_resolution_gaps(chase_state: dict[str, Any], rolls: list[dict[
     return gaps
 
 
+def _roll_links(rolls: list[dict[str, Any]], link_field: str) -> set[tuple[str, str, str]]:
+    links: set[tuple[str, str, str]] = set()
+    for roll in rolls:
+        payload = roll.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        linked_id = payload.get(link_field)
+        roll_id = payload.get("roll_id")
+        if not isinstance(linked_id, str) or not linked_id:
+            continue
+        if not isinstance(roll_id, str) or not roll_id:
+            continue
+        links.add((str(roll.get("actor") or ""), linked_id, roll_id))
+    return links
+
+
+def _chase_barrier_hide_resolution_gaps(chase_state: dict[str, Any], rolls: list[dict[str, Any]]) -> list[str]:
+    location_chain = chase_state.get("location_chain", [])
+    rounds = chase_state.get("rounds", [])
+    if not isinstance(location_chain, list) or not isinstance(rounds, list):
+        return []
+
+    location_indexes: dict[str, int] = {}
+    barrier_indexes: dict[int, str] = {}
+    for index, location in enumerate(location_chain):
+        if not isinstance(location, dict):
+            continue
+        location_id = location.get("id")
+        if not isinstance(location_id, str) or not location_id:
+            continue
+        location_indexes[location_id] = index
+        if location.get("label") == "barrier":
+            barrier_indexes[index] = location_id
+
+    barrier_roll_ids = _roll_links(rolls, "chase_barrier_id")
+    hide_roll_ids = _roll_links(rolls, "chase_hide_attempt_id")
+
+    gaps: list[str] = []
+    for chase_round in rounds:
+        if not isinstance(chase_round, dict):
+            continue
+        for turn in chase_round.get("turns", []):
+            if not isinstance(turn, dict):
+                continue
+            actor_id = str(turn.get("actor_id") or "")
+            start = turn.get("start_position")
+            end = turn.get("end_position")
+            if actor_id == "" or not isinstance(start, str) or not isinstance(end, str):
+                continue
+            if start in location_indexes and end in location_indexes:
+                start_index = location_indexes[start]
+                end_index = location_indexes[end]
+                low = min(start_index, end_index)
+                high = max(start_index, end_index)
+                crossed_barriers = [
+                    barrier_id
+                    for index, barrier_id in barrier_indexes.items()
+                    if low <= index < high
+                ]
+                for barrier_id in crossed_barriers:
+                    if turn.get("barrier_id") != barrier_id:
+                        gaps.append(f"{actor_id} crosses {barrier_id} without matching barrier_id")
+                        continue
+                    roll_id = turn.get("barrier_roll_id")
+                    if not isinstance(roll_id, str) or not roll_id:
+                        gaps.append(f"{actor_id} crosses {barrier_id} without barrier_roll_id")
+                        continue
+                    if (actor_id, barrier_id, roll_id) not in barrier_roll_ids:
+                        gaps.append(f"{actor_id} crosses {barrier_id} without matching roll {roll_id}")
+
+            action = turn.get("action")
+            if action == "pass_barrier_and_hide":
+                hide_attempt_id = turn.get("hide_attempt_id")
+                hide_roll_id = turn.get("hide_roll_id")
+                search_actor_id = turn.get("hide_search_actor_id")
+                search_roll_id = turn.get("hide_search_roll_id")
+                if not isinstance(hide_attempt_id, str) or not hide_attempt_id:
+                    gaps.append(f"{actor_id} hides without hide_attempt_id")
+                    continue
+                if not isinstance(hide_roll_id, str) or not hide_roll_id:
+                    gaps.append(f"{actor_id} hides without hide_roll_id")
+                elif (actor_id, hide_attempt_id, hide_roll_id) not in hide_roll_ids:
+                    gaps.append(f"{actor_id} hides without matching roll {hide_roll_id}")
+                if not isinstance(search_actor_id, str) or not search_actor_id:
+                    gaps.append(f"{actor_id} hides without hide_search_actor_id")
+                elif not isinstance(search_roll_id, str) or not search_roll_id:
+                    gaps.append(f"{actor_id} hides without hide_search_roll_id")
+                elif (search_actor_id, hide_attempt_id, search_roll_id) not in hide_roll_ids:
+                    gaps.append(f"{actor_id} hide attempt lacks matching search roll {search_roll_id}")
+
+            if action == "search_locked_roof_door_after_losing_line_of_sight":
+                hide_attempt_id = turn.get("hide_attempt_id")
+                search_roll_id = turn.get("search_roll_id")
+                if not isinstance(hide_attempt_id, str) or not hide_attempt_id:
+                    gaps.append(f"{actor_id} searches without hide_attempt_id")
+                    continue
+                if not isinstance(search_roll_id, str) or not search_roll_id:
+                    gaps.append(f"{actor_id} searches without search_roll_id")
+                    continue
+                if (actor_id, hide_attempt_id, search_roll_id) not in hide_roll_ids:
+                    gaps.append(f"{actor_id} search lacks matching roll {search_roll_id}")
+    return gaps
+
+
 def _chase_dex_order_gaps(chase_state: dict[str, Any]) -> list[str]:
     gaps: list[str] = []
     participants = chase_state.get("participants", [])
@@ -3310,6 +3414,17 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "Chase drill does not prove each crossed hazard was resolved for each participant: "
                 + "; ".join(hazard_resolution_gaps),
                 "For each rounds[].turns entry that crosses a hazard location, record hazard_id, hazard_roll_id, and a matching rolls.jsonl payload with roll_id and chase_hazard_id.",
+            ))
+
+        barrier_hide_resolution_gaps = _chase_barrier_hide_resolution_gaps(context["chase_state"], context["rolls"])
+        if barrier_hide_resolution_gaps:
+            findings.append(_finding(
+                "chase_barrier_hide_resolution_missing",
+                "system_gap",
+                "high",
+                "Chase drill does not prove barrier, hide, and search rolls are linked to the escape: "
+                + "; ".join(barrier_hide_resolution_gaps),
+                "For each barrier crossing and hide escape, record barrier_id, barrier_roll_id, hide_attempt_id, hide_roll_id, hide_search_actor_id, hide_search_roll_id, and matching rolls.jsonl payload roll links.",
             ))
 
     return {
