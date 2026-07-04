@@ -2814,6 +2814,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
         "player_profile": "reckless_investigator",
+        "simulation_method": "transcript_driven_virtual_table",
         "player_profiles_tested": [
             "reckless_investigator",
             "skeptical_rules_lawyer",
@@ -3328,6 +3329,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
         "player_profile": "multi_profile_matrix",
+        "simulation_method": "transcript_driven_virtual_table",
         "player_profiles_tested": player_profiles,
         "player_profile_labels": player_profile_labels,
         "module_coverage": ["opening_hook", "research_choice", "reckless_entry", "rules_challenge", "session_wrap"],

@@ -296,11 +296,40 @@ def battle_report_character_dossier_fixture_text() -> str:
     ])
 
 
+def battle_report_run_setup_fixture_text() -> str:
+    return "\n".join([
+        "- Run ID: fixture <!-- field-anchor: Run ID -->",
+        "- Campaign ID: fixture <!-- field-anchor: Campaign ID -->",
+        "- Campaign: fixture <!-- field-anchor: Campaign -->",
+        "- Audit Profile: fixture <!-- field-anchor: Audit Profile -->",
+        "- Simulation Method: transcript_driven_virtual_table <!-- field-anchor: Simulation Method -->",
+        "- Era: 1920s <!-- field-anchor: Era -->",
+        "- Dice Mode: codex <!-- field-anchor: Dice Mode -->",
+        "- Spoiler Policy: warn_before_reveal <!-- field-anchor: Spoiler Policy -->",
+        "- Play Language: zh-Hans <!-- field-anchor: Play Language -->",
+        "- Language Profile: Simplified Chinese <!-- field-anchor: Language Profile -->",
+        "- Localized Terms: fixture <!-- field-anchor: Localized Terms -->",
+        "- Player Profile: fixture <!-- field-anchor: Player Profile -->",
+    ])
+
+
+def battle_report_module_fixture_text() -> str:
+    return "\n".join([
+        "- Scenario: fixture <!-- field-anchor: Scenario -->",
+        "- Scenario ID: fixture-scenario <!-- field-anchor: Scenario ID -->",
+        "<!-- scenario-id: fixture-scenario -->",
+        "- Source: fixture source <!-- field-anchor: Source -->",
+        "- Opening Scene: Fixture opening scene. <!-- field-anchor: Opening Scene -->",
+    ])
+
+
 def battle_report_fixture() -> str:
     return "\n\n".join([
         "# Battle Report <!-- report-anchor: Battle Report -->",
-        "## Run Setup <!-- report-anchor: Run Setup -->\n- Run ID: fixture",
-        "## Module <!-- report-anchor: Module -->\n- Scenario: fixture",
+        "## Run Setup <!-- report-anchor: Run Setup -->\n"
+        + battle_report_run_setup_fixture_text(),
+        "## Module <!-- report-anchor: Module -->\n"
+        + battle_report_module_fixture_text(),
         "## Handouts <!-- report-anchor: Handouts -->\n"
         + battle_report_handout_fixture_text(),
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n"
@@ -353,8 +382,10 @@ def battle_report_fixture() -> str:
 def battle_report_shell_with_required_anchors() -> str:
     return "\n\n".join([
         "# Battle Report <!-- report-anchor: Battle Report -->",
-        "## Run Setup <!-- report-anchor: Run Setup -->\n- Run ID: fixture",
-        "## Module <!-- report-anchor: Module -->\n- Scenario: fixture",
+        "## Run Setup <!-- report-anchor: Run Setup -->\n"
+        + battle_report_run_setup_fixture_text(),
+        "## Module <!-- report-anchor: Module -->\n"
+        + battle_report_module_fixture_text(),
         "## Handouts <!-- report-anchor: Handouts -->\n- Fixture handouts.",
         "## Investigator Creation <!-- report-anchor: Investigator Creation -->\n- Fixture creation record.",
         "## Character Dossier <!-- report-anchor: Character Dossier -->\n- Fixture character dossier.",
@@ -3258,6 +3289,42 @@ def test_completion_audit_fails_when_battle_report_missing_required_anchors(tmp_
     finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_anchors_missing")
     assert "Run Setup" in finding["missing_anchors"]
     assert "Mechanical Log" in finding["missing_anchors"]
+
+
+def test_completion_audit_fails_when_battle_report_missing_setup_field_anchors(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    degraded_report = (
+        battle_report_fixture()
+        .replace("- Campaign ID: fixture <!-- field-anchor: Campaign ID -->\n", "")
+        .replace("- Scenario ID: fixture-scenario <!-- field-anchor: Scenario ID -->\n", "")
+    )
+    write_text(run_dir / "artifacts" / "battle-report.md", degraded_report)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_field_anchors_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert finding["missing_field_anchors"] == {
+        "Run Setup": ["Campaign ID"],
+        "Module": ["Scenario ID"],
+    }
 
 
 def test_completion_audit_fails_when_battle_report_omits_source_dialogue_text(tmp_path):

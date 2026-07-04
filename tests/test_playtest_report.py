@@ -206,6 +206,7 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
         "spoiler_policy": "warn_before_reveal",
         "player_profile": "careful_investigator",
         "audit_profile": "haunting_module",
+        "simulation_method": "transcript_driven_virtual_table",
         "module_coverage": ["knott_hiring", "bed_attack"],
         "subsystems_covered": ["investigation", "sanity"],
         "scores": {"immersion": 4, "rules_accuracy": 3},
@@ -222,13 +223,16 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     evaluation_text = evaluation_path.read_text()
 
     assert "## Run Setup" in battle_text
+    assert "Campaign ID: run-1" in battle_text
     assert "Campaign: The Haunting Test" in battle_text
+    assert "Audit Profile: haunting_module" in battle_text
+    assert "Simulation Method: transcript_driven_virtual_table" in battle_text
     assert "Era: 1920s" in battle_text
     assert "Dice Mode: codex" in battle_text
     assert "Spoiler Policy: warn_before_reveal" in battle_text
     assert "## Module" in battle_text
     assert "scenario-id: the-haunting" in battle_text
-    assert "Scenario ID: the-haunting" not in visible_markdown_text(battle_text)
+    assert "Scenario ID: the-haunting" in visible_markdown_text(battle_text)
     assert "Source: pdf/the-haunting.pdf" in battle_text
     assert "## Character Dossier" in battle_text
     assert "Ada King" in battle_text

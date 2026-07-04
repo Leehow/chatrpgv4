@@ -187,6 +187,28 @@ REQUIRED_BATTLE_REPORT_ANCHORS = [
     "Story Recap",
     "Player Feedback On KP",
 ]
+REQUIRED_BATTLE_REPORT_FIELD_ANCHORS = {
+    "Run Setup": [
+        "Run ID",
+        "Campaign ID",
+        "Campaign",
+        "Audit Profile",
+        "Simulation Method",
+        "Era",
+        "Dice Mode",
+        "Spoiler Policy",
+        "Play Language",
+        "Language Profile",
+        "Localized Terms",
+        "Player Profile",
+    ],
+    "Module": [
+        "Scenario",
+        "Scenario ID",
+        "Source",
+        "Opening Scene",
+    ],
+}
 REQUIRED_SUITE_REPORT_SECTIONS = [
     "# COC Playtest Suite Report",
     "## Run Index",
@@ -601,6 +623,44 @@ def _battle_report_anchor_findings(run_id: str, battle_report: str) -> list[dict
         "Regenerate battle-report.md with the required actual-play report sections and stable ASCII report-anchor comments.",
         run_id=run_id,
         missing_anchors=missing_anchors,
+    )]
+
+
+def _field_anchors(section: str) -> set[str]:
+    anchors: set[str] = set()
+    for line in section.splitlines():
+        marker_start = line.find("<!-- field-anchor: ")
+        if marker_start == -1:
+            continue
+        anchor_start = marker_start + len("<!-- field-anchor: ")
+        anchor_end = line.find(" -->", anchor_start)
+        if anchor_end == -1:
+            continue
+        anchors.add(line[anchor_start:anchor_end])
+    return anchors
+
+
+def _battle_report_field_anchor_findings(run_id: str, battle_report: str) -> list[dict[str, Any]]:
+    missing_by_section: dict[str, list[str]] = {}
+    for section_name, required_fields in REQUIRED_BATTLE_REPORT_FIELD_ANCHORS.items():
+        section = _battle_report_anchor_section(battle_report, section_name)
+        present_fields = _field_anchors(section)
+        missing_fields = [
+            field
+            for field in required_fields
+            if field not in present_fields
+        ]
+        if missing_fields:
+            missing_by_section[section_name] = missing_fields
+    if not missing_by_section:
+        return []
+    return [_finding(
+        "battle_report_field_anchors_missing",
+        "report_gap",
+        f"{run_id} battle-report.md missing required setup/module field anchors.",
+        "Regenerate battle-report.md so Run Setup and Module expose stable ASCII field-anchor comments for campaign, audit, simulation, and scenario parameters.",
+        run_id=run_id,
+        missing_field_anchors=missing_by_section,
     )]
 
 
@@ -4244,6 +4304,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
 
     battle_report = _read_text(artifacts_dir / "battle-report.md")
     findings.extend(_battle_report_anchor_findings(run_id, battle_report))
+    findings.extend(_battle_report_field_anchor_findings(run_id, battle_report))
     findings.extend(_battle_report_source_dialogue_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_mechanical_log_findings(run_id, run_dir, campaign_dir, metadata, battle_report))
     findings.extend(_battle_report_rule_ref_findings(run_id, campaign_dir, battle_report))

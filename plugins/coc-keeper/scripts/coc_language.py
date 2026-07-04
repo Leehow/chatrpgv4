@@ -85,7 +85,10 @@ BASE_REPORT_HEADING_LABELS = {
 
 BASE_REPORT_FIELD_LABELS = {
     "Run ID": "Run ID",
+    "Campaign ID": "Campaign ID",
     "Campaign": "Campaign",
+    "Audit Profile": "Audit Profile",
+    "Simulation Method": "Simulation Method",
     "Era": "Era",
     "Dice Mode": "Dice Mode",
     "Spoiler Policy": "Spoiler Policy",
@@ -278,7 +281,10 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         },
         "report_field_labels": {
             "Run ID": "运行编号",
+            "Campaign ID": "战役 ID",
             "Campaign": "战役",
+            "Audit Profile": "审计画像",
+            "Simulation Method": "模拟方式",
             "Era": "年代",
             "Dice Mode": "骰子模式",
             "Spoiler Policy": "剧透策略",
@@ -530,7 +536,10 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         },
         "report_field_labels": {
             "Run ID": "実行 ID",
+            "Campaign ID": "キャンペーン ID",
             "Campaign": "キャンペーン",
+            "Audit Profile": "監査プロファイル",
+            "Simulation Method": "シミュレーション方式",
             "Era": "時代",
             "Dice Mode": "ダイス方式",
             "Spoiler Policy": "ネタバレ方針",

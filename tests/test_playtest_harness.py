@@ -1175,14 +1175,17 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     for summary in source_summaries:
         assert summary in state_changes
     run_setup = section_text(battle_text, "## Run Setup")
+    assert "- 战役 ID: haunting-module" in run_setup
     assert "- 游玩语言: 简体中文" in run_setup
     assert "- 游玩语言: zh-Hans" not in run_setup
+    assert "- 审计画像: haunting_module" in run_setup
+    assert "- 模拟方式: transcript_driven_virtual_table" in run_setup
     assert "本地化术语: " in run_setup
     assert_run_setup_values_localized(run_setup, "谨慎调查员")
     assert "Ada King -> 艾达·金" not in run_setup
     assert "Mr. Knott -> 诺特先生" not in run_setup
     assert "The Old Corbitt Place -> 科比特老宅" not in run_setup
-    assert len(run_setup.splitlines()) <= 10
+    assert len(run_setup.splitlines()) <= 13
     assert "## 本地化附录 <!-- report-anchor: Localization Appendix -->" not in battle_text
     assert "<!-- report-anchor: Localization Appendix -->" not in battle_text
     assert "Ada King -> 艾达·金" not in battle_text
@@ -1191,8 +1194,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     module_section = section_text(battle_text, "## Module")
     visible_module_section = visible_markdown_text(module_section)
     assert "scenario-id: the-haunting" in battle_text
-    assert "模组 ID:" not in visible_module_section
-    assert "the-haunting" not in visible_module_section
+    assert "模组 ID: the-haunting" in visible_module_section
     assert_module_metadata_values_localized(
         run_setup,
         module_section,
@@ -1949,14 +1951,17 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     for summary in source_summaries:
         assert summary in state_changes
     run_setup = section_text(battle_text, "## Run Setup")
+    assert "- 战役 ID: chase-drill" in run_setup
     assert "- 游玩语言: 简体中文" in run_setup
     assert "- 游玩语言: zh-Hans" not in run_setup
+    assert "- 审计画像: chase_drill" in run_setup
+    assert "- 模拟方式: transcript_driven_virtual_table" in run_setup
     assert "本地化术语: " in run_setup
     assert_run_setup_values_localized(run_setup, "鲁莽调查员")
     assert "Ada King -> 艾达·金" not in run_setup
     assert "Nathaniel Crowe -> 内森尼尔·克劳" not in run_setup
     assert "ledger -> 账本" not in run_setup
-    assert len(run_setup.splitlines()) <= 10
+    assert len(run_setup.splitlines()) <= 13
     assert "## 本地化附录 <!-- report-anchor: Localization Appendix -->" not in battle_text
     assert "<!-- report-anchor: Localization Appendix -->" not in battle_text
     assert "Ada King -> 艾达·金" not in battle_text
@@ -1965,8 +1970,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     module_section = section_text(battle_text, "## Module")
     visible_module_section = visible_markdown_text(module_section)
     assert "scenario-id: rooftop-chase-drill" in battle_text
-    assert "模组 ID:" not in visible_module_section
-    assert "rooftop-chase-drill" not in visible_module_section
+    assert "模组 ID: rooftop-chase-drill" in visible_module_section
     assert_module_metadata_values_localized(
         run_setup,
         module_section,
@@ -2475,12 +2479,14 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Player[reckless_investigator]" not in actual_play
     assert "Player[skeptical_rules_lawyer]" not in actual_play
     run_setup = section_text(battle_text, "## Run Setup")
+    assert "- 战役 ID: multi-profile-pressure" in run_setup
+    assert "- 审计画像: multi_profile_pressure" in run_setup
+    assert "- 模拟方式: transcript_driven_virtual_table" in run_setup
     assert_run_setup_values_localized(run_setup, "多调查风格开局")
     module_section = section_text(battle_text, "## Module")
     visible_module_section = visible_markdown_text(module_section)
     assert "scenario-id: haunting-opening-pressure" in battle_text
-    assert "模组 ID:" not in visible_module_section
-    assert "haunting-opening-pressure" not in visible_module_section
+    assert "模组 ID: haunting-opening-pressure" in visible_module_section
     assert_module_metadata_values_localized(
         run_setup,
         module_section,
