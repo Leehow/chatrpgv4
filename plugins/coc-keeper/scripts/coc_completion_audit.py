@@ -3116,6 +3116,46 @@ def _transcript_localized_text_findings(
     )]
 
 
+def _transcript_source_text_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    localized_terms = _metadata_localized_terms(metadata)
+    play_language = str(metadata.get("play_language") or "")
+    if not play_language or play_language in {"zh-Hans", "en-US"} or not localized_terms:
+        return []
+
+    mismatches: list[str] = []
+    samples: list[str] = []
+    for row in _read_jsonl(run_dir / "transcript.jsonl"):
+        if row.get("role") not in {"keeper_under_test", "player_simulator"}:
+            continue
+        localized_text = row.get("localized_text", {})
+        language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
+        expected = language_text.get("text")
+        actual = row.get("text")
+        if not isinstance(expected, str) or not expected.strip():
+            continue
+        expected = _localize_text(expected, localized_terms).strip()
+        if not isinstance(actual, str) or actual.strip() != expected:
+            mismatches.append(f"turn {row.get('turn')} text")
+            if len(samples) < 8:
+                samples.append(f"turn {row.get('turn')}: expected {expected}; actual {actual}")
+
+    if not mismatches:
+        return []
+    return [_finding(
+        "transcript_source_text_not_localized",
+        "system_gap",
+        f"{run_id} transcript.jsonl top-level text does not match localized_text.{play_language}.text for {len(mismatches)} player-visible source turns.",
+        "Regenerate the active run so transcript.jsonl top-level KP/player text uses the selected play_language; keep machine keys, enums, ids, and roll rows canonical separately.",
+        run_id=run_id,
+        source_transcript_text_mismatches=mismatches,
+        source_transcript_text_samples=samples,
+    )]
+
+
 def _protocol_wrappers_in_text(text: str) -> list[str]:
     return [
         wrapper
@@ -4512,6 +4552,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     findings.extend(_player_profile_display_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_localized_text_findings(run_id, run_dir, metadata))
     findings.extend(_transcript_localized_text_findings(run_id, run_dir, metadata))
+    findings.extend(_transcript_source_text_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_protocol_wrapper_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_spoiler_protocol_findings(run_id, run_dir))
     findings.extend(_player_view_transcript_detail_findings(run_id, run_dir, metadata))

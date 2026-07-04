@@ -933,10 +933,16 @@ def test_serious_harness_accepts_selected_play_language(tmp_path):
             assert payload[key] not in battle_text
             assert localized[key] in battle_text
     assert localized_roll_fields >= 10
+    assert "質問です。慎重なプレイヤーは資料を調べ" in transcript[12]["text"]
+    assert "我想质疑一下" not in transcript[12]["text"]
+    assert "私はまず権利書と古い新聞を調べます" in transcript[2]["text"]
+    assert "我先查房契和旧报纸" not in transcript[2]["text"]
     assert "質問です。慎重なプレイヤーは資料を調べ" in transcript[12]["text_display"]
     assert "我想质疑一下" not in transcript[12]["text_display"]
     assert "扉のラッチ付近に新しい傷を見つけ" in transcript[11]["text_display"]
     assert "你看见门闩边缘有新划痕" not in transcript[11]["text_display"]
+    assert "質問です。慎重なプレイヤーは資料を調べ" in player_view[12]["text"]
+    assert "我想质疑一下" not in player_view[12]["text"]
     assert "これは『怪異の家』のキーパー情報" in player_view["13b"]["text"]
     assert "这会揭示" not in player_view["13b"]["text"]
     assert "[spoiler_warning]" not in player_view["13b"]["localized_text"]["ja-JP"]["text"]

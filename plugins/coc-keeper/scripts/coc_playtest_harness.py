@@ -1744,12 +1744,13 @@ def _write_transcript_jsonl_localized(
     localized_events: list[dict[str, Any]] = []
     for event in events:
         localized = dict(event)
-        if localized.get("role") in {"keeper_under_test", "player_simulator"}:
-            for key in ("text",):
-                if isinstance(localized.get(key), str):
-                    localized[key] = _localize_text(localized[key], glossary)
         localized_text = dict(localized.get("localized_text", {}))
         language_text = dict(localized_text.get(play_language, {}))
+        if localized.get("role") in {"keeper_under_test", "player_simulator"}:
+            if isinstance(language_text.get("text"), str):
+                localized["text"] = _localize_text(language_text["text"], glossary)
+            elif isinstance(localized.get("text"), str):
+                localized["text"] = _localize_text(localized["text"], glossary)
         for key in ("intent", "ruling"):
             value = localized.get(key)
             if not isinstance(value, str):

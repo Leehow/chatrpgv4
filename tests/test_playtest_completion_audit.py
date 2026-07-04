@@ -2650,6 +2650,43 @@ def test_completion_audit_fails_when_source_transcript_localized_text_leaks_cano
     assert finding["leaked_transcript_localized_text_terms"] == ["Climb"]
 
 
+def test_completion_audit_fails_when_source_transcript_text_ignores_selected_language(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["play_language"] = "ja-JP"
+    metadata["localized_terms"] = {"ja-JP": {"Ada King": "エイダ・キング"}}
+    write_json(metadata_path, metadata)
+    transcript = read_jsonl(run_dir / "transcript.jsonl")
+    transcript[1]["text"] = "fixture player turn"
+    transcript[1]["localized_text"] = {"ja-JP": {"text": "日本語のプレイヤー発言"}}
+    transcript[1]["text_display"] = "日本語のプレイヤー発言"
+    write_jsonl(run_dir / "transcript.jsonl", transcript)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "transcript_source_text_not_localized")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "turn 2 text" in finding["source_transcript_text_mismatches"]
+
+
 def test_completion_audit_fails_when_player_view_transcript_details_lack_display_values(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
