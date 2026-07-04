@@ -124,7 +124,9 @@ def battle_report_mechanical_fixture_text() -> str:
     for run_id in run_ids:
         investigator_id = f"{run_id}-investigator"
         lines.append(f"- Spot Hidden: {investigator_id} rolled 33 vs 55 -> regular_success")
+        lines.append("  - Rule Refs: core.percentile_check, core.success_level, core.difficulty.regular")
         lines.append(f"- Spot Hidden: {investigator_id} rolled 22 vs 55 -> hard_success")
+        lines.append("  - Rule Refs: core.percentile_check, core.success_level, core.difficulty.regular, core.pushed_roll")
     return "\n".join(lines)
 
 
@@ -2235,6 +2237,42 @@ def test_completion_audit_fails_when_roll_results_are_outside_mechanical_log(tmp
     finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_mechanical_log_missing")
     assert finding["run_id"] == "v2-haunting-module"
     assert "Spot Hidden: v2-haunting-module-investigator rolled 33 vs 55 -> regular_success" in finding["missing_roll_samples"]
+
+
+def test_completion_audit_fails_when_battle_report_omits_rule_refs(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    battle_report_path = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "artifacts" / "battle-report.md"
+    write_text(
+        battle_report_path,
+        battle_report_path.read_text().replace(
+            "\n  - Rule Refs: core.percentile_check, core.success_level, core.difficulty.regular",
+            "",
+        ).replace(
+            "\n  - Rule Refs: core.percentile_check, core.success_level, core.difficulty.regular, core.pushed_roll",
+            "",
+        ),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_rule_refs_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "core.percentile_check, core.success_level, core.difficulty.regular" in finding["missing_rule_ref_samples"]
 
 
 def test_completion_audit_fails_when_battle_report_omits_source_event_summaries(tmp_path):

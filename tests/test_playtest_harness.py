@@ -1257,6 +1257,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "成长标记：否" in rules_recap
     assert "SAN 损失：6" in rules_recap
     assert "POW：沃尔特·科比特掷出 34 / 90" in rules_recap
+    assert "规则引用：core.percentile_check, core.success_level, core.difficulty.regular" in rules_recap
+    assert "module.haunting.corbitt_own_dagger" in rules_recap
     assert "Persuade：" not in rules_recap
     assert "Library Use：" not in rules_recap
     assert "Spot Hidden：" not in rules_recap
@@ -1272,6 +1274,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "成长标记：yes" not in rules_recap
     assert "成长标记：no" not in rules_recap
     assert "ada-king-haunting rolled" not in rules_recap
+    mechanical_log = section_text(battle_text, "## Mechanical Log")
+    assert "Rule Refs: core.percentile_check, core.success_level, core.difficulty.regular" in mechanical_log
+    assert "module.haunting.corbitt_own_dagger" in mechanical_log
     roll_event_count = len(campaign_roll_events(run_dir))
     assert bullet_count(rules_recap) == roll_event_count
     assert detail_count(rules_recap, "目的") == roll_event_count
@@ -1647,6 +1652,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "推骰：是" in rules_recap
     assert "成长标记：是" in rules_recap
     assert "成长标记：否" in rules_recap
+    assert "规则引用：core.percentile_check, core.success_level, core.difficulty.regular, core.chase.movement_actions" in rules_recap
     assert "Spot Hidden：" not in rules_recap
     assert "Dodge：" not in rules_recap
     assert "Locksmith：" not in rules_recap
@@ -1662,6 +1668,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "成长标记：no" not in rules_recap
     assert "ada-king-chase rolled" not in rules_recap
     assert "nathaniel-crowe rolled" not in rules_recap
+    mechanical_log = section_text(battle_text, "## Mechanical Log")
+    assert "Rule Refs: core.percentile_check, core.success_level, core.difficulty.regular, core.chase.movement_actions" in mechanical_log
     roll_event_count = len(campaign_roll_events(run_dir))
     assert bullet_count(rules_recap) == roll_event_count
     assert detail_count(rules_recap, "目的") == roll_event_count

@@ -555,6 +555,43 @@ def _battle_report_mechanical_log_findings(
     )]
 
 
+def _battle_report_rule_ref_findings(
+    run_id: str,
+    campaign_dir: Path,
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
+    report_sections = "\n".join([
+        _battle_report_anchor_section(battle_report, "Rules & Rolls Recap"),
+        _battle_report_anchor_section(battle_report, "Mechanical Log"),
+    ])
+    required_ref_lines = []
+    for row in rolls:
+        payload = row.get("payload")
+        if not isinstance(payload, dict) or not isinstance(payload.get("rule_refs"), list):
+            continue
+        refs = [ref for ref in payload["rule_refs"] if isinstance(ref, str) and ref.strip()]
+        if refs:
+            required_ref_lines.append(", ".join(refs))
+    missing_ref_lines = [
+        refs
+        for refs in dict.fromkeys(required_ref_lines)
+        if refs not in report_sections
+    ]
+    if not missing_ref_lines:
+        return []
+    return [_finding(
+        "battle_report_rule_refs_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_ref_lines)} of {len(set(required_ref_lines))} distinct rule_refs lines from logs/rolls.jsonl.",
+        "Regenerate battle-report.md so Rules & Rolls Recap or Mechanical Log renders each structured source roll's rule_refs.",
+        run_id=run_id,
+        missing_rule_ref_count=len(missing_ref_lines),
+        required_rule_ref_count=len(set(required_ref_lines)),
+        missing_rule_ref_samples=missing_ref_lines[:5],
+    )]
+
+
 def _battle_report_event_summary_findings(
     run_id: str,
     campaign_dir: Path,
@@ -2909,6 +2946,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_anchor_findings(run_id, battle_report))
     findings.extend(_battle_report_source_dialogue_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_mechanical_log_findings(run_id, campaign_dir, battle_report))
+    findings.extend(_battle_report_rule_ref_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_feedback_text_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_memory_summary_findings(run_id, campaign_dir, battle_report))
