@@ -26,6 +26,7 @@ REQUIRED_RULE_FILES = [
     "roll-modifiers.json",
     "success-levels.json",
     "sanity.json",
+    "the-haunting.json",
 ]
 
 REQUIRED_CAMPAIGN_DIRS = [

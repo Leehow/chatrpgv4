@@ -198,6 +198,22 @@ def reward_rule() -> dict[str, Any]:
     }
 
 
+def _json_copy(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_copy(item) for item in value]
+    return value
+
+
+def the_haunting_rules() -> dict[str, Any]:
+    table = load_rule_table("the-haunting")
+    return {
+        "scenario_id": str(table["scenario_id"]),
+        "rules": _json_copy(table["rules"]),
+    }
+
+
 def _threshold_value(value: int, key: str) -> int:
     table = load_rule_table("half-fifth-values")
     divisor = int(table[key]["divisor"])

@@ -232,6 +232,7 @@
       "id": "module.haunting.corbitt_flesh_ward",
       "category": "module_rule",
       "module": "The Haunting",
+      "source_table": "the-haunting.json",
       "source_note": "Corbitt casts Flesh Ward when investigators enter the house.",
       "numeric": {
         "magic_point_cost_in_playtest": 2,
@@ -243,6 +244,7 @@
       "id": "module.haunting.corbitt_floating_knife_mp",
       "category": "module_rule",
       "module": "The Haunting",
+      "source_table": "the-haunting.json",
       "source_note": "Corbitt spends Magic points to attack with the floating knife.",
       "numeric": {
         "magic_point_cost_per_combat_round": 1
@@ -252,6 +254,7 @@
       "id": "module.haunting.corbitt_animate_body",
       "category": "module_rule",
       "module": "The Haunting",
+      "source_table": "the-haunting.json",
       "source_note": "Corbitt spends Magic points to animate his body.",
       "numeric": {
         "magic_point_cost": 2,
@@ -262,6 +265,7 @@
       "id": "module.haunting.corbitt_summary_bout",
       "category": "module_rule",
       "module": "The Haunting",
+      "source_table": "the-haunting.json",
       "source_note": "The solo Corbitt temporary-insanity playtest uses the summary bout table.",
       "numeric": {
         "summary_table_roll": "1D10",
@@ -272,6 +276,7 @@
       "id": "module.haunting.corbitt_own_dagger",
       "category": "module_rule",
       "module": "The Haunting",
+      "source_table": "the-haunting.json",
       "source_note": "Corbitt is destroyed when investigators successfully use his own dagger against him.",
       "numeric": {
         "bypasses_spells": true,
@@ -282,6 +287,7 @@
       "id": "module.haunting.conclusion_sanity_reward",
       "category": "module_rule",
       "module": "The Haunting",
+      "source_table": "the-haunting.json",
       "source_note": "If Corbitt is conquered and destroyed, each participating investigator gains 1D6 Sanity points.",
       "numeric": {
         "sanity_reward_die": "1D6",
@@ -292,6 +298,7 @@
       "id": "module.haunting.bed_attack_damage",
       "category": "module_rule",
       "module": "The Haunting",
+      "source_table": "the-haunting.json",
       "source_note": "The Bed Attack damage in the playtest is 1D6+2 after a failed Dodge.",
       "numeric": {
         "damage_die": "1D6+2",
@@ -305,6 +312,7 @@
       "id": "module.haunting.basement_search_damage",
       "category": "module_rule",
       "module": "The Haunting",
+      "source_table": "the-haunting.json",
       "source_note": "The pushed basement search failure applies 1D4+2 HP damage from the possessed dagger or clutter consequence.",
       "numeric": {
         "damage_die": "1D4+2",

@@ -185,6 +185,68 @@ def test_reward_rule_uses_structured_table():
     }
 
 
+def test_the_haunting_rules_use_structured_table():
+    table = coc_rules.load_rule_table("the-haunting")
+
+    assert table["scenario_id"] == "the-haunting"
+    assert coc_rules.the_haunting_rules() == {
+        "scenario_id": "the-haunting",
+        "rules": {
+            "corbitt_flesh_ward": {
+                "source_rule_id": "module.haunting.corbitt_flesh_ward",
+                "magic_point_cost_in_playtest": 2,
+                "armor_dice_per_magic_point": "1D6",
+                "duration_hours": 24,
+                "requires_resource_change_event": True,
+                "requires_armor_points": True,
+            },
+            "corbitt_floating_knife_mp": {
+                "source_rule_id": "module.haunting.corbitt_floating_knife_mp",
+                "magic_point_cost_per_combat_round": 1,
+                "attacks_per_round": 1,
+            },
+            "corbitt_animate_body": {
+                "source_rule_id": "module.haunting.corbitt_animate_body",
+                "magic_point_cost": 2,
+                "duration_combat_rounds": 5,
+            },
+            "corbitt_summary_bout": {
+                "source_rule_id": "module.haunting.corbitt_summary_bout",
+                "summary_table": "table_viii_summary",
+                "summary_table_roll": "1D10",
+                "alone_uses_summary_table": True,
+                "playtest_summary_result": 4,
+            },
+            "corbitt_own_dagger": {
+                "source_rule_id": "module.haunting.corbitt_own_dagger",
+                "bypasses_spells": True,
+                "requires_successful_attack": True,
+                "result": "turns_to_ashes_and_dust",
+            },
+            "conclusion_sanity_reward": {
+                "source_rule_id": "module.haunting.conclusion_sanity_reward",
+                "requires_corbitt_destroyed": True,
+                "sanity_reward_die": "1D6",
+                "playtest_roll": 4,
+            },
+            "bed_attack_damage": {
+                "source_rule_id": "module.haunting.bed_attack_damage",
+                "precondition": "failed_dodge_after_spot_hidden",
+                "damage_die": "1D6+2",
+                "playtest_die_rolls": [3],
+                "playtest_total": 5,
+            },
+            "basement_search_damage": {
+                "source_rule_id": "module.haunting.basement_search_damage",
+                "precondition": "failed_pushed_spot_hidden",
+                "damage_die": "1D4+2",
+                "playtest_die_rolls": [2],
+                "playtest_total": 4,
+            },
+        },
+    }
+
+
 def test_success_level_uses_percentile_check_bounds(monkeypatch):
     def fake_percentile_check_rule():
         return {
