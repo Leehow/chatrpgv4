@@ -55,6 +55,32 @@ def test_validate_rules_requires_all_current_v1_rule_files(tmp_path):
     assert "missing rule file: derived-attributes.json" in module.validate_rules(tmp_path)
 
 
+def test_validate_rules_rejects_missing_rule_index_source_table(tmp_path):
+    import importlib.util
+
+    path = PLUGIN_ROOT / "scripts" / "coc_validate.py"
+    spec = importlib.util.spec_from_file_location("coc_validate", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    source_rules_dir = PLUGIN_ROOT / "references" / "rules-json"
+    target_rules_dir = tmp_path / "references" / "rules-json"
+    target_rules_dir.mkdir(parents=True)
+    for source_path in source_rules_dir.glob("*.json"):
+        shutil.copy2(source_path, target_rules_dir / source_path.name)
+
+    rule_index_path = target_rules_dir / "rule-index.json"
+    rule_index = json.loads(rule_index_path.read_text())
+    rule_index["rules"][0]["source_table"] = "missing-percentile-table.json"
+    rule_index_path.write_text(json.dumps(rule_index), encoding="utf-8")
+
+    assert (
+        "rule-index source_table missing: core.percentile_check -> missing-percentile-table.json"
+        in module.validate_rules(tmp_path)
+    )
+
+
 def test_rules_json_guide_lists_all_rule_json_files():
     guide_text = (PLUGIN_ROOT / "references" / "rules-json-guide.md").read_text()
 

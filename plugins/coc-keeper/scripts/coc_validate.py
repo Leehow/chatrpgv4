@@ -37,15 +37,30 @@ def validate_rules(plugin_root: Path) -> list[str]:
     if not rules_dir.exists():
         return [f"missing rules directory: {rules_dir}"]
 
+    parsed_rule_files: dict[str, object] = {}
     for filename in REQUIRED_RULE_FILES:
         path = rules_dir / filename
         if not path.exists():
             errors.append(f"missing rule file: {filename}")
             continue
         try:
-            json.loads(path.read_text(encoding="utf-8"))
+            parsed_rule_files[filename] = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             errors.append(f"invalid json in {filename}: {exc}")
+
+    rule_index = parsed_rule_files.get("rule-index.json")
+    if isinstance(rule_index, dict):
+        rules = rule_index.get("rules")
+        if isinstance(rules, list):
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    continue
+                source_table = rule.get("source_table")
+                if not isinstance(source_table, str):
+                    continue
+                if not (rules_dir / source_table).exists():
+                    rule_id = rule.get("id") if isinstance(rule.get("id"), str) else "<unknown>"
+                    errors.append(f"rule-index source_table missing: {rule_id} -> {source_table}")
     return errors
 
 
