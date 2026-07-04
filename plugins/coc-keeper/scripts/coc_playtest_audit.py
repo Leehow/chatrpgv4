@@ -1640,12 +1640,19 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             ),
             "not recorded",
         )
+        own_dagger_exception_events = [
+            event
+            for event in events
+            if event.get("type") == "combat"
+            and event.get("payload", {}).get("rulebook_exception") == "own_dagger_ignores_spells"
+        ]
         lines.append(f"Module coverage: {covered_count}/{len(HAUNTING_MODULE_COVERAGE)} required The Haunting beats recorded.")
         lines.append(f"NPC roleplay turns: {len(npc_speakers)}; speakers: {', '.join(sorted(set(npc_speakers))) if npc_speakers else 'none'}.")
         lines.append(f"Investigator creation records: {creation_records}.")
         lines.append(f"Investigator skill allocation records: {skill_allocation_records}.")
         lines.append(f"Investigator inventory history records: {inventory_records}.")
         lines.append(f"Corbitt Magic point events: {len(corbitt_magic_events)}; Flesh Ward armor: {flesh_ward_armor}.")
+        lines.append(f"Corbitt own-dagger Flesh Ward exception events: {len(own_dagger_exception_events)}.")
         lines.append(
             f"Combat evidence: {_event_type_count(events, 'combat')} combat events; "
             f"{sum(1 for event in rolls if event.get('type') == 'combat')} combat roll entries."
@@ -1827,6 +1834,27 @@ def _resource_change_matches(payload: dict[str, Any], expected: dict[str, Any]) 
     if "armor_points" in expected and payload.get("armor_points") != expected["armor_points"]:
         return False
     return True
+
+
+def _corbitt_own_dagger_exception_gaps(events: list[dict[str, Any]]) -> list[str]:
+    exception_events = [
+        event
+        for event in events
+        if event.get("type") == "combat"
+        and event.get("payload", {}).get("rulebook_exception") == "own_dagger_ignores_spells"
+    ]
+    if not exception_events:
+        return ["no combat event records Corbitt's own-dagger exception to Flesh Ward and other spells"]
+
+    for event in exception_events:
+        payload = event.get("payload", {})
+        if (
+            payload.get("flesh_ward_bypassed") is True
+            and payload.get("armor_before") == 7
+            and payload.get("summary") not in (None, "", [], {})
+        ):
+            return []
+    return ["own-dagger exception event is present but lacks flesh_ward_bypassed=true, armor_before=7, or a player-visible summary"]
 
 
 def _normalize_report_text(text: str) -> str:
@@ -2520,6 +2548,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "; ".join(corbitt_magic_point_gaps),
                 "Record resource_change events for Corbitt Magic points when he casts Flesh Ward, when The Floating Knife attacks, and when Corbitt spends 2 Magic points to move his body.",
+            ))
+
+        corbitt_own_dagger_exception_gaps = _corbitt_own_dagger_exception_gaps(context["events"])
+        if corbitt_own_dagger_exception_gaps:
+            findings.append(_finding(
+                "haunting_corbitt_own_dagger_exception_missing",
+                "system_gap",
+                "high",
+                "; ".join(corbitt_own_dagger_exception_gaps),
+                "Record the rulebook exception that Corbitt's own dagger destroys him regardless of Flesh Ward or other spells, including the pre-hit Flesh Ward armor state.",
             ))
 
         status_text = " ".join(_payload_summaries(context["events"], "status"))

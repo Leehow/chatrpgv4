@@ -1800,7 +1800,14 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"turn": "48c", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_round", "text": bout_rounds[2]["summary"], "localized_text": {"zh-Hans": {"ruling": "疯狂发作回合"}}},
         {"turn": "48d", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_round", "text": bout_rounds[3]["summary"], "localized_text": {"zh-Hans": {"ruling": "疯狂发作回合"}}},
         {"turn": 49, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "attack Corbitt with his own weapon", "text": "Vittorio 的话突然对上了：用他自己的武器。我不退，拿 Corbitt 的 dagger 刺向他。"},
-        {"turn": 50, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "科比特被自己的匕首摧毁。", "text": "Fighting (Brawl) 21 vs 40 -> regular_success. Corbitt is destroyed by his own dagger."},
+        {
+            "turn": 50,
+            "role": "system",
+            "speaker": "system",
+            "mode": "roll",
+            "outcome_note": "科比特自己的匕首命中特例：艾达·金夺下并刺中后，科比特不管任何法术都会迅速化灰；血肉护盾不再保护他。",
+            "text": "Fighting (Brawl) 21 vs 40 -> regular_success. Corbitt is destroyed by his own dagger regardless of spells.",
+        },
         {"turn": 51, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Rewards：Corbitt 化成尘土，Mr. Knott 支付报酬和 30 美元奖金，Ada 恢复 4 SAN。Final HP: 3。Final SAN: 49。"},
     ], ZH_HANS_HAUNTING_GLOSSARY)
 
@@ -1823,7 +1830,27 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"type": "combat", "actor": corbitt_id, "payload": {"skill": "POW", "goal": "resist Ada grabbing The Floating Knife", "target": 90, "effective_target": 90, "difficulty": "opposed", "difficulty_rationale": "Corbitt contests the maneuver with POW.", "roll": 92, "outcome": "failure", "failure_consequence": "Ada gains hold of the knife."}},
         {"type": "sanity", "actor": investigator_id, "payload": {"skill": "SAN", "goal": "withstand seeing Corbitt rise from the pallet", "target": 51, "effective_target": 51, "difficulty": "sanity", "difficulty_rationale": "Corbitt rising calls for SAN 1/1D8.", "roll": 63, "outcome": "failure", "failure_consequence": "Ada loses 1D8 SAN and may suffer temporary insanity.", "san_loss": 6}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "INT", "goal": "determine whether the 5+ SAN loss causes temporary insanity", "target": 70, "effective_target": 70, "difficulty": "regular", "difficulty_rationale": "After losing 5 or more SAN, a successful INT roll means Ada comprehends the horror.", "roll": 35, "outcome": "regular_success", "failure_consequence": "On failure, Ada would be shaken but not temporarily insane.", "skill_check_earned": False, "temporary_insanity_triggered": True}},
-        {"type": "combat", "actor": investigator_id, "payload": {"skill": "Fighting (Brawl)", "goal": "stab Corbitt with his own dagger", "target": 40, "effective_target": 40, "difficulty": "regular", "difficulty_rationale": "Ada attacks with the seized dagger before Corbitt's DEX 35 action.", "roll": 21, "outcome": "regular_success", "failure_consequence": "Corbitt would take his action and continue the combat.", "skill_check_earned": True}},
+        {
+            "type": "combat",
+            "actor": investigator_id,
+            "payload": {
+                "skill": "Fighting (Brawl)",
+                "goal": "stab Corbitt with his own dagger",
+                "target": 40,
+                "effective_target": 40,
+                "difficulty": "regular",
+                "difficulty_rationale": "Ada attacks with the seized dagger before Corbitt's DEX 35 action.",
+                "roll": 21,
+                "outcome": "regular_success",
+                "failure_consequence": "Corbitt would take his action and continue the combat.",
+                "skill_check_earned": True,
+                "damage_interaction": {
+                    "rulebook_exception": "own_dagger_ignores_spells",
+                    "flesh_ward_bypassed": True,
+                    "armor_before": 7,
+                },
+            },
+        },
     ]))
 
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
@@ -1914,7 +1941,17 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         },
         {"type": "combat", "actor": "keeper_under_test", "payload": {"summary": "Corbitt Attacks in a combat round；DEX order 是 Ada 50 先于 Corbitt 35。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 相信 Vittorio 的提示，用 Corbitt 自己的匕首刺向他。"}},
-        {"type": "combat", "actor": investigator_id, "payload": {"summary": "Ada 用 Corbitt 自己的 dagger 刺中他，在 Corbitt 行动前结束战斗。"}},
+        {
+            "type": "combat",
+            "actor": investigator_id,
+            "payload": {
+                "summary": "科比特自己的匕首命中特例：艾达·金夺下并刺中后，科比特不管任何法术都会迅速化灰；血肉护盾不再保护他。",
+                "rulebook_exception": "own_dagger_ignores_spells",
+                "flesh_ward_bypassed": True,
+                "armor_before": 7,
+                "rulebook_ref": "If the investigators wrest control of Corbitt's floating dagger and successfully stab Corbitt with it, he turns to ashes and dust regardless of any spells.",
+            },
+        },
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "The Haunting does not include a required chase sequence（The Haunting 不包含必需追逐场景）；chase subsystem coverage deferred to separate scenario。"}},
         {"type": "status", "actor": investigator_id, "payload": {"summary": "Final HP: 3；Final SAN: 49；Rewards: +4 SAN、30 美元奖金，并可选择保留 worm-eaten book。"}},
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "Conclusion Rewards：Corbitt 被摧毁，Mr. Knott 支付报酬，后续冒险仍留下阴谋线索。"}},

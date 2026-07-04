@@ -1004,6 +1004,15 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "沃尔特·科比特在艾达·金进入老宅后花费 2 点魔法值施放血肉护盾；2D6 护甲掷出 4 和 3，共 7 点护甲；魔法值 18 -> 16。" in scene_replay
     assert "沃尔特·科比特花费 1 点魔法值驱使浮空匕首本轮攻击；魔法值 16 -> 15。" in scene_replay
     assert "沃尔特·科比特花费 2 点魔法值让身体活动五个战斗轮；魔法值 15 -> 13。" in scene_replay
+    final_corbitt_combat = [
+        event for event in campaign_events_by_type(run_dir, "combat")
+        if event.get("payload", {}).get("rulebook_exception") == "own_dagger_ignores_spells"
+    ]
+    assert final_corbitt_combat
+    assert final_corbitt_combat[0]["payload"]["flesh_ward_bypassed"] is True
+    assert final_corbitt_combat[0]["payload"]["armor_before"] == 7
+    assert "科比特自己的匕首命中特例" in scene_replay
+    assert "血肉护盾不再保护他" in scene_replay
     assert "resource_change" not in scene_replay
     assert "最终 HP: 3；最终 SAN: 49；奖励: +4 SAN、30 美元奖金，并可选择保留虫蛀书。" in scene_replay
     assert "DEX 检定" in scene_replay
