@@ -973,21 +973,21 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
         for gap in index["gaps"]:
             lines.append(f"- {gap}")
     else:
-        lines.append("- No gaps detected across indexed playtest runs.")
+        lines.append("- No gaps detected across evaluated playtest runs.")
 
     lines.extend(["", "## Remaining Quality Gaps"])
     if index["quality_gaps"]:
         for gap in index["quality_gaps"]:
             lines.append(f"- {gap}")
     else:
-        lines.append("- No quality gaps detected across indexed playtest runs.")
+        lines.append("- No quality gaps detected across evaluated playtest runs.")
 
     lines.extend(["", "## Remaining Language Gaps"])
     if index.get("language_gaps"):
         for gap in index["language_gaps"]:
             lines.append(f"- {gap}")
     else:
-        lines.append("- No language gaps detected across indexed playtest runs.")
+        lines.append("- No language gaps detected across current language coverage scope.")
 
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")

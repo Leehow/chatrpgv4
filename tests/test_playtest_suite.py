@@ -172,7 +172,7 @@ def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     assert "## Non-Passing Evaluated Runs" in report_text
     assert "- No non-passing evaluated runs in this suite." in report_text
     assert "## Remaining Gaps" in report_text
-    assert "- No gaps detected across indexed playtest runs." in report_text
+    assert "- No gaps detected across evaluated playtest runs." in report_text
 
 
 class FixtureSemanticEvaluator:
@@ -353,6 +353,10 @@ def test_completion_profile_suite_treats_non_default_duplicate_as_optional_evide
     ]
     assert index["loop_decision"]["blockers"] == []
     assert "- Optional Evidence Runs: v5-ja-localization-pressure" in report_text
+    assert "- No gaps detected across evaluated playtest runs." in report_text
+    assert "- No quality gaps detected across evaluated playtest runs." in report_text
+    assert "- No language gaps detected across current language coverage scope." in report_text
+    assert "indexed playtest runs" not in report_text
 
 
 def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
@@ -514,7 +518,7 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
     assert "## Quality Matrix" in report_text
     assert "- No blocking evaluator notes in active playtest runs." in report_text
     assert "## Remaining Quality Gaps" in report_text
-    assert "- No quality gaps detected across indexed playtest runs." in report_text
+    assert "- No quality gaps detected across evaluated playtest runs." in report_text
     assert "## Repair Targets" in report_text
     assert "semantic-artifact-run: none" in report_text
     assert "LLM semantic judge found chase in the run evidence." in report_text
