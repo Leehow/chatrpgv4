@@ -56,6 +56,25 @@ def test_roll_modifiers_rule_uses_structured_table():
     }
 
 
+def test_pushed_roll_rule_uses_structured_table():
+    table = coc_rules.load_rule_table("pushed-roll")
+
+    assert table["maximum_attempts_after_initial_failure"] == 1
+    assert coc_rules.pushed_roll_rule() == {
+        "maximum_attempts_after_initial_failure": 1,
+        "requires_changed_approach": True,
+        "requires_keeper_foreshadowed_failure": True,
+        "requires_keeper_owned_failure_consequence": True,
+        "requires_player_confirmation": True,
+        "required_stages": [
+            "player_reframes_action",
+            "keeper_foreshadows_failure",
+            "player_confirms_risk",
+            "roll_resolved",
+        ],
+    }
+
+
 def test_success_level_uses_percentile_check_bounds(monkeypatch):
     def fake_percentile_check_rule():
         return {

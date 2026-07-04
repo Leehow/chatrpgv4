@@ -85,6 +85,18 @@ def roll_modifiers_rule() -> dict[str, Any]:
     }
 
 
+def pushed_roll_rule() -> dict[str, Any]:
+    table = load_rule_table("pushed-roll")
+    return {
+        "maximum_attempts_after_initial_failure": int(table["maximum_attempts_after_initial_failure"]),
+        "requires_changed_approach": bool(table["requires_changed_approach"]),
+        "requires_keeper_foreshadowed_failure": bool(table["requires_keeper_foreshadowed_failure"]),
+        "requires_keeper_owned_failure_consequence": bool(table["requires_keeper_owned_failure_consequence"]),
+        "requires_player_confirmation": bool(table["requires_player_confirmation"]),
+        "required_stages": [str(stage) for stage in table["required_stages"]],
+    }
+
+
 def _threshold_value(value: int, key: str) -> int:
     table = load_rule_table("half-fifth-values")
     divisor = int(table[key]["divisor"])

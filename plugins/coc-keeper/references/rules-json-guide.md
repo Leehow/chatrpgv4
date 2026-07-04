@@ -18,6 +18,7 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 - `half-fifth-values.json`
 - `movement-rate.json`
 - `percentile-check.json`
+- `pushed-roll.json`
 - `roll-modifiers.json`
 - `sanity.json`
 - `success-levels.json`
@@ -28,7 +29,7 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 
 Use:
 
-- `scripts/coc_rules.py` for percentile bounds, bonus/penalty dice, thresholds, success levels, damage bonus, build, half/fifth values, movement rate, and age adjustments.
+- `scripts/coc_rules.py` for percentile bounds, pushed-roll procedure, bonus/penalty dice, thresholds, success levels, damage bonus, build, half/fifth values, movement rate, and age adjustments.
 - `scripts/coc_rules.py` also exposes `rule_ids()` and `resolve_rule_refs()` for `rule_refs` validation.
 - `scripts/coc_roll.py` for dice expressions and percentile checks.
 - `scripts/coc_validate.py` to verify rule files exist and parse as JSON.

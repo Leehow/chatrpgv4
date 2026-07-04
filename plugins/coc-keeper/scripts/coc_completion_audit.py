@@ -24,7 +24,7 @@ from coc_playtest_report import (
     _format_roll_transcript_text,
     _localized_actor_names,
 )
-from coc_rules import cash_and_assets, rule_ids
+from coc_rules import cash_and_assets, pushed_roll_rule, rule_ids
 
 
 REQUIRED_AUDIT_PROFILES = ["haunting_module", "chase_drill", "multi_profile_pressure"]
@@ -111,12 +111,6 @@ PROFILE_EVENT_TYPE_REQUIREMENTS = {
     "multi_profile_pressure": ["decision", "status", "session_ending"],
 }
 PUSHED_ROLL_REQUIRED_PROFILES = {"haunting_module", "chase_drill", "multi_profile_pressure"}
-PUSHED_ROLL_PROTOCOL_STAGES = [
-    "player_reframes_action",
-    "keeper_foreshadows_failure",
-    "player_confirms_risk",
-    "roll_resolved",
-]
 MULTI_PROFILE_SOURCE_REQUIREMENTS = {
     "multi_profile_pressure": ["careful_investigator", "reckless_investigator", "skeptical_rules_lawyer"],
 }
@@ -148,6 +142,12 @@ REQUIRED_EVALUATION_REPORT_SECTIONS = [
     "## Recommended Fixes",
     "## Regression Tests To Add",
 ]
+
+
+def _pushed_roll_protocol_stages() -> list[str]:
+    return pushed_roll_rule()["required_stages"]
+
+
 REQUIRED_BATTLE_REPORT_ANCHORS = [
     "Battle Report",
     "Run Setup",
@@ -1782,13 +1782,14 @@ def _rulebook_audit_positive_evidence_findings(
         if any(row.get("player_profile") == profile_id for row in transcript) and profile_id not in rulebook_audit:
             missing_evidence.append(f"{audit_profile} rulebook-audit profile {profile_id}")
 
+    pushed_roll_stages = _pushed_roll_protocol_stages()
     for roll_id in _protocol_ids_with_stages(
         transcript,
         "pushed_roll_protocol",
         "roll_id",
-        PUSHED_ROLL_PROTOCOL_STAGES,
+        pushed_roll_stages,
     ):
-        if roll_id not in rulebook_audit or any(stage not in rulebook_audit for stage in PUSHED_ROLL_PROTOCOL_STAGES):
+        if roll_id not in rulebook_audit or any(stage not in rulebook_audit for stage in pushed_roll_stages):
             missing_evidence.append(f"{audit_profile} rulebook-audit pushed protocol {roll_id}")
 
     for spoiler_id in _protocol_ids_with_stages(
@@ -3531,6 +3532,7 @@ def _pushed_roll_structure_findings(
         missing_evidence.append("pushed roll payload protocol")
 
     transcript_roll_ids = set()
+    pushed_roll_stages = _pushed_roll_protocol_stages()
     for roll_id in complete_roll_ids:
         stages = [
             row["pushed_roll_protocol"].get("stage")
@@ -3540,9 +3542,9 @@ def _pushed_roll_structure_findings(
         ]
         stage_index = 0
         for stage in stages:
-            if stage_index < len(PUSHED_ROLL_PROTOCOL_STAGES) and stage == PUSHED_ROLL_PROTOCOL_STAGES[stage_index]:
+            if stage_index < len(pushed_roll_stages) and stage == pushed_roll_stages[stage_index]:
                 stage_index += 1
-        if stage_index == len(PUSHED_ROLL_PROTOCOL_STAGES):
+        if stage_index == len(pushed_roll_stages):
             transcript_roll_ids.add(roll_id)
 
     if not transcript_roll_ids:

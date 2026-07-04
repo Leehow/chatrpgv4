@@ -103,11 +103,13 @@
     {
       "id": "core.pushed_roll",
       "category": "roll_procedure",
+      "source_table": "pushed-roll.json",
       "source_note": "A pushed roll requires a changed approach and Keeper-stated consequences before rerolling.",
       "numeric": {
         "maximum_attempts_after_initial_failure": 1,
         "requires_changed_approach": true,
-        "requires_foreshadowed_failure": true
+        "requires_foreshadowed_failure": true,
+        "requires_player_confirmation": true
       }
     },
     {
