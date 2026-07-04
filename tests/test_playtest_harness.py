@@ -915,11 +915,25 @@ def test_serious_playtests_persist_recoverable_campaign_save_and_indexes(tmp_pat
         scene_index = read_json(campaign_dir / "index" / "scene-index.json")
         assert scene_index["scenes"]
         assert scene_index["active_scene_id"] == world_state["active_scene_id"]
+        scene_ids = {
+            scene["id"]
+            for scene in scene_index["scenes"]
+            if isinstance(scene, dict)
+            and isinstance(scene.get("id"), str)
+        }
+        assert scene_index["active_scene_id"] in scene_ids
 
         npc_index = read_json(campaign_dir / "index" / "npc-index.json")
         clue_index = read_json(campaign_dir / "index" / "clue-index.json")
         assert isinstance(npc_index["npcs"], list)
         assert isinstance(clue_index["clues"], list)
+        indexed_clue_ids = {
+            clue["id"]
+            for clue in [*clue_index["clues"], *clue_index["handouts"]]
+            if isinstance(clue, dict)
+            and isinstance(clue.get("id"), str)
+        }
+        assert set(clue_index["discovered_clue_ids"]).issubset(indexed_clue_ids)
 
         rule_ref_index = read_json(campaign_dir / "index" / "rule-ref-index.json")
         assert set(rule_ref_index["rule_refs"]).issubset(known_rule_ids)

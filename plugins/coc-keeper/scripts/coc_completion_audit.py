@@ -2334,6 +2334,64 @@ def _campaign_structure_findings(
     return findings
 
 
+def _ids_from_index_rows(rows: Any) -> set[str]:
+    if not isinstance(rows, list):
+        return set()
+    return {
+        row["id"]
+        for row in rows
+        if isinstance(row, dict)
+        and isinstance(row.get("id"), str)
+        and row["id"].strip()
+    }
+
+
+def _campaign_index_integrity_findings(
+    run_id: str,
+    campaign_dir: Path,
+    campaign_prefix: str,
+) -> list[dict[str, Any]]:
+    world_state = _read_json(campaign_dir / "save" / "world-state.json", {})
+    scene_index = _read_json(campaign_dir / "index" / "scene-index.json", {})
+    clue_index = _read_json(campaign_dir / "index" / "clue-index.json", {})
+    missing_evidence: list[str] = []
+    incomplete_files: list[str] = []
+
+    active_scene_id = scene_index.get("active_scene_id") or world_state.get("active_scene_id")
+    scene_ids = _ids_from_index_rows(scene_index.get("scenes"))
+    if isinstance(active_scene_id, str) and active_scene_id.strip() and active_scene_id not in scene_ids:
+        missing_evidence.append("active scene id not present in index/scene-index.json")
+        incomplete_files.append(f"{campaign_prefix}index/scene-index.json")
+
+    discovered_clue_ids = clue_index.get("discovered_clue_ids")
+    if not isinstance(discovered_clue_ids, list):
+        discovered_clue_ids = world_state.get("discovered_clue_ids", [])
+    indexed_clue_ids = _ids_from_index_rows(clue_index.get("clues")) | _ids_from_index_rows(clue_index.get("handouts"))
+    unresolved_clue_ids = [
+        clue_id
+        for clue_id in discovered_clue_ids
+        if isinstance(clue_id, str)
+        and clue_id.strip()
+        and clue_id not in indexed_clue_ids
+    ] if isinstance(discovered_clue_ids, list) else []
+    if unresolved_clue_ids:
+        missing_evidence.append("discovered clue ids not present in index/clue-index.json")
+        incomplete_files.append(f"{campaign_prefix}index/clue-index.json")
+
+    if not missing_evidence:
+        return []
+    return [_finding(
+        "campaign_index_integrity_missing",
+        "system_gap",
+        f"{run_id} campaign indexes do not resolve active save state: {', '.join(missing_evidence)}.",
+        "Regenerate campaign indexes so active scene ids and discovered clue ids resolve to structured index rows.",
+        run_id=run_id,
+        incomplete_files=list(dict.fromkeys(incomplete_files)),
+        missing_evidence=missing_evidence,
+        unresolved_clue_ids=unresolved_clue_ids[:20],
+    )]
+
+
 def _rule_ref_traceability_findings(
     run_id: str,
     campaign_dir: Path,
@@ -2838,6 +2896,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             run_id=run_id,
         ))
     findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix, audit_profile))
+    findings.extend(_campaign_index_integrity_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_rule_ref_traceability_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_source_handout_summary_findings(run_id, campaign_dir, campaign_prefix, metadata))
 

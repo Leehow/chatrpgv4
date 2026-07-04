@@ -530,6 +530,16 @@ def _event_payload(event: dict[str, Any]) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _indexed_ids(rows: list[Any]) -> set[str]:
+    return {
+        row["id"]
+        for row in rows
+        if isinstance(row, dict)
+        and isinstance(row.get("id"), str)
+        and row["id"]
+    }
+
+
 def _write_campaign_save_and_indexes(campaign_dir: Path) -> None:
     campaign = _read_json(campaign_dir / "campaign.json", {})
     party = _read_json(campaign_dir / "party.json", {})
@@ -696,6 +706,13 @@ def _write_campaign_save_and_indexes(campaign_dir: Path) -> None:
                 "summary": entry.get("summary"),
                 "source_file": "scenario/timeline.json",
             })
+    if active_scene_id and active_scene_id not in _indexed_ids(scene_rows):
+        scene_rows.append({
+            "id": active_scene_id,
+            "summary": active_scene_payload.get("summary") or scenario.get("current_phase"),
+            "source_file": "logs/events.jsonl",
+            "source_event_type": active_scene_event.get("type"),
+        })
     _write_json(campaign_dir / "index" / "scene-index.json", {
         "schema_version": 1,
         "campaign_id": campaign_id,
@@ -709,12 +726,35 @@ def _write_campaign_save_and_indexes(campaign_dir: Path) -> None:
         "scenario_id": scenario_id,
         "npcs": npcs if isinstance(npcs, list) else [],
     })
+    clue_rows = list(clues) if isinstance(clues, list) else []
+    handout_rows = list(handouts) if isinstance(handouts, list) else []
+    indexed_clue_ids = _indexed_ids([*clue_rows, *handout_rows])
+    for clue_id in discovered_clue_ids:
+        if clue_id in indexed_clue_ids:
+            continue
+        clue_event = next(
+            (
+                event
+                for event in events
+                if event.get("type") == "clue"
+                and _event_payload(event).get("clue_id") == clue_id
+            ),
+            {},
+        )
+        clue_payload = _event_payload(clue_event)
+        clue_rows.append({
+            "id": clue_id,
+            "summary": clue_payload.get("summary"),
+            "route": "logs/events.jsonl",
+            "source_event_type": clue_event.get("type"),
+        })
+        indexed_clue_ids.add(clue_id)
     _write_json(campaign_dir / "index" / "clue-index.json", {
         "schema_version": 1,
         "campaign_id": campaign_id,
         "scenario_id": scenario_id,
-        "clues": clues if isinstance(clues, list) else [],
-        "handouts": handouts if isinstance(handouts, list) else [],
+        "clues": clue_rows,
+        "handouts": handout_rows,
         "discovered_clue_ids": discovered_clue_ids,
     })
 
