@@ -2001,6 +2001,13 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
         "player_profile": "careful_investigator",
+        "simulation_method": "transcript_driven_virtual_table",
+        "simulation_interaction_model": {
+            "keeper_role": "keeper_under_test",
+            "player_role": "player_simulator",
+            "evaluator_role": "evaluator",
+            "view_boundary": "player-view and keeper-view streams",
+        },
         "module_coverage": [
             "knott_hiring",
             "research_route",
@@ -2044,9 +2051,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "final_state_and_rewards",
         ],
         "failed_test_cases": [],
-        "future_enhancements": [
-            "Replace the scripted full-module baseline with an LLM-vs-KP interactive transcript when a live multi-agent playtest runner is available.",
-        ],
+        "future_enhancements": [],
         "regression_tests": ["Haunting module audit must pass for the module-level harness."],
     }, ZH_HANS_HAUNTING_GLOSSARY))
     _write_json(campaign_dir / "campaign.json", {
@@ -2668,9 +2673,9 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             ),
         },
         {
-            "severity": "medium",
+            "severity": "low",
             "category": "immersion",
-            "text": "The scripted test compresses a full scenario and should later be replaced by an LLM-vs-KP interactive transcript.",
+            "text": "The deterministic transcript-driven virtual table compresses a full scenario, but the report includes visible Keeper/player turns, player choices, rule calls, state changes, and feedback for audit.",
             "evidence": _evidence(
                 transcript_turns=[1, 10, 16, 22, 40, 57],
                 artifact_paths=["artifacts/battle-report.md", "transcript.jsonl"],

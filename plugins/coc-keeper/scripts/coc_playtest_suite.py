@@ -52,6 +52,9 @@ SOURCE_GATED_SUBSYSTEM_COVERAGE = {
     "sanity": "sanity",
 }
 
+BLOCKING_EVALUATOR_NOTE_SEVERITIES = {"medium", "high", "critical"}
+DEFAULT_EVALUATOR_NOTE_ROOT_CAUSES = ["test_gap", "system_gap", "report_gap", "design_gap"]
+
 
 def _json_sha256(payload: Any) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -280,6 +283,20 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def _evaluator_note_blockers(run_dir: Path) -> list[dict[str, str]]:
+    blockers: list[dict[str, str]] = []
+    for note in _read_jsonl(run_dir / "evaluator-notes.jsonl"):
+        severity = str(note.get("severity") or "").strip().lower()
+        if severity not in BLOCKING_EVALUATOR_NOTE_SEVERITIES:
+            continue
+        blockers.append({
+            "severity": severity,
+            "category": str(note.get("category") or "uncategorized"),
+            "text": str(note.get("text") or "No evaluator note text recorded."),
+        })
+    return blockers
+
+
 def _playtests_dir(root: Path) -> Path:
     return root / ".coc" / "playtests"
 
@@ -459,6 +476,7 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
             "quality_scores": quality_scores,
             "quality_passes": quality_passes,
             "quality_reasons": quality_reasons,
+            "evaluator_note_blockers": _evaluator_note_blockers(run_dir),
         }
         for optional_key in (
             "semantic_eval_result",
@@ -569,6 +587,18 @@ def _loop_decision(index: dict[str, Any]) -> dict[str, Any]:
                 "run_id": run["run_id"],
                 "root_cause_classification": run.get("root_cause_classification", ["test_gap"]),
                 "next_loop_fix_target": run.get("next_loop_fix_target", f"Fill artifacts/{SEMANTIC_EVAL_RESULT}."),
+            })
+        for note in run.get("evaluator_note_blockers", []):
+            blockers.append({
+                "type": "evaluator_note_blocker",
+                "run_id": run["run_id"],
+                "severity": note["severity"],
+                "category": note["category"],
+                "root_cause_classification": DEFAULT_EVALUATOR_NOTE_ROOT_CAUSES,
+                "next_loop_fix_target": (
+                    f"Resolve {note['severity']} evaluator note ({note['category']}) "
+                    f"for {run['run_id']}: {note['text']}"
+                ),
             })
 
     for gap in index["gaps"]:
@@ -759,6 +789,20 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
             lines.append(f"- {run['run_id']}: {run['audit_profile']} {run['audit_result']}")
     else:
         lines.append("- No non-passing runs in this suite.")
+
+    lines.extend(["", "## Evaluator Note Blockers"])
+    active_note_run_ids = set(index.get("loop_decision", {}).get("evaluated_runs", []))
+    note_blockers = [
+        (run, note)
+        for run in index["runs"]
+        if run["run_id"] in active_note_run_ids
+        for note in run.get("evaluator_note_blockers", [])
+    ]
+    if note_blockers:
+        for run, note in note_blockers:
+            lines.append(f"- {run['run_id']} [{note['severity']}/{note['category']}]: {note['text']}")
+    else:
+        lines.append("- No medium-or-higher evaluator notes in active playtest runs.")
 
     lines.extend(["", "## Core Coverage Matrix"])
     for key, value in index["coverage"].items():

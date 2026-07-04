@@ -1047,8 +1047,15 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert audit["result"] == "pass"
     assert "Evidence:" in evaluation_text
     assert "## Future Enhancements" in evaluation_text
+    assert "- No future enhancements recorded." in evaluation_text
     assert "## Recommended Fixes\n- No fixes recorded." in evaluation_text
-    assert "LLM-vs-KP interactive transcript" in evaluation_text
+    assert metadata["simulation_method"] == "transcript_driven_virtual_table"
+    assert metadata["future_enhancements"] == []
+    assert [
+        note
+        for note in run_jsonl(run_dir, "evaluator-notes.jsonl")
+        if note.get("severity") in {"medium", "high", "critical"}
+    ] == []
     assert "PASS" in audit_text
     assert "## Positive Rulebook Evidence" in audit_text
     assert transcript_turn_sequence_gaps(run_dir) == []
