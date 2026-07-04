@@ -257,7 +257,8 @@ def create_snapshot(root: Path, campaign_id: str, label: str) -> Path:
         source = campaign_dir / name
         if source.exists():
             shutil.copy2(source, snapshot_dir / name)
-    save_dir = campaign_dir / "save"
-    if save_dir.exists():
-        shutil.copytree(save_dir, snapshot_dir / "save")
+    for directory in ("save", "scenario", "index", "memory", "logs"):
+        source_dir = campaign_dir / directory
+        if source_dir.exists():
+            shutil.copytree(source_dir, snapshot_dir / directory)
     return snapshot_dir

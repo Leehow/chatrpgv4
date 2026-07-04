@@ -131,9 +131,26 @@ def test_custom_language_profiles_are_independent_copies():
 def test_append_jsonl_and_snapshot(tmp_path):
     coc_state.ensure_workspace(tmp_path)
     coc_state.create_campaign(tmp_path, "case-1", "Case 1")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
     log_path = tmp_path / ".coc" / "campaigns" / "case-1" / "logs" / "events.jsonl"
     coc_state.append_jsonl(log_path, {"type": "scene", "payload": {"id": "intro"}})
+    coc_state.append_jsonl(
+        campaign_dir / "memory" / "session-summaries.jsonl",
+        {"summary": "The investigators opened the case."},
+    )
+    (campaign_dir / "scenario" / "scenario.json").write_text(
+        json.dumps({"scenario_id": "case-1-scenario"}),
+        encoding="utf-8",
+    )
+    (campaign_dir / "index" / "source-map.json").write_text(
+        json.dumps({"sources": [{"path": "pdf/module.pdf"}]}),
+        encoding="utf-8",
+    )
     snapshot_path = coc_state.create_snapshot(tmp_path, "case-1", "after-intro")
 
     assert log_path.read_text().strip().endswith('"scene", "payload": {"id": "intro"}}')
     assert snapshot_path.exists()
+    assert (snapshot_path / "logs" / "events.jsonl").read_text() == log_path.read_text()
+    assert (snapshot_path / "memory" / "session-summaries.jsonl").exists()
+    assert json.loads((snapshot_path / "scenario" / "scenario.json").read_text())["scenario_id"] == "case-1-scenario"
+    assert json.loads((snapshot_path / "index" / "source-map.json").read_text())["sources"][0]["path"] == "pdf/module.pdf"
