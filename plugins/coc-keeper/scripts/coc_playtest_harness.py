@@ -651,12 +651,14 @@ def _write_campaign_save_and_indexes(campaign_dir: Path) -> None:
             continue
         character = _read_json(investigators_root / investigator_id / "character.json", {})
         derived = character.get("derived", {}) if isinstance(character.get("derived"), dict) else {}
+        character_skills = character.get("skills", {}) if isinstance(character.get("skills"), dict) else {}
         investigator_status = _last_payload(events, "status", investigator_id) or status_payload
         skill_checks = _unique_strings([
             _event_payload(row).get("skill")
             for row in rolls
             if row.get("actor") == investigator_id
             and _event_payload(row).get("skill_check_earned") is True
+            and _event_payload(row).get("skill") in character_skills
         ])
         _write_json(campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json", {
             "schema_version": 1,

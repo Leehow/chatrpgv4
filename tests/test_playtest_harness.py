@@ -941,12 +941,19 @@ def test_serious_playtests_persist_recoverable_campaign_save_and_indexes(tmp_pat
 
         for investigator_id in investigator_ids:
             state = read_json(campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json")
+            development_skill_checks = {
+                skill
+                for row in investigator_jsonl(run_dir, investigator_id, "development.jsonl")
+                for skill in row.get("skill_checks_earned", [])
+                if isinstance(skill, str)
+            }
             assert state["campaign_id"] == campaign_id
             assert state["investigator_id"] == investigator_id
             assert state["character_ref"] == f"sandbox/.coc/investigators/{investigator_id}/character.json"
             assert isinstance(state["current_hp"], int)
             assert isinstance(state["current_san"], int)
             assert isinstance(state["skill_checks_earned"], list)
+            assert set(state["skill_checks_earned"]) == development_skill_checks
 
         subsystems = set(metadata["subsystems_covered"])
         if "combat" in subsystems:

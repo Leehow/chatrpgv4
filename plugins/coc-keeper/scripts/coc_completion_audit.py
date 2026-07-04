@@ -2442,6 +2442,16 @@ def _numeric_payload_value(payload: dict[str, Any], key: str) -> int | float | N
     return None
 
 
+def _development_skill_checks(rows: list[dict[str, Any]]) -> set[str]:
+    skill_checks: set[str] = set()
+    for row in rows:
+        values = row.get("skill_checks_earned")
+        if not isinstance(values, list):
+            continue
+        skill_checks.update(_string_set(values))
+    return skill_checks
+
+
 def _campaign_save_integrity_findings(
     run_id: str,
     run_dir: Path,
@@ -2517,8 +2527,12 @@ def _campaign_save_integrity_findings(
     for investigator_id in investigator_ids:
         investigator_state_ref = f"save/investigator-state/{investigator_id}.json"
         state = _read_json(campaign_dir / investigator_state_ref, {})
-        character = _read_json(run_dir / f"sandbox/.coc/investigators/{investigator_id}/character.json", {})
+        investigator_prefix = f"sandbox/.coc/investigators/{investigator_id}/"
+        character = _read_json(run_dir / f"{investigator_prefix}character.json", {})
+        development = _read_jsonl(run_dir / f"{investigator_prefix}development.jsonl")
         derived = character.get("derived") if isinstance(character.get("derived"), dict) else {}
+        state_skill_checks = _string_set(state.get("skill_checks_earned"))
+        development_skill_checks = _development_skill_checks(development)
         status_payload = _latest_status_payload(events, investigator_id)
         if state.get("campaign_id") != run_id:
             missing_evidence.append("investigator-state campaign_id does not match run campaign")
@@ -2542,6 +2556,12 @@ def _campaign_save_integrity_findings(
             if expected_value is not None and state.get(state_key) != expected_value:
                 missing_evidence.append(evidence_label)
                 incomplete_files.append(f"{campaign_prefix}{investigator_state_ref}")
+        if (state_skill_checks or development_skill_checks) and state_skill_checks != development_skill_checks:
+            missing_evidence.append("investigator-state skill_checks_earned does not match development skill_checks_earned")
+            incomplete_files.extend([
+                f"{campaign_prefix}{investigator_state_ref}",
+                f"{investigator_prefix}development.jsonl",
+            ])
 
     if not missing_evidence:
         return []
