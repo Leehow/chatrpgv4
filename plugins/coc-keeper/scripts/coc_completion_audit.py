@@ -24,6 +24,7 @@ from coc_playtest_report import (
     _format_roll_transcript_text,
     _localized_actor_names,
 )
+from coc_validate import validate_rules
 from coc_rules import cash_and_assets, pushed_roll_rule, rule_ids
 
 
@@ -379,6 +380,25 @@ def _required_profiles(active_runs: list[dict[str, Any]]) -> dict[str, str | Non
         if audit_profile in profiles and profiles[audit_profile] is None:
             profiles[audit_profile] = str(run.get("run_id"))
     return profiles
+
+
+def _rules_json_validation_findings(root: Path) -> list[dict[str, Any]]:
+    plugin_root = root / "plugins" / "coc-keeper"
+    if not plugin_root.exists():
+        return []
+
+    errors = validate_rules(plugin_root)
+    if not errors:
+        return []
+
+    return [_finding(
+        "rules_json_validation_failed",
+        "system_gap",
+        "rules-json validation errors: " + "; ".join(errors[:10]),
+        "Repair plugins/coc-keeper/references/rules-json, then run python plugins/coc-keeper/scripts/coc_validate.py rules plugins/coc-keeper.",
+        incomplete_files=["plugins/coc-keeper/references/rules-json"],
+        missing_evidence=errors,
+    )]
 
 
 def _monitor_status(automation_path: Path | None) -> tuple[str, str]:
@@ -4575,6 +4595,7 @@ def generate_completion_audit(root: Path, automation_path: Path | None = None) -
     loop_decision = _read_json(base / "loop-decision.json", {})
     active_runs = _active_runs(index, loop_decision)
     findings = _suite_findings(index, loop_decision, active_runs, _read_text(base / "suite-report.md"))
+    findings.extend(_rules_json_validation_findings(root))
     findings.extend(_active_evaluator_note_findings(root, active_runs))
     findings.extend(_semantic_support_findings(root, index, active_runs))
     for run in active_runs:
