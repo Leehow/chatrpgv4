@@ -883,6 +883,11 @@ def test_serious_harness_accepts_selected_play_language(tmp_path):
         for event in run_jsonl(run_dir, "player-view.jsonl")
         if event.get("type") == "transcript_turn"
     }
+    keeper_view = {
+        event.get("turn"): event
+        for event in run_jsonl(run_dir, "keeper-view.jsonl")
+        if event.get("type") == "transcript_turn"
+    }
 
     assert metadata["play_language"] == "ja-JP"
     assert metadata["language_profile"]["language"] == "ja-JP"
@@ -941,6 +946,11 @@ def test_serious_harness_accepts_selected_play_language(tmp_path):
     assert "我想质疑一下" not in transcript[12]["text_display"]
     assert "扉のラッチ付近に新しい傷を見つけ" in transcript[11]["text_display"]
     assert "你看见门闩边缘有新划痕" not in transcript[11]["text_display"]
+    expected_roll_note = transcript[11]["localized_text"]["ja-JP"]["outcome_note"]
+    assert transcript[11]["outcome_note"] == expected_roll_note
+    assert player_view[11]["outcome_note"] == expected_roll_note
+    assert keeper_view[11]["outcome_note"] == expected_roll_note
+    assert expected_roll_note in player_view[11]["text"]
     assert "質問です。慎重なプレイヤーは資料を調べ" in player_view[12]["text"]
     assert "我想质疑一下" not in player_view[12]["text"]
     assert "これは『怪異の家』のキーパー情報" in player_view["13b"]["text"]

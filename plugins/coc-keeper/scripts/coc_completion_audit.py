@@ -129,6 +129,12 @@ PLAYER_VISIBLE_PROTOCOL_WRAPPERS = (
     "[spoiler_warning]",
     "[/spoiler_warning]",
 )
+TRANSCRIPT_SOURCE_LOCALIZED_TEXT_FIELDS = (
+    "text",
+)
+TRANSCRIPT_SOURCE_LOCALIZED_VISIBLE_FIELDS = (
+    "outcome_note",
+)
 REQUIRED_EVALUATION_REPORT_SECTIONS = [
     "# Evaluation Report",
     "## Overall Result",
@@ -3129,27 +3135,29 @@ def _transcript_source_text_findings(
     mismatches: list[str] = []
     samples: list[str] = []
     for row in _read_jsonl(run_dir / "transcript.jsonl"):
-        if row.get("role") not in {"keeper_under_test", "player_simulator"}:
-            continue
         localized_text = row.get("localized_text", {})
         language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
-        expected = language_text.get("text")
-        actual = row.get("text")
-        if not isinstance(expected, str) or not expected.strip():
-            continue
-        expected = _localize_text(expected, localized_terms).strip()
-        if not isinstance(actual, str) or actual.strip() != expected:
-            mismatches.append(f"turn {row.get('turn')} text")
-            if len(samples) < 8:
-                samples.append(f"turn {row.get('turn')}: expected {expected}; actual {actual}")
+        fields = list(TRANSCRIPT_SOURCE_LOCALIZED_VISIBLE_FIELDS)
+        if row.get("role") in {"keeper_under_test", "player_simulator"}:
+            fields.extend(TRANSCRIPT_SOURCE_LOCALIZED_TEXT_FIELDS)
+        for field in fields:
+            expected = language_text.get(field)
+            actual = row.get(field)
+            if not isinstance(expected, str) or not expected.strip():
+                continue
+            expected = _localize_text(expected, localized_terms).strip()
+            if not isinstance(actual, str) or actual.strip() != expected:
+                mismatches.append(f"turn {row.get('turn')} {field}")
+                if len(samples) < 8:
+                    samples.append(f"turn {row.get('turn')} {field}: expected {expected}; actual {actual}")
 
     if not mismatches:
         return []
     return [_finding(
         "transcript_source_text_not_localized",
         "system_gap",
-        f"{run_id} transcript.jsonl top-level text does not match localized_text.{play_language}.text for {len(mismatches)} player-visible source turns.",
-        "Regenerate the active run so transcript.jsonl top-level KP/player text uses the selected play_language; keep machine keys, enums, ids, and roll rows canonical separately.",
+        f"{run_id} transcript.jsonl top-level player-visible text fields do not match localized_text.{play_language} for {len(mismatches)} source values.",
+        "Regenerate the active run so transcript.jsonl top-level KP/player text and visible roll adjunct fields use the selected play_language; keep machine keys, enums, ids, and roll rows canonical separately.",
         run_id=run_id,
         source_transcript_text_mismatches=mismatches,
         source_transcript_text_samples=samples,

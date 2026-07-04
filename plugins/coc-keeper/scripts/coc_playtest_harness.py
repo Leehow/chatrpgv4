@@ -307,6 +307,7 @@ LOCALIZED_JSON_TEXT_KEYS = {
     "foreshadowed_failure",
     "goal",
     "name",
+    "outcome_note",
     "player_safe_summary",
     "push_justification",
     "purpose",
@@ -320,6 +321,9 @@ LOCALIZED_ROLL_TEXT_KEYS = (
     "failure_consequence",
     "push_justification",
     "foreshadowed_failure",
+)
+LOCALIZED_TRANSCRIPT_VISIBLE_TEXT_KEYS = (
+    "outcome_note",
 )
 ZH_HANS_ROLL_TEXT = {
     "gain access to The Boston Globe clipping files from Arty Wilmot": "获得《波士顿环球报》剪报档案的查阅许可",
@@ -1751,6 +1755,9 @@ def _write_transcript_jsonl_localized(
                 localized["text"] = _localize_text(language_text["text"], glossary)
             elif isinstance(localized.get("text"), str):
                 localized["text"] = _localize_text(localized["text"], glossary)
+        for key in LOCALIZED_TRANSCRIPT_VISIBLE_TEXT_KEYS:
+            if isinstance(language_text.get(key), str):
+                localized[key] = _localize_text(language_text[key], glossary)
         for key in ("intent", "ruling"):
             value = localized.get(key)
             if not isinstance(value, str):
