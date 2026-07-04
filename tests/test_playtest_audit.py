@@ -361,6 +361,25 @@ def test_rulebook_audit_requires_structured_sanity_prompt_before_san_roll(tmp_pa
     assert "sanity_prompt_missing" in finding_codes(audit)
 
 
+def test_rulebook_audit_requires_keeper_prompt_link_for_multi_roll_system_turn(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "multi-roll-prompt-gap"
+    create_final_rulebook_run(run_dir)
+    transcript_path = run_dir / "transcript.jsonl"
+    transcript = [json.loads(line) for line in transcript_path.read_text().splitlines() if line.strip()]
+    transcript.append({
+        "turn": 11,
+        "role": "system",
+        "mode": "roll",
+        "roll_count": 2,
+        "text": "Dodge 19 vs 35 -> success; Fighting 62 vs 45 -> failure.",
+    })
+    write_jsonl(transcript_path, transcript)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert "multi_roll_prompt_missing" in finding_codes(audit)
+
+
 def test_final_audit_requires_pushed_roll_session_end_and_mechanical_detail(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "haunting-loop"
     create_rulebook_shaped_run(run_dir)

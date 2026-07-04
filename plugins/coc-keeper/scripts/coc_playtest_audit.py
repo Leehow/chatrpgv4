@@ -635,6 +635,29 @@ def _sanity_prompt_gaps(transcript: list[dict[str, Any]], rolls: list[dict[str, 
     return [f"{sanity_rolls} SAN roll(s) but only {sanity_prompts} structured Keeper sanity prompt(s)"]
 
 
+def _keeper_ruling_turns(transcript: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(event.get("turn"))
+        for event in transcript
+        if event.get("role") == "keeper_under_test" and _nonempty_text(event.get("ruling"))
+    }
+
+
+def _multi_roll_prompt_gaps(transcript: list[dict[str, Any]]) -> list[str]:
+    keeper_ruling_turns = _keeper_ruling_turns(transcript)
+    gaps: list[str] = []
+    for event in transcript:
+        if event.get("role") != "system" or event.get("mode") != "roll":
+            continue
+        roll_count = event.get("roll_count")
+        if not isinstance(roll_count, int) or roll_count <= 1:
+            continue
+        prompt_turn = event.get("resolution_prompt_turn")
+        if prompt_turn in (None, "", [], {}) or str(prompt_turn) not in keeper_ruling_turns:
+            gaps.append(f"turn {event.get('turn', '?')} roll_count={roll_count} lacks resolution_prompt_turn linked to a Keeper ruling")
+    return gaps
+
+
 def _turn_base(value: Any) -> int | None:
     if isinstance(value, int):
         return value
@@ -2293,6 +2316,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "; ".join(sanity_prompt_gaps),
             "Before each SAN roll appears in the transcript, record a structured Keeper ruling such as san_roll or scene_sanity so the report reads like actual play rather than a raw mechanical insertion.",
+        ))
+
+    multi_roll_prompt_gaps = _multi_roll_prompt_gaps(transcript)
+    if multi_roll_prompt_gaps:
+        findings.append(_finding(
+            "multi_roll_prompt_missing",
+            "report_gap",
+            "medium",
+            "; ".join(multi_roll_prompt_gaps),
+            "Before a system transcript row resolves multiple rolls, record resolution_prompt_turn pointing to a Keeper ruling that explains the combined, opposed, or chained resolution.",
         ))
 
     if not context["clues"] or _event_type_count(context["events"], "clue") < 1:
