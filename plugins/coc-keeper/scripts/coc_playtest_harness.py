@@ -24,7 +24,7 @@ from coc_playtest_report import (
     generate_battle_report,
     generate_evaluation_report,
 )
-from coc_language import language_profile
+from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
 
 
 ZH_HANS_BASE_GLOSSARY = {
@@ -853,6 +853,59 @@ def _write_campaign_save_and_indexes(campaign_dir: Path) -> None:
             ],
             "outcome": _event_payload(combat_rows[-1]).get("summary") if combat_rows else None,
         })
+    _write_workspace_indexes(campaign_dir)
+
+
+def _sandbox_relative_path(campaign_dir: Path, path: Path) -> str:
+    return path.relative_to(campaign_dir.parents[1].parent).as_posix()
+
+
+def _write_workspace_indexes(campaign_dir: Path) -> None:
+    campaign = _read_json(campaign_dir / "campaign.json", {})
+    party = _read_json(campaign_dir / "party.json", {})
+    campaign_id = str(campaign.get("campaign_id") or campaign_dir.name)
+    investigator_ids = party.get("investigator_ids", [])
+    if not isinstance(investigator_ids, list):
+        investigator_ids = []
+
+    coc_dir = campaign_dir.parents[1]
+    investigators_root = coc_dir / "investigators"
+    investigator_entries: dict[str, dict[str, Any]] = {}
+    for investigator_id in investigator_ids:
+        if not isinstance(investigator_id, str):
+            continue
+        investigator_dir = investigators_root / investigator_id
+        character = _read_json(investigator_dir / "character.json", {})
+        investigator_entries[investigator_id] = {
+            "id": investigator_id,
+            "name": character.get("name", investigator_id),
+            "path": _sandbox_relative_path(campaign_dir, investigator_dir / "character.json"),
+            "history_path": _sandbox_relative_path(campaign_dir, investigator_dir / "history.jsonl"),
+            "development_path": _sandbox_relative_path(campaign_dir, investigator_dir / "development.jsonl"),
+            "inventory_history_path": _sandbox_relative_path(campaign_dir, investigator_dir / "inventory-history.jsonl"),
+        }
+
+    _write_json(coc_dir / "indexes" / "investigators.json", {
+        "schema_version": 1,
+        "investigators": investigator_entries,
+    })
+    _write_json(coc_dir / "indexes" / "campaigns.json", {
+        "schema_version": 1,
+        "campaigns": {
+            campaign_id: {
+                "campaign_id": campaign_id,
+                "title": campaign.get("title", campaign_id),
+                "status": campaign.get("status", "playtest"),
+                "play_language": campaign.get("play_language", DEFAULT_PLAY_LANGUAGE),
+                "path": _sandbox_relative_path(campaign_dir, campaign_dir / "campaign.json"),
+                "party_path": _sandbox_relative_path(campaign_dir, campaign_dir / "party.json"),
+                "save_path": _sandbox_relative_path(campaign_dir, campaign_dir / "save"),
+                "memory_path": _sandbox_relative_path(campaign_dir, campaign_dir / "memory"),
+                "logs_path": _sandbox_relative_path(campaign_dir, campaign_dir / "logs"),
+                "investigator_ids": investigator_ids,
+            },
+        },
+    })
 
 
 def _select_campaign_dir(run_dir: Path) -> Path | None:

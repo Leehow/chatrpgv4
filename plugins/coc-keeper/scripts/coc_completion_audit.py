@@ -65,6 +65,10 @@ REQUIRED_CAMPAIGN_INDEX_FILES = [
     "index/clue-index.json",
     "index/rule-ref-index.json",
 ]
+REQUIRED_WORKSPACE_INDEX_FILES = [
+    "indexes/investigators.json",
+    "indexes/campaigns.json",
+]
 PROFILE_REQUIRED_CAMPAIGN_SAVE_FILES = {
     "haunting_module": ["save/combat.json"],
     "chase_drill": ["save/chase.json"],
@@ -2650,6 +2654,15 @@ def _run_relative_file_exists(run_dir: Path, value: Any) -> bool:
     return (run_dir / relative_path).is_file()
 
 
+def _sandbox_relative_path_exists(sandbox_root: Path, value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    relative_path = Path(value)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        return False
+    return (sandbox_root / relative_path).exists()
+
+
 def _string_set(values: Any) -> set[str]:
     if not isinstance(values, list):
         return set()
@@ -2668,6 +2681,89 @@ def _true_flag_keys(values: Any) -> set[str]:
         for key, value in values.items()
         if isinstance(key, str) and key.strip() and value is True
     }
+
+
+def _workspace_index_integrity_findings(
+    run_id: str,
+    run_dir: Path,
+    campaign_id: str,
+    investigator_ids: list[str],
+) -> list[dict[str, Any]]:
+    sandbox_root = run_dir / "sandbox"
+    workspace_root = sandbox_root / ".coc"
+    campaign_index = _read_json(workspace_root / "indexes" / "campaigns.json", {})
+    investigator_index = _read_json(workspace_root / "indexes" / "investigators.json", {})
+    missing_evidence: list[str] = []
+    incomplete_files: list[str] = []
+
+    campaigns = campaign_index.get("campaigns") if isinstance(campaign_index, dict) else None
+    campaign_entry = campaigns.get(campaign_id) if isinstance(campaigns, dict) else None
+    if not isinstance(campaign_entry, dict):
+        missing_evidence.append("campaign id not present in indexes/campaigns.json")
+        incomplete_files.append("sandbox/.coc/indexes/campaigns.json")
+    else:
+        expected_campaign_paths = {
+            "path": f".coc/campaigns/{campaign_id}/campaign.json",
+            "party_path": f".coc/campaigns/{campaign_id}/party.json",
+            "save_path": f".coc/campaigns/{campaign_id}/save",
+            "memory_path": f".coc/campaigns/{campaign_id}/memory",
+            "logs_path": f".coc/campaigns/{campaign_id}/logs",
+        }
+        if campaign_entry.get("campaign_id") != campaign_id:
+            missing_evidence.append("campaign index entry campaign_id does not match active campaign")
+            incomplete_files.append("sandbox/.coc/indexes/campaigns.json")
+        if _string_set(campaign_entry.get("investigator_ids")) != set(investigator_ids):
+            missing_evidence.append("campaign index investigator_ids do not match party.json")
+            incomplete_files.append("sandbox/.coc/indexes/campaigns.json")
+        for key, expected_path in expected_campaign_paths.items():
+            if campaign_entry.get(key) != expected_path:
+                missing_evidence.append(f"campaign index {key} does not match expected workspace path")
+                incomplete_files.append("sandbox/.coc/indexes/campaigns.json")
+            elif not _sandbox_relative_path_exists(sandbox_root, expected_path):
+                missing_evidence.append(f"campaign index {key} does not resolve")
+                incomplete_files.append("sandbox/.coc/indexes/campaigns.json")
+
+    investigators = investigator_index.get("investigators") if isinstance(investigator_index, dict) else None
+    if not isinstance(investigators, dict):
+        missing_evidence.append("investigator collection missing in indexes/investigators.json")
+        incomplete_files.append("sandbox/.coc/indexes/investigators.json")
+    else:
+        for investigator_id in investigator_ids:
+            entry = investigators.get(investigator_id)
+            if not isinstance(entry, dict):
+                missing_evidence.append(f"investigator id {investigator_id} not present in indexes/investigators.json")
+                incomplete_files.append("sandbox/.coc/indexes/investigators.json")
+                continue
+            expected_investigator_paths = {
+                "path": f".coc/investigators/{investigator_id}/character.json",
+                "history_path": f".coc/investigators/{investigator_id}/history.jsonl",
+                "development_path": f".coc/investigators/{investigator_id}/development.jsonl",
+                "inventory_history_path": f".coc/investigators/{investigator_id}/inventory-history.jsonl",
+            }
+            if entry.get("id") != investigator_id:
+                missing_evidence.append(f"investigator index entry id does not match {investigator_id}")
+                incomplete_files.append("sandbox/.coc/indexes/investigators.json")
+            for key, expected_path in expected_investigator_paths.items():
+                if entry.get(key) != expected_path:
+                    missing_evidence.append(
+                        f"investigator index {key} does not match expected workspace path for {investigator_id}"
+                    )
+                    incomplete_files.append("sandbox/.coc/indexes/investigators.json")
+                elif not _sandbox_relative_path_exists(sandbox_root, expected_path):
+                    missing_evidence.append(f"investigator index {key} does not resolve for {investigator_id}")
+                    incomplete_files.append("sandbox/.coc/indexes/investigators.json")
+
+    if not missing_evidence:
+        return []
+    return [_finding(
+        "active_run_workspace_index_missing",
+        "system_gap",
+        f"{run_id} workspace indexes do not resolve active campaign and reusable investigators: {', '.join(missing_evidence)}.",
+        "Regenerate the active run so sandbox/.coc/indexes/campaigns.json and investigators.json point to the current campaign save, memory, logs, party, and reusable investigator records.",
+        run_id=run_id,
+        incomplete_files=list(dict.fromkeys(incomplete_files)),
+        missing_evidence=list(dict.fromkeys(missing_evidence)),
+    )]
 
 
 def _latest_status_payload(events: list[dict[str, Any]], investigator_id: str) -> dict[str, Any]:
@@ -3410,6 +3506,22 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
     audit_profile = str(metadata.get("audit_profile") or "")
     campaign_prefix = f"sandbox/.coc/campaigns/{campaign_id}/"
     campaign_dir = run_dir / campaign_prefix
+    workspace_root = run_dir / "sandbox" / ".coc"
+    missing_files.extend(_missing_relative_files(
+        workspace_root,
+        REQUIRED_WORKSPACE_INDEX_FILES,
+        display_prefix="sandbox/.coc/",
+    ))
+    empty_files.extend(_empty_relative_files(
+        workspace_root,
+        REQUIRED_WORKSPACE_INDEX_FILES,
+        display_prefix="sandbox/.coc/",
+    ))
+    malformed_files.extend(_malformed_relative_files(
+        workspace_root,
+        REQUIRED_WORKSPACE_INDEX_FILES,
+        display_prefix="sandbox/.coc/",
+    ))
     missing_files.extend(_missing_relative_files(
         campaign_dir,
         REQUIRED_CAMPAIGN_SOURCE_FILES,
@@ -3456,6 +3568,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             "Regenerate the run so party.json links the campaign to reusable sandbox investigator records.",
             run_id=run_id,
         ))
+    findings.extend(_workspace_index_integrity_findings(run_id, run_dir, campaign_id, investigator_ids))
     findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix, audit_profile))
     findings.extend(_campaign_save_integrity_findings(run_id, run_dir, campaign_dir, campaign_prefix, investigator_ids))
     findings.extend(_source_map_integrity_findings(run_id, campaign_dir, campaign_prefix))

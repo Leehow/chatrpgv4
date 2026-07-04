@@ -886,6 +886,28 @@ def test_serious_playtests_persist_recoverable_campaign_save_and_indexes(tmp_pat
         campaign_dir = campaign_dir_for_run(run_dir)
         campaign_id = metadata["campaign_id"]
         investigator_ids = read_json(campaign_dir / "party.json")["investigator_ids"]
+        workspace_indexes = run_dir / "sandbox" / ".coc" / "indexes"
+
+        investigator_index = read_json(workspace_indexes / "investigators.json")
+        campaign_index = read_json(workspace_indexes / "campaigns.json")
+        assert investigator_index["schema_version"] == 1
+        assert campaign_index["schema_version"] == 1
+        assert set(investigator_ids).issubset(investigator_index["investigators"])
+        campaign_entry = campaign_index["campaigns"][campaign_id]
+        assert campaign_entry["campaign_id"] == campaign_id
+        assert campaign_entry["path"] == f".coc/campaigns/{campaign_id}/campaign.json"
+        assert campaign_entry["party_path"] == f".coc/campaigns/{campaign_id}/party.json"
+        assert campaign_entry["save_path"] == f".coc/campaigns/{campaign_id}/save"
+        assert campaign_entry["memory_path"] == f".coc/campaigns/{campaign_id}/memory"
+        assert campaign_entry["logs_path"] == f".coc/campaigns/{campaign_id}/logs"
+        assert campaign_entry["investigator_ids"] == investigator_ids
+        for investigator_id in investigator_ids:
+            investigator_entry = investigator_index["investigators"][investigator_id]
+            assert investigator_entry["id"] == investigator_id
+            assert investigator_entry["path"] == f".coc/investigators/{investigator_id}/character.json"
+            assert investigator_entry["history_path"] == f".coc/investigators/{investigator_id}/history.jsonl"
+            assert investigator_entry["development_path"] == f".coc/investigators/{investigator_id}/development.jsonl"
+            assert investigator_entry["inventory_history_path"] == f".coc/investigators/{investigator_id}/inventory-history.jsonl"
 
         for relative_path in [
             "save/world-state.json",

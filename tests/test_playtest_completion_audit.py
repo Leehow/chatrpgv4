@@ -36,6 +36,39 @@ def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
+def write_workspace_indexes(run_dir: Path, run_id: str, investigator_id: str):
+    write_json(run_dir / "sandbox" / ".coc" / "indexes" / "investigators.json", {
+        "schema_version": 1,
+        "investigators": {
+            investigator_id: {
+                "id": investigator_id,
+                "name": "Ada King",
+                "path": f".coc/investigators/{investigator_id}/character.json",
+                "history_path": f".coc/investigators/{investigator_id}/history.jsonl",
+                "development_path": f".coc/investigators/{investigator_id}/development.jsonl",
+                "inventory_history_path": f".coc/investigators/{investigator_id}/inventory-history.jsonl",
+            },
+        },
+    })
+    write_json(run_dir / "sandbox" / ".coc" / "indexes" / "campaigns.json", {
+        "schema_version": 1,
+        "campaigns": {
+            run_id: {
+                "campaign_id": run_id,
+                "title": run_id,
+                "status": "playtest",
+                "play_language": "zh-Hans",
+                "path": f".coc/campaigns/{run_id}/campaign.json",
+                "party_path": f".coc/campaigns/{run_id}/party.json",
+                "save_path": f".coc/campaigns/{run_id}/save",
+                "memory_path": f".coc/campaigns/{run_id}/memory",
+                "logs_path": f".coc/campaigns/{run_id}/logs",
+                "investigator_ids": [investigator_id],
+            },
+        },
+    })
+
+
 def request_payload(run_id: str) -> dict:
     return {
         "schema_version": 1,
@@ -1117,6 +1150,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     write_jsonl(investigator_dir / "inventory-history.jsonl", [
         {"campaign_id": run_id, "summary": "fixture inventory"},
     ])
+    write_workspace_indexes(run_dir, run_id, investigator_id)
     write_text(run_dir / "artifacts" / "battle-report.md", battle_report_fixture())
     write_text(run_dir / "artifacts" / "evaluation-report.md", evaluation_report_fixture())
     write_text(run_dir / "artifacts" / "rulebook-audit.md", rulebook_audit_fixture())
@@ -1229,6 +1263,40 @@ def test_completion_audit_accepts_active_monitor_without_prompt_phrase(tmp_path)
     assert audit["result"] == "pass"
     assert audit["monitor"]["status"] == "ACTIVE"
     assert audit["findings"] == []
+
+
+def test_completion_audit_fails_when_workspace_indexes_are_missing(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    missing_index = (
+        tmp_path
+        / ".coc"
+        / "playtests"
+        / "v2-haunting-module"
+        / "sandbox"
+        / ".coc"
+        / "indexes"
+        / "campaigns.json"
+    )
+    missing_index.unlink()
+
+    coc_completion_audit.generate_completion_audit(tmp_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding_codes = {finding["code"] for finding in audit["findings"]}
+    assert "active_run_workspace_index_missing" in finding_codes
 
 
 def test_completion_audit_fails_when_active_evaluator_note_is_medium_or_higher(tmp_path):
