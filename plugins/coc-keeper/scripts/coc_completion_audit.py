@@ -1730,6 +1730,77 @@ def _rulebook_audit_result_findings(run_id: str, rulebook_audit: str) -> list[di
     )]
 
 
+def _protocol_ids_with_stages(
+    transcript: list[dict[str, Any]],
+    protocol_key: str,
+    id_key: str,
+    required_stages: list[str],
+) -> list[str]:
+    stages_by_id: dict[str, set[str]] = {}
+    for row in transcript:
+        protocol = row.get(protocol_key)
+        if not isinstance(protocol, dict):
+            continue
+        protocol_id = protocol.get(id_key)
+        stage = protocol.get("stage")
+        if not isinstance(protocol_id, str) or not protocol_id.strip():
+            continue
+        if not isinstance(stage, str) or not stage.strip():
+            continue
+        stages_by_id.setdefault(protocol_id, set()).add(stage)
+    return sorted(
+        protocol_id
+        for protocol_id, stages in stages_by_id.items()
+        if all(stage in stages for stage in required_stages)
+    )
+
+
+def _rulebook_audit_positive_evidence_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+    rulebook_audit: str,
+) -> list[dict[str, Any]]:
+    audit_profile = str(metadata.get("audit_profile") or "")
+    if audit_profile != "multi_profile_pressure":
+        return []
+
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    missing_evidence: list[str] = []
+    for profile_id in MULTI_PROFILE_SOURCE_REQUIREMENTS.get(audit_profile, []):
+        if any(row.get("player_profile") == profile_id for row in transcript) and profile_id not in rulebook_audit:
+            missing_evidence.append(f"{audit_profile} rulebook-audit profile {profile_id}")
+
+    for roll_id in _protocol_ids_with_stages(
+        transcript,
+        "pushed_roll_protocol",
+        "roll_id",
+        PUSHED_ROLL_PROTOCOL_STAGES,
+    ):
+        if roll_id not in rulebook_audit or any(stage not in rulebook_audit for stage in PUSHED_ROLL_PROTOCOL_STAGES):
+            missing_evidence.append(f"{audit_profile} rulebook-audit pushed protocol {roll_id}")
+
+    for spoiler_id in _protocol_ids_with_stages(
+        transcript,
+        "spoiler_protocol",
+        "spoiler_id",
+        SPOILER_REVEAL_PROTOCOL_STAGES,
+    ):
+        if spoiler_id not in rulebook_audit or any(stage not in rulebook_audit for stage in SPOILER_REVEAL_PROTOCOL_STAGES):
+            missing_evidence.append(f"{audit_profile} rulebook-audit spoiler protocol {spoiler_id}")
+
+    if not missing_evidence:
+        return []
+    return [_finding(
+        "rulebook_audit_positive_evidence_missing",
+        "report_gap",
+        f"{run_id} rulebook-audit.md omits structured multi-profile positive evidence: {', '.join(missing_evidence)}.",
+        "Regenerate rulebook-audit.md so Positive Rulebook Evidence cites multi-profile player profile ids plus pushed-roll and spoiler protocol ids/stages from transcript.jsonl.",
+        run_id=run_id,
+        missing_evidence=missing_evidence,
+    )]
+
+
 def _semantic_request_contract_findings(run_id: str, semantic_request: dict[str, Any]) -> list[dict[str, Any]]:
     if not semantic_request:
         return []
@@ -4067,6 +4138,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     rulebook_audit = _read_text(artifacts_dir / "rulebook-audit.md")
     findings.extend(_rulebook_audit_section_findings(run_id, rulebook_audit))
     findings.extend(_rulebook_audit_result_findings(run_id, rulebook_audit))
+    findings.extend(_rulebook_audit_positive_evidence_findings(run_id, run_dir, metadata, rulebook_audit))
 
     evaluation_report = _read_text(artifacts_dir / "evaluation-report.md")
     findings.extend(_evaluation_report_section_findings(run_id, evaluation_report))

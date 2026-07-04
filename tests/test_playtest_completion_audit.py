@@ -646,11 +646,19 @@ def suite_report_fixture() -> str:
     ]) + "\n"
 
 
-def rulebook_audit_fixture() -> str:
+def rulebook_audit_fixture(run_id: str = "fixture-run", audit_profile: str = "fixture") -> str:
+    positive_evidence = ["- Fixture evidence."]
+    if audit_profile == "multi_profile_pressure":
+        positive_evidence.extend([
+            "- Multi-profile pressure: careful_investigator=谨慎调查员, reckless_investigator=鲁莽调查员, skeptical_rules_lawyer=规则质疑玩家.",
+            "- Pushed-roll protocol stages: "
+            f"{run_id}-pushed-roll=player_reframes_action -> keeper_foreshadows_failure -> player_confirms_risk -> roll_resolved.",
+            "- Spoiler protocol stages: fixture-spoiler-reveal=warning_issued -> player_confirmed -> limited_reveal.",
+        ])
     return "\n\n".join([
         "# Rulebook Alignment Audit",
         "## Overall Result\nPASS",
-        "## Positive Rulebook Evidence\n- Fixture evidence.",
+        "## Positive Rulebook Evidence\n" + "\n".join(positive_evidence),
         "## Root Cause Classification\n- No findings.",
         "## Blueprint Cross-Check\n- Current run satisfies the implemented rulebook-audit contract.",
         "## Next Loop Fix Target\n- No fix target.",
@@ -1180,7 +1188,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     write_workspace_indexes(run_dir, run_id, investigator_id)
     write_text(run_dir / "artifacts" / "battle-report.md", battle_report_fixture())
     write_text(run_dir / "artifacts" / "evaluation-report.md", evaluation_report_fixture())
-    write_text(run_dir / "artifacts" / "rulebook-audit.md", rulebook_audit_fixture())
+    write_text(run_dir / "artifacts" / "rulebook-audit.md", rulebook_audit_fixture(run_id, audit_profile))
     write_json(run_dir / "artifacts" / "semantic-eval-request.json", request_payload(run_id))
     write_json(run_dir / "artifacts" / "semantic-eval-result.json", semantic_result(run_id, virtual_pressure=virtual_pressure))
 
@@ -3981,6 +3989,40 @@ def test_completion_audit_fails_when_rulebook_audit_artifact_is_not_pass(tmp_pat
         finding["code"] == "rulebook_audit_result_not_pass" and finding["run_id"] == "v2-haunting-module"
         for finding in audit["findings"]
     )
+
+
+def test_completion_audit_fails_when_multi_profile_rulebook_audit_lacks_protocol_evidence(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\n')
+    write_text(
+        tmp_path / ".coc" / "playtests" / "v4-multi-profile-pressure" / "artifacts" / "rulebook-audit.md",
+        rulebook_audit_fixture(),
+    )
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    finding = next(
+        finding for finding in audit["findings"]
+        if finding["code"] == "rulebook_audit_positive_evidence_missing"
+    )
+    assert finding["run_id"] == "v4-multi-profile-pressure"
+    assert "multi_profile_pressure rulebook-audit profile careful_investigator" in finding["missing_evidence"]
+    assert "multi_profile_pressure rulebook-audit pushed protocol v4-multi-profile-pressure-pushed-roll" in finding["missing_evidence"]
+    assert "multi_profile_pressure rulebook-audit spoiler protocol fixture-spoiler-reveal" in finding["missing_evidence"]
 
 
 def test_completion_audit_fails_when_required_coverage_dimension_missing_from_index(tmp_path):
