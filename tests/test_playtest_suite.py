@@ -326,6 +326,36 @@ def test_suite_report_localizes_run_index_display_values(tmp_path):
     assert "player: multi_profile_matrix" not in report_text
 
 
+def test_suite_report_displays_single_player_style_label_for_localized_runs(tmp_path):
+    write_semantic_artifact_run(
+        tmp_path,
+        "v2-haunting-module",
+        "haunting_module",
+    )
+    metadata_path = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["player_profile"] = "careful_investigator"
+    metadata["play_language"] = "zh-Hans"
+    metadata["language_profile"] = {
+        "language": "zh-Hans",
+        "speaker_labels": {"single_player": "单人玩家"},
+    }
+    metadata["player_profile_labels"] = {
+        "zh-Hans": {"careful_investigator": "谨慎风格"}
+    }
+    metadata_path.write_text(json.dumps(metadata))
+
+    report_path = coc_playtest_suite.generate_suite_report(tmp_path)
+    report_text = report_path.read_text()
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["runs"][0]["player_profile"] == "careful_investigator"
+    assert index["runs"][0]["player_profile_display"] == "单人玩家（谨慎风格）"
+    assert "player: 单人玩家（谨慎风格）" in report_text
+    assert "player: 谨慎风格" not in report_text
+    assert "player: careful_investigator" not in report_text
+
+
 def test_suite_report_does_not_invent_run_index_display_without_language_metadata(tmp_path):
     write_semantic_artifact_run(
         tmp_path,

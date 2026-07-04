@@ -759,6 +759,28 @@ def _localized_profile_labels(metadata: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _format_single_player_profile_label(single_player_label: str, style_label: str, play_language: Any) -> str:
+    if play_language in {"zh-Hans", "zh-Hant", "ja-JP", "ko-KR"}:
+        return f"{single_player_label}（{style_label}）"
+    return f"{single_player_label} ({style_label})"
+
+
+def _localized_player_profile_display(
+    metadata: dict[str, Any],
+    language_profile: dict[str, Any],
+    localized_terms: dict[str, str],
+) -> str:
+    profile_id = str(metadata.get("player_profile", "unknown"))
+    style_label = _localized_profile_labels(metadata).get(profile_id)
+    if style_label:
+        speaker_labels = language_profile.get("speaker_labels", {})
+        single_player_label = speaker_labels.get("single_player") if isinstance(speaker_labels, dict) else None
+        if isinstance(single_player_label, str) and single_player_label:
+            return _format_single_player_profile_label(single_player_label, style_label, metadata.get("play_language"))
+        return style_label
+    return _localized_report_value(profile_id, language_profile, localized_terms)
+
+
 def _format_localized_terms_summary(terms: dict[str, str], language_profile: dict[str, Any] | None = None) -> str:
     if not terms:
         return "none"
@@ -2078,7 +2100,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_field("Localized Terms", _format_localized_terms_summary(localized_terms, language_profile), language_profile),
         _report_field(
             "Player Profile",
-            _localized_report_value(metadata.get("player_profile", "unknown"), language_profile, localized_terms),
+            _localized_player_profile_display(metadata, language_profile, localized_terms),
             language_profile,
         ),
         "",

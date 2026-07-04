@@ -104,6 +104,28 @@ def _suite_report_value(value: Any, metadata: dict[str, Any]) -> str:
     return text
 
 
+def _format_single_player_profile_label(single_player_label: str, style_label: str, play_language: Any) -> str:
+    if play_language in {"zh-Hans", "zh-Hant", "ja-JP", "ko-KR"}:
+        return f"{single_player_label}（{style_label}）"
+    return f"{single_player_label} ({style_label})"
+
+
+def _suite_player_profile_display(value: Any, metadata: dict[str, Any]) -> str:
+    profile_id = str(value)
+    play_language = metadata.get("play_language")
+    profile_labels = metadata.get("player_profile_labels", {})
+    language_labels = profile_labels.get(play_language, {}) if isinstance(profile_labels, dict) else {}
+    if isinstance(language_labels, dict):
+        style_label = language_labels.get(profile_id)
+        if isinstance(style_label, str) and style_label:
+            speaker_labels = _metadata_language_profile(metadata).get("speaker_labels", {})
+            single_player_label = speaker_labels.get("single_player") if isinstance(speaker_labels, dict) else None
+            if isinstance(single_player_label, str) and single_player_label:
+                return _format_single_player_profile_label(single_player_label, style_label, play_language)
+            return style_label
+    return _suite_report_value(value, metadata)
+
+
 def _json_sha256(payload: Any) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -538,7 +560,7 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
             "audit_profile_display": _suite_report_value(metadata.get("audit_profile", "baseline"), metadata),
             "audit_result": _audit_result(run_dir),
             "player_profile": metadata.get("player_profile", "unknown"),
-            "player_profile_display": _suite_report_value(metadata.get("player_profile", "unknown"), metadata),
+            "player_profile_display": _suite_player_profile_display(metadata.get("player_profile", "unknown"), metadata),
             "subsystems_covered": metadata.get("subsystems_covered", []),
             "coverage_evaluator": coverage_evaluator,
             "coverage": coverage,

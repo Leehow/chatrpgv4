@@ -370,7 +370,7 @@ def assert_source_transcript_display_fields_localized(run_dir: Path) -> None:
     assert by_turn[1]["speaker"] == "Mr. Knott"
     assert by_turn[1]["speaker_display"] == "KP[诺特先生]"
     assert by_turn[2]["speaker"] == "Ada King"
-    assert by_turn[2]["speaker_display"] == "单人玩家"
+    assert by_turn[2]["speaker_display"] == "单人玩家[谨慎风格]"
 
     first_roll = by_turn[6]
     assert first_roll["text"] == "Persuade 72 vs 55 -> failure."
@@ -1262,6 +1262,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     ]
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
+    assert metadata["player_profile_labels"]["zh-Hans"] == {
+        "careful_investigator": "谨慎风格",
+    }
     assert_source_transcript_display_fields_localized(run_dir)
     assert_source_transcript_display_text_strips_protocol_wrappers(run_dir)
     assert_localized_report_shell(battle_text)
@@ -1284,7 +1287,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "- 游玩语言: zh-Hans" not in run_setup
     assert "- 审计画像: 《鬼屋》完整模组审计" in run_setup
     assert "本地化术语: " in run_setup
-    assert_run_setup_values_localized(run_setup, "谨慎风格")
+    assert_run_setup_values_localized(run_setup, "单人玩家（谨慎风格）")
     assert "Ada King -> 艾达·金" not in run_setup
     assert "Mr. Knott -> 诺特先生" not in run_setup
     assert "The Old Corbitt Place -> 科比特老宅" not in run_setup
@@ -1719,7 +1722,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
     assert "第 48 轮 KP: \"疯狂发作（摘要）" in actual_play
     assert "第 48a 轮 系统: 格斗（斗殴）：艾达·金掷出 21 / 40，结果普通成功。摘要疯狂中的暴力结果" in actual_play
-    assert actual_play.index("第 48a 轮 系统") < actual_play.index("第 49 轮 单人玩家")
+    assert actual_play.index("第 48a 轮 系统") < actual_play.index("第 49 轮 单人玩家[谨慎风格]")
     assert "控制权回到玩家" in actual_play
     assert "临时疯狂底层状态仍持续" in actual_play
     assert "若在 1 小时内再次损失 SAN，会再次触发疯狂发作" in actual_play
@@ -1782,7 +1785,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "为什么这里可以推骰" in actual_play
     assert "失败后果" in actual_play
     assert (
-        '第 7a 轮 单人玩家: "我想确认一下：为什么这里可以推骰？失败后果是不是要先说清楚？"\n'
+        '第 7a 轮 单人玩家[谨慎风格]: "我想确认一下：为什么这里可以推骰？失败后果是不是要先说清楚？"\n'
         "  - 意图: 询问推骰裁定\n"
         "  - 模式: 超游"
     ) in actual_play
@@ -2075,7 +2078,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 游玩语言: zh-Hans" not in run_setup
     assert "- 审计画像: 追逐规则演练" in run_setup
     assert "本地化术语: " in run_setup
-    assert_run_setup_values_localized(run_setup, "鲁莽风格")
+    assert_run_setup_values_localized(run_setup, "单人玩家（鲁莽风格）")
     assert "Ada King -> 艾达·金" not in run_setup
     assert "Nathaniel Crowe -> 内森尼尔·克劳" not in run_setup
     assert "ledger -> 账本" not in run_setup

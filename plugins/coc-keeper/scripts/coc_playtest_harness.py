@@ -1261,6 +1261,23 @@ def _player_view_transcript_events(
     return events
 
 
+def _transcript_with_default_player_profile(
+    transcript: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    profile_labels: dict[str, str],
+) -> list[dict[str, Any]]:
+    default_profile = metadata.get("player_profile")
+    if not isinstance(default_profile, str) or default_profile not in profile_labels:
+        return transcript
+    profiled: list[dict[str, Any]] = []
+    for event in transcript:
+        if event.get("role") == "player_simulator" and not isinstance(event.get("player_profile"), str):
+            profiled.append({**event, "player_profile": default_profile})
+        else:
+            profiled.append(event)
+    return profiled
+
+
 def _localize_public_value(value: Any, glossary: dict[str, str]) -> Any:
     if isinstance(value, str):
         return _localize_text(value, glossary)
@@ -1366,6 +1383,7 @@ def _write_view_streams(run_dir: Path) -> None:
         labels = player_profile_labels.get(play_language, {})
         if isinstance(labels, dict):
             profile_labels = {str(key): str(value) for key, value in labels.items()}
+    transcript = _transcript_with_default_player_profile(transcript, metadata, profile_labels)
     actor_names = _localized_actor_names(public_characters, player_glossary)
     roll_events = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl") if campaign_dir else []
     roll_recaps = [
@@ -2305,6 +2323,10 @@ def create_haunting_module_run(
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
     corbitt_id = "walter-corbitt"
     localized_terms = _terms_for_play_language(ZH_HANS_HAUNTING_GLOSSARY, play_language)
+    player_profile_labels = _profile_labels_for_play_language(
+        {"careful_investigator": "谨慎风格"},
+        play_language,
+    )
 
     _write_json(run_dir / "playtest.json", _with_play_language({
         "run_id": run_id,
@@ -2317,6 +2339,7 @@ def create_haunting_module_run(
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
         "player_profile": "careful_investigator",
+        "player_profile_labels": player_profile_labels,
         "simulation_method": "transcript_driven_virtual_table",
         "simulation_interaction_model": {
             "keeper_role": "keeper_under_test",
