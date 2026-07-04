@@ -10,6 +10,7 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 
 - `metadata.json`
 - `damage-bonus-build.json`
+- `movement-rate.json`
 - `difficulty-levels.json`
 - `rule-index.json`
 - `success-levels.json`
@@ -21,7 +22,7 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 
 Use:
 
-- `scripts/coc_rules.py` for thresholds, success levels, damage bonus, and build.
+- `scripts/coc_rules.py` for thresholds, success levels, damage bonus, build, and movement rate.
 - `scripts/coc_rules.py` also exposes `rule_ids()` and `resolve_rule_refs()` for `rule_refs` validation.
 - `scripts/coc_roll.py` for dice expressions and percentile checks.
 - `scripts/coc_validate.py` to verify rule files exist and parse as JSON.

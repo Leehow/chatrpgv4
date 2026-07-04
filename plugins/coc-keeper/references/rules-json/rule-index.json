@@ -128,13 +128,8 @@
     {
       "id": "core.character_creation.movement_rate",
       "category": "character_creation",
-      "source_note": "Keeper Rulebook Chapter 3 Movement Rate table compares STR and DEX against SIZ, then applies the age MOV penalty.",
-      "numeric": {
-        "both_str_and_dex_less_than_siz": 7,
-        "mixed_or_equal_to_siz": 8,
-        "both_str_and_dex_greater_than_siz": 9,
-        "apply_age_mov_penalty": true
-      }
+      "source_table": "movement-rate.json",
+      "source_note": "Keeper Rulebook Chapter 3 Movement Rate table compares STR and DEX against SIZ, then applies the age MOV penalty."
     },
     {
       "id": "core.character_creation.cash_and_assets",

@@ -16,19 +16,14 @@ _COC_RULES_SPEC.loader.exec_module(coc_rules)
 REQUIRED_CHARACTERISTICS = ("STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU")
 
 
-def _movement_rate(characteristics: dict[str, int]) -> int:
-    strength = characteristics["STR"]
-    dexterity = characteristics["DEX"]
-    size = characteristics["SIZ"]
-    if strength > size and dexterity > size:
-        return 9
-    if strength >= size or dexterity >= size:
-        return 8
-    return 7
-
-
 def derive_values(characteristics: dict[str, int], luck: int | None = None) -> dict[str, int | str]:
     db_build = coc_rules.damage_bonus_build(characteristics["STR"], characteristics["SIZ"])
+    movement = coc_rules.movement_rate(
+        characteristics["STR"],
+        characteristics["DEX"],
+        characteristics["SIZ"],
+        age_mov_penalty=0,
+    )
     return {
         "HP": (characteristics["CON"] + characteristics["SIZ"]) // 10,
         "MP": characteristics["POW"] // 5,
@@ -36,7 +31,7 @@ def derive_values(characteristics: dict[str, int], luck: int | None = None) -> d
         "Luck": luck if luck is not None else characteristics["POW"],
         "DB": db_build["damage_bonus"],
         "Build": db_build["build"],
-        "MOV": _movement_rate(characteristics),
+        "MOV": movement["mov"],
     }
 
 

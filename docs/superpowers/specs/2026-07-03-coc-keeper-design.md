@@ -630,6 +630,7 @@ references/rules-json/
 ├── occupations.json
 ├── derived-values.json
 ├── damage-bonus-build.json
+├── movement-rate.json
 ├── difficulty-levels.json
 ├── rule-index.json
 ├── success-levels.json

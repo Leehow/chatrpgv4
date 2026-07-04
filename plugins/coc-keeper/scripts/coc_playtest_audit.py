@@ -14,7 +14,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from coc_language import language_profile as build_language_profile
 from coc_playtest_report import _format_roll_recap
-from coc_rules import cash_and_assets
+from coc_rules import cash_and_assets, movement_rate
 
 
 Finding = dict[str, Any]
@@ -604,11 +604,7 @@ def _base_movement_rate(characteristics: dict[str, Any]) -> int | None:
     size = characteristics.get("SIZ")
     if not all(isinstance(value, int) for value in [strength, dexterity, size]):
         return None
-    if strength > size and dexterity > size:
-        return 9
-    if strength < size and dexterity < size:
-        return 7
-    return 8
+    return int(movement_rate(strength, dexterity, size)["base_mov"])
 
 
 def _derived_movement_rate_gaps(characters: list[dict[str, Any]]) -> list[str]:

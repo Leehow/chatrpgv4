@@ -30,6 +30,23 @@ def test_damage_bonus_and_build_use_structured_table():
     }
 
 
+def test_movement_rate_uses_structured_table():
+    table = coc_rules.load_rule_table("movement-rate")
+
+    assert table["rules"][0]["base_mov"] == 7
+    assert coc_rules.movement_rate(60, 55, 70) == {
+        "rule_key": "both_str_and_dex_less_than_siz",
+        "str_relation_to_siz": "less_than",
+        "dex_relation_to_siz": "less_than",
+        "base_mov": 7,
+        "age_mov_penalty": 0,
+        "mov": 7,
+        "formula": "both STR and DEX lower than SIZ -> MOV 7",
+    }
+    assert coc_rules.movement_rate(65, 55, 65)["mov"] == 8
+    assert coc_rules.movement_rate(80, 75, 65, age_mov_penalty=1)["mov"] == 8
+
+
 def test_success_levels_include_fumbles_and_extreme_success():
     assert coc_rules.success_level(1, 65) == "critical"
     assert coc_rules.success_level(12, 65) == "extreme"

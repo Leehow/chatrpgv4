@@ -66,6 +66,53 @@ def damage_bonus_build(str_value: int, siz_value: int) -> dict[str, int | str]:
     raise ValueError(f"STR+SIZ total out of V1 table range: {total}")
 
 
+def _relation_to_siz(value: int, siz_value: int) -> str:
+    if value < siz_value:
+        return "less_than"
+    if value > siz_value:
+        return "greater_than"
+    return "equal_to"
+
+
+def _relation_matches(expected: Any, actual: str) -> bool:
+    if expected == "any":
+        return True
+    if isinstance(expected, list):
+        return actual in expected
+    return expected == actual
+
+
+def movement_rate(
+    str_value: int,
+    dex_value: int,
+    siz_value: int,
+    *,
+    age_mov_penalty: int = 0,
+) -> dict[str, Any]:
+    str_relation = _relation_to_siz(str_value, siz_value)
+    dex_relation = _relation_to_siz(dex_value, siz_value)
+    table = load_rule_table("movement-rate")
+    minimum_mov = table.get("age_penalty", {}).get("minimum_mov", 0)
+    for row in table.get("rules", []):
+        if not isinstance(row, dict):
+            continue
+        if not _relation_matches(row.get("str_relation_to_siz"), str_relation):
+            continue
+        if not _relation_matches(row.get("dex_relation_to_siz"), dex_relation):
+            continue
+        base_mov = int(row["base_mov"])
+        return {
+            "rule_key": row["key"],
+            "str_relation_to_siz": str_relation,
+            "dex_relation_to_siz": dex_relation,
+            "base_mov": base_mov,
+            "age_mov_penalty": age_mov_penalty,
+            "mov": max(int(minimum_mov), base_mov - age_mov_penalty),
+            "formula": row["formula"],
+        }
+    raise ValueError(f"no movement-rate rule matched STR={str_value} DEX={dex_value} SIZ={siz_value}")
+
+
 def _finance_amount(amount: float | int | None, currency: str = "USD", formula: str | None = None) -> dict[str, Any]:
     value: dict[str, Any] = {
         "amount": amount,

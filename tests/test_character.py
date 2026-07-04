@@ -35,6 +35,30 @@ def test_derive_values_calculates_hp_mp_san_db_build_and_mov():
     assert result["MOV"] == 7
 
 
+def test_derive_values_uses_rules_json_movement_rate(monkeypatch):
+    calls = []
+
+    def fake_movement_rate(str_value: int, dex_value: int, siz_value: int, *, age_mov_penalty: int = 0):
+        calls.append((str_value, dex_value, siz_value, age_mov_penalty))
+        return {"mov": 8}
+
+    monkeypatch.setattr(coc_character.coc_rules, "movement_rate", fake_movement_rate)
+
+    result = coc_character.derive_values({
+        "STR": 60,
+        "CON": 50,
+        "SIZ": 70,
+        "DEX": 55,
+        "APP": 45,
+        "INT": 65,
+        "POW": 60,
+        "EDU": 70,
+    })
+
+    assert calls == [(60, 55, 70, 0)]
+    assert result["MOV"] == 8
+
+
 def test_validate_character_sheet_reports_missing_required_fields():
     errors = coc_character.validate_character_sheet({"name": "Ada"})
     assert "missing id" in errors
