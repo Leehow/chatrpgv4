@@ -41,6 +41,29 @@ def transcript_events(run_dir: Path) -> list[dict]:
     ]
 
 
+def transcript_turn_sequence_gaps(run_dir: Path) -> list[str]:
+    seen: set[int] = set()
+    bases: list[int] = []
+    for event in transcript_events(run_dir):
+        value = event.get("turn")
+        if isinstance(value, int):
+            base = value
+        elif isinstance(value, str) and (match := re.match(r"^(\d+)[a-z]*$", value)):
+            base = int(match.group(1))
+        else:
+            continue
+        if base not in seen:
+            seen.add(base)
+            bases.append(base)
+    gaps: list[str] = []
+    for previous, current in zip(bases, bases[1:]):
+        if current < previous:
+            gaps.append(f"out_of_order:{previous}->{current}")
+        elif current - previous > 1:
+            gaps.append(f"missing:{previous + 1}-{current - 1}")
+    return gaps
+
+
 def run_jsonl(run_dir: Path, filename: str) -> list[dict]:
     import json
 
@@ -779,6 +802,37 @@ def test_haunting_module_harness_uses_summary_bout_for_solo_corbitt_insanity(tmp
     assert "独处" in battle_text
 
 
+def test_haunting_module_audit_rejects_transcript_turn_sequence_gaps(tmp_path):
+    import json
+
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    transcript_path = run_dir / "transcript.jsonl"
+    events = [
+        json.loads(line)
+        for line in transcript_path.read_text().splitlines()
+        if line.strip()
+    ]
+    numeric_turns = [
+        event["turn"]
+        for event in events
+        if isinstance(event.get("turn"), int)
+    ]
+    last_turn = max(numeric_turns)
+    for event in events:
+        if event.get("turn") == last_turn:
+            event["turn"] = last_turn + 1
+            break
+    transcript_path.write_text(
+        "\n".join(json.dumps(event, ensure_ascii=False) for event in events) + "\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    finding_codes = {finding["code"] for finding in audit["findings"]}
+    assert "transcript_turn_sequence_gap" in finding_codes
+
+
 def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
 
@@ -818,6 +872,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Evidence:" in evaluation_text
     assert "PASS" in audit_text
     assert "## Positive Rulebook Evidence" in audit_text
+    assert transcript_turn_sequence_gaps(run_dir) == []
     assert "Module coverage: 10/10" in audit_text
     assert "Bout of Madness events: 1" in audit_text
     assert "temporary_insanity_triggered markers: 1" in audit_text

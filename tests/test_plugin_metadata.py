@@ -237,6 +237,7 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "session ending",
         "mechanical detail",
         "raw payload",
+        "transcript_turn_sequence_gap",
         "test_gap",
         "system_gap",
         "report_gap",

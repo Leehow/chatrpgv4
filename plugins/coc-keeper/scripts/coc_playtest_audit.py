@@ -628,6 +628,35 @@ def _keeper_ruling_count(transcript: list[dict[str, Any]]) -> int:
     return sum(1 for event in transcript if event.get("role") == "keeper_under_test" and event.get("ruling"))
 
 
+def _turn_base(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        match = re.match(r"^(\d+)[a-z]*$", value)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _transcript_turn_sequence_gaps(transcript: list[dict[str, Any]]) -> list[str]:
+    seen: set[int] = set()
+    bases: list[int] = []
+    for event in transcript:
+        base = _turn_base(event.get("turn"))
+        if base is None or base in seen:
+            continue
+        seen.add(base)
+        bases.append(base)
+
+    gaps: list[str] = []
+    for previous, current in zip(bases, bases[1:]):
+        if current < previous:
+            gaps.append(f"out_of_order:{previous}->{current}")
+        elif current - previous > 1:
+            gaps.append(f"missing:{previous + 1}-{current - 1}")
+    return gaps
+
+
 def _visible_dialogue_events(transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         event
@@ -2095,6 +2124,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             f"Transcript has {len(transcript)} turns, {_player_intent_count(transcript)} player intents, "
             f"and {_keeper_ruling_count(transcript)} Keeper rulings.",
             "Run enough turns to cover scene framing, player intent, Keeper ruling, result, and consequence.",
+        ))
+
+    turn_sequence_gaps = _transcript_turn_sequence_gaps(transcript)
+    if turn_sequence_gaps:
+        findings.append(_finding(
+            "transcript_turn_sequence_gap",
+            "system_gap",
+            "medium",
+            "Transcript turn numbers are not contiguous: " + ", ".join(turn_sequence_gaps),
+            "Keep transcript turn bases contiguous while using suffixes such as 48a only for inserted subturns.",
         ))
 
     metadata = context["metadata"]
