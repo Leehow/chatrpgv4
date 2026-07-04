@@ -2569,10 +2569,10 @@ def test_active_audit_accepts_localized_status_event_in_scene_replay(tmp_path):
         "type": "status",
         "actor": "ada-king",
         "payload": {
-            "summary": "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。",
+            "summary": "三种调查风格都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。",
             "localized_text": {
                 "ja-JP": {
-                    "summary": "三つのプレイヤープロファイルはいずれも有効な選択を残し、KP は各ルートの利益、リスク、失敗時の結果を説明した。"
+                    "summary": "三つの調査スタイルはいずれも有効な選択を残し、KP は各ルートの利益、リスク、失敗時の結果を説明した。"
                 }
             },
         },
@@ -2582,7 +2582,7 @@ def test_active_audit_accepts_localized_status_event_in_scene_replay(tmp_path):
     report_path.write_text(
         "# プレイ報告 <!-- report-anchor: Battle Report -->\n\n"
         "## シーン別リプレイ <!-- report-anchor: Scene-by-Scene Replay -->\n"
-        "- 三つのプレイヤープロファイルはいずれも有効な選択を残し、KP は各ルートの利益、リスク、失敗時の結果を説明した。\n\n"
+        "- 三つの調査スタイルはいずれも有効な選択を残し、KP は各ルートの利益、リスク、失敗時の結果を説明した。\n\n"
     )
 
     audit = coc_playtest_audit.audit_run(run_dir)

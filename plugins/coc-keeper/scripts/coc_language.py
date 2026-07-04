@@ -308,7 +308,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "rulebook_smoke": "规则书冒烟测试",
             "haunting_module": "《鬼屋》完整模组审计",
             "chase_drill": "追逐规则演练",
-            "multi_profile_pressure": "多玩家画像压测",
+            "multi_profile_pressure": "单人多风格压测",
             "transcript_driven_virtual_table": "转录驱动虚拟桌面",
             "codex": "Codex 掷骰",
             "warn_before_reveal": "剧透前警告",
@@ -318,7 +318,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "careful_investigator": "谨慎调查员",
             "reckless_investigator": "鲁莽调查员",
             "skeptical_rules_lawyer": "规则质疑玩家",
-            "multi_profile_matrix": "多调查风格开局",
+            "multi_profile_matrix": "单人多风格开局",
         },
         "character_dossier_labels": {
             "Player": "玩家",

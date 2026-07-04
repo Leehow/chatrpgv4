@@ -1274,7 +1274,7 @@ Possible scope:
 - more complete magic, tomes, monsters, automatic fire, vehicles, and environmental hazards
 - scenario authoring tools
 - replay and campaign report export
-- multi-player preparation without UI dependency
+- single-player-first runtime; multi-player support is deferred and must not be treated as current completion scope
 - formal playtest harness integration with MCP or equivalent tool calls
 
 Acceptance:

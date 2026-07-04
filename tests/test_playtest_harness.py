@@ -2580,7 +2580,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "只用于测试剧透警告流程" not in visible_table_text
     assert "本轮压测到这里结束" not in visible_table_text
     assert "确认。我接受这段剧透；只回答地下室这一点，不要展开后面的触发。" in visible_table_text
-    assert "这一幕先收在这里：三个调查方向都留下了后续入口。" in visible_table_text
+    assert "这一幕先收在这里：三种调查方向都留下了后续入口。" in visible_table_text
     assert_transcript_detail_values_localized(
         actual_play,
         ["请求谨慎调查路线", "鲁莽闯入危险", "质疑 KP 裁定", "收束本轮"],
@@ -2594,8 +2594,8 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Player[skeptical_rules_lawyer]" not in actual_play
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- 战役 ID: multi-profile-pressure" in run_setup
-    assert "- 审计画像: 多玩家画像压测" in run_setup
-    assert_run_setup_values_localized(run_setup, "多调查风格开局")
+    assert "- 审计画像: 单人多风格压测" in run_setup
+    assert_run_setup_values_localized(run_setup, "单人多风格开局")
     module_section = section_text(battle_text, "## Module")
     visible_module_section = visible_markdown_text(module_section)
     assert "scenario-id: haunting-opening-pressure" in battle_text
@@ -2616,6 +2616,11 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "压力测试" not in story_facing_setup
     assert "压力矩阵" not in story_facing_setup
     assert "多玩家画像矩阵" not in story_facing_setup
+    visible_battle_text = visible_markdown_text(battle_text)
+    assert "多玩家" not in visible_battle_text
+    assert "同伴" not in visible_battle_text
+    assert "告诉大家" not in visible_battle_text
+    assert "你们可以" not in visible_battle_text
     assert "科比特宅邸的三条路" in story_facing_setup
     assert "先查房契和旧报纸" in actual_play
     assert "我直接去二楼" in actual_play
@@ -2671,7 +2676,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
         ["knott-office", "deed-note", "fresh-scratches"],
     )
     assert_player_readable_event_prefixes_absent(scene_replay, ["session ending"])
-    assert "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。" in scene_replay
+    assert "三种调查风格都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。" in scene_replay
     assert "多玩家画像压测结束" not in scene_replay
     assert "本幕收束，后续入口记录为先追查沉思教堂" in scene_replay
     state_changes = section_text(battle_text, "### State Changes")
@@ -2685,7 +2690,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     )
     assert "ada-king-pressure -" not in state_changes
     major_decisions = section_text(battle_text, "## Major Player Decisions")
-    assert "规则质疑玩家以超游模式要求 KP 解释不同玩家风格对应的检定和风险" in major_decisions
+    assert "规则质疑玩家以超游模式要求 KP 解释不同调查风格对应的检定和风险" in major_decisions
     assert "meta 模式" not in major_decisions
     clues_found = section_text(battle_text, "## Clues Found")
     assert_player_readable_state_ids_absent(clues_found, ["deed-note", "fresh-scratches"])

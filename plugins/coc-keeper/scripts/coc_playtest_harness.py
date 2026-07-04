@@ -270,13 +270,13 @@ JA_JP_GLOSSARY_OVERRIDES = {
     "莱兰·哈特教授，她已故的导师，留下了一套严谨的调查笔记法。": "故人となった師、リーランド・ハート教授。彼は厳密な調査ノート術を残した。",
     "波士顿档案馆阅览室，她在那里学会从房契边注寻找异常。": "ボストン記録保管所の閲覧室。彼女はそこで権利書の欄外注記から異常を探す方法を覚えた。",
     "谨慎记笔记": "慎重にメモを取る",
-    "愿意听完同伴的鲁莽想法再提出风险": "仲間の無謀な案を最後まで聞いてからリスクを示す",
+    "愿意先想完鲁莽做法再提出风险": "無謀な案を最後まで考えてからリスクを示す",
     "艾达·金经历了三种调查风格的开局分支，确认公开记录、鲁莽进屋和规则质疑都能进入同一故事。": "エイダ・キングは三つの調査スタイルの導入分岐を経験し、公開記録の調査、無謀な侵入、ルール確認のいずれも同じ物語へ入れることを確認した。",
     "谨慎路线找到科比特与沉思教堂线索": "慎重なルートではコービットと瞑想教会の手がかりを見つけた",
     "鲁莽路线通过推骰发现新划痕": "無謀なルートではプッシュロールで新しい傷を発見した",
     "规则质疑获得独立规则解释": "ルール確認では独立した裁定説明を得た",
     "后续故事入口保留为沉思教堂记录": "続く物語への入口として瞑想教会の記録を残した",
-    "保留三种玩家画像的 KP 裁定记录": "三つのプレイヤープロファイルへの KP 裁定記録を残す",
+    "保留三种调查风格的 KP 裁定记录": "三つの調査スタイルへの KP 裁定記録を残す",
     "记录科比特宅邸开局调查路线": "コービット屋敷導入の調査ルートを記録する",
     "后续故事入口保留为沉思教堂记录；导入正式战役前由玩家选择采用哪条路线为正史。": "続く物語への入口として瞑想教会の記録を残す。正式なキャンペーン導入前に、どのルートを正史にするかプレイヤーが選ぶ。",
     "多调查风格开局结束时的可继承物品、线索和路线选择。": "複数の調査スタイルによる導入終了時に引き継げる所持品、手がかり、ルート選択。",
@@ -295,7 +295,7 @@ JA_JP_GLOSSARY_OVERRIDES = {
     "推骰方法改变为近距离触摸门闩。": "プッシュでは方法を変え、近距離でラッチに触れる。",
     "艾达·金把手电贴近门缝，伸手摸向门闩。": "エイダ・キングは懐中電灯を扉の隙間に近づけ、手を伸ばしてラッチに触れる。",
     "若失败，屋内的东西会先注意到艾达·金。": "失敗すると、屋敷の気配が先にエイダ・キングを捉える。",
-    "艾达·金会在警告同伴前先触发屋内动静。": "エイダ・キングは仲間に警告する前に、屋敷内の物音を引き起こす。",
+    "艾达·金会先触发屋内动静，来不及退开或重做准备。": "エイダ・キングは先に屋敷内の物音を引き起こし、退いたり準備し直したりする時間を失う。",
 }
 
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
@@ -453,7 +453,7 @@ ZH_HANS_TRANSCRIPT_DETAIL_TEXT = {
     "no_roll_needed": "无需检定",
     "pass barrier and hide": "通过障碍并躲藏",
     "persuade_regular": "Persuade 普通难度",
-    "profile_pressure_explanation": "多玩家画像裁定说明",
+    "profile_pressure_explanation": "单人多风格裁定说明",
     "push Arty social access": "推骰争取阿蒂放行",
     "ask pushed-roll ruling": "询问推骰裁定",
     "push basement descent": "推骰通过地下室楼梯",
@@ -3621,7 +3621,7 @@ def create_multi_profile_pressure_run(
         "title": "The Haunting Opening Crossroads",
         "module_source": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf",
         "summary": "Three distinct investigation styles branch from Mr. Knott's opening offer in The Haunting.",
-        "player_safe_summary": "诺特先生雇用艾达·金调查科比特宅邸，不同玩家风格会分别要求调查路线、风险选择和规则说明。",
+        "player_safe_summary": "诺特先生雇用艾达·金调查科比特宅邸，同一名玩家可能用不同调查风格要求路线、风险选择和规则说明。",
         "opening_scene": "诺特先生将科比特宅邸的钥匙放在桌上，等待艾达·金决定先调查还是直接进屋。",
         "localized_text": {
             "ja-JP": {
@@ -3720,7 +3720,7 @@ def create_multi_profile_pressure_run(
             "significant_people": ["莱兰·哈特教授，她已故的导师，留下了一套严谨的调查笔记法。"],
             "meaningful_locations": ["波士顿档案馆阅览室，她在那里学会从房契边注寻找异常。"],
             "treasured_possessions": ["裂柄铜放大镜。"],
-            "traits": ["谨慎记笔记", "愿意听完同伴的鲁莽想法再提出风险"],
+            "traits": ["谨慎记笔记", "愿意先想完鲁莽做法再提出风险"],
         },
     })
     _write_json(investigator_dir / "creation.json", _ada_king_creation_record())
@@ -3746,7 +3746,7 @@ def create_multi_profile_pressure_run(
                 "campaign_id": run_id,
                 "status": "pending_player_rolls",
                 "skill_checks_earned": ["Library Use", "Spot Hidden"],
-                "rewards": ["保留三种玩家画像的 KP 裁定记录"],
+                "rewards": ["保留三种调查风格的 KP 裁定记录"],
                 "permanent_changes": ["记录科比特宅邸开局调查路线"],
                 "carryover_notes": "后续故事入口保留为沉思教堂记录；导入正式战役前由玩家选择采用哪条路线为正史。",
             }
@@ -3775,7 +3775,7 @@ def create_multi_profile_pressure_run(
         {"turn": 3, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "library_use_regular", "text": "可以。这个路线用 Library Use，普通难度；成功会给你进屋前的线索，失败则会多花半天。"},
         {"turn": 4, "role": "system", "speaker": "system", "mode": "roll", "text": "Library Use 29 vs 60 -> hard_success."},
         {"turn": 5, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "你在档案馆找到房契旁注：沃尔特·科比特与沉思教堂有联系。"},
-        {"turn": 6, "role": "player_simulator", "speaker": "Reckless Player", "player_profile": "reckless_investigator", "mode": "play", "intent": "rush into danger", "text": "我直接去二楼，拿钥匙开门进去，不等其他调查。"},
+        {"turn": 6, "role": "player_simulator", "speaker": "Reckless Player", "player_profile": "reckless_investigator", "mode": "play", "intent": "rush into danger", "text": "我直接去二楼，拿钥匙开门进去，暂时不查别的资料。"},
         {"turn": 7, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "spot_hidden_regular", "text": "可以直接行动，但这会让你少拿一部分准备信息。先做 Spot Hidden，普通难度，看你是否注意到门框内侧的新划痕。"},
         {"turn": 8, "role": "system", "speaker": "system", "mode": "roll", "text": "Spot Hidden 84 vs 55 -> failure."},
         {"turn": 9, "role": "player_simulator", "speaker": "Reckless Player", "player_profile": "reckless_investigator", "mode": "play", "intent": "push reckless entry", "pushed_roll_protocol": _pushed_roll_transcript_protocol("pressure-reckless-entry-push", "player_reframes_action"), "text": "我把手电贴近门缝，不只看门框，还冒险伸手去摸门闩，想知道里面是不是刚有人动过。"},
@@ -3788,8 +3788,8 @@ def create_multi_profile_pressure_run(
         {"turn": "13b", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "spoiler_warning", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "warning_issued", "secret-corbitt-body", "corbitt_basement_presence", {"requires_confirmation": True}), "text": "[spoiler_warning] 这会揭示《鬼屋》的守秘人信息：地下室核心秘密的一部分。确认后我只回答你请求的范围，不展开攻击触发或完整真相。你确认要看吗？[/spoiler_warning]"},
         {"turn": "13c", "role": "player_simulator", "speaker": "Skeptical Player", "player_profile": "skeptical_rules_lawyer", "mode": "meta", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "player_confirmed", "secret-corbitt-body", "corbitt_basement_presence", {"confirmed": True}), "text": "[meta] 确认。我接受这段剧透；只回答地下室这一点，不要展开后面的触发。[/meta]"},
         {"turn": "13d", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "limited_spoiler_reveal", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "limited_reveal", "secret-corbitt-body", "corbitt_basement_presence", {"confirmed": True}), "text": "[meta] 有限剧透：科比特的遗体仍在地下室。到此为止，我不会额外说明它如何行动、如何触发攻击，或完整结局。[/meta]"},
-        {"turn": 14, "role": "player_simulator", "speaker": "Careful Player", "player_profile": "careful_investigator", "mode": "play", "intent": "use clue to shape plan", "text": "那我把档案线索告诉大家，建议先找沉思教堂的记录，再决定是否进地下室。"},
-        {"turn": 15, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "session_wrap", "text": "这一幕先收在这里：三个调查方向都留下了后续入口。你们可以先追查沉思教堂，再决定是否深入科比特宅邸。"},
+        {"turn": 14, "role": "player_simulator", "speaker": "Careful Player", "player_profile": "careful_investigator", "mode": "play", "intent": "use clue to shape plan", "text": "那我把档案线索整理成行动计划：先找沉思教堂的记录，再决定是否进地下室。"},
+        {"turn": 15, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "session_wrap", "text": "这一幕先收在这里：三种调查方向都留下了后续入口。你可以先追查沉思教堂，再决定是否深入科比特宅邸。"},
     ]
     if play_language == "ja-JP":
         pressure_transcript = _with_transcript_localized_text(
@@ -3820,17 +3820,17 @@ def create_multi_profile_pressure_run(
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Library Use", "goal": "research deed and newspaper records before entering the house", "target": 60, "effective_target": 60, "difficulty": "regular", "difficulty_rationale": "Public records can reveal a useful lead with focused archive work.", "roll": 29, "outcome": "hard_success", "failure_consequence": "Ada would spend half a day and enter the house with fewer leads.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "进屋前查房契和旧报纸记录", "difficulty_rationale": "公开记录能通过专注查档找到有用线索。", "failure_consequence": "艾达·金会多花半天，并带着更少线索进屋。"}}}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "notice fresh marks before reckless entry", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The marks are visible only if the investigator slows down at the door.", "roll": 84, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada misses the warning and risks entering without preparation.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "鲁莽进屋前注意到新划痕", "difficulty_rationale": "只有在门口稍作停顿才能看到这些痕迹。", "failure_consequence": "艾达·金会错过警告，冒着准备不足的风险进屋。"}}}},
-        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "push the door inspection by checking the latch by touch", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed approach changes method by touching the latch at close range.", "roll": 22, "outcome": "hard_success", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("pressure-reckless-entry-push"), "push_justification": "Ada moves the flashlight close and reaches into the door gap by touch.", "foreshadowed_failure": "On failure, the house notices Ada first.", "failure_consequence": "Ada would trigger a noise inside the house before she could warn the others.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "用触摸门闩的方式推骰检查门口", "difficulty_rationale": "推骰方法改变为近距离触摸门闩。", "push_justification": "艾达·金把手电贴近门缝，伸手摸向门闩。", "foreshadowed_failure": "若失败，屋内的东西会先注意到艾达·金。", "failure_consequence": "艾达·金会在警告同伴前先触发屋内动静。"}}}},
+        {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "push the door inspection by checking the latch by touch", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed approach changes method by touching the latch at close range.", "roll": 22, "outcome": "hard_success", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("pressure-reckless-entry-push"), "push_justification": "Ada moves the flashlight close and reaches into the door gap by touch.", "foreshadowed_failure": "On failure, the house notices Ada first.", "failure_consequence": "Ada would trigger a noise inside the house before she could step back or prepare again.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "用触摸门闩的方式推骰检查门口", "difficulty_rationale": "推骰方法改变为近距离触摸门闩。", "push_justification": "艾达·金把手电贴近门缝，伸手摸向门闩。", "foreshadowed_failure": "若失败，屋内的东西会先注意到艾达·金。", "failure_consequence": "艾达·金会先触发屋内动静，来不及退开或重做准备。"}}}},
     ], localized_terms, play_language))
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-office", "summary": "诺特先生给出钥匙、预付款和科比特宅邸的委托。", "localized_text": {"ja-JP": {"summary": "ノット氏は鍵、前金、コービット屋敷の依頼を提示する。"}}}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "谨慎玩家选择先查房契和旧报纸，避免无准备进屋。", "localized_text": {"ja-JP": {"summary": "慎重なプレイヤーは準備なしで屋敷に入らず、先に権利書と古い新聞を調べる。"}}}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "deed-note", "summary": "艾达·金发现沃尔特·科比特与沉思教堂有关。", "localized_text": {"ja-JP": {"summary": "エイダ・キングはウォルター・コービットが瞑想教会と関係していることを見つける。"}}}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "鲁莽玩家选择直接进二楼，并在 KP 说明失败后果后继续推骰。", "localized_text": {"ja-JP": {"summary": "無謀なプレイヤーは直接二階へ入り、KP が失敗時の結果を示した後もプッシュを続ける。"}}}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑玩家以超游模式要求 KP 解释不同玩家风格对应的检定和风险。", "localized_text": {"ja-JP": {"summary": "ルール確認型プレイヤーはメタモードで、プレイスタイルごとのロールとリスクを KP に説明させる。"}}}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑玩家以超游模式要求 KP 解释不同调查风格对应的检定和风险。", "localized_text": {"ja-JP": {"summary": "ルール確認型プレイヤーはメタモードで、調査スタイルごとのロールとリスクを KP に説明させる。"}}}},
         {"type": "decision", "actor": "player_simulator", "payload": {"summary": "规则质疑玩家主动要求查看地下室守秘人剧透；KP 先发出剧透警告并等待确认。", "localized_text": {"ja-JP": {"summary": "ルール確認型プレイヤーは地下室のキーパー情報の開示を求め、KP は先にネタバレ警告を出して確認を待つ。"}}}},
         {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "fresh-scratches", "summary": "推骰成功后，艾达·金看见门闩边缘的新划痕。", "localized_text": {"ja-JP": {"summary": "プッシュロール成功後、エイダ・キングはラッチ付近の新しい傷を見る。"}}}},
-        {"type": "status", "actor": investigator_id, "payload": {"summary": "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。", "localized_text": {"ja-JP": {"summary": "三つのプレイヤープロファイルはいずれも有効な選択を残し、KP は各ルートの利益、リスク、失敗時の結果を説明した。"}}}},
+        {"type": "status", "actor": investigator_id, "payload": {"summary": "三种调查风格都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。", "localized_text": {"ja-JP": {"summary": "三つの調査スタイルはいずれも有効な選択を残し、KP は各ルートの利益、リスク、失敗時の結果を説明した。"}}}},
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "本幕收束，后续入口记录为先追查沉思教堂，再决定是否进入科比特宅邸深处。", "localized_text": {"ja-JP": {"summary": "この場面は終了し、次の入口はまず瞑想教会を追い、それからコービット屋敷の奥へ進むか決める形で記録される。"}}}},
     ], localized_terms)
     _write_jsonl(campaign_dir / "logs" / "audit.jsonl", [
