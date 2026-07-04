@@ -4495,6 +4495,15 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             "Regenerate the run so party.json links the campaign to reusable sandbox investigator records.",
             run_id=run_id,
         ))
+    if len(investigator_ids) > 1:
+        findings.append(_finding(
+            "active_run_party_not_single_player",
+            "system_gap",
+            f"{run_id} party.json lists {len(investigator_ids)} investigators; current single-player playtests must use exactly one active investigator.",
+            "Regenerate the run with exactly one active investigator. Group-table support is future scope and must not satisfy the current completion gate.",
+            run_id=run_id,
+            investigator_ids=investigator_ids,
+        ))
     findings.extend(_workspace_index_integrity_findings(run_id, run_dir, campaign_id, investigator_ids))
     findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix, audit_profile))
     findings.extend(_campaign_save_integrity_findings(run_id, run_dir, campaign_dir, campaign_prefix, investigator_ids))

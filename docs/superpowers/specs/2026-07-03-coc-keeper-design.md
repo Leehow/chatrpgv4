@@ -593,6 +593,8 @@ The completion audit must also reject battle reports whose Chase Tracker omits s
 }
 ```
 
+Current completion-oriented playtests must use exactly one active investigator in `party.json`; if the merged `active_investigator_ids` / `investigator_ids` set contains more than one id, `coc_completion_audit.py` emits `active_run_party_not_single_player`. Group-table support remains future scope.
+
 `scenario/scenario.json`:
 
 ```json

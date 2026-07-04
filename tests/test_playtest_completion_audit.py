@@ -1925,6 +1925,41 @@ def test_completion_audit_fails_when_investigator_state_refs_are_stale(tmp_path)
     assert "investigator-state character_ref does not resolve" in finding["missing_evidence"]
 
 
+def test_completion_audit_fails_when_active_run_party_has_multiple_investigators(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_id = "v2-haunting-module"
+    investigator_id = f"{run_id}-investigator"
+    campaign_dir = tmp_path / ".coc" / "playtests" / run_id / "sandbox" / ".coc" / "campaigns" / run_id
+    write_json(campaign_dir / "party.json", {
+        "campaign_id": run_id,
+        "investigator_ids": [investigator_id, "second-investigator"],
+        "active_investigator_ids": [investigator_id, "second-investigator"],
+    })
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "监工检查：继续 COC Keeper 单人跑团循环。"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_party_not_single_player")
+    assert finding["run_id"] == run_id
+    assert finding["investigator_ids"] == [investigator_id, "second-investigator"]
+    assert "single-player playtests must use exactly one active investigator" in finding["evidence"]
+
+
 def test_completion_audit_fails_when_investigator_state_values_are_stale(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
