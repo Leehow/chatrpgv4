@@ -2573,6 +2573,8 @@ def test_multi_profile_pressure_run_records_single_player_virtual_styles(tmp_pat
     assert "Evidence:" in evaluation_text
     assert "## Regression Tests To Add\n- No regression tests recorded." in evaluation_text
     assert "Multi-profile pressure run must preserve distinct virtual player labels in battle reports." not in evaluation_text
+    assert "multiple virtual player styles" not in evaluation_text
+    assert "one virtual player through multiple play-style passes" in evaluation_text
     assert metadata["audit_profile"] == "multi_profile_pressure"
     assert metadata["player_profile"] == "multi_profile_matrix"
     assert metadata["player_profiles_tested"] == [
@@ -2648,6 +2650,10 @@ def test_multi_profile_pressure_run_records_single_player_virtual_styles(tmp_pat
     assert "同伴" not in visible_battle_text
     assert "告诉大家" not in visible_battle_text
     assert "你们可以" not in visible_battle_text
+    evaluator_notes = run_jsonl(run_dir, "evaluator-notes.jsonl")
+    note_text = "\n".join(note["text"] for note in evaluator_notes)
+    assert "multiple virtual player styles" not in note_text
+    assert "one virtual player through multiple play-style passes" in note_text
     assert "科比特宅邸的三条路" in story_facing_setup
     assert "先查房契和旧报纸" in actual_play
     assert "我直接去二楼" in actual_play

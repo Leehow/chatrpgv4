@@ -3915,7 +3915,7 @@ def create_multi_profile_pressure_run(
         {
             "severity": "low",
             "category": "immersion",
-            "text": "The run remains a compact pressure test rather than a full module session, but it exercises multiple virtual player styles.",
+            "text": "The run remains a compact pressure test rather than a full module session, but it replays one virtual player through multiple play-style passes.",
             "evidence": _evidence(
                 transcript_turns=[1, 2, 6, 12, 14, 15],
                 state_files=[f"sandbox/.coc/investigators/{investigator_id}/history.jsonl", f"sandbox/.coc/investigators/{investigator_id}/development.jsonl"],
