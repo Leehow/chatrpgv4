@@ -829,7 +829,7 @@ def _coverage_key_contracts() -> list[dict[str, str]]:
 def _quality_dimension_contracts() -> list[dict[str, str]]:
     questions = {
         "module_fidelity": "Does the playtest preserve the module premise, required beats, clues, scenes, threat logic, and resolution without flattening the scenario into unrelated events?",
-        "rulebook_procedure": "Do Keeper rulings follow Call of Cthulhu procedure for checks, pushed rolls, combat, chase, sanity, consequences, rewards, and when no roll is needed?",
+        "rulebook_procedure": "Do Keeper rulings follow Call of Cthulhu procedure for checks, pushed rolls, combat, chase, sanity, consequences, rewards, and when no roll is needed? For pushed-roll risk ownership, verify the Keeper frames and foreshadows the failure consequence, then the player confirms the risk without authoring the consequence.",
         "immersion_and_pacing": "Does the transcript read like playable table conversation with scene texture, tension, and pacing rather than a dry checklist?",
         "localized_visible_dialogue": "Are the visible Keeper and virtual player dialogue turns written in the selected play_language, including default zh-Hans runs, using localized_terms for names, setting terms, profile labels, player-visible skill display names, and visible Mechanical Log summaries while machine-readable markers, JSON keys, canonical skill keys, hidden Mechanical Log audit anchors, and enum values remain stable?",
         "actual_play_replay": "Does the report include an actual-play style replay that lets a reader follow what the Keeper said, what the player declared, what rules were invoked, and how outcomes changed the fiction?",
