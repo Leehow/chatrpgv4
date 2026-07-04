@@ -1520,6 +1520,22 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "ledger" not in chase_decisions
     assert "艾达·金冒着被发现的风险继续观察" in chase_decisions
     assert "是否带着账本" in chase_decisions
+    decision_events = campaign_events_by_type(run_dir, "decision")
+    required_decision_kinds = {
+        "pushed_confirmation",
+        "objective_take",
+        "hazard_choice",
+        "barrier_hide",
+    }
+    assert {
+        event.get("payload", {}).get("decision_kind")
+        for event in decision_events
+    } >= required_decision_kinds
+    assert bullet_count(chase_decisions) >= len(required_decision_kinds)
+    for event in decision_events:
+        summary = event.get("payload", {}).get("summary")
+        if summary:
+            assert summary in chase_decisions
     rules_recap = section_text(battle_text, "## Rules & Rolls Recap")
     assert has_cjk(rules_recap)
     assert "侦查：艾达·金掷出 82 / 55，结果失败。" in rules_recap
@@ -1646,6 +1662,40 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "邪教账本" in inventory_history[0]["items"]
     assert "钥匙串" in inventory_history[0]["items"]
     assert (run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json").exists()
+
+
+def test_chase_drill_audit_rejects_thin_major_decision_events(tmp_path):
+    import json
+
+    run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
+    events_path = run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "logs" / "events.jsonl"
+    events = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    thin_events = [event for event in events if event.get("type") != "decision"]
+    thin_events.insert(
+        1,
+        {
+            "type": "decision",
+            "actor": "ada-king-chase",
+            "payload": {
+                "decision_id": "chase-confirm-ledger-push",
+                "decision_kind": "pushed_confirmation",
+                "summary": "艾达·金确认继续观察。",
+            },
+        },
+    )
+    events_path.write_text(
+        "\n".join(json.dumps(event, ensure_ascii=False) for event in thin_events) + "\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    finding_codes = {finding["code"] for finding in audit["findings"]}
+    assert "chase_decisions_too_thin" in finding_codes
 
 
 def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):

@@ -1080,6 +1080,7 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit should additio
 - `save/chase.json` with participants, location chain, round log, and outcome
 - DEX-order proof through participant `dex`, `dex_order`, and `rounds[].turns[].actor_id`; otherwise emit `chase_dex_order_not_proven`
 - multi-profile chase pressure from reckless, skeptical-rules, and genre-savvy player profiles, including meta questions about movement actions, pushed-roll boundaries, and spoiler-safe answers; otherwise emit `chase_player_profile_pressure_missing`
+- typed major-player decision events with stable `decision_kind` values for pushed confirmation, objective possession, hazard choice, and barrier/hide choice; otherwise emit `chase_decisions_too_thin`
 - Chase Summary text that explains speed roll, MOV, movement actions, DEX order, hazards, barriers, conflict, and escape/capture
 - populated `## Chase Tracker` text that renders `save/chase.json` participants, DEX order, location chain, rounds, and outcome; otherwise emit `chase_tracker_not_rendered`
 - carried-object continuity through an `item_transfer` event when the quarry escapes with the chase prize; otherwise emit `chase_object_transfer_missing`

@@ -74,6 +74,12 @@ CHASE_DRILL_REQUIRED_PLAYER_PROFILES = [
     "skeptical_rules_lawyer",
     "genre_savvy_player",
 ]
+CHASE_REQUIRED_DECISION_KINDS = [
+    "pushed_confirmation",
+    "objective_take",
+    "hazard_choice",
+    "barrier_hide",
+]
 
 TRANSCRIPT_DETAIL_ALLOWED_ASCII_TOKENS = {
     "APP",
@@ -1825,6 +1831,19 @@ def _payload_summaries(events: list[dict[str, Any]], event_type: str) -> list[st
     return summaries
 
 
+def _chase_decision_kind_gaps(events: list[dict[str, Any]]) -> list[str]:
+    decision_kinds = {
+        event.get("payload", {}).get("decision_kind")
+        for event in events
+        if event.get("type") == "decision"
+    }
+    return [
+        kind
+        for kind in CHASE_REQUIRED_DECISION_KINDS
+        if kind not in decision_kinds
+    ]
+
+
 def _chase_object_transfer_gaps(events: list[dict[str, Any]], chase_state: dict[str, Any]) -> list[str]:
     transfers = [
         event
@@ -2784,6 +2803,18 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "medium",
                 "Chase drill lacks multi-profile player pressure: " + ", ".join(profile_pressure_gaps),
                 "Exercise the chase drill with reckless, skeptical-rules, and genre-savvy player profiles, including meta pressure on movement actions, pushed-roll boundaries, and spoiler-safe answers.",
+            ))
+
+        missing_decision_kinds = _chase_decision_kind_gaps(context["events"])
+        if missing_decision_kinds:
+            decision_count = _event_type_count(context["events"], "decision")
+            findings.append(_finding(
+                "chase_decisions_too_thin",
+                "system_gap",
+                "medium",
+                f"Only {decision_count} structured chase decision events were recorded; missing decision_kind values: "
+                + ", ".join(missing_decision_kinds),
+                "Record typed decision events for pushed confirmation, objective possession, hazard choice, and barrier/hide choices so Major Player Decisions reflects the actual chase play.",
             ))
 
         chase_state = context["chase_state"]

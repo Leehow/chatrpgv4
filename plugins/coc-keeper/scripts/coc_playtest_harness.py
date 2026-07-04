@@ -2359,7 +2359,46 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     ]))
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
         {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "print-shop-roof", "summary": "Ada 在 print shop roof 发现 Nathaniel Crowe，确认他带着 cult ledger。"}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 冒着被发现的风险继续观察，确认 Nathaniel 是否带着 ledger。"}},
+        {
+            "type": "decision",
+            "actor": investigator_id,
+            "payload": {
+                "decision_id": "chase-confirm-ledger-push",
+                "decision_kind": "pushed_confirmation",
+                "source_turn": "6a",
+                "summary": "Ada 冒着被发现的风险继续观察，确认 Nathaniel 是否带着 ledger。",
+            },
+        },
+        {
+            "type": "decision",
+            "actor": investigator_id,
+            "payload": {
+                "decision_id": "chase-take-ledger",
+                "decision_kind": "objective_take",
+                "source_turn": 7,
+                "summary": "Ada 看见 cult ledger 滑出后抢起账本，接受自己成为 quarry。",
+            },
+        },
+        {
+            "type": "decision",
+            "actor": investigator_id,
+            "payload": {
+                "decision_id": "chase-cross-skylight",
+                "decision_kind": "hazard_choice",
+                "source_turn": 14,
+                "summary": "Ada 抱紧 ledger，选择穿过 slick skylight hazard 冲向 roof door。",
+            },
+        },
+        {
+            "type": "decision",
+            "actor": investigator_id,
+            "payload": {
+                "decision_id": "chase-open-door-hide",
+                "decision_kind": "barrier_hide",
+                "source_turn": 19,
+                "summary": "Ada 用 key ring 通过 locked roof door barrier，并立刻躲进 laundry sheets 之间。",
+            },
+        },
         {
             "type": "item_transfer",
             "actor": investigator_id,

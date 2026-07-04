@@ -271,6 +271,8 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "flesh_ward",
         "own_dagger_ignores_spells",
         "Flesh Ward",
+        "decision_kind",
+        "chase_decisions_too_thin",
         "Blueprint Cross-Check",
         "Next Loop Fix Target",
     ]
@@ -294,6 +296,8 @@ def test_coc_playtest_skill_documents_chase_drill_profile():
         "conflict",
         "quarry escapes",
         "item_transfer",
+        "decision_kind",
+        "chase_decisions_too_thin",
         "chase_object_transfer_missing",
     ]
     for term in required_terms:
