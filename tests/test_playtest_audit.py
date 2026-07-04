@@ -2675,6 +2675,32 @@ def test_haunting_module_audit_requires_temporary_insanity_final_state(tmp_path)
     assert "temporary_insanity_final_state_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_temporary_insanity_final_state_visible_to_player(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+
+    for relative_path in ["transcript.jsonl", "player-view.jsonl", "keeper-view.jsonl"]:
+        log_path = run_dir / relative_path
+        rows = [
+            json.loads(line)
+            for line in log_path.read_text().splitlines()
+            if line.strip()
+        ]
+        for row in rows:
+            if row.get("role") == "keeper_under_test" and row.get("turn") == 50:
+                for key in ["text", "text_display"]:
+                    if isinstance(row.get(key), str):
+                        row[key] = row[key].replace(
+                            "临时疯狂底层状态仍持续，若在 1 小时内再次损失 SAN，会再次触发疯狂发作。",
+                            "",
+                        )
+        write_jsonl(log_path, rows)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "temporary_insanity_final_state_not_player_visible" in finding_codes(audit)
+
+
 def test_haunting_module_audit_requires_bout_round_sequence(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
     create_final_rulebook_run(run_dir)

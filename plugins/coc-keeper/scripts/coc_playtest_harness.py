@@ -2232,7 +2232,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             },
         },
         {"turn": 49, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "recover after summary bout", "text": "我回过神后先确认 Corbitt 还会不会动，捡回角落里的左轮，然后尽快离开地下室。", "localized_text": {"zh-Hans": {"intent": "疯狂摘要后恢复控制"}}},
-        {"turn": 50, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Rewards：Corbitt 化成尘土，Mr. Knott 支付报酬和 30 美元奖金，Ada 恢复 4 SAN。Final HP: 3。Final SAN: 49。"},
+        {"turn": 50, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Rewards：Corbitt 化成尘土，Mr. Knott 支付报酬和 30 美元奖金，Ada 恢复 4 SAN。Final HP: 3。Final SAN: 49。临时疯狂底层状态仍持续，若在 1 小时内再次损失 SAN，会再次触发疯狂发作。"},
     ], ZH_HANS_HAUNTING_GLOSSARY)
 
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
@@ -2402,6 +2402,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
                         "label": "临时疯狂底层状态",
                         "duration_hours": 1,
                         "remaining_hours": 1,
+                        "player_visible_summary": "临时疯狂底层状态仍持续，若在 1 小时内再次损失 SAN，会再次触发疯狂发作。",
                         "summary": "艾达·金在摘要疯狂后恢复玩家控制，但仍处于临时疯狂的底层状态；若在 1 小时内再次损失 SAN，会再次触发疯狂发作。",
                     }
                 ],

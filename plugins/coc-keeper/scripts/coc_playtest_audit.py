@@ -2026,7 +2026,7 @@ def _temporary_insanity_final_state_gaps(events: list[dict[str, Any]]) -> list[s
                 continue
             missing = [
                 field
-                for field in ["duration_hours", "remaining_hours", "summary"]
+                for field in ["duration_hours", "remaining_hours", "summary", "player_visible_summary"]
                 if condition.get(field) in (None, "", [], {})
             ]
             if missing:
@@ -2034,6 +2034,46 @@ def _temporary_insanity_final_state_gaps(events: list[dict[str, Any]]) -> list[s
             return []
     return [
         "temporary insanity was triggered, but final status does not record temporary_insanity_resolved=true or unresolved condition temporary_insanity_underlying"
+    ]
+
+
+def _temporary_insanity_player_visible_gaps(
+    events: list[dict[str, Any]],
+    transcript: list[dict[str, Any]],
+    player_view: list[dict[str, Any]],
+    keeper_view: list[dict[str, Any]],
+) -> list[str]:
+    expected_summaries: list[str] = []
+    for event in events:
+        if event.get("type") != "status" or not isinstance(event.get("payload"), dict):
+            continue
+        for condition in event["payload"].get("unresolved_conditions", []):
+            if not isinstance(condition, dict):
+                continue
+            if condition.get("condition") != "temporary_insanity_underlying":
+                continue
+            summary = condition.get("player_visible_summary")
+            if isinstance(summary, str) and summary.strip():
+                expected_summaries.append(summary.strip())
+
+    if not expected_summaries:
+        return []
+
+    visible_text = "\n".join(
+        str(row.get("text_display") or row.get("text") or "")
+        for row in [*transcript, *player_view, *keeper_view]
+        if row.get("role") in {"keeper_under_test", "system", "player_simulator"}
+    )
+    missing = [
+        summary
+        for summary in expected_summaries
+        if summary not in visible_text
+    ]
+    if not missing:
+        return []
+    return [
+        "temporary_insanity_underlying player_visible_summary is not present in player-visible transcript text: "
+        + "; ".join(missing)
     ]
 
 
@@ -3067,6 +3107,20 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                     "high",
                     "; ".join(temporary_insanity_final_state_gaps),
                     "When temporary insanity is triggered, record either temporary_insanity_resolved=true or an unresolved_conditions entry with condition=temporary_insanity_underlying, duration_hours, remaining_hours, and a player-readable summary.",
+                ))
+            temporary_insanity_visibility_gaps = _temporary_insanity_player_visible_gaps(
+                context["events"],
+                context["transcript"],
+                context["player_view"],
+                context["keeper_view"],
+            )
+            if temporary_insanity_visibility_gaps:
+                findings.append(_finding(
+                    "temporary_insanity_final_state_not_player_visible",
+                    "report_gap",
+                    "high",
+                    "; ".join(temporary_insanity_visibility_gaps),
+                    "Surface each unresolved temporary-insanity final-state player_visible_summary in the player-visible KP transcript before ending the session.",
                 ))
 
         chase_summaries = _payload_summaries(context["events"], "chase")

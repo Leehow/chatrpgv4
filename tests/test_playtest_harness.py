@@ -1079,6 +1079,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
             "label": "临时疯狂底层状态",
             "duration_hours": 1,
             "remaining_hours": 1,
+            "player_visible_summary": "临时疯狂底层状态仍持续，若在 1 小时内再次损失 SAN，会再次触发疯狂发作。",
             "summary": "艾达·金在摘要疯狂后恢复玩家控制，但仍处于临时疯狂的底层状态；若在 1 小时内再次损失 SAN，会再次触发疯狂发作。",
         }
     ]
@@ -1352,6 +1353,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "第 48a 轮 系统: 格斗（斗殴）：艾达·金掷出 21 / 40，结果普通成功。摘要疯狂中的暴力结果" in actual_play
     assert actual_play.index("第 48a 轮 系统") < actual_play.index("第 49 轮 玩家")
     assert "控制权回到玩家" in actual_play
+    assert "临时疯狂底层状态仍持续" in actual_play
+    assert "若在 1 小时内再次损失 SAN，会再次触发疯狂发作" in actual_play
     assert "Persuade 72 vs 55" not in actual_play
     assert "Persuade：" not in actual_play
     assert "Dodge：" not in actual_play
@@ -1369,11 +1372,15 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "KP[阿蒂·威尔莫特]" in session_transcript
     assert "KP[加布里埃拉·马卡里奥]" in session_transcript
     assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in session_transcript
+    assert "临时疯狂底层状态仍持续" in session_transcript
+    assert "若在 1 小时内再次损失 SAN，会再次触发疯狂发作" in session_transcript
     assert "Persuade 72 vs 55" not in session_transcript
     assert "regular_success" not in session_transcript
     assert "Corbitt POW 34 vs 90" not in session_transcript
     visible_dialogue = "\n".join(visible_play_texts(run_dir))
     assert_visible_terms_localized(visible_dialogue, visible_scene_terms)
+    assert "临时疯狂底层状态仍持续" in visible_dialogue
+    assert "若在 1 小时内再次损失 SAN，会再次触发疯狂发作" in visible_dialogue
     assert_terms_absent(visible_dialogue, ["Regular difficulty", "pushed roll", "pushed rolls", "HP damage"])
     assert_terms_absent(visible_dialogue, ["combined roll", "Obscure clue", " chapel "])
     assert_terms_absent(visible_dialogue, ["combat round", "Rewards", "Final HP", "Final SAN"])
