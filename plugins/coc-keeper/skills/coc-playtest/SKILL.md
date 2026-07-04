@@ -98,7 +98,7 @@ Before generating reports, record the run context:
 - `player-feedback.jsonl`: virtual player ratings and comments about the KP experience. Rows with a canonical `player_profile` enum should also include `player_profile_display` from `player_profile_labels[play_language]` for player-visible feedback sections.
 - `evaluator-notes.jsonl`: full evaluator findings, including spoiler, state, pacing, and rules issues.
 - Serious completion-oriented suites should include at least one multi-profile virtual player pressure run, or equivalent semantic evidence, so the evaluator can see how the Keeper handles careful planning, reckless risk-taking, and meta/rules challenges rather than only one scripted player style.
-- `coc_playtest_suite.py` must render `## Evaluator Note Blockers` in `suite-report.md`; active medium-or-higher evaluator notes become `evaluator_note_blocker` loop blockers even when the semantic coverage and quality matrices pass.
+- `coc_playtest_suite.py` must render `## Evaluator Note Blockers` in `suite-report.md`; active medium-or-higher evaluator notes become `evaluator_note_blocker` loop blockers even when the semantic coverage and quality matrices pass. `coc_completion_audit.py` must also reread active `evaluator-notes.jsonl` files and emit `active_evaluator_note_blocker` if stale suite artifacts hide a blocking note.
 
 `battle-report.md` is an actual-play replay, not just a mechanics checklist. It should include:
 

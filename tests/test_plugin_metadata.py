@@ -336,6 +336,7 @@ def test_coc_playtest_skill_documents_suite_report_index():
         "Non-Passing Runs",
         "Evaluator Note Blockers",
         "evaluator_note_blocker",
+        "active_evaluator_note_blocker",
         "medium-or-higher evaluator notes",
         "character_dossier",
         "kp_player_transcript",

@@ -1206,6 +1206,38 @@ def test_completion_audit_passes_for_ready_suite_with_active_monitor(tmp_path):
     assert "Monitor: ACTIVE" in markdown
 
 
+def test_completion_audit_fails_when_active_evaluator_note_is_medium_or_higher(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_jsonl(tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "evaluator-notes.jsonl", [
+        {
+            "severity": "medium",
+            "category": "immersion",
+            "text": "Fixture evaluator says the active run is not table-ready.",
+            "evidence": {"artifact_paths": ["artifacts/battle-report.md"]},
+        }
+    ])
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert "active_evaluator_note_blocker" in {finding["code"] for finding in audit["findings"]}
+
+
 def test_completion_audit_fails_when_active_run_rule_refs_are_missing(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

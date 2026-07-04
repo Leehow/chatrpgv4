@@ -27,6 +27,7 @@ from coc_rules import rule_ids
 
 
 REQUIRED_AUDIT_PROFILES = ["haunting_module", "chase_drill", "multi_profile_pressure"]
+BLOCKING_EVALUATOR_NOTE_SEVERITIES = {"medium", "high", "critical"}
 REQUIRED_ARTIFACTS = [
     "battle-report.md",
     "evaluation-report.md",
@@ -402,6 +403,32 @@ def _evaluation_report_evidence_findings(run_id: str, run_dir: Path, evaluation_
                 "Regenerate evaluation-report.md so each evaluator finding cites transcript turns, log paths, state files, or artifact paths.",
                 run_id=run_id,
                 note_index=index,
+            ))
+    return findings
+
+
+def _active_evaluator_note_findings(root: Path, active_runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    playtests_dir = _playtests_dir(root)
+    for run in active_runs:
+        run_id = str(run.get("run_id") or "")
+        if not run_id:
+            continue
+        for index, note in enumerate(_read_jsonl(playtests_dir / run_id / "evaluator-notes.jsonl"), start=1):
+            severity = str(note.get("severity") or "").strip().lower()
+            if severity not in BLOCKING_EVALUATOR_NOTE_SEVERITIES:
+                continue
+            category = str(note.get("category") or "uncategorized")
+            text = str(note.get("text") or "No evaluator note text recorded.")
+            findings.append(_finding(
+                "active_evaluator_note_blocker",
+                "test_gap",
+                f"{run_id} evaluator-notes.jsonl note {index} has severity={severity}, category={category}: {text}",
+                "Resolve the active evaluator note, downgrade it only with new evidence, regenerate the suite report, and rerun completion audit.",
+                run_id=run_id,
+                note_index=index,
+                severity=severity,
+                category=category,
             ))
     return findings
 
@@ -3984,6 +4011,7 @@ def generate_completion_audit(root: Path, automation_path: Path | None = None) -
     loop_decision = _read_json(base / "loop-decision.json", {})
     active_runs = _active_runs(index, loop_decision)
     findings = _suite_findings(index, loop_decision, active_runs, _read_text(base / "suite-report.md"))
+    findings.extend(_active_evaluator_note_findings(root, active_runs))
     findings.extend(_semantic_support_findings(root, index, active_runs))
     for run in active_runs:
         findings.extend(_run_artifact_findings(root, run))
