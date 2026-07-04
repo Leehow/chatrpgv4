@@ -2285,3 +2285,26 @@ def test_haunting_module_audit_requires_bout_round_sequence(tmp_path):
 
     assert audit["result"] == "fail"
     assert "temporary_insanity_bout_rounds_missing" in finding_codes(audit)
+
+
+def test_haunting_module_audit_rejects_realtime_bout_for_solo_corbitt_insanity(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    campaign_id = json.loads((run_dir / "playtest.json").read_text())["campaign_id"]
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / campaign_id
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    events = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    for event in events:
+        if event.get("type") == "bout_of_madness":
+            event["payload"]["mode"] = "real_time"
+            event["payload"]["rulebook_ref"] = "Table VII: Bouts of Madness-Real Time"
+            break
+    write_jsonl(events_path, events)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "temporary_insanity_bout_mode_mismatch" in finding_codes(audit)

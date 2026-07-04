@@ -1486,6 +1486,8 @@ def _bout_duration_roll_gaps(events: list[dict[str, Any]]) -> list[str]:
         start=1,
     ):
         payload = event.get("payload", {})
+        if payload.get("mode") == "summary":
+            continue
         missing = [
             field for field in ["duration_die", "duration_roll", "duration_rounds"]
             if payload.get(field) in (None, "", [], {})
@@ -1512,9 +1514,72 @@ def _bout_duration_roll_count(events: list[dict[str, Any]]) -> int:
     return sum(
         1 for event in events
         if event.get("type") == "bout_of_madness"
+        and event.get("payload", {}).get("mode") != "summary"
         and event.get("payload", {}).get("duration_die") == "1D10"
         and event.get("payload", {}).get("duration_roll") not in (None, "", [], {})
         and event.get("payload", {}).get("duration_rounds") not in (None, "", [], {})
+    )
+
+
+def _bout_summary_gaps(
+    events: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    party: dict[str, Any],
+) -> list[str]:
+    gaps: list[str] = []
+    solo_party = len(_party_investigator_ids(party)) == 1
+    require_haunting_summary = metadata.get("audit_profile") == "haunting_module" and solo_party
+    for index, event in enumerate(
+        [event for event in events if event.get("type") == "bout_of_madness"],
+        start=1,
+    ):
+        payload = event.get("payload", {})
+        mode = payload.get("mode")
+        if mode in (None, "", [], {}):
+            gaps.append(f"bout_of_madness {index} missing mode")
+            continue
+        if mode not in {"real_time", "summary"}:
+            gaps.append(f"bout_of_madness {index} has unsupported mode {mode}")
+            continue
+        if require_haunting_summary and mode != "summary":
+            gaps.append(
+                f"bout_of_madness {index} uses {mode}; solo The Haunting Corbitt insanity must use summary"
+            )
+        if mode != "summary":
+            continue
+        missing = [
+            field
+            for field in ["summary_table", "summary_roll", "summary_result", "control_returned", "recovery_note"]
+            if payload.get(field) in (None, "", [], {})
+        ]
+        if missing:
+            gaps.append(f"bout_of_madness {index} summary missing {', '.join(missing)}")
+        if payload.get("summary_table") != "table_viii_summary":
+            gaps.append(
+                f"bout_of_madness {index} summary_table is {payload.get('summary_table')}, expected table_viii_summary"
+            )
+        try:
+            summary_roll = int(payload.get("summary_roll"))
+        except (TypeError, ValueError):
+            gaps.append(f"bout_of_madness {index} summary_roll must be an integer")
+        else:
+            if not 1 <= summary_roll <= 10:
+                gaps.append(f"bout_of_madness {index} summary_roll {summary_roll} outside 1D10 range")
+        if payload.get("control_returned") is not True:
+            gaps.append(f"bout_of_madness {index} does not record control_returned=true")
+        if "rounds" in payload or "duration_rounds" in payload:
+            gaps.append(f"bout_of_madness {index} summary mode still records real-time rounds")
+    return gaps
+
+
+def _bout_summary_count(events: list[dict[str, Any]]) -> int:
+    return sum(
+        1
+        for event in events
+        if event.get("type") == "bout_of_madness"
+        and event.get("payload", {}).get("mode") == "summary"
+        and event.get("payload", {}).get("summary_table") == "table_viii_summary"
+        and event.get("payload", {}).get("summary_roll") not in (None, "", [], {})
     )
 
 
@@ -1525,6 +1590,8 @@ def _bout_round_sequence_gaps(events: list[dict[str, Any]]) -> list[str]:
         start=1,
     ):
         payload = event.get("payload", {})
+        if payload.get("mode") == "summary":
+            continue
         try:
             duration_rounds = int(payload.get("duration_rounds"))
         except (TypeError, ValueError):
@@ -1557,6 +1624,7 @@ def _bout_round_sequence_count(events: list[dict[str, Any]]) -> int:
         1
         for event in events
         if event.get("type") == "bout_of_madness"
+        and event.get("payload", {}).get("mode") != "summary"
         and not _bout_round_sequence_gaps([event])
     )
 
@@ -1605,6 +1673,7 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             f"Sanity procedure: {len(sanity_rolls)} SAN roll entries; "
             f"temporary_insanity_triggered markers: {len(temporary_insanity_markers)}; "
             f"Bout of Madness events: {_event_type_count(events, 'bout_of_madness')}; "
+            f"Bout summary episodes: {_bout_summary_count(events)}; "
             f"Bout duration rolls: {_bout_duration_roll_count(events)}; "
             f"Bout round sequences: {_bout_round_sequence_count(events)}."
         ),
@@ -2494,6 +2563,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "A structured roll payload sets temporary_insanity_triggered=true, but events.jsonl has no bout_of_madness event.",
                 "Record a bout_of_madness event with the episode, duration, Keeper control boundary, player-facing behavior, and recovery note.",
+            ))
+        mode_gaps = _bout_summary_gaps(context["events"], metadata, context["party"])
+        if mode_gaps:
+            findings.append(_finding(
+                "temporary_insanity_bout_mode_mismatch",
+                "system_gap",
+                "high",
+                "; ".join(mode_gaps),
+                "Record bout_of_madness.mode as real_time or summary; for a lone The Haunting investigator facing Corbitt, use summary with table_viii_summary instead of a played round sequence.",
             ))
         duration_gaps = _bout_duration_roll_gaps(context["events"])
         if duration_gaps:

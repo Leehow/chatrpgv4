@@ -1070,7 +1070,7 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit should add
 - recorded floating-knife and Corbitt combat resolution
 - Corbitt Magic points `resource_change` events for Flesh Ward's variable Magic point armor cost, The Floating Knife's 1 Magic point combat-round cost, and Corbitt's 2 Magic points body-movement cost; otherwise emit `haunting_corbitt_magic_points_missing`
 - a structured `own_dagger_ignores_spells` combat event showing that the recovered Corbitt dagger bypasses Flesh Ward and other spells when it hits Corbitt; otherwise emit `haunting_corbitt_own_dagger_exception_missing`
-- if a structured roll payload sets `temporary_insanity_triggered: true`, a `bout_of_madness` event and battle-report `疯狂发作` entry showing the 1D10-round loss-of-control episode, the actual `duration_roll`/`duration_rounds`, one keeper-controlled `rounds[]` entry for each bout round, `control_returned: true`, Keeper control boundary, and recovery note
+- if a structured roll payload sets `temporary_insanity_triggered: true`, a `bout_of_madness` event and battle-report `疯狂发作` entry showing `mode`, Keeper control boundary, `control_returned: true`, and recovery note. `mode: real_time` requires the 1D10-round loss-of-control episode, actual `duration_roll`/`duration_rounds`, and one keeper-controlled `rounds[]` entry for each bout round. `mode: summary` requires `summary_table: table_viii_summary`, `summary_roll`, and `summary_result` instead of `duration_rounds`/`rounds`; The Haunting's Corbitt temporary-insanity scene must use summary mode when the investigator is alone.
 - final HP, final SAN, rewards, and unresolved state
 - a Chase Summary entry explaining that The Haunting has no required chase sequence, unless the run intentionally adds a chase scene
 
@@ -1120,7 +1120,7 @@ Before claiming a Keeper implementation is ready for real play, it must pass:
 - no unlogged rolls
 - no permanent investigator changes written from a sandbox run
 - no `investigator_creation_missing`, `investigator_chronicle_missing`, or `investigator_chronicle_not_rendered` findings in serious active runs
-- no `temporary_insanity_bout_missing`, `temporary_insanity_bout_duration_missing`, `temporary_insanity_bout_rounds_missing`, or `temporary_insanity_bout_not_rendered` findings when a sanity result triggers temporary insanity
+- no `temporary_insanity_bout_missing`, `temporary_insanity_bout_mode_mismatch`, `temporary_insanity_bout_duration_missing`, `temporary_insanity_bout_rounds_missing`, or `temporary_insanity_bout_not_rendered` findings when a sanity result triggers temporary insanity
 - evaluator score of at least 4 for state integrity and spoiler safety
 
 ## Version Roadmap

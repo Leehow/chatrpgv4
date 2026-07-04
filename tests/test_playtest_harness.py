@@ -763,6 +763,22 @@ def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     assert (run_dir / "player-feedback.jsonl").exists()
 
 
+def test_haunting_module_harness_uses_summary_bout_for_solo_corbitt_insanity(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+
+    bout_event = next(event for event in campaign_state_events(run_dir) if event.get("type") == "bout_of_madness")
+    bout_payload = bout_event["payload"]
+    battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+
+    assert bout_payload["mode"] == "summary"
+    assert bout_payload["summary_table"] == "table_viii_summary"
+    assert bout_payload["summary_roll"] == 4
+    assert "duration_rounds" not in bout_payload
+    assert "rounds" not in bout_payload
+    assert "Table VIII" in bout_payload["rulebook_ref"]
+    assert "独处" in battle_text
+
+
 def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
 
@@ -809,11 +825,11 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Flesh Ward armor: 7" in audit_text
     bout_event = next(event for event in campaign_state_events(run_dir) if event.get("type") == "bout_of_madness")
     bout_payload = bout_event["payload"]
-    assert bout_payload["duration_die"] == "1D10"
-    assert bout_payload["duration_roll"] == 4
-    assert bout_payload["duration_rounds"] == 4
-    assert [round_entry["round"] for round_entry in bout_payload["rounds"]] == [1, 2, 3, 4]
-    assert all(round_entry["control"] == "keeper" for round_entry in bout_payload["rounds"])
+    assert bout_payload["mode"] == "summary"
+    assert bout_payload["summary_table"] == "table_viii_summary"
+    assert bout_payload["summary_roll"] == 4
+    assert "duration_rounds" not in bout_payload
+    assert "rounds" not in bout_payload
     assert bout_payload["control_returned"] is True
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | report_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
@@ -976,12 +992,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "地下室楼梯" in scene_replay
     assert "推骰地下室搜索" in scene_replay
     assert "以其人之物反制的线索" in scene_replay
-    assert "疯狂发作第 1 回合" in scene_replay
-    assert "疯狂发作第 4 回合" in scene_replay
-    assert scene_replay.count("疯狂发作第 1 回合") == 1
-    assert scene_replay.count("疯狂发作第 2 回合") == 1
-    assert scene_replay.count("疯狂发作第 3 回合") == 1
-    assert scene_replay.count("疯狂发作第 4 回合") == 1
+    assert "疯狂发作（摘要）" in scene_replay
+    assert "没有其他调查员在场" in scene_replay
+    assert "摘要表" in scene_replay
+    assert "结果解释为暴力" in scene_replay
     assert "控制权回到玩家" in scene_replay
     assert "床铺袭击造成艾达·金 5 HP 伤害；HP 12 -> 7。" in scene_replay
     assert "推骰地下室搜索失败造成艾达·金 4 HP 伤害；HP 7 -> 3。" in scene_replay
@@ -1050,9 +1064,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "KP[Gabriela Macario]" not in actual_play
     assert "第 6 轮 系统: 说服：艾达·金掷出 72 / 55，结果失败。" in actual_play
     assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
-    assert "第 48a 轮 KP: \"疯狂发作第 1 回合" in actual_play
-    assert "第 48d 轮 KP: \"疯狂发作第 4 回合" in actual_play
-    assert actual_play.index("第 48d 轮 KP") < actual_play.index("第 49 轮 玩家")
+    assert "第 48 轮 KP: \"疯狂发作（摘要）" in actual_play
+    assert "第 48a 轮 系统: 格斗（斗殴）：艾达·金掷出 21 / 40，结果普通成功。摘要疯狂中的暴力结果" in actual_play
+    assert actual_play.index("第 48a 轮 系统") < actual_play.index("第 49 轮 玩家")
     assert "控制权回到玩家" in actual_play
     assert "Persuade 72 vs 55" not in actual_play
     assert "Persuade：" not in actual_play
@@ -1133,7 +1147,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert " basement" not in major_decisions
     assert " dagger" not in major_decisions
     assert "艾达·金选择先去《波士顿环球报》查剪报" in major_decisions
-    assert "艾达·金相信维托里奥的提示" in major_decisions
+    assert "艾达·金在摘要疯狂结束后恢复控制" in major_decisions
     rules_recap = section_text(battle_text, "## Rules & Rolls Recap")
     assert has_cjk(rules_recap)
     assert "说服：艾达·金掷出 72 / 55，结果失败。" in rules_recap
@@ -1205,10 +1219,14 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     )
     assert "疯狂发作" in bout_visible_sections
     assert "Bout of Madness" not in bout_visible_sections
-    assert "1D10 回合" in battle_text
-    assert "1D10 掷出 4，所以持续 4 回合" in battle_text
-    assert "艾达·金在临时疯狂中把左轮丢到地下室角落" in battle_text
-    assert "Bout duration rolls: 1" in audit_text
+    assert "Summary 疯狂" not in bout_visible_sections
+    assert "改用 Summary" not in bout_visible_sections
+    assert "1D10 掷出 4" in battle_text
+    assert "摘要表" in battle_text
+    assert "疯狂发作第 1 回合" not in battle_text
+    assert "艾达·金独处在地下室" in battle_text
+    assert "Bout summary episodes: 1" in audit_text
+    assert "Bout duration rolls: 0" in audit_text
     assert "战斗轮" in battle_text
     assert "combat round" not in combat_summary
     assert "- KP:" not in combat_summary
@@ -1228,15 +1246,13 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "艾达·金: 艾达·金" not in sanity_summary
     assert "- 艾达·金因床铺袭击失败 SAN 1/1D4" in sanity_summary
     assert "- 科比特起身时艾达·金失败 SAN 1/1D8" in sanity_summary
-    assert "- 疯狂发作：艾达·金在临时疯狂中把左轮丢到地下室角落" in sanity_summary
-    assert "疯狂发作第 1 回合" in sanity_summary
-    assert "疯狂发作第 2 回合" in sanity_summary
-    assert "疯狂发作第 3 回合" in sanity_summary
-    assert "疯狂发作第 4 回合" in sanity_summary
+    assert "- 疯狂发作（摘要）：艾达·金独处在地下室" in sanity_summary
+    assert "摘要表" in sanity_summary
+    assert "结果解释为暴力" in sanity_summary
     assert "控制权回到玩家" in sanity_summary
     assert "KP 暂时不接受玩家的主动攻击宣告" not in bout_visible_sections
     assert "KP 暂时不接受玩家的主动攻击宣告" not in visible_dialogue
-    assert "这一回合她的动作只剩下本能的防御" in bout_visible_sections
+    assert "醒来时左轮落在角落" in bout_visible_sections
     state_changes = section_text(battle_text, "### State Changes")
     story_recap = section_text(battle_text, "## Story Recap")
     assert_player_readable_state_ids_absent(

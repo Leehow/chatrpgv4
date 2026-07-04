@@ -1712,33 +1712,13 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         ],
     )
 
-    bout_rounds = [
-        {
-            "round": 1,
-            "control": "keeper",
-            "summary": "疯狂发作第 1 回合：艾达·金尖叫着丢下左轮并后退，仍死死抓着科比特匕首；科比特拖着木板床的残骸靠近。",
-        },
-        {
-            "round": 2,
-            "control": "keeper",
-            "summary": "疯狂发作第 2 回合：艾达·金背撞在地下室墙边；这一回合她的动作只剩下本能的防御和抽泣，科比特逼近时她无法组织起攻击。",
-        },
-        {
-            "round": 3,
-            "control": "keeper",
-            "summary": "疯狂发作第 3 回合：维托里奥“用自己的武器”的话在她脑中反复回响，她停止后退并重新看向手里的匕首。",
-        },
-        {
-            "round": 4,
-            "control": "keeper",
-            "summary": "疯狂发作第 4 回合：艾达·金终于把注意力固定在科比特匕首上；发作结束，控制权回到玩家，但她仍处于临时疯狂的底层状态。",
-        },
-    ]
     bout_summary = (
-        "疯狂发作：艾达·金在临时疯狂中把左轮丢到地下室角落；持续 1D10 回合；"
-        "1D10 掷出 4，所以持续 4 回合；KP 暂时接管失控行为，只让她尖叫、防御和后退，"
-        "直到维托里奥的提示让她重新抓住科比特匕首。"
+        "疯狂发作（摘要）：艾达·金独处在地下室，没有其他调查员在场；按《鬼屋》科比特临时疯狂说明使用 "
+        "摘要表。1D10 掷出 4，结果解释为暴力。KP 摘要失控片段：她尖叫着丢下左轮，"
+        "在混乱中把已经夺下的科比特匕首刺进科比特身体；醒来时左轮落在角落，科比特正化成灰，"
+        "随后控制权回到玩家。"
     )
+    bout_summary_result = "Table VIII Summary result 4: violence during a lost-time episode."
 
     _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
         {"turn": 1, "role": "keeper_under_test", "speaker": "Mr. Knott", "speaker_role": "npc", "mode": "play", "text": "Mr. Knott 把一枚旧钥匙推到桌面中央：“金小姐，我需要的是事实，不是传闻。每天二十美元，查清 Corbitt House 为什么赶走房客。”"},
@@ -1793,21 +1773,22 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"turn": 44, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 2, "outcome_note": "艾达·金抓住了匕首。", "text": "Fighting Maneuver 12 vs 40 -> hard_success; Corbitt POW 92 vs 90 -> failure. Ada has the knife."},
         {"turn": 45, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "木板后面露出 Corbitt's Hiding Place，墙上刻着 Chapel of Contemplation 的字样。"},
         {"turn": 46, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "corbitt_sanity", "text": "Corbitt Attacks：尸体从木板床上坐起，皮肤像旧纸一样裂开。做 SAN 1/1D8。"},
-        {"turn": 47, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 2, "outcome_note": "SAN 损失 6；临时疯狂触发；Bout of Madness 持续 1D10 回合；1D10 掷出 4，所以持续 4 回合。", "text": "SAN 63 vs 51 -> failure; SAN loss 6. INT 35 vs 70 -> success, so temporary insanity occurs; Bout of Madness lasts 1D10 rounds; duration roll 4, so it lasts 4 rounds."},
-        {"turn": 48, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "corbitt_combat_round", "text": "combat round 的行动顺序是 Ada DEX 50，然后 Corbitt DEX 35。因为刚触发临时疯狂，接下来 4 个 combat round 由 KP 暂时接管 Ada 的失控行为。"},
-        {"turn": "48a", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_round", "text": bout_rounds[0]["summary"], "localized_text": {"zh-Hans": {"ruling": "疯狂发作回合"}}},
-        {"turn": "48b", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_round", "text": bout_rounds[1]["summary"], "localized_text": {"zh-Hans": {"ruling": "疯狂发作回合"}}},
-        {"turn": "48c", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_round", "text": bout_rounds[2]["summary"], "localized_text": {"zh-Hans": {"ruling": "疯狂发作回合"}}},
-        {"turn": "48d", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_round", "text": bout_rounds[3]["summary"], "localized_text": {"zh-Hans": {"ruling": "疯狂发作回合"}}},
-        {"turn": 49, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "attack Corbitt with his own weapon", "text": "Vittorio 的话突然对上了：用他自己的武器。我不退，拿 Corbitt 的 dagger 刺向他。"},
+        {"turn": 47, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 2, "outcome_note": "SAN 损失 6；临时疯狂触发；艾达·金独处，使用摘要疯狂发作；摘要表掷出 4，解释为暴力。", "text": "SAN 63 / 51 失败；SAN 损失 6。INT 35 / 70 普通成功，因此触发临时疯狂。艾达独处，所以《鬼屋》的科比特临时疯狂使用摘要处理；摘要掷出 4，结果为暴力。"},
+        {"turn": 48, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "bout_of_madness_summary", "text": bout_summary, "localized_text": {"zh-Hans": {"ruling": "疯狂发作摘要"}}},
         {
-            "turn": 50,
+            "turn": "48a",
             "role": "system",
             "speaker": "system",
             "mode": "roll",
-            "outcome_note": "科比特自己的匕首命中特例：艾达·金夺下并刺中后，科比特不管任何法术都会迅速化灰；血肉护盾不再保护他。",
-            "text": "Fighting (Brawl) 21 vs 40 -> regular_success. Corbitt is destroyed by his own dagger regardless of spells.",
+            "outcome_note": "摘要疯狂中的暴力结果：艾达·金用科比特自己的匕首命中；科比特不管任何法术都会迅速化灰；血肉护盾不再保护他。",
+            "text": "摘要暴力结果：格斗（斗殴）21 / 40 普通成功。科比特被自己的匕首摧毁，不受任何法术保护。",
+            "localized_text": {
+                "zh-Hans": {
+                    "text": "摘要暴力结果：格斗（斗殴）21 / 40 -> 普通成功。科比特被自己的匕首摧毁，不受任何法术保护。",
+                },
+            },
         },
+        {"turn": 49, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "recover after summary bout", "text": "我回过神后先确认 Corbitt 还会不会动，捡回角落里的左轮，然后尽快离开地下室。", "localized_text": {"zh-Hans": {"intent": "疯狂摘要后恢复控制"}}},
         {"turn": 51, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Rewards：Corbitt 化成尘土，Mr. Knott 支付报酬和 30 美元奖金，Ada 恢复 4 SAN。Final HP: 3。Final SAN: 49。"},
     ], ZH_HANS_HAUNTING_GLOSSARY)
 
@@ -1835,15 +1816,22 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "actor": investigator_id,
             "payload": {
                 "skill": "Fighting (Brawl)",
-                "goal": "stab Corbitt with his own dagger",
+                "goal": "resolve the Table VIII Summary violence with Corbitt's own dagger",
                 "target": 40,
                 "effective_target": 40,
                 "difficulty": "regular",
-                "difficulty_rationale": "Ada attacks with the seized dagger before Corbitt's DEX 35 action.",
+                "difficulty_rationale": "During the summary bout, Keeper resolves whether Ada's uncontrolled violent action connects with the seized dagger.",
                 "roll": 21,
                 "outcome": "regular_success",
-                "failure_consequence": "Corbitt would take his action and continue the combat.",
+                "failure_consequence": "Corbitt would survive the summary episode and the Keeper would describe Ada coming to in a worse position.",
                 "skill_check_earned": True,
+                "localized_text": {
+                    "zh-Hans": {
+                        "goal": "解析摘要疯狂中的暴力是否用科比特自己的匕首命中",
+                        "difficulty_rationale": "摘要疯狂期间由 KP 解析艾达·金失控的暴力动作是否用已夺下的匕首刺中科比特。",
+                        "failure_consequence": "若失败，科比特会熬过这段摘要疯狂，KP 会描述艾达·金在更糟的位置恢复意识。",
+                    },
+                },
                 "damage_interaction": {
                     "rulebook_exception": "own_dagger_ignores_spells",
                     "flesh_ward_bypassed": True,
@@ -1931,21 +1919,22 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "actor": investigator_id,
             "payload": {
                 "summary": bout_summary,
-                "duration_die": "1D10",
-                "duration_roll": 4,
-                "duration_rounds": 4,
-                "rounds": bout_rounds,
+                "mode": "summary",
+                "summary_table": "table_viii_summary",
+                "summary_roll": 4,
+                "summary_result": bout_summary_result,
+                "rulebook_ref": "The Haunting Corbitt temporary insanity: a lone investigator uses Table VIII Summary rather than a round-by-round real-time bout.",
                 "control_returned": True,
-                "recovery_note": "第 4 回合结束后控制权回到玩家；艾达·金仍处于临时疯狂的底层状态。",
+                "recovery_note": "摘要结束后控制权回到玩家；艾达·金仍处于临时疯狂的底层状态。",
             },
         },
-        {"type": "combat", "actor": "keeper_under_test", "payload": {"summary": "Corbitt Attacks in a combat round；DEX order 是 Ada 50 先于 Corbitt 35。"}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 相信 Vittorio 的提示，用 Corbitt 自己的匕首刺向他。"}},
+        {"type": "combat", "actor": "keeper_under_test", "payload": {"summary": "Corbitt Attacks 的正常 combat round 会按 DEX order 处理：Ada 50 先于 Corbitt 35；本次因独处临时疯狂改用摘要。"}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 在摘要疯狂结束后恢复控制，确认 Corbitt 被自己的匕首摧毁并撤离地下室。"}},
         {
             "type": "combat",
             "actor": investigator_id,
             "payload": {
-                "summary": "科比特自己的匕首命中特例：艾达·金夺下并刺中后，科比特不管任何法术都会迅速化灰；血肉护盾不再保护他。",
+                "summary": "摘要疯狂中的暴力结果触发科比特自己的匕首命中特例：艾达·金夺下并刺中后，科比特不管任何法术都会迅速化灰；血肉护盾不再保护他。",
                 "rulebook_exception": "own_dagger_ignores_spells",
                 "flesh_ward_bypassed": True,
                 "armor_before": 7,
