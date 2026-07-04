@@ -2034,7 +2034,9 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "## Recommended Fixes\n- No fixes recorded." in evaluation_text
     assert "## Regression Tests To Add\n- No regression tests recorded." in evaluation_text
     assert "Chase drill audit must pass for a report with real chase state." not in evaluation_text
-    assert "live LLM-vs-KP chase stress test" in evaluation_text
+    assert "single-player style-pressure chase drill" in evaluation_text
+    assert "scripted multi-profile chase scene" not in evaluation_text
+    assert "multi-agent playtest runner" not in evaluation_text
     assert "PASS" in audit_text
     assert "Single-player chase style pressure: reckless_investigator, skeptical_rules_lawyer, genre_savvy_player." in audit_text
     assert "Chase player pressure:" not in audit_text

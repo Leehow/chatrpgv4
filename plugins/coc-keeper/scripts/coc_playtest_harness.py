@@ -3085,7 +3085,7 @@ def create_chase_drill_run(
         ],
         "failed_test_cases": [],
         "future_enhancements": [
-            "Replace this scripted multi-profile chase scene with a live LLM-vs-KP chase stress test when a live multi-agent playtest runner is available.",
+            "Replace this scripted single-player style-pressure chase drill with a live LLM-vs-KP single-player chase stress test when a live playtest runner is available.",
         ],
         "regression_tests": [],
     }, localized_terms, play_language))
@@ -3518,7 +3518,7 @@ def create_chase_drill_run(
         {
             "severity": "low",
             "category": "immersion",
-            "text": "The scripted multi-profile chase scene reads as a coherent table sequence with pressure.",
+            "text": "The single-player style-pressure chase drill reads as a coherent table sequence with pressure.",
             "evidence": _evidence(
                 transcript_turns=[1, 5, 8, 14, 17, 22],
                 artifact_paths=["artifacts/battle-report.md", "transcript.jsonl"],

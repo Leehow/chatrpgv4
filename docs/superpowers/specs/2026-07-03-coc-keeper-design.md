@@ -887,7 +887,7 @@ Each playtest run uses three role types:
    - Must follow the same spoiler and meta rules as normal play.
 
 2. `player_simulator`
-   - Simulates one human player; multi-player table support is deferred.
+   - Simulates one human player; group-table support is outside the current scope.
    - Sees only `player-view` information.
    - May ask in-character questions, take risky actions, ask `[meta]` questions, challenge rulings, forget details, or make suboptimal choices.
    - Must not read Keeper-only files, scenario secrets, hidden clue graphs, or evaluator notes.
@@ -1274,7 +1274,7 @@ Possible scope:
 - more complete magic, tomes, monsters, automatic fire, vehicles, and environmental hazards
 - scenario authoring tools
 - replay and campaign report export
-- single-player-first runtime; multi-player support is deferred and must not be treated as current completion scope
+- single-player-first runtime; group-table support is a future design topic and must not be treated as current completion scope
 - formal playtest harness integration with MCP or equivalent tool calls
 
 Acceptance:
