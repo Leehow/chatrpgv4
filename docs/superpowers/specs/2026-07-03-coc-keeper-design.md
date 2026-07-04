@@ -492,11 +492,13 @@ Directory roles:
 ```text
 .coc/
 └── indexes/
+    ├── investigators.json
+    ├── campaigns.json
     ├── pdf-catalog.json
     └── module-catalog.json
 ```
 
-These files catalog available source PDFs and imported modules across campaigns in the current workspace.
+These files catalog reusable investigators, campaigns, available source PDFs, and imported modules across the current workspace. `investigators.json` stores stable reusable-investigator entry points without campaign-specific temporary HP, SAN, or scene state. `campaigns.json` stores campaign metadata plus paths to `party.json`, `save/`, `memory/`, and `logs/`, so campaign discovery can find every durable save and play-memory location without mixing those records into the reusable investigator library.
 
 ### Playtest Runs
 

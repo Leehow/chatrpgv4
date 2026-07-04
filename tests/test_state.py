@@ -33,6 +33,42 @@ def test_create_campaign_workspace_and_party(tmp_path):
     assert (tmp_path / ".coc" / "campaigns" / "haunting-test" / "logs").exists()
 
 
+def test_workspace_indexes_campaigns_and_reusable_investigators(tmp_path):
+    coc_state.create_investigator(
+        tmp_path,
+        "ada-king",
+        {"schema_version": 1, "id": "ada-king", "name": "Ada King", "characteristics": {}},
+    )
+    coc_state.create_campaign(tmp_path, "haunting-test", "The Haunting Test")
+    coc_state.link_party(tmp_path, "haunting-test", ["ada-king"])
+
+    investigator_index = json.loads((tmp_path / ".coc" / "indexes" / "investigators.json").read_text())
+    campaign_index = json.loads((tmp_path / ".coc" / "indexes" / "campaigns.json").read_text())
+
+    assert investigator_index["schema_version"] == 1
+    assert investigator_index["investigators"]["ada-king"] == {
+        "id": "ada-king",
+        "name": "Ada King",
+        "path": ".coc/investigators/ada-king/character.json",
+        "history_path": ".coc/investigators/ada-king/history.jsonl",
+        "development_path": ".coc/investigators/ada-king/development.jsonl",
+        "inventory_history_path": ".coc/investigators/ada-king/inventory-history.jsonl",
+    }
+    assert campaign_index["schema_version"] == 1
+    assert campaign_index["campaigns"]["haunting-test"] == {
+        "campaign_id": "haunting-test",
+        "title": "The Haunting Test",
+        "status": "setup",
+        "play_language": "zh-Hans",
+        "path": ".coc/campaigns/haunting-test/campaign.json",
+        "party_path": ".coc/campaigns/haunting-test/party.json",
+        "save_path": ".coc/campaigns/haunting-test/save",
+        "memory_path": ".coc/campaigns/haunting-test/memory",
+        "logs_path": ".coc/campaigns/haunting-test/logs",
+        "investigator_ids": ["ada-king"],
+    }
+
+
 def test_create_campaign_persists_play_language(tmp_path):
     default_campaign_path = coc_state.create_campaign(tmp_path, "default-language", "Default Language")
     custom_campaign_path = coc_state.create_campaign(

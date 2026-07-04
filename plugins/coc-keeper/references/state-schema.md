@@ -15,6 +15,18 @@ Runtime data lives under the current project `.coc/` directory:
 └── exports/
 ```
 
+Top-level indexes provide machine-readable entry points across the workspace:
+
+```text
+.coc/indexes/
+├── investigators.json
+├── campaigns.json
+├── pdf-catalog.json
+└── module-catalog.json
+```
+
+`investigators.json` records reusable investigator ids, display names, and paths to `character.json`, `history.jsonl`, `development.jsonl`, and `inventory-history.jsonl`. `campaigns.json` records campaign ids, titles, status, play language, party file, and paths to each campaign's `save/`, `memory/`, and `logs/` folders.
+
 ## Reusable Investigators
 
 Investigators are reusable assets:

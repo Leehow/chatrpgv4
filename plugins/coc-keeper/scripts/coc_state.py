@@ -58,6 +58,71 @@ def write_json_atomic(path: Path, payload: dict[str, Any] | list[Any]) -> None:
     temp_path.replace(path)
 
 
+def _relative_to_root(root: Path, path: Path) -> str:
+    return path.relative_to(root).as_posix()
+
+
+def _read_json_object(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
+    if not path.exists():
+        return fallback
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return fallback
+    return payload
+
+
+def _upsert_index_entry(
+    root: Path,
+    filename: str,
+    collection_key: str,
+    item_key: str,
+    entry: dict[str, Any],
+) -> None:
+    index_path = coc_root(root) / "indexes" / filename
+    index = _read_json_object(index_path, {"schema_version": 1, collection_key: {}})
+    index["schema_version"] = 1
+    collection = index.setdefault(collection_key, {})
+    if not isinstance(collection, dict):
+        collection = {}
+        index[collection_key] = collection
+    collection[item_key] = entry
+    write_json_atomic(index_path, index)
+
+
+def _campaign_index_entry(root: Path, campaign_id: str, campaign: dict[str, Any]) -> dict[str, Any]:
+    campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    entry = {
+        "campaign_id": campaign_id,
+        "title": campaign.get("title", campaign_id),
+        "status": campaign.get("status", "setup"),
+        "play_language": campaign.get("play_language", DEFAULT_PLAY_LANGUAGE),
+        "path": _relative_to_root(root, campaign_dir / "campaign.json"),
+        "party_path": _relative_to_root(root, campaign_dir / "party.json"),
+        "save_path": _relative_to_root(root, campaign_dir / "save"),
+        "memory_path": _relative_to_root(root, campaign_dir / "memory"),
+        "logs_path": _relative_to_root(root, campaign_dir / "logs"),
+    }
+    party_path = campaign_dir / "party.json"
+    if party_path.exists():
+        party = _read_json_object(party_path, {})
+        investigator_ids = party.get("investigator_ids")
+        if isinstance(investigator_ids, list):
+            entry["investigator_ids"] = investigator_ids
+    return entry
+
+
+def _upsert_campaign_index(root: Path, campaign_id: str) -> None:
+    campaign_path = coc_root(root) / "campaigns" / campaign_id / "campaign.json"
+    campaign = _read_json_object(campaign_path, {"campaign_id": campaign_id})
+    _upsert_index_entry(
+        root,
+        "campaigns.json",
+        "campaigns",
+        campaign_id,
+        _campaign_index_entry(root, campaign_id, campaign),
+    )
+
+
 def ensure_workspace(root: Path) -> dict[str, str]:
     base = coc_root(root)
     for directory in TOP_LEVEL_DIRS:
@@ -73,6 +138,20 @@ def create_investigator(root: Path, investigator_id: str, sheet: dict[str, Any])
     write_json_atomic(character_path, sheet)
     for log_name in ("history.jsonl", "development.jsonl", "inventory-history.jsonl"):
         (investigator_dir / log_name).touch(exist_ok=True)
+    _upsert_index_entry(
+        root,
+        "investigators.json",
+        "investigators",
+        investigator_id,
+        {
+            "id": investigator_id,
+            "name": sheet.get("name", investigator_id),
+            "path": _relative_to_root(root, character_path),
+            "history_path": _relative_to_root(root, investigator_dir / "history.jsonl"),
+            "development_path": _relative_to_root(root, investigator_dir / "development.jsonl"),
+            "inventory_history_path": _relative_to_root(root, investigator_dir / "inventory-history.jsonl"),
+        },
+    )
     return character_path
 
 
@@ -108,6 +187,7 @@ def create_campaign(
     }
     campaign_path = campaign_dir / "campaign.json"
     write_json_atomic(campaign_path, campaign)
+    _upsert_campaign_index(root, campaign_id)
     return campaign_path
 
 
@@ -123,6 +203,7 @@ def link_party(root: Path, campaign_id: str, investigator_ids: list[str]) -> Pat
             "active_investigator_ids": investigator_ids,
         },
     )
+    _upsert_campaign_index(root, campaign_id)
     return party_path
 
 
