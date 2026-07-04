@@ -59,6 +59,50 @@ def test_derive_values_uses_rules_json_movement_rate(monkeypatch):
     assert result["MOV"] == 8
 
 
+def test_apply_age_modifiers_uses_rules_json_age_adjustment(monkeypatch):
+    calls = []
+
+    def fake_age_adjustment(age: int):
+        calls.append(age)
+        return {
+            "edu_improvement_checks": 1,
+            "edu_reduction": 0,
+            "app_reduction": 7,
+        }
+
+    monkeypatch.setattr(coc_character.coc_rules, "age_adjustment", fake_age_adjustment, raising=False)
+
+    result = coc_character.apply_age_modifiers({
+        "STR": 60,
+        "CON": 50,
+        "SIZ": 70,
+        "DEX": 55,
+        "APP": 50,
+        "INT": 65,
+        "POW": 60,
+        "EDU": 70,
+    }, 44, edu_improvement_rolls=[80, 90])
+
+    assert calls == [44]
+    assert result["APP"] == 43
+    assert result["EDU"] == 71
+
+
+def test_apply_age_modifiers_applies_rulebook_edu_improvement_amount():
+    result = coc_character.apply_age_modifiers({
+        "STR": 60,
+        "CON": 50,
+        "SIZ": 70,
+        "DEX": 55,
+        "APP": 50,
+        "INT": 65,
+        "POW": 60,
+        "EDU": 70,
+    }, 32, edu_improvement_rolls=[{"roll": 80, "improvement_roll": 4}])
+
+    assert result["EDU"] == 74
+
+
 def test_validate_character_sheet_reports_missing_required_fields():
     errors = coc_character.validate_character_sheet({"name": "Ada"})
     assert "missing id" in errors

@@ -50,66 +50,8 @@
     {
       "id": "core.character_creation.age_modifiers",
       "category": "character_creation",
-      "source_note": "Keeper Rulebook Chapter 3 age selection applies only the chosen bracket; 20-39 years requires one EDU improvement check and no characteristic reduction.",
-      "numeric": {
-        "minimum_age": 15,
-        "maximum_age": 90,
-        "brackets": [
-          {
-            "range": "15-19",
-            "edu_improvement_checks": 0,
-            "edu_reduction": 5,
-            "str_siz_reduction_total": 5,
-            "luck_rolls_keep_highest": 2
-          },
-          {
-            "range": "20-39",
-            "edu_improvement_checks": 1,
-            "characteristic_reduction_total": 0,
-            "app_reduction": 0,
-            "mov_penalty": 0
-          },
-          {
-            "range": "40-49",
-            "edu_improvement_checks": 2,
-            "str_con_dex_reduction_total": 5,
-            "app_reduction": 5,
-            "mov_penalty": 1
-          },
-          {
-            "range": "50-59",
-            "edu_improvement_checks": 3,
-            "str_con_dex_reduction_total": 10,
-            "app_reduction": 10,
-            "mov_penalty": 2
-          },
-          {
-            "range": "60-69",
-            "edu_improvement_checks": 4,
-            "str_con_dex_reduction_total": 20,
-            "app_reduction": 15,
-            "mov_penalty": 3
-          },
-          {
-            "range": "70-79",
-            "edu_improvement_checks": 4,
-            "str_con_dex_reduction_total": 40,
-            "app_reduction": 20,
-            "mov_penalty": 4
-          },
-          {
-            "range": "80-89",
-            "edu_improvement_checks": 4,
-            "str_con_dex_reduction_total": 80,
-            "app_reduction": 25,
-            "mov_penalty": 5
-          }
-        ],
-        "edu_improvement_die": "1D100",
-        "edu_improves_if_roll_gt_current_edu": true,
-        "edu_improvement_amount": "1D10",
-        "edu_maximum": 99
-      }
+      "source_table": "age-adjustments.json",
+      "source_note": "Keeper Rulebook Chapter 3 age selection applies only the chosen bracket; runtime calculations use age-adjustments.json."
     },
     {
       "id": "core.character_creation.half_fifth_values",

@@ -625,6 +625,7 @@ Core rules should be pre-normalized into JSON and treated as the runtime authori
 ```text
 references/rules-json/
 ├── metadata.json
+├── age-adjustments.json
 ├── characteristics.json
 ├── skill-bases.json
 ├── occupations.json

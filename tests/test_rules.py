@@ -47,6 +47,29 @@ def test_movement_rate_uses_structured_table():
     assert coc_rules.movement_rate(80, 75, 65, age_mov_penalty=1)["mov"] == 8
 
 
+def test_age_adjustment_uses_structured_table():
+    table = coc_rules.load_rule_table("age-adjustments")
+
+    assert table["minimum_age"] == 15
+    assert table["brackets"][2]["key"] == "40-49"
+    assert table["brackets"][2]["app_reduction"] == 5
+    assert coc_rules.age_adjustment(47) == {
+        "age": 47,
+        "key": "40-49",
+        "min_age": 40,
+        "max_age": 49,
+        "edu_improvement_checks": 2,
+        "edu_reduction": 0,
+        "characteristic_reduction_total": 5,
+        "characteristic_reduction_choices": ["STR", "CON", "DEX"],
+        "app_reduction": 5,
+        "mov_penalty": 1,
+        "luck_rolls_keep_highest": 1,
+    }
+    assert coc_rules.age_adjustment(32)["edu_improvement_checks"] == 1
+    assert coc_rules.age_adjustment(84)["app_reduction"] == 25
+
+
 def test_success_levels_include_fumbles_and_extreme_success():
     assert coc_rules.success_level(1, 65) == "critical"
     assert coc_rules.success_level(12, 65) == "extreme"

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -38,24 +39,25 @@ def derive_values(characteristics: dict[str, int], luck: int | None = None) -> d
 def apply_age_modifiers(
     characteristics: dict[str, int],
     age: int,
-    edu_improvement_rolls: list[int] | None = None,
+    edu_improvement_rolls: list[int | dict[str, Any]] | None = None,
 ) -> dict[str, int]:
     adjusted = dict(characteristics)
     edu_improvement_rolls = edu_improvement_rolls or []
-    if 15 <= age <= 19:
-        adjusted["EDU"] = max(0, adjusted["EDU"] - 5)
-    elif 40 <= age <= 49:
-        adjusted["APP"] = max(0, adjusted["APP"] - 5)
-    elif 50 <= age <= 59:
-        adjusted["APP"] = max(0, adjusted["APP"] - 10)
-    elif 60 <= age <= 69:
-        adjusted["APP"] = max(0, adjusted["APP"] - 15)
-    elif age >= 70:
-        adjusted["APP"] = max(0, adjusted["APP"] - 20)
+    age_adjustment = coc_rules.age_adjustment(age)
+    adjusted["EDU"] = max(0, adjusted["EDU"] - int(age_adjustment.get("edu_reduction", 0)))
+    adjusted["APP"] = max(0, adjusted["APP"] - int(age_adjustment.get("app_reduction", 0)))
 
-    for roll in edu_improvement_rolls:
+    required_checks = int(age_adjustment.get("edu_improvement_checks", 0))
+    edu_maximum = int(coc_rules.load_rule_table("age-adjustments").get("edu_maximum", 99))
+    for record in edu_improvement_rolls[:required_checks]:
+        if isinstance(record, dict):
+            roll = int(record["roll"])
+            improvement_amount = int(record.get("improvement_roll") or 0)
+        else:
+            roll = int(record)
+            improvement_amount = 1
         if roll > adjusted["EDU"]:
-            adjusted["EDU"] += 1
+            adjusted["EDU"] = min(edu_maximum, adjusted["EDU"] + improvement_amount)
     return adjusted
 
 

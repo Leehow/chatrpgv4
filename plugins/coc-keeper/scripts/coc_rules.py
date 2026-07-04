@@ -113,6 +113,22 @@ def movement_rate(
     raise ValueError(f"no movement-rate rule matched STR={str_value} DEX={dex_value} SIZ={siz_value}")
 
 
+def age_adjustment(age: int) -> dict[str, Any]:
+    table = load_rule_table("age-adjustments")
+    minimum_age = int(table.get("minimum_age", 0))
+    maximum_age = int(table.get("maximum_age", 0))
+    if age < minimum_age or age > maximum_age:
+        raise ValueError(f"age out of supported range: {age}")
+    for row in table.get("brackets", []):
+        if not isinstance(row, dict):
+            continue
+        if int(row["min_age"]) <= age <= int(row["max_age"]):
+            result = dict(row)
+            result["age"] = age
+            return result
+    raise ValueError(f"no age adjustment bracket matched age={age}")
+
+
 def _finance_amount(amount: float | int | None, currency: str = "USD", formula: str | None = None) -> dict[str, Any]:
     value: dict[str, Any] = {
         "amount": amount,
