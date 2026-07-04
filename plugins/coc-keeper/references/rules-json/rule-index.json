@@ -4,13 +4,8 @@
     {
       "id": "core.percentile_check",
       "category": "core_resolution",
-      "source_note": "Keeper Rulebook percentile skill and characteristic checks.",
-      "numeric": {
-        "die": "1D100",
-        "minimum_roll": 1,
-        "maximum_roll": 100,
-        "success_if_roll_lte_effective_target": true
-      }
+      "source_table": "percentile-check.json",
+      "source_note": "Keeper Rulebook percentile skill and characteristic checks; runtime bounds use percentile-check.json."
     },
     {
       "id": "core.difficulty.regular",

@@ -12,6 +12,7 @@ REQUIRED_RULE_FILES = [
     "damage-bonus-build.json",
     "half-fifth-values.json",
     "movement-rate.json",
+    "percentile-check.json",
     "success-levels.json",
     "difficulty-levels.json",
     "sanity.json",

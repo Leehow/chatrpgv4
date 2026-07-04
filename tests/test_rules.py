@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def load_module(name: str, relative_path: str):
     path = Path(relative_path)
@@ -12,6 +14,37 @@ def load_module(name: str, relative_path: str):
 
 
 coc_rules = load_module("coc_rules", "plugins/coc-keeper/scripts/coc_rules.py")
+
+
+def test_percentile_check_rule_uses_structured_table():
+    table = coc_rules.load_rule_table("percentile-check")
+
+    assert table["die"] == "1D100"
+    assert coc_rules.percentile_check_rule() == {
+        "die": "1D100",
+        "minimum_roll": 1,
+        "maximum_roll": 100,
+        "minimum_target": 1,
+        "maximum_target": 100,
+        "success_if_roll_lte_effective_target": True,
+    }
+
+
+def test_success_level_uses_percentile_check_bounds(monkeypatch):
+    def fake_percentile_check_rule():
+        return {
+            "die": "1D20",
+            "minimum_roll": 10,
+            "maximum_roll": 20,
+            "minimum_target": 10,
+            "maximum_target": 20,
+            "success_if_roll_lte_effective_target": True,
+        }
+
+    monkeypatch.setattr(coc_rules, "percentile_check_rule", fake_percentile_check_rule, raising=False)
+
+    with pytest.raises(ValueError, match="10 and 20"):
+        coc_rules.success_level(5, 15)
 
 
 def test_half_and_fifth_values_round_down():

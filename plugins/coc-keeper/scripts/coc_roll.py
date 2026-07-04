@@ -73,9 +73,13 @@ def percentile_check(
     net_bonus = max(0, bonus - penalty)
     net_penalty = max(0, penalty - bonus)
     effective_target = _effective_target(target, difficulty)
+    percentile_rule = coc_rules.percentile_check_rule()
 
     if net_bonus == 0 and net_penalty == 0:
-        roll = rng.randint(1, 100)
+        roll = rng.randint(
+            int(percentile_rule["minimum_roll"]),
+            int(percentile_rule["maximum_roll"]),
+        )
         tens_values: list[int] = []
         units = None
     else:

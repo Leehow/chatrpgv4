@@ -47,6 +47,28 @@ def test_percentile_check_uses_rules_json_difficulty_target(monkeypatch):
     assert result["effective_target"] == 17
 
 
+def test_percentile_check_uses_rules_json_roll_bounds(monkeypatch):
+    calls = []
+
+    def fake_percentile_check_rule():
+        calls.append("bounds")
+        return {
+            "die": "1D20",
+            "minimum_roll": 10,
+            "maximum_roll": 20,
+            "minimum_target": 1,
+            "maximum_target": 100,
+            "success_if_roll_lte_effective_target": True,
+        }
+
+    monkeypatch.setattr(coc_roll.coc_rules, "percentile_check_rule", fake_percentile_check_rule, raising=False)
+
+    result = coc_roll.percentile_check(50, rng=random.Random(1))
+
+    assert calls
+    assert 10 <= result["roll"] <= 20
+
+
 def test_bonus_and_penalty_cancel():
     result = coc_roll.percentile_check(50, bonus=1, penalty=1, rng=random.Random(3))
     assert result["bonus"] == 0

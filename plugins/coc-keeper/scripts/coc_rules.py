@@ -46,6 +46,18 @@ def resolve_rule_refs(refs: list[str]) -> list[dict[str, Any]]:
     return [by_id[ref] for ref in refs if ref in by_id]
 
 
+def percentile_check_rule() -> dict[str, Any]:
+    table = load_rule_table("percentile-check")
+    return {
+        "die": str(table["die"]),
+        "minimum_roll": int(table["minimum_roll"]),
+        "maximum_roll": int(table["maximum_roll"]),
+        "minimum_target": int(table["minimum_target"]),
+        "maximum_target": int(table["maximum_target"]),
+        "success_if_roll_lte_effective_target": bool(table["success_if_roll_lte_effective_target"]),
+    }
+
+
 def _threshold_value(value: int, key: str) -> int:
     table = load_rule_table("half-fifth-values")
     divisor = int(table[key]["divisor"])
@@ -200,10 +212,15 @@ def _is_fumble(roll: int, target: int) -> bool:
 
 
 def success_level(roll: int, target: int) -> str:
-    if not 1 <= roll <= 100:
-        raise ValueError("roll must be between 1 and 100")
-    if not 1 <= target <= 100:
-        raise ValueError("target must be between 1 and 100")
+    percentile_rule = percentile_check_rule()
+    min_roll = int(percentile_rule["minimum_roll"])
+    max_roll = int(percentile_rule["maximum_roll"])
+    min_target = int(percentile_rule["minimum_target"])
+    max_target = int(percentile_rule["maximum_target"])
+    if not min_roll <= roll <= max_roll:
+        raise ValueError(f"roll must be between {min_roll} and {max_roll}")
+    if not min_target <= target <= max_target:
+        raise ValueError(f"target must be between {min_target} and {max_target}")
     if roll == load_rule_table("success-levels")["critical_roll"]:
         return "critical"
     if _is_fumble(roll, target):
