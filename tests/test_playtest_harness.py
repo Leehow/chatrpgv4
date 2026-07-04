@@ -563,6 +563,8 @@ def assert_zh_hans_locale(metadata: dict, required_terms: dict[str, str]) -> Non
     assert "localized_terms.zh-Hans" in metadata["language_profile"]["term_policy"]
     assert "player-visible skill display names" in metadata["language_profile"]["term_policy"]
     glossary = metadata["localized_terms"]["zh-Hans"]
+    cjk_keys = [canonical for canonical in glossary if has_cjk(canonical)]
+    assert cjk_keys == []
     for canonical, localized in required_terms.items():
         assert glossary[canonical] == localized
 
@@ -1568,6 +1570,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Player[reckless_investigator]" not in actual_play
     assert "Player[skeptical_rules_lawyer]" not in actual_play
     assert "Player[genre_savvy_player]" not in actual_play
+    assert "to 建立追逐" not in actual_play
+    assert "after 被追者逃脱" not in actual_play
     session_transcript = section_text(battle_text, "## Session Transcript")
     assert_localized_transcript_chrome(session_transcript)
     assert_transcript_detail_values_localized(
@@ -1582,6 +1586,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "extreme_success" not in session_transcript
     assert "玩家[规则质疑玩家]" in session_transcript
     assert "玩家[类型片熟手]" in session_transcript
+    assert "to 建立追逐" not in session_transcript
+    assert "after 被追者逃脱" not in session_transcript
     visible_dialogue = "\n".join(visible_play_texts(run_dir))
     assert_visible_terms_localized(visible_dialogue, visible_scene_terms)
     assert_terms_absent(
