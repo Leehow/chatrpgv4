@@ -135,6 +135,15 @@
       }
     },
     {
+      "id": "core.damage.roll",
+      "category": "damage",
+      "source_note": "Damage amounts that change HP should be recorded as damage dice rather than unproven state adjustments.",
+      "numeric": {
+        "requires_roll_id": true,
+        "requires_hp_before_after": true
+      }
+    },
+    {
       "id": "module.haunting.corbitt_flesh_ward",
       "category": "module_rule",
       "module": "The Haunting",
@@ -192,6 +201,32 @@
       "numeric": {
         "sanity_reward_die": "1D6",
         "playtest_roll": 4
+      }
+    },
+    {
+      "id": "module.haunting.bed_attack_damage",
+      "category": "module_rule",
+      "module": "The Haunting",
+      "source_note": "The Bed Attack damage in the playtest is 1D6+2 after a failed Dodge.",
+      "numeric": {
+        "damage_die": "1D6+2",
+        "playtest_die_rolls": [
+          3
+        ],
+        "playtest_total": 5
+      }
+    },
+    {
+      "id": "module.haunting.basement_search_damage",
+      "category": "module_rule",
+      "module": "The Haunting",
+      "source_note": "The pushed basement search failure applies 1D4+2 HP damage from the possessed dagger or clutter consequence.",
+      "numeric": {
+        "damage_die": "1D4+2",
+        "playtest_die_rolls": [
+          2
+        ],
+        "playtest_total": 4
       }
     }
   ]

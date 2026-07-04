@@ -1281,6 +1281,78 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "推骰地下室搜索失败造成艾达·金 4 HP 伤害；HP 7 -> 3。" in damage_event_summaries
     assert "床铺袭击造成艾达·金 5 HP 伤害；HP 12 -> 7。" in scene_replay
     assert "推骰地下室搜索失败造成艾达·金 4 HP 伤害；HP 7 -> 3。" in scene_replay
+    hp_damage_rolls = [
+        event
+        for event in campaign_roll_events(run_dir)
+        if event.get("type") == "damage"
+        and event.get("payload", {}).get("damage_kind") == "hit_points"
+    ]
+    assert [event["payload"]["roll_id"] for event in hp_damage_rolls] == [
+        "haunting-bed-attack-damage",
+        "haunting-basement-search-damage",
+    ]
+    assert hp_damage_rolls[0]["payload"] == {
+        "roll_id": "haunting-bed-attack-damage",
+        "damage_kind": "hit_points",
+        "source": "bed_attack",
+        "skill": "HP Damage",
+        "goal": "apply Bed Attack damage after failed Dodge",
+        "target": 8,
+        "effective_target": 8,
+        "difficulty": "damage",
+        "difficulty_rationale": "The Bed Attack damage is 1D6+2 after Ada fails to Dodge being thrown through the spare bedroom window.",
+        "roll": 5,
+        "die": "1D6+2",
+        "die_rolls": [3],
+        "flat_modifier": 2,
+        "outcome": "damage_applied",
+        "failure_consequence": "Damage rolls are not skill checks; the failed Dodge has already established the consequence.",
+        "hp_before": 12,
+        "hp_delta": -5,
+        "hp_after": 7,
+        "localized_text": {
+            "zh-Hans": {
+                "goal": "床铺袭击闪避失败后结算伤害",
+                "difficulty_rationale": "艾达·金闪避床铺袭击失败后，床把她撞穿备用卧室窗户，伤害为 1D6+2。",
+                "failure_consequence": "伤害骰不是技能检定；闪避失败已经确定了后果。",
+            }
+        },
+        "rule_refs": [
+            "core.damage.roll",
+            "module.haunting.bed_attack_damage",
+        ],
+    }
+    assert hp_damage_rolls[1]["payload"] == {
+        "roll_id": "haunting-basement-search-damage",
+        "damage_kind": "hit_points",
+        "source": "basement_pushed_search_failure",
+        "skill": "HP Damage",
+        "goal": "apply pushed basement search failure damage",
+        "target": 6,
+        "effective_target": 6,
+        "difficulty": "damage",
+        "difficulty_rationale": "The pushed basement search failure exposes Ada to the possessed dagger and applies 1D4+2 damage.",
+        "roll": 4,
+        "die": "1D4+2",
+        "die_rolls": [2],
+        "flat_modifier": 2,
+        "outcome": "damage_applied",
+        "failure_consequence": "The pushed Spot Hidden roll has already failed; this damage roll applies its foreshadowed consequence.",
+        "hp_before": 7,
+        "hp_delta": -4,
+        "hp_after": 3,
+        "localized_text": {
+            "zh-Hans": {
+                "goal": "结算地下室推骰搜索失败伤害",
+                "difficulty_rationale": "地下室推骰搜索失败让艾达·金直接碰到附魔匕首，伤害为 1D4+2。",
+                "failure_consequence": "推骰侦查已经失败；这颗伤害骰用于执行预告后果。",
+            }
+        },
+        "rule_refs": [
+            "core.damage.roll",
+            "module.haunting.basement_search_damage",
+        ],
+    }
     resource_events = campaign_events_by_type(run_dir, "resource_change")
     corbitt_magic_points = [
         event for event in resource_events
@@ -1496,6 +1568,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "推骰：是" in rules_recap
     assert "成长标记：是" in rules_recap
     assert "成长标记：否" in rules_recap
+    assert "HP 伤害：艾达·金掷出 5 / 8，结果造成伤害。" in rules_recap
+    assert "目的：床铺袭击闪避失败后结算伤害" in rules_recap
+    assert "HP 伤害：艾达·金掷出 4 / 6，结果造成伤害。" in rules_recap
+    assert "目的：结算地下室推骰搜索失败伤害" in rules_recap
     assert "SAN 损失：6" in rules_recap
     assert "SAN 奖励：艾达·金掷出 4 / 6，结果奖励。" in rules_recap
     assert "目的：结局奖励恢复 SAN" in rules_recap

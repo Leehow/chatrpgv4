@@ -413,6 +413,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "success": "成功",
             "failure": "失败",
             "fumble": "大失败",
+            "damage_applied": "造成伤害",
         },
         "difficulty_labels": {
             "regular": "普通",
@@ -421,6 +422,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "opposed": "对抗",
             "combined": "联合",
             "sanity": "理智",
+            "damage": "伤害",
+            "reward": "奖励",
         },
         "raw_payload_fallback": False,
     },
@@ -650,6 +653,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "success": "成功",
             "failure": "失敗",
             "fumble": "ファンブル",
+            "damage_applied": "ダメージ適用",
         },
         "difficulty_labels": {
             "regular": "レギュラー",
@@ -658,6 +662,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "opposed": "対抗",
             "combined": "複合",
             "sanity": "正気度",
+            "damage": "ダメージ",
+            "reward": "報酬",
         },
         "raw_payload_fallback": True,
     },

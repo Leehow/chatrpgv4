@@ -2537,6 +2537,96 @@ def _haunting_conclusion_reward_gaps(events: list[dict[str, Any]], rolls: list[d
     return ["conclusion reward roll is present but does not prove 1D6 SAN gain and final_san continuity"]
 
 
+def _haunting_damage_roll_gaps(events: list[dict[str, Any]], rolls: list[dict[str, Any]]) -> list[str]:
+    expected_damage_rolls = {
+        "bed_attack": {
+            "roll_id": "haunting-bed-attack-damage",
+            "die": "1D6+2",
+            "die_rolls": [3],
+            "flat_modifier": 2,
+            "roll": 5,
+            "hp_before": 12,
+            "hp_delta": -5,
+            "hp_after": 7,
+        },
+        "basement_pushed_search_failure": {
+            "roll_id": "haunting-basement-search-damage",
+            "die": "1D4+2",
+            "die_rolls": [2],
+            "flat_modifier": 2,
+            "roll": 4,
+            "hp_before": 7,
+            "hp_delta": -4,
+            "hp_after": 3,
+        },
+    }
+    damage_rolls = [
+        roll
+        for roll in rolls
+        if roll.get("type") == "damage"
+        and isinstance(roll.get("payload"), dict)
+        and roll["payload"].get("damage_kind") == "hit_points"
+    ]
+    damage_events = [
+        event
+        for event in events
+        if event.get("type") == "damage" and isinstance(event.get("payload"), dict)
+    ]
+    gaps: list[str] = []
+
+    for source, expected in expected_damage_rolls.items():
+        matching_rolls = [
+            roll for roll in damage_rolls
+            if roll.get("payload", {}).get("source") == source
+        ]
+        if not matching_rolls:
+            gaps.append(f"missing HP damage roll for {source}")
+            continue
+
+        valid_roll = None
+        for roll in matching_rolls:
+            payload = roll["payload"]
+            die_rolls = payload.get("die_rolls")
+            flat_modifier = payload.get("flat_modifier")
+            damage_total = payload.get("roll")
+            hp_before = payload.get("hp_before")
+            hp_delta = payload.get("hp_delta")
+            hp_after = payload.get("hp_after")
+            if (
+                payload.get("roll_id") == expected["roll_id"]
+                and payload.get("die") == expected["die"]
+                and die_rolls == expected["die_rolls"]
+                and flat_modifier == expected["flat_modifier"]
+                and damage_total == expected["roll"]
+                and hp_before == expected["hp_before"]
+                and hp_delta == expected["hp_delta"]
+                and hp_after == expected["hp_after"]
+                and isinstance(die_rolls, list)
+                and sum(die_rolls) + flat_modifier == damage_total
+                and hp_before + hp_delta == hp_after
+                and hp_delta == -damage_total
+            ):
+                valid_roll = roll
+                break
+        if valid_roll is None:
+            gaps.append(f"incomplete HP damage roll payload for {source}")
+            continue
+
+        linked_events = [
+            event for event in damage_events
+            if event.get("payload", {}).get("damage_roll_id") == expected["roll_id"]
+        ]
+        if not any(
+            event.get("payload", {}).get("hp_before") == expected["hp_before"]
+            and event.get("payload", {}).get("hp_delta") == expected["hp_delta"]
+            and event.get("payload", {}).get("hp_after") == expected["hp_after"]
+            for event in linked_events
+        ):
+            gaps.append(f"no damage event links HP state change to roll_id {expected['roll_id']}")
+
+    return gaps
+
+
 def _normalize_report_text(text: str) -> str:
     return " ".join(text.split())
 
@@ -3267,6 +3357,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "medium",
                 f"Only {decision_count} major player decision events were recorded.",
                 "Record the player's major route choices, pushed-roll choices, risk acceptances, and final tactical decisions.",
+            ))
+
+        damage_roll_gaps = _haunting_damage_roll_gaps(context["events"], context["rolls"])
+        if damage_roll_gaps:
+            findings.append(_finding(
+                "haunting_damage_roll_missing",
+                "system_gap",
+                "high",
+                "; ".join(damage_roll_gaps),
+                "Record The Haunting HP damage as damage rolls with stable roll_id, damage_kind=hit_points, source, die, die_rolls, flat_modifier, roll, hp_before, hp_delta, hp_after, and link matching damage events via damage_roll_id.",
             ))
 
         combat_summaries = _payload_summaries(context["events"], "combat")
