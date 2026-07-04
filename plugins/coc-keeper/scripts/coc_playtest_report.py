@@ -2051,8 +2051,16 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_field("Run ID", metadata.get("run_id", "unknown"), language_profile),
         _report_field("Campaign ID", metadata.get("campaign_id", "unknown"), language_profile),
         _report_field("Campaign", _localize_text(campaign_title, localized_terms), language_profile),
-        _report_field("Audit Profile", metadata.get("audit_profile", "baseline"), language_profile),
-        _report_field("Simulation Method", metadata.get("simulation_method", "not recorded"), language_profile),
+        _report_field(
+            "Audit Profile",
+            _localized_report_value(metadata.get("audit_profile", "baseline"), language_profile, localized_terms),
+            language_profile,
+        ),
+        _report_field(
+            "Simulation Method",
+            _localized_report_value(metadata.get("simulation_method", "not recorded"), language_profile, localized_terms),
+            language_profile,
+        ),
         _report_field("Era", era, language_profile),
         _report_field("Dice Mode", _localized_report_value(dice_mode, language_profile, localized_terms), language_profile),
         _report_field("Spoiler Policy", _localized_report_value(spoiler_policy, language_profile, localized_terms), language_profile),

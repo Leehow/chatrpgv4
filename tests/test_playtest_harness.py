@@ -793,6 +793,7 @@ def assert_run_setup_values_localized(text: str, expected_profile: str) -> None:
     expected = [
         "骰子模式: Codex 掷骰",
         "剧透策略: 剧透前警告",
+        "模拟方式: 转录驱动虚拟桌面",
         "语言配置: 简体中文",
         "本地化术语: ",
         "条（记录于 playtest.json）",
@@ -803,6 +804,7 @@ def assert_run_setup_values_localized(text: str, expected_profile: str) -> None:
         "Dice Mode:",
         "Spoiler Policy: warn_before_reveal",
         "Spoiler Policy:",
+        "transcript_driven_virtual_table",
         "Language Profile: Simplified Chinese",
         "Language Profile:",
         "见本地化附录",
@@ -1274,8 +1276,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "- 战役 ID: haunting-module" in run_setup
     assert "- 游玩语言: 简体中文" in run_setup
     assert "- 游玩语言: zh-Hans" not in run_setup
-    assert "- 审计画像: haunting_module" in run_setup
-    assert "- 模拟方式: transcript_driven_virtual_table" in run_setup
+    assert "- 审计画像: 《鬼屋》完整模组审计" in run_setup
     assert "本地化术语: " in run_setup
     assert_run_setup_values_localized(run_setup, "谨慎调查员")
     assert "Ada King -> 艾达·金" not in run_setup
@@ -2056,8 +2057,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 战役 ID: chase-drill" in run_setup
     assert "- 游玩语言: 简体中文" in run_setup
     assert "- 游玩语言: zh-Hans" not in run_setup
-    assert "- 审计画像: chase_drill" in run_setup
-    assert "- 模拟方式: transcript_driven_virtual_table" in run_setup
+    assert "- 审计画像: 追逐规则演练" in run_setup
     assert "本地化术语: " in run_setup
     assert_run_setup_values_localized(run_setup, "鲁莽调查员")
     assert "Ada King -> 艾达·金" not in run_setup
@@ -2582,8 +2582,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert "Player[skeptical_rules_lawyer]" not in actual_play
     run_setup = section_text(battle_text, "## Run Setup")
     assert "- 战役 ID: multi-profile-pressure" in run_setup
-    assert "- 审计画像: multi_profile_pressure" in run_setup
-    assert "- 模拟方式: transcript_driven_virtual_table" in run_setup
+    assert "- 审计画像: 多玩家画像压测" in run_setup
     assert_run_setup_values_localized(run_setup, "多调查风格开局")
     module_section = section_text(battle_text, "## Module")
     visible_module_section = visible_markdown_text(module_section)

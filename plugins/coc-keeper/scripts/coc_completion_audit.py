@@ -24,6 +24,8 @@ from coc_playtest_report import (
     _format_roll_source_line,
     _format_roll_transcript_text,
     _localized_actor_names,
+    _localized_report_value,
+    _selected_language_profile,
 )
 from coc_validate import validate_rules
 from coc_rules import cash_and_assets, pushed_roll_rule, rule_ids
@@ -739,6 +741,7 @@ def _battle_report_field_value_findings(
     metadata: dict[str, Any],
     battle_report: str,
 ) -> list[dict[str, Any]]:
+    campaign = _read_json(campaign_dir / "campaign.json", {})
     scenario = _read_json(campaign_dir / "scenario" / "scenario.json", {})
     expected_values = {
         ("Run Setup", "Run ID"): str(metadata.get("run_id") or run_id),
@@ -750,6 +753,13 @@ def _battle_report_field_value_findings(
             "Scenario ID",
         ): str(scenario.get("scenario_id") or metadata.get("scenario_id") or "unknown"),
     }
+    play_language = str(metadata.get("play_language") or "en-US")
+    language_profile = _selected_language_profile(play_language, metadata, campaign)
+    localized_terms = _metadata_localized_terms(metadata)
+    localized_value_fields = {
+        ("Run Setup", "Audit Profile"),
+        ("Run Setup", "Simulation Method"),
+    }
     mismatches: dict[str, dict[str, str]] = {}
     section_values: dict[str, dict[str, str]] = {}
     for section_name, field_name in expected_values:
@@ -759,7 +769,10 @@ def _battle_report_field_value_findings(
             )
         actual = section_values[section_name].get(field_name)
         expected = expected_values[(section_name, field_name)]
-        if actual is not None and actual != expected:
+        allowed_values = {expected}
+        if (section_name, field_name) in localized_value_fields:
+            allowed_values.add(_localized_report_value(expected, language_profile, localized_terms))
+        if actual is not None and actual not in allowed_values:
             mismatches[f"{section_name}.{field_name}"] = {
                 "expected": expected,
                 "actual": actual,

@@ -3501,6 +3501,38 @@ def test_completion_audit_fails_when_battle_report_setup_field_values_do_not_mat
     }
 
 
+def test_completion_audit_accepts_localized_battle_report_setup_field_values(tmp_path):
+    campaign_dir = tmp_path / "campaign"
+    (campaign_dir / "scenario").mkdir(parents=True)
+    write_json(campaign_dir / "scenario" / "scenario.json", {"scenario_id": "the-haunting"})
+    metadata = {
+        "run_id": "v2-haunting-module",
+        "campaign_id": "v2-haunting-module",
+        "audit_profile": "haunting_module",
+        "simulation_method": "transcript_driven_virtual_table",
+        "play_language": "zh-Hans",
+    }
+    battle_report = (
+        "# 跑团战报 <!-- report-anchor: Battle Report -->\n\n"
+        "## 运行设置 <!-- report-anchor: Run Setup -->\n"
+        "- 运行编号: v2-haunting-module <!-- field-anchor: Run ID -->\n"
+        "- 战役 ID: v2-haunting-module <!-- field-anchor: Campaign ID -->\n"
+        "- 审计画像: 《鬼屋》完整模组审计 <!-- field-anchor: Audit Profile -->\n"
+        "- 模拟方式: 转录驱动虚拟桌面 <!-- field-anchor: Simulation Method -->\n\n"
+        "## 模组 <!-- report-anchor: Module -->\n"
+        "- 模组 ID: the-haunting <!-- field-anchor: Scenario ID -->\n"
+    )
+
+    findings = coc_completion_audit._battle_report_field_value_findings(
+        "v2-haunting-module",
+        campaign_dir,
+        metadata,
+        battle_report,
+    )
+
+    assert findings == []
+
+
 def test_completion_audit_fails_when_battle_report_omits_source_dialogue_text(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

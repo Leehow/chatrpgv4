@@ -2109,6 +2109,7 @@ def test_active_audit_rejects_unlocalized_run_setup_values(tmp_path):
     metadata = json.loads(metadata_path.read_text())
     metadata["audit_profile"] = "haunting_module"
     metadata["play_language"] = "zh-Hans"
+    metadata["simulation_method"] = "transcript_driven_virtual_table"
     metadata["dice_mode"] = "codex"
     metadata["spoiler_policy"] = "warn_before_reveal"
     metadata["player_profile"] = "careful_investigator"
@@ -2117,6 +2118,8 @@ def test_active_audit_rejects_unlocalized_run_setup_values(tmp_path):
     report_path.write_text(
         "# Battle Report / 跑团战报\n\n"
         "## Run Setup / 运行设置\n"
+        "- Audit Profile: haunting_module（审计画像）\n"
+        "- Simulation Method: transcript_driven_virtual_table（模拟方式）\n"
         "- Dice Mode: codex（骰子模式）\n"
         "- Spoiler Policy: warn_before_reveal（剧透策略）\n"
         "- Play Language: zh-Hans（游玩语言）\n"

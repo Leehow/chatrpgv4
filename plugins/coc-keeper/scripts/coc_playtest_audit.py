@@ -158,6 +158,8 @@ REPORT_SHELL_REQUIRED_FIELDS = [
     "Opening Scene",
 ]
 RUN_SETUP_VALUE_FIELDS = [
+    "audit_profile",
+    "simulation_method",
     "dice_mode",
     "spoiler_policy",
     "player_profile",
