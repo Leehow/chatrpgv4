@@ -2029,7 +2029,17 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             },
         },
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "The Haunting does not include a required chase sequence（The Haunting 不包含必需追逐场景）；chase subsystem coverage deferred to separate scenario。"}},
-        {"type": "status", "actor": investigator_id, "payload": {"summary": "Final HP: 3；Final SAN: 49；Rewards: +4 SAN、30 美元奖金，并可选择保留 worm-eaten book。"}},
+        {
+            "type": "status",
+            "actor": investigator_id,
+            "payload": {
+                "summary": "Final HP: 3；Final SAN: 49；Rewards: +4 SAN、30 美元奖金，并可选择保留 worm-eaten book。",
+                "final_hp": 3,
+                "final_san": 49,
+                "rewards": ["+4 SAN", "30 美元奖金"],
+                "unresolved_conditions": [],
+            },
+        },
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "Conclusion Rewards：Corbitt 被摧毁，Mr. Knott 支付报酬，后续冒险仍留下阴谋线索。"}},
     ], ZH_HANS_HAUNTING_GLOSSARY)
     _write_jsonl_localized(campaign_dir / "memory" / "session-summaries.jsonl", [

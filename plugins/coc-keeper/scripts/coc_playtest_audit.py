@@ -1829,6 +1829,19 @@ def _payload_summaries(events: list[dict[str, Any]], event_type: str) -> list[st
     return summaries
 
 
+def _final_state_gaps(events: list[dict[str, Any]]) -> list[str]:
+    status_events = [
+        event
+        for event in events
+        if event.get("type") == "status" and isinstance(event.get("payload"), dict)
+    ]
+    for event in status_events:
+        payload = event["payload"]
+        if isinstance(payload.get("final_hp"), int) and isinstance(payload.get("final_san"), int):
+            return []
+    return ["no status event records integer final_hp and final_san"]
+
+
 def _chase_decision_kind_gaps(events: list[dict[str, Any]]) -> list[str]:
     decision_kinds = {
         event.get("payload", {}).get("decision_kind")
@@ -2789,17 +2802,14 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "Record the rulebook exception that Corbitt's own dagger destroys him regardless of Flesh Ward or other spells, including the pre-hit Flesh Ward armor state.",
             ))
 
-        status_text = " ".join(_payload_summaries(context["events"], "status"))
-        if (
-            not _contains_marker_or_localized(status_text, "Final HP", locale_terms)
-            or not _contains_marker_or_localized(status_text, "Final SAN", locale_terms)
-        ):
+        final_state_gaps = _final_state_gaps(context["events"])
+        if final_state_gaps:
             findings.append(_finding(
                 "final_state_missing",
                 "system_gap",
                 "high",
-                "No status event records final HP and SAN.",
-                "Record final investigator HP, SAN, rewards, and unresolved conditions at the end of a module playthrough.",
+                "; ".join(final_state_gaps),
+                "Record final investigator HP and SAN as status payload final_hp/final_san fields, with rewards and unresolved conditions at the end of a module playthrough.",
             ))
 
         chase_summaries = _payload_summaries(context["events"], "chase")

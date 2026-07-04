@@ -392,6 +392,111 @@ def test_haunting_module_audit_requires_module_coverage_and_resolution(tmp_path)
     assert "chase_context_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_uses_structured_final_state_fields(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["module_coverage"] = [
+        "knott_hiring",
+        "research_route",
+        "chapel_of_contemplation",
+        "old_corbitt_place",
+        "bed_attack",
+        "basement",
+        "floating_knife",
+        "corbitt_hiding_place",
+        "corbitt_confrontation",
+        "conclusion_rewards",
+    ]
+    metadata["subsystems_covered"] = ["investigation", "social", "pushed_roll", "sanity", "damage", "combat"]
+    metadata_path.write_text(json.dumps(metadata))
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop"
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {"type": "decision", "actor": "ada-king", "payload": {"summary": "Ada chose to research before entering the house."}},
+        {"type": "decision", "actor": "ada-king", "payload": {"summary": "Ada pushed for archive access."}},
+        {"type": "decision", "actor": "ada-king", "payload": {"summary": "Ada entered the chapel."}},
+        {"type": "decision", "actor": "ada-king", "payload": {"summary": "Ada entered the basement."}},
+        {"type": "decision", "actor": "ada-king", "payload": {"summary": "Ada used Corbitt's dagger."}},
+        {
+            "type": "combat",
+            "actor": "keeper_under_test",
+            "payload": {"summary": "combat round against Corbitt resolves."},
+        },
+        {
+            "type": "combat",
+            "actor": "ada-king",
+            "payload": {
+                "summary": "Corbitt is destroyed.",
+                "rulebook_exception": "own_dagger_ignores_spells",
+                "flesh_ward_bypassed": True,
+                "armor_before": 7,
+            },
+        },
+        {
+            "type": "resource_change",
+            "actor": "walter-corbitt",
+            "payload": {
+                "resource": "magic_points",
+                "reason": "flesh_ward",
+                "source_turn": 21,
+                "before": 18,
+                "cost": 2,
+                "delta": -2,
+                "after": 16,
+                "armor_rolls": [4, 3],
+                "armor_points": 7,
+            },
+        },
+        {
+            "type": "resource_change",
+            "actor": "walter-corbitt",
+            "payload": {
+                "resource": "magic_points",
+                "reason": "floating_knife_attack",
+                "source_turn": 40,
+                "before": 16,
+                "cost": 1,
+                "delta": -1,
+                "after": 15,
+            },
+        },
+        {
+            "type": "resource_change",
+            "actor": "walter-corbitt",
+            "payload": {
+                "resource": "magic_points",
+                "reason": "animate_body",
+                "source_turn": 46,
+                "before": 15,
+                "cost": 2,
+                "delta": -2,
+                "after": 13,
+            },
+        },
+        {
+            "type": "status",
+            "actor": "ada-king",
+            "payload": {
+                "summary": "Ada survives and receives the reward.",
+                "final_hp": 3,
+                "final_san": 49,
+                "rewards": ["+4 SAN", "$30 bonus"],
+            },
+        },
+        {
+            "type": "chase",
+            "actor": "keeper_under_test",
+            "payload": {"summary": "This module has no required chase sequence."},
+        },
+    ])
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert "final_state_missing" not in finding_codes(audit)
+
+
 def test_chase_drill_audit_requires_chase_state_and_resolution(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "chase-drill"
     create_final_rulebook_run(run_dir)
