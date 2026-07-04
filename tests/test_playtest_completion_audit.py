@@ -1417,6 +1417,42 @@ def test_completion_audit_fails_when_investigator_state_refs_are_stale(tmp_path)
     assert "investigator-state character_ref does not resolve" in finding["missing_evidence"]
 
 
+def test_completion_audit_fails_when_investigator_state_values_are_stale(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_id = "v2-haunting-module"
+    investigator_id = f"{run_id}-investigator"
+    campaign_dir = tmp_path / ".coc" / "playtests" / run_id / "sandbox" / ".coc" / "campaigns" / run_id
+    event_rows = read_jsonl(campaign_dir / "logs" / "events.jsonl")
+    for row in event_rows:
+        if row.get("type") == "status" and row.get("actor") == investigator_id:
+            row["payload"]["final_hp"] = 7
+            row["payload"]["final_san"] = 44
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", event_rows)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "campaign_save_integrity_missing")
+    assert finding["run_id"] == run_id
+    assert "investigator-state current_hp does not match latest status final_hp" in finding["missing_evidence"]
+    assert "investigator-state current_san does not match latest status final_san" in finding["missing_evidence"]
+
+
 def test_completion_audit_fails_when_active_run_source_files_are_empty(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

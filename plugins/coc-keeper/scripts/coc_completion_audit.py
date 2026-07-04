@@ -2425,6 +2425,23 @@ def _true_flag_keys(values: Any) -> set[str]:
     }
 
 
+def _latest_status_payload(events: list[dict[str, Any]], investigator_id: str) -> dict[str, Any]:
+    for row in reversed(events):
+        if row.get("type") != "status" or row.get("actor") != investigator_id:
+            continue
+        payload = row.get("payload")
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _numeric_payload_value(payload: dict[str, Any], key: str) -> int | float | None:
+    value = payload.get(key)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    return None
+
+
 def _campaign_save_integrity_findings(
     run_id: str,
     run_dir: Path,
@@ -2435,6 +2452,7 @@ def _campaign_save_integrity_findings(
     world_state = _read_json(campaign_dir / "save" / "world-state.json", {})
     active_scene = _read_json(campaign_dir / "save" / "active-scene.json", {})
     flags = _read_json(campaign_dir / "save" / "flags.json", {})
+    events = _read_jsonl(campaign_dir / "logs" / "events.jsonl")
     missing_evidence: list[str] = []
     incomplete_files: list[str] = []
 
@@ -2499,6 +2517,9 @@ def _campaign_save_integrity_findings(
     for investigator_id in investigator_ids:
         investigator_state_ref = f"save/investigator-state/{investigator_id}.json"
         state = _read_json(campaign_dir / investigator_state_ref, {})
+        character = _read_json(run_dir / f"sandbox/.coc/investigators/{investigator_id}/character.json", {})
+        derived = character.get("derived") if isinstance(character.get("derived"), dict) else {}
+        status_payload = _latest_status_payload(events, investigator_id)
         if state.get("campaign_id") != run_id:
             missing_evidence.append("investigator-state campaign_id does not match run campaign")
             incomplete_files.append(f"{campaign_prefix}{investigator_state_ref}")
@@ -2508,6 +2529,19 @@ def _campaign_save_integrity_findings(
         if not _run_relative_file_exists(run_dir, state.get("character_ref")):
             missing_evidence.append("investigator-state character_ref does not resolve")
             incomplete_files.append(f"{campaign_prefix}{investigator_state_ref}")
+        for state_key, status_key, derived_key in (
+            ("current_hp", "final_hp", "HP"),
+            ("current_san", "final_san", "SAN"),
+            ("current_mp", "final_mp", "MP"),
+        ):
+            expected_value = _numeric_payload_value(status_payload, status_key)
+            evidence_label = f"investigator-state {state_key} does not match latest status {status_key}"
+            if expected_value is None:
+                expected_value = _numeric_payload_value(derived, derived_key)
+                evidence_label = f"investigator-state {state_key} does not match character derived {derived_key}"
+            if expected_value is not None and state.get(state_key) != expected_value:
+                missing_evidence.append(evidence_label)
+                incomplete_files.append(f"{campaign_prefix}{investigator_state_ref}")
 
     if not missing_evidence:
         return []
