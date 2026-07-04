@@ -43,6 +43,7 @@ def write_workspace_indexes(run_dir: Path, run_id: str, investigator_id: str):
             investigator_id: {
                 "id": investigator_id,
                 "name": "Ada King",
+                "creation_path": f".coc/investigators/{investigator_id}/creation.json",
                 "path": f".coc/investigators/{investigator_id}/character.json",
                 "history_path": f".coc/investigators/{investigator_id}/history.jsonl",
                 "development_path": f".coc/investigators/{investigator_id}/development.jsonl",
@@ -1392,6 +1393,48 @@ def test_completion_audit_fails_when_investigator_index_contains_campaign_state(
     finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_workspace_index_missing")
     assert finding["run_id"] == run_id
     assert "investigator index contains campaign state fields for v2-haunting-module-investigator" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_investigator_index_omits_creation_path(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_id = "v2-haunting-module"
+    investigator_id = f"{run_id}-investigator"
+    index_path = (
+        tmp_path
+        / ".coc"
+        / "playtests"
+        / run_id
+        / "sandbox"
+        / ".coc"
+        / "indexes"
+        / "investigators.json"
+    )
+    index = json.loads(index_path.read_text())
+    index["investigators"][investigator_id].pop("creation_path", None)
+    write_json(index_path, index)
+
+    coc_completion_audit.generate_completion_audit(tmp_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_workspace_index_missing")
+    assert finding["run_id"] == run_id
+    assert (
+        "investigator index creation_path does not match expected workspace path for v2-haunting-module-investigator"
+        in finding["missing_evidence"]
+    )
 
 
 def test_completion_audit_fails_when_active_evaluator_note_is_medium_or_higher(tmp_path):

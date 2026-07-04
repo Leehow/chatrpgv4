@@ -3075,6 +3075,7 @@ def _workspace_index_integrity_findings(
                 incomplete_files.append("sandbox/.coc/indexes/investigators.json")
                 continue
             expected_investigator_paths = {
+                "creation_path": f".coc/investigators/{investigator_id}/creation.json",
                 "path": f".coc/investigators/{investigator_id}/character.json",
                 "history_path": f".coc/investigators/{investigator_id}/history.jsonl",
                 "development_path": f".coc/investigators/{investigator_id}/development.jsonl",

@@ -945,6 +945,7 @@ def test_serious_playtests_persist_recoverable_campaign_save_and_indexes(tmp_pat
         for investigator_id in investigator_ids:
             investigator_entry = investigator_index["investigators"][investigator_id]
             assert investigator_entry["id"] == investigator_id
+            assert investigator_entry["creation_path"] == f".coc/investigators/{investigator_id}/creation.json"
             assert investigator_entry["path"] == f".coc/investigators/{investigator_id}/character.json"
             assert investigator_entry["history_path"] == f".coc/investigators/{investigator_id}/history.jsonl"
             assert investigator_entry["development_path"] == f".coc/investigators/{investigator_id}/development.jsonl"

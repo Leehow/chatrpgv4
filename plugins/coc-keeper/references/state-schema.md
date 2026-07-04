@@ -25,7 +25,7 @@ Top-level indexes provide machine-readable entry points across the workspace:
 └── module-catalog.json
 ```
 
-`investigators.json` records reusable investigator ids, display names, and paths to `character.json`, `history.jsonl`, `development.jsonl`, and `inventory-history.jsonl`. `campaigns.json` records campaign ids, titles, status, play language, party file, and paths to each campaign's `save/`, `memory/`, and `logs/` folders.
+`investigators.json` records reusable investigator ids, display names, and paths to `creation.json`, `character.json`, `history.jsonl`, `development.jsonl`, and `inventory-history.jsonl`. `campaigns.json` records campaign ids, titles, status, play language, party file, and paths to each campaign's `save/`, `memory/`, and `logs/` folders.
 
 ## Reusable Investigators
 
@@ -33,13 +33,14 @@ Investigators are reusable assets:
 
 ```text
 .coc/investigators/<investigator-id>/
+├── creation.json
 ├── character.json
 ├── history.jsonl
 ├── development.jsonl
 └── inventory-history.jsonl
 ```
 
-Permanent changes are written to the investigator library only during explicit development, recovery, import, or campaign-ending workflows.
+`creation.json` preserves the original rulebook creation workflow and finance/skill allocation evidence. `character.json` is the reusable long-term sheet. Permanent changes are written to the investigator library only during explicit development, recovery, import, or campaign-ending workflows.
 
 ## Campaigns
 

@@ -882,6 +882,7 @@ def _write_workspace_indexes(campaign_dir: Path) -> None:
         investigator_entries[investigator_id] = {
             "id": investigator_id,
             "name": character.get("name", investigator_id),
+            "creation_path": _sandbox_relative_path(campaign_dir, investigator_dir / "creation.json"),
             "path": _sandbox_relative_path(campaign_dir, investigator_dir / "character.json"),
             "history_path": _sandbox_relative_path(campaign_dir, investigator_dir / "history.jsonl"),
             "development_path": _sandbox_relative_path(campaign_dir, investigator_dir / "development.jsonl"),
