@@ -54,6 +54,14 @@ def fifth_value(value: int) -> int:
     return value // 5
 
 
+def difficulty_target(target: int, difficulty: str) -> int:
+    table = load_rule_table("difficulty-levels")
+    if difficulty not in table:
+        raise ValueError(f"unsupported difficulty: {difficulty}")
+    divisor = int(table[difficulty]["divisor"])
+    return target // divisor
+
+
 def damage_bonus_build(str_value: int, siz_value: int) -> dict[str, int | str]:
     total = str_value + siz_value
     for row in load_rule_table("damage-bonus-build"):

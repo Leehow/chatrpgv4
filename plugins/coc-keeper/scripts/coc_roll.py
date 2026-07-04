@@ -41,13 +41,7 @@ def roll_expression(expression: str, rng: random.Random | None = None) -> dict[s
 
 
 def _effective_target(target: int, difficulty: str) -> int:
-    if difficulty == "regular":
-        return target
-    if difficulty == "hard":
-        return coc_rules.half_value(target)
-    if difficulty == "extreme":
-        return coc_rules.fifth_value(target)
-    raise ValueError(f"unsupported difficulty: {difficulty}")
+    return coc_rules.difficulty_target(target, difficulty)
 
 
 def _percentile_from_tens_units(tens: int, units: int) -> int:

@@ -47,6 +47,15 @@ def test_movement_rate_uses_structured_table():
     assert coc_rules.movement_rate(80, 75, 65, age_mov_penalty=1)["mov"] == 8
 
 
+def test_difficulty_target_uses_structured_table():
+    table = coc_rules.load_rule_table("difficulty-levels")
+
+    assert table["hard"]["divisor"] == 2
+    assert coc_rules.difficulty_target(61, "regular") == 61
+    assert coc_rules.difficulty_target(61, "hard") == 30
+    assert coc_rules.difficulty_target(61, "extreme") == 12
+
+
 def test_age_adjustment_uses_structured_table():
     table = coc_rules.load_rule_table("age-adjustments")
 

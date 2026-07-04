@@ -32,6 +32,21 @@ def test_percentile_check_applies_hard_difficulty():
     assert result["outcome"] == "regular"
 
 
+def test_percentile_check_uses_rules_json_difficulty_target(monkeypatch):
+    calls = []
+
+    def fake_difficulty_target(target: int, difficulty: str) -> int:
+        calls.append((target, difficulty))
+        return 17
+
+    monkeypatch.setattr(coc_roll.coc_rules, "difficulty_target", fake_difficulty_target, raising=False)
+
+    result = coc_roll.percentile_check(60, difficulty="hard", rng=random.Random(1))
+
+    assert calls == [(60, "hard")]
+    assert result["effective_target"] == 17
+
+
 def test_bonus_and_penalty_cancel():
     result = coc_roll.percentile_check(50, bonus=1, penalty=1, rng=random.Random(3))
     assert result["bonus"] == 0
