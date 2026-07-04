@@ -613,8 +613,20 @@ def _non_passing_runs(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
 
 
 def _active_evaluation_runs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    active_runs = [run for run in runs if run.get("audit_profile") != "baseline"]
-    return active_runs or runs
+    current_runs = _current_evaluation_scope_runs(runs)
+    default_or_legacy_runs = [
+        run
+        for run in current_runs
+        if _known_play_language(run) in {DEFAULT_PLAY_LANGUAGE, "unknown"}
+    ]
+    if _completion_profiles_ready(default_or_legacy_runs):
+        return default_or_legacy_runs
+    return current_runs
+
+
+def _current_evaluation_scope_runs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    current_runs = [run for run in runs if run.get("audit_profile") != "baseline"]
+    return current_runs or runs
 
 
 def _run_needs_semantic_result(run: dict[str, Any]) -> bool:
@@ -627,6 +639,7 @@ def _run_needs_semantic_result(run: dict[str, Any]) -> bool:
 
 def _loop_decision(index: dict[str, Any]) -> dict[str, Any]:
     runs = index["runs"]
+    current_runs = _current_evaluation_scope_runs(runs)
     active_runs = _active_evaluation_runs(runs)
     active_run_ids = [run["run_id"] for run in active_runs]
     blockers: list[dict[str, Any]] = []
@@ -691,7 +704,14 @@ def _loop_decision(index: dict[str, Any]) -> dict[str, Any]:
             "next_loop_fix_target": f"Add or fix an active playtest run that proves {gap}.",
         })
 
-    ignored = [run["run_id"] for run in runs if run["run_id"] not in set(active_run_ids)]
+    active_id_set = set(active_run_ids)
+    current_run_ids = {run["run_id"] for run in current_runs}
+    optional_evidence_runs = [
+        run["run_id"]
+        for run in current_runs
+        if run["run_id"] not in active_id_set
+    ]
+    ignored = [run["run_id"] for run in runs if run["run_id"] not in current_run_ids]
     thread_goal_next_action = (
         "Continue the watchdog loop by repairing the first blocker."
         if blockers
@@ -703,6 +723,7 @@ def _loop_decision(index: dict[str, Any]) -> dict[str, Any]:
         "thread_goal_status": "active_not_complete",
         "thread_goal_next_action": thread_goal_next_action,
         "evaluated_runs": active_run_ids,
+        "optional_evidence_runs": optional_evidence_runs,
         "ignored_historical_runs": ignored,
         "blockers": blockers,
         "next_action": blockers[0]["next_loop_fix_target"] if blockers else (
@@ -926,6 +947,8 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
     )
     lines.append(f"- Next Action: {decision['next_action']}")
     lines.append(f"- Evaluated Runs: {', '.join(decision['evaluated_runs']) if decision['evaluated_runs'] else 'none'}")
+    optional = ", ".join(decision.get("optional_evidence_runs", [])) if decision.get("optional_evidence_runs") else "none"
+    lines.append(f"- Optional Evidence Runs: {optional}")
     ignored = ", ".join(decision["ignored_historical_runs"]) if decision["ignored_historical_runs"] else "none"
     lines.append(f"- Ignored Historical Runs: {ignored}")
     if decision["blockers"]:
@@ -974,10 +997,11 @@ def generate_suite_report(root: Path, evaluator: CoverageEvaluator | None = None
     evaluator = evaluator or StructuredSourceCoverageEvaluator()
     base = _playtests_dir(root)
     runs = _discover_runs(root, evaluator)
+    current_runs = _current_evaluation_scope_runs(runs)
     active_runs = _active_evaluation_runs(runs)
     matrix = _coverage_matrix(active_runs)
     quality = _quality_matrix(active_runs)
-    language_coverage = _language_coverage_matrix(active_runs)
+    language_coverage = _language_coverage_matrix(current_runs)
     index = {
         "schema_version": 1,
         "runs": runs,

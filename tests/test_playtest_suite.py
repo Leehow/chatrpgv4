@@ -315,6 +315,46 @@ def test_completion_profile_suite_accepts_non_default_language_evidence(tmp_path
     assert index["loop_decision"]["blockers"] == []
 
 
+def test_completion_profile_suite_treats_non_default_duplicate_as_optional_evidence(tmp_path):
+    write_semantic_artifact_run(tmp_path, "v2-haunting-module", "haunting_module")
+    write_semantic_artifact_run(tmp_path, "v3-chase-drill", "chase_drill")
+    write_semantic_artifact_run(tmp_path, "v4-multi-profile-pressure", "multi_profile_pressure")
+    write_semantic_artifact_run(
+        tmp_path,
+        "v5-ja-localization-pressure",
+        "multi_profile_pressure",
+        play_language="ja-JP",
+    )
+
+    coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+    report_text = (tmp_path / ".coc" / "playtests" / "suite-report.md").read_text()
+    loop_decision = index["loop_decision"]
+
+    assert loop_decision["evaluated_runs"] == [
+        "v2-haunting-module",
+        "v3-chase-drill",
+        "v4-multi-profile-pressure",
+    ]
+    assert loop_decision["optional_evidence_runs"] == ["v5-ja-localization-pressure"]
+    assert loop_decision["ignored_historical_runs"] == []
+    assert index["language_coverage"]["default_play_language"]["status"] == "covered"
+    assert index["language_coverage"]["default_play_language"]["runs"] == [
+        "v2-haunting-module",
+        "v3-chase-drill",
+        "v4-multi-profile-pressure",
+    ]
+    assert index["language_coverage"]["non_default_play_language"]["status"] == "covered"
+    assert index["language_coverage"]["non_default_play_language"]["runs"] == [
+        "v5-ja-localization-pressure"
+    ]
+    assert index["loop_decision"]["blockers"] == []
+    assert "- Optional Evidence Runs: v5-ja-localization-pressure" in report_text
+
+
 def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="v3-chase-drill")
 
