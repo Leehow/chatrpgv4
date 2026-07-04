@@ -519,6 +519,7 @@ def test_coc_playtest_skill_documents_single_player_pressure_scope():
     assert "play-style profiles for one virtual player" in skill_text
     assert "group-table support is outside the current scope" in skill_text
     assert "virtual player profiles" not in skill_text
+    assert "simulated players" not in spec_text
     for text in (skill_text, spec_text):
         assert "exactly one active investigator" in text
         assert "active_run_party_not_single_player" in text

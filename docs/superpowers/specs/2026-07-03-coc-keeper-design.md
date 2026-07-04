@@ -323,7 +323,7 @@ Responsibilities:
 
 - run isolated test campaigns under `.coc/playtests/`
 - coordinate a Keeper-under-test role, a single simulated-player role that can be replayed through multiple style profiles, and an evaluator role
-- keep simulated players from reading Keeper-only files
+- keep the simulated-player role from reading Keeper-only files
 - define test scenarios for character creation, ordinary investigation, meta questions, combat, chase, sanity, spoilers, save, and resume
 - capture complete transcripts and state transitions
 - compare state files, logs, and memory against expected invariants
