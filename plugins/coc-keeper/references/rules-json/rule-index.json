@@ -37,9 +37,10 @@
       "source_table": "success-levels.json",
       "numeric": {
         "critical_roll": 1,
-        "fumble_target_below_50_min": 96,
-        "fumble_target_below_50_max": 100,
-        "fumble_target_50_or_above": 100
+        "fumble_target_threshold": 50,
+        "fumble_target_below_threshold_min": 96,
+        "fumble_target_below_threshold_max": 100,
+        "fumble_target_at_or_above_threshold": 100
       }
     },
     {

@@ -159,6 +159,9 @@ def test_age_adjustment_uses_structured_table():
 
 
 def test_success_levels_include_fumbles_and_extreme_success():
+    table = coc_rules.load_rule_table("success-levels")
+
+    assert table["fumble"]["target_threshold"] == 50
     assert coc_rules.success_level(1, 65) == "critical"
     assert coc_rules.success_level(12, 65) == "extreme"
     assert coc_rules.success_level(31, 65) == "hard"
@@ -166,6 +169,26 @@ def test_success_levels_include_fumbles_and_extreme_success():
     assert coc_rules.success_level(80, 65) == "failure"
     assert coc_rules.success_level(100, 65) == "fumble"
     assert coc_rules.success_level(96, 40) == "fumble"
+
+
+def test_success_level_uses_rules_json_fumble_threshold(monkeypatch):
+    original_load_rule_table = coc_rules.load_rule_table
+
+    def fake_load_rule_table(name: str):
+        if name == "success-levels":
+            return {
+                "critical_roll": 1,
+                "fumble": {
+                    "target_threshold": 60,
+                    "target_below_threshold": [96, 100],
+                    "target_at_or_above_threshold": [100, 100],
+                },
+            }
+        return original_load_rule_table(name)
+
+    monkeypatch.setattr(coc_rules, "load_rule_table", fake_load_rule_table)
+
+    assert coc_rules.success_level(96, 55) == "fumble"
 
 
 def test_rule_index_exposes_stable_ids_for_playtest_traceability():

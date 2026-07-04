@@ -234,7 +234,8 @@ def cash_and_assets(credit_rating: int, period: str = "1920s") -> dict[str, Any]
 
 def _is_fumble(roll: int, target: int) -> bool:
     table = load_rule_table("success-levels")["fumble"]
-    key = "target_below_50" if target < 50 else "target_50_or_above"
+    threshold = int(table["target_threshold"])
+    key = "target_below_threshold" if target < threshold else "target_at_or_above_threshold"
     lower, upper = table[key]
     return lower <= roll <= upper
 
