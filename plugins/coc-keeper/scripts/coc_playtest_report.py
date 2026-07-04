@@ -374,7 +374,7 @@ def _format_roll_recap(
     if isinstance(payload.get("rule_refs"), list) and payload["rule_refs"]:
         rule_refs = ", ".join(str(ref) for ref in payload["rule_refs"] if isinstance(ref, str))
         if rule_refs:
-            lines.append(f"  - {report_labels.get('rule_refs', 'Rule Refs')}：{rule_refs}")
+            lines.append(f"  <!-- rule-refs: {rule_refs} -->")
     return "\n".join(lines)
 
 
