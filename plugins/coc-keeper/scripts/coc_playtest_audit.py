@@ -55,6 +55,7 @@ HAUNTING_REQUIRED_NPC_SPEAKERS = [
     "Mr. Knott",
     "Arty Wilmot",
     "Gabriela Macario",
+    "Vittorio Macario",
 ]
 
 CHASE_REPORT_MOMENTS = [

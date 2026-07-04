@@ -1111,12 +1111,15 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "KP[诺特先生]" in actual_play
     assert "KP[阿蒂·威尔莫特]" in actual_play
     assert "KP[加布里埃拉·马卡里奥]" in actual_play
+    assert "KP[维托里奥·马卡里奥]" in actual_play
     assert "金小姐，我需要的是事实，不是传闻" in actual_play
     assert "剪报档案室不是给陌生人随便翻的" in actual_play
     assert "那栋屋子里有东西" in actual_play
+    assert "恶魔会败在自己的武器下" in actual_play
     assert "KP[Mr. Knott]" not in actual_play
     assert "KP[Arty Wilmot]" not in actual_play
     assert "KP[Gabriela Macario]" not in actual_play
+    assert "KP[Vittorio Macario]" not in actual_play
     assert "第 6 轮 系统: 说服：艾达·金掷出 72 / 55，结果失败。" in actual_play
     assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
     assert "第 48 轮 KP: \"疯狂发作（摘要）" in actual_play

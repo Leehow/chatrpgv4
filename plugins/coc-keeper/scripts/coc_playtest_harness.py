@@ -1585,6 +1585,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"id": "npc-arty", "name": "Arty Wilmot", "role": "Boston Globe editor blocking access to the morgue"},
         {"id": "npc-ruth", "name": "Ruth Blake", "role": "records keeper"},
         {"id": "npc-gabriela", "name": "Gabriela Macario", "role": "survivor at Roxbury Sanitarium"},
+        {"id": "npc-vittorio", "name": "Vittorio Macario", "role": "survivor at Roxbury Sanitarium"},
         {"id": corbitt_id, "name": "Walter Corbitt", "role": "undead sorcerer antagonist"},
     ])
     _write_json(scenario_dir / "timeline.json", [
@@ -1739,7 +1740,8 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         {"turn": 13, "role": "system", "speaker": "system", "mode": "roll", "text": "Library Use 22 vs 60 -> hard_success."},
         {"turn": 14, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Handout 7 把 Corbitt 的遗嘱执行人指向 Reverend Michael Thomas 和 Chapel of Contemplation。"},
         {"turn": 15, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "check sanitarium clue", "text": "在进屋前，我去 Roxbury Sanitarium，尽量温和地询问 Gabriela 和 Vittorio Macario 还记得什么。"},
-        {"turn": 16, "role": "keeper_under_test", "speaker": "Gabriela Macario", "speaker_role": "npc", "mode": "play", "ruling": "roleplay_no_roll", "text": "这里用角色扮演处理，不需要检定。Gabriela Macario 低声说：“那栋屋子里有东西，不肯让我们睡。”Vittorio Macario 抱着圣经，反复说恶魔会败在自己的武器下。"},
+        {"turn": 16, "role": "keeper_under_test", "speaker": "Gabriela Macario", "speaker_role": "npc", "mode": "play", "ruling": "roleplay_no_roll", "text": "这里用角色扮演处理，不需要检定。Gabriela Macario 低声说：“那栋屋子里有东西，不肯让我们睡。”"},
+        {"turn": "16a", "role": "keeper_under_test", "speaker": "Vittorio Macario", "speaker_role": "npc", "mode": "play", "text": "Vittorio Macario 抱着圣经，反复说恶魔会败在自己的武器下。"},
         {"turn": 17, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "investigate Chapel of Contemplation", "text": "我去废弃的 Chapel of Contemplation，先看三叉眼符号，再搜那只旧柜子附近。"},
         {"turn": 18, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "spot_hidden_regular", "text": "你看见围着眼睛的 three-Y symbol。要在柜子下面找到关键记录，做 Spot Hidden，Regular difficulty。"},
         {"turn": 19, "role": "system", "speaker": "system", "mode": "roll", "text": "Spot Hidden 28 vs 55 -> regular_success."},

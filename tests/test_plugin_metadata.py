@@ -262,6 +262,7 @@ def test_coc_playtest_skill_documents_rulebook_audit_loop():
         "Investigator Creation",
         "investigator_inventory_history_missing",
         "haunting_npc_dialogue_missing",
+        "Vittorio Macario",
         "chase_player_profile_pressure_missing",
         "item_transfer",
         "chase_object_transfer_missing",

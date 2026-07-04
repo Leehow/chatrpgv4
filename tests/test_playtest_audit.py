@@ -1891,6 +1891,29 @@ def test_haunting_module_audit_requires_structured_npc_dialogue(tmp_path):
     assert "haunting_npc_dialogue_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_vittorio_npc_dialogue(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    transcript_path = run_dir / "transcript.jsonl"
+    events = [
+        json.loads(line)
+        for line in transcript_path.read_text().splitlines()
+        if line.strip()
+    ]
+    filtered_events = [
+        event
+        for event in events
+        if event.get("speaker") != "Vittorio Macario"
+    ]
+    transcript_path.write_text(
+        "\n".join(json.dumps(event, ensure_ascii=False) for event in filtered_events) + "\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "haunting_npc_dialogue_missing" in finding_codes(audit)
+
+
 def test_haunting_module_audit_requires_inventory_history_for_carryover(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
     inventory_path = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting" / "inventory-history.jsonl"
