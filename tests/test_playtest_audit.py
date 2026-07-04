@@ -899,6 +899,37 @@ def test_chase_drill_audit_requires_object_transfer_for_carried_chase_prize(tmp_
     assert "chase_object_transfer_missing" in finding_codes(audit)
 
 
+def test_chase_drill_audit_requires_hazard_rolls_for_all_hazard_crossings(tmp_path):
+    run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill"
+    chase_path = campaign_dir / "save" / "chase.json"
+    chase_state = json.loads(chase_path.read_text())
+    for chase_round in chase_state["rounds"]:
+        for turn in chase_round.get("turns", []):
+            if turn.get("actor_id") == "nathaniel-crowe":
+                turn.pop("hazard_id", None)
+                turn.pop("hazard_roll_id", None)
+    chase_path.write_text(json.dumps(chase_state))
+
+    rolls_path = campaign_dir / "logs" / "rolls.jsonl"
+    rolls = [
+        json.loads(line)
+        for line in rolls_path.read_text().splitlines()
+        if line.strip()
+    ]
+    write_jsonl(rolls_path, [
+        roll
+        for roll in rolls
+        if roll.get("payload", {}).get("chase_hazard_id") != "slick-skylight"
+        or roll.get("actor") != "nathaniel-crowe"
+    ])
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "chase_hazard_resolution_missing" in finding_codes(audit)
+
+
 def test_chase_drill_audit_rejects_round_turns_out_of_dex_order(tmp_path):
     run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
     chase_path = run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json"

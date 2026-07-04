@@ -1771,6 +1771,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_player_readable_actor_dash_prefixes_absent(scene_replay, ["艾达·金"])
     assert "艾达·金在印刷店屋顶发现内森尼尔·克劳" in scene_replay
     assert "艾达·金的闪避成功，穿过湿滑天窗且没有损失移动行动。" in scene_replay
+    assert "内森尼尔·克劳也通过闪避穿过湿滑天窗危险点，逼近到上锁屋顶门。" in scene_replay
     assert "艾达·金用锁匠通过上锁屋顶门障碍，到达晾衣屋顶。" in scene_replay
     assert "艾达·金的潜行胜过内森尼尔·克劳失败的侦查，带着账本结束追逐。" in scene_replay
     assert "最终追逐状态：艾达·金保持 HP 12、SAN 55、MOV 8，并带走邪教账本；内森尼尔·克劳落后一处位置。" in scene_replay
@@ -1792,6 +1793,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     )
     assert "第 4 轮 系统: 侦查：艾达·金掷出 82 / 55，结果失败。" in actual_play
     assert "第 9 轮 系统: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in actual_play
+    assert "第 16a 轮 系统: 闪避：内森尼尔·克劳掷出 27 / 30，结果普通成功。内森尼尔·克劳穿过湿滑天窗危险点，追到上锁屋顶门。" in actual_play
     assert "第 18 轮 系统: 闪避：艾达·金掷出 19 / 35，结果普通成功；格斗（斗殴）：内森尼尔·克劳掷出 62 / 45，结果失败。内森尼尔·克劳的短棍攻击落空。" in actual_play
     assert "第 20 轮 系统: 锁匠：艾达·金掷出 21 / 30，结果普通成功；潜行：艾达·金掷出 18 / 45，结果困难成功；侦查：内森尼尔·克劳掷出 77 / 40，结果失败。艾达·金带着账本逃脱。" in actual_play
     assert "Pushed Spot Hidden 33" not in actual_play
@@ -1818,6 +1820,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     )
     assert "第 4 轮 系统: 侦查：艾达·金掷出 82 / 55，结果失败。" in session_transcript
     assert "第 9 轮 系统: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 8。" in session_transcript
+    assert "第 16a 轮 系统: 闪避：内森尼尔·克劳掷出 27 / 30，结果普通成功。内森尼尔·克劳穿过湿滑天窗危险点，追到上锁屋顶门。" in session_transcript
     assert "Pushed Spot Hidden 33" not in session_transcript
     assert "MOV remains" not in session_transcript
     assert "extreme_success" not in session_transcript
@@ -1964,6 +1967,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "ada-king-chase:" not in chase_summary
     assert_player_readable_actor_colon_prefixes_absent(chase_summary, ["艾达·金"])
     assert "- 艾达·金的闪避成功，穿过湿滑天窗且没有损失移动行动。" in chase_summary
+    assert "- 内森尼尔·克劳也通过闪避穿过湿滑天窗危险点，逼近到上锁屋顶门。" in chase_summary
     assert "- 艾达·金用锁匠通过上锁屋顶门障碍，到达晾衣屋顶。" in chase_summary
     assert "- 艾达·金的潜行胜过内森尼尔·克劳失败的侦查，带着账本结束追逐。" in chase_summary
     assert "<!-- report-anchor: Chase Tracker -->" in battle_text
@@ -1972,6 +1976,15 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
 
     chase_state = json.loads((run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json").read_text())
     assert_chase_round_turns_follow_dex_order(chase_state)
+    round_one_turns = chase_state["rounds"][0]["turns"]
+    assert {
+        turn["actor_id"]: (turn.get("hazard_id"), turn.get("hazard_roll_id"))
+        for turn in round_one_turns
+        if turn.get("hazard_id") == "slick-skylight"
+    } == {
+        "ada-king-chase": ("slick-skylight", "chase-ada-skylight-hazard"),
+        "nathaniel-crowe": ("slick-skylight", "chase-nathaniel-skylight-hazard"),
+    }
     chase_position_findings = coc_completion_audit._chase_transcript_position_findings(
         "chase-drill",
         run_dir,
@@ -2011,7 +2024,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 第 1 轮:" in chase_tracker
     assert "- 第 2 轮:" in chase_tracker
     assert "艾达·金按 DEX 顺序先行动" in chase_tracker
-    assert "内森尼尔·克劳随后花费移动行动缩短距离并发动冲突" in chase_tracker
+    assert "内森尼尔·克劳随后花费 1 个移动行动穿过同一危险点，再花第 2 个移动行动发动冲突" in chase_tracker
     assert "- 结果: 被追者逃脱" in chase_tracker
     session_ending = section_text(battle_text, "## Session Ending")
     assert "save/chase.json" not in session_ending
@@ -2043,6 +2056,18 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "邪教账本" in inventory_history[0]["items"]
     assert "钥匙串" in inventory_history[0]["items"]
     assert (run_dir / "sandbox" / ".coc" / "campaigns" / "chase-drill" / "save" / "chase.json").exists()
+    hazard_rolls = [
+        event
+        for event in campaign_roll_events(run_dir)
+        if event.get("payload", {}).get("chase_hazard_id") == "slick-skylight"
+    ]
+    assert {
+        (event.get("actor"), event.get("payload", {}).get("roll_id"))
+        for event in hazard_rolls
+    } == {
+        ("ada-king-chase", "chase-ada-skylight-hazard"),
+        ("nathaniel-crowe", "chase-nathaniel-skylight-hazard"),
+    }
 
 
 def test_chase_drill_audit_rejects_thin_major_decision_events(tmp_path):

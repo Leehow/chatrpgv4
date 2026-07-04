@@ -2152,6 +2152,75 @@ def _chase_resolution_gaps(chase_state: dict[str, Any]) -> list[str]:
     return gaps
 
 
+def _chase_hazard_resolution_gaps(chase_state: dict[str, Any], rolls: list[dict[str, Any]]) -> list[str]:
+    location_chain = chase_state.get("location_chain", [])
+    rounds = chase_state.get("rounds", [])
+    if not isinstance(location_chain, list) or not isinstance(rounds, list):
+        return []
+
+    location_indexes: dict[str, int] = {}
+    hazard_indexes: dict[int, str] = {}
+    for index, location in enumerate(location_chain):
+        if not isinstance(location, dict):
+            continue
+        location_id = location.get("id")
+        if not isinstance(location_id, str) or not location_id:
+            continue
+        location_indexes[location_id] = index
+        if location.get("label") == "hazard":
+            hazard_indexes[index] = location_id
+
+    if not hazard_indexes:
+        return []
+
+    hazard_roll_ids = {
+        (
+            str(roll.get("actor") or ""),
+            str(roll.get("payload", {}).get("chase_hazard_id") or ""),
+            str(roll.get("payload", {}).get("roll_id") or ""),
+        )
+        for roll in rolls
+        if isinstance(roll.get("payload"), dict)
+        and roll.get("payload", {}).get("chase_hazard_id") not in (None, "", [], {})
+        and roll.get("payload", {}).get("roll_id") not in (None, "", [], {})
+    }
+
+    gaps: list[str] = []
+    for chase_round in rounds:
+        if not isinstance(chase_round, dict):
+            continue
+        for turn in chase_round.get("turns", []):
+            if not isinstance(turn, dict):
+                continue
+            actor_id = str(turn.get("actor_id") or "")
+            start = turn.get("start_position")
+            end = turn.get("end_position")
+            if actor_id == "" or not isinstance(start, str) or not isinstance(end, str):
+                continue
+            if start not in location_indexes or end not in location_indexes:
+                continue
+            start_index = location_indexes[start]
+            end_index = location_indexes[end]
+            low = min(start_index, end_index)
+            high = max(start_index, end_index)
+            crossed_hazards = [
+                hazard_id
+                for index, hazard_id in hazard_indexes.items()
+                if low <= index < high
+            ]
+            for hazard_id in crossed_hazards:
+                if turn.get("hazard_id") != hazard_id:
+                    gaps.append(f"{actor_id} crosses {hazard_id} without matching hazard_id")
+                    continue
+                roll_id = turn.get("hazard_roll_id")
+                if not isinstance(roll_id, str) or not roll_id:
+                    gaps.append(f"{actor_id} crosses {hazard_id} without hazard_roll_id")
+                    continue
+                if (actor_id, hazard_id, roll_id) not in hazard_roll_ids:
+                    gaps.append(f"{actor_id} crosses {hazard_id} without matching roll {roll_id}")
+    return gaps
+
+
 def _chase_dex_order_gaps(chase_state: dict[str, Any]) -> list[str]:
     gaps: list[str] = []
     participants = chase_state.get("participants", [])
@@ -3230,6 +3299,17 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "Chase drill does not prove round actions followed DEX order: " + "; ".join(dex_order_gaps),
                 "Record dex_order from participant DEX and add rounds[].turns actor_id entries ordered by DEX for each chase round.",
+            ))
+
+        hazard_resolution_gaps = _chase_hazard_resolution_gaps(context["chase_state"], context["rolls"])
+        if hazard_resolution_gaps:
+            findings.append(_finding(
+                "chase_hazard_resolution_missing",
+                "system_gap",
+                "high",
+                "Chase drill does not prove each crossed hazard was resolved for each participant: "
+                + "; ".join(hazard_resolution_gaps),
+                "For each rounds[].turns entry that crosses a hazard location, record hazard_id, hazard_roll_id, and a matching rolls.jsonl payload with roll_id and chase_hazard_id.",
             ))
 
     return {

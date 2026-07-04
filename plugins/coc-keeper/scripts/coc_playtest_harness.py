@@ -2731,7 +2731,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         "rounds": [
             {
                 "round": 1,
-                "summary": "Ada acts first in DEX order and spends one movement action crossing the slick skylight hazard; Nathaniel then spends movement actions to close the gap and force a conflict.",
+                "summary": "Ada acts first in DEX order and spends one movement action crossing the slick skylight hazard; Nathaniel then spends one movement action crossing the same hazard and a second movement action to force a conflict.",
                 "turns": [
                     {
                         "actor_id": investigator_id,
@@ -2739,18 +2739,24 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
                         "movement_actions_spent": 1,
                         "start_position": "slick-skylight",
                         "end_position": "locked-roof-door",
+                        "hazard_id": "slick-skylight",
+                        "hazard_roll_id": "chase-ada-skylight-hazard",
                     },
                     {
                         "actor_id": pursuer_id,
                         "action": "close_distance_and_attack",
-                        "movement_actions_spent": 1,
+                        "movement_actions_spent": 2,
+                        "hazard_movement_actions_spent": 1,
+                        "attack_movement_actions_spent": 1,
                         "start_position": "rain-gutter",
                         "end_position": "locked-roof-door",
+                        "hazard_id": "slick-skylight",
+                        "hazard_roll_id": "chase-nathaniel-skylight-hazard",
                     },
                 ],
                 "localized_text": {
                     "zh-Hans": {
-                        "summary": "艾达·金按 DEX 顺序先行动，花费 1 个移动行动穿过湿滑天窗危险点；内森尼尔·克劳随后花费移动行动缩短距离并发动冲突。"
+                        "summary": "艾达·金按 DEX 顺序先行动，花费 1 个移动行动穿过湿滑天窗危险点；内森尼尔·克劳随后花费 1 个移动行动穿过同一危险点，再花第 2 个移动行动发动冲突。"
                     }
                 },
             },
@@ -2805,7 +2811,8 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"turn": 14, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "cross hazard", "text": "我抱紧 ledger，冲过湿滑的 skylight，往 roof door 那边跑。"},
         {"turn": 15, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "hazard_dodge", "text": "这是 hazard，用 Dodge，Regular difficulty。inside the chase 不使用 pushed rolls。"},
         {"turn": 16, "role": "system", "speaker": "system", "mode": "roll", "outcome_note": "艾达·金穿过湿滑天窗危险点。", "text": "Dodge 24 vs 35 -> regular_success. Ada crosses the slick skylight hazard."},
-        {"turn": 17, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "conflict", "text": "Nathaniel 花 movement actions 追上来，抡起短棍砸向你。这个 conflict 消耗他一个 movement action。"},
+        {"turn": "16a", "role": "system", "speaker": "system", "mode": "roll", "resolution_prompt_turn": 15, "outcome_note": "内森尼尔·克劳穿过湿滑天窗危险点，追到上锁屋顶门。", "text": "Nathaniel Dodge 27 vs 30 -> regular_success. Nathaniel crosses the slick skylight hazard and reaches the locked roof door."},
+        {"turn": 17, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "conflict", "text": "Nathaniel 用第二个 movement action 抡起短棍砸向你。这个 conflict 消耗他一个 movement action。"},
         {"turn": 18, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 2, "resolution_prompt_turn": 17, "outcome_note": "内森尼尔·克劳的短棍攻击落空。", "text": "Ada Dodge 19 vs 35 -> regular_success; Nathaniel Fighting 62 vs 45 -> failure."},
         {"turn": 19, "role": "player_simulator", "speaker": "Ada King", "player_profile": "reckless_investigator", "mode": "play", "intent": "pass barrier and hide", "text": "我把偷来的 key ring 插进 locked roof door barrier，挤过去后立刻钻进 laundry sheets 之间躲起来。"},
         {"turn": "19a", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "barrier_hide_resolution", "text": "先用 Locksmith 处理 locked roof door barrier；通过后你可以立刻用 Stealth 躲进 laundry sheets，Nathaniel 用 Spot Hidden 搜你。若你藏住而他没找到，quarry escapes。", "localized_text": {"zh-Hans": {"ruling": "障碍后躲藏结算"}}},
@@ -2817,7 +2824,8 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Ada changes position for a better angle, keeping the same difficulty.", "roll": 33, "outcome": "regular_success", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("chase-ledger-confirmation-push"), "push_justification": "Ada leans over the skylight for a better look.", "foreshadowed_failure": "On failure, Nathaniel sees Ada and starts the chase with no gap.", "failure_consequence": "Nathaniel would begin the chase at the same location as Ada.", "skill_check_earned": True}},
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "CON", "goal": "speed roll to establish Ada's adjusted MOV for the chase", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "On-foot chases use CON as the speed roll.", "roll": 42, "outcome": "success", "failure_consequence": "Ada's MOV would drop by 1 for this chase.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "用速度检定确定艾达·金在本次追逐中的调整后 MOV", "difficulty_rationale": "步行追逐使用 CON 作为速度检定。", "failure_consequence": "艾达·金的 MOV 会在本次追逐中降低 1。"}}}},
         {"type": "chase", "actor": pursuer_id, "payload": {"skill": "CON", "goal": "speed roll to establish Nathaniel's adjusted MOV for the chase", "target": 50, "effective_target": 50, "difficulty": "regular", "difficulty_rationale": "On-foot chases use CON as the speed roll.", "roll": 9, "outcome": "extreme_success", "failure_consequence": "Nathaniel's MOV would drop by 1 for this chase.", "localized_text": {"zh-Hans": {"goal": "用速度检定确定内森尼尔·克劳在本次追逐中的调整后 MOV", "difficulty_rationale": "步行追逐使用 CON 作为速度检定。", "failure_consequence": "内森尼尔·克劳的 MOV 会在本次追逐中降低 1。"}}}},
-        {"type": "chase", "actor": investigator_id, "payload": {"skill": "Dodge", "goal": "negotiate the slick skylight hazard", "target": 35, "effective_target": 35, "difficulty": "regular", "difficulty_rationale": "The skylight is a Regular foot-chase hazard.", "roll": 24, "outcome": "regular_success", "failure_consequence": "Ada would lose 1D3 movement actions and risk falling glass damage.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "越过湿滑天窗危险点", "difficulty_rationale": "湿滑天窗是普通难度的步行追逐危险点。", "failure_consequence": "艾达·金会失去 1D3 次移动行动，并冒着被碎玻璃伤到的风险。"}}}},
+        {"type": "chase", "actor": investigator_id, "payload": {"roll_id": "chase-ada-skylight-hazard", "chase_hazard_id": "slick-skylight", "skill": "Dodge", "goal": "negotiate the slick skylight hazard", "target": 35, "effective_target": 35, "difficulty": "regular", "difficulty_rationale": "The skylight is a Regular foot-chase hazard.", "roll": 24, "outcome": "regular_success", "failure_consequence": "Ada would lose 1D3 movement actions and risk falling glass damage.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "越过湿滑天窗危险点", "difficulty_rationale": "湿滑天窗是普通难度的步行追逐危险点。", "failure_consequence": "艾达·金会失去 1D3 次移动行动，并冒着被碎玻璃伤到的风险。"}}}},
+        {"type": "chase", "actor": pursuer_id, "payload": {"roll_id": "chase-nathaniel-skylight-hazard", "chase_hazard_id": "slick-skylight", "skill": "Dodge", "goal": "negotiate the slick skylight hazard while closing in", "target": 30, "effective_target": 30, "difficulty": "regular", "difficulty_rationale": "Nathaniel must cross the same Regular foot-chase hazard before spending his second movement action to attack.", "roll": 27, "outcome": "regular_success", "failure_consequence": "Nathaniel would lose 1D3 movement actions and fail to reach Ada this round.", "localized_text": {"zh-Hans": {"goal": "追赶时越过湿滑天窗危险点", "difficulty_rationale": "内森尼尔·克劳必须先穿过同一个普通难度步行追逐危险点，才能用第二个移动行动攻击。", "failure_consequence": "内森尼尔·克劳会失去 1D3 次移动行动，本轮无法追到艾达·金身边。"}}}},
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "Dodge", "goal": "avoid Nathaniel's sap during chase conflict", "target": 35, "effective_target": 35, "difficulty": "regular", "difficulty_rationale": "Conflict during a chase can be resolved with normal attack and Dodge rolls.", "roll": 19, "outcome": "regular_success", "failure_consequence": "Ada would take damage and lose momentum.", "skill_check_earned": True}},
         {"type": "chase", "actor": pursuer_id, "payload": {"skill": "Fighting (Brawl)", "goal": "strike Ada with a sap during chase conflict", "target": 45, "effective_target": 45, "difficulty": "regular", "difficulty_rationale": "An attack during a chase costs one movement action.", "roll": 62, "outcome": "failure", "failure_consequence": "Ada slips past the attack."}},
         {"type": "chase", "actor": investigator_id, "payload": {"skill": "Locksmith", "goal": "pass the locked roof door barrier", "target": 30, "effective_target": 30, "difficulty": "regular", "difficulty_rationale": "The locked roof door is a Regular barrier with the stolen key ring.", "roll": 21, "outcome": "regular_success", "failure_consequence": "The barrier would stop Ada's movement until another method succeeded.", "skill_check_earned": True}},
@@ -2889,6 +2897,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "location chain：print-shop roof -> rain gutter -> slick skylight hazard -> locked roof door barrier -> laundry roof；DEX order 是 Ada 50，然后 Nathaniel 45。"}},
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "movement actions：Ada 有 1 movement action；Nathaniel 因 adjusted MOV 比最慢者高 1，拥有 2 movement actions。"}},
         {"type": "chase", "actor": investigator_id, "payload": {"summary": "hazard：Ada 的 Dodge 成功，穿过 slick skylight 且没有损失 movement actions。"}},
+        {"type": "chase", "actor": pursuer_id, "payload": {"summary": "hazard：Nathaniel 也通过 Dodge 穿过 slick skylight hazard，逼近到 locked roof door。"}},
         {"type": "chase", "actor": "keeper_under_test", "payload": {"summary": "conflict：Nathaniel 花一个 movement action 用短棍攻击；Ada Dodge 成功，攻击落空。"}},
         {"type": "chase", "actor": investigator_id, "payload": {"summary": "barrier：Ada 用 Locksmith 通过 locked roof door barrier，到达 laundry roof。"}},
         {"type": "chase", "actor": investigator_id, "payload": {"summary": "quarry escapes：Ada 的 Stealth 胜过 Nathaniel 失败的 Spot Hidden，带着 ledger end the chase。"}},
