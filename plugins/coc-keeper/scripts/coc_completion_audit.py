@@ -5044,6 +5044,12 @@ def _write_markdown(path: Path, audit: dict[str, Any]) -> None:
         "## Active Runs",
         *[f"- {run_id}" for run_id in audit["active_runs"]],
         "",
+        "## Optional Evidence Runs",
+        *(
+            [f"- {run_id}" for run_id in audit.get("optional_evidence_runs", [])]
+            or ["- none"]
+        ),
+        "",
         "## Required Profiles",
     ]
     for profile, run_id in audit["required_profiles"].items():
@@ -5121,6 +5127,10 @@ def generate_completion_audit(root: Path, automation_path: Path | None = None) -
         "schema_version": 1,
         "result": "fail" if findings else "pass",
         "active_runs": [str(run.get("run_id")) for run in active_runs],
+        "optional_evidence_runs": [
+            str(run_id)
+            for run_id in loop_decision.get("optional_evidence_runs", [])
+        ],
         "required_profiles": _required_profiles(active_runs),
         "required_quality": required_quality,
         "goal_completion_gate": goal_completion_gate,

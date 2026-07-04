@@ -1294,7 +1294,13 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     write_json(run_dir / "artifacts" / "semantic-eval-result.json", semantic_result(run_id, virtual_pressure=virtual_pressure))
 
 
-def write_index(root: Path, runs: list[dict], *, quality_gap: str | None = None):
+def write_index(
+    root: Path,
+    runs: list[dict],
+    *,
+    quality_gap: str | None = None,
+    optional_evidence_runs: list[str] | None = None,
+):
     playtests_dir = root / ".coc" / "playtests"
     coverage = {
         key: {
@@ -1319,6 +1325,7 @@ def write_index(root: Path, runs: list[dict], *, quality_gap: str | None = None)
         "schema_version": 1,
         "status": "needs_repair" if quality_gap else "ready_for_completion_audit",
         "evaluated_runs": [run["run_id"] for run in runs],
+        "optional_evidence_runs": optional_evidence_runs or [],
         "ignored_historical_runs": [],
         "blockers": [] if quality_gap is None else [{
             "type": "quality_gap",
@@ -1374,6 +1381,33 @@ def test_completion_audit_passes_for_ready_suite_with_active_monitor(tmp_path):
     assert "Thread goal: not_complete" in markdown
     assert "virtual_player_pressure: passed" in markdown
     assert "Monitor: ACTIVE" in markdown
+
+
+def test_completion_audit_surfaces_optional_evidence_runs(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs, optional_evidence_runs=["v5-ja-localization-pressure"])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\n')
+
+    audit_path = coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+    markdown = audit_path.read_text()
+
+    assert audit["active_runs"] == ["v2-haunting-module", "v3-chase-drill", "v4-multi-profile-pressure"]
+    assert audit["optional_evidence_runs"] == ["v5-ja-localization-pressure"]
+    assert "## Optional Evidence Runs" in markdown
+    assert "- v5-ja-localization-pressure" in markdown
 
 
 def test_completion_audit_fails_when_rules_json_source_tables_are_invalid(tmp_path):
