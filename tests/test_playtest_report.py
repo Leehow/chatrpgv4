@@ -15,6 +15,17 @@ def load_module(name: str, relative_path: str):
 coc_playtest_report = load_module("coc_playtest_report", "plugins/coc-keeper/scripts/coc_playtest_report.py")
 
 
+def test_localized_text_uses_cjk_sentence_punctuation_after_glossary_replacement():
+    localized = coc_playtest_report._localize_text(
+        "The Haunting does not include a required chase sequence.",
+        {
+            "The Haunting does not include a required chase sequence": "本模组不包含必需追逐场景",
+        },
+    )
+
+    assert localized == "本模组不包含必需追逐场景。"
+
+
 def write_jsonl(path: Path, events: list[dict]):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(json.dumps(event) for event in events) + "\n")

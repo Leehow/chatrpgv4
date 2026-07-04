@@ -191,6 +191,7 @@ ZH_HANS_CHASE_GLOSSARY = {
 }
 
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
+CJK_SENTENCE_PERIOD = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）])\.(?=\s|$)")
 LOCALIZED_JSON_TEXT_KEYS = {
     "description",
     "difficulty_rationale",
@@ -1041,7 +1042,8 @@ def _localize_text(text: str, glossary: dict[str, str]) -> str:
     localized = text
     for canonical, replacement in sorted(glossary.items(), key=lambda item: len(item[0]), reverse=True):
         localized = localized.replace(canonical, replacement)
-    return CJK_BOUNDARY_SPACE.sub("", localized)
+    localized = CJK_BOUNDARY_SPACE.sub("", localized)
+    return CJK_SENTENCE_PERIOD.sub("。", localized)
 
 
 def _localize_value(value: Any, glossary: dict[str, str], key: str | None = None) -> Any:

@@ -28,6 +28,7 @@ SCENE_REPLAY_EVENT_TYPES = {
     "session_ending",
 }
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
+CJK_SENTENCE_PERIOD = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）])\.(?=\s|$)")
 DAMAGE_SUMMARY_RE = re.compile(r"^(?P<cause>.+?)造成伤害: (?P<amount>[^；。]+)(?P<tail>[；。].*)$")
 TRANSCRIPT_PROTOCOL_WRAPPER_RE = re.compile(
     r"^\[(?P<tag>meta|spoiler_warning)\]\s*(?P<body>.*?)\s*\[/(?P=tag)\]$",
@@ -676,7 +677,8 @@ def _localize_text(text: Any, terms: dict[str, str]) -> str:
     localized = str(text)
     for canonical, replacement in sorted(terms.items(), key=lambda item: len(item[0]), reverse=True):
         localized = localized.replace(canonical, replacement)
-    return CJK_BOUNDARY_SPACE.sub("", localized)
+    localized = CJK_BOUNDARY_SPACE.sub("", localized)
+    return CJK_SENTENCE_PERIOD.sub("。", localized)
 
 
 def _display_skill_name(skill: Any, localized_terms: dict[str, str]) -> str:

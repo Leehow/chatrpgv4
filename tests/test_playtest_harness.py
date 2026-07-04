@@ -22,6 +22,15 @@ def has_cjk(text: str) -> bool:
     return any("\u4e00" <= char <= "\u9fff" for char in text)
 
 
+def assert_no_cjk_ascii_sentence_periods(text: str) -> None:
+    offending_lines = [
+        line.strip()
+        for line in text.splitlines()
+        if has_cjk(line) and line.strip().endswith(".")
+    ]
+    assert offending_lines == []
+
+
 def visible_play_texts(run_dir: Path) -> list[str]:
     import json
 
@@ -934,6 +943,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_source_transcript_display_fields_localized(run_dir)
     assert_source_transcript_display_text_strips_protocol_wrappers(run_dir)
     assert_localized_report_shell(battle_text)
+    assert_no_cjk_ascii_sentence_periods(battle_text)
     state_changes = section_text(battle_text, "### State Changes")
     source_summaries = [
         event["payload"]["summary"].strip()
@@ -943,6 +953,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         and event["payload"]["summary"].strip()
     ]
     assert source_summaries
+    assert_no_cjk_ascii_sentence_periods("\n".join(source_summaries))
     for summary in source_summaries:
         assert summary in state_changes
     run_setup = section_text(battle_text, "## Run Setup")
