@@ -867,6 +867,34 @@ def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     assert (run_dir / "player-feedback.jsonl").exists()
 
 
+def test_serious_harness_accepts_selected_play_language(tmp_path):
+    run_dir = coc_playtest_harness.create_multi_profile_pressure_run(
+        tmp_path,
+        run_id="multi-profile-ja",
+        play_language="ja-JP",
+    )
+
+    metadata = playtest_metadata(run_dir)
+    campaign = read_json(campaign_dir_for_run(run_dir) / "campaign.json")
+    battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+
+    assert metadata["play_language"] == "ja-JP"
+    assert metadata["language_profile"]["language"] == "ja-JP"
+    assert "ja-JP" in metadata["localized_terms"]
+    assert "zh-Hans" not in metadata["localized_terms"]
+    assert metadata["player_profile_labels"]["ja-JP"]["careful_investigator"] == "慎重な探索者"
+    assert campaign["play_language"] == "ja-JP"
+    assert "# プレイ報告 <!-- report-anchor: Battle Report -->" in battle_text
+    assert "## 実行設定 <!-- report-anchor: Run Setup -->" in battle_text
+    assert "プレイ言語: 日本語" in battle_text
+    assert "導入シーン: ノット氏がコービット屋敷の鍵を机に置き" in battle_text
+    assert "私はまず権利書と古い新聞を調べます" in battle_text
+    assert "KP は先に調査する選択を認め" in battle_text
+    assert "Play Language: ja-JP" not in battle_text
+    assert "我先查房契和旧报纸" not in battle_text
+    assert "诺特先生将科比特宅邸的钥匙放在桌上" not in battle_text
+
+
 def test_haunting_module_harness_uses_summary_bout_for_solo_corbitt_insanity(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
 

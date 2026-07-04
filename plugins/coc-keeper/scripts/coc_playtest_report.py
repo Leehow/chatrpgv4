@@ -2072,7 +2072,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_field("Scenario ID", scenario_id, language_profile),
         _html_anchor("scenario-id", scenario_id),
         _report_field("Source", _localize_text(module_source, localized_terms), language_profile),
-        _report_field("Opening Scene", _localize_text(scenario.get("opening_scene", "not recorded"), localized_terms), language_profile),
+        _report_field("Opening Scene", _localized_visible_field(scenario, "opening_scene", localized_terms, str(play_language)) or "not recorded", language_profile),
         "",
         _report_heading(2, "Handouts", language_profile),
         *_list_lines(handout_lines, "- No handouts recorded."),

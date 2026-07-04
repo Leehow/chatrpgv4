@@ -198,6 +198,54 @@ ZH_HANS_CHASE_GLOSSARY = {
     "session ended": "本场结束",
 }
 
+JA_JP_GLOSSARY_OVERRIDES = {
+    "Ada King": "エイダ・キング",
+    "The Haunting": "怪異の家",
+    "The Haunting Rulebook Smoke": "怪異の家ルールブックスモーク",
+    "The Haunting Module Playthrough": "怪異の家モジュールプレイ",
+    "Three Roads into the Corbitt House": "コービット屋敷への三つの道",
+    "The Haunting Opening Crossroads": "怪異の家・導入の分岐路",
+    "The Ledger on the Rooftops": "屋上の台帳",
+    "Keeper Rulebook Chapter 7 chase scene": "キーパー・ルールブック第7章チェイス場面",
+    "Mr. Knott": "ノット氏",
+    "Walter Corbitt": "ウォルター・コービット",
+    "Corbitt's Hiding Place": "コービットの隠れ場所",
+    "Corbitt House": "コービット屋敷",
+    "Corbitt": "コービット",
+    "The Old Corbitt Place": "旧コービット邸",
+    "Chapel of Contemplation": "瞑想教会",
+    "Boston Globe": "ボストン・グローブ",
+    "The Boston Globe": "ボストン・グローブ",
+    "Hall of Records": "記録保管所",
+    "Roxbury Sanitarium": "ロクスベリー療養所",
+    "Arty Wilmot": "アーティ・ウィルモット",
+    "Ruth Blake": "ルース・ブレイク",
+    "Gabriela Macario": "ガブリエラ・マカリオ",
+    "Vittorio Macario": "ヴィットリオ・マカリオ",
+    "Nathaniel Crowe": "ナサニエル・クロウ",
+    "Nathaniel": "ナサニエル",
+    "Library Use": "図書館",
+    "Spot Hidden": "目星",
+    "Persuade": "説得",
+    "Dodge": "回避",
+    "Fighting (Brawl)": "近接戦闘（格闘）",
+    "Stealth": "隠密",
+    "Locksmith": "鍵開け",
+    "Psychology": "心理学",
+    "Antiquarian": "古物研究家",
+    "Handout": "ハンドアウト",
+    "cult ledger": "カルトの台帳",
+    "ledger": "台帳",
+    "skylight": "天窓",
+    "locked roof door": "施錠された屋上扉",
+    "laundry sheets": "洗濯物のシーツ",
+    "quarry": "逃走側",
+    "pursuer": "追跡側",
+    "hazard": "危険",
+    "barrier": "障害",
+    "conflict": "衝突",
+}
+
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
 CJK_SENTENCE_PERIOD = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）])\.(?=\s|$)")
 LOCALIZED_JSON_TEXT_KEYS = {
@@ -1557,6 +1605,43 @@ def _localize_text(text: str, glossary: dict[str, str]) -> str:
     return CJK_SENTENCE_PERIOD.sub("。", localized)
 
 
+def _terms_for_play_language(zh_hans_glossary: dict[str, str], play_language: str | None) -> dict[str, str]:
+    language = play_language or DEFAULT_PLAY_LANGUAGE
+    if language == "zh-Hans":
+        return dict(zh_hans_glossary)
+    if language == "ja-JP":
+        return {
+            canonical: JA_JP_GLOSSARY_OVERRIDES.get(canonical, canonical)
+            for canonical in zh_hans_glossary
+        }
+    return {canonical: canonical for canonical in zh_hans_glossary}
+
+
+def _language_metadata(play_language: str, localized_terms: dict[str, str]) -> dict[str, Any]:
+    return {
+        "play_language": play_language,
+        "language_profile": language_profile(play_language),
+        "localized_terms": {play_language: localized_terms},
+    }
+
+
+def _profile_labels_for_play_language(
+    zh_hans_labels: dict[str, str],
+    play_language: str,
+) -> dict[str, dict[str, str]]:
+    if play_language == "zh-Hans":
+        return {"zh-Hans": dict(zh_hans_labels)}
+    labels = language_profile(play_language).get("report_value_labels", {})
+    if not isinstance(labels, dict):
+        labels = {}
+    return {
+        play_language: {
+            profile_id: str(labels.get(profile_id, profile_id))
+            for profile_id in zh_hans_labels
+        }
+    }
+
+
 def _localize_value(value: Any, glossary: dict[str, str], key: str | None = None) -> Any:
     if isinstance(value, str):
         return _localize_text(value, glossary) if key in LOCALIZED_JSON_TEXT_KEYS else value
@@ -1582,7 +1667,12 @@ def _write_jsonl_localized(
     _write_jsonl(path, localized_events)
 
 
-def _write_transcript_jsonl_localized(path: Path, events: list[dict[str, Any]], glossary: dict[str, str]) -> None:
+def _write_transcript_jsonl_localized(
+    path: Path,
+    events: list[dict[str, Any]],
+    glossary: dict[str, str],
+    play_language: str = DEFAULT_PLAY_LANGUAGE,
+) -> None:
     localized_events: list[dict[str, Any]] = []
     for event in events:
         localized = dict(event)
@@ -1591,28 +1681,49 @@ def _write_transcript_jsonl_localized(path: Path, events: list[dict[str, Any]], 
                 if isinstance(localized.get(key), str):
                     localized[key] = _localize_text(localized[key], glossary)
         localized_text = dict(localized.get("localized_text", {}))
-        zh_hans = dict(localized_text.get("zh-Hans", {}))
+        language_text = dict(localized_text.get(play_language, {}))
         for key in ("intent", "ruling"):
             value = localized.get(key)
             if not isinstance(value, str):
                 continue
-            detail = ZH_HANS_TRANSCRIPT_DETAIL_TEXT.get(value)
+            detail = ZH_HANS_TRANSCRIPT_DETAIL_TEXT.get(value) if play_language == "zh-Hans" else None
             if detail is None:
                 detail = _localize_text(value, glossary)
             if detail != value:
-                zh_hans.setdefault(key, detail)
-        if zh_hans:
-            localized_text["zh-Hans"] = zh_hans
+                language_text.setdefault(key, detail)
+        if language_text:
+            localized_text[play_language] = language_text
             localized["localized_text"] = localized_text
         localized_events.append(localized)
     _write_jsonl(path, localized_events)
 
 
-def _with_play_language(payload: dict[str, Any], glossary: dict[str, str]) -> dict[str, Any]:
+def _with_transcript_localized_text(
+    events: list[dict[str, Any]],
+    play_language: str,
+    localized_by_turn: dict[str, dict[str, str]],
+) -> list[dict[str, Any]]:
+    localized_events: list[dict[str, Any]] = []
+    for event in events:
+        localized = dict(event)
+        turn_text = localized_by_turn.get(str(localized.get("turn")))
+        if turn_text:
+            localized_text = dict(localized.get("localized_text", {}))
+            language_text = dict(localized_text.get(play_language, {}))
+            language_text.update(turn_text)
+            localized_text[play_language] = language_text
+            localized["localized_text"] = localized_text
+        localized_events.append(localized)
+    return localized_events
+
+
+def _with_play_language(
+    payload: dict[str, Any],
+    localized_terms: dict[str, str],
+    play_language: str = DEFAULT_PLAY_LANGUAGE,
+) -> dict[str, Any]:
     localized = dict(payload)
-    localized["play_language"] = "zh-Hans"
-    localized["language_profile"] = language_profile("zh-Hans")
-    localized["localized_terms"] = {"zh-Hans": glossary}
+    localized.update(_language_metadata(play_language, localized_terms))
     return localized
 
 
@@ -1641,13 +1752,18 @@ def _clear_semantic_eval_artifacts(run_dir: Path) -> None:
             path.unlink()
 
 
-def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> Path:
+def create_rulebook_smoke_run(
+    root: Path,
+    run_id: str = "v1-rulebook-smoke",
+    play_language: str | None = None,
+) -> Path:
     run_dir = root / ".coc" / "playtests" / run_id
     _clear_semantic_eval_artifacts(run_dir)
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
     scenario_dir = campaign_dir / "scenario"
     investigator_id = "ada-king-rulebook"
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
+    localized_terms = _terms_for_play_language(ZH_HANS_HAUNTING_GLOSSARY, play_language) if play_language else {}
 
     _write_json(run_dir / "playtest.json", {
         "run_id": run_id,
@@ -2069,6 +2185,14 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
         },
     ])
 
+    if play_language:
+        metadata = _read_json(run_dir / "playtest.json", {})
+        metadata.update(_language_metadata(play_language, localized_terms))
+        _write_json(run_dir / "playtest.json", metadata)
+        campaign = _read_json(campaign_dir / "campaign.json", {})
+        campaign.update(_language_metadata(play_language, localized_terms))
+        _write_json(campaign_dir / "campaign.json", campaign)
+
     _write_campaign_save_and_indexes(campaign_dir)
     _write_view_streams(run_dir)
     generate_battle_report(run_dir)
@@ -2077,7 +2201,11 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
     return run_dir
 
 
-def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -> Path:
+def create_haunting_module_run(
+    root: Path,
+    run_id: str = "v2-haunting-module",
+    play_language: str = DEFAULT_PLAY_LANGUAGE,
+) -> Path:
     run_dir = root / ".coc" / "playtests" / run_id
     _clear_semantic_eval_artifacts(run_dir)
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
@@ -2085,6 +2213,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
     investigator_id = "ada-king-haunting"
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
     corbitt_id = "walter-corbitt"
+    localized_terms = _terms_for_play_language(ZH_HANS_HAUNTING_GLOSSARY, play_language)
 
     _write_json(run_dir / "playtest.json", _with_play_language({
         "run_id": run_id,
@@ -2149,11 +2278,12 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         "failed_test_cases": [],
         "future_enhancements": [],
         "regression_tests": [],
-    }, ZH_HANS_HAUNTING_GLOSSARY))
+    }, localized_terms, play_language))
     _write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,
         "campaign_id": run_id,
         "title": "The Haunting Module Playthrough",
+        **_language_metadata(play_language, localized_terms),
         "mode": "keeper",
         "status": "concluded",
         "era": "1920s",
@@ -2422,7 +2552,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         },
         {"turn": 49, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "intent": "recover after summary bout", "text": "我回过神后先确认 Corbitt 还会不会动，捡回角落里的左轮，然后尽快离开地下室。", "localized_text": {"zh-Hans": {"intent": "疯狂摘要后恢复控制"}}},
         {"turn": 50, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "Rewards：Corbitt 化成尘土，Mr. Knott 支付报酬和 30 美元奖金，Ada 恢复 4 SAN。Final HP: 3。Final SAN: 49。临时疯狂底层状态仍持续，若在 1 小时内再次损失 SAN，会再次触发疯狂发作。"},
-    ], ZH_HANS_HAUNTING_GLOSSARY)
+    ], localized_terms, play_language)
 
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Persuade", "goal": "gain access to The Boston Globe clipping files from Arty Wilmot", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Arty is an obstructive but ordinary editor, so the social skill check is Regular.", "roll": 72, "outcome": "failure", "push_eligible": True, "failure_consequence": "Arty refuses access unless Ada escalates with a pushed approach.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "获得《波士顿环球报》剪报档案的查阅许可", "difficulty_rationale": "阿蒂·威尔莫特只是普通编辑，不是超自然威胁；这次社交检定按普通难度处理。", "failure_consequence": "艾达·金会被阿蒂拒绝；除非改变策略并承担推骰风险，否则无法进入剪报档案室。"}}}},
@@ -2712,19 +2842,19 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             },
         },
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "Conclusion Rewards：Corbitt 被摧毁，Mr. Knott 支付报酬，后续冒险仍留下阴谋线索。"}},
-    ], ZH_HANS_HAUNTING_GLOSSARY)
+    ], localized_terms)
     _write_jsonl_localized(campaign_dir / "memory" / "session-summaries.jsonl", [
         {
             "session_id": "session-1",
             "summary": "Ada 接下 Mr. Knott 的委托，逼退 Arty Wilmot，追查到 Chapel of Contemplation，确认 Corbitt 的地下室埋葬线索，熬过 Bed Attack 和 The Floating Knife，并用 Corbitt 自己的 dagger 摧毁他。Final HP: 3；Final SAN: 49。",
         },
-    ], ZH_HANS_HAUNTING_GLOSSARY)
+    ], localized_terms)
     _write_jsonl_localized(run_dir / "player-feedback.jsonl", [
         {"category": "kp_clarity", "score": 5, "text": "KP 在重要检定前说明了目标、风险和后果。"},
         {"category": "immersion", "score": 4, "text": "这场更像一连串调查选择和场景推进，而不是机械 checklist。"},
         {"category": "module_fidelity", "score": 4, "text": "这次跑团覆盖了 The Haunting 从 Mr. Knott 到 Rewards 的主要节点。"},
         {"category": "combat_readability", "score": 4, "text": "combat round 顺序、opposed rolls、damage 和 Corbitt 的败亡都能读懂。"},
-    ], ZH_HANS_HAUNTING_GLOSSARY)
+    ], localized_terms)
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
         {
             "severity": "low",
@@ -2787,7 +2917,11 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
     return run_dir
 
 
-def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
+def create_chase_drill_run(
+    root: Path,
+    run_id: str = "v3-chase-drill",
+    play_language: str = DEFAULT_PLAY_LANGUAGE,
+) -> Path:
     run_dir = root / ".coc" / "playtests" / run_id
     _clear_semantic_eval_artifacts(run_dir)
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
@@ -2795,13 +2929,15 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     investigator_id = "ada-king-chase"
     pursuer_id = "nathaniel-crowe"
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
-    player_profile_labels = {
-        "zh-Hans": {
+    localized_terms = _terms_for_play_language(ZH_HANS_CHASE_GLOSSARY, play_language)
+    player_profile_labels = _profile_labels_for_play_language(
+        {
             "reckless_investigator": "鲁莽调查员",
             "skeptical_rules_lawyer": "规则质疑玩家",
             "genre_savvy_player": "类型片熟手",
-        }
-    }
+        },
+        play_language,
+    )
 
     _write_json(run_dir / "playtest.json", _with_play_language({
         "run_id": run_id,
@@ -2857,11 +2993,12 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "Replace this scripted multi-profile chase scene with a live LLM-vs-KP chase stress test when a live multi-agent playtest runner is available.",
         ],
         "regression_tests": [],
-    }, ZH_HANS_CHASE_GLOSSARY))
+    }, localized_terms, play_language))
     _write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,
         "campaign_id": run_id,
         "title": "The Ledger on the Rooftops",
+        **_language_metadata(play_language, localized_terms),
         "mode": "keeper",
         "status": "concluded",
         "era": "1920s",
@@ -3142,7 +3279,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"turn": "19a", "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "barrier_hide_resolution", "text": "先用 Locksmith 处理 locked roof door barrier；通过后你可以立刻用 Stealth 躲进 laundry sheets，Nathaniel 用 Spot Hidden 搜你。若你藏住而他没找到，quarry escapes。", "localized_text": {"zh-Hans": {"ruling": "障碍后躲藏结算"}}},
         {"turn": 20, "role": "system", "speaker": "system", "mode": "roll", "roll_count": 3, "resolution_prompt_turn": "19a", "outcome_note": "艾达·金带着账本逃脱。", "text": "Locksmith 21 vs 30 -> regular_success. Stealth 18 vs 45 -> hard_success. Nathaniel Spot Hidden 77 vs 40 -> failure."},
         {"turn": 21, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "quarry escapes。Nathaniel 在 locked roof door 一带失去视线，只能隔着 laundry sheets 乱搜，没有看见你；Ada 抱着 ledger，听见脚步声渐渐落到楼下。"},
-    ], ZH_HANS_CHASE_GLOSSARY)
+    ], localized_terms, play_language)
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The ledger is partly visible under Nathaniel's coat.", "roll": 82, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada cannot confirm the ledger without risking detection.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "确认内森尼尔·克劳行动前是否带着邪教账本", "difficulty_rationale": "账本只从内森尼尔·克劳的外套下露出一角，需要仔细观察。", "failure_consequence": "艾达·金无法确认账本，除非冒着被发现的风险继续观察。"}}}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "confirm Nathaniel has the cult ledger before acting", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "Ada changes position for a better angle, keeping the same difficulty.", "roll": 33, "outcome": "regular_success", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("chase-ledger-confirmation-push"), "push_justification": "Ada leans over the skylight for a better look.", "foreshadowed_failure": "On failure, Nathaniel sees Ada and starts the chase with no gap.", "failure_consequence": "Nathaniel would begin the chase at the same location as Ada.", "skill_check_earned": True}},
@@ -3227,20 +3364,20 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         {"type": "chase", "actor": investigator_id, "payload": {"summary": "quarry escapes：Ada 的 Stealth 胜过 Nathaniel 失败的 Spot Hidden，带着 ledger end the chase。"}},
         {"type": "status", "actor": investigator_id, "payload": {"summary": "最终追逐状态：Ada 保持 HP 12、SAN 55、MOV 7，并带走 cult ledger；Nathaniel 落后一处位置。"}},
         {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "after quarry escapes，本场结束；Ada 带着 cult ledger 脱离屋顶，Nathaniel 失去她的踪迹。"}},
-    ], ZH_HANS_CHASE_GLOSSARY)
+    ], localized_terms)
     _write_jsonl_localized(campaign_dir / "memory" / "session-summaries.jsonl", [
         {
             "session_id": "session-1",
             "summary": "Ada 确认 Nathaniel 带着 ledger，随后成为 rooftop chase 的 quarry；她穿过 hazard 和 barrier，躲过 chase conflict，藏进 laundry roof，最终带着线索逃脱。",
         },
-    ], ZH_HANS_CHASE_GLOSSARY)
+    ], localized_terms)
     _write_jsonl_localized(run_dir / "player-feedback.jsonl", [
         {"player_profile": "reckless_investigator", "category": "kp_clarity", "score": 5, "text": "KP 清楚解释了 speed roll、MOV、movement actions、hazard、barrier 和结果。"},
         {"player_profile": "reckless_investigator", "category": "chase_readability", "score": 5, "text": "我能看懂每个人在 location chain 的位置，也知道 quarry 为什么 escapes。"},
         {"player_profile": "reckless_investigator", "category": "immersion", "score": 4, "text": "追逐保持紧张感，同时没有把 rule decisions 藏起来。"},
         {"player_profile": "skeptical_rules_lawyer", "category": "meta_quality", "score": 5, "text": "KP 把 MOV、movement actions 和追逐内不能推骰的边界解释清楚。"},
         {"player_profile": "genre_savvy_player", "category": "spoiler_safety", "score": 5, "text": "KP 没有直接确认我的剧透猜测，只给了玩家安全的障碍和遮蔽信息。"},
-    ], ZH_HANS_CHASE_GLOSSARY, player_profile_labels["zh-Hans"])
+    ], localized_terms, player_profile_labels[play_language])
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
         {
             "severity": "low",
@@ -3301,7 +3438,11 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
     return run_dir
 
 
-def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profile-pressure") -> Path:
+def create_multi_profile_pressure_run(
+    root: Path,
+    run_id: str = "v4-multi-profile-pressure",
+    play_language: str = DEFAULT_PLAY_LANGUAGE,
+) -> Path:
     run_dir = root / ".coc" / "playtests" / run_id
     _clear_semantic_eval_artifacts(run_dir)
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
@@ -3309,13 +3450,15 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
     investigator_id = "ada-king-pressure"
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
     player_profiles = ["careful_investigator", "reckless_investigator", "skeptical_rules_lawyer"]
-    player_profile_labels = {
-        "zh-Hans": {
+    localized_terms = _terms_for_play_language(ZH_HANS_HAUNTING_GLOSSARY, play_language)
+    player_profile_labels = _profile_labels_for_play_language(
+        {
             "careful_investigator": "谨慎调查员",
             "reckless_investigator": "鲁莽调查员",
             "skeptical_rules_lawyer": "规则质疑玩家",
-        }
-    }
+        },
+        play_language,
+    )
 
     _write_json(run_dir / "playtest.json", _with_play_language({
         "run_id": run_id,
@@ -3355,11 +3498,12 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         "failed_test_cases": [],
         "recommended_fixes": [],
         "regression_tests": [],
-    }, ZH_HANS_HAUNTING_GLOSSARY))
+    }, localized_terms, play_language))
     _write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,
         "campaign_id": run_id,
         "title": "Three Roads into the Corbitt House",
+        **_language_metadata(play_language, localized_terms),
         "mode": "keeper",
         "status": "concluded",
         "era": "1920s",
@@ -3383,6 +3527,13 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         "summary": "Three distinct investigation styles branch from Mr. Knott's opening offer in The Haunting.",
         "player_safe_summary": "诺特先生雇用艾达·金调查科比特宅邸，不同玩家风格会分别要求调查路线、风险选择和规则说明。",
         "opening_scene": "诺特先生将科比特宅邸的钥匙放在桌上，等待艾达·金决定先调查还是直接进屋。",
+        "localized_text": {
+            "ja-JP": {
+                "summary": "『怪異の家』の導入依頼から、三つの異なる調査スタイルが分岐する。",
+                "player_safe_summary": "ノット氏はエイダ・キングにコービット屋敷の調査を依頼し、異なるプレイヤースタイルが調査ルート、リスク選択、ルール説明を求める。",
+                "opening_scene": "ノット氏がコービット屋敷の鍵を机に置き、エイダ・キングが先に調査するか直接入るかを待っている。",
+            }
+        },
         "current_phase": "opening_pressure",
     })
     _write_json(scenario_dir / "clues.json", [
@@ -3408,14 +3559,20 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             "label": "Handout 1",
             "title": "Mr. Knott's job",
             "summary": "Mr. Knott's key, address, advance, and warning that research should come before entering the house.",
-            "localized_text": {"zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托", "summary": "诺特先生给出的钥匙、地址、预付款，以及进屋前先查资料的提醒"}},
+            "localized_text": {
+                "zh-Hans": {"label": "线索资料 1", "title": "诺特先生的委托", "summary": "诺特先生给出的钥匙、地址、预付款，以及进屋前先查资料的提醒"},
+                "ja-JP": {"label": "ハンドアウト 1", "title": "ノット氏の依頼", "summary": "ノット氏が渡した鍵、住所、前金、そして屋敷に入る前に調査すべきという警告。"},
+            },
         },
         {
             "id": "deed-note",
             "label": "Records lead",
             "title": "Records lead",
             "summary": "City records point from Walter Corbitt's deed trail toward the Chapel of Contemplation.",
-            "localized_text": {"zh-Hans": {"label": "档案线索", "title": "房契旁注", "summary": "城市档案把沃尔特·科比特的房契线索指向沉思教堂"}},
+            "localized_text": {
+                "zh-Hans": {"label": "档案线索", "title": "房契旁注", "summary": "城市档案把沃尔特·科比特的房契线索指向沉思教堂"},
+                "ja-JP": {"label": "記録の手がかり", "title": "権利書の書き込み", "summary": "市の記録はウォルター・コービットの権利書の痕跡から瞑想教会へつながっている。"},
+            },
         },
     ])
     _write_json(scenario_dir / "keeper-secrets.json", [
@@ -3514,7 +3671,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             }
         ],
     )
-    _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", [
+    pressure_transcript = [
         {"turn": 1, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "text": "诺特先生把钥匙和预付款放在桌上，说明科比特宅邸又把房客吓跑了。"},
         {"turn": 2, "role": "player_simulator", "speaker": "Careful Player", "player_profile": "careful_investigator", "mode": "play", "intent": "request careful research route", "text": "我先查房契和旧报纸，不急着进屋；我想知道公开记录里有没有科比特或教堂线索。"},
         {"turn": 3, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "library_use_regular", "text": "可以。这个路线用 Library Use，普通难度；成功会给你进屋前的线索，失败则会多花半天。"},
@@ -3535,23 +3692,49 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {"turn": "13d", "role": "keeper_under_test", "speaker": "KP", "mode": "meta", "ruling": "limited_spoiler_reveal", "spoiler_protocol": _spoiler_transcript_protocol("pressure-corbitt-basement-reveal", "limited_reveal", "secret-corbitt-body", "corbitt_basement_presence", {"confirmed": True}), "text": "[meta] 有限剧透：科比特的遗体仍在地下室。到此为止，我不会额外说明它如何行动、如何触发攻击，或完整结局。[/meta]"},
         {"turn": 14, "role": "player_simulator", "speaker": "Careful Player", "player_profile": "careful_investigator", "mode": "play", "intent": "use clue to shape plan", "text": "那我把档案线索告诉大家，建议先找沉思教堂的记录，再决定是否进地下室。"},
         {"turn": 15, "role": "keeper_under_test", "speaker": "KP", "mode": "play", "ruling": "session_wrap", "text": "这一幕先收在这里：三个调查方向都留下了后续入口。你们可以先追查沉思教堂，再决定是否深入科比特宅邸。"},
-    ], ZH_HANS_HAUNTING_GLOSSARY)
+    ]
+    if play_language == "ja-JP":
+        pressure_transcript = _with_transcript_localized_text(
+            pressure_transcript,
+            play_language,
+            {
+                "1": {"text": "ノット氏は鍵と前金を机に置き、コービット屋敷がまた借家人を追い出したと説明する。"},
+                "2": {"text": "私はまず権利書と古い新聞を調べます。急いで屋敷には入らず、公開記録にコービットや教会の手がかりがあるか知りたいです。", "intent": "慎重な調査ルートを求める"},
+                "3": {"text": "よいでしょう。このルートは図書館ロール、レギュラー難易度です。成功すれば屋敷に入る前の手がかりを得ます。失敗なら半日余計にかかります。", "ruling": "図書館ロール（レギュラー）"},
+                "5": {"text": "記録保管所で、ウォルター・コービットが瞑想教会と関係しているという権利書の書き込みを見つけます。"},
+                "6": {"text": "私は直接二階へ行き、鍵で扉を開けます。他の調査は待ちません。", "intent": "危険へ急ぐ"},
+                "7": {"text": "直接行動できます。ただし準備情報の一部を得られません。まず目星、レギュラー難易度で、扉枠内側の新しい傷に気づくか確認します。", "ruling": "目星（レギュラー）"},
+                "9": {"text": "懐中電灯を扉の隙間に近づけ、枠だけでなく危険を承知でラッチにも触れ、内側で最近動きがあったか確かめます。", "intent": "無謀な侵入前のプッシュ"},
+                "10": {"text": "有効なプッシュロールです。方法を変え、より近づいています。失敗すると屋敷の中の気配が先にあなたを捉えます。続けますか？", "ruling": "プッシュ目星"},
+                "10a": {"text": "続けます。その扉の隙間にある手がかりに賭けます。"},
+                "11": {"text": "プッシュ目星 22 / 55、結果はハード成功。扉のラッチ付近に新しい傷を見つけ、追加の危険は起きません。"},
+                "12": {"text": "[meta] 質問です。慎重なプレイヤーは資料を調べ、無謀なプレイヤーは直接入るのに、なぜ KP は違うロールとリスクを出すのですか？[/meta]", "intent": "KP の裁定に異議を出す"},
+                "13": {"text": "[meta] ルール裁定です。ロールはプレイスタイルを罰するものではなく、行動の取り方とリスクで決まります。慎重なルートは図書館で情報を得ます。無謀なルートも可能ですが、情報は少なく、結果は近くなります。プッシュ前には失敗時の代償を先に示します。[/meta]", "ruling": "複数プロファイル圧力への説明"},
+                "13a": {"text": "[meta] では、地下室に何があるかを今はっきり知りたいと言ったら、直接ネタバレしてもらえますか？[/meta]", "intent": "キーパー専用情報のネタバレを求める"},
+                "13b": {"text": "[spoiler_warning] これは『怪異の家』のキーパー情報、地下室の核心秘密の一部を明かします。確認後、求めた範囲だけ答え、攻撃の発生条件や真相全体は広げません。見ますか？[/spoiler_warning]", "ruling": "ネタバレ警告"},
+                "13c": {"text": "[meta] 確認します。そのネタバレを受け入れます。地下室の一点だけ答えて、後の発生条件は広げないでください。[/meta]"},
+                "13d": {"text": "[meta] 限定ネタバレ：コービットの遺体は地下室に残っています。ここまでです。それがどう動くか、攻撃がどう始まるか、結末全体は追加で説明しません。[/meta]", "ruling": "限定ネタバレ開示"},
+                "14": {"text": "では私は記録の手がかりを皆に共有し、まず瞑想教会の記録を追い、それから地下室へ行くか決めようと提案します。", "intent": "手がかりで計画を立てる"},
+                "15": {"text": "この場面はいったんここで区切ります。三つの調査方針はいずれも次の入口を残しました。まず瞑想教会を追い、それからコービット屋敷の奥へ進むか決められます。", "ruling": "セッション区切り"},
+            },
+        )
+    _write_transcript_jsonl_localized(run_dir / "transcript.jsonl", pressure_transcript, localized_terms, play_language)
     _write_jsonl(campaign_dir / "logs" / "rolls.jsonl", _with_roll_localization([
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Library Use", "goal": "research deed and newspaper records before entering the house", "target": 60, "effective_target": 60, "difficulty": "regular", "difficulty_rationale": "Public records can reveal a useful lead with focused archive work.", "roll": 29, "outcome": "hard_success", "failure_consequence": "Ada would spend half a day and enter the house with fewer leads.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "进屋前查房契和旧报纸记录", "difficulty_rationale": "公开记录能通过专注查档找到有用线索。", "failure_consequence": "艾达·金会多花半天，并带着更少线索进屋。"}}}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "notice fresh marks before reckless entry", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The marks are visible only if the investigator slows down at the door.", "roll": 84, "outcome": "failure", "push_eligible": True, "failure_consequence": "Ada misses the warning and risks entering without preparation.", "skill_check_earned": False, "localized_text": {"zh-Hans": {"goal": "鲁莽进屋前注意到新划痕", "difficulty_rationale": "只有在门口稍作停顿才能看到这些痕迹。", "failure_consequence": "艾达·金会错过警告，冒着准备不足的风险进屋。"}}}},
         {"type": "roll", "actor": investigator_id, "payload": {"skill": "Spot Hidden", "goal": "push the door inspection by checking the latch by touch", "target": 55, "effective_target": 55, "difficulty": "regular", "difficulty_rationale": "The pushed approach changes method by touching the latch at close range.", "roll": 22, "outcome": "hard_success", "pushed": True, "pushed_roll_protocol": _pushed_roll_payload_protocol("pressure-reckless-entry-push"), "push_justification": "Ada moves the flashlight close and reaches into the door gap by touch.", "foreshadowed_failure": "On failure, the house notices Ada first.", "failure_consequence": "Ada would trigger a noise inside the house before she could warn the others.", "skill_check_earned": True, "localized_text": {"zh-Hans": {"goal": "用触摸门闩的方式推骰检查门口", "difficulty_rationale": "推骰方法改变为近距离触摸门闩。", "push_justification": "艾达·金把手电贴近门缝，伸手摸向门闩。", "foreshadowed_failure": "若失败，屋内的东西会先注意到艾达·金。", "failure_consequence": "艾达·金会在警告同伴前先触发屋内动静。"}}}},
     ]))
     _write_jsonl_localized(campaign_dir / "logs" / "events.jsonl", [
-        {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-office", "summary": "诺特先生给出钥匙、预付款和科比特宅邸的委托。"}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "谨慎玩家选择先查房契和旧报纸，避免无准备进屋。"}},
-        {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "deed-note", "summary": "艾达·金发现沃尔特·科比特与沉思教堂有关。"}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "鲁莽玩家选择直接进二楼，并在 KP 说明失败后果后继续推骰。"}},
-        {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑玩家以超游模式要求 KP 解释不同玩家风格对应的检定和风险。"}},
-        {"type": "decision", "actor": "player_simulator", "payload": {"summary": "规则质疑玩家主动要求查看地下室守秘人剧透；KP 先发出剧透警告并等待确认。"}},
-        {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "fresh-scratches", "summary": "推骰成功后，艾达·金看见门闩边缘的新划痕。"}},
-        {"type": "status", "actor": investigator_id, "payload": {"summary": "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。"}},
-        {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "本幕收束，后续入口记录为先追查沉思教堂，再决定是否进入科比特宅邸深处。"}},
-    ], ZH_HANS_HAUNTING_GLOSSARY)
+        {"type": "scene", "actor": "keeper_under_test", "payload": {"scene_id": "knott-office", "summary": "诺特先生给出钥匙、预付款和科比特宅邸的委托。", "localized_text": {"ja-JP": {"summary": "ノット氏は鍵、前金、コービット屋敷の依頼を提示する。"}}}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "谨慎玩家选择先查房契和旧报纸，避免无准备进屋。", "localized_text": {"ja-JP": {"summary": "慎重なプレイヤーは準備なしで屋敷に入らず、先に権利書と古い新聞を調べる。"}}}},
+        {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "deed-note", "summary": "艾达·金发现沃尔特·科比特与沉思教堂有关。", "localized_text": {"ja-JP": {"summary": "エイダ・キングはウォルター・コービットが瞑想教会と関係していることを見つける。"}}}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "鲁莽玩家选择直接进二楼，并在 KP 说明失败后果后继续推骰。", "localized_text": {"ja-JP": {"summary": "無謀なプレイヤーは直接二階へ入り、KP が失敗時の結果を示した後もプッシュを続ける。"}}}},
+        {"type": "decision", "actor": investigator_id, "payload": {"summary": "规则质疑玩家以超游模式要求 KP 解释不同玩家风格对应的检定和风险。", "localized_text": {"ja-JP": {"summary": "ルール確認型プレイヤーはメタモードで、プレイスタイルごとのロールとリスクを KP に説明させる。"}}}},
+        {"type": "decision", "actor": "player_simulator", "payload": {"summary": "规则质疑玩家主动要求查看地下室守秘人剧透；KP 先发出剧透警告并等待确认。", "localized_text": {"ja-JP": {"summary": "ルール確認型プレイヤーは地下室のキーパー情報の開示を求め、KP は先にネタバレ警告を出して確認を待つ。"}}}},
+        {"type": "clue", "actor": investigator_id, "payload": {"clue_id": "fresh-scratches", "summary": "推骰成功后，艾达·金看见门闩边缘的新划痕。", "localized_text": {"ja-JP": {"summary": "プッシュロール成功後、エイダ・キングはラッチ付近の新しい傷を見る。"}}}},
+        {"type": "status", "actor": investigator_id, "payload": {"summary": "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。", "localized_text": {"ja-JP": {"summary": "三つのプレイヤープロファイルはいずれも有効な選択を残し、KP は各ルートの利益、リスク、失敗時の結果を説明した。"}}}},
+        {"type": "session_ending", "actor": "keeper_under_test", "payload": {"summary": "本幕收束，后续入口记录为先追查沉思教堂，再决定是否进入科比特宅邸深处。", "localized_text": {"ja-JP": {"summary": "この場面は終了し、次の入口はまず瞑想教会を追い、それからコービット屋敷の奥へ進むか決める形で記録される。"}}}},
+    ], localized_terms)
     _write_jsonl(campaign_dir / "logs" / "audit.jsonl", [
         {
             "type": "spoiler_reveal",
@@ -3569,14 +3752,15 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         {
             "session_id": "session-1",
             "summary": "三个调查风格汇入同一开局：谨慎玩家先查公开记录，鲁莽玩家直接进屋并推骰，规则质疑玩家要求解释裁定并确认一次剧透警告。KP 分别给出风险、失败后果、有限剧透和后续路线。",
+            "localized_text": {"ja-JP": {"summary": "三つの調査スタイルが同じ導入へ合流した。慎重なプレイヤーは公開記録を調べ、無謀なプレイヤーは直接入ってプッシュし、ルール確認型プレイヤーは裁定説明を求めて一度ネタバレ警告を確認した。KP はそれぞれにリスク、失敗時の結果、限定開示、次のルートを示した。"}},
         },
-    ], ZH_HANS_HAUNTING_GLOSSARY)
+    ], localized_terms)
     _write_jsonl_localized(run_dir / "player-feedback.jsonl", [
-        {"player_profile": "careful_investigator", "category": "kp_clarity", "score": 5, "text": "KP 允许我先调查，并说明成功和失败会怎样改变进屋准备。"},
-        {"player_profile": "reckless_investigator", "category": "agency", "score": 4, "text": "KP 没有阻止我冒险，但把更近的风险说清楚了。"},
-        {"player_profile": "skeptical_rules_lawyer", "category": "meta_quality", "score": 5, "text": "KP 清楚解释了为什么不同做法对应不同检定和失败后果。"},
-        {"player_profile": "skeptical_rules_lawyer", "category": "spoiler_safety", "score": 5, "text": "KP 在真正揭示地下室秘密前先给出剧透警告，等我确认后只回答了有限范围。"},
-    ], ZH_HANS_HAUNTING_GLOSSARY, player_profile_labels["zh-Hans"])
+        {"player_profile": "careful_investigator", "category": "kp_clarity", "score": 5, "text": "KP 允许我先调查，并说明成功和失败会怎样改变进屋准备。", "localized_text": {"ja-JP": {"text": "KP は先に調査する選択を認め、成功と失敗が屋敷に入る準備をどう変えるか説明してくれた。"}}},
+        {"player_profile": "reckless_investigator", "category": "agency", "score": 4, "text": "KP 没有阻止我冒险，但把更近的风险说清楚了。", "localized_text": {"ja-JP": {"text": "KP は私の危険な行動を止めず、近づくリスクをはっきり示してくれた。"}}},
+        {"player_profile": "skeptical_rules_lawyer", "category": "meta_quality", "score": 5, "text": "KP 清楚解释了为什么不同做法对应不同检定和失败后果。", "localized_text": {"ja-JP": {"text": "KP は、違う行動が違うロールと失敗時の結果につながる理由を明確に説明した。"}}},
+        {"player_profile": "skeptical_rules_lawyer", "category": "spoiler_safety", "score": 5, "text": "KP 在真正揭示地下室秘密前先给出剧透警告，等我确认后只回答了有限范围。", "localized_text": {"ja-JP": {"text": "KP は地下室の秘密を明かす前にネタバレ警告を出し、確認後も限定された範囲だけ答えた。"}}},
+    ], localized_terms, player_profile_labels[play_language])
     _write_jsonl(run_dir / "evaluator-notes.jsonl", [
         {
             "severity": "low",
@@ -3636,15 +3820,16 @@ def main() -> int:
         choices=["rulebook-smoke", "haunting-module", "chase-drill", "multi-profile-pressure"],
         default="rulebook-smoke",
     )
+    parser.add_argument("--play-language", default=DEFAULT_PLAY_LANGUAGE)
     args = parser.parse_args()
     if args.profile == "chase-drill":
-        run_dir = create_chase_drill_run(Path(args.root), args.run_id)
+        run_dir = create_chase_drill_run(Path(args.root), args.run_id, play_language=args.play_language)
     elif args.profile == "multi-profile-pressure":
-        run_dir = create_multi_profile_pressure_run(Path(args.root), args.run_id)
+        run_dir = create_multi_profile_pressure_run(Path(args.root), args.run_id, play_language=args.play_language)
     elif args.profile == "haunting-module":
-        run_dir = create_haunting_module_run(Path(args.root), args.run_id)
+        run_dir = create_haunting_module_run(Path(args.root), args.run_id, play_language=args.play_language)
     else:
-        run_dir = create_rulebook_smoke_run(Path(args.root), args.run_id)
+        run_dir = create_rulebook_smoke_run(Path(args.root), args.run_id, play_language=args.play_language)
     print(run_dir)
     return 0
 

@@ -22,6 +22,8 @@ Use `../../scripts/coc_playtest_harness.py` when you need a reproducible baselin
 - `--profile rulebook-smoke`: short The Haunting-derived smoke run for the ordinary investigation loop.
 - `--profile haunting-module`: module-level The Haunting run that reaches Mr. Knott, Arty Wilmot, Chapel clues, the Corbitt House, Bed Attack, basement hazards, The Floating Knife, Corbitt combat, final state, rewards, and player feedback.
 - `--profile chase-drill`: rulebook chase drill that writes `save/chase.json` and shows speed roll, MOV, movement actions, location chain, DEX order, hazard resolution for every participant who crosses the hazard, barrier and hide/search roll links, conflict, and why the quarry escapes.
+- `--profile multi-profile-pressure`: opening pressure run with careful, reckless, and rules-skeptical virtual player profiles.
+- `--play-language <language>`: choose the visible play language for generated reports and persisted run/campaign metadata; defaults to `zh-Hans`.
 
 Use `../../scripts/coc_playtest_report.py` to generate:
 
