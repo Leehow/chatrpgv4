@@ -13,6 +13,7 @@ def load_module(name: str, relative_path: str):
 
 
 coc_state = load_module("coc_state", "plugins/coc-keeper/scripts/coc_state.py")
+coc_language = load_module("coc_language_test", "plugins/coc-keeper/scripts/coc_language.py")
 
 
 def test_create_campaign_workspace_and_party(tmp_path):
@@ -52,6 +53,17 @@ def test_create_campaign_persists_play_language(tmp_path):
     assert custom_campaign["localized_terms"] == {"ja-JP": {}}
     assert custom_campaign["language_profile"]["language"] == "ja-JP"
     assert "localized_terms.ja-JP" in custom_campaign["language_profile"]["term_policy"]
+
+
+def test_custom_language_profiles_are_independent_copies():
+    first = coc_language.language_profile("fr-FR")
+    first["speaker_labels"]["player"] = "joueur"
+
+    second = coc_language.language_profile("fr-FR")
+    english = coc_language.language_profile("en-US")
+
+    assert second["speaker_labels"]["player"] == "Player"
+    assert english["speaker_labels"]["player"] == "Player"
 
 
 def test_append_jsonl_and_snapshot(tmp_path):

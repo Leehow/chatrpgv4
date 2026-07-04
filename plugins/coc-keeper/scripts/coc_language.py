@@ -706,15 +706,15 @@ def language_profile(play_language: str | None = None) -> dict[str, Any]:
         "name_policy": f"Use customary {language} forms for names and setting terms when available.",
         "term_policy": f"Use localized_terms.{language} for player-visible people, places, factions, handouts, campaign titles, scenario titles, player-visible module source labels, player-visible skill display names, and special terms.",
     })
-    profile["empty_report_lines"] = BASE_EMPTY_REPORT_LINES
-    profile["speaker_labels"] = BASE_SPEAKER_LABELS
-    profile["transcript_mode_labels"] = BASE_TRANSCRIPT_MODE_LABELS
-    profile["report_heading_labels"] = BASE_REPORT_HEADING_LABELS
-    profile["report_field_labels"] = BASE_REPORT_FIELD_LABELS
-    profile["report_value_labels"] = BASE_REPORT_VALUE_LABELS
-    profile["character_dossier_labels"] = BASE_CHARACTER_DOSSIER_LABELS
-    profile["creation_labels"] = BASE_CREATION_LABELS
-    profile["chronicle_labels"] = BASE_CHRONICLE_LABELS
-    profile["feedback_labels"] = BASE_FEEDBACK_LABELS
-    profile["chase_tracker_labels"] = BASE_CHASE_TRACKER_LABELS
+    profile["empty_report_lines"] = deepcopy(BASE_EMPTY_REPORT_LINES)
+    profile["speaker_labels"] = deepcopy(BASE_SPEAKER_LABELS)
+    profile["transcript_mode_labels"] = deepcopy(BASE_TRANSCRIPT_MODE_LABELS)
+    profile["report_heading_labels"] = deepcopy(BASE_REPORT_HEADING_LABELS)
+    profile["report_field_labels"] = deepcopy(BASE_REPORT_FIELD_LABELS)
+    profile["report_value_labels"] = deepcopy(BASE_REPORT_VALUE_LABELS)
+    profile["character_dossier_labels"] = deepcopy(BASE_CHARACTER_DOSSIER_LABELS)
+    profile["creation_labels"] = deepcopy(BASE_CREATION_LABELS)
+    profile["chronicle_labels"] = deepcopy(BASE_CHRONICLE_LABELS)
+    profile["feedback_labels"] = deepcopy(BASE_FEEDBACK_LABELS)
+    profile["chase_tracker_labels"] = deepcopy(BASE_CHASE_TRACKER_LABELS)
     return profile
