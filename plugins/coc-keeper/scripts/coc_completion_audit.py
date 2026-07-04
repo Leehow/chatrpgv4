@@ -19,6 +19,7 @@ from coc_playtest_report import (
     _display_transcript_speaker,
     _display_transcript_text,
     _event_roll_count,
+    _format_feedback,
     _format_roll_recap,
     _format_roll_source_line,
     _format_roll_transcript_text,
@@ -1074,6 +1075,52 @@ def _battle_report_feedback_score_findings(
         missing_feedback_score_count=len(missing_scores),
         required_feedback_score_count=len(required_scores),
         missing_feedback_score_samples=missing_scores[:5],
+    )]
+
+
+def _battle_report_feedback_binding_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    feedback_section = _visible_markdown_text(_battle_report_anchor_section(battle_report, "Player Feedback On KP"))
+    feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
+    language_profile = metadata.get("language_profile", {})
+    if not isinstance(language_profile, dict):
+        language_profile = {}
+    play_language = str(metadata.get("play_language") or "en-US")
+    localized_terms = _metadata_localized_terms(metadata)
+    profile_labels = _metadata_player_profile_labels(metadata)
+    missing_bindings: list[str] = []
+    for row in feedback:
+        if not isinstance(row.get("text"), str) or not row["text"].strip():
+            continue
+        score = row.get("score")
+        if not isinstance(score, (int, float)) or isinstance(score, bool):
+            continue
+        expected_line = _format_feedback(
+            row,
+            localized_terms,
+            play_language,
+            profile_labels,
+            language_profile,
+        )
+        if expected_line not in feedback_section:
+            category = str(row.get("category", "general"))
+            profile = str(row.get("player_profile") or "player")
+            missing_bindings.append(f"{category}:{profile}")
+    missing_bindings = list(dict.fromkeys(missing_bindings))
+    if not missing_bindings:
+        return []
+    return [_finding(
+        "battle_report_feedback_binding_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_bindings)} structured feedback bindings from player-feedback.jsonl.",
+        "Regenerate battle-report.md so each Player Feedback On KP line binds the source feedback category, score, profile voice, and comment together.",
+        run_id=run_id,
+        missing_feedback_binding_count=len(missing_bindings),
+        missing_feedback_binding_samples=missing_bindings[:5],
     )]
 
 
@@ -4491,6 +4538,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_feedback_text_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_feedback_score_findings(run_id, run_dir, battle_report))
+    findings.extend(_battle_report_feedback_binding_findings(run_id, run_dir, metadata, battle_report))
     findings.extend(_battle_report_memory_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_handout_findings(
         run_id,

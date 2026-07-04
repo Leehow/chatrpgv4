@@ -189,22 +189,22 @@ def battle_report_event_fixture_text() -> str:
 
 def battle_report_feedback_fixture_text() -> str:
     feedback_rows = [
-        (5, "fixture feedback"),
-        (5, "fixture careful feedback"),
-        (4, "fixture reckless feedback"),
-        (5, "fixture skeptical feedback"),
+        ("kp_clarity", 5, "Player feedback", "fixture feedback"),
+        ("kp_clarity", 5, "careful_investigator feedback", "fixture careful feedback"),
+        ("agency", 4, "reckless_investigator feedback", "fixture reckless feedback"),
+        ("meta_quality", 5, "skeptical_rules_lawyer feedback", "fixture skeptical feedback"),
     ]
-    return "\n".join(f"- {score}/5: {text}" for score, text in feedback_rows)
+    return "\n".join(f'- {category} {score}/5: {voice}: "{text}"' for category, score, voice, text in feedback_rows)
 
 
 def battle_report_feedback_fixture_text_without_scores() -> str:
-    feedback_texts = [
-        "fixture feedback",
-        "fixture careful feedback",
-        "fixture reckless feedback",
-        "fixture skeptical feedback",
+    feedback_rows = [
+        ("kp_clarity", "Player feedback", "fixture feedback"),
+        ("kp_clarity", "careful_investigator feedback", "fixture careful feedback"),
+        ("agency", "reckless_investigator feedback", "fixture reckless feedback"),
+        ("meta_quality", "skeptical_rules_lawyer feedback", "fixture skeptical feedback"),
     ]
-    return "\n".join(f"- {text}" for text in feedback_texts)
+    return "\n".join(f'- {category}: {voice}: "{text}"' for category, voice, text in feedback_rows)
 
 
 def battle_report_memory_fixture_text() -> str:
@@ -581,6 +581,21 @@ def battle_report_with_feedback_text_but_without_scores() -> str:
         + battle_report_feedback_fixture_text(),
         "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n"
         + battle_report_feedback_fixture_text_without_scores(),
+    )
+
+
+def battle_report_with_feedback_scores_but_wrong_categories() -> str:
+    wrong_lines = "\n".join([
+        '- pacing 5/5: Player feedback: "fixture feedback"',
+        '- fairness 5/5: careful_investigator feedback: "fixture careful feedback"',
+        '- kp_clarity 4/5: reckless_investigator feedback: "fixture reckless feedback"',
+        '- spoiler_safety 5/5: skeptical_rules_lawyer feedback: "fixture skeptical feedback"',
+    ])
+    return battle_report_fixture().replace(
+        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n"
+        + battle_report_feedback_fixture_text(),
+        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n"
+        + wrong_lines,
     )
 
 
@@ -3858,6 +3873,35 @@ def test_completion_audit_fails_when_battle_report_omits_source_feedback_scores(
     assert finding["run_id"] == "v4-multi-profile-pressure"
     assert "fixture careful feedback" in finding["missing_feedback_score_samples"]
     assert "fixture reckless feedback" in finding["missing_feedback_score_samples"]
+
+
+def test_completion_audit_fails_when_feedback_scores_use_wrong_categories(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v4-multi-profile-pressure"
+    write_text(run_dir / "artifacts" / "battle-report.md", battle_report_with_feedback_scores_but_wrong_categories())
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_feedback_binding_missing")
+    assert finding["run_id"] == "v4-multi-profile-pressure"
+    assert "kp_clarity:player" in finding["missing_feedback_binding_samples"]
+    assert "agency:reckless_investigator" in finding["missing_feedback_binding_samples"]
 
 
 def test_completion_audit_fails_when_battle_report_omits_source_memory_summaries(tmp_path):
