@@ -937,6 +937,13 @@ def write_semantic_eval_requests(root: Path) -> list[Path]:
     return request_paths
 
 
+def _party_size_display(run: dict[str, Any], party_size: int) -> str:
+    play_language = str(run.get("play_language") or "")
+    if play_language.startswith("zh"):
+        return f"{party_size} 名调查员"
+    return f"{party_size} investigator{'s' if party_size != 1 else ''}"
+
+
 def _write_report(path: Path, index: dict[str, Any]) -> None:
     lines = [
         "# COC Playtest Suite Report",
@@ -947,7 +954,7 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
         party_suffix = ""
         party_size = run.get("party_size")
         if isinstance(party_size, int):
-            party_suffix = f" | party: {party_size} investigator{'s' if party_size != 1 else ''}"
+            party_suffix = f" | party: {_party_size_display(run, party_size)}"
         lines.append(
             f"- {run['run_id']}: {run.get('campaign_title_display') or run['campaign_title']} | "
             f"{run.get('audit_profile_display') or run['audit_profile']} {run['audit_result']} | "

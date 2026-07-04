@@ -157,7 +157,8 @@ def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     assert "## Run Index" in report_text
     assert "v2-haunting-module" in report_text
     run_index = report_text.split("## Non-Passing Evaluated Runs", 1)[0]
-    assert "party: 1 investigator" in run_index
+    assert "party: 1 名调查员" in run_index
+    assert "party: 1 investigator" not in run_index
     assert "《鬼屋》模组实录" in run_index
     assert "《鬼屋》完整模组审计" in run_index
     assert "The Haunting Module Playthrough" not in run_index

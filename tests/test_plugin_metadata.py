@@ -540,6 +540,7 @@ def test_coc_playtest_skill_documents_suite_report_index():
         "suite_matrix_references_non_evaluated_run",
         "structured automation status",
         "monitor prompt text",
+        "party_size",
         "character_dossier",
         "kp_player_transcript",
         "mechanical_rolls",
