@@ -1583,6 +1583,29 @@ def _bout_duration_roll_gaps(events: list[dict[str, Any]]) -> list[str]:
     ):
         payload = event.get("payload", {})
         if payload.get("mode") == "summary":
+            missing = [
+                field for field in ["duration_die", "duration_roll", "duration_hours"]
+                if payload.get(field) in (None, "", [], {})
+            ]
+            if missing:
+                gaps.append(f"bout_of_madness {index} summary missing {', '.join(missing)}")
+                continue
+            if payload.get("duration_die") != "1D10":
+                gaps.append(
+                    f"bout_of_madness {index} summary duration_die is {payload.get('duration_die')}, expected 1D10"
+                )
+            try:
+                duration_roll = int(payload.get("duration_roll"))
+                duration_hours = int(payload.get("duration_hours"))
+            except (TypeError, ValueError):
+                gaps.append(f"bout_of_madness {index} summary duration_roll and duration_hours must be integers")
+                continue
+            if not 1 <= duration_roll <= 10:
+                gaps.append(f"bout_of_madness {index} summary duration_roll {duration_roll} outside 1D10 range")
+            if duration_hours != duration_roll:
+                gaps.append(
+                    f"bout_of_madness {index} duration_hours {duration_hours} does not match duration_roll {duration_roll}"
+                )
             continue
         missing = [
             field for field in ["duration_die", "duration_roll", "duration_rounds"]
@@ -1610,10 +1633,12 @@ def _bout_duration_roll_count(events: list[dict[str, Any]]) -> int:
     return sum(
         1 for event in events
         if event.get("type") == "bout_of_madness"
-        and event.get("payload", {}).get("mode") != "summary"
         and event.get("payload", {}).get("duration_die") == "1D10"
         and event.get("payload", {}).get("duration_roll") not in (None, "", [], {})
-        and event.get("payload", {}).get("duration_rounds") not in (None, "", [], {})
+        and (
+            event.get("payload", {}).get("duration_rounds") not in (None, "", [], {})
+            or event.get("payload", {}).get("duration_hours") not in (None, "", [], {})
+        )
     )
 
 
@@ -2832,7 +2857,7 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "system_gap",
                 "high",
                 "; ".join(duration_gaps),
-                "Record the actual Bout of Madness duration_roll and duration_rounds from the 1D10 duration roll.",
+                "Record the actual Bout of Madness duration_roll plus duration_rounds for real-time bouts or duration_hours for summary bouts.",
             ))
         round_sequence_gaps = _bout_round_sequence_gaps(context["events"])
         if round_sequence_gaps:

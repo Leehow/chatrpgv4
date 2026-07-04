@@ -2629,6 +2629,30 @@ def test_haunting_module_audit_requires_bout_duration_roll(tmp_path):
     assert "temporary_insanity_bout_duration_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_summary_bout_duration_hours(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    campaign_id = json.loads((run_dir / "playtest.json").read_text())["campaign_id"]
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / campaign_id
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    events = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    for event in events:
+        if event.get("type") == "bout_of_madness":
+            event["payload"].pop("duration_die", None)
+            event["payload"].pop("duration_roll", None)
+            event["payload"].pop("duration_hours", None)
+            break
+    write_jsonl(events_path, events)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "temporary_insanity_bout_duration_missing" in finding_codes(audit)
+
+
 def test_haunting_module_audit_requires_bout_round_sequence(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
     create_final_rulebook_run(run_dir)

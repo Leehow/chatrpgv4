@@ -2154,7 +2154,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
 
     bout_summary = (
         "疯狂发作（摘要）：艾达·金独处在地下室，没有其他调查员在场；按《鬼屋》科比特临时疯狂说明使用 "
-        "摘要表。1D10 掷出 4，结果解释为暴力。KP 摘要失控片段：她尖叫着丢下左轮，"
+        "摘要表。1D10 掷出 4，结果解释为暴力；失控时长 1D10 小时掷出 1。KP 摘要失控片段：她尖叫着丢下左轮，"
         "在混乱中把已经夺下的科比特匕首刺进科比特身体；醒来时左轮落在角落，科比特正化成灰，"
         "随后控制权回到玩家。"
     )
@@ -2366,6 +2366,9 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
                 "summary_table": "table_viii_summary",
                 "summary_roll": 4,
                 "summary_result": bout_summary_result,
+                "duration_die": "1D10",
+                "duration_roll": 1,
+                "duration_hours": 1,
                 "rulebook_ref": "The Haunting Corbitt temporary insanity: a lone investigator uses Table VIII Summary rather than a round-by-round real-time bout.",
                 "control_returned": True,
                 "recovery_note": "摘要结束后控制权回到玩家；艾达·金仍处于临时疯狂的底层状态。",

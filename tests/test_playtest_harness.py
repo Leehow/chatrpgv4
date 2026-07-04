@@ -836,6 +836,9 @@ def test_haunting_module_harness_uses_summary_bout_for_solo_corbitt_insanity(tmp
     assert bout_payload["mode"] == "summary"
     assert bout_payload["summary_table"] == "table_viii_summary"
     assert bout_payload["summary_roll"] == 4
+    assert bout_payload["duration_die"] == "1D10"
+    assert bout_payload["duration_roll"] == 1
+    assert bout_payload["duration_hours"] == 1
     assert "duration_rounds" not in bout_payload
     assert "rounds" not in bout_payload
     assert "Table VIII" in bout_payload["rulebook_ref"]
@@ -1059,6 +1062,9 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert bout_payload["mode"] == "summary"
     assert bout_payload["summary_table"] == "table_viii_summary"
     assert bout_payload["summary_roll"] == 4
+    assert bout_payload["duration_die"] == "1D10"
+    assert bout_payload["duration_roll"] == 1
+    assert bout_payload["duration_hours"] == 1
     assert "duration_rounds" not in bout_payload
     assert "rounds" not in bout_payload
     assert bout_payload["control_returned"] is True
@@ -1506,11 +1512,12 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Summary 疯狂" not in bout_visible_sections
     assert "改用 Summary" not in bout_visible_sections
     assert "1D10 掷出 4" in battle_text
+    assert "1D10 小时掷出 1" in battle_text
     assert "摘要表" in battle_text
     assert "疯狂发作第 1 回合" not in battle_text
     assert "艾达·金独处在地下室" in battle_text
     assert "Bout summary episodes: 1" in audit_text
-    assert "Bout duration rolls: 0" in audit_text
+    assert "Bout duration rolls: 1" in audit_text
     assert "战斗轮" in battle_text
     assert "combat round" not in combat_summary
     assert "- KP:" not in combat_summary
