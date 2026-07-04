@@ -1423,6 +1423,22 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert by_reason["animate_body"]["delta"] == -2
     assert by_reason["animate_body"]["after"] == 13
     assert by_reason["animate_body"]["source_turn"] == 46
+    sanity_rolls = [
+        event
+        for event in campaign_roll_events(run_dir)
+        if event.get("type") == "sanity"
+        and event.get("payload", {}).get("skill") == "SAN"
+    ]
+    sanity_by_goal = {event["payload"]["goal"]: event["payload"] for event in sanity_rolls}
+    assert sanity_by_goal["withstand seeing the bed move of its own accord"]["san_before"] == 55
+    assert sanity_by_goal["withstand seeing the bed move of its own accord"]["san_delta"] == -3
+    assert sanity_by_goal["withstand seeing the bed move of its own accord"]["san_after"] == 52
+    assert sanity_by_goal["withstand seeing The Floating Knife attack"]["san_before"] == 52
+    assert sanity_by_goal["withstand seeing The Floating Knife attack"]["san_delta"] == -1
+    assert sanity_by_goal["withstand seeing The Floating Knife attack"]["san_after"] == 51
+    assert sanity_by_goal["withstand seeing Corbitt rise from the pallet"]["san_before"] == 51
+    assert sanity_by_goal["withstand seeing Corbitt rise from the pallet"]["san_delta"] == -6
+    assert sanity_by_goal["withstand seeing Corbitt rise from the pallet"]["san_after"] == 45
     reward_rolls = [
         event
         for event in campaign_roll_events(run_dir)
@@ -1619,8 +1635,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "HP 伤害：艾达·金掷出 1D4+2 = 4（骰面 2 + 2），结果造成伤害。" in rules_recap
     assert "目的：结算地下室推骰搜索失败伤害" in rules_recap
     assert "SAN 损失：6" in rules_recap
+    assert "SAN 变化：51 -> 45" in rules_recap
     assert "SAN 奖励：艾达·金掷出 1D6 = 4（骰面 4），结果奖励。" in rules_recap
     assert "目的：结局奖励恢复 SAN" in rules_recap
+    assert "SAN 变化：45 -> 49" in rules_recap
     assert "HP 伤害：艾达·金掷出 5 / 8" not in rules_recap
     assert "HP 伤害：艾达·金掷出 4 / 6" not in rules_recap
     assert "SAN 奖励：艾达·金掷出 4 / 6" not in rules_recap
@@ -1722,7 +1740,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_player_readable_actor_colon_prefixes_absent(sanity_summary, ["艾达·金"])
     assert "艾达·金: 艾达·金" not in sanity_summary
     assert "- 艾达·金因床铺袭击失败 SAN 1/1D4" in sanity_summary
-    assert "- 科比特起身时艾达·金失败 SAN 1/1D8" in sanity_summary
+    assert "- 科比特起身时艾达·金失败 SAN 1/1D8，失去 6 SAN；SAN 51 -> 45" in sanity_summary
     assert "- 疯狂发作（摘要）：艾达·金独处在地下室" in sanity_summary
     assert "摘要表" in sanity_summary
     assert "结果解释为暴力" in sanity_summary

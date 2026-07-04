@@ -2466,6 +2466,28 @@ def test_haunting_module_audit_requires_conclusion_sanity_reward_roll(tmp_path):
     assert "haunting_conclusion_reward_roll_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_sanity_before_after_tracking(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    rolls_path = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-module" / "logs" / "rolls.jsonl"
+    rolls = [
+        json.loads(line)
+        for line in rolls_path.read_text().splitlines()
+        if line.strip()
+    ]
+    for roll in rolls:
+        payload = roll.get("payload", {})
+        if payload.get("skill") == "SAN":
+            payload.pop("san_before", None)
+            payload.pop("san_delta", None)
+            payload.pop("san_after", None)
+    write_jsonl(rolls_path, rolls)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "sanity_resource_delta_missing" in finding_codes(audit)
+
+
 def test_haunting_module_audit_requires_hp_damage_rolls(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
     rolls_path = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-module" / "logs" / "rolls.jsonl"

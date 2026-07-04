@@ -183,6 +183,8 @@ def _format_roll(event: dict[str, Any]) -> str:
         lines.append(f"  - Skill Check Earned: {earned}")
     if payload.get("san_loss") not in (None, "", [], {}):
         lines.append(f"  - SAN Loss: {payload['san_loss']}")
+    if payload.get("san_before") not in (None, "", [], {}) and payload.get("san_after") not in (None, "", [], {}):
+        lines.append(f"  - SAN Change: {payload['san_before']} -> {payload['san_after']}")
     if isinstance(payload.get("rule_refs"), list) and payload["rule_refs"]:
         rule_refs = ", ".join(str(ref) for ref in payload["rule_refs"] if isinstance(ref, str))
         if rule_refs:
@@ -364,6 +366,11 @@ def _format_roll_recap(
         lines.append(f"  - {report_labels.get('skill_check_earned', 'Skill Check Earned')}：{earned}")
     if payload.get("san_loss") not in (None, "", [], {}):
         lines.append(f"  - {report_labels.get('san_loss', 'SAN Loss')}：{payload['san_loss']}")
+    if payload.get("san_before") not in (None, "", [], {}) and payload.get("san_after") not in (None, "", [], {}):
+        lines.append(
+            f"  - {report_labels.get('san_change', 'SAN Change')}："
+            f"{payload['san_before']} -> {payload['san_after']}"
+        )
     if isinstance(payload.get("rule_refs"), list) and payload["rule_refs"]:
         rule_refs = ", ".join(str(ref) for ref in payload["rule_refs"] if isinstance(ref, str))
         if rule_refs:

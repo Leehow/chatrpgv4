@@ -2668,6 +2668,32 @@ def _haunting_conclusion_reward_gaps(events: list[dict[str, Any]], rolls: list[d
     return ["conclusion reward roll is present but does not prove 1D6 SAN gain and final_san continuity"]
 
 
+def _sanity_resource_delta_gaps(rolls: list[dict[str, Any]]) -> list[str]:
+    gaps: list[str] = []
+    for roll in rolls:
+        payload = roll.get("payload", {})
+        if (
+            roll.get("type") != "sanity"
+            and payload.get("skill") != "SAN"
+        ):
+            continue
+        if payload.get("san_loss") in (None, "", [], {}):
+            continue
+        goal = str(payload.get("goal") or payload.get("roll_id") or "unknown SAN roll")
+        san_loss = payload.get("san_loss")
+        san_before = payload.get("san_before")
+        san_delta = payload.get("san_delta")
+        san_after = payload.get("san_after")
+        if not all(isinstance(value, int) for value in [san_loss, san_before, san_delta, san_after]):
+            gaps.append(f"{goal} missing integer san_before/san_delta/san_after")
+            continue
+        if san_delta != -san_loss:
+            gaps.append(f"{goal} san_delta does not match san_loss")
+        if san_before + san_delta != san_after:
+            gaps.append(f"{goal} san_before + san_delta does not equal san_after")
+    return gaps
+
+
 def _haunting_damage_roll_gaps(events: list[dict[str, Any]], rolls: list[dict[str, Any]]) -> list[str]:
     expected_damage_rolls = {
         "bed_attack": {
@@ -3665,6 +3691,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "; ".join(conclusion_reward_gaps),
                 "Record the The Haunting conclusion reward as a reward roll with reward_kind=sanity, source=conclusion_rewards, die=1D6, roll_id, san_before, san_delta, and san_after matching final_san.",
+            ))
+
+        sanity_resource_delta_gaps = _sanity_resource_delta_gaps(context["rolls"])
+        if sanity_resource_delta_gaps:
+            findings.append(_finding(
+                "sanity_resource_delta_missing",
+                "system_gap",
+                "high",
+                "; ".join(sanity_resource_delta_gaps),
+                "Record every SAN loss roll with san_before, san_delta, and san_after so current Sanity is traceable through play.",
             ))
 
         final_state_gaps = _final_state_gaps(context["events"])

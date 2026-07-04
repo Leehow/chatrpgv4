@@ -166,7 +166,8 @@
       "category": "sanity",
       "source_table": "sanity.json",
       "numeric": {
-        "uses_current_sanity_as_target": true
+        "uses_current_sanity_as_target": true,
+        "requires_san_before_delta_after": true
       }
     },
     {
