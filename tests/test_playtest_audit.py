@@ -2558,6 +2558,26 @@ def test_haunting_module_audit_requires_characteristic_half_fifth_values(tmp_pat
     assert "characteristic_half_fifth_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_skill_half_fifth_values(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting"
+    creation_path = investigator_dir / "creation.json"
+    creation = json.loads(creation_path.read_text())
+    for value in creation["skill_allocation"]["skills"].values():
+        value.pop("half", None)
+        value.pop("fifth", None)
+    creation_path.write_text(json.dumps(creation))
+    character_path = investigator_dir / "character.json"
+    character = json.loads(character_path.read_text())
+    character.pop("skill_thresholds", None)
+    character_path.write_text(json.dumps(character))
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "skill_half_fifth_missing" in finding_codes(audit)
+
+
 def test_haunting_module_audit_requires_investigator_skill_allocation(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
     creation_path = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting" / "creation.json"

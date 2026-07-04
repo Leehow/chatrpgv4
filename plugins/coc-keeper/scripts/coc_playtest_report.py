@@ -946,6 +946,12 @@ def _format_character(
             label_for_key=lambda key: _display_skill_name(key, terms),
         )
     )
+    skill_thresholds = character.get("skill_thresholds", {})
+    if isinstance(skill_thresholds, dict) and skill_thresholds:
+        lines.append(
+            f"  - {_character_dossier_label(profile, 'Skill Half/Fifth Values')}: "
+            f"{_format_skill_half_fifth_values(skill_thresholds, terms)}"
+        )
     lines.extend(_format_backstory(character.get("backstory"), terms, profile))
     return lines
 
@@ -996,6 +1002,21 @@ def _format_characteristic_half_fifth_values(values: dict[str, Any]) -> str:
         fifth = value.get("fifth")
         if half not in (None, "", [], {}) and fifth not in (None, "", [], {}):
             parts.append(f"{key} {half}/{fifth}")
+    return ", ".join(parts) if parts else "none recorded"
+
+
+def _format_skill_half_fifth_values(values: dict[str, Any], localized_terms: dict[str, str]) -> str:
+    if not isinstance(values, dict):
+        return "none recorded"
+    parts: list[str] = []
+    for skill in sorted(values):
+        value = values[skill]
+        if not isinstance(value, dict):
+            continue
+        half = value.get("half")
+        fifth = value.get("fifth")
+        if half not in (None, "", [], {}) and fifth not in (None, "", [], {}):
+            parts.append(f"{_display_skill_name(skill, localized_terms)} {half}/{fifth}")
     return ", ".join(parts) if parts else "none recorded"
 
 
@@ -1191,6 +1212,10 @@ def _format_skill_allocation(
     skills = allocation.get("skills", {})
     if not isinstance(skills, dict):
         return lines
+    lines.append(
+        f"  - {_creation_label(language_profile, 'Skill Half/Fifth Values')}: "
+        f"{_format_skill_half_fifth_values(skills, localized_terms)}"
+    )
     preferred = [
         "Credit Rating",
         "Appraise",

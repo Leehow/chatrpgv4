@@ -1275,14 +1275,23 @@ def _ada_king_base_skill_entries() -> dict[str, dict[str, int]]:
 
 
 def _skill_allocation_record(skills: dict[str, dict[str, int]]) -> dict[str, Any]:
-    occupation_spent = sum(entry["occupation_points"] for entry in skills.values())
-    personal_spent = sum(entry["personal_interest_points"] for entry in skills.values())
+    skills_with_thresholds: dict[str, dict[str, int]] = {}
+    for skill, entry in skills.items():
+        final = entry["final"]
+        thresholds = _half_fifth(final)
+        skills_with_thresholds[skill] = {
+            **entry,
+            "half": thresholds["half"],
+            "fifth": thresholds["fifth"],
+        }
+    occupation_spent = sum(entry["occupation_points"] for entry in skills_with_thresholds.values())
+    personal_spent = sum(entry["personal_interest_points"] for entry in skills_with_thresholds.values())
     return {
         "occupation_points_spent": occupation_spent,
         "personal_interest_points_spent": personal_spent,
         "unallocated_occupation_points": ADA_KING_OCCUPATION_SKILL_POINTS - occupation_spent,
         "unallocated_personal_interest_points": ADA_KING_PERSONAL_INTEREST_POINTS - personal_spent,
-        "skills": skills,
+        "skills": skills_with_thresholds,
     }
 
 
@@ -1337,6 +1346,14 @@ def _characteristic_thresholds(characteristics: dict[str, int]) -> dict[str, dic
     return {
         key: _half_fifth(value)
         for key, value in characteristics.items()
+        if isinstance(value, int)
+    }
+
+
+def _skill_thresholds(skills: dict[str, int]) -> dict[str, dict[str, int]]:
+    return {
+        key: _half_fifth(value)
+        for key, value in skills.items()
         if isinstance(value, int)
     }
 
@@ -1661,6 +1678,11 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
             "Spot Hidden": 55,
             "Psychology": 40,
         },
+        "skill_thresholds": _skill_thresholds({
+            "Library Use": 60,
+            "Spot Hidden": 55,
+            "Psychology": 40,
+        }),
     })
     _write_json(investigator_dir / "creation.json", _ada_king_creation_record())
 
@@ -2160,6 +2182,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "build": 0,
         },
         "skills": _ada_king_default_character_skills(),
+        "skill_thresholds": _skill_thresholds(_ada_king_default_character_skills()),
         "backstory": {
             "description": "艾达·金是一名研究旧宅产权和民俗传闻的古物学者，习惯把钥匙、地契和剪报按地址整理。",
             "ideology_beliefs": ["老房子会留下居住者的记忆，公开记录能让这些记忆开口。"],
@@ -2827,6 +2850,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "build": 0,
         },
         "skills": _ada_king_chase_character_skills(),
+        "skill_thresholds": _skill_thresholds(_ada_king_chase_character_skills()),
         "backstory": {
             "description": "艾达·金追查一批流入黑市的旧账本，因此学会在屋顶和后巷保持距离。",
             "ideology_beliefs": ["线索必须在行动前被核实，但危险临近时也要果断撤离。"],
@@ -3331,6 +3355,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             "build": 0,
         },
         "skills": _ada_king_default_character_skills(),
+        "skill_thresholds": _skill_thresholds(_ada_king_default_character_skills()),
         "backstory": {
             "description": "艾达·金是一名被多次委托调查旧宅纠纷的古物学者，擅长把传言拆成可查证的线索。",
             "ideology_beliefs": ["公开记录比传闻可靠，但传闻常常指向被隐藏的入口。"],

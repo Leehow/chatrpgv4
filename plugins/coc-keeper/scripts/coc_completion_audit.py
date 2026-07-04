@@ -764,6 +764,27 @@ def _format_characteristic_half_fifth_required_text(
     return f"{label}: {', '.join(parts)}"
 
 
+def _format_skill_half_fifth_required_text(
+    values: dict[str, Any],
+    label: str,
+    localized_terms: dict[str, str],
+) -> str | None:
+    if not isinstance(values, dict):
+        return None
+    parts: list[str] = []
+    for skill in sorted(values):
+        value = values[skill]
+        if not isinstance(value, dict):
+            continue
+        half = value.get("half")
+        fifth = value.get("fifth")
+        if half not in (None, "", [], {}) and fifth not in (None, "", [], {}):
+            parts.append(f"{_localize_text(str(skill), localized_terms)} {half}/{fifth}")
+    if not parts:
+        return None
+    return f"{label}: {', '.join(parts)}"
+
+
 def _creation_age_required_texts(creation: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
     age = creation.get("age", {})
     if not isinstance(age, dict) or not age:
@@ -959,6 +980,13 @@ def _creation_required_texts(creation: dict[str, Any], metadata: dict[str, Any])
 
         skills = allocation.get("skills", {})
         if isinstance(skills, dict):
+            skill_thresholds_text = _format_skill_half_fifth_required_text(
+                skills,
+                _creation_label(metadata, "Skill Half/Fifth Values"),
+                localized_terms,
+            )
+            if skill_thresholds_text:
+                required_texts.append(skill_thresholds_text)
             for skill, entry in skills.items():
                 if not isinstance(entry, dict):
                     continue
@@ -1062,6 +1090,13 @@ def _character_dossier_required_texts(character: dict[str, Any], metadata: dict[
                 continue
             display_skill = _localize_text(str(skill), localized_terms)
             required_texts.append(f"{display_skill}: {value}")
+    skill_thresholds_text = _format_skill_half_fifth_required_text(
+        character.get("skill_thresholds", {}),
+        _character_dossier_label(metadata, "Skill Half/Fifth Values"),
+        localized_terms,
+    )
+    if skill_thresholds_text:
+        required_texts.append(skill_thresholds_text)
 
     backstory = character.get("backstory", {})
     if isinstance(backstory, dict):

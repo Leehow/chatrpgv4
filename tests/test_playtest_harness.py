@@ -1161,7 +1161,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     character = investigator_json(run_dir, "ada-king-haunting", "character.json")
     assert character["characteristic_thresholds"]["STR"] == {"full": 60, "half": 30, "fifth": 12}
     assert character["characteristic_thresholds"]["EDU"] == {"full": 75, "half": 37, "fifth": 15}
+    assert character["skill_thresholds"]["Library Use"] == {"full": 60, "half": 30, "fifth": 12}
+    assert character["skill_thresholds"]["Spot Hidden"] == {"full": 55, "half": 27, "fifth": 11}
     assert "属性半值/五分之一: STR 30/12, CON 27/11, SIZ 32/13, DEX 25/10, APP 22/9, INT 35/14, POW 27/11, EDU 37/15, LUCK 27/11" in character_dossier
+    assert "技能半值/五分之一: 估价 20/8, 艺术/手艺（古董修复） 20/8, 魅惑 17/7, 攀爬 10/4, 信用评级 20/8, 闪避 12/5, 格斗（斗殴） 20/8, 射击（手枪） 20/8, 急救 20/8, 历史 25/10, 图书馆使用 30/12, 聆听 20/8, 神秘学 5/2, 其他语言（拉丁语） 15/6, 说服 27/11, 心理学 20/8, 侦查 27/11, 潜行 20/8" in character_dossier
     creation = investigator_json(run_dir, "ada-king-haunting", "creation.json")
     assert creation["method"] == "standard_rulebook_chapter_3"
     assert creation["rulebook_steps"] == [
@@ -1206,6 +1209,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert creation["finances"]["credit_rating"] == 40
     assert "裂柄铜放大镜" in creation["equipment"]
     allocation = creation["skill_allocation"]
+    assert allocation["skills"]["Library Use"]["half"] == 30
+    assert allocation["skills"]["Library Use"]["fifth"] == 12
+    assert allocation["skills"]["Spot Hidden"]["half"] == 27
+    assert allocation["skills"]["Spot Hidden"]["fifth"] == 11
     assert allocation["occupation_points_spent"] == 300
     assert allocation["personal_interest_points_spent"] == 140
     assert allocation["unallocated_occupation_points"] == 0
@@ -1215,18 +1222,24 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         "occupation_points": 40,
         "personal_interest_points": 0,
         "final": 40,
+        "half": 20,
+        "fifth": 8,
     }
     assert allocation["skills"]["Library Use"] == {
         "base": 20,
         "occupation_points": 40,
         "personal_interest_points": 0,
         "final": 60,
+        "half": 30,
+        "fifth": 12,
     }
     assert allocation["skills"]["Fighting (Brawl)"] == {
         "base": 25,
         "occupation_points": 0,
         "personal_interest_points": 15,
         "final": 40,
+        "half": 20,
+        "fifth": 8,
     }
     assert_creation_allocation_matches_character(run_dir, "ada-king-haunting")
     assert_view_streams_separated(run_dir, ["secret-corbitt-body", "secret-floating-knife"])
@@ -1254,6 +1267,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "个人兴趣技能点: INT × 2 = 140" in creation_section
     assert "信用评级: 40（规则书职业范围 30-70）" in creation_section
     assert "技能分配: 职业 300/300，个人兴趣 140/140，未分配 0/0" in creation_section
+    assert "技能半值/五分之一: 估价 20/8, 艺术/手艺（古董修复） 20/8, 魅惑 17/7, 攀爬 10/4, 信用评级 20/8, 闪避 12/5, 格斗（斗殴） 20/8, 射击（手枪） 20/8, 急救 20/8, 历史 25/10, 图书馆使用 30/12, 聆听 20/8, 神秘学 5/2, 其他语言（拉丁语） 15/6, 说服 27/11, 心理学 20/8, 侦查 27/11, 潜行 20/8" in creation_section
     assert "信用评级: 基础 0 + 职业 40 + 个人兴趣 0 = 40" in creation_section
     assert "图书馆使用: 基础 20 + 职业 40 + 个人兴趣 0 = 60" in creation_section
     assert "格斗（斗殴）: 基础 25 + 职业 0 + 个人兴趣 15 = 40" in creation_section

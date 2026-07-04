@@ -179,6 +179,8 @@ def battle_report_investigator_creation_fixture_text() -> str:
         "- Personal Interest Skill Points: INT x 2 = 140",
         "- Credit Rating: 40 (Rulebook Occupation Range 30-70)",
         "- Skill Allocation: Occupation 300/300; Personal Interest 140/140; Unallocated 0/0",
+        "- Skill Half/Fifth Values: Library Use 30/12, Spot Hidden 27/11",
+        "  - Library Use: Base 20 + Occupation 40 + Personal Interest 0 = 60",
         "  - Spot Hidden: Base 25 + Occupation 30 + Personal Interest 0 = 55",
         "- Equipment: fixture magnifier; fixture notebook",
     ])
@@ -231,6 +233,7 @@ def battle_report_character_dossier_fixture_text() -> str:
         "  - Characteristic Half/Fifth Values: STR 30/12, DEX 25/10",
         "  - Derived: HP: 12, MOV: 8",
         "  - Skills: Spot Hidden: 55, Library Use: 60",
+        "  - Skill Half/Fifth Values: Library Use 30/12, Spot Hidden 27/11",
         "  - Backstory:",
         "    - Description: fixture backstory",
         "    - Traits: careful notes; checks exits",
@@ -1058,6 +1061,16 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
                     "occupation_points": 30,
                     "personal_interest_points": 0,
                     "final": 55,
+                    "half": 27,
+                    "fifth": 11,
+                },
+                "Library Use": {
+                    "base": 20,
+                    "occupation_points": 40,
+                    "personal_interest_points": 0,
+                    "final": 60,
+                    "half": 30,
+                    "fifth": 12,
                 },
             },
         },
@@ -1085,6 +1098,10 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         "skills": {
             "Spot Hidden": 55,
             "Library Use": 60,
+        },
+        "skill_thresholds": {
+            "Spot Hidden": {"full": 55, "half": 27, "fifth": 11},
+            "Library Use": {"full": 60, "half": 30, "fifth": 12},
         },
         "backstory": {
             "description": "fixture backstory",
@@ -3092,6 +3109,7 @@ def test_completion_audit_fails_when_battle_report_omits_investigator_creation_r
     assert "Age: 32（20-39 岁）" in finding["missing_creation_samples"]
     assert "Age Adjustments: EDU 成长检定 1 次；本次 42 / 75，未提升；属性无降低。" in finding["missing_creation_samples"]
     assert "EDU x 4 = 300" in finding["missing_creation_samples"]
+    assert "Skill Half/Fifth Values: Library Use 30/12, Spot Hidden 27/11" in finding["missing_creation_samples"]
     assert "Spot Hidden: Base 25 + Occupation 30 + Personal Interest 0 = 55" in finding["missing_creation_samples"]
 
 
@@ -3161,6 +3179,7 @@ def test_completion_audit_fails_when_creation_records_are_outside_creation_secti
     assert "Characteristic Half/Fifth Values: STR 30/12, DEX 25/10" in finding["missing_creation_samples"]
     assert "Age: 32（20-39 岁）" in finding["missing_creation_samples"]
     assert "EDU x 4 = 300" in finding["missing_creation_samples"]
+    assert "Skill Half/Fifth Values: Library Use 30/12, Spot Hidden 27/11" in finding["missing_creation_samples"]
 
 
 def test_completion_audit_fails_when_battle_report_omits_chase_tracker_state(tmp_path):
@@ -3359,6 +3378,7 @@ def test_completion_audit_fails_when_battle_report_omits_character_dossier_recor
     assert "STR: 60" in finding["missing_character_samples"]
     assert "Characteristic Half/Fifth Values: STR 30/12, DEX 25/10" in finding["missing_character_samples"]
     assert "Spot Hidden: 55" in finding["missing_character_samples"]
+    assert "Skill Half/Fifth Values: Library Use 30/12, Spot Hidden 27/11" in finding["missing_character_samples"]
     assert "fixture backstory" in finding["missing_character_samples"]
 
 
