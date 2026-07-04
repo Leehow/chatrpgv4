@@ -2387,6 +2387,57 @@ def _rule_ref_index_entry_points_to_source(
     return ref in _payload_rule_refs(rows[row_number - 1])
 
 
+def _campaign_relative_file_exists(campaign_dir: Path, value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    relative_path = Path(value)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        return False
+    return (campaign_dir / relative_path).is_file()
+
+
+def _source_map_integrity_findings(
+    run_id: str,
+    campaign_dir: Path,
+    campaign_prefix: str,
+) -> list[dict[str, Any]]:
+    source_map = _read_json(campaign_dir / "index" / "source-map.json", {})
+    required_ref_lists = [
+        ("scenario_files", "scenario_files refs"),
+        ("log_refs", "log_refs"),
+        ("memory_refs", "memory_refs"),
+    ]
+    missing_evidence: list[str] = []
+    unresolved_refs: dict[str, list[Any]] = {}
+    for key, evidence_label in required_ref_lists:
+        refs = source_map.get(key)
+        if not isinstance(refs, list) or not refs:
+            missing_evidence.append(f"{evidence_label} missing")
+            unresolved_refs[key] = refs if isinstance(refs, list) else []
+            continue
+        stale_refs = [
+            ref
+            for ref in refs
+            if not _campaign_relative_file_exists(campaign_dir, ref)
+        ]
+        if stale_refs:
+            missing_evidence.append(f"{evidence_label} do not resolve")
+            unresolved_refs[key] = stale_refs[:20]
+
+    if not missing_evidence:
+        return []
+    return [_finding(
+        "campaign_source_map_integrity_missing",
+        "system_gap",
+        f"{run_id} source-map.json contains stale or incomplete recoverability refs: {', '.join(missing_evidence)}.",
+        "Regenerate index/source-map.json so scenario_files, log_refs, and memory_refs resolve to current campaign files.",
+        run_id=run_id,
+        incomplete_files=[f"{campaign_prefix}index/source-map.json"],
+        missing_evidence=missing_evidence,
+        unresolved_refs=unresolved_refs,
+    )]
+
+
 def _campaign_index_integrity_findings(
     run_id: str,
     campaign_dir: Path,
@@ -2981,6 +3032,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             run_id=run_id,
         ))
     findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix, audit_profile))
+    findings.extend(_source_map_integrity_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_campaign_index_integrity_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_rule_ref_traceability_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_source_handout_summary_findings(run_id, campaign_dir, campaign_prefix, metadata))
