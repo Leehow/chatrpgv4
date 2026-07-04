@@ -760,6 +760,52 @@ def _battle_report_source_dialogue_findings(run_id: str, run_dir: Path, battle_r
     )]
 
 
+def _battle_report_source_dialogue_speaker_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    replay_lines = "\n".join([
+        _battle_report_anchor_section(battle_report, "Actual Play Replay"),
+        _battle_report_anchor_section(battle_report, "Session Transcript"),
+    ]).splitlines()
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    language_profile = metadata.get("language_profile", {})
+    if not isinstance(language_profile, dict):
+        language_profile = {}
+    localized_terms = _metadata_localized_terms(metadata)
+    profile_labels = _metadata_player_profile_labels(metadata)
+    missing: list[str] = []
+    for row in transcript:
+        if row.get("role") == "system":
+            continue
+        text_source = row.get("text_display") if isinstance(row.get("text_display"), str) else row.get("text")
+        if not isinstance(text_source, str) or not text_source.strip():
+            continue
+        text = _display_transcript_text(text_source).strip()
+        speaker = str(
+            row.get("speaker_display")
+            or _display_transcript_speaker(row, profile_labels, language_profile, localized_terms)
+        ).strip()
+        if not speaker:
+            continue
+        if any(speaker in line and text in line for line in replay_lines):
+            continue
+        missing.append(f"turn {row.get('turn')} {speaker}")
+    if not missing:
+        return []
+    return [_finding(
+        "battle_report_source_dialogue_speaker_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits speaker attribution for {len(missing)} source dialogue turns.",
+        "Regenerate battle-report.md so Actual Play Replay or Session Transcript renders each non-system transcript turn with the visible speaker and dialogue text on the same line.",
+        run_id=run_id,
+        missing_speaker_dialogue_count=len(missing),
+        missing_speaker_dialogue_samples=missing[:5],
+    )]
+
+
 def _mechanical_roll_line(row: dict[str, Any]) -> str | None:
     payload = row.get("payload")
     if not isinstance(payload, dict):
@@ -4371,6 +4417,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_field_anchor_findings(run_id, battle_report))
     findings.extend(_battle_report_field_value_findings(run_id, campaign_dir, metadata, battle_report))
     findings.extend(_battle_report_source_dialogue_findings(run_id, run_dir, battle_report))
+    findings.extend(_battle_report_source_dialogue_speaker_findings(run_id, run_dir, metadata, battle_report))
     findings.extend(_battle_report_mechanical_log_findings(run_id, run_dir, campaign_dir, metadata, battle_report))
     findings.extend(_battle_report_rule_ref_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))

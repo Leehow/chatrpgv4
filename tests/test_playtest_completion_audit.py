@@ -331,6 +331,27 @@ def battle_report_module_fixture_text(scenario_id: str = "fixture-scenario") -> 
     ])
 
 
+def battle_report_dialogue_fixture_text(*, with_speakers: bool = True) -> str:
+    pairs = [
+        ("KP", "fixture keeper turn"),
+        ("玩家", "fixture player turn"),
+        ("玩家", "fixture reframed pushed action"),
+        ("KP", "fixture keeper foreshadows pushed risk"),
+        ("玩家", "fixture confirms pushed risk"),
+        ("玩家", "fixture careful profile turn"),
+        ("玩家", "fixture reckless profile turn"),
+        ("玩家", "fixture skeptical rules profile turn"),
+        ("KP", "fixture spoiler warning"),
+        ("玩家", "fixture spoiler confirmation"),
+        ("KP", "fixture limited spoiler reveal"),
+        ("玩家", "fixture meta player question"),
+        ("KP", "fixture meta keeper answer"),
+    ]
+    if with_speakers:
+        return "\n".join(f"- {speaker}: {text}" for speaker, text in pairs)
+    return "\n".join(f"- {text}" for _, text in pairs)
+
+
 def battle_report_fixture(
     run_id: str = "fixture",
     audit_profile: str = "fixture",
@@ -354,33 +375,9 @@ def battle_report_fixture(
         "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n"
         + battle_report_event_fixture_text(),
         "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n"
-        "- fixture keeper turn\n"
-        "- fixture player turn\n"
-        "- fixture reframed pushed action\n"
-        "- fixture keeper foreshadows pushed risk\n"
-        "- fixture confirms pushed risk\n"
-        "- fixture careful profile turn\n"
-        "- fixture reckless profile turn\n"
-        "- fixture skeptical rules profile turn\n"
-        "- fixture spoiler warning\n"
-        "- fixture spoiler confirmation\n"
-        "- fixture limited spoiler reveal\n"
-        "- fixture meta player question\n"
-        "- fixture meta keeper answer",
+        + battle_report_dialogue_fixture_text(),
         "## Session Transcript <!-- report-anchor: Session Transcript -->\n"
-        "- fixture keeper turn\n"
-        "- fixture player turn\n"
-        "- fixture reframed pushed action\n"
-        "- fixture keeper foreshadows pushed risk\n"
-        "- fixture confirms pushed risk\n"
-        "- fixture careful profile turn\n"
-        "- fixture reckless profile turn\n"
-        "- fixture skeptical rules profile turn\n"
-        "- fixture spoiler warning\n"
-        "- fixture spoiler confirmation\n"
-        "- fixture limited spoiler reveal\n"
-        "- fixture meta player question\n"
-        "- fixture meta keeper answer",
+        + battle_report_dialogue_fixture_text(),
         "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n"
         + battle_report_mechanical_fixture_text(),
         "## Chase Tracker <!-- report-anchor: Chase Tracker -->\n"
@@ -390,6 +387,13 @@ def battle_report_fixture(
         "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n"
         + battle_report_feedback_fixture_text(),
     ]) + "\n"
+
+
+def battle_report_without_dialogue_speakers(run_id: str, audit_profile: str) -> str:
+    return battle_report_fixture(run_id, audit_profile).replace(
+        battle_report_dialogue_fixture_text(),
+        battle_report_dialogue_fixture_text(with_speakers=False),
+    )
 
 
 def battle_report_shell_with_required_anchors(
@@ -460,7 +464,10 @@ def battle_report_with_roll_results_only_in_html_comments() -> str:
     )
 
 
-def battle_report_with_source_dialogue_only_outside_replay_sections() -> str:
+def battle_report_with_source_dialogue_only_outside_replay_sections(
+    run_id: str = "fixture",
+    audit_profile: str = "fixture",
+) -> str:
     misplaced_dialogue = "\n".join([
         "- fixture keeper turn",
         "- fixture player turn",
@@ -473,40 +480,17 @@ def battle_report_with_source_dialogue_only_outside_replay_sections() -> str:
         "- fixture meta player question",
         "- fixture meta keeper answer",
     ])
+    dialogue = battle_report_dialogue_fixture_text()
     return (
-        battle_report_fixture()
+        battle_report_fixture(run_id, audit_profile)
         .replace(
             "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n"
-            "- fixture keeper turn\n"
-            "- fixture player turn\n"
-            "- fixture reframed pushed action\n"
-            "- fixture keeper foreshadows pushed risk\n"
-            "- fixture confirms pushed risk\n"
-            "- fixture careful profile turn\n"
-            "- fixture reckless profile turn\n"
-            "- fixture skeptical rules profile turn\n"
-            "- fixture spoiler warning\n"
-            "- fixture spoiler confirmation\n"
-            "- fixture limited spoiler reveal\n"
-            "- fixture meta player question\n"
-            "- fixture meta keeper answer",
+            + dialogue,
             "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n- Fixture table turn.",
         )
         .replace(
             "## Session Transcript <!-- report-anchor: Session Transcript -->\n"
-            "- fixture keeper turn\n"
-            "- fixture player turn\n"
-            "- fixture reframed pushed action\n"
-            "- fixture keeper foreshadows pushed risk\n"
-            "- fixture confirms pushed risk\n"
-            "- fixture careful profile turn\n"
-            "- fixture reckless profile turn\n"
-            "- fixture skeptical rules profile turn\n"
-            "- fixture spoiler warning\n"
-            "- fixture spoiler confirmation\n"
-            "- fixture limited spoiler reveal\n"
-            "- fixture meta player question\n"
-            "- fixture meta keeper answer",
+            + dialogue,
             "## Session Transcript <!-- report-anchor: Session Transcript -->\n- Fixture transcript.",
         )
         .replace(
@@ -3412,6 +3396,38 @@ def test_completion_audit_fails_when_battle_report_omits_source_dialogue_text(tm
     assert "fixture player turn" in finding["missing_dialogue_samples"]
 
 
+def test_completion_audit_fails_when_battle_report_dialogue_has_no_speakers(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        battle_report_without_dialogue_speakers("v2-haunting-module", "haunting_module"),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_source_dialogue_speaker_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "turn 1 KP" in finding["missing_speaker_dialogue_samples"]
+    assert "turn 2 玩家" in finding["missing_speaker_dialogue_samples"]
+
+
 def test_completion_audit_accepts_protocol_wrapped_dialogue_rendered_without_wrappers(tmp_path):
     run_dir = tmp_path / "run"
     write_jsonl(run_dir / "transcript.jsonl", [
@@ -3449,7 +3465,7 @@ def test_completion_audit_fails_when_source_dialogue_is_outside_replay_sections(
     run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
     write_text(
         run_dir / "artifacts" / "battle-report.md",
-        battle_report_with_source_dialogue_only_outside_replay_sections(),
+        battle_report_with_source_dialogue_only_outside_replay_sections("v2-haunting-module", "haunting_module"),
     )
     write_index(tmp_path, runs)
     automation_path = tmp_path / "automation.toml"
@@ -4846,6 +4862,7 @@ def test_completion_audit_accepts_selected_non_default_play_language(tmp_path):
     battle_report = battle_report.replace("- Cash: 80 美元", "- Cash: 80 ドル")
     battle_report = battle_report.replace("- Assets: 2000 美元", "- Assets: 2000 ドル")
     battle_report = battle_report.replace("- Spending Level: 10 美元", "- Spending Level: 10 ドル")
+    battle_report = battle_report.replace("- 玩家:", "- プレイヤー:")
     write_text(battle_report_path, battle_report)
     transcript = read_jsonl(run_dir / "transcript.jsonl")
     write_jsonl(run_dir / "transcript.jsonl", [
