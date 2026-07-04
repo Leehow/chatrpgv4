@@ -406,7 +406,6 @@ def test_chase_drill_audit_requires_chase_state_and_resolution(tmp_path):
     assert audit["result"] == "fail"
     assert "chase_subsystem_missing" in finding_codes(audit)
     assert "chase_state_missing" in finding_codes(audit)
-    assert "chase_resolution_missing" in finding_codes(audit)
 
 
 def test_chase_drill_audit_requires_chase_tracker_rendering(tmp_path):
@@ -599,6 +598,108 @@ def test_chase_drill_audit_does_not_require_hardcoded_report_moment_text(tmp_pat
     codes = finding_codes(audit)
     assert "chase_resolution_missing" not in codes
     assert "chase_report_missing_key_moments" not in codes
+
+
+def test_chase_drill_audit_uses_chase_state_for_resolution_evidence(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "chase-drill"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "chase_drill"
+    metadata["play_language"] = "zh-Hans"
+    metadata["subsystems_covered"] = ["investigation", "chase"]
+    metadata_path.write_text(json.dumps(metadata))
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop"
+    write_json(campaign_dir / "save" / "chase.json", {
+        "chase_id": "rooftop-chase",
+        "status": "resolved",
+        "round": 2,
+        "participants": [
+            {
+                "id": "ada-king-chase",
+                "role": "quarry",
+                "base_mov": 8,
+                "adjusted_mov": 8,
+                "dex": 50,
+                "movement_actions": 1,
+                "position": "laundry-roof",
+            },
+            {
+                "id": "nathaniel-crowe",
+                "role": "pursuer",
+                "base_mov": 8,
+                "adjusted_mov": 9,
+                "dex": 60,
+                "movement_actions": 2,
+                "position": "locked-roof-door",
+            },
+        ],
+        "dex_order": ["nathaniel-crowe", "ada-king-chase"],
+        "location_chain": [
+            {"id": "print-shop-roof", "label": "start"},
+            {"id": "slick-skylight", "label": "hazard", "difficulty": "regular", "skill": "Dodge"},
+            {"id": "locked-roof-door", "label": "barrier", "difficulty": "regular", "skill": "Locksmith"},
+            {"id": "laundry-roof", "label": "escape"},
+        ],
+        "rounds": [
+            {
+                "round": 1,
+                "turns": [
+                    {"actor_id": "nathaniel-crowe", "action": "close_distance"},
+                    {"actor_id": "ada-king-chase", "action": "cross_hazard"},
+                ],
+            },
+            {
+                "round": 2,
+                "turns": [
+                    {"actor_id": "nathaniel-crowe", "action": "attack"},
+                    {"actor_id": "ada-king-chase", "action": "escape"},
+                ],
+            },
+        ],
+        "outcome": "quarry escapes",
+    })
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {
+            "type": "chase",
+            "actor": "keeper_under_test",
+            "payload": {"summary": "艾达判断双方脚程，穿过屋顶险处与门锁阻挡后，抱着账本甩开追赶者。"},
+        },
+    ])
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert "chase_state_missing" not in finding_codes(audit)
+    assert "chase_resolution_missing" not in finding_codes(audit)
+
+
+def test_chase_drill_audit_requires_movement_actions_in_chase_state(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "chase-drill"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "chase_drill"
+    metadata["subsystems_covered"] = ["investigation", "chase"]
+    metadata_path.write_text(json.dumps(metadata))
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop"
+    write_json(campaign_dir / "save" / "chase.json", {
+        "chase_id": "rooftop-chase",
+        "status": "resolved",
+        "round": 2,
+        "participants": [
+            {"id": "ada-king-chase", "role": "quarry", "base_mov": 8, "adjusted_mov": 8, "dex": 50},
+            {"id": "nathaniel-crowe", "role": "pursuer", "base_mov": 8, "adjusted_mov": 9, "dex": 60},
+        ],
+        "dex_order": ["nathaniel-crowe", "ada-king-chase"],
+        "location_chain": [{"id": "print-shop-roof", "label": "start"}],
+        "rounds": [{"round": 1, "turns": [{"actor_id": "nathaniel-crowe"}]}],
+        "outcome": "quarry escapes",
+    })
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert "chase_state_missing" not in finding_codes(audit)
+    assert "chase_resolution_missing" in finding_codes(audit)
 
 
 def test_chase_drill_audit_requires_object_transfer_for_carried_chase_prize(tmp_path):

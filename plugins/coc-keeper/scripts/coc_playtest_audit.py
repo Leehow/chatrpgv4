@@ -1871,6 +1871,39 @@ def _chase_object_transfer_gaps(events: list[dict[str, Any]], chase_state: dict[
     return ["item_transfer event is present but lacks item_id, from_actor, to_actor, source_turn, or matching chase_id"]
 
 
+def _chase_resolution_gaps(chase_state: dict[str, Any]) -> list[str]:
+    gaps: list[str] = []
+    participants = chase_state.get("participants", [])
+    if not isinstance(participants, list) or not participants:
+        return gaps
+
+    participant_ids_with_speed: list[str] = []
+    participant_ids_with_actions: list[str] = []
+    for participant in participants:
+        if not isinstance(participant, dict):
+            continue
+        participant_id = str(participant.get("id") or "unknown")
+        if (
+            isinstance(participant.get("base_mov"), int)
+            and isinstance(participant.get("adjusted_mov"), int)
+        ):
+            participant_ids_with_speed.append(participant_id)
+        if isinstance(participant.get("movement_actions"), int):
+            participant_ids_with_actions.append(participant_id)
+
+    if len(participant_ids_with_speed) < len([p for p in participants if isinstance(p, dict)]):
+        gaps.append("participants do not all record base_mov and adjusted_mov")
+    if len(participant_ids_with_actions) < len([p for p in participants if isinstance(p, dict)]):
+        gaps.append("participants do not all record movement_actions")
+    if chase_state.get("outcome") in (None, "", [], {}):
+        gaps.append("save/chase.json does not record outcome")
+    if chase_state.get("location_chain") in (None, "", [], {}):
+        gaps.append("save/chase.json does not record location_chain")
+    if chase_state.get("rounds") in (None, "", [], {}):
+        gaps.append("save/chase.json does not record rounds")
+    return gaps
+
+
 def _chase_dex_order_gaps(chase_state: dict[str, Any]) -> list[str]:
     gaps: list[str] = []
     participants = chase_state.get("participants", [])
@@ -2847,18 +2880,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                         "Render Chase Tracker labels and display values from language_profile.chase_tracker_labels, localized_terms, and localized_text while preserving canonical ids as audit anchors.",
                     ))
 
-        chase_text = " ".join(_payload_summaries(context["events"], "chase"))
-        if (
-            not _contains_marker_or_localized(chase_text, "speed roll", locale_terms)
-            or not _contains_marker_or_localized(chase_text, "movement actions", locale_terms)
-            or not _contains_marker_or_localized(chase_text, "quarry escapes", locale_terms)
-        ):
+        chase_resolution_gaps = _chase_resolution_gaps(context["chase_state"])
+        if chase_resolution_gaps:
             findings.append(_finding(
                 "chase_resolution_missing",
                 "system_gap",
                 "high",
-                "Chase events do not show speed rolls, movement actions, and escape/capture resolution.",
-                "Record the chase setup, DEX order, movement action economy, hazards/barriers, conflict, and final outcome.",
+                "Chase state does not prove speed setup, movement actions, and escape/capture resolution: "
+                + "; ".join(chase_resolution_gaps),
+                "Record base and adjusted MOV, movement actions, location chain, rounds, and final outcome in save/chase.json.",
             ))
 
         object_transfer_gaps = _chase_object_transfer_gaps(context["events"], context["chase_state"])
