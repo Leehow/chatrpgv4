@@ -2488,6 +2488,55 @@ def _corbitt_own_dagger_exception_gaps(events: list[dict[str, Any]]) -> list[str
     return ["own-dagger exception event is present but lacks flesh_ward_bypassed=true, armor_before=7, or a player-visible summary"]
 
 
+def _haunting_conclusion_reward_gaps(events: list[dict[str, Any]], rolls: list[dict[str, Any]]) -> list[str]:
+    final_statuses = [
+        event
+        for event in events
+        if event.get("type") == "status"
+        and isinstance(event.get("payload"), dict)
+        and isinstance(event["payload"].get("final_san"), int)
+    ]
+    if not final_statuses:
+        return []
+    final_status = final_statuses[-1]
+    actor_id = str(final_status.get("actor") or "")
+    final_san = final_status["payload"]["final_san"]
+
+    reward_rolls = [
+        roll
+        for roll in rolls
+        if roll.get("type") == "reward"
+        and roll.get("actor") == actor_id
+        and isinstance(roll.get("payload"), dict)
+        and roll["payload"].get("reward_kind") == "sanity"
+        and roll["payload"].get("source") == "conclusion_rewards"
+    ]
+    if not reward_rolls:
+        return [f"no conclusion reward roll records The Haunting 1D6 SAN reward for {actor_id}"]
+
+    for roll in reward_rolls:
+        payload = roll["payload"]
+        san_before = payload.get("san_before")
+        san_delta = payload.get("san_delta")
+        san_after = payload.get("san_after")
+        die_roll = payload.get("roll")
+        if (
+            isinstance(san_before, int)
+            and isinstance(san_delta, int)
+            and isinstance(san_after, int)
+            and isinstance(die_roll, int)
+            and payload.get("die") == "1D6"
+            and 1 <= die_roll <= 6
+            and die_roll == san_delta
+            and san_before + san_delta == san_after
+            and san_after == final_san
+            and payload.get("roll_id") not in (None, "", [], {})
+        ):
+            return []
+
+    return ["conclusion reward roll is present but does not prove 1D6 SAN gain and final_san continuity"]
+
+
 def _normalize_report_text(text: str) -> str:
     return " ".join(text.split())
 
@@ -3259,6 +3308,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "; ".join(corbitt_own_dagger_exception_gaps),
                 "Record the rulebook exception that Corbitt's own dagger destroys him regardless of Flesh Ward or other spells, including the pre-hit Flesh Ward armor state.",
+            ))
+
+        conclusion_reward_gaps = _haunting_conclusion_reward_gaps(context["events"], context["rolls"])
+        if conclusion_reward_gaps:
+            findings.append(_finding(
+                "haunting_conclusion_reward_roll_missing",
+                "system_gap",
+                "high",
+                "; ".join(conclusion_reward_gaps),
+                "Record the The Haunting conclusion reward as a reward roll with reward_kind=sanity, source=conclusion_rewards, die=1D6, roll_id, san_before, san_delta, and san_after matching final_san.",
             ))
 
         final_state_gaps = _final_state_gaps(context["events"])

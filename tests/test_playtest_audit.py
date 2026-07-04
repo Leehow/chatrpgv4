@@ -2446,6 +2446,26 @@ def test_haunting_module_audit_requires_own_dagger_flesh_ward_exception(tmp_path
     assert "haunting_corbitt_own_dagger_exception_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_conclusion_sanity_reward_roll(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    rolls_path = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-module" / "logs" / "rolls.jsonl"
+    rolls = [
+        json.loads(line)
+        for line in rolls_path.read_text().splitlines()
+        if line.strip()
+    ]
+    write_jsonl(rolls_path, [
+        roll
+        for roll in rolls
+        if roll.get("payload", {}).get("reward_kind") != "sanity"
+    ])
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "haunting_conclusion_reward_roll_missing" in finding_codes(audit)
+
+
 def test_haunting_module_audit_requires_investigator_creation_record(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
     creation_path = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting" / "creation.json"

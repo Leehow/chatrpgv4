@@ -1305,6 +1305,42 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert by_reason["animate_body"]["delta"] == -2
     assert by_reason["animate_body"]["after"] == 13
     assert by_reason["animate_body"]["source_turn"] == 46
+    reward_rolls = [
+        event
+        for event in campaign_roll_events(run_dir)
+        if event.get("type") == "reward"
+        and event.get("payload", {}).get("reward_kind") == "sanity"
+    ]
+    assert len(reward_rolls) == 1
+    assert reward_rolls[0]["payload"] == {
+        "roll_id": "haunting-conclusion-sanity-reward",
+        "reward_kind": "sanity",
+        "source": "conclusion_rewards",
+        "skill": "SAN Reward",
+        "goal": "conclusion reward restores SAN",
+        "target": 6,
+        "effective_target": 6,
+        "difficulty": "reward",
+        "difficulty_rationale": "The Haunting rewards each participating investigator with 1D6 SAN when Corbitt is conquered and destroyed.",
+        "roll": 4,
+        "die": "1D6",
+        "outcome": "sanity_reward",
+        "failure_consequence": "No failure consequence; this is a reward die, not a skill check.",
+        "san_before": 45,
+        "san_delta": 4,
+        "san_after": 49,
+        "localized_text": {
+            "zh-Hans": {
+                "goal": "结局奖励恢复 SAN",
+                "difficulty_rationale": "《鬼屋》结局奖励：科比特被征服并摧毁后，每位参与调查员恢复 1D6 SAN。",
+                "failure_consequence": "没有失败后果；这是奖励骰，不是技能检定。",
+            }
+        },
+        "rule_refs": [
+            "core.reward.sanity_gain",
+            "module.haunting.conclusion_sanity_reward",
+        ],
+    }
     assert "沃尔特·科比特在艾达·金进入老宅后花费 2 点魔法值施放血肉护盾；2D6 护甲掷出 4 和 3，共 7 点护甲；魔法值 18 -> 16。" in scene_replay
     assert "沃尔特·科比特花费 1 点魔法值驱使浮空匕首本轮攻击；魔法值 16 -> 15。" in scene_replay
     assert "沃尔特·科比特花费 2 点魔法值让身体活动五个战斗轮；魔法值 15 -> 13。" in scene_replay
@@ -1461,6 +1497,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "成长标记：是" in rules_recap
     assert "成长标记：否" in rules_recap
     assert "SAN 损失：6" in rules_recap
+    assert "SAN 奖励：艾达·金掷出 4 / 6，结果奖励。" in rules_recap
+    assert "目的：结局奖励恢复 SAN" in rules_recap
     assert "POW：沃尔特·科比特掷出 34 / 90" in rules_recap
     assert "规则引用：core.percentile_check, core.success_level, core.difficulty.regular" in rules_recap
     assert "module.haunting.corbitt_own_dagger" in rules_recap

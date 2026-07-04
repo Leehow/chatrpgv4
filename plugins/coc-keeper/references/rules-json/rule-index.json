@@ -126,6 +126,15 @@
       }
     },
     {
+      "id": "core.reward.sanity_gain",
+      "category": "reward",
+      "source_note": "Scenario rewards that change SAN should be recorded as reward dice rather than unproven final-state adjustments.",
+      "numeric": {
+        "requires_roll_id": true,
+        "requires_san_before_after": true
+      }
+    },
+    {
       "id": "module.haunting.corbitt_flesh_ward",
       "category": "module_rule",
       "module": "The Haunting",
@@ -173,6 +182,16 @@
       "numeric": {
         "bypasses_spells": true,
         "requires_successful_attack": true
+      }
+    },
+    {
+      "id": "module.haunting.conclusion_sanity_reward",
+      "category": "module_rule",
+      "module": "The Haunting",
+      "source_note": "If Corbitt is conquered and destroyed, each participating investigator gains 1D6 Sanity points.",
+      "numeric": {
+        "sanity_reward_die": "1D6",
+        "playtest_roll": 4
       }
     }
   ]
