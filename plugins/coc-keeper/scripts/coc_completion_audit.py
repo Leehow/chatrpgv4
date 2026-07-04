@@ -2092,17 +2092,44 @@ def _transcript_display_findings(
         ):
             missing_fields.append(f"turn {row.get('turn')} text_display protocol_wrapper")
 
-    if not missing_fields and not missing_roll_texts:
+    leaked_terms = sorted({
+        canonical
+        for canonical, display in localized_terms.items()
+        if canonical
+        and display != canonical
+        and any(
+            canonical in str(row.get(field, ""))
+            for row in transcript
+            for field in ("speaker_display", "text_display", "intent_display", "ruling_display", "player_profile_display")
+        )
+    })
+    leaked_samples: list[str] = []
+    if leaked_terms:
+        for row in transcript:
+            for field in ("speaker_display", "text_display", "intent_display", "ruling_display", "player_profile_display"):
+                value = row.get(field)
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                if any(term in value for term in leaked_terms):
+                    leaked_samples.append(f"turn {row.get('turn')} {field}: {value}")
+                    if len(leaked_samples) >= 8:
+                        break
+            if len(leaked_samples) >= 8:
+                break
+
+    if not missing_fields and not missing_roll_texts and not leaked_terms:
         return []
     return [_finding(
         "transcript_display_not_localized",
         "system_gap",
         f"{run_id} transcript.jsonl lacks localized display fields for source transcript replay evidence.",
-        "Regenerate the active run so transcript.jsonl preserves canonical source fields while adding speaker_display and localized roll text_display derived from play_language, localized_terms, and structured roll logs.",
+        "Regenerate the active run so transcript.jsonl preserves canonical source fields while adding display fields derived from play_language, localized_terms, player_profile_labels, and structured roll logs.",
         run_id=run_id,
         missing_transcript_display_fields=sorted(set(missing_fields)),
         missing_transcript_roll_samples=missing_roll_texts[:5],
         observed_transcript_roll_samples=observed_roll_texts[:5],
+        leaked_transcript_display_terms=leaked_terms,
+        leaked_transcript_display_samples=leaked_samples,
     )]
 
 
