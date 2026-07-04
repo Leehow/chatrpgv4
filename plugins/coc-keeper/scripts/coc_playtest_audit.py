@@ -1961,6 +1961,44 @@ def _bout_of_madness_rendered(battle_report: str, metadata: dict[str, Any]) -> b
     return label in sections
 
 
+def _profile_display_labels(metadata: dict[str, Any]) -> dict[str, str]:
+    play_language = str(metadata.get("play_language") or "")
+    labels = metadata.get("player_profile_labels", {})
+    language_labels = labels.get(play_language, {}) if isinstance(labels, dict) else {}
+    if not isinstance(language_labels, dict):
+        return {}
+    return {
+        str(profile_id): str(label)
+        for profile_id, label in language_labels.items()
+        if str(profile_id) and str(label)
+    }
+
+
+def _protocol_stage_summary(
+    transcript: list[dict[str, Any]],
+    protocol_key: str,
+    id_key: str,
+) -> str:
+    stages_by_id: dict[str, list[str]] = {}
+    for event in transcript:
+        protocol = event.get(protocol_key)
+        if not isinstance(protocol, dict):
+            continue
+        protocol_id = protocol.get(id_key)
+        stage = protocol.get("stage")
+        if not isinstance(protocol_id, str) or not isinstance(stage, str):
+            continue
+        stages_by_id.setdefault(protocol_id, [])
+        if stage not in stages_by_id[protocol_id]:
+            stages_by_id[protocol_id].append(stage)
+    if not stages_by_id:
+        return "none"
+    return "; ".join(
+        f"{protocol_id}={' -> '.join(stages)}"
+        for protocol_id, stages in sorted(stages_by_id.items())
+    )
+
+
 def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
     metadata = context["metadata"]
     transcript = context["transcript"]
@@ -2071,6 +2109,46 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
         )
         lines.append(f"Chase DEX turn sequences: {turn_sequence_count}/{len(rounds) if isinstance(rounds, list) else 0} rounds recorded.")
         lines.append(f"Chase player pressure: {profile_pressure}.")
+    if metadata.get("audit_profile") == "multi_profile_pressure":
+        profile_ids = list(dict.fromkeys(
+            str(profile_id)
+            for profile_id in metadata.get("player_profiles_tested", [])
+            if profile_id not in (None, "", [], {})
+        ))
+        profile_labels = _profile_display_labels(metadata)
+        profile_summary = ", ".join(
+            f"{profile_id}={profile_labels.get(profile_id, profile_id)}"
+            for profile_id in profile_ids
+        ) or "none"
+        profile_turn_counts = {
+            profile_id: sum(1 for event in transcript if event.get("player_profile") == profile_id)
+            for profile_id in profile_ids
+        }
+        skeptical_meta_turns = sum(
+            1
+            for event in transcript
+            if event.get("player_profile") == "skeptical_rules_lawyer"
+            and event.get("mode") == "meta"
+        )
+        turn_summary = ", ".join(
+            f"{profile_id}={profile_turn_counts[profile_id]}"
+            for profile_id in profile_ids
+        ) or "none"
+        lines.append(f"Multi-profile pressure: {profile_summary}.")
+        lines.append(
+            f"Multi-profile transcript turns: {turn_summary}; "
+            f"skeptical meta turns: {skeptical_meta_turns}."
+        )
+        lines.append(
+            "Pushed-roll protocol stages: "
+            + _protocol_stage_summary(transcript, "pushed_roll_protocol", "roll_id")
+            + "."
+        )
+        lines.append(
+            "Spoiler protocol stages: "
+            + _protocol_stage_summary(transcript, "spoiler_protocol", "spoiler_id")
+            + "."
+        )
     return lines
 
 

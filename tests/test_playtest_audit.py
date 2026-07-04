@@ -1605,6 +1605,142 @@ def test_active_audit_rejects_unlocalized_player_profile_ids_in_reports(tmp_path
     assert "player_profile_labels_not_localized" in finding_codes(audit)
 
 
+def test_multi_profile_rulebook_audit_lists_pressure_protocol_evidence(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "multi-profile-pressure"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "multi_profile_pressure"
+    metadata["play_language"] = "zh-Hans"
+    metadata["player_profiles_tested"] = [
+        "careful_investigator",
+        "reckless_investigator",
+        "skeptical_rules_lawyer",
+    ]
+    metadata["player_profile_labels"] = {
+        "zh-Hans": {
+            "careful_investigator": "谨慎调查员",
+            "reckless_investigator": "鲁莽调查员",
+            "skeptical_rules_lawyer": "规则质疑玩家",
+        }
+    }
+    metadata_path.write_text(json.dumps(metadata))
+    transcript_path = run_dir / "transcript.jsonl"
+    transcript = [
+        json.loads(line)
+        for line in transcript_path.read_text().splitlines()
+        if line.strip()
+    ]
+    transcript.extend([
+        {
+            "turn": 11,
+            "role": "player_simulator",
+            "player_profile": "careful_investigator",
+            "mode": "play",
+            "intent": "careful planning",
+            "text": "我先查资料。",
+        },
+        {
+            "turn": 12,
+            "role": "player_simulator",
+            "player_profile": "reckless_investigator",
+            "mode": "play",
+            "intent": "push risk",
+            "pushed_roll_protocol": {
+                "roll_id": "fixture-push",
+                "stage": "player_reframes_action",
+            },
+            "text": "我换个危险办法再查一次。",
+        },
+        {
+            "turn": 13,
+            "role": "keeper_under_test",
+            "mode": "play",
+            "pushed_roll_protocol": {
+                "roll_id": "fixture-push",
+                "stage": "keeper_foreshadows_failure",
+                "failure_consequence_source": "keeper",
+            },
+            "text": "如果失败，会先惊动屋里的人。",
+        },
+        {
+            "turn": 14,
+            "role": "player_simulator",
+            "player_profile": "reckless_investigator",
+            "mode": "play",
+            "pushed_roll_protocol": {
+                "roll_id": "fixture-push",
+                "stage": "player_confirms_risk",
+                "risk_confirmed": True,
+            },
+            "text": "确定，我接受这个风险。",
+        },
+        {
+            "turn": 15,
+            "role": "system",
+            "mode": "roll",
+            "pushed_roll_protocol": {
+                "roll_id": "fixture-push",
+                "stage": "roll_resolved",
+            },
+            "text": "Spot Hidden 22 vs 55 -> hard_success.",
+        },
+        {
+            "turn": 16,
+            "role": "player_simulator",
+            "player_profile": "skeptical_rules_lawyer",
+            "mode": "meta",
+            "intent": "challenge ruling",
+            "text": "[meta] 为什么这里能推骰？[/meta]",
+        },
+        {
+            "turn": 17,
+            "role": "keeper_under_test",
+            "mode": "meta",
+            "spoiler_protocol": {
+                "spoiler_id": "fixture-spoiler",
+                "stage": "warning_issued",
+                "keeper_secret_id": "fixture-secret",
+                "scope": "fixture_scope",
+                "requires_confirmation": True,
+            },
+            "text": "[spoiler_warning] 这会剧透，确认吗？[/spoiler_warning]",
+        },
+        {
+            "turn": 18,
+            "role": "player_simulator",
+            "player_profile": "skeptical_rules_lawyer",
+            "mode": "meta",
+            "spoiler_protocol": {
+                "spoiler_id": "fixture-spoiler",
+                "stage": "player_confirmed",
+                "confirmed": True,
+            },
+            "text": "[meta] 确认。[/meta]",
+        },
+        {
+            "turn": 19,
+            "role": "keeper_under_test",
+            "mode": "meta",
+            "spoiler_protocol": {
+                "spoiler_id": "fixture-spoiler",
+                "stage": "limited_reveal",
+                "confirmed": True,
+            },
+            "text": "[meta] 只揭示限定范围。[/meta]",
+        },
+    ])
+    write_jsonl(transcript_path, transcript)
+
+    artifact = coc_playtest_audit.generate_rulebook_audit(run_dir)
+    text = artifact.read_text()
+
+    assert "Multi-profile pressure: careful_investigator=谨慎调查员, reckless_investigator=鲁莽调查员, skeptical_rules_lawyer=规则质疑玩家." in text
+    assert "Multi-profile transcript turns: careful_investigator=1, reckless_investigator=2, skeptical_rules_lawyer=2; skeptical meta turns: 2." in text
+    assert "Pushed-roll protocol stages: fixture-push=player_reframes_action -> keeper_foreshadows_failure -> player_confirms_risk -> roll_resolved." in text
+    assert "Spoiler protocol stages: fixture-spoiler=warning_issued -> player_confirmed -> limited_reveal." in text
+
+
 def test_active_audit_rejects_unlocalized_transcript_labels(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "localized-transcript-labels"
     create_final_rulebook_run(run_dir)
