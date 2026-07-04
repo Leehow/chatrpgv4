@@ -53,15 +53,19 @@ def validate_rules(plugin_root: Path) -> list[str]:
         rules = rule_index.get("rules")
         if isinstance(rules, list):
             indexed_source_tables: set[str] = set()
+            indexed_rule_ids: set[str] = set()
             for rule in rules:
                 if not isinstance(rule, dict):
                     continue
+                rule_id = rule.get("id") if isinstance(rule.get("id"), str) else "<unknown>"
+                if rule_id in indexed_rule_ids:
+                    errors.append(f"duplicate rule-index id: {rule_id}")
+                indexed_rule_ids.add(rule_id)
                 source_table = rule.get("source_table")
                 if not isinstance(source_table, str):
                     continue
                 indexed_source_tables.add(source_table)
                 if not (rules_dir / source_table).exists():
-                    rule_id = rule.get("id") if isinstance(rule.get("id"), str) else "<unknown>"
                     errors.append(f"rule-index source_table missing: {rule_id} -> {source_table}")
             for filename in REQUIRED_RULE_FILES:
                 if filename in {"metadata.json", "rule-index.json"}:

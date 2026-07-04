@@ -108,6 +108,30 @@ def test_validate_rules_rejects_unindexed_runtime_rule_file(tmp_path):
     assert "rule-index missing source_table entry: damage-bonus-build.json" in module.validate_rules(tmp_path)
 
 
+def test_validate_rules_rejects_duplicate_rule_index_ids(tmp_path):
+    import importlib.util
+
+    path = PLUGIN_ROOT / "scripts" / "coc_validate.py"
+    spec = importlib.util.spec_from_file_location("coc_validate", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    source_rules_dir = PLUGIN_ROOT / "references" / "rules-json"
+    target_rules_dir = tmp_path / "references" / "rules-json"
+    target_rules_dir.mkdir(parents=True)
+    for source_path in source_rules_dir.glob("*.json"):
+        shutil.copy2(source_path, target_rules_dir / source_path.name)
+
+    rule_index_path = target_rules_dir / "rule-index.json"
+    rule_index = json.loads(rule_index_path.read_text())
+    duplicate_id = rule_index["rules"][0]["id"]
+    rule_index["rules"][1]["id"] = duplicate_id
+    rule_index_path.write_text(json.dumps(rule_index), encoding="utf-8")
+
+    assert f"duplicate rule-index id: {duplicate_id}" in module.validate_rules(tmp_path)
+
+
 def test_rule_index_covers_all_runtime_rule_json_files():
     rules_dir = PLUGIN_ROOT / "references" / "rules-json"
     rule_index = json.loads((rules_dir / "rule-index.json").read_text())
