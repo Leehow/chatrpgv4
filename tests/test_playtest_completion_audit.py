@@ -3420,6 +3420,63 @@ def test_completion_audit_fails_when_battle_report_omits_source_dialogue_text(tm
     assert "fixture player turn" in finding["missing_dialogue_samples"]
 
 
+def test_completion_audit_accepts_localized_report_source_evidence(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-run"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "localized-run"
+    write_json(run_dir / "playtest.json", {
+        "run_id": "localized-run",
+        "campaign_id": "localized-run",
+        "play_language": "ja-JP",
+        "localized_terms": {"ja-JP": {"Ada King": "エイダ・キング"}},
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {
+            "turn": 1,
+            "role": "keeper_under_test",
+            "speaker": "KP",
+            "text": "[meta] 中文源发言 [/meta]",
+            "localized_text": {"ja-JP": {"text": "[meta] 日本語の発言 [/meta]"}},
+        }
+    ])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {
+            "type": "status",
+            "payload": {
+                "summary": "中文事件摘要",
+                "localized_text": {"ja-JP": {"summary": "日本語の事件要約"}},
+            },
+        }
+    ])
+    write_jsonl(run_dir / "player-feedback.jsonl", [
+        {
+            "category": "kp_clarity",
+            "score": 5,
+            "text": "中文反馈",
+            "localized_text": {"ja-JP": {"text": "日本語のフィードバック"}},
+        }
+    ])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [
+        {
+            "summary": "中文记忆摘要",
+            "localized_text": {"ja-JP": {"summary": "日本語の記憶要約"}},
+        }
+    ])
+    battle_report = "\n\n".join([
+        "## Actual Play Replay <!-- report-anchor: Actual Play Replay -->\n- KP: 日本語の発言",
+        "## Session Transcript <!-- report-anchor: Session Transcript -->\n- KP: 日本語の発言",
+        "## Scene-by-Scene Replay <!-- report-anchor: Scene-by-Scene Replay -->\n- 日本語の事件要約",
+        "## State Changes <!-- report-anchor: State Changes -->\n- 日本語の事件要約",
+        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n- KP の明瞭さ 5/5：日本語のフィードバック",
+        "## Story Recap <!-- report-anchor: Story Recap -->\n- 日本語の記憶要約",
+    ])
+
+    assert coc_completion_audit._battle_report_source_dialogue_findings("localized-run", run_dir, battle_report) == []
+    assert coc_completion_audit._battle_report_event_summary_findings("localized-run", campaign_dir, battle_report) == []
+    assert coc_completion_audit._battle_report_feedback_text_findings("localized-run", run_dir, battle_report) == []
+    assert coc_completion_audit._battle_report_feedback_score_findings("localized-run", run_dir, battle_report) == []
+    assert coc_completion_audit._battle_report_memory_summary_findings("localized-run", campaign_dir, battle_report) == []
+
+
 def test_completion_audit_fails_when_battle_report_dialogue_has_no_speakers(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

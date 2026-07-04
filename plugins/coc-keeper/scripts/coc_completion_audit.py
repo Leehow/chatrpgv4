@@ -373,6 +373,47 @@ def _localized_source_field(
     return _localize_text(str(row[key]), localized_terms)
 
 
+def _source_field_candidates(
+    row: dict[str, Any],
+    key: str,
+    metadata: dict[str, Any],
+    localized_terms: dict[str, str],
+    normalizer: Any | None = None,
+) -> list[str]:
+    candidates: list[str] = []
+    if row.get(key) not in (None, "", [], {}):
+        candidates.append(str(row[key]))
+    localized = _localized_source_field(row, key, metadata, localized_terms)
+    if localized:
+        candidates.append(localized)
+    normalized: list[str] = []
+    for candidate in candidates:
+        value = str(candidate).strip()
+        if normalizer is not None:
+            value = str(normalizer(value)).strip()
+        if value and value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _any_candidate_rendered(
+    candidates: list[str],
+    battle_report: str,
+    localized_terms: dict[str, str],
+) -> bool:
+    return any(_text_rendered_in_report(candidate, battle_report, localized_terms) for candidate in candidates)
+
+
+def _run_dir_from_campaign_dir(campaign_dir: Path) -> Path:
+    if len(campaign_dir.parents) >= 4:
+        return campaign_dir.parents[3]
+    return campaign_dir
+
+
+def _metadata_for_campaign_dir(campaign_dir: Path) -> dict[str, Any]:
+    return _read_json(_run_dir_from_campaign_dir(campaign_dir) / "playtest.json", {})
+
+
 def _profile_label(metadata: dict[str, Any], label_group: str, canonical: str) -> str:
     language_profile = metadata.get("language_profile", {})
     if not isinstance(language_profile, dict):
@@ -735,17 +776,29 @@ def _battle_report_source_dialogue_findings(run_id: str, run_dir: Path, battle_r
         _battle_report_anchor_section(battle_report, "Session Transcript"),
     ])
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
-    required_dialogue = [
-        _display_transcript_text(row["text"].strip())
-        for row in transcript
-        if row.get("role") != "system"
-        and isinstance(row.get("text"), str)
-        and row["text"].strip()
-    ]
+    metadata = _read_json(run_dir / "playtest.json", {})
+    localized_terms = _metadata_localized_terms(metadata)
+    required_dialogue = []
+    for row in transcript:
+        if (
+            row.get("role") == "system"
+            or not isinstance(row.get("text"), str)
+            or not row["text"].strip()
+        ):
+            continue
+        candidates = _source_field_candidates(
+            row,
+            "text",
+            metadata,
+            localized_terms,
+            _display_transcript_text,
+        )
+        if candidates:
+            required_dialogue.append(candidates)
     missing_dialogue = [
-        text
-        for text in required_dialogue
-        if text not in replay_sections
+        candidates[0]
+        for candidates in required_dialogue
+        if not _any_candidate_rendered(candidates, replay_sections, localized_terms)
     ]
     if not missing_dialogue:
         return []
@@ -974,17 +1027,24 @@ def _battle_report_event_summary_findings(
         _battle_report_anchor_section(battle_report, "State Changes"),
     ])
     events = _read_jsonl(campaign_dir / "logs" / "events.jsonl")
-    required_summaries = [
-        row["payload"]["summary"].strip()
-        for row in events
-        if isinstance(row.get("payload"), dict)
-        and isinstance(row["payload"].get("summary"), str)
-        and row["payload"]["summary"].strip()
-    ]
+    metadata = _metadata_for_campaign_dir(campaign_dir)
+    localized_terms = _metadata_localized_terms(metadata)
+    required_summaries = []
+    for row in events:
+        payload = row.get("payload")
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("summary"), str)
+            or not payload["summary"].strip()
+        ):
+            continue
+        candidates = _source_field_candidates(payload, "summary", metadata, localized_terms)
+        if candidates:
+            required_summaries.append(candidates)
     missing_summaries = [
-        summary
-        for summary in required_summaries
-        if summary not in event_sections
+        candidates[0]
+        for candidates in required_summaries
+        if not _any_candidate_rendered(candidates, event_sections, localized_terms)
     ]
     if not missing_summaries:
         return []
@@ -1007,16 +1067,19 @@ def _battle_report_feedback_text_findings(
 ) -> list[dict[str, Any]]:
     feedback_section = _visible_markdown_text(_battle_report_anchor_section(battle_report, "Player Feedback On KP"))
     feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
-    required_feedback = [
-        row["text"].strip()
-        for row in feedback
-        if isinstance(row.get("text"), str)
-        and row["text"].strip()
-    ]
+    metadata = _read_json(run_dir / "playtest.json", {})
+    localized_terms = _metadata_localized_terms(metadata)
+    required_feedback = []
+    for row in feedback:
+        if not isinstance(row.get("text"), str) or not row["text"].strip():
+            continue
+        candidates = _source_field_candidates(row, "text", metadata, localized_terms)
+        if candidates:
+            required_feedback.append(candidates)
     missing_feedback = [
-        text
-        for text in required_feedback
-        if text not in feedback_section
+        candidates[0]
+        for candidates in required_feedback
+        if not _any_candidate_rendered(candidates, feedback_section, localized_terms)
     ]
     if not missing_feedback:
         return []
@@ -1051,18 +1114,24 @@ def _battle_report_feedback_score_findings(
 ) -> list[dict[str, Any]]:
     feedback_section = _visible_markdown_text(_battle_report_anchor_section(battle_report, "Player Feedback On KP"))
     feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
-    required_scores = [
-        (row["text"].strip(), row["score"])
-        for row in feedback
-        if isinstance(row.get("text"), str)
-        and row["text"].strip()
-        and isinstance(row.get("score"), (int, float))
-        and not isinstance(row.get("score"), bool)
-    ]
+    metadata = _read_json(run_dir / "playtest.json", {})
+    localized_terms = _metadata_localized_terms(metadata)
+    required_scores = []
+    for row in feedback:
+        if (
+            not isinstance(row.get("text"), str)
+            or not row["text"].strip()
+            or not isinstance(row.get("score"), (int, float))
+            or isinstance(row.get("score"), bool)
+        ):
+            continue
+        candidates = _source_field_candidates(row, "text", metadata, localized_terms)
+        if candidates:
+            required_scores.append((candidates, row["score"]))
     missing_scores = [
-        text
-        for text, score in required_scores
-        if not _feedback_score_rendered(feedback_section, text, score)
+        candidates[0]
+        for candidates, score in required_scores
+        if not any(_feedback_score_rendered(feedback_section, text, score) for text in candidates)
     ]
     if not missing_scores:
         return []
@@ -1131,16 +1200,19 @@ def _battle_report_memory_summary_findings(
 ) -> list[dict[str, Any]]:
     story_recap = _battle_report_anchor_section(battle_report, "Story Recap")
     memories = _read_jsonl(campaign_dir / "memory" / "session-summaries.jsonl")
-    required_summaries = [
-        row["summary"].strip()
-        for row in memories
-        if isinstance(row.get("summary"), str)
-        and row["summary"].strip()
-    ]
+    metadata = _metadata_for_campaign_dir(campaign_dir)
+    localized_terms = _metadata_localized_terms(metadata)
+    required_summaries = []
+    for row in memories:
+        if not isinstance(row.get("summary"), str) or not row["summary"].strip():
+            continue
+        candidates = _source_field_candidates(row, "summary", metadata, localized_terms)
+        if candidates:
+            required_summaries.append(candidates)
     missing_summaries = [
-        summary
-        for summary in required_summaries
-        if summary not in story_recap
+        candidates[0]
+        for candidates in required_summaries
+        if not _any_candidate_rendered(candidates, story_recap, localized_terms)
     ]
     if not missing_summaries:
         return []
@@ -2535,7 +2607,7 @@ def _expected_player_view_roll_texts(
             continue
         roll_count = _event_roll_count(event, len(roll_recaps) - roll_cursor)
         recaps = roll_recaps[roll_cursor: roll_cursor + roll_count]
-        rendered_text = _format_roll_transcript_text(event, recaps, localized_terms)
+        rendered_text = _format_roll_transcript_text(event, recaps, localized_terms, play_language)
         roll_cursor += roll_count
         if rendered_text:
             expected_texts.append(rendered_text)

@@ -877,6 +877,12 @@ def test_serious_harness_accepts_selected_play_language(tmp_path):
     metadata = playtest_metadata(run_dir)
     campaign = read_json(campaign_dir_for_run(run_dir) / "campaign.json")
     battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    transcript = {event.get("turn"): event for event in transcript_events(run_dir)}
+    player_view = {
+        event.get("turn"): event
+        for event in run_jsonl(run_dir, "player-view.jsonl")
+        if event.get("type") == "transcript_turn"
+    }
 
     assert metadata["play_language"] == "ja-JP"
     assert metadata["language_profile"]["language"] == "ja-JP"
@@ -888,11 +894,31 @@ def test_serious_harness_accepts_selected_play_language(tmp_path):
     assert "## 実行設定 <!-- report-anchor: Run Setup -->" in battle_text
     assert "プレイ言語: 日本語" in battle_text
     assert "導入シーン: ノット氏がコービット屋敷の鍵を机に置き" in battle_text
+    assert "出典: 『クトゥルフの呼び声キーパー・ルールブック』40周年記念版 PDF" in battle_text
+    assert "pdf/Call Of Cthulhu Keeper Rulebook" not in battle_text
     assert "私はまず権利書と古い新聞を調べます" in battle_text
     assert "KP は先に調査する選択を認め" in battle_text
     assert "Play Language: ja-JP" not in battle_text
     assert "我先查房契和旧报纸" not in battle_text
     assert "诺特先生将科比特宅邸的钥匙放在桌上" not in battle_text
+    assert "你看见门闩边缘有新划痕" not in battle_text
+    assert "扉のラッチ付近に新しい傷を見つけ" in battle_text
+    assert "裂柄铜放大镜" not in battle_text
+    assert "艾达·金是一名被多次委托" not in battle_text
+    assert "谨慎路线找到科比特与沉思教堂线索" not in battle_text
+    assert "诺特先生的钥匙" not in battle_text
+    assert "ひびの入った柄の銅製虫眼鏡" in battle_text
+    assert "エイダ・キングは旧宅の紛争調査を何度も依頼されてきた古物研究家" in battle_text
+    assert "慎重なルートではコービットと瞑想教会の手がかりを見つけた" in battle_text
+    assert "ノット氏の鍵" in battle_text
+    assert "質問です。慎重なプレイヤーは資料を調べ" in transcript[12]["text_display"]
+    assert "我想质疑一下" not in transcript[12]["text_display"]
+    assert "扉のラッチ付近に新しい傷を見つけ" in transcript[11]["text_display"]
+    assert "你看见门闩边缘有新划痕" not in transcript[11]["text_display"]
+    assert "これは『怪異の家』のキーパー情報" in player_view["13b"]["text"]
+    assert "这会揭示" not in player_view["13b"]["text"]
+    assert "[spoiler_warning]" not in player_view["13b"]["localized_text"]["ja-JP"]["text"]
+    assert "[/spoiler_warning]" not in player_view["13b"]["localized_text"]["ja-JP"]["text"]
 
 
 def test_haunting_module_harness_uses_summary_bout_for_solo_corbitt_insanity(tmp_path):

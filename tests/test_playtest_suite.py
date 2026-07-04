@@ -80,6 +80,47 @@ def llm_semantic_provenance_for(request: dict) -> dict:
     }
 
 
+def write_semantic_artifact_run(
+    root: Path,
+    run_id: str,
+    audit_profile: str,
+    *,
+    play_language: str = "zh-Hans",
+) -> None:
+    run_dir = root / ".coc" / "playtests" / run_id
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": run_id,
+        "campaign_title": f"{run_id} fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": audit_profile,
+        "player_profile": "careful_investigator",
+        "play_language": play_language,
+        "language_profile": {"language": play_language},
+        "subsystems_covered": ["combat", "chase", "sanity"],
+    }))
+    (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    request = write_semantic_eval_request(artifacts_dir, run_id)
+    (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": run_id,
+        "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance_for(request),
+        "coverage": {
+            key: {"covered": True, "reason": f"{key} covered by fixture."}
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": {
+            key: {"score": 4, "passed": True, "reason": f"{key} passed by fixture."}
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        },
+        "root_cause_classification": [],
+        "next_loop_fix_target": "none",
+    }))
+
+
 def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="v2-haunting-module")
     coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="v3-chase-drill")
@@ -228,6 +269,51 @@ def test_suite_report_surfaces_selected_play_language_per_run(tmp_path):
     assert run["language_profile"] == "ja-JP"
     assert "v4-ja-pressure" in report_text
     assert "language: ja-JP" in report_text
+
+
+def test_completion_profile_suite_requires_non_default_language_evidence(tmp_path):
+    write_semantic_artifact_run(tmp_path, "v2-haunting-module", "haunting_module")
+    write_semantic_artifact_run(tmp_path, "v3-chase-drill", "chase_drill")
+    write_semantic_artifact_run(tmp_path, "v4-multi-profile-pressure", "multi_profile_pressure")
+
+    report_path = coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+    report_text = report_path.read_text()
+
+    assert index["language_coverage"]["default_play_language"]["status"] == "covered"
+    assert index["language_coverage"]["non_default_play_language"]["status"] == "missing"
+    assert index["language_gaps"] == ["non_default_play_language"]
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["blockers"][0]["type"] == "language_coverage_gap"
+    assert index["loop_decision"]["blockers"][0]["key"] == "non_default_play_language"
+    assert "## Language Coverage" in report_text
+    assert "- non_default_play_language: missing" in report_text
+
+
+def test_completion_profile_suite_accepts_non_default_language_evidence(tmp_path):
+    write_semantic_artifact_run(tmp_path, "v2-haunting-module", "haunting_module")
+    write_semantic_artifact_run(tmp_path, "v3-chase-drill", "chase_drill")
+    write_semantic_artifact_run(
+        tmp_path,
+        "v4-multi-profile-pressure",
+        "multi_profile_pressure",
+        play_language="ja-JP",
+    )
+
+    coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    assert index["language_coverage"]["default_play_language"]["status"] == "covered"
+    assert index["language_coverage"]["non_default_play_language"]["status"] == "covered"
+    assert index["language_gaps"] == []
+    assert index["loop_decision"]["status"] == "ready_for_completion_audit"
+    assert index["loop_decision"]["blockers"] == []
 
 
 def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):

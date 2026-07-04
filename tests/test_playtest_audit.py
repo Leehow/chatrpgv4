@@ -2547,6 +2547,46 @@ def test_active_audit_rejects_missing_status_event_in_scene_replay(tmp_path):
     assert "status_event_not_rendered" in finding_codes(audit)
 
 
+def test_active_audit_accepts_localized_status_event_in_scene_replay(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-status-replay"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "ja-JP"
+    metadata["localized_terms"] = {"ja-JP": {"Ada King": "エイダ・キング"}}
+    metadata_path.write_text(json.dumps(metadata))
+    campaign_events_path = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop" / "logs" / "events.jsonl"
+    events = [
+        json.loads(line)
+        for line in campaign_events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    events.append({
+        "type": "status",
+        "actor": "ada-king",
+        "payload": {
+            "summary": "三个玩家画像都保留了有效选择；KP 已说明不同路线的收益、风险和失败后果。",
+            "localized_text": {
+                "ja-JP": {
+                    "summary": "三つのプレイヤープロファイルはいずれも有効な選択を残し、KP は各ルートの利益、リスク、失敗時の結果を説明した。"
+                }
+            },
+        },
+    })
+    write_jsonl(campaign_events_path, events)
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# プレイ報告 <!-- report-anchor: Battle Report -->\n\n"
+        "## シーン別リプレイ <!-- report-anchor: Scene-by-Scene Replay -->\n"
+        "- 三つのプレイヤープロファイルはいずれも有効な選択を残し、KP は各ルートの利益、リスク、失敗時の結果を説明した。\n\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert "status_event_not_rendered" not in finding_codes(audit)
+
+
 def test_haunting_module_audit_requires_structured_npc_dialogue(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
     transcript_path = run_dir / "transcript.jsonl"

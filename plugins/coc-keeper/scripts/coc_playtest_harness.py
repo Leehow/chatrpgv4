@@ -200,20 +200,26 @@ ZH_HANS_CHASE_GLOSSARY = {
 
 JA_JP_GLOSSARY_OVERRIDES = {
     "Ada King": "エイダ・キング",
+    "艾达·金": "エイダ・キング",
     "The Haunting": "怪異の家",
     "The Haunting Rulebook Smoke": "怪異の家ルールブックスモーク",
     "The Haunting Module Playthrough": "怪異の家モジュールプレイ",
     "Three Roads into the Corbitt House": "コービット屋敷への三つの道",
     "The Haunting Opening Crossroads": "怪異の家・導入の分岐路",
+    "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf": "『クトゥルフの呼び声キーパー・ルールブック』40周年記念版 PDF",
     "The Ledger on the Rooftops": "屋上の台帳",
     "Keeper Rulebook Chapter 7 chase scene": "キーパー・ルールブック第7章チェイス場面",
     "Mr. Knott": "ノット氏",
+    "诺特先生": "ノット氏",
     "Walter Corbitt": "ウォルター・コービット",
+    "沃尔特·科比特": "ウォルター・コービット",
     "Corbitt's Hiding Place": "コービットの隠れ場所",
     "Corbitt House": "コービット屋敷",
     "Corbitt": "コービット",
+    "科比特": "コービット",
     "The Old Corbitt Place": "旧コービット邸",
     "Chapel of Contemplation": "瞑想教会",
+    "沉思教堂": "瞑想教会",
     "Boston Globe": "ボストン・グローブ",
     "The Boston Globe": "ボストン・グローブ",
     "Hall of Records": "記録保管所",
@@ -244,6 +250,30 @@ JA_JP_GLOSSARY_OVERRIDES = {
     "hazard": "危険",
     "barrier": "障害",
     "conflict": "衝突",
+    "裂柄铜放大镜": "ひびの入った柄の銅製虫眼鏡",
+    "笔记本": "ノート",
+    "钢笔": "万年筆",
+    "左轮": "リボルバー",
+    "艾达·金是一名被多次委托调查旧宅纠纷的古物学者，擅长把传言拆成可查证的线索。": "エイダ・キングは旧宅の紛争調査を何度も依頼されてきた古物研究家で、噂を検証可能な手がかりへ分解することに長けている。",
+    "公开记录比传闻可靠，但传闻常常指向被隐藏的入口。": "公開記録は噂より信頼できるが、噂はしばしば隠された入口を指し示す。",
+    "莱兰·哈特教授，她已故的导师，留下了一套严谨的调查笔记法。": "故人となった師、リーランド・ハート教授。彼は厳密な調査ノート術を残した。",
+    "波士顿档案馆阅览室，她在那里学会从房契边注寻找异常。": "ボストン記録保管所の閲覧室。彼女はそこで権利書の欄外注記から異常を探す方法を覚えた。",
+    "谨慎记笔记": "慎重にメモを取る",
+    "愿意听完同伴的鲁莽想法再提出风险": "仲間の無謀な案を最後まで聞いてからリスクを示す",
+    "艾达·金经历了三种调查风格的开局分支，确认公开记录、鲁莽进屋和规则质疑都能进入同一故事。": "エイダ・キングは三つの調査スタイルの導入分岐を経験し、公開記録の調査、無謀な侵入、ルール確認のいずれも同じ物語へ入れることを確認した。",
+    "谨慎路线找到科比特与沉思教堂线索": "慎重なルートではコービットと瞑想教会の手がかりを見つけた",
+    "鲁莽路线通过推骰发现新划痕": "無謀なルートではプッシュロールで新しい傷を発見した",
+    "规则质疑获得独立规则解释": "ルール確認では独立した裁定説明を得た",
+    "后续故事入口保留为沉思教堂记录": "続く物語への入口として瞑想教会の記録を残した",
+    "保留三种玩家画像的 KP 裁定记录": "三つのプレイヤープロファイルへの KP 裁定記録を残す",
+    "记录科比特宅邸开局调查路线": "コービット屋敷導入の調査ルートを記録する",
+    "后续故事入口保留为沉思教堂记录；导入正式战役前由玩家选择采用哪条路线为正史。": "続く物語への入口として瞑想教会の記録を残す。正式なキャンペーン導入前に、どのルートを正史にするかプレイヤーが選ぶ。",
+    "多调查风格开局结束时的可继承物品、线索和路线选择。": "複数の調査スタイルによる導入終了時に引き継げる所持品、手がかり、ルート選択。",
+    "诺特先生的钥匙": "ノット氏の鍵",
+    "沉思教堂记录线索": "瞑想教会記録の手がかり",
+    "门闩新划痕线索": "ラッチ付近の新しい傷の手がかり",
+    "20 美元预付款暂记": "20ドルの前金を仮記録",
+    "导入正式战役前由玩家选择谨慎调查路线、鲁莽进屋路线或合并为正史；诺特先生钥匙应在委托结束后归还。": "正式なキャンペーン導入前に、慎重な調査ルート、無謀な侵入ルート、または統合ルートを正史としてプレイヤーが選ぶ。ノット氏の鍵は依頼終了後に返却する。",
 }
 
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
@@ -1060,15 +1090,24 @@ def _player_view_event(
     rendered_text: str | None = None,
 ) -> dict[str, Any]:
     visible = dict(event)
+    localized_text = visible.get("localized_text", {})
+    language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
     if rendered_text is not None:
         visible["text"] = _display_transcript_text(rendered_text)
+    elif isinstance(language_text, dict) and isinstance(language_text.get("text"), str):
+        visible["text"] = _display_transcript_text(_localize_text(language_text["text"], glossary))
     elif isinstance(visible.get("text"), str):
         visible["text"] = _display_transcript_text(_localize_text(visible["text"], glossary))
-    localized_text = visible.get("localized_text", {})
     if isinstance(localized_text, dict) and isinstance(localized_text.get(play_language), dict):
+        player_language_text = _localize_public_value(localized_text[play_language], glossary)
+        if isinstance(player_language_text, dict) and isinstance(player_language_text.get("text"), str):
+            player_language_text = {
+                **player_language_text,
+                "text": _display_transcript_text(player_language_text["text"]),
+            }
         visible["localized_text"] = {
             **localized_text,
-            play_language: _localize_public_value(localized_text[play_language], glossary),
+            play_language: player_language_text,
         }
     if isinstance(visible.get("speaker"), str):
         visible["speaker"] = _display_transcript_speaker(
@@ -1117,8 +1156,13 @@ def _transcript_event_with_display_fields(
         )
     if rendered_text is not None:
         visible["text_display"] = rendered_text
-    elif isinstance(visible.get("text"), str):
-        visible["text_display"] = _display_transcript_text(_localize_text(visible["text"], glossary))
+    else:
+        localized_text = visible.get("localized_text", {})
+        language_text = localized_text.get(play_language, {}) if isinstance(localized_text, dict) else {}
+        if isinstance(language_text, dict) and isinstance(language_text.get("text"), str):
+            visible["text_display"] = _display_transcript_text(_localize_text(language_text["text"], glossary))
+        elif isinstance(visible.get("text"), str):
+            visible["text_display"] = _display_transcript_text(_localize_text(visible["text"], glossary))
 
     localized_text = visible.get("localized_text", {})
     if isinstance(localized_text, dict) and isinstance(localized_text.get(play_language), dict):
@@ -1157,7 +1201,7 @@ def _transcript_events_with_display_fields(
         if event.get("mode") == "roll":
             roll_count = _event_roll_count(event, len(roll_recaps) - roll_cursor)
             recaps = roll_recaps[roll_cursor: roll_cursor + roll_count]
-            rendered_text = _format_roll_transcript_text(event, recaps, glossary)
+            rendered_text = _format_roll_transcript_text(event, recaps, glossary, play_language)
             roll_cursor += roll_count
         events.append(_transcript_event_with_display_fields(
             event,
@@ -1185,7 +1229,7 @@ def _player_view_transcript_events(
         if event.get("mode") == "roll":
             roll_count = _event_roll_count(event, len(roll_recaps) - roll_cursor)
             recaps = roll_recaps[roll_cursor: roll_cursor + roll_count]
-            rendered_text = _format_roll_transcript_text(event, recaps, glossary)
+            rendered_text = _format_roll_transcript_text(event, recaps, glossary, play_language)
             roll_cursor += roll_count
         events.append(_player_view_event(event, glossary, language_profile, profile_labels, play_language, rendered_text))
     return events
@@ -1610,10 +1654,12 @@ def _terms_for_play_language(zh_hans_glossary: dict[str, str], play_language: st
     if language == "zh-Hans":
         return dict(zh_hans_glossary)
     if language == "ja-JP":
-        return {
+        terms = {
             canonical: JA_JP_GLOSSARY_OVERRIDES.get(canonical, canonical)
             for canonical in zh_hans_glossary
         }
+        terms.update(JA_JP_GLOSSARY_OVERRIDES)
+        return terms
     return {canonical: canonical for canonical in zh_hans_glossary}
 
 
@@ -3707,7 +3753,7 @@ def create_multi_profile_pressure_run(
                 "9": {"text": "懐中電灯を扉の隙間に近づけ、枠だけでなく危険を承知でラッチにも触れ、内側で最近動きがあったか確かめます。", "intent": "無謀な侵入前のプッシュ"},
                 "10": {"text": "有効なプッシュロールです。方法を変え、より近づいています。失敗すると屋敷の中の気配が先にあなたを捉えます。続けますか？", "ruling": "プッシュ目星"},
                 "10a": {"text": "続けます。その扉の隙間にある手がかりに賭けます。"},
-                "11": {"text": "プッシュ目星 22 / 55、結果はハード成功。扉のラッチ付近に新しい傷を見つけ、追加の危険は起きません。"},
+                "11": {"text": "プッシュ目星 22 / 55、結果はハード成功。扉のラッチ付近に新しい傷を見つけ、追加の危険は起きません。", "outcome_note": "扉のラッチ付近に新しい傷を見つけ、追加の危険は起きません。"},
                 "12": {"text": "[meta] 質問です。慎重なプレイヤーは資料を調べ、無謀なプレイヤーは直接入るのに、なぜ KP は違うロールとリスクを出すのですか？[/meta]", "intent": "KP の裁定に異議を出す"},
                 "13": {"text": "[meta] ルール裁定です。ロールはプレイスタイルを罰するものではなく、行動の取り方とリスクで決まります。慎重なルートは図書館で情報を得ます。無謀なルートも可能ですが、情報は少なく、結果は近くなります。プッシュ前には失敗時の代償を先に示します。[/meta]", "ruling": "複数プロファイル圧力への説明"},
                 "13a": {"text": "[meta] では、地下室に何があるかを今はっきり知りたいと言ったら、直接ネタバレしてもらえますか？[/meta]", "intent": "キーパー専用情報のネタバレを求める"},

@@ -2952,16 +2952,35 @@ def _status_event_render_gaps(
     battle_report: str,
     events: list[dict[str, Any]],
     terms: dict[str, str],
+    play_language: str,
 ) -> list[str]:
     scene_replay = _normalize_report_text(_section_text(battle_report, "Scene-by-Scene Replay"))
     gaps: list[str] = []
-    for summary in _payload_summaries(events, "status"):
+    for event in events:
+        if event.get("type") != "status":
+            continue
+        payload = event.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        summary = str(payload.get("summary") or payload.get("text") or "")
         if not summary:
             continue
-        source_summary = _normalize_report_text(summary)
-        localized_summary = _normalize_report_text(_localize_summary_from_terms(summary, terms))
-        if source_summary not in scene_replay and localized_summary not in scene_replay:
-            gaps.append(localized_summary or source_summary)
+        localized_text = payload.get("localized_text", {})
+        localized_payload_summary = ""
+        if isinstance(localized_text, dict):
+            localized_payload = localized_text.get(play_language, {})
+            if isinstance(localized_payload, dict):
+                localized_payload_summary = str(
+                    localized_payload.get("summary") or localized_payload.get("text") or ""
+                )
+        candidates = [
+            _normalize_report_text(summary),
+            _normalize_report_text(_localize_summary_from_terms(summary, terms)),
+            _normalize_report_text(_localize_summary_from_terms(localized_payload_summary, terms)),
+        ]
+        candidates = [candidate for candidate in candidates if candidate]
+        if candidates and not any(candidate in scene_replay for candidate in candidates):
+            gaps.append(candidates[-1])
     return gaps
 
 
@@ -3472,7 +3491,12 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             f"Scene-by-Scene Replay renders {scene_replay_bullets} bullets for {significant_scene_events} significant play events.",
             "Render each significant scene, clue, damage, sanity, combat, chase, status, and session-ending event in the scene replay before the transcript appendix.",
         ))
-    status_render_gaps = _status_event_render_gaps(battle_report, context["events"], locale_terms)
+    status_render_gaps = _status_event_render_gaps(
+        battle_report,
+        context["events"],
+        locale_terms,
+        str(metadata.get("play_language") or ""),
+    )
     if active_profile and status_render_gaps:
         findings.append(_finding(
             "status_event_not_rendered",

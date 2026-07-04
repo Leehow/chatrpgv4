@@ -428,12 +428,15 @@ def _format_roll_transcript_text(
     event: dict[str, Any],
     roll_recaps: list[str],
     localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
 ) -> str | None:
     if event.get("mode") != "roll" or not roll_recaps:
         return None
     terms = localized_terms or {}
     text = _join_roll_recap_summaries(roll_recaps)
-    outcome_note = _localize_text(str(event.get("outcome_note", "")).strip(), terms)
+    outcome_note = _localized_field(event, "outcome_note", terms, play_language)
+    if outcome_note is None:
+        outcome_note = _localize_text(str(event.get("outcome_note", "")).strip(), terms)
     if outcome_note:
         text = f"{text}{outcome_note}" if text.endswith("。") else f"{text}。{outcome_note}"
     return text
@@ -1931,7 +1934,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         if event.get("mode") == "roll":
             roll_count = _event_roll_count(event, len(roll_recap_lines) - roll_cursor)
             recaps = roll_recap_lines[roll_cursor: roll_cursor + roll_count]
-            rendered_text = _format_roll_transcript_text(event, recaps, localized_terms)
+            rendered_text = _format_roll_transcript_text(event, recaps, localized_terms, str(play_language))
             roll_cursor += roll_count
         transcript_lines.extend(_format_transcript_event(
             event,

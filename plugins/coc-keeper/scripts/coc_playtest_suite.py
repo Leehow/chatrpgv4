@@ -32,6 +32,9 @@ QUALITY_DIMENSIONS = {
     "report_completeness": "Report completeness",
 }
 
+DEFAULT_PLAY_LANGUAGE = "zh-Hans"
+COMPLETION_AUDIT_PROFILES = {"haunting_module", "chase_drill", "multi_profile_pressure"}
+
 SEMANTIC_EVAL_REQUEST = "semantic-eval-request.json"
 SEMANTIC_EVAL_RESULT = "semantic-eval-result.json"
 LLM_SEMANTIC_EVALUATOR_ID = "codex-llm-semantic-v1"
@@ -555,6 +558,48 @@ def _gaps(matrix: dict[str, dict[str, Any]]) -> list[str]:
     return [key for key, value in matrix.items() if value["status"] not in {"covered", "passed"}]
 
 
+def _completion_profiles_ready(runs: list[dict[str, Any]]) -> bool:
+    return COMPLETION_AUDIT_PROFILES.issubset({
+        str(run.get("audit_profile"))
+        for run in runs
+    })
+
+
+def _known_play_language(run: dict[str, Any]) -> str:
+    language = run.get("play_language")
+    return str(language).strip() if isinstance(language, str) and language.strip() else "unknown"
+
+
+def _language_coverage_matrix(runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    required = _completion_profiles_ready(runs)
+    default_runs = [
+        run["run_id"]
+        for run in runs
+        if _known_play_language(run) == DEFAULT_PLAY_LANGUAGE
+    ]
+    non_default_runs = [
+        run["run_id"]
+        for run in runs
+        if _known_play_language(run) not in {"unknown", DEFAULT_PLAY_LANGUAGE}
+    ]
+    return {
+        "default_play_language": {
+            "label": f"Default play language ({DEFAULT_PLAY_LANGUAGE})",
+            "status": "covered" if default_runs else ("missing" if required else "not_required"),
+            "runs": default_runs,
+        },
+        "non_default_play_language": {
+            "label": "Non-default selected play language",
+            "status": "covered" if non_default_runs else ("missing" if required else "not_required"),
+            "runs": non_default_runs,
+        },
+    }
+
+
+def _language_gaps(matrix: dict[str, dict[str, Any]]) -> list[str]:
+    return [key for key, value in matrix.items() if value["status"] == "missing"]
+
+
 def _non_passing_runs(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
     return [
         {
@@ -636,6 +681,14 @@ def _loop_decision(index: dict[str, Any]) -> dict[str, Any]:
             "key": gap,
             "root_cause_classification": ["system_gap", "report_gap", "design_gap"],
             "next_loop_fix_target": f"Inspect semantic quality reasons and improve the current playtest loop for {gap}.",
+        })
+
+    for gap in index.get("language_gaps", []):
+        blockers.append({
+            "type": "language_coverage_gap",
+            "key": gap,
+            "root_cause_classification": ["test_gap", "report_gap"],
+            "next_loop_fix_target": f"Add or fix an active playtest run that proves {gap}.",
         })
 
     ignored = [run["run_id"] for run in runs if run["run_id"] not in set(active_run_ids)]
@@ -842,6 +895,11 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
         else:
             lines.append("  - none")
 
+    lines.extend(["", "## Language Coverage"])
+    for key, value in index.get("language_coverage", {}).items():
+        runs = ", ".join(value["runs"]) if value["runs"] else "none"
+        lines.append(f"- {key}: {value['status']} ({runs})")
+
     lines.extend(["", "## Quality Matrix"])
     for key, value in index["quality"].items():
         runs = ", ".join(value["runs"]) if value["runs"] else "none"
@@ -901,6 +959,13 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
     else:
         lines.append("- No quality gaps detected across indexed playtest runs.")
 
+    lines.extend(["", "## Remaining Language Gaps"])
+    if index.get("language_gaps"):
+        for gap in index["language_gaps"]:
+            lines.append(f"- {gap}")
+    else:
+        lines.append("- No language gaps detected across indexed playtest runs.")
+
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -912,13 +977,16 @@ def generate_suite_report(root: Path, evaluator: CoverageEvaluator | None = None
     active_runs = _active_evaluation_runs(runs)
     matrix = _coverage_matrix(active_runs)
     quality = _quality_matrix(active_runs)
+    language_coverage = _language_coverage_matrix(active_runs)
     index = {
         "schema_version": 1,
         "runs": runs,
         "coverage": matrix,
         "quality": quality,
+        "language_coverage": language_coverage,
         "gaps": _gaps(matrix),
         "quality_gaps": _gaps(quality),
+        "language_gaps": _language_gaps(language_coverage),
         "non_passing_runs": _non_passing_runs(active_runs),
     }
     index["loop_decision"] = _loop_decision(index)
