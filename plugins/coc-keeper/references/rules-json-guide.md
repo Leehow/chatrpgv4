@@ -9,15 +9,17 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 `references/rules-json/` contains:
 
 - `metadata.json`
+- `rule-index.json`
 - `age-adjustments.json`
+- `cash-assets.json`
 - `damage-bonus-build.json`
+- `derived-attributes.json`
+- `difficulty-levels.json`
 - `half-fifth-values.json`
 - `movement-rate.json`
 - `percentile-check.json`
-- `difficulty-levels.json`
-- `rule-index.json`
-- `success-levels.json`
 - `sanity.json`
+- `success-levels.json`
 
 `rule-index.json` is the stable traceability index for playtest logs. Campaign `logs/rolls.jsonl` and `logs/events.jsonl` should use payload `rule_refs` containing ids such as `core.percentile_check` or `module.haunting.corbitt_flesh_ward`; those ids must resolve to records in `rule-index.json`.
 

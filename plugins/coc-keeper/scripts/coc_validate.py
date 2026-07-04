@@ -8,13 +8,16 @@ from pathlib import Path
 
 REQUIRED_RULE_FILES = [
     "metadata.json",
+    "rule-index.json",
     "age-adjustments.json",
+    "cash-assets.json",
     "damage-bonus-build.json",
+    "derived-attributes.json",
+    "difficulty-levels.json",
     "half-fifth-values.json",
     "movement-rate.json",
     "percentile-check.json",
     "success-levels.json",
-    "difficulty-levels.json",
     "sanity.json",
 ]
 

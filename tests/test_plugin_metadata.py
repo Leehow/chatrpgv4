@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 
@@ -27,6 +28,38 @@ def test_validate_rules_script_accepts_seed_rules():
     spec.loader.exec_module(module)
 
     assert module.validate_rules(PLUGIN_ROOT) == []
+
+
+def test_validate_rules_requires_all_current_v1_rule_files(tmp_path):
+    import importlib.util
+
+    path = PLUGIN_ROOT / "scripts" / "coc_validate.py"
+    spec = importlib.util.spec_from_file_location("coc_validate", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    assert {
+        "cash-assets.json",
+        "derived-attributes.json",
+        "rule-index.json",
+    }.issubset(set(module.REQUIRED_RULE_FILES))
+
+    source_rules_dir = PLUGIN_ROOT / "references" / "rules-json"
+    target_rules_dir = tmp_path / "references" / "rules-json"
+    target_rules_dir.mkdir(parents=True)
+    for source_path in source_rules_dir.glob("*.json"):
+        if source_path.name != "derived-attributes.json":
+            shutil.copy2(source_path, target_rules_dir / source_path.name)
+
+    assert "missing rule file: derived-attributes.json" in module.validate_rules(tmp_path)
+
+
+def test_rules_json_guide_lists_all_rule_json_files():
+    guide_text = (PLUGIN_ROOT / "references" / "rules-json-guide.md").read_text()
+
+    for path in (PLUGIN_ROOT / "references" / "rules-json").glob("*.json"):
+        assert f"`{path.name}`" in guide_text
 
 
 def test_all_v1_skills_have_valid_frontmatter():
