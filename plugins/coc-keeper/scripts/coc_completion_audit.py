@@ -733,6 +733,37 @@ def _format_creation_formula_points(formula: Any, points: Any) -> str:
     return f"{formula} = {points}"
 
 
+def _format_characteristic_half_fifth_required_text(
+    values: dict[str, Any],
+    label: str,
+) -> str | None:
+    if not isinstance(values, dict):
+        return None
+    ordered = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"]
+    parts: list[str] = []
+    for key in ordered:
+        value = values.get(key)
+        if not isinstance(value, dict):
+            continue
+        half = value.get("half")
+        fifth = value.get("fifth")
+        if half not in (None, "", [], {}) and fifth not in (None, "", [], {}):
+            parts.append(f"{key} {half}/{fifth}")
+    for key in sorted(values):
+        if key in ordered:
+            continue
+        value = values[key]
+        if not isinstance(value, dict):
+            continue
+        half = value.get("half")
+        fifth = value.get("fifth")
+        if half not in (None, "", [], {}) and fifth not in (None, "", [], {}):
+            parts.append(f"{key} {half}/{fifth}")
+    if not parts:
+        return None
+    return f"{label}: {', '.join(parts)}"
+
+
 def _creation_age_required_texts(creation: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
     age = creation.get("age", {})
     if not isinstance(age, dict) or not age:
@@ -868,6 +899,12 @@ def _creation_required_texts(creation: dict[str, Any], metadata: dict[str, Any])
             value = characteristics.get(key)
             if isinstance(value, dict) and value.get("final") not in (None, "", [], {}):
                 required_texts.append(f"{key} {value['final']}")
+        thresholds_text = _format_characteristic_half_fifth_required_text(
+            characteristics,
+            _creation_label(metadata, "Characteristic Half/Fifth Values"),
+        )
+        if thresholds_text:
+            required_texts.append(thresholds_text)
 
     required_texts.extend(_creation_age_required_texts(creation, metadata))
 
@@ -1003,6 +1040,12 @@ def _character_dossier_required_texts(character: dict[str, Any], metadata: dict[
                 continue
             label = _character_dossier_label(metadata, str(key))
             required_texts.append(f"{label}: {value}")
+    thresholds_text = _format_characteristic_half_fifth_required_text(
+        character.get("characteristic_thresholds", {}),
+        _character_dossier_label(metadata, "Characteristic Half/Fifth Values"),
+    )
+    if thresholds_text:
+        required_texts.append(thresholds_text)
 
     derived = character.get("derived", {})
     if isinstance(derived, dict):

@@ -1318,6 +1318,29 @@ def _ada_king_chase_character_skills() -> dict[str, int]:
     return _skill_finals(_ada_king_chase_skill_allocation())
 
 
+def _half_fifth(value: int) -> dict[str, int]:
+    return {"full": value, "half": value // 2, "fifth": value // 5}
+
+
+def _creation_characteristic(formula: str, roll_total: int, final: int) -> dict[str, Any]:
+    thresholds = _half_fifth(final)
+    return {
+        "formula": formula,
+        "roll_total": roll_total,
+        "final": final,
+        "half": thresholds["half"],
+        "fifth": thresholds["fifth"],
+    }
+
+
+def _characteristic_thresholds(characteristics: dict[str, int]) -> dict[str, dict[str, int]]:
+    return {
+        key: _half_fifth(value)
+        for key, value in characteristics.items()
+        if isinstance(value, int)
+    }
+
+
 def _ada_king_creation_record(
     equipment: list[str] | None = None,
     skill_allocation: dict[str, Any] | None = None,
@@ -1336,15 +1359,15 @@ def _ada_king_creation_record(
             "equip_investigator",
         ],
         "characteristics": {
-            "STR": {"formula": "3D6 × 5", "roll_total": 12, "final": 60},
-            "CON": {"formula": "3D6 × 5", "roll_total": 11, "final": 55},
-            "SIZ": {"formula": "2D6+6 × 5", "roll_total": 13, "final": 65},
-            "DEX": {"formula": "3D6 × 5", "roll_total": 10, "final": 50},
-            "APP": {"formula": "3D6 × 5", "roll_total": 9, "final": 45},
-            "INT": {"formula": "2D6+6 × 5", "roll_total": 14, "final": 70},
-            "POW": {"formula": "3D6 × 5", "roll_total": 11, "final": 55},
-            "EDU": {"formula": "2D6+6 × 5", "roll_total": 15, "final": 75},
-            "LUCK": {"formula": "3D6 × 5", "roll_total": 11, "final": 55},
+            "STR": _creation_characteristic("3D6 × 5", 12, 60),
+            "CON": _creation_characteristic("3D6 × 5", 11, 55),
+            "SIZ": _creation_characteristic("2D6+6 × 5", 13, 65),
+            "DEX": _creation_characteristic("3D6 × 5", 10, 50),
+            "APP": _creation_characteristic("3D6 × 5", 9, 45),
+            "INT": _creation_characteristic("2D6+6 × 5", 14, 70),
+            "POW": _creation_characteristic("3D6 × 5", 11, 55),
+            "EDU": _creation_characteristic("2D6+6 × 5", 15, 75),
+            "LUCK": _creation_characteristic("3D6 × 5", 11, 55),
         },
         "age": {
             "years": 32,
@@ -1615,6 +1638,16 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
             "POW": 55,
             "EDU": 75,
         },
+        "characteristic_thresholds": _characteristic_thresholds({
+            "STR": 60,
+            "CON": 55,
+            "SIZ": 65,
+            "DEX": 50,
+            "APP": 45,
+            "INT": 70,
+            "POW": 55,
+            "EDU": 75,
+        }),
         "derived": {
             "HP": 12,
             "MP": 11,
@@ -2107,6 +2140,17 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
             "EDU": 75,
             "LUCK": 55,
         },
+        "characteristic_thresholds": _characteristic_thresholds({
+            "STR": 60,
+            "CON": 55,
+            "SIZ": 65,
+            "DEX": 50,
+            "APP": 45,
+            "INT": 70,
+            "POW": 55,
+            "EDU": 75,
+            "LUCK": 55,
+        }),
         "derived": {
             "HP": 12,
             "MP": 11,
@@ -2763,6 +2807,17 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
             "EDU": 75,
             "LUCK": 55,
         },
+        "characteristic_thresholds": _characteristic_thresholds({
+            "STR": 60,
+            "CON": 55,
+            "SIZ": 65,
+            "DEX": 50,
+            "APP": 45,
+            "INT": 70,
+            "POW": 55,
+            "EDU": 75,
+            "LUCK": 55,
+        }),
         "derived": {
             "HP": 12,
             "MP": 11,
@@ -3256,6 +3311,17 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
             "EDU": 75,
             "LUCK": 55,
         },
+        "characteristic_thresholds": _characteristic_thresholds({
+            "STR": 60,
+            "CON": 55,
+            "SIZ": 65,
+            "DEX": 50,
+            "APP": 45,
+            "INT": 70,
+            "POW": 55,
+            "EDU": 75,
+            "LUCK": 55,
+        }),
         "derived": {
             "HP": 12,
             "MP": 11,

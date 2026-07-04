@@ -1158,6 +1158,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Spot Hidden: 55" not in character_dossier
     assert "Dodge: 25" not in character_dossier
     assert "Fighting (Brawl): 40" not in character_dossier
+    character = investigator_json(run_dir, "ada-king-haunting", "character.json")
+    assert character["characteristic_thresholds"]["STR"] == {"full": 60, "half": 30, "fifth": 12}
+    assert character["characteristic_thresholds"]["EDU"] == {"full": 75, "half": 37, "fifth": 15}
+    assert "属性半值/五分之一: STR 30/12, CON 27/11, SIZ 32/13, DEX 25/10, APP 22/9, INT 35/14, POW 27/11, EDU 37/15, LUCK 27/11" in character_dossier
     creation = investigator_json(run_dir, "ada-king-haunting", "creation.json")
     assert creation["method"] == "standard_rulebook_chapter_3"
     assert creation["rulebook_steps"] == [
@@ -1170,6 +1174,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         "equip_investigator",
     ]
     assert creation["characteristics"]["STR"]["final"] == 60
+    assert creation["characteristics"]["STR"]["half"] == 30
+    assert creation["characteristics"]["STR"]["fifth"] == 12
+    assert creation["characteristics"]["EDU"]["half"] == 37
+    assert creation["characteristics"]["EDU"]["fifth"] == 15
     assert creation["age"] == {
         "years": 32,
         "range": "20-39",
@@ -1238,6 +1246,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "## 角色创建记录 <!-- report-anchor: Investigator Creation -->" in battle_text
     assert battle_text.index("report-anchor: Investigator Creation") < battle_text.index("report-anchor: Actual Play Replay")
     assert "生成属性: STR 60, CON 55, SIZ 65, DEX 50, APP 45, INT 70, POW 55, EDU 75, LUCK 55" in creation_section
+    assert "属性半值/五分之一: STR 30/12, CON 27/11, SIZ 32/13, DEX 25/10, APP 22/9, INT 35/14, POW 27/11, EDU 37/15, LUCK 27/11" in creation_section
     assert "年龄: 32（20-39 岁）" in creation_section
     assert "年龄调整: EDU 成长检定 1 次；本次 42 / 75，未提升；属性无降低。" in creation_section
     assert "职业: 古物学者" in creation_section

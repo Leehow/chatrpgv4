@@ -171,6 +171,7 @@ def battle_report_investigator_creation_fixture_text() -> str:
     return "\n".join([
         "- Fixture creation record.",
         "- Characteristics: STR 60, DEX 50",
+        "- Characteristic Half/Fifth Values: STR 30/12, DEX 25/10",
         "- Age: 32（20-39 岁）",
         "- Age Adjustments: EDU 成长检定 1 次；本次 42 / 75，未提升；属性无降低。",
         "- Occupation: Antiquarian",
@@ -227,6 +228,7 @@ def battle_report_character_dossier_fixture_text() -> str:
         "  - Occupation: Antiquarian",
         "  - Era: 1920s",
         "  - Characteristics: STR: 60, DEX: 50",
+        "  - Characteristic Half/Fifth Values: STR 30/12, DEX 25/10",
         "  - Derived: HP: 12, MOV: 8",
         "  - Skills: Spot Hidden: 55, Library Use: 60",
         "  - Backstory:",
@@ -1012,8 +1014,8 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         "schema_version": 1,
         "investigator_id": investigator_id,
         "characteristics": {
-            "STR": {"final": 60},
-            "DEX": {"final": 50},
+            "STR": {"final": 60, "half": 30, "fifth": 12},
+            "DEX": {"final": 50, "half": 25, "fifth": 10},
         },
         "age": {
             "years": 32,
@@ -1071,6 +1073,10 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         "characteristics": {
             "STR": 60,
             "DEX": 50,
+        },
+        "characteristic_thresholds": {
+            "STR": {"full": 60, "half": 30, "fifth": 12},
+            "DEX": {"full": 50, "half": 25, "fifth": 10},
         },
         "derived": {
             "HP": 12,
@@ -3082,6 +3088,7 @@ def test_completion_audit_fails_when_battle_report_omits_investigator_creation_r
     )
     assert finding["run_id"] == "v2-haunting-module"
     assert "STR 60" in finding["missing_creation_samples"]
+    assert "Characteristic Half/Fifth Values: STR 30/12, DEX 25/10" in finding["missing_creation_samples"]
     assert "Age: 32（20-39 岁）" in finding["missing_creation_samples"]
     assert "Age Adjustments: EDU 成长检定 1 次；本次 42 / 75，未提升；属性无降低。" in finding["missing_creation_samples"]
     assert "EDU x 4 = 300" in finding["missing_creation_samples"]
@@ -3151,6 +3158,7 @@ def test_completion_audit_fails_when_creation_records_are_outside_creation_secti
     )
     assert finding["run_id"] == "v2-haunting-module"
     assert "STR 60" in finding["missing_creation_samples"]
+    assert "Characteristic Half/Fifth Values: STR 30/12, DEX 25/10" in finding["missing_creation_samples"]
     assert "Age: 32（20-39 岁）" in finding["missing_creation_samples"]
     assert "EDU x 4 = 300" in finding["missing_creation_samples"]
 
@@ -3349,6 +3357,7 @@ def test_completion_audit_fails_when_battle_report_omits_character_dossier_recor
     assert finding["run_id"] == "v2-haunting-module"
     assert "Ada King" in finding["missing_character_samples"]
     assert "STR: 60" in finding["missing_character_samples"]
+    assert "Characteristic Half/Fifth Values: STR 30/12, DEX 25/10" in finding["missing_character_samples"]
     assert "Spot Hidden: 55" in finding["missing_character_samples"]
     assert "fixture backstory" in finding["missing_character_samples"]
 

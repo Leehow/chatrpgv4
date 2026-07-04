@@ -925,6 +925,12 @@ def _format_character(
             ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"],
         )
     )
+    thresholds = character.get("characteristic_thresholds", {})
+    if isinstance(thresholds, dict) and thresholds:
+        lines.append(
+            f"  - {_character_dossier_label(profile, 'Characteristic Half/Fifth Values')}: "
+            f"{_format_characteristic_half_fifth_values(thresholds)}"
+        )
     lines.append(
         f"  - {_character_dossier_label(profile, 'Derived')}: "
         + _format_key_values(
@@ -964,6 +970,32 @@ def _format_characteristic_creation_values(creation: dict[str, Any]) -> str:
         value = values[key]
         if isinstance(value, dict) and value.get("final") not in (None, "", [], {}):
             parts.append(f"{key} {value['final']}")
+    return ", ".join(parts) if parts else "none recorded"
+
+
+def _format_characteristic_half_fifth_values(values: dict[str, Any]) -> str:
+    if not isinstance(values, dict):
+        return "none recorded"
+    ordered = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"]
+    parts: list[str] = []
+    for key in ordered:
+        value = values.get(key)
+        if not isinstance(value, dict):
+            continue
+        half = value.get("half")
+        fifth = value.get("fifth")
+        if half not in (None, "", [], {}) and fifth not in (None, "", [], {}):
+            parts.append(f"{key} {half}/{fifth}")
+    for key in sorted(values):
+        if key in ordered:
+            continue
+        value = values[key]
+        if not isinstance(value, dict):
+            continue
+        half = value.get("half")
+        fifth = value.get("fifth")
+        if half not in (None, "", [], {}) and fifth not in (None, "", [], {}):
+            parts.append(f"{key} {half}/{fifth}")
     return ", ".join(parts) if parts else "none recorded"
 
 
@@ -1219,6 +1251,10 @@ def _format_investigator_creation(
     lines.append(
         f"  - {_creation_label(profile, 'Characteristics')}: "
         f"{_format_characteristic_creation_values(creation)}"
+    )
+    lines.append(
+        f"  - {_creation_label(profile, 'Characteristic Half/Fifth Values')}: "
+        f"{_format_characteristic_half_fifth_values(creation.get('characteristics', {}))}"
     )
     lines.extend(_format_creation_age(creation, profile, play_language))
     occupation = creation.get("occupation", {})

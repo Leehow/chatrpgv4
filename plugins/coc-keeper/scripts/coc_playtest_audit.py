@@ -577,6 +577,46 @@ def _character_age_step_gaps(characters: list[dict[str, Any]]) -> list[str]:
     return gaps
 
 
+def _characteristic_half_fifth_gaps(characters: list[dict[str, Any]]) -> list[str]:
+    if not characters:
+        return ["no investigator character files loaded"]
+
+    gaps: list[str] = []
+    for character in characters:
+        investigator_id = str(character.get("id") or character.get("investigator_id") or "unknown")
+        characteristics = character.get("characteristics", {})
+        thresholds = character.get("characteristic_thresholds")
+        if not isinstance(characteristics, dict) or not characteristics:
+            gaps.append(f"{investigator_id} missing characteristics")
+            continue
+        if not isinstance(thresholds, dict) or not thresholds:
+            gaps.append(f"{investigator_id} missing characteristic_thresholds")
+        for key, value in characteristics.items():
+            if not isinstance(value, int):
+                continue
+            expected = {"full": value, "half": value // 2, "fifth": value // 5}
+            threshold = thresholds.get(key) if isinstance(thresholds, dict) else None
+            if not isinstance(threshold, dict):
+                gaps.append(f"{investigator_id} missing characteristic_thresholds.{key}")
+            elif any(threshold.get(field) != expected[field] for field in ["full", "half", "fifth"]):
+                gaps.append(f"{investigator_id} characteristic_thresholds.{key} mismatch")
+
+        creation = character.get("_creation")
+        creation_characteristics = creation.get("characteristics", {}) if isinstance(creation, dict) else {}
+        if not isinstance(creation_characteristics, dict) or not creation_characteristics:
+            gaps.append(f"{investigator_id} creation missing characteristic half/fifth source")
+            continue
+        for key, value in creation_characteristics.items():
+            if not isinstance(value, dict):
+                continue
+            final = value.get("final")
+            if not isinstance(final, int):
+                continue
+            if value.get("half") != final // 2 or value.get("fifth") != final // 5:
+                gaps.append(f"{investigator_id} creation characteristic {key} missing half/fifth")
+    return gaps
+
+
 def _character_skill_allocation_gaps(characters: list[dict[str, Any]]) -> list[str]:
     if not characters:
         return ["no investigator character files loaded"]
@@ -2865,6 +2905,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "; ".join(age_step_gaps),
             "Record the rulebook Chapter 3 age choice, age modifier bracket, EDU improvement checks, characteristic reductions, APP reduction, and MOV penalty in creation.json.",
+        ))
+
+    half_fifth_gaps = _characteristic_half_fifth_gaps(context["characters"]) if active_profile else []
+    if half_fifth_gaps:
+        findings.append(_finding(
+            "characteristic_half_fifth_missing",
+            "system_gap",
+            "medium",
+            "; ".join(half_fifth_gaps),
+            "Record full, half, and fifth characteristic values in creation.json and character.json so the reusable investigator sheet matches the rulebook Chapter 3 workflow.",
         ))
 
     skill_allocation_gaps = _character_skill_allocation_gaps(context["characters"]) if active_profile else []

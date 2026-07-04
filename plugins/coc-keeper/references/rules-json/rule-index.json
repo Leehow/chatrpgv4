@@ -112,6 +112,19 @@
       }
     },
     {
+      "id": "core.character_creation.half_fifth_values",
+      "category": "character_creation",
+      "source_note": "After determining each characteristic percentage, write the full, half, and fifth values on the investigator sheet; Hard uses half and Extreme uses fifth.",
+      "numeric": {
+        "half_divisor": 2,
+        "fifth_divisor": 5,
+        "rounding": "floor",
+        "applies_to_characteristics": true,
+        "hard_threshold": "half",
+        "extreme_threshold": "fifth"
+      }
+    },
+    {
       "id": "core.pushed_roll",
       "category": "roll_procedure",
       "source_note": "A pushed roll requires a changed approach and Keeper-stated consequences before rerolling.",
