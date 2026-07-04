@@ -51,20 +51,29 @@ Campaigns store temporary and scenario-specific state:
 ├── campaign.json
 ├── party.json
 ├── save/
+│   ├── world-state.json
+│   ├── active-scene.json
+│   ├── flags.json
+│   └── investigator-state/
 ├── scenario/
 ├── index/
 ├── memory/
+│   └── session-summaries.jsonl
 ├── logs/
+│   ├── events.jsonl
+│   ├── rolls.jsonl
+│   └── audit.jsonl
 └── snapshots/
 ```
 
 `party.json` references reusable investigator ids. Campaign-specific HP, SAN, conditions, and scene position live under `save/`.
-`campaign.json` persists `play_language`, `language_profile`, and a `localized_terms` map keyed by language, so resumed campaigns keep the same visible narration language, output instruction, name policy, term policy, report labels, and name/term localization. Logs and memory may include `localized_text[play_language]` for player-visible prose that should be rendered directly before falling back to `localized_terms`.
+`create_campaign` initializes the minimal resume contract: `world-state.json` tracks active scene, subsystem, clue ids, decisions, memory refs, log refs, and investigator-state refs; `active-scene.json` stores the current player-safe scene pointer; `flags.json` stores clue, decision, and spoiler-reveal flags. `campaign.json` persists `play_language`, `language_profile`, and a `localized_terms` map keyed by language, so resumed campaigns keep the same visible narration language, output instruction, name policy, term policy, report labels, and name/term localization. Logs and memory may include `localized_text[play_language]` for player-visible prose that should be rendered directly before falling back to `localized_terms`.
 
 ## Logs And Memory
 
 - `logs/*.jsonl` is append-only event history.
-- `memory/` stores current summaries, discovered facts, unresolved threads, relationships, and Keeper notes.
+- `logs/events.jsonl` stores story events, `logs/rolls.jsonl` stores mechanical roll events, and `logs/audit.jsonl` stores Keeper-facing audit events such as confirmed spoiler reveals.
+- `memory/session-summaries.jsonl` stores player-safe running recaps for resume and battle reports.
 - `snapshots/` stores point-in-time recovery copies.
 
 ## Playtests

@@ -60,6 +60,16 @@ def write_json_atomic(path: Path, payload: dict[str, Any] | list[Any]) -> None:
     temp_path.replace(path)
 
 
+def _write_json_if_missing(path: Path, payload: dict[str, Any] | list[Any]) -> None:
+    if not path.exists():
+        write_json_atomic(path, payload)
+
+
+def _touch_if_missing(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch(exist_ok=True)
+
+
 def _relative_to_root(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
@@ -222,8 +232,65 @@ def create_campaign(
     }
     campaign_path = campaign_dir / "campaign.json"
     write_json_atomic(campaign_path, campaign)
+    _initialize_campaign_runtime_files(campaign_dir, campaign_id)
     _upsert_campaign_index(root, campaign_id)
     return campaign_path
+
+
+def _initialize_campaign_runtime_files(campaign_dir: Path, campaign_id: str) -> None:
+    _write_json_if_missing(
+        campaign_dir / "save" / "world-state.json",
+        {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "scenario_id": None,
+            "status": "setup",
+            "active_scene_id": None,
+            "active_subsystem": "setup",
+            "current_phase": None,
+            "discovered_clue_ids": [],
+            "major_decisions": [],
+            "current_status": None,
+            "memory_refs": ["memory/session-summaries.jsonl"],
+            "log_refs": ["logs/events.jsonl", "logs/rolls.jsonl"],
+            "investigator_state_refs": [],
+            "updated_from_logs": {
+                "events": 0,
+                "rolls": 0,
+                "memory": 0,
+            },
+        },
+    )
+    _write_json_if_missing(
+        campaign_dir / "save" / "active-scene.json",
+        {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "scenario_id": None,
+            "scene_id": None,
+            "source_event_type": None,
+            "summary": "",
+            "pending_choices": None,
+        },
+    )
+    _write_json_if_missing(
+        campaign_dir / "save" / "flags.json",
+        {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "scenario_id": None,
+            "clues_found": {},
+            "decisions": [],
+            "spoiler_reveals": [],
+        },
+    )
+    for relative_path in (
+        "logs/events.jsonl",
+        "logs/rolls.jsonl",
+        "logs/audit.jsonl",
+        "memory/session-summaries.jsonl",
+    ):
+        _touch_if_missing(campaign_dir / relative_path)
 
 
 def link_party(root: Path, campaign_id: str, investigator_ids: list[str]) -> Path:

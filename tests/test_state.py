@@ -117,6 +117,43 @@ def test_create_campaign_persists_play_language(tmp_path):
     assert "localized_terms.ja-JP" in custom_campaign["language_profile"]["term_policy"]
 
 
+def test_create_campaign_initializes_resume_state_files(tmp_path):
+    campaign_path = coc_state.create_campaign(tmp_path, "haunting-test", "The Haunting Test")
+    campaign_dir = campaign_path.parent
+
+    world_state = json.loads((campaign_dir / "save" / "world-state.json").read_text())
+    active_scene = json.loads((campaign_dir / "save" / "active-scene.json").read_text())
+    flags = json.loads((campaign_dir / "save" / "flags.json").read_text())
+
+    assert world_state["campaign_id"] == "haunting-test"
+    assert world_state["status"] == "setup"
+    assert world_state["active_scene_id"] is None
+    assert world_state["memory_refs"] == ["memory/session-summaries.jsonl"]
+    assert world_state["log_refs"] == ["logs/events.jsonl", "logs/rolls.jsonl"]
+    assert world_state["investigator_state_refs"] == []
+    assert active_scene == {
+        "schema_version": 1,
+        "campaign_id": "haunting-test",
+        "scenario_id": None,
+        "scene_id": None,
+        "source_event_type": None,
+        "summary": "",
+        "pending_choices": None,
+    }
+    assert flags == {
+        "schema_version": 1,
+        "campaign_id": "haunting-test",
+        "scenario_id": None,
+        "clues_found": {},
+        "decisions": [],
+        "spoiler_reveals": [],
+    }
+    assert (campaign_dir / "logs" / "events.jsonl").read_text() == ""
+    assert (campaign_dir / "logs" / "rolls.jsonl").read_text() == ""
+    assert (campaign_dir / "logs" / "audit.jsonl").read_text() == ""
+    assert (campaign_dir / "memory" / "session-summaries.jsonl").read_text() == ""
+
+
 def test_custom_language_profiles_are_independent_copies():
     first = coc_language.language_profile("fr-FR")
     first["speaker_labels"]["player"] = "joueur"
