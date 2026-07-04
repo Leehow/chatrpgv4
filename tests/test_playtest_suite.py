@@ -179,7 +179,7 @@ def test_suite_report_uses_semantic_evaluator_instead_of_text_shape(tmp_path):
         "scenario": "Fixture Scenario",
         "audit_profile": "semantic_fixture",
         "player_profile": "careful_investigator",
-        "subsystems_covered": [],
+        "subsystems_covered": ["chase"],
     }))
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
     (artifacts_dir / "battle-report.md").write_text(
@@ -267,7 +267,7 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
         "scenario": "Fixture Scenario",
         "audit_profile": "semantic_fixture",
         "player_profile": "careful_investigator",
-        "subsystems_covered": [],
+        "subsystems_covered": ["combat", "chase", "sanity"],
     }))
     (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
@@ -337,6 +337,63 @@ def test_suite_report_can_use_llm_semantic_result_artifact(tmp_path):
     assert "LLM semantic judge scored rulebook_procedure as table-ready." in report_text
 
 
+def test_suite_report_source_gates_semantic_subsystem_coverage(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "semantic-artifact-run"
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (run_dir / "playtest.json").write_text(json.dumps({
+        "run_id": "semantic-artifact-run",
+        "campaign_title": "Semantic Artifact Fixture",
+        "scenario": "Fixture Scenario",
+        "audit_profile": "semantic_fixture",
+        "player_profile": "careful_investigator",
+        "subsystems_covered": ["combat", "sanity"],
+    }))
+    (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
+    (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
+    request = write_semantic_eval_request(artifacts_dir, "semantic-artifact-run")
+    (artifacts_dir / "semantic-eval-result.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": "semantic-artifact-run",
+        "evaluator_id": "codex-llm-semantic-v1",
+        "evaluation_provenance": llm_semantic_provenance_for(request),
+        "coverage": {
+            key: {
+                "covered": True,
+                "reason": f"LLM semantic judge found {key} in the run evidence.",
+            }
+            for key in coc_playtest_suite.CORE_COVERAGE
+        },
+        "quality": {
+            key: {
+                "score": 4,
+                "passed": True,
+                "reason": f"LLM semantic judge scored {key} as table-ready.",
+            }
+            for key in coc_playtest_suite.QUALITY_DIMENSIONS
+        },
+        "root_cause_classification": ["report_gap", "system_gap"],
+        "next_loop_fix_target": "Correct contradicted subsystem coverage.",
+    }))
+
+    coc_playtest_suite.generate_suite_report(
+        tmp_path,
+        evaluator=coc_playtest_suite.SemanticArtifactCoverageEvaluator(),
+    )
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+
+    run = index["runs"][0]
+    assert run["coverage"]["chase"] is False
+    assert run["coverage_reasons"]["chase"] == (
+        "Evaluator claimed `chase`, but playtest.json subsystems_covered does not declare `chase`."
+    )
+    assert index["coverage"]["chase"]["status"] == "missing"
+    assert "chase" in index["gaps"]
+    assert index["loop_decision"]["status"] == "needs_repair"
+    assert index["loop_decision"]["blockers"][0]["type"] == "coverage_gap"
+    assert index["loop_decision"]["blockers"][0]["key"] == "chase"
+
+
 def test_suite_report_rejects_stale_semantic_result_request_hash(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "semantic-artifact-run"
     artifacts_dir = run_dir / "artifacts"
@@ -347,7 +404,7 @@ def test_suite_report_rejects_stale_semantic_result_request_hash(tmp_path):
         "scenario": "Fixture Scenario",
         "audit_profile": "semantic_fixture",
         "player_profile": "careful_investigator",
-        "subsystems_covered": [],
+        "subsystems_covered": ["combat", "chase", "sanity"],
     }))
     (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
@@ -535,6 +592,7 @@ def test_suite_report_requires_explicit_semantic_quality_passed_flag(tmp_path):
         "scenario": "Fixture Scenario",
         "audit_profile": "semantic_fixture",
         "player_profile": "careful_investigator",
+        "subsystems_covered": ["combat", "chase", "sanity"],
     }))
     (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
@@ -588,6 +646,7 @@ def test_suite_report_requires_structured_semantic_coverage_reason(tmp_path):
         "scenario": "Fixture Scenario",
         "audit_profile": "semantic_fixture",
         "player_profile": "careful_investigator",
+        "subsystems_covered": ["combat", "sanity"],
     }))
     (artifacts_dir / "battle-report.md").write_text("Narrative text that requires semantic judgment.")
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
@@ -719,6 +778,7 @@ def test_suite_report_flags_missing_virtual_player_pressure_quality(tmp_path):
         "scenario": "Fixture Scenario",
         "audit_profile": "haunting_module",
         "player_profile": "careful_investigator",
+        "subsystems_covered": ["combat", "chase", "sanity"],
     }))
     (artifacts_dir / "battle-report.md").write_text("Only one simulated player profile is represented.")
     (artifacts_dir / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")
@@ -780,6 +840,7 @@ def test_loop_decision_ignores_historical_baseline_missing_semantic_result(tmp_p
         "scenario": "Active Scenario",
         "audit_profile": "haunting_module",
         "player_profile": "careful_investigator",
+        "subsystems_covered": ["combat", "chase", "sanity"],
     }))
     (active_artifacts / "battle-report.md").write_text("Active report with semantic result.")
     (active_artifacts / "rulebook-audit.md").write_text("# Rulebook Alignment Audit\n\n## Overall Result\nPASS\n")

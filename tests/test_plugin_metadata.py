@@ -337,6 +337,8 @@ def test_coc_playtest_skill_documents_semantic_matcher_constitution():
         "machine-controlled schema fields",
         "coverage_evaluator",
         "coverage_reasons",
+        "source-gated subsystems",
+        "subsystems_covered",
     ]
     for term in required_terms:
         assert term in skill_text

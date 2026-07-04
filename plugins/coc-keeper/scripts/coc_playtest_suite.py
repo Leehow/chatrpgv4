@@ -46,6 +46,12 @@ SEMANTIC_RESULT_REQUIRED_FIELDS = [
     "next_loop_fix_target",
 ]
 
+SOURCE_GATED_SUBSYSTEM_COVERAGE = {
+    "combat": "combat",
+    "chase": "chase",
+    "sanity": "sanity",
+}
+
 
 def _json_sha256(payload: Any) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -379,6 +385,22 @@ def _normalize_evaluation(raw: dict[str, Any], default_evaluator_id: str) -> tup
     return evaluator_id, coverage, reasons
 
 
+def _source_gate_subsystem_coverage(
+    coverage: dict[str, bool],
+    reasons: dict[str, str],
+    metadata: dict[str, Any],
+) -> None:
+    raw_subsystems = metadata.get("subsystems_covered", [])
+    subsystems = {item for item in raw_subsystems if isinstance(item, str)} if isinstance(raw_subsystems, list) else set()
+    for coverage_key, subsystem in SOURCE_GATED_SUBSYSTEM_COVERAGE.items():
+        if coverage.get(coverage_key) and subsystem not in subsystems:
+            coverage[coverage_key] = False
+            reasons[coverage_key] = (
+                f"Evaluator claimed `{coverage_key}`, but playtest.json subsystems_covered "
+                f"does not declare `{subsystem}`."
+            )
+
+
 def _normalize_quality(raw: dict[str, Any]) -> tuple[dict[str, int], dict[str, bool], dict[str, str]]:
     raw_quality = raw.get("quality", {})
     scores: dict[str, int] = {}
@@ -420,6 +442,7 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
         context = _coverage_context(run_dir, metadata, battle_text, run_id)
         raw_evaluation = evaluator.evaluate_run(context)
         coverage_evaluator, coverage, coverage_reasons = _normalize_evaluation(raw_evaluation, evaluator.evaluator_id)
+        _source_gate_subsystem_coverage(coverage, coverage_reasons, metadata)
         quality_scores, quality_passes, quality_reasons = _normalize_quality(raw_evaluation)
         run = {
             "run_id": run_id,
