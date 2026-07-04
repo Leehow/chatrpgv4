@@ -45,6 +45,9 @@ SEMANTIC_RESULT_REQUIRED_FIELDS = [
     "root_cause_classification",
     "next_loop_fix_target",
 ]
+SEMANTIC_REQUEST_REQUIRED_INPUTS = [
+    "scenario",
+]
 
 SOURCE_GATED_SUBSYSTEM_COVERAGE = {
     "combat": "combat",
@@ -93,6 +96,14 @@ def _semantic_request_contract_errors(payload: Any, run_id: str) -> list[str]:
         field not in expected_required for field in SEMANTIC_RESULT_REQUIRED_FIELDS
     ):
         errors.append("semantic_eval_request.expected_output_schema.required")
+    inputs = payload.get("inputs")
+    if not isinstance(inputs, dict):
+        errors.append("semantic_eval_request.inputs")
+    else:
+        for input_name in SEMANTIC_REQUEST_REQUIRED_INPUTS:
+            input_value = inputs.get(input_name)
+            if not isinstance(input_value, dict) or not input_value:
+                errors.append(f"semantic_eval_request.inputs.{input_name}")
     return errors
 
 
@@ -107,6 +118,7 @@ class CoverageContext:
         player_feedback: list[dict[str, Any]],
         campaign: dict[str, Any],
         party: dict[str, Any],
+        scenario: dict[str, Any],
         characters: list[dict[str, Any]],
         rolls: list[dict[str, Any]],
         state_events: list[dict[str, Any]],
@@ -120,6 +132,7 @@ class CoverageContext:
         self.player_feedback = player_feedback
         self.campaign = campaign
         self.party = party
+        self.scenario = scenario
         self.characters = characters
         self.rolls = rolls
         self.state_events = state_events
@@ -362,6 +375,7 @@ def _coverage_context(run_dir: Path, metadata: dict[str, Any], battle_text: str,
     campaign_dir = _select_campaign_dir(run_dir, metadata)
     campaign = _read_json(campaign_dir / "campaign.json", {}) if campaign_dir else {}
     party = _read_json(campaign_dir / "party.json", {}) if campaign_dir else {}
+    scenario = _read_json(campaign_dir / "scenario" / "scenario.json", {}) if campaign_dir else {}
     return CoverageContext(
         run_id=run_id,
         run_dir=run_dir,
@@ -371,6 +385,7 @@ def _coverage_context(run_dir: Path, metadata: dict[str, Any], battle_text: str,
         player_feedback=_read_jsonl(run_dir / "player-feedback.jsonl"),
         campaign=campaign,
         party=party,
+        scenario=scenario,
         characters=_load_characters(run_dir, party),
         rolls=_read_jsonl(campaign_dir / "logs" / "rolls.jsonl") if campaign_dir else [],
         state_events=_read_jsonl(campaign_dir / "logs" / "events.jsonl") if campaign_dir else [],
@@ -720,6 +735,7 @@ def _semantic_eval_request(context: CoverageContext) -> dict[str, Any]:
             "playtest": context.metadata,
             "campaign": context.campaign,
             "party": context.party,
+            "scenario": context.scenario,
             "characters": context.characters,
             "battle_report": context.battle_report,
             "transcript": context.transcript,

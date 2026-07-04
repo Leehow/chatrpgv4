@@ -84,7 +84,14 @@ def request_payload(run_id: str) -> dict:
             {"key": key, "label": key}
             for key in coc_playtest_suite.QUALITY_DIMENSIONS
         ],
-        "inputs": {"battle_report": "fixture evidence"},
+        "inputs": {
+            "battle_report": "fixture evidence",
+            "scenario": {
+                "scenario_id": "fixture-scenario",
+                "title": "Fixture Scenario",
+                "opening_scene": "Fixture opening scene.",
+            },
+        },
         "expected_output_schema": {
             "required": [
                 "schema_version",
@@ -5198,5 +5205,43 @@ def test_completion_audit_fails_when_semantic_request_contract_is_incomplete(tmp
         finding["code"] == "semantic_request_contract_invalid"
         and finding["run_id"] == "v2-haunting-module"
         and "coverage_keys" in finding["missing_fields"]
+        for finding in audit["findings"]
+    )
+
+
+def test_completion_audit_fails_when_semantic_request_omits_scenario_source(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    request_path = run_dir / "artifacts" / "semantic-eval-request.json"
+    malformed_request = request_payload("v2-haunting-module")
+    malformed_request["inputs"].pop("scenario")
+    write_json(request_path, malformed_request)
+    semantic_path = run_dir / "artifacts" / "semantic-eval-result.json"
+    semantic = json.loads(semantic_path.read_text())
+    semantic["evaluation_provenance"]["request_sha256"] = request_hash(malformed_request)
+    write_json(semantic_path, semantic)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(
+        finding["code"] == "semantic_request_contract_invalid"
+        and finding["run_id"] == "v2-haunting-module"
+        and "inputs.scenario" in finding["missing_fields"]
         for finding in audit["findings"]
     )

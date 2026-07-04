@@ -48,7 +48,13 @@ def write_semantic_eval_request(
             {"key": key, "label": key}
             for key in coc_playtest_suite.QUALITY_DIMENSIONS
         ],
-        "inputs": {"battle_report": battle_report},
+        "inputs": {
+            "battle_report": battle_report,
+            "scenario": {
+                "scenario_id": "fixture-scenario",
+                "title": "Fixture Scenario",
+            },
+        },
         "expected_output_schema": {
             "required": [
                 "schema_version",
@@ -239,6 +245,9 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     assert "actual-play" in quality_questions["actual_play_replay"]
     assert "multiple player profiles" in quality_questions["virtual_player_pressure"]
     assert "battle_report" in request["inputs"]
+    assert request["inputs"]["scenario"]["scenario_id"] == "rooftop-chase-drill"
+    assert request["inputs"]["scenario"]["title"] == "The Ledger on the Rooftops"
+    assert request["inputs"]["scenario"]["opening_scene"]
     assert "transcript" in request["inputs"]
     assert "state_events" in request["inputs"]
     assert request["expected_output_schema"]["required"] == [

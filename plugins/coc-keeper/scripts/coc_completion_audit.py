@@ -1943,6 +1943,11 @@ def _semantic_request_contract_findings(run_id: str, semantic_request: dict[str,
             for field in REQUIRED_SEMANTIC_REQUEST_FIELDS
             if field not in expected_required
         ]
+    inputs = semantic_request.get("inputs")
+    if not isinstance(inputs, dict):
+        missing_fields.append("inputs")
+    elif not isinstance(inputs.get("scenario"), dict) or not inputs["scenario"]:
+        missing_fields.append("inputs.scenario")
 
     if not any((missing_fields, invalid_fields, missing_coverage_keys, missing_quality_keys, missing_expected_fields)):
         return []
@@ -1950,7 +1955,7 @@ def _semantic_request_contract_findings(run_id: str, semantic_request: dict[str,
         "semantic_request_contract_invalid",
         "test_gap",
         f"{run_id} semantic-eval-request.json does not expose the full LLM evaluator contract.",
-        "Regenerate semantic-eval-request.json with coverage_keys, quality_dimensions, and expected_output_schema.required before accepting semantic results.",
+        "Regenerate semantic-eval-request.json with coverage_keys, quality_dimensions, inputs.scenario, and expected_output_schema.required before accepting semantic results.",
         run_id=run_id,
         missing_fields=missing_fields,
         invalid_fields=invalid_fields,
