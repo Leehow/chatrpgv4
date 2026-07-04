@@ -1212,6 +1212,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         "determine_occupation",
         "allocate_skill_points",
         "create_backstory",
+        "determine_finances",
         "equip_investigator",
     ]
     assert creation["characteristics"]["STR"]["final"] == 60
@@ -1248,7 +1249,14 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert creation["occupation"]["credit_rating_range"] == "30-70"
     assert creation["personal_interest"]["skill_point_formula"] == "INT × 2"
     assert creation["personal_interest"]["skill_points_available"] == 140
-    assert creation["finances"]["credit_rating"] == 40
+    assert creation["finances"] == {
+        "credit_rating": 40,
+        "living_standard": "Average",
+        "cash": {"amount": 80, "currency": "USD", "formula": "CR x 2"},
+        "assets": {"amount": 2000, "currency": "USD", "formula": "CR x 50"},
+        "spending_level": {"amount": 10, "currency": "USD"},
+        "period": "1920s",
+    }
     assert "裂柄铜放大镜" in creation["equipment"]
     allocation = creation["skill_allocation"]
     assert allocation["skills"]["Library Use"]["half"] == 30
@@ -1308,6 +1316,10 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "职业技能点: EDU × 4 = 300" in creation_section
     assert "个人兴趣技能点: INT × 2 = 140" in creation_section
     assert "信用评级: 40（规则书职业范围 30-70）" in creation_section
+    assert "生活水平: 普通" in creation_section
+    assert "现金: 80 美元" in creation_section
+    assert "资产: 2000 美元" in creation_section
+    assert "消费水平: 10 美元" in creation_section
     assert "技能分配: 职业 300/300，个人兴趣 140/140，未分配 0/0" in creation_section
     assert "技能半值/五分之一: 估价 20/8, 艺术/手艺（古董修复） 20/8, 魅惑 17/7, 攀爬 10/4, 信用评级 20/8, 闪避 12/5, 格斗（斗殴） 20/8, 射击（手枪） 20/8, 急救 20/8, 历史 25/10, 图书馆使用 30/12, 聆听 20/8, 神秘学 5/2, 其他语言（拉丁语） 15/6, 说服 27/11, 心理学 20/8, 侦查 27/11, 潜行 20/8" in creation_section
     assert "信用评级: 基础 0 + 职业 40 + 个人兴趣 0 = 40" in creation_section

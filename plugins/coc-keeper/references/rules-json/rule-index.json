@@ -137,6 +137,20 @@
       }
     },
     {
+      "id": "core.character_creation.cash_and_assets",
+      "category": "character_creation",
+      "source_note": "Keeper Rulebook Chapter 3 Table II cross-references Credit Rating and period to determine living standard, cash, assets, and spending level.",
+      "source_table": "cash-assets.json",
+      "numeric": {
+        "uses_credit_rating": true,
+        "uses_period": true,
+        "outputs_living_standard": true,
+        "outputs_cash": true,
+        "outputs_assets": true,
+        "outputs_spending_level": true
+      }
+    },
+    {
       "id": "core.pushed_roll",
       "category": "roll_procedure",
       "source_note": "A pushed roll requires a changed approach and Keeper-stated consequences before rerolling.",

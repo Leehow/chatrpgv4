@@ -24,7 +24,7 @@ from coc_playtest_report import (
     _format_roll_transcript_text,
     _localized_actor_names,
 )
-from coc_rules import rule_ids
+from coc_rules import cash_and_assets, rule_ids
 
 
 REQUIRED_AUDIT_PROFILES = ["haunting_module", "chase_drill", "multi_profile_pressure"]
@@ -767,6 +767,52 @@ def _format_creation_formula_points(formula: Any, points: Any) -> str:
     return f"{formula} = {points}"
 
 
+def _format_required_money_value(value: Any, play_language: str) -> str:
+    if isinstance(value, dict):
+        amount = value.get("amount")
+        currency = value.get("currency", "USD")
+    else:
+        amount = value
+        currency = "USD"
+    if amount in (None, "", [], {}):
+        if play_language == "zh-Hans":
+            return "无"
+        if play_language == "ja-JP":
+            return "なし"
+        return "None"
+    amount_text = str(int(amount)) if isinstance(amount, float) and amount.is_integer() else str(amount)
+    if currency == "USD":
+        if play_language == "zh-Hans":
+            return f"{amount_text} 美元"
+        if play_language == "ja-JP":
+            return f"{amount_text} ドル"
+        return f"{amount_text} USD"
+    return f"{amount_text} {currency}"
+
+
+def _format_required_living_standard(value: Any, play_language: str) -> str:
+    labels = {
+        "zh-Hans": {
+            "Penniless": "身无分文",
+            "Poor": "贫穷",
+            "Average": "普通",
+            "Wealthy": "富裕",
+            "Rich": "富豪",
+            "Super Rich": "超级富豪",
+        },
+        "ja-JP": {
+            "Penniless": "無一文",
+            "Poor": "貧困",
+            "Average": "平均",
+            "Wealthy": "裕福",
+            "Rich": "富豪",
+            "Super Rich": "超富豪",
+        },
+    }
+    text = str(value)
+    return labels.get(play_language, {}).get(text, text)
+
+
 def _format_characteristic_half_fifth_required_text(
     values: dict[str, Any],
     label: str,
@@ -990,6 +1036,22 @@ def _creation_required_texts(creation: dict[str, Any], metadata: dict[str, Any])
         if isinstance(occupation, dict) and occupation.get("credit_rating_range") not in (None, "", [], {}):
             range_label = _creation_label(metadata, "Rulebook Occupation Range")
             required_texts.append(f"{range_label} {occupation['credit_rating_range']}")
+        play_language = str(metadata.get("play_language") or "en-US")
+        if finances.get("living_standard") not in (None, "", [], {}):
+            living_label = _creation_label(metadata, "Living Standard")
+            required_texts.append(
+                f"{living_label}: {_format_required_living_standard(finances['living_standard'], play_language)}"
+            )
+        for key, label in [
+            ("cash", "Cash"),
+            ("assets", "Assets"),
+            ("spending_level", "Spending Level"),
+        ]:
+            if finances.get(key) in (None, "", [], {}):
+                continue
+            required_texts.append(
+                f"{_creation_label(metadata, label)}: {_format_required_money_value(finances[key], play_language)}"
+            )
 
     allocation = creation.get("skill_allocation", {})
     if isinstance(allocation, dict) and allocation:
@@ -1078,7 +1140,7 @@ def _battle_report_investigator_creation_findings(
         run_id=run_id,
         missing_creation_count=len(missing_texts),
         required_creation_count=len(required_texts),
-        missing_creation_samples=missing_texts[:15],
+        missing_creation_samples=missing_texts[:30],
     )]
 
 
@@ -3534,6 +3596,34 @@ def _investigator_structure_findings(run_id: str, investigator_dir: Path, invest
         and isinstance(creation.get("skill_allocation"), dict)
         and bool(creation["skill_allocation"])
     )
+    finances = creation.get("finances") if isinstance(creation, dict) else {}
+    missing_finance_evidence: list[str] = []
+    if not isinstance(finances, dict):
+        missing_finance_evidence.extend([
+            "investigator finance living standard",
+            "investigator finance cash",
+            "investigator finance assets",
+            "investigator finance spending level",
+        ])
+    else:
+        for key, evidence in [
+            ("period", "investigator finance period"),
+            ("living_standard", "investigator finance living standard"),
+            ("cash", "investigator finance cash"),
+            ("assets", "investigator finance assets"),
+            ("spending_level", "investigator finance spending level"),
+        ]:
+            if finances.get(key) in (None, "", [], {}):
+                missing_finance_evidence.append(evidence)
+        if not missing_finance_evidence and finances.get("credit_rating") not in (None, "", [], {}):
+            try:
+                expected_finances = cash_and_assets(int(finances["credit_rating"]), str(finances["period"]))
+            except (TypeError, ValueError):
+                missing_finance_evidence.append("investigator finance rulebook table lookup")
+            else:
+                for key in ("living_standard", "cash", "assets", "spending_level"):
+                    if finances.get(key) != expected_finances.get(key):
+                        missing_finance_evidence.append(f"investigator finance {key} rulebook value")
     has_character_skills = (
         isinstance(character, dict)
         and isinstance(character.get("skills"), dict)
@@ -3556,6 +3646,9 @@ def _investigator_structure_findings(run_id: str, investigator_dir: Path, invest
 
     if not has_skill_allocation:
         missing_evidence.append("investigator skill allocation")
+        incomplete_files.append(f"{investigator_prefix}creation.json")
+    if missing_finance_evidence:
+        missing_evidence.extend(missing_finance_evidence)
         incomplete_files.append(f"{investigator_prefix}creation.json")
     if not has_character_skills:
         missing_evidence.append("investigator character skills")

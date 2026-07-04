@@ -66,6 +66,55 @@ def damage_bonus_build(str_value: int, siz_value: int) -> dict[str, int | str]:
     raise ValueError(f"STR+SIZ total out of V1 table range: {total}")
 
 
+def _finance_amount(amount: float | int | None, currency: str = "USD", formula: str | None = None) -> dict[str, Any]:
+    value: dict[str, Any] = {
+        "amount": amount,
+        "currency": currency,
+    }
+    if formula:
+        value["formula"] = formula
+    return value
+
+
+def cash_and_assets(credit_rating: int, period: str = "1920s") -> dict[str, Any]:
+    table = load_rule_table("cash-assets")
+    periods = table.get("periods", {})
+    if not isinstance(periods, dict) or period not in periods:
+        raise ValueError(f"unsupported finance period: {period}")
+    rows = periods[period]
+    if not isinstance(rows, list):
+        raise ValueError(f"cash-assets table period is not a list: {period}")
+    currency = str(table.get("currency") or "USD")
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if row["credit_rating_min"] <= credit_rating <= row["credit_rating_max"]:
+            cash_formula = None
+            cash_amount = row.get("cash")
+            if "cash_multiplier" in row:
+                cash_formula = f"CR x {row['cash_multiplier']}"
+                cash_amount = credit_rating * row["cash_multiplier"]
+            assets_formula = None
+            assets_amount = row.get("assets")
+            if "assets_multiplier" in row:
+                assets_formula = f"CR x {row['assets_multiplier']}"
+                assets_amount = credit_rating * row["assets_multiplier"]
+            elif "assets_minimum" in row:
+                assets_formula = "minimum"
+                assets_amount = row["assets_minimum"]
+            elif assets_amount is None:
+                assets_formula = "None"
+            return {
+                "credit_rating": credit_rating,
+                "living_standard": row["living_standard"],
+                "cash": _finance_amount(cash_amount, currency, cash_formula),
+                "assets": _finance_amount(assets_amount, currency, assets_formula),
+                "spending_level": _finance_amount(row.get("spending_level"), currency),
+                "period": period,
+            }
+    raise ValueError(f"credit rating out of cash-assets table range: {credit_rating}")
+
+
 def _is_fumble(roll: int, target: int) -> bool:
     table = load_rule_table("success-levels")["fumble"]
     key = "target_below_50" if target < 50 else "target_50_or_above"

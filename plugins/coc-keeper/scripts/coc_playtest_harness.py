@@ -25,6 +25,7 @@ from coc_playtest_report import (
     generate_evaluation_report,
 )
 from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
+from coc_rules import cash_and_assets
 
 
 ZH_HANS_BASE_GLOSSARY = {
@@ -90,6 +91,8 @@ ZH_HANS_BASE_GLOSSARY = {
     "rule decisions": "规则裁定",
     "checklist": "清单",
 }
+
+
 
 ZH_HANS_HAUNTING_GLOSSARY = {
     **ZH_HANS_BASE_GLOSSARY,
@@ -1432,6 +1435,7 @@ def _ada_king_creation_record(
             "determine_occupation",
             "allocate_skill_points",
             "create_backstory",
+            "determine_finances",
             "equip_investigator",
         ],
         "characteristics": {
@@ -1492,10 +1496,7 @@ def _ada_king_creation_record(
             "skill_point_formula": "INT × 2",
             "skill_points_available": 140,
         },
-        "finances": {
-            "credit_rating": 40,
-            "living_standard": "Average",
-        },
+        "finances": cash_and_assets(40, "1920s"),
         "skill_allocation": skill_allocation or _ada_king_default_skill_allocation(),
         "backstory": {
             "description": "艾达·金是一名研究旧宅产权和民俗传闻的古物学者。",

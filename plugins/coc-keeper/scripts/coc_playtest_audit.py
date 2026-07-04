@@ -14,6 +14,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from coc_language import language_profile as build_language_profile
 from coc_playtest_report import _format_roll_recap
+from coc_rules import cash_and_assets
 
 
 Finding = dict[str, Any]
@@ -115,6 +116,7 @@ REQUIRED_CREATION_STEPS = [
     "determine_occupation",
     "allocate_skill_points",
     "create_backstory",
+    "determine_finances",
     "equip_investigator",
 ]
 PLAYER_READABLE_REPORT_SECTIONS = [
@@ -525,6 +527,25 @@ def _character_creation_gaps(characters: list[dict[str, Any]]) -> list[str]:
         finances = creation.get("finances", {})
         if not isinstance(finances, dict) or finances.get("credit_rating") in (None, "", [], {}):
             gaps.append(f"{investigator_id} creation missing selected credit rating")
+        if not isinstance(finances, dict) or finances.get("living_standard") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing living standard from Credit Rating")
+        if not isinstance(finances, dict) or finances.get("cash") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing cash from Credit Rating")
+        if not isinstance(finances, dict) or finances.get("assets") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing assets from Credit Rating")
+        if not isinstance(finances, dict) or finances.get("spending_level") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing spending level from Credit Rating")
+        if not isinstance(finances, dict) or finances.get("period") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing finance period")
+        elif finances.get("credit_rating") not in (None, "", [], {}):
+            try:
+                expected_finances = cash_and_assets(int(finances["credit_rating"]), str(finances["period"]))
+            except (TypeError, ValueError):
+                gaps.append(f"{investigator_id} creation finance period or credit rating is outside rulebook Table II")
+            else:
+                for key in ("living_standard", "cash", "assets", "spending_level"):
+                    if finances.get(key) != expected_finances.get(key):
+                        gaps.append(f"{investigator_id} creation finance {key} does not match rulebook Table II")
         if not _nonempty_list(creation.get("equipment")):
             gaps.append(f"{investigator_id} creation missing starting equipment")
     return gaps

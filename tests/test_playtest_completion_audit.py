@@ -211,6 +211,10 @@ def battle_report_investigator_creation_fixture_text() -> str:
         "- Occupation Skill Points: EDU x 4 = 300",
         "- Personal Interest Skill Points: INT x 2 = 140",
         "- Credit Rating: 40 (Rulebook Occupation Range 30-70)",
+        "- Living Standard: 普通",
+        "- Cash: 80 美元",
+        "- Assets: 2000 美元",
+        "- Spending Level: 10 美元",
         "- Skill Allocation: Occupation 300/300; Personal Interest 140/140; Unallocated 0/0",
         "- Skill Half/Fifth Values: Library Use 30/12, Spot Hidden 27/11",
         "  - Library Use: Base 20 + Occupation 40 + Personal Interest 0 = 60",
@@ -1082,7 +1086,14 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
             "skill_point_formula": "INT x 2",
             "skill_points_available": 140,
         },
-        "finances": {"credit_rating": 40},
+        "finances": {
+            "credit_rating": 40,
+            "living_standard": "Average",
+            "cash": {"amount": 80, "currency": "USD", "formula": "CR x 2"},
+            "assets": {"amount": 2000, "currency": "USD", "formula": "CR x 50"},
+            "spending_level": {"amount": 10, "currency": "USD"},
+            "period": "1920s",
+        },
         "skill_allocation": {
             "occupation_points_spent": 300,
             "personal_interest_points_spent": 140,
@@ -1867,6 +1878,93 @@ def test_completion_audit_fails_when_feedback_source_lacks_rating_and_comment(tm
     assert "player-feedback.jsonl" in finding["incomplete_files"]
     assert "feedback score" in finding["missing_evidence"]
     assert "feedback text" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_creation_finances_lack_cash_assets_and_spending_level(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    creation_path = (
+        tmp_path
+        / ".coc"
+        / "playtests"
+        / "v2-haunting-module"
+        / "sandbox"
+        / ".coc"
+        / "investigators"
+        / "v2-haunting-module-investigator"
+        / "creation.json"
+    )
+    creation = json.loads(creation_path.read_text())
+    creation["finances"] = {
+        "credit_rating": 40,
+        "living_standard": "Average",
+    }
+    write_json(creation_path, creation)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_incomplete")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "sandbox/.coc/investigators/v2-haunting-module-investigator/creation.json" in finding["incomplete_files"]
+    assert "investigator finance cash" in finding["missing_evidence"]
+    assert "investigator finance assets" in finding["missing_evidence"]
+    assert "investigator finance spending level" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_creation_finances_do_not_match_rulebook_table(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    creation_path = (
+        tmp_path
+        / ".coc"
+        / "playtests"
+        / "v2-haunting-module"
+        / "sandbox"
+        / ".coc"
+        / "investigators"
+        / "v2-haunting-module-investigator"
+        / "creation.json"
+    )
+    creation = json.loads(creation_path.read_text())
+    creation["finances"]["assets"]["amount"] = 999
+    write_json(creation_path, creation)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_source_files_incomplete")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "sandbox/.coc/investigators/v2-haunting-module-investigator/creation.json" in finding["incomplete_files"]
+    assert "investigator finance assets rulebook value" in finding["missing_evidence"]
 
 
 def test_completion_audit_fails_when_view_sources_lack_player_and_keeper_evidence(tmp_path):
@@ -3414,6 +3512,48 @@ def test_completion_audit_accepts_localized_creation_allocation_labels(tmp_path)
     assert "Spot Hidden: base 25 + Occupation 30 + Personal Interest 0 = 55" not in required
 
 
+def test_completion_audit_fails_when_battle_report_omits_investigator_finance_records(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    battle_report = battle_report_fixture()
+    for line in [
+        "- Living Standard: 普通\n",
+        "- Cash: 80 美元\n",
+        "- Assets: 2000 美元\n",
+        "- Spending Level: 10 美元\n",
+    ]:
+        battle_report = battle_report.replace(line, "")
+    write_text(run_dir / "artifacts" / "battle-report.md", battle_report)
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(
+        finding for finding in audit["findings"]
+        if finding["code"] == "battle_report_investigator_creation_missing"
+    )
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "Living Standard: 普通" in finding["missing_creation_samples"]
+    assert "Cash: 80 美元" in finding["missing_creation_samples"]
+    assert "Assets: 2000 美元" in finding["missing_creation_samples"]
+    assert "Spending Level: 10 美元" in finding["missing_creation_samples"]
+
+
 def test_completion_audit_fails_when_creation_records_are_outside_creation_section(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
@@ -4087,6 +4227,10 @@ def test_completion_audit_accepts_selected_non_default_play_language(tmp_path):
         "- Age Adjustments: EDU 成长检定 1 次；本次 42 / 75，未提升；属性无降低。",
         "- 年齢調整: EDU成長判定 1 回；今回は 42 / 75、上昇なし；能力値低下なし。",
     )
+    battle_report = battle_report.replace("- Living Standard: 普通", "- Living Standard: 平均")
+    battle_report = battle_report.replace("- Cash: 80 美元", "- Cash: 80 ドル")
+    battle_report = battle_report.replace("- Assets: 2000 美元", "- Assets: 2000 ドル")
+    battle_report = battle_report.replace("- Spending Level: 10 美元", "- Spending Level: 10 ドル")
     write_text(battle_report_path, battle_report)
     transcript = read_jsonl(run_dir / "transcript.jsonl")
     write_jsonl(run_dir / "transcript.jsonl", [

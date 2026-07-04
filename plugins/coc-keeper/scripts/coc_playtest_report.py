@@ -1180,6 +1180,79 @@ def _format_creation_credit_rating(
     return f"  - {label}: {credit_rating} ({range_label} {rating_range})"
 
 
+def _format_money_value(value: Any, play_language: str) -> str | None:
+    if isinstance(value, dict):
+        amount = value.get("amount")
+        currency = value.get("currency", "USD")
+    else:
+        amount = value
+        currency = "USD"
+    if amount in (None, "", [], {}):
+        if play_language == "zh-Hans":
+            return "无"
+        if play_language == "ja-JP":
+            return "なし"
+        return "None"
+    amount_text = str(int(amount)) if isinstance(amount, float) and amount.is_integer() else str(amount)
+    if currency == "USD":
+        if play_language == "zh-Hans":
+            return f"{amount_text} 美元"
+        if play_language == "ja-JP":
+            return f"{amount_text} ドル"
+        return f"{amount_text} USD"
+    return f"{amount_text} {currency}"
+
+
+def _format_living_standard(value: Any, play_language: str) -> str:
+    labels = {
+        "zh-Hans": {
+            "Penniless": "身无分文",
+            "Poor": "贫穷",
+            "Average": "普通",
+            "Wealthy": "富裕",
+            "Rich": "富豪",
+            "Super Rich": "超级富豪",
+        },
+        "ja-JP": {
+            "Penniless": "無一文",
+            "Poor": "貧困",
+            "Average": "平均",
+            "Wealthy": "裕福",
+            "Rich": "富豪",
+            "Super Rich": "超富豪",
+        },
+    }
+    text = str(value)
+    return labels.get(play_language, {}).get(text, text)
+
+
+def _format_creation_finances(
+    creation: dict[str, Any],
+    language_profile: dict[str, Any] | None,
+    play_language: str,
+) -> list[str]:
+    finances = creation.get("finances", {})
+    if not isinstance(finances, dict):
+        return []
+    lines: list[str] = []
+    if finances.get("living_standard") not in (None, "", [], {}):
+        lines.append(
+            f"  - {_creation_label(language_profile, 'Living Standard')}: "
+            f"{_format_living_standard(finances['living_standard'], play_language)}"
+        )
+    for key, label in [
+        ("cash", "Cash"),
+        ("assets", "Assets"),
+        ("spending_level", "Spending Level"),
+    ]:
+        if finances.get(key) in (None, "", [], {}):
+            continue
+        value = _format_money_value(finances[key], play_language)
+        if value is not None:
+            lines.append(f"  - {_creation_label(language_profile, label)}: {value}")
+    return lines
+
+
 def _format_skill_allocation(
     creation: dict[str, Any],
     localized_terms: dict[str, str],
@@ -1313,6 +1386,7 @@ def _format_investigator_creation(
     credit_line = _format_creation_credit_rating(creation, profile, play_language)
     if credit_line:
         lines.append(credit_line)
+    lines.extend(_format_creation_finances(creation, profile, play_language))
     lines.extend(_format_skill_allocation(creation, terms, profile, play_language))
     if creation.get("equipment") not in (None, "", [], {}):
         lines.append(
