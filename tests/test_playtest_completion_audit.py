@@ -1342,6 +1342,42 @@ def test_completion_audit_fails_when_source_map_refs_are_stale(tmp_path):
     assert "memory_refs do not resolve" in finding["missing_evidence"]
 
 
+def test_completion_audit_fails_when_campaign_save_files_disagree(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    campaign_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "sandbox" / ".coc" / "campaigns" / "v2-haunting-module"
+    active_scene_path = campaign_dir / "save" / "active-scene.json"
+    active_scene = json.loads(active_scene_path.read_text())
+    active_scene["scene_id"] = "stale-scene"
+    write_json(active_scene_path, active_scene)
+    flags_path = campaign_dir / "save" / "flags.json"
+    flags = json.loads(flags_path.read_text())
+    flags["clues_found"] = {}
+    write_json(flags_path, flags)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "campaign_save_integrity_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "active-scene scene_id does not match world-state active_scene_id" in finding["missing_evidence"]
+    assert "flags clues_found does not match world-state discovered_clue_ids" in finding["missing_evidence"]
+
+
 def test_completion_audit_fails_when_active_run_source_files_are_empty(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

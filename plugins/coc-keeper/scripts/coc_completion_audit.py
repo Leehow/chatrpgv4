@@ -2396,6 +2396,90 @@ def _campaign_relative_file_exists(campaign_dir: Path, value: Any) -> bool:
     return (campaign_dir / relative_path).is_file()
 
 
+def _string_set(values: Any) -> set[str]:
+    if not isinstance(values, list):
+        return set()
+    return {
+        value
+        for value in values
+        if isinstance(value, str) and value.strip()
+    }
+
+
+def _true_flag_keys(values: Any) -> set[str]:
+    if not isinstance(values, dict):
+        return set()
+    return {
+        key
+        for key, value in values.items()
+        if isinstance(key, str) and key.strip() and value is True
+    }
+
+
+def _campaign_save_integrity_findings(
+    run_id: str,
+    campaign_dir: Path,
+    campaign_prefix: str,
+) -> list[dict[str, Any]]:
+    world_state = _read_json(campaign_dir / "save" / "world-state.json", {})
+    active_scene = _read_json(campaign_dir / "save" / "active-scene.json", {})
+    flags = _read_json(campaign_dir / "save" / "flags.json", {})
+    missing_evidence: list[str] = []
+    incomplete_files: list[str] = []
+
+    world_active_scene_id = world_state.get("active_scene_id")
+    saved_active_scene_id = active_scene.get("scene_id")
+    if (
+        isinstance(world_active_scene_id, str)
+        and world_active_scene_id.strip()
+        and saved_active_scene_id != world_active_scene_id
+    ):
+        missing_evidence.append("active-scene scene_id does not match world-state active_scene_id")
+        incomplete_files.extend([
+            f"{campaign_prefix}save/world-state.json",
+            f"{campaign_prefix}save/active-scene.json",
+        ])
+
+    world_clue_ids = _string_set(world_state.get("discovered_clue_ids"))
+    flag_clue_ids = _true_flag_keys(flags.get("clues_found"))
+    if world_clue_ids and flag_clue_ids != world_clue_ids:
+        missing_evidence.append("flags clues_found does not match world-state discovered_clue_ids")
+        incomplete_files.extend([
+            f"{campaign_prefix}save/world-state.json",
+            f"{campaign_prefix}save/flags.json",
+        ])
+
+    for key, evidence_label in (
+        ("log_refs", "world-state log_refs do not resolve"),
+        ("memory_refs", "world-state memory_refs do not resolve"),
+    ):
+        refs = world_state.get(key)
+        if not isinstance(refs, list) or not refs:
+            missing_evidence.append(evidence_label)
+            incomplete_files.append(f"{campaign_prefix}save/world-state.json")
+            continue
+        stale_refs = [
+            ref
+            for ref in refs
+            if not _campaign_relative_file_exists(campaign_dir, ref)
+        ]
+        if stale_refs:
+            missing_evidence.append(evidence_label)
+            incomplete_files.append(f"{campaign_prefix}save/world-state.json")
+
+    if not missing_evidence:
+        return []
+    return [_finding(
+        "campaign_save_integrity_missing",
+        "system_gap",
+        f"{run_id} recoverable campaign save files disagree: {', '.join(missing_evidence)}.",
+        "Regenerate campaign save files so world-state, active-scene, flags, log refs, and memory refs agree before completion audit.",
+        run_id=run_id,
+        incomplete_files=list(dict.fromkeys(incomplete_files)),
+        missing_evidence=missing_evidence,
+    )]
+
+
 def _source_map_integrity_findings(
     run_id: str,
     campaign_dir: Path,
@@ -3032,6 +3116,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
             run_id=run_id,
         ))
     findings.extend(_campaign_structure_findings(run_id, campaign_dir, campaign_prefix, audit_profile))
+    findings.extend(_campaign_save_integrity_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_source_map_integrity_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_campaign_index_integrity_findings(run_id, campaign_dir, campaign_prefix))
     findings.extend(_rule_ref_traceability_findings(run_id, campaign_dir, campaign_prefix))
