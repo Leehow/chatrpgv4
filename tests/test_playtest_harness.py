@@ -1426,8 +1426,13 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "成长标记：no" not in rules_recap
     assert "ada-king-haunting rolled" not in rules_recap
     mechanical_log = section_text(battle_text, "## Mechanical Log")
-    assert "Rule Refs: core.percentile_check, core.success_level, core.difficulty.regular" in mechanical_log
+    assert "规则引用：core.percentile_check, core.success_level, core.difficulty.regular" in mechanical_log
     assert "module.haunting.corbitt_own_dagger" in mechanical_log
+    assert "Goal:" not in mechanical_log
+    assert "Difficulty Rationale:" not in mechanical_log
+    assert "Failure Consequence:" not in mechanical_log
+    assert "Skill Check Earned:" not in mechanical_log
+    assert "Rule Refs:" not in mechanical_log
     roll_event_count = len(campaign_roll_events(run_dir))
     assert bullet_count(rules_recap) == roll_event_count
     assert detail_count(rules_recap, "目的") == roll_event_count
@@ -1841,7 +1846,12 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "ada-king-chase rolled" not in rules_recap
     assert "nathaniel-crowe rolled" not in rules_recap
     mechanical_log = section_text(battle_text, "## Mechanical Log")
-    assert "Rule Refs: core.percentile_check, core.success_level, core.difficulty.regular, core.chase.movement_actions" in mechanical_log
+    assert "规则引用：core.percentile_check, core.success_level, core.difficulty.regular, core.chase.movement_actions" in mechanical_log
+    assert "Goal:" not in mechanical_log
+    assert "Difficulty Rationale:" not in mechanical_log
+    assert "Failure Consequence:" not in mechanical_log
+    assert "Skill Check Earned:" not in mechanical_log
+    assert "Rule Refs:" not in mechanical_log
     roll_event_count = len(campaign_roll_events(run_dir))
     assert bullet_count(rules_recap) == roll_event_count
     assert detail_count(rules_recap, "目的") == roll_event_count

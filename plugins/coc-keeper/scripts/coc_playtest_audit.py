@@ -1821,6 +1821,57 @@ def _report_contains_all(text: str, markers: list[str]) -> list[str]:
     return [marker for marker in markers if marker not in text]
 
 
+def _report_label_rendered(text: str, label: str) -> bool:
+    return f"{label}:" in text or f"{label}：" in text
+
+
+def _report_label_options(metadata: dict[str, Any], key: str, fallback: str) -> list[str]:
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("report_labels", {})
+    localized = labels.get(key) if isinstance(labels, dict) else None
+    return list(dict.fromkeys(
+        str(label)
+        for label in (fallback, localized)
+        if label not in (None, "")
+    ))
+
+
+def _missing_report_labels(
+    text: str,
+    metadata: dict[str, Any],
+    required_labels: list[tuple[str, str]],
+) -> list[str]:
+    missing: list[str] = []
+    for key, fallback in required_labels:
+        options = _report_label_options(metadata, key, fallback)
+        if not any(_report_label_rendered(text, label) for label in options):
+            missing.append("/".join(options))
+    return missing
+
+
+def _report_label_value_rendered(
+    text: str,
+    metadata: dict[str, Any],
+    label_key: str,
+    fallback_label: str,
+    value_key: str,
+    fallback_value: str,
+) -> bool:
+    profile = _selected_language_profile(metadata)
+    labels = profile.get("report_labels", {})
+    localized_value = labels.get(value_key) if isinstance(labels, dict) else None
+    values = list(dict.fromkeys(
+        str(value)
+        for value in (fallback_value, localized_value)
+        if value not in (None, "")
+    ))
+    for label in _report_label_options(metadata, label_key, fallback_label):
+        for value in values:
+            if f"{label}: {value}" in text or f"{label}：{value}" in text:
+                return True
+    return False
+
+
 def _contains_marker_or_localized(text: str, marker: str, terms: dict[str, str]) -> bool:
     localized = terms.get(marker)
     return marker in text or bool(localized and localized in text)
@@ -2679,9 +2730,15 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Format state changes as player-readable summaries rather than dumping payload dictionaries.",
         ))
 
-    missing_mechanical_markers = _report_contains_all(
+    missing_mechanical_markers = _missing_report_labels(
         battle_report,
-        ["Goal:", "Difficulty:", "Difficulty Rationale:", "Failure Consequence:"],
+        metadata,
+        [
+            ("goal", "Goal"),
+            ("difficulty", "Difficulty"),
+            ("difficulty_rationale", "Difficulty Rationale"),
+            ("failure_consequence", "Failure Consequence"),
+        ],
     )
     if missing_mechanical_markers:
         findings.append(_finding(
@@ -2692,7 +2749,14 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "Render roll goals, difficulty levels, difficulty rationale, and failure consequences for important rolls.",
         ))
 
-    if _has_skill_check(context["rolls"]) and "Skill Check Earned: yes" not in battle_report:
+    if _has_skill_check(context["rolls"]) and not _report_label_value_rendered(
+        battle_report,
+        metadata,
+        "skill_check_earned",
+        "Skill Check Earned",
+        "yes",
+        "yes",
+    ):
         findings.append(_finding(
             "skill_development_not_rendered",
             "report_gap",
@@ -2746,7 +2810,14 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "Render bout_of_madness events in the Scene-by-Scene Replay and Sanity Summary.",
             ))
 
-    if _has_pushed_roll(context["rolls"]) and "Pushed Roll: yes" not in battle_report:
+    if _has_pushed_roll(context["rolls"]) and not _report_label_value_rendered(
+        battle_report,
+        metadata,
+        "pushed_roll",
+        "Pushed Roll",
+        "yes",
+        "yes",
+    ):
         findings.append(_finding(
             "pushed_roll_not_rendered",
             "report_gap",

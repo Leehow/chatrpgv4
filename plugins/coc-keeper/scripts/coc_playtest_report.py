@@ -233,7 +233,7 @@ def _format_roll_recap(
         isinstance(event.get("payload", {}).get("localized_text"), dict)
         and event.get("payload", {}).get("localized_text", {}).get(play_language)
     )
-    if play_language == "en-US" and not has_language_specific_payload:
+    if play_language in {"", "unknown", "en-US"} and not has_language_specific_payload:
         return _format_roll(event)
 
     payload = event.get("payload", {})
@@ -299,6 +299,26 @@ def _format_roll_recap(
         if rule_refs:
             lines.append(f"  - {report_labels.get('rule_refs', 'Rule Refs')}：{rule_refs}")
     return "\n".join(lines)
+
+
+def _format_roll_mechanical(
+    event: dict[str, Any],
+    actor_names: dict[str, str],
+    localized_terms: dict[str, str],
+    play_language: str,
+    language_profile: dict[str, Any],
+) -> str:
+    canonical = _format_roll(event)
+    localized = _format_roll_recap(event, actor_names, localized_terms, play_language, language_profile)
+    if localized == canonical:
+        return canonical
+    source_line = canonical.splitlines()[0].removeprefix("- ").strip() if canonical.splitlines() else ""
+    if not source_line or source_line in localized:
+        return localized
+    lines = localized.splitlines()
+    if not lines:
+        return localized
+    return "\n".join([lines[0], f"  <!-- roll-source: {source_line} -->", *lines[1:]])
 
 
 def _roll_recap_summary(recap: str) -> str:
@@ -1578,7 +1598,10 @@ def generate_battle_report(run_dir: Path) -> Path:
             localized_terms,
             str(play_language),
         ))
-    roll_lines = [_format_roll(event) for event in rolls]
+    roll_lines = [
+        _format_roll_mechanical(event, actor_names, localized_terms, str(play_language), language_profile)
+        for event in rolls
+    ]
     state_lines = [
         _format_state_event(event, localized_terms, str(play_language), actor_names)
         for event in state_events
