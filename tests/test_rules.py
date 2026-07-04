@@ -47,6 +47,7 @@ def test_rule_index_exposes_stable_ids_for_playtest_traceability():
         "core.percentile_check",
         "core.difficulty.regular",
         "core.success_level",
+        "core.character_creation.movement_rate",
         "core.pushed_roll",
         "core.sanity.temporary_insanity_threshold",
         "core.chase.movement_actions",

@@ -189,6 +189,8 @@ def test_design_blueprint_documents_investigator_chronicle_playtest_gate():
         "localized_empty_placeholders_not_rendered",
         "player_profile_labels",
         "player_profile_labels_not_localized",
+        "core.character_creation.movement_rate",
+        "derived_movement_rate_mismatch",
         "report_heading_labels",
         "report_field_labels",
         "report_value_labels",

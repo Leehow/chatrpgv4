@@ -2560,6 +2560,25 @@ def test_haunting_module_audit_requires_investigator_age_step(tmp_path):
     assert "investigator_age_step_missing" in finding_codes(audit)
 
 
+def test_haunting_module_audit_requires_derived_mov_to_match_rulebook_formula(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting"
+    character_path = investigator_dir / "character.json"
+    character = json.loads(character_path.read_text())
+    character["derived"]["MOV"] = 8
+    character_path.write_text(json.dumps(character))
+    creation_path = investigator_dir / "creation.json"
+    creation = json.loads(creation_path.read_text())
+    creation["derived"]["MOV"]["value"] = 8
+    creation["derived"]["MOV"]["formula"] = "STR or DEX equals/exceeds SIZ rule"
+    creation_path.write_text(json.dumps(creation))
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "derived_movement_rate_mismatch" in finding_codes(audit)
+
+
 def test_haunting_module_audit_requires_characteristic_half_fifth_values(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
     investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king-haunting"

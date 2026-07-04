@@ -577,6 +577,59 @@ def _character_age_step_gaps(characters: list[dict[str, Any]]) -> list[str]:
     return gaps
 
 
+def _base_movement_rate(characteristics: dict[str, Any]) -> int | None:
+    strength = characteristics.get("STR")
+    dexterity = characteristics.get("DEX")
+    size = characteristics.get("SIZ")
+    if not all(isinstance(value, int) for value in [strength, dexterity, size]):
+        return None
+    if strength > size and dexterity > size:
+        return 9
+    if strength < size and dexterity < size:
+        return 7
+    return 8
+
+
+def _derived_movement_rate_gaps(characters: list[dict[str, Any]]) -> list[str]:
+    if not characters:
+        return ["no investigator character files loaded"]
+
+    gaps: list[str] = []
+    for character in characters:
+        investigator_id = str(character.get("id") or character.get("investigator_id") or "unknown")
+        characteristics = character.get("characteristics", {})
+        if not isinstance(characteristics, dict):
+            gaps.append(f"{investigator_id} missing characteristics for MOV formula")
+            continue
+        base_mov = _base_movement_rate(characteristics)
+        if base_mov is None:
+            gaps.append(f"{investigator_id} missing integer STR/DEX/SIZ for MOV formula")
+            continue
+
+        creation = character.get("_creation")
+        age = creation.get("age", {}) if isinstance(creation, dict) else {}
+        mov_penalty = age.get("mov_penalty", 0) if isinstance(age, dict) else 0
+        if not isinstance(mov_penalty, int):
+            gaps.append(f"{investigator_id} creation age.mov_penalty must be an integer")
+            mov_penalty = 0
+        expected_mov = max(0, base_mov - mov_penalty)
+
+        derived = character.get("derived", {})
+        if not isinstance(derived, dict) or derived.get("MOV") != expected_mov:
+            gaps.append(f"{investigator_id} character derived.MOV should be {expected_mov}")
+
+        if isinstance(creation, dict) and creation:
+            creation_derived = creation.get("derived", {})
+            creation_mov = None
+            if isinstance(creation_derived, dict):
+                creation_mov_payload = creation_derived.get("MOV")
+                if isinstance(creation_mov_payload, dict):
+                    creation_mov = creation_mov_payload.get("value")
+            if creation_mov != expected_mov:
+                gaps.append(f"{investigator_id} creation derived.MOV.value should be {expected_mov}")
+    return gaps
+
+
 def _characteristic_half_fifth_gaps(characters: list[dict[str, Any]]) -> list[str]:
     if not characters:
         return ["no investigator character files loaded"]
@@ -2972,6 +3025,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "; ".join(age_step_gaps),
             "Record the rulebook Chapter 3 age choice, age modifier bracket, EDU improvement checks, characteristic reductions, APP reduction, and MOV penalty in creation.json.",
+        ))
+
+    movement_rate_gaps = _derived_movement_rate_gaps(context["characters"]) if active_profile else []
+    if movement_rate_gaps:
+        findings.append(_finding(
+            "derived_movement_rate_mismatch",
+            "system_gap",
+            "high",
+            "; ".join(movement_rate_gaps),
+            "Derive MOV from STR, DEX, SIZ, and age mov_penalty using the rulebook Chapter 3 Movement Rate table.",
         ))
 
     half_fifth_gaps = _characteristic_half_fifth_gaps(context["characters"]) if active_profile else []
