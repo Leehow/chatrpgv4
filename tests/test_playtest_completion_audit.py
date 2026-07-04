@@ -396,6 +396,15 @@ def battle_report_without_dialogue_speakers(run_id: str, audit_profile: str) -> 
     )
 
 
+def battle_report_with_dialogue_out_of_order(run_id: str, audit_profile: str) -> str:
+    lines = battle_report_dialogue_fixture_text().splitlines()
+    swapped = "\n".join([lines[1], lines[0], *lines[2:]])
+    return battle_report_fixture(run_id, audit_profile).replace(
+        battle_report_dialogue_fixture_text(),
+        swapped,
+    )
+
+
 def battle_report_shell_with_required_anchors(
     run_id: str = "fixture",
     audit_profile: str = "fixture",
@@ -3426,6 +3435,39 @@ def test_completion_audit_fails_when_battle_report_dialogue_has_no_speakers(tmp_
     assert finding["run_id"] == "v2-haunting-module"
     assert "turn 1 KP" in finding["missing_speaker_dialogue_samples"]
     assert "turn 2 玩家" in finding["missing_speaker_dialogue_samples"]
+
+
+def test_completion_audit_fails_when_battle_report_dialogue_is_out_of_order(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    write_text(
+        run_dir / "artifacts" / "battle-report.md",
+        battle_report_with_dialogue_out_of_order("v2-haunting-module", "haunting_module"),
+    )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_source_dialogue_order_mismatch")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "Actual Play Replay" in finding["out_of_order_sections"]
+    assert "Session Transcript" in finding["out_of_order_sections"]
+    assert "turn 2 before turn 1" in finding["out_of_order_dialogue_samples"]
 
 
 def test_completion_audit_accepts_protocol_wrapped_dialogue_rendered_without_wrappers(tmp_path):

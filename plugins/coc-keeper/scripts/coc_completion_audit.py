@@ -806,6 +806,73 @@ def _battle_report_source_dialogue_speaker_findings(
     )]
 
 
+def _battle_report_source_dialogue_order_findings(
+    run_id: str,
+    run_dir: Path,
+    metadata: dict[str, Any],
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
+    language_profile = metadata.get("language_profile", {})
+    if not isinstance(language_profile, dict):
+        language_profile = {}
+    localized_terms = _metadata_localized_terms(metadata)
+    profile_labels = _metadata_player_profile_labels(metadata)
+    entries: list[dict[str, Any]] = []
+    for row in transcript:
+        if row.get("role") == "system":
+            continue
+        text_source = row.get("text_display") if isinstance(row.get("text_display"), str) else row.get("text")
+        if not isinstance(text_source, str) or not text_source.strip():
+            continue
+        text = _display_transcript_text(text_source).strip()
+        speaker = str(
+            row.get("speaker_display")
+            or _display_transcript_speaker(row, profile_labels, language_profile, localized_terms)
+        ).strip()
+        if not speaker or not text:
+            continue
+        entries.append({
+            "source_index": len(entries),
+            "turn": row.get("turn"),
+            "speaker": speaker,
+            "text": text,
+        })
+    if len(entries) < 2:
+        return []
+
+    out_of_order_sections: list[str] = []
+    samples: list[str] = []
+    for section_name in ("Actual Play Replay", "Session Transcript"):
+        lines = _battle_report_anchor_section(battle_report, section_name).splitlines()
+        matched: list[dict[str, Any]] = []
+        for line in lines:
+            for entry in entries:
+                if entry["speaker"] in line and entry["text"] in line:
+                    matched.append(entry)
+                    break
+        previous: dict[str, Any] | None = None
+        for current in matched:
+            if previous is not None and current["source_index"] < previous["source_index"]:
+                out_of_order_sections.append(section_name)
+                sample = f"turn {previous.get('turn')} before turn {current.get('turn')}"
+                if sample not in samples:
+                    samples.append(sample)
+                break
+            previous = current
+    if not out_of_order_sections:
+        return []
+    return [_finding(
+        "battle_report_source_dialogue_order_mismatch",
+        "report_gap",
+        f"{run_id} battle-report.md renders source dialogue out of transcript order in {', '.join(out_of_order_sections)}.",
+        "Regenerate battle-report.md so Actual Play Replay and Session Transcript preserve the non-system transcript turn order.",
+        run_id=run_id,
+        out_of_order_sections=out_of_order_sections,
+        out_of_order_dialogue_samples=samples[:5],
+    )]
+
+
 def _mechanical_roll_line(row: dict[str, Any]) -> str | None:
     payload = row.get("payload")
     if not isinstance(payload, dict):
@@ -4418,6 +4485,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_field_value_findings(run_id, campaign_dir, metadata, battle_report))
     findings.extend(_battle_report_source_dialogue_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_source_dialogue_speaker_findings(run_id, run_dir, metadata, battle_report))
+    findings.extend(_battle_report_source_dialogue_order_findings(run_id, run_dir, metadata, battle_report))
     findings.extend(_battle_report_mechanical_log_findings(run_id, run_dir, campaign_dir, metadata, battle_report))
     findings.extend(_battle_report_rule_ref_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
