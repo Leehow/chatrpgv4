@@ -797,6 +797,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "Module coverage: 10/10" in audit_text
     assert "Bout of Madness events: 1" in audit_text
     assert "temporary_insanity_triggered markers: 1" in audit_text
+    assert "Corbitt Magic point events: 3" in audit_text
+    assert "Flesh Ward armor: 7" in audit_text
     bout_event = next(event for event in campaign_state_events(run_dir) if event.get("type") == "bout_of_madness")
     bout_payload = bout_event["payload"]
     assert bout_payload["duration_die"] == "1D10"

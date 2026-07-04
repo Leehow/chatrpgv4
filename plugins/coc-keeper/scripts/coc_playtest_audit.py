@@ -1625,11 +1625,27 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             for character in context["characters"]
             if character.get("_creation", {}).get("skill_allocation")
         )
+        corbitt_magic_events = [
+            event
+            for event in events
+            if event.get("type") == "resource_change"
+            and event.get("actor") == "walter-corbitt"
+            and event.get("payload", {}).get("resource") == "magic_points"
+        ]
+        flesh_ward_armor = next(
+            (
+                event.get("payload", {}).get("armor_points")
+                for event in corbitt_magic_events
+                if event.get("payload", {}).get("reason") == "flesh_ward"
+            ),
+            "not recorded",
+        )
         lines.append(f"Module coverage: {covered_count}/{len(HAUNTING_MODULE_COVERAGE)} required The Haunting beats recorded.")
         lines.append(f"NPC roleplay turns: {len(npc_speakers)}; speakers: {', '.join(sorted(set(npc_speakers))) if npc_speakers else 'none'}.")
         lines.append(f"Investigator creation records: {creation_records}.")
         lines.append(f"Investigator skill allocation records: {skill_allocation_records}.")
         lines.append(f"Investigator inventory history records: {inventory_records}.")
+        lines.append(f"Corbitt Magic point events: {len(corbitt_magic_events)}; Flesh Ward armor: {flesh_ward_armor}.")
         lines.append(
             f"Combat evidence: {_event_type_count(events, 'combat')} combat events; "
             f"{sum(1 for event in rolls if event.get('type') == 'combat')} combat roll entries."

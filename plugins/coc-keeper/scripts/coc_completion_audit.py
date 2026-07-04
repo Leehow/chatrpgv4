@@ -3046,6 +3046,15 @@ def _write_markdown(path: Path, audit: dict[str, Any]) -> None:
     lines.extend(["", "## Required Quality"])
     for key, status in audit["required_quality"].items():
         lines.append(f"- {key}: {status}")
+    goal_gate = audit["goal_completion_gate"]
+    lines.extend([
+        "",
+        "## Goal Completion Gate",
+        f"- Thread goal: {goal_gate['status']}",
+        f"- Completion signal: {goal_gate['completion_signal']}",
+        f"- Reason: {goal_gate['reason']}",
+        f"- Required next step: {goal_gate['required_next_step']}",
+    ])
     lines.extend([
         "",
         "## Monitor",
@@ -3092,12 +3101,22 @@ def generate_completion_audit(root: Path, automation_path: Path | None = None) -
         key: index.get("quality", {}).get(key, {}).get("status", "missing")
         for key in REQUIRED_QUALITY_DIMENSIONS
     }
+    goal_completion_gate = {
+        "status": "not_complete",
+        "completion_signal": "artifact_audit_only",
+        "reason": (
+            "A PASS result means the current playtest artifacts have no artifact-level blockers; "
+            "it does not mark the Codex thread goal complete."
+        ),
+        "required_next_step": "Keep the watchdog goal active until full thread-level completion evidence is satisfied.",
+    }
     audit = {
         "schema_version": 1,
         "result": "fail" if findings else "pass",
         "active_runs": [str(run.get("run_id")) for run in active_runs],
         "required_profiles": _required_profiles(active_runs),
         "required_quality": required_quality,
+        "goal_completion_gate": goal_completion_gate,
         "monitor": {"status": monitor_status, "path": monitor_path},
         "findings": findings,
         "next_action": (

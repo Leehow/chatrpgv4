@@ -1013,7 +1013,11 @@ def test_completion_audit_passes_for_ready_suite_with_active_monitor(tmp_path):
     assert audit["findings"] == []
     assert audit["active_runs"] == ["v2-haunting-module", "v3-chase-drill", "v4-multi-profile-pressure"]
     assert audit["required_profiles"]["multi_profile_pressure"] == "v4-multi-profile-pressure"
+    assert audit["goal_completion_gate"]["status"] == "not_complete"
+    assert audit["goal_completion_gate"]["completion_signal"] == "artifact_audit_only"
     assert "## Overall Result\nPASS" in markdown
+    assert "## Goal Completion Gate" in markdown
+    assert "Thread goal: not_complete" in markdown
     assert "virtual_player_pressure: passed" in markdown
     assert "Monitor: ACTIVE" in markdown
 
