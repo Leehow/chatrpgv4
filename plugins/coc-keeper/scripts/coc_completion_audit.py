@@ -4432,6 +4432,7 @@ def _suite_findings(
             f"coverage gaps={index.get('gaps')}",
             "Add or repair active runs so the semantic coverage matrix has no gaps.",
         ))
+    findings.extend(_suite_matrix_non_evaluated_run_findings(index, loop_decision))
     for dimension in REQUIRED_COVERAGE_DIMENSIONS:
         coverage_entry = index.get("coverage", {}).get(dimension)
         if not coverage_entry or coverage_entry.get("status") != "covered":
@@ -4471,6 +4472,42 @@ def _suite_findings(
                 f"{dimension} status={quality_entry.get('status') if quality_entry else 'missing'}",
                 "Use semantic artifacts to prove every required quality dimension is table-ready.",
                 key=dimension,
+            ))
+    return findings
+
+
+def _suite_matrix_non_evaluated_run_findings(
+    index: dict[str, Any],
+    loop_decision: dict[str, Any],
+) -> list[dict[str, Any]]:
+    evaluated_ids = {
+        str(run_id)
+        for run_id in loop_decision.get("evaluated_runs", [])
+    }
+    findings: list[dict[str, Any]] = []
+    for matrix_name, matrix in (("coverage", index.get("coverage", {})), ("quality", index.get("quality", {}))):
+        if not isinstance(matrix, dict):
+            continue
+        for key, entry in matrix.items():
+            runs = entry.get("runs") if isinstance(entry, dict) else []
+            if not isinstance(runs, list):
+                continue
+            non_evaluated_runs = [
+                str(run_id)
+                for run_id in runs
+                if str(run_id) not in evaluated_ids
+            ]
+            if not non_evaluated_runs:
+                continue
+            findings.append(_finding(
+                "suite_matrix_references_non_evaluated_run",
+                "test_gap",
+                f"{matrix_name} matrix {key} references non-evaluated run(s): {', '.join(non_evaluated_runs)}.",
+                "Regenerate suite-report.md and index.json so coverage and quality matrices use only loop_decision.evaluated_runs.",
+                matrix=matrix_name,
+                key=str(key),
+                non_evaluated_runs=non_evaluated_runs,
+                evaluated_runs=sorted(evaluated_ids),
             ))
     return findings
 

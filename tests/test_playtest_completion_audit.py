@@ -4330,6 +4330,59 @@ def test_completion_audit_fails_when_index_quality_run_list_is_not_supported(tmp
     )
 
 
+def test_completion_audit_flags_suite_matrix_refs_to_non_evaluated_runs(tmp_path):
+    active_runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    old_run = {"run_id": "old-baseline", "audit_profile": "baseline", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"}
+    for run in active_runs + [old_run]:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, active_runs)
+    index_path = tmp_path / ".coc" / "playtests" / "index.json"
+    loop_path = tmp_path / ".coc" / "playtests" / "loop-decision.json"
+    index = json.loads(index_path.read_text())
+    loop_decision = json.loads(loop_path.read_text())
+    index["runs"].append(old_run)
+    index["coverage"]["chase"]["runs"] = ["old-baseline"]
+    index["coverage"]["chase"]["reasons"] = {"old-baseline": "stale baseline chase evidence"}
+    index["quality"]["actual_play_replay"]["runs"] = ["old-baseline"]
+    index["quality"]["actual_play_replay"]["scores"] = {"old-baseline": 5}
+    index["quality"]["actual_play_replay"]["reasons"] = {"old-baseline": "stale baseline actual-play score"}
+    loop_decision["evaluated_runs"] = [run["run_id"] for run in active_runs]
+    loop_decision["ignored_historical_runs"] = ["old-baseline"]
+    index["loop_decision"] = loop_decision
+    write_json(index_path, index)
+    write_json(loop_path, loop_decision)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    assert any(
+        finding["code"] == "suite_matrix_references_non_evaluated_run"
+        and finding["matrix"] == "coverage"
+        and finding["key"] == "chase"
+        and finding["non_evaluated_runs"] == ["old-baseline"]
+        for finding in audit["findings"]
+    )
+    assert any(
+        finding["code"] == "suite_matrix_references_non_evaluated_run"
+        and finding["matrix"] == "quality"
+        and finding["key"] == "actual_play_replay"
+        and finding["non_evaluated_runs"] == ["old-baseline"]
+        for finding in audit["findings"]
+    )
+
+
 def test_completion_audit_fails_without_multi_profile_pressure(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
