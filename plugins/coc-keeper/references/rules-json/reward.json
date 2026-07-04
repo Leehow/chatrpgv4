@@ -1,0 +1,12 @@
+{
+  "source_rule_id": "core.reward.sanity_gain",
+  "source_note": "Keeper Rulebook scenario rewards may grant Sanity points using non-percentile reward dice; playtest logs must keep the roll id, die expression, total, and SAN before/delta/after together.",
+  "resource": "sanity",
+  "dice_kind": "reward",
+  "requires_roll_id": true,
+  "requires_die": true,
+  "requires_roll_total": true,
+  "requires_resource_before_delta_after": true,
+  "delta_sign": "positive",
+  "non_percentile": true
+}

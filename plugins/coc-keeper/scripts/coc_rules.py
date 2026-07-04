@@ -114,6 +114,34 @@ def chase_rule() -> dict[str, Any]:
     }
 
 
+def damage_rule() -> dict[str, Any]:
+    table = load_rule_table("damage")
+    return {
+        "resource": str(table["resource"]),
+        "dice_kind": str(table["dice_kind"]),
+        "requires_roll_id": bool(table["requires_roll_id"]),
+        "requires_die": bool(table["requires_die"]),
+        "requires_roll_total": bool(table["requires_roll_total"]),
+        "requires_resource_before_delta_after": bool(table["requires_resource_before_delta_after"]),
+        "delta_sign": str(table["delta_sign"]),
+        "non_percentile": bool(table["non_percentile"]),
+    }
+
+
+def reward_rule() -> dict[str, Any]:
+    table = load_rule_table("reward")
+    return {
+        "resource": str(table["resource"]),
+        "dice_kind": str(table["dice_kind"]),
+        "requires_roll_id": bool(table["requires_roll_id"]),
+        "requires_die": bool(table["requires_die"]),
+        "requires_roll_total": bool(table["requires_roll_total"]),
+        "requires_resource_before_delta_after": bool(table["requires_resource_before_delta_after"]),
+        "delta_sign": str(table["delta_sign"]),
+        "non_percentile": bool(table["non_percentile"]),
+    }
+
+
 def _threshold_value(value: int, key: str) -> int:
     table = load_rule_table("half-fifth-values")
     divisor = int(table[key]["divisor"])

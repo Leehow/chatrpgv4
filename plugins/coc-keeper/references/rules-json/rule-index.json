@@ -187,19 +187,29 @@
     {
       "id": "core.reward.sanity_gain",
       "category": "reward",
+      "source_table": "reward.json",
       "source_note": "Scenario rewards that change SAN should be recorded as reward dice rather than unproven final-state adjustments.",
       "numeric": {
         "requires_roll_id": true,
-        "requires_san_before_after": true
+        "requires_die": true,
+        "requires_roll_total": true,
+        "requires_san_before_after": true,
+        "delta_sign": "positive",
+        "non_percentile": true
       }
     },
     {
       "id": "core.damage.roll",
       "category": "damage",
+      "source_table": "damage.json",
       "source_note": "Damage amounts that change HP should be recorded as damage dice rather than unproven state adjustments.",
       "numeric": {
         "requires_roll_id": true,
-        "requires_hp_before_after": true
+        "requires_die": true,
+        "requires_roll_total": true,
+        "requires_hp_before_after": true,
+        "delta_sign": "negative",
+        "non_percentile": true
       }
     },
     {

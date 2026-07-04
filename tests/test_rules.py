@@ -92,6 +92,38 @@ def test_chase_rule_uses_structured_table():
     }
 
 
+def test_damage_rule_uses_structured_table():
+    table = coc_rules.load_rule_table("damage")
+
+    assert table["resource"] == "hit_points"
+    assert coc_rules.damage_rule() == {
+        "resource": "hit_points",
+        "dice_kind": "damage",
+        "requires_roll_id": True,
+        "requires_die": True,
+        "requires_roll_total": True,
+        "requires_resource_before_delta_after": True,
+        "delta_sign": "negative",
+        "non_percentile": True,
+    }
+
+
+def test_reward_rule_uses_structured_table():
+    table = coc_rules.load_rule_table("reward")
+
+    assert table["resource"] == "sanity"
+    assert coc_rules.reward_rule() == {
+        "resource": "sanity",
+        "dice_kind": "reward",
+        "requires_roll_id": True,
+        "requires_die": True,
+        "requires_roll_total": True,
+        "requires_resource_before_delta_after": True,
+        "delta_sign": "positive",
+        "non_percentile": True,
+    }
+
+
 def test_success_level_uses_percentile_check_bounds(monkeypatch):
     def fake_percentile_check_rule():
         return {
