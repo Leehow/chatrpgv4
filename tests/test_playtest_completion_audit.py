@@ -171,6 +171,8 @@ def battle_report_investigator_creation_fixture_text() -> str:
     return "\n".join([
         "- Fixture creation record.",
         "- Characteristics: STR 60, DEX 50",
+        "- Age: 32（20-39 岁）",
+        "- Age Adjustments: EDU 成长检定 1 次；本次 42 / 75，未提升；属性无降低。",
         "- Occupation: Antiquarian",
         "- Occupation Skill Points: EDU x 4 = 300",
         "- Personal Interest Skill Points: INT x 2 = 140",
@@ -1012,6 +1014,25 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         "characteristics": {
             "STR": {"final": 60},
             "DEX": {"final": 50},
+        },
+        "age": {
+            "years": 32,
+            "range": "20-39",
+            "edu_improvement_checks_required": 1,
+            "edu_improvement_checks": [
+                {
+                    "roll": 42,
+                    "target": 75,
+                    "improved": False,
+                    "improvement_die": "1D10",
+                    "improvement_roll": None,
+                    "edu_before": 75,
+                    "edu_after": 75,
+                },
+            ],
+            "characteristic_reductions": [],
+            "app_reduction": 0,
+            "mov_penalty": 0,
         },
         "occupation": {
             "name": "Antiquarian",
@@ -3061,6 +3082,8 @@ def test_completion_audit_fails_when_battle_report_omits_investigator_creation_r
     )
     assert finding["run_id"] == "v2-haunting-module"
     assert "STR 60" in finding["missing_creation_samples"]
+    assert "Age: 32（20-39 岁）" in finding["missing_creation_samples"]
+    assert "Age Adjustments: EDU 成长检定 1 次；本次 42 / 75，未提升；属性无降低。" in finding["missing_creation_samples"]
     assert "EDU x 4 = 300" in finding["missing_creation_samples"]
     assert "Spot Hidden: Base 25 + Occupation 30 + Personal Interest 0 = 55" in finding["missing_creation_samples"]
 
@@ -3128,6 +3151,7 @@ def test_completion_audit_fails_when_creation_records_are_outside_creation_secti
     )
     assert finding["run_id"] == "v2-haunting-module"
     assert "STR 60" in finding["missing_creation_samples"]
+    assert "Age: 32（20-39 岁）" in finding["missing_creation_samples"]
     assert "EDU x 4 = 300" in finding["missing_creation_samples"]
 
 
@@ -3716,10 +3740,22 @@ def test_completion_audit_accepts_selected_non_default_play_language(tmp_path):
             "player": "プレイヤー",
             "system": "システム",
         },
+        "creation_labels": {
+            "Age": "年齢",
+            "Age Adjustments": "年齢調整",
+        },
     }
     metadata["localized_terms"] = {"ja-JP": {"Ada King": "エイダ・キング"}}
     write_json(metadata_path, metadata)
     run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    battle_report_path = run_dir / "artifacts" / "battle-report.md"
+    battle_report = battle_report_path.read_text()
+    battle_report = battle_report.replace("- Age: 32（20-39 岁）", "- 年齢: 32（20-39歳）")
+    battle_report = battle_report.replace(
+        "- Age Adjustments: EDU 成长检定 1 次；本次 42 / 75，未提升；属性无降低。",
+        "- 年齢調整: EDU成長判定 1 回；今回は 42 / 75、上昇なし；能力値低下なし。",
+    )
+    write_text(battle_report_path, battle_report)
     transcript = read_jsonl(run_dir / "transcript.jsonl")
     write_jsonl(run_dir / "transcript.jsonl", [
         {

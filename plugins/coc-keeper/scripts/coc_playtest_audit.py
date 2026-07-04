@@ -110,6 +110,8 @@ REQUIRED_BACKSTORY_FIELDS = [
 ]
 REQUIRED_CREATION_STEPS = [
     "generate_characteristics",
+    "choose_age",
+    "apply_age_adjustments",
     "determine_occupation",
     "allocate_skill_points",
     "create_backstory",
@@ -525,6 +527,53 @@ def _character_creation_gaps(characters: list[dict[str, Any]]) -> list[str]:
             gaps.append(f"{investigator_id} creation missing selected credit rating")
         if not _nonempty_list(creation.get("equipment")):
             gaps.append(f"{investigator_id} creation missing starting equipment")
+    return gaps
+
+
+def _character_age_step_gaps(characters: list[dict[str, Any]]) -> list[str]:
+    if not characters:
+        return ["no investigator character files loaded"]
+
+    gaps: list[str] = []
+    for character in characters:
+        investigator_id = str(character.get("id") or character.get("investigator_id") or "unknown")
+        creation = character.get("_creation")
+        if not isinstance(creation, dict) or not creation:
+            gaps.append(f"{investigator_id} missing creation.json")
+            continue
+        steps = creation.get("rulebook_steps", [])
+        if not isinstance(steps, list) or "choose_age" not in steps or "apply_age_adjustments" not in steps:
+            gaps.append(f"{investigator_id} creation missing age rulebook steps")
+        age = creation.get("age")
+        if not isinstance(age, dict) or not age:
+            gaps.append(f"{investigator_id} creation missing structured age")
+            continue
+        if age.get("years", age.get("value")) in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing age years")
+        if age.get("range") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing age range")
+        required_checks = age.get("edu_improvement_checks_required")
+        checks = age.get("edu_improvement_checks")
+        if not isinstance(required_checks, int):
+            gaps.append(f"{investigator_id} creation missing EDU improvement check count")
+        if not isinstance(checks, list):
+            gaps.append(f"{investigator_id} creation missing EDU improvement check records")
+        elif isinstance(required_checks, int) and len(checks) < required_checks:
+            gaps.append(f"{investigator_id} creation has too few EDU improvement check records")
+        elif checks:
+            for index, check in enumerate(checks, start=1):
+                if not isinstance(check, dict):
+                    gaps.append(f"{investigator_id} creation EDU improvement check {index} must be an object")
+                    continue
+                for field in ["roll", "target", "improved", "edu_before", "edu_after"]:
+                    if check.get(field) in (None, "", [], {}):
+                        gaps.append(f"{investigator_id} creation EDU improvement check {index} missing {field}")
+        if not isinstance(age.get("characteristic_reductions"), list):
+            gaps.append(f"{investigator_id} creation missing characteristic_reductions list")
+        if age.get("app_reduction") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing APP age reduction")
+        if age.get("mov_penalty") in (None, "", [], {}):
+            gaps.append(f"{investigator_id} creation missing MOV age penalty")
     return gaps
 
 
@@ -2806,6 +2855,16 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "; ".join(creation_gaps),
             "Record sandbox investigator creation.json with the rulebook Chapter 3 creation steps, characteristics, occupation skill points, personal interest skill points, credit rating, backstory, and starting equipment.",
+        ))
+
+    age_step_gaps = _character_age_step_gaps(context["characters"]) if active_profile else []
+    if age_step_gaps:
+        findings.append(_finding(
+            "investigator_age_step_missing",
+            "system_gap",
+            "medium",
+            "; ".join(age_step_gaps),
+            "Record the rulebook Chapter 3 age choice, age modifier bracket, EDU improvement checks, characteristic reductions, APP reduction, and MOV penalty in creation.json.",
         ))
 
     skill_allocation_gaps = _character_skill_allocation_gaps(context["characters"]) if active_profile else []

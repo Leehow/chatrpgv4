@@ -1162,12 +1162,33 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert creation["method"] == "standard_rulebook_chapter_3"
     assert creation["rulebook_steps"] == [
         "generate_characteristics",
+        "choose_age",
+        "apply_age_adjustments",
         "determine_occupation",
         "allocate_skill_points",
         "create_backstory",
         "equip_investigator",
     ]
     assert creation["characteristics"]["STR"]["final"] == 60
+    assert creation["age"] == {
+        "years": 32,
+        "range": "20-39",
+        "edu_improvement_checks_required": 1,
+        "edu_improvement_checks": [
+            {
+                "roll": 42,
+                "target": 75,
+                "improved": False,
+                "improvement_die": "1D10",
+                "improvement_roll": None,
+                "edu_before": 75,
+                "edu_after": 75,
+            },
+        ],
+        "characteristic_reductions": [],
+        "app_reduction": 0,
+        "mov_penalty": 0,
+    }
     assert creation["occupation"]["name"] == "Antiquarian"
     assert creation["occupation"]["skill_point_formula"] == "EDU × 4"
     assert creation["occupation"]["skill_points_available"] == 300
@@ -1217,6 +1238,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "## 角色创建记录 <!-- report-anchor: Investigator Creation -->" in battle_text
     assert battle_text.index("report-anchor: Investigator Creation") < battle_text.index("report-anchor: Actual Play Replay")
     assert "生成属性: STR 60, CON 55, SIZ 65, DEX 50, APP 45, INT 70, POW 55, EDU 75, LUCK 55" in creation_section
+    assert "年龄: 32（20-39 岁）" in creation_section
+    assert "年龄调整: EDU 成长检定 1 次；本次 42 / 75，未提升；属性无降低。" in creation_section
     assert "职业: 古物学者" in creation_section
     assert "职业技能点: EDU × 4 = 300" in creation_section
     assert "个人兴趣技能点: INT × 2 = 140" in creation_section

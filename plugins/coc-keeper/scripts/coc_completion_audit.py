@@ -733,6 +733,128 @@ def _format_creation_formula_points(formula: Any, points: Any) -> str:
     return f"{formula} = {points}"
 
 
+def _creation_age_required_texts(creation: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
+    age = creation.get("age", {})
+    if not isinstance(age, dict) or not age:
+        return []
+
+    play_language = str(metadata.get("play_language") or "en-US")
+    age_label = _creation_label(metadata, "Age")
+    adjustment_label = _creation_label(metadata, "Age Adjustments")
+    required_texts: list[str] = []
+
+    years = age.get("years", age.get("value"))
+    age_range = age.get("range")
+    if years not in (None, "", [], {}):
+        if age_range not in (None, "", [], {}):
+            if play_language == "zh-Hans":
+                required_texts.append(f"{age_label}: {years}（{age_range} 岁）")
+            elif play_language == "ja-JP":
+                required_texts.append(f"{age_label}: {years}（{age_range}歳）")
+            else:
+                required_texts.append(f"{age_label}: {years} ({age_range})")
+        else:
+            required_texts.append(f"{age_label}: {years}")
+
+    required_checks = age.get("edu_improvement_checks_required", 0)
+    checks = age.get("edu_improvement_checks", [])
+    reductions = age.get("characteristic_reductions", [])
+    if not isinstance(checks, list):
+        checks = []
+    if not isinstance(reductions, list):
+        reductions = []
+    if not (required_checks or checks or reductions):
+        return required_texts
+
+    if play_language == "zh-Hans":
+        parts: list[str] = []
+        if required_checks:
+            parts.append(f"EDU 成长检定 {required_checks} 次")
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            roll = check.get("roll", "?")
+            target = check.get("target", check.get("edu_before", "?"))
+            if check.get("improved") is True:
+                improvement_roll = check.get("improvement_roll")
+                edu_after = check.get("edu_after")
+                if improvement_roll not in (None, "", [], {}) and edu_after not in (None, "", [], {}):
+                    parts.append(f"本次 {roll} / {target}，提升 {improvement_roll} 点至 EDU {edu_after}")
+                else:
+                    parts.append(f"本次 {roll} / {target}，提升")
+            else:
+                parts.append(f"本次 {roll} / {target}，未提升")
+        if reductions:
+            reduction_text = ", ".join(
+                f"{item.get('characteristic', '?')} {item.get('delta', '?')}"
+                for item in reductions
+                if isinstance(item, dict)
+            )
+            parts.append(f"属性降低：{reduction_text}" if reduction_text else "属性降低已记录")
+        else:
+            parts.append("属性无降低")
+        required_texts.append(f"{adjustment_label}: {'；'.join(parts)}。")
+    elif play_language == "ja-JP":
+        parts = []
+        if required_checks:
+            parts.append(f"EDU成長判定 {required_checks} 回")
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            roll = check.get("roll", "?")
+            target = check.get("target", check.get("edu_before", "?"))
+            if check.get("improved") is True:
+                improvement_roll = check.get("improvement_roll")
+                edu_after = check.get("edu_after")
+                if improvement_roll not in (None, "", [], {}) and edu_after not in (None, "", [], {}):
+                    parts.append(f"今回は {roll} / {target}、{improvement_roll} 点上昇して EDU {edu_after}")
+                else:
+                    parts.append(f"今回は {roll} / {target}、上昇")
+            else:
+                parts.append(f"今回は {roll} / {target}、上昇なし")
+        if reductions:
+            reduction_text = ", ".join(
+                f"{item.get('characteristic', '?')} {item.get('delta', '?')}"
+                for item in reductions
+                if isinstance(item, dict)
+            )
+            parts.append(f"能力値低下：{reduction_text}" if reduction_text else "能力値低下を記録")
+        else:
+            parts.append("能力値低下なし")
+        required_texts.append(f"{adjustment_label}: {'；'.join(parts)}。")
+    else:
+        parts = []
+        if required_checks:
+            plural = "time" if required_checks == 1 else "times"
+            parts.append(f"EDU improvement check {required_checks} {plural}")
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            roll = check.get("roll", "?")
+            target = check.get("target", check.get("edu_before", "?"))
+            if check.get("improved") is True:
+                improvement_roll = check.get("improvement_roll")
+                edu_after = check.get("edu_after")
+                if improvement_roll not in (None, "", [], {}) and edu_after not in (None, "", [], {}):
+                    parts.append(f"roll {roll} / {target}, improved by {improvement_roll} to EDU {edu_after}")
+                else:
+                    parts.append(f"roll {roll} / {target}, improved")
+            else:
+                parts.append(f"roll {roll} / {target}, no improvement")
+        if reductions:
+            reduction_text = ", ".join(
+                f"{item.get('characteristic', '?')} {item.get('delta', '?')}"
+                for item in reductions
+                if isinstance(item, dict)
+            )
+            parts.append(f"characteristic reductions: {reduction_text}" if reduction_text else "characteristic reductions recorded")
+        else:
+            parts.append("no characteristic reductions")
+        required_texts.append(f"{adjustment_label}: {'; '.join(parts)}.")
+
+    return required_texts
+
+
 def _creation_required_texts(creation: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
     localized_terms = _metadata_localized_terms(metadata)
     required_texts: list[str] = []
@@ -746,6 +868,8 @@ def _creation_required_texts(creation: dict[str, Any], metadata: dict[str, Any])
             value = characteristics.get(key)
             if isinstance(value, dict) and value.get("final") not in (None, "", [], {}):
                 required_texts.append(f"{key} {value['final']}")
+
+    required_texts.extend(_creation_age_required_texts(creation, metadata))
 
     occupation = creation.get("occupation", {})
     if isinstance(occupation, dict):

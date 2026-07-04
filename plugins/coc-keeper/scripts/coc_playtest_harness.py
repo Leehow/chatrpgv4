@@ -1328,6 +1328,8 @@ def _ada_king_creation_record(
         "rulebook_source": "Call of Cthulhu Keeper Rulebook Chapter 3",
         "rulebook_steps": [
             "generate_characteristics",
+            "choose_age",
+            "apply_age_adjustments",
             "determine_occupation",
             "allocate_skill_points",
             "create_backstory",
@@ -1345,9 +1347,23 @@ def _ada_king_creation_record(
             "LUCK": {"formula": "3D6 × 5", "roll_total": 11, "final": 55},
         },
         "age": {
-            "value": 32,
+            "years": 32,
             "range": "20-39",
-            "adjustments": ["EDU improvement check available; no fixture increase applied"],
+            "edu_improvement_checks_required": 1,
+            "edu_improvement_checks": [
+                {
+                    "roll": 42,
+                    "target": 75,
+                    "improved": False,
+                    "improvement_die": "1D10",
+                    "improvement_roll": None,
+                    "edu_before": 75,
+                    "edu_after": 75,
+                },
+            ],
+            "characteristic_reductions": [],
+            "app_reduction": 0,
+            "mov_penalty": 0,
         },
         "derived": {
             "HP": {"formula": "(CON + SIZ) / 10", "value": 12},
