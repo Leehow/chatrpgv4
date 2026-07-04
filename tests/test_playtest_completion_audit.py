@@ -181,6 +181,16 @@ def battle_report_event_fixture_text() -> str:
 
 
 def battle_report_feedback_fixture_text() -> str:
+    feedback_rows = [
+        (5, "fixture feedback"),
+        (5, "fixture careful feedback"),
+        (4, "fixture reckless feedback"),
+        (5, "fixture skeptical feedback"),
+    ]
+    return "\n".join(f"- {score}/5: {text}" for score, text in feedback_rows)
+
+
+def battle_report_feedback_fixture_text_without_scores() -> str:
     feedback_texts = [
         "fixture feedback",
         "fixture careful feedback",
@@ -513,6 +523,15 @@ def battle_report_with_feedback_only_outside_feedback_section() -> str:
             + "\n"
             + battle_report_feedback_fixture_text(),
         )
+    )
+
+
+def battle_report_with_feedback_text_but_without_scores() -> str:
+    return battle_report_fixture().replace(
+        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n"
+        + battle_report_feedback_fixture_text(),
+        "## Player Feedback On KP <!-- report-anchor: Player Feedback On KP -->\n"
+        + battle_report_feedback_fixture_text_without_scores(),
     )
 
 
@@ -3622,6 +3641,35 @@ def test_completion_audit_fails_when_feedback_text_is_outside_feedback_section(t
     assert finding["run_id"] == "v4-multi-profile-pressure"
     assert "fixture careful feedback" in finding["missing_feedback_samples"]
     assert "fixture reckless feedback" in finding["missing_feedback_samples"]
+
+
+def test_completion_audit_fails_when_battle_report_omits_source_feedback_scores(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    run_dir = tmp_path / ".coc" / "playtests" / "v4-multi-profile-pressure"
+    write_text(run_dir / "artifacts" / "battle-report.md", battle_report_with_feedback_text_but_without_scores())
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_feedback_score_missing")
+    assert finding["run_id"] == "v4-multi-profile-pressure"
+    assert "fixture careful feedback" in finding["missing_feedback_score_samples"]
+    assert "fixture reckless feedback" in finding["missing_feedback_score_samples"]
 
 
 def test_completion_audit_fails_when_battle_report_omits_source_memory_summaries(tmp_path):

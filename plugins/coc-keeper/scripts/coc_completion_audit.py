@@ -767,7 +767,7 @@ def _battle_report_feedback_text_findings(
     run_dir: Path,
     battle_report: str,
 ) -> list[dict[str, Any]]:
-    feedback_section = _battle_report_anchor_section(battle_report, "Player Feedback On KP")
+    feedback_section = _visible_markdown_text(_battle_report_anchor_section(battle_report, "Player Feedback On KP"))
     feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
     required_feedback = [
         row["text"].strip()
@@ -791,6 +791,52 @@ def _battle_report_feedback_text_findings(
         missing_feedback_count=len(missing_feedback),
         required_feedback_count=len(required_feedback),
         missing_feedback_samples=missing_feedback[:5],
+    )]
+
+
+def _feedback_score_rendered(feedback_section: str, text: str, score: int | float) -> bool:
+    if isinstance(score, float) and score.is_integer():
+        score_text = str(int(score))
+    else:
+        score_text = str(score)
+    score_candidates = {f"{score_text}/5", f"{score_text} / 5"}
+    return any(
+        text in line and any(candidate in line for candidate in score_candidates)
+        for line in feedback_section.splitlines()
+    )
+
+
+def _battle_report_feedback_score_findings(
+    run_id: str,
+    run_dir: Path,
+    battle_report: str,
+) -> list[dict[str, Any]]:
+    feedback_section = _visible_markdown_text(_battle_report_anchor_section(battle_report, "Player Feedback On KP"))
+    feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
+    required_scores = [
+        (row["text"].strip(), row["score"])
+        for row in feedback
+        if isinstance(row.get("text"), str)
+        and row["text"].strip()
+        and isinstance(row.get("score"), (int, float))
+        and not isinstance(row.get("score"), bool)
+    ]
+    missing_scores = [
+        text
+        for text, score in required_scores
+        if not _feedback_score_rendered(feedback_section, text, score)
+    ]
+    if not missing_scores:
+        return []
+    return [_finding(
+        "battle_report_feedback_score_missing",
+        "report_gap",
+        f"{run_id} battle-report.md omits {len(missing_scores)} of {len(required_scores)} source player feedback ratings from player-feedback.jsonl.",
+        "Regenerate battle-report.md so Player Feedback On KP renders each structured source feedback score beside its comment.",
+        run_id=run_id,
+        missing_feedback_score_count=len(missing_scores),
+        required_feedback_score_count=len(required_scores),
+        missing_feedback_score_samples=missing_scores[:5],
     )]
 
 
@@ -4198,6 +4244,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     findings.extend(_battle_report_rule_ref_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_feedback_text_findings(run_id, run_dir, battle_report))
+    findings.extend(_battle_report_feedback_score_findings(run_id, run_dir, battle_report))
     findings.extend(_battle_report_memory_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_handout_findings(
         run_id,
