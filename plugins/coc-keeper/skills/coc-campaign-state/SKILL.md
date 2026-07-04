@@ -25,6 +25,7 @@ Use `../../scripts/coc_state.py` for deterministic state operations:
 - `link_party`
 - `append_jsonl`
 - `create_snapshot`
+- `restore_snapshot`
 
 ## Safety
 

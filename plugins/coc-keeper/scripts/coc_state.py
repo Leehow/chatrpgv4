@@ -35,6 +35,8 @@ CAMPAIGN_DIRS = (
     "snapshots",
 )
 
+SNAPSHOT_DIRS = ("save", "scenario", "index", "memory", "logs")
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -257,8 +259,28 @@ def create_snapshot(root: Path, campaign_id: str, label: str) -> Path:
         source = campaign_dir / name
         if source.exists():
             shutil.copy2(source, snapshot_dir / name)
-    for directory in ("save", "scenario", "index", "memory", "logs"):
+    for directory in SNAPSHOT_DIRS:
         source_dir = campaign_dir / directory
         if source_dir.exists():
             shutil.copytree(source_dir, snapshot_dir / directory)
     return snapshot_dir
+
+
+def restore_snapshot(root: Path, campaign_id: str, label: str) -> Path:
+    campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    snapshot_dir = campaign_dir / "snapshots" / label
+    if not snapshot_dir.exists():
+        raise FileNotFoundError(f"snapshot not found: {snapshot_dir}")
+    for name in ("campaign.json", "party.json"):
+        source = snapshot_dir / name
+        if source.exists():
+            shutil.copy2(source, campaign_dir / name)
+    for directory in SNAPSHOT_DIRS:
+        source_dir = snapshot_dir / directory
+        target_dir = campaign_dir / directory
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        if source_dir.exists():
+            shutil.copytree(source_dir, target_dir)
+    _upsert_campaign_index(root, campaign_id)
+    return campaign_dir

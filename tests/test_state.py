@@ -154,3 +154,42 @@ def test_append_jsonl_and_snapshot(tmp_path):
     assert (snapshot_path / "memory" / "session-summaries.jsonl").exists()
     assert json.loads((snapshot_path / "scenario" / "scenario.json").read_text())["scenario_id"] == "case-1-scenario"
     assert json.loads((snapshot_path / "index" / "source-map.json").read_text())["sources"][0]["path"] == "pdf/module.pdf"
+
+
+def test_restore_snapshot_recovers_campaign_state(tmp_path):
+    coc_state.ensure_workspace(tmp_path)
+    coc_state.create_campaign(tmp_path, "case-1", "Case 1")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+    coc_state.append_jsonl(
+        campaign_dir / "logs" / "events.jsonl",
+        {"type": "scene", "payload": {"id": "intro"}},
+    )
+    coc_state.append_jsonl(
+        campaign_dir / "memory" / "session-summaries.jsonl",
+        {"summary": "Original memory."},
+    )
+    (campaign_dir / "save" / "world-state.json").write_text(
+        json.dumps({"active_scene_id": "intro"}),
+        encoding="utf-8",
+    )
+    coc_state.create_snapshot(tmp_path, "case-1", "before-risk")
+
+    coc_state.append_jsonl(
+        campaign_dir / "logs" / "events.jsonl",
+        {"type": "scene", "payload": {"id": "bad-branch"}},
+    )
+    (campaign_dir / "memory" / "session-summaries.jsonl").write_text(
+        json.dumps({"summary": "Bad memory."}) + "\n",
+        encoding="utf-8",
+    )
+    (campaign_dir / "save" / "world-state.json").write_text(
+        json.dumps({"active_scene_id": "bad-branch"}),
+        encoding="utf-8",
+    )
+
+    restored_path = coc_state.restore_snapshot(tmp_path, "case-1", "before-risk")
+
+    assert restored_path == campaign_dir
+    assert "bad-branch" not in (campaign_dir / "logs" / "events.jsonl").read_text()
+    assert json.loads((campaign_dir / "save" / "world-state.json").read_text())["active_scene_id"] == "intro"
+    assert json.loads((campaign_dir / "memory" / "session-summaries.jsonl").read_text())["summary"] == "Original memory."
