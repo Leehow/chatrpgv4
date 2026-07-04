@@ -471,7 +471,7 @@ git commit -m "feat: add coc dice roller"
 **Interfaces:**
 - Consumes: `coc_rules.damage_bonus_build(str_value: int, siz_value: int) -> dict`
 - Produces: `coc_character.derive_values(characteristics: dict[str, int], luck: int | None = None) -> dict`
-- Produces: `coc_character.apply_age_modifiers(characteristics: dict[str, int], age: int, edu_improvement_rolls: list[int] | None = None) -> dict`
+- Produces: `coc_character.apply_age_modifiers(characteristics: dict[str, int], age: int, edu_improvement_rolls: list[dict] | None = None) -> dict`; successful EDU improvement checks must carry the 1D10 `improvement_roll`.
 - Produces: `coc_character.validate_character_sheet(sheet: dict) -> list[str]`
 
 - [ ] **Step 1: Write failing character tests**

@@ -39,7 +39,7 @@ def derive_values(characteristics: dict[str, int], luck: int | None = None) -> d
 def apply_age_modifiers(
     characteristics: dict[str, int],
     age: int,
-    edu_improvement_rolls: list[int | dict[str, Any]] | None = None,
+    edu_improvement_rolls: list[dict[str, Any]] | None = None,
 ) -> dict[str, int]:
     adjusted = dict(characteristics)
     edu_improvement_rolls = edu_improvement_rolls or []
@@ -50,13 +50,14 @@ def apply_age_modifiers(
     required_checks = int(age_adjustment.get("edu_improvement_checks", 0))
     edu_maximum = int(coc_rules.load_rule_table("age-adjustments").get("edu_maximum", 99))
     for record in edu_improvement_rolls[:required_checks]:
-        if isinstance(record, dict):
-            roll = int(record["roll"])
-            improvement_amount = int(record.get("improvement_roll") or 0)
-        else:
-            roll = int(record)
-            improvement_amount = 1
+        if not isinstance(record, dict):
+            raise ValueError("EDU improvement checks must include roll and improvement_roll fields")
+        roll = int(record["roll"])
         if roll > adjusted["EDU"]:
+            improvement_roll = record.get("improvement_roll")
+            if improvement_roll in (None, "", [], {}):
+                raise ValueError("successful EDU improvement check requires improvement_roll")
+            improvement_amount = int(improvement_roll)
             adjusted["EDU"] = min(edu_maximum, adjusted["EDU"] + improvement_amount)
     return adjusted
 
