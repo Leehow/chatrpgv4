@@ -1735,8 +1735,10 @@ def test_multi_profile_rulebook_audit_lists_pressure_protocol_evidence(tmp_path)
     artifact = coc_playtest_audit.generate_rulebook_audit(run_dir)
     text = artifact.read_text()
 
-    assert "Multi-profile pressure: careful_investigator=谨慎风格, reckless_investigator=鲁莽风格, skeptical_rules_lawyer=规则质疑风格." in text
-    assert "Multi-profile transcript turns: careful_investigator=1, reckless_investigator=2, skeptical_rules_lawyer=2; skeptical meta turns: 2." in text
+    assert "Single-player style pressure: careful_investigator=谨慎风格, reckless_investigator=鲁莽风格, skeptical_rules_lawyer=规则质疑风格." in text
+    assert "Multi-profile pressure:" not in text
+    assert "Single-player style transcript turns: careful_investigator=1, reckless_investigator=2, skeptical_rules_lawyer=2; skeptical meta turns: 2." in text
+    assert "Multi-profile transcript turns:" not in text
     assert "Pushed-roll protocol stages: fixture-push=player_reframes_action -> keeper_foreshadows_failure -> player_confirms_risk -> roll_resolved." in text
     assert "Spoiler protocol stages: fixture-spoiler=warning_issued -> player_confirmed -> limited_reveal." in text
 

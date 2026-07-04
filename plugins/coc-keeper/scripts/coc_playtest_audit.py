@@ -2110,7 +2110,7 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             f"Chase Tracker rendered: {tracker_rendered}."
         )
         lines.append(f"Chase DEX turn sequences: {turn_sequence_count}/{len(rounds) if isinstance(rounds, list) else 0} rounds recorded.")
-        lines.append(f"Chase player pressure: {profile_pressure}.")
+        lines.append(f"Single-player chase style pressure: {profile_pressure}.")
         lines.append(
             "Pushed-roll protocol stages: "
             + _protocol_stage_summary(transcript, "pushed_roll_protocol", "roll_id")
@@ -2141,9 +2141,9 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
             f"{profile_id}={profile_turn_counts[profile_id]}"
             for profile_id in profile_ids
         ) or "none"
-        lines.append(f"Multi-profile pressure: {profile_summary}.")
+        lines.append(f"Single-player style pressure: {profile_summary}.")
         lines.append(
-            f"Multi-profile transcript turns: {turn_summary}; "
+            f"Single-player style transcript turns: {turn_summary}; "
             f"skeptical meta turns: {skeptical_meta_turns}."
         )
         lines.append(
@@ -3953,8 +3953,8 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "chase_player_profile_pressure_missing",
                 "test_gap",
                 "medium",
-                "Chase drill lacks multi-profile player pressure: " + ", ".join(profile_pressure_gaps),
-                "Exercise the chase drill with reckless, skeptical-rules, and genre-savvy player profiles, including meta pressure on movement actions, pushed-roll boundaries, and spoiler-safe answers.",
+                "Chase drill lacks single-player style pressure: " + ", ".join(profile_pressure_gaps),
+                "Exercise the chase drill with reckless, skeptical-rules, and genre-savvy style profiles, including meta pressure on movement actions, pushed-roll boundaries, and spoiler-safe answers.",
             ))
 
         missing_decision_kinds = _chase_decision_kind_gaps(context["events"])

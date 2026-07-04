@@ -2036,6 +2036,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Chase drill audit must pass for a report with real chase state." not in evaluation_text
     assert "live LLM-vs-KP chase stress test" in evaluation_text
     assert "PASS" in audit_text
+    assert "Single-player chase style pressure: reckless_investigator, skeptical_rules_lawyer, genre_savvy_player." in audit_text
+    assert "Chase player pressure:" not in audit_text
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | ZH_SKILL_TERMS)
     assert metadata["localized_terms"]["zh-Hans"]["Antiquarian"] == "古物学者"
     assert metadata["player_profiles_tested"] == [

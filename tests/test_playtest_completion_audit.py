@@ -736,13 +736,13 @@ def rulebook_audit_fixture(run_id: str = "fixture-run", audit_profile: str = "fi
     if audit_profile == "chase_drill":
         positive_evidence.extend([
             "- Chase evidence: 1 chase events; save/chase.json fields present: participants, location_chain, rounds, outcome; Chase Tracker rendered: yes.",
-            "- Chase player pressure: careful_investigator, reckless_investigator, skeptical_rules_lawyer.",
+            "- Single-player chase style pressure: careful_investigator, reckless_investigator, skeptical_rules_lawyer.",
             "- Pushed-roll protocol stages: "
             f"{run_id}-pushed-roll=player_reframes_action -> keeper_foreshadows_failure -> player_confirms_risk -> roll_resolved.",
         ])
     if audit_profile == "multi_profile_pressure":
         positive_evidence.extend([
-            "- Multi-profile pressure: careful_investigator=谨慎风格, reckless_investigator=鲁莽风格, skeptical_rules_lawyer=规则质疑风格.",
+            "- Single-player style pressure: careful_investigator=谨慎风格, reckless_investigator=鲁莽风格, skeptical_rules_lawyer=规则质疑风格.",
             "- Pushed-roll protocol stages: "
             f"{run_id}-pushed-roll=player_reframes_action -> keeper_foreshadows_failure -> player_confirms_risk -> roll_resolved.",
             "- Spoiler protocol stages: fixture-spoiler-reveal=warning_issued -> player_confirmed -> limited_reveal.",
