@@ -407,7 +407,6 @@ def test_chase_drill_audit_requires_chase_state_and_resolution(tmp_path):
     assert "chase_subsystem_missing" in finding_codes(audit)
     assert "chase_state_missing" in finding_codes(audit)
     assert "chase_resolution_missing" in finding_codes(audit)
-    assert "chase_report_missing_key_moments" in finding_codes(audit)
 
 
 def test_chase_drill_audit_requires_chase_tracker_rendering(tmp_path):
@@ -501,6 +500,103 @@ def test_chase_drill_audit_requires_chase_tracker_rendering(tmp_path):
     codes = finding_codes(audit)
     assert "chase_tracker_not_rendered" in codes
     assert "chase_state_missing" not in codes
+    assert "chase_resolution_missing" not in codes
+    assert "chase_report_missing_key_moments" not in codes
+
+
+def test_chase_drill_audit_does_not_require_hardcoded_report_moment_text(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "chase-drill"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "chase_drill"
+    metadata["play_language"] = "zh-Hans"
+    metadata["subsystems_covered"] = ["investigation", "chase"]
+    metadata_path.write_text(json.dumps(metadata))
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop"
+    write_json(campaign_dir / "save" / "chase.json", {
+        "chase_id": "rooftop-chase",
+        "status": "resolved",
+        "round": 2,
+        "participants": [
+            {
+                "id": "ada-king-chase",
+                "role": "quarry",
+                "base_mov": 8,
+                "adjusted_mov": 8,
+                "dex": 50,
+                "movement_actions": 1,
+                "position": "laundry-roof",
+            },
+            {
+                "id": "nathaniel-crowe",
+                "role": "pursuer",
+                "base_mov": 8,
+                "adjusted_mov": 9,
+                "dex": 60,
+                "movement_actions": 2,
+                "position": "locked-roof-door",
+            },
+        ],
+        "dex_order": ["nathaniel-crowe", "ada-king-chase"],
+        "location_chain": [
+            {"id": "print-shop-roof", "label": "start"},
+            {"id": "slick-skylight", "label": "hazard", "difficulty": "regular", "skill": "Dodge"},
+            {"id": "locked-roof-door", "label": "barrier", "difficulty": "regular", "skill": "Locksmith"},
+            {"id": "laundry-roof", "label": "escape"},
+        ],
+        "rounds": [
+            {
+                "round": 1,
+                "turns": [
+                    {"actor_id": "nathaniel-crowe", "action": "close_distance"},
+                    {"actor_id": "ada-king-chase", "action": "cross_hazard"},
+                ],
+                "summary": "Round 1 shows speed roll, MOV, movement actions, location chain, and hazard.",
+            },
+            {
+                "round": 2,
+                "turns": [
+                    {"actor_id": "nathaniel-crowe", "action": "attack"},
+                    {"actor_id": "ada-king-chase", "action": "escape"},
+                ],
+                "summary": "Round 2 shows DEX order, barrier, conflict, and why the quarry escapes.",
+            },
+        ],
+        "outcome": "quarry escapes",
+    })
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {
+            "type": "chase",
+            "actor": "keeper_under_test",
+            "payload": {
+                "summary": "speed roll, MOV, movement actions, location chain, DEX order, hazard, barrier, conflict, quarry escapes",
+            },
+        },
+    ])
+    (run_dir / "artifacts" / "battle-report.md").write_text(
+        "# 跑团战报 <!-- report-anchor: Battle Report -->\n\n"
+        "## 逐场景回放 <!-- report-anchor: Scene-by-Scene Replay -->\n"
+        "- 艾达先判断体力差距，再沿屋脊分段移动；她处理天窗滑落风险、门锁阻挡和短棍追击，最后甩开追赶者。\n\n"
+        "## 实际跑团回放 <!-- report-anchor: Actual Play Replay -->\n"
+        "- 第 1 轮 KP: \"屋顶上的雨越来越大。\"\n"
+        "- 第 2 轮 玩家: \"我抱着账本往晾衣绳那边钻。\"\n\n"
+        "## 会话记录 <!-- report-anchor: Session Transcript -->\n"
+        "- 第 1 轮 KP: 屋顶上的雨越来越大。\n"
+        "- 第 2 轮 玩家: 我抱着账本往晾衣绳那边钻。\n\n"
+        "## 玩家关键决定 <!-- report-anchor: Major Player Decisions -->\n"
+        "- 艾达选择带着账本冲过屋顶路线。\n\n"
+        "## 追逐摘要 <!-- report-anchor: Chase Summary -->\n"
+        "- 艾达先判断体力差距，再沿屋脊分段移动；她处理天窗滑落风险、门锁阻挡和短棍追击，最后甩开追赶者。\n\n"
+        "## 剧情回顾 <!-- report-anchor: Story Recap -->\n"
+        "- 艾达带着账本从屋顶逃离。\n\n"
+        "## 玩家对 KP 的反馈 <!-- report-anchor: Player Feedback On KP -->\n"
+        "- KP 清晰度 5/5：玩家反馈：“KP 解释清楚。”\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    codes = finding_codes(audit)
     assert "chase_resolution_missing" not in codes
     assert "chase_report_missing_key_moments" not in codes
 

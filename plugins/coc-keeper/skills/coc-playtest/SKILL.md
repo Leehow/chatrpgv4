@@ -53,6 +53,8 @@ Do not use a natural-language matcher based on literal headings, keyword hits, o
 
 Exact matching is allowed only for machine-controlled schema fields, enum values, JSON keys, file paths, and system markers such as `coverage_evaluator`, `coverage_reasons`, `run_id`, `audit_profile`, or `subsystems_covered`. Offline deterministic tests may inject a fixture evaluator. The default non-LLM path may use structured source data only; it must not claim semantic coverage from Markdown section titles or keyword snippets.
 
+Rulebook audits should use deterministic checks only for structured evidence such as coverage enums, event types, roll payload fields, rule ids, chase state fields, and required source files. Do not require hardcoded natural-language report moment strings as proof of module fidelity, chase quality, or rule intent. Semantic quality is recorded in `semantic-eval-result.json`; source-to-report completeness is checked separately against structured source records.
+
 Semantic coverage for source-gated subsystems must be supported by machine-readable run metadata. If an evaluator claims `combat`, `chase`, or `sanity` coverage but `playtest.json.subsystems_covered` does not declare the matching enum, the suite must reject that run as coverage for the subsystem and surface a coverage gap. A module note that a subsystem is not applicable is report context, not subsystem coverage.
 
 ## LLM Semantic Evaluation Artifacts

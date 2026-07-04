@@ -39,35 +39,11 @@ HAUNTING_MODULE_SUBSYSTEMS = [
     "combat",
 ]
 
-HAUNTING_REPORT_MOMENTS = [
-    "Mr. Knott",
-    "Arty Wilmot",
-    "Chapel of Contemplation",
-    "The Old Corbitt Place",
-    "Bed Attack",
-    "The Floating Knife",
-    "Corbitt's Hiding Place",
-    "Corbitt Attacks",
-    "Rewards",
-]
-
 HAUNTING_REQUIRED_NPC_SPEAKERS = [
     "Mr. Knott",
     "Arty Wilmot",
     "Gabriela Macario",
     "Vittorio Macario",
-]
-
-CHASE_REPORT_MOMENTS = [
-    "speed roll",
-    "MOV",
-    "movement actions",
-    "location chain",
-    "DEX order",
-    "hazard",
-    "barrier",
-    "conflict",
-    "quarry escapes",
 ]
 
 CHASE_DRILL_REQUIRED_PLAYER_PROFILES = [
@@ -1797,14 +1773,6 @@ def _contains_marker_or_localized(text: str, marker: str, terms: dict[str, str])
     return marker in text or bool(localized and localized in text)
 
 
-def _report_contains_required_moments(text: str, markers: list[str], terms: dict[str, str]) -> list[str]:
-    missing: list[str] = []
-    for marker in markers:
-        if not _contains_marker_or_localized(text, marker, terms):
-            missing.append(marker)
-    return missing
-
-
 def _section_text(markdown: str, heading: str) -> str:
     marker = f"## {heading}"
     start = markdown.find(marker)
@@ -2811,20 +2779,6 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "For modules without chase scenes, record an explicit non-applicable chase summary instead of leaving the report empty.",
             ))
 
-        missing_report_moments = _report_contains_required_moments(
-            battle_report,
-            HAUNTING_REPORT_MOMENTS,
-            locale_terms,
-        )
-        if missing_report_moments:
-            findings.append(_finding(
-                "module_report_missing_key_moments",
-                "report_gap",
-                "high",
-                "Battle report misses key module moments: " + ", ".join(missing_report_moments),
-                "Render the named module beats in the transcript, state changes, combat summary, and ending sections.",
-            ))
-
     if _chase_drill_required(metadata):
         if "chase" not in covered_subsystems:
             findings.append(_finding(
@@ -2925,20 +2879,6 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
                 "high",
                 "Chase drill does not prove round actions followed DEX order: " + "; ".join(dex_order_gaps),
                 "Record dex_order from participant DEX and add rounds[].turns actor_id entries ordered by DEX for each chase round.",
-            ))
-
-        missing_chase_moments = _report_contains_required_moments(
-            battle_report,
-            CHASE_REPORT_MOMENTS,
-            locale_terms,
-        )
-        if missing_chase_moments:
-            findings.append(_finding(
-                "chase_report_missing_key_moments",
-                "report_gap",
-                "high",
-                "Battle report misses chase moments: " + ", ".join(missing_chase_moments),
-                "Render speed rolls, MOV, location chain, movement actions, hazards, barriers, conflict, and escape/capture in Chase Summary.",
             ))
 
     return {
