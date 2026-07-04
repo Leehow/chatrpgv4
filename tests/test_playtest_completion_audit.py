@@ -1299,6 +1299,51 @@ def test_completion_audit_fails_when_workspace_indexes_are_missing(tmp_path):
     assert "active_run_workspace_index_missing" in finding_codes
 
 
+def test_completion_audit_fails_when_investigator_index_contains_campaign_state(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_id = "v2-haunting-module"
+    investigator_id = f"{run_id}-investigator"
+    index_path = (
+        tmp_path
+        / ".coc"
+        / "playtests"
+        / run_id
+        / "sandbox"
+        / ".coc"
+        / "indexes"
+        / "investigators.json"
+    )
+    index = json.loads(index_path.read_text())
+    index["investigators"][investigator_id].update({
+        "current_hp": 7,
+        "current_san": 44,
+        "active_scene_id": "fixture-ending",
+    })
+    write_json(index_path, index)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "active_run_workspace_index_missing")
+    assert finding["run_id"] == run_id
+    assert "investigator index contains campaign state fields for v2-haunting-module-investigator" in finding["missing_evidence"]
+
+
 def test_completion_audit_fails_when_active_evaluator_note_is_medium_or_higher(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

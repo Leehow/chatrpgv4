@@ -2810,6 +2810,22 @@ def _workspace_index_integrity_findings(
             if entry.get("id") != investigator_id:
                 missing_evidence.append(f"investigator index entry id does not match {investigator_id}")
                 incomplete_files.append("sandbox/.coc/indexes/investigators.json")
+            campaign_state_fields = sorted(
+                set(entry)
+                & {
+                    "active_scene_id",
+                    "conditions",
+                    "current_hp",
+                    "current_mp",
+                    "current_san",
+                    "scene_id",
+                    "skill_checks_earned",
+                    "temporary_insanity",
+                }
+            )
+            if campaign_state_fields:
+                missing_evidence.append(f"investigator index contains campaign state fields for {investigator_id}")
+                incomplete_files.append("sandbox/.coc/indexes/investigators.json")
             for key, expected_path in expected_investigator_paths.items():
                 if entry.get(key) != expected_path:
                     missing_evidence.append(
