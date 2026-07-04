@@ -473,7 +473,11 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     assert "canonical skill keys" in quality_questions["localized_visible_dialogue"]
     assert "skill names, system roll text" not in quality_questions["localized_visible_dialogue"]
     assert "actual-play" in quality_questions["actual_play_replay"]
-    assert "multiple player profiles" in quality_questions["virtual_player_pressure"]
+    assert "single simulated player" in quality_questions["virtual_player_pressure"]
+    assert "play-style profiles" in quality_questions["virtual_player_pressure"]
+    assert "multiple player profiles" not in quality_questions["virtual_player_pressure"]
+    assert "multi-player" not in quality_questions["virtual_player_pressure"]
+    assert "multiplayer" not in quality_questions["virtual_player_pressure"]
     assert "battle_report" in request["inputs"]
     assert request["inputs"]["campaign"]["status"] == "concluded"
     assert request["inputs"]["scenario"]["scenario_id"] == "rooftop-chase-drill"
