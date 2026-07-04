@@ -1417,6 +1417,16 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "说服：艾达·金掷出 72 / 55，结果失败。" in rules_recap
     assert "图书馆使用：艾达·金掷出 22 / 60，结果困难成功。" in rules_recap
     assert "侦查：艾达·金掷出 28 / 55，结果普通成功。" in rules_recap
+    assert any(
+        event.get("payload", {}).get("skill") == "DEX"
+        and event.get("payload", {}).get("pushed") is True
+        and event.get("payload", {}).get("skill_check_earned") is False
+        for event in campaign_roll_events(run_dir)
+    )
+    dex_recap_start = rules_recap.index("DEX：艾达·金掷出 44 / 50，结果普通成功。")
+    dex_recap_end = rules_recap.find("\n- ", dex_recap_start + 1)
+    dex_recap = rules_recap[dex_recap_start:] if dex_recap_end == -1 else rules_recap[dex_recap_start:dex_recap_end]
+    assert "成长标记：否" in dex_recap
     assert "目的：获得《波士顿环球报》剪报档案的查阅许可" in rules_recap
     assert "难度说明：阿蒂·威尔莫特只是普通编辑" in rules_recap
     assert "失败后果：艾达·金会被阿蒂拒绝" in rules_recap

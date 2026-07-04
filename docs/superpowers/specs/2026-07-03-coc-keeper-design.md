@@ -613,6 +613,8 @@ The completion audit must also reject battle reports whose Chase Tracker omits s
 {"ts":"ISO-8601","type":"roll","actor":"harvey-walters","payload":{"skill":"Library Use","target":70,"difficulty":"regular","roll":42,"outcome":"success"}}
 ```
 
+`skill_check_earned: true` may only appear on successful investigator skill rolls that can receive rulebook development checks. It must not be awarded to characteristic rolls such as DEX/INT/POW/CON, Sanity, Luck, damage rolls, or never-check skills such as Credit Rating and Cthulhu Mythos; otherwise emit `invalid_skill_check_earned`.
+
 ## Rules JSON
 
 Core rules should be pre-normalized into JSON and treated as the runtime authority for frequent calculations.

@@ -307,6 +307,44 @@ def finding_causes(audit: dict) -> set[str]:
     return {finding["cause"] for finding in audit["findings"]}
 
 
+def test_rulebook_audit_rejects_skill_check_on_non_skill_roll(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-loop"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata_path.write_text(json.dumps(metadata))
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-loop"
+    rolls = [
+        json.loads(line)
+        for line in (campaign_dir / "logs" / "rolls.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    rolls.append({
+        "type": "roll",
+        "actor": "ada-king",
+        "payload": {
+            "skill": "DEX",
+            "goal": "push through a dangerous stair descent",
+            "target": 50,
+            "effective_target": 50,
+            "difficulty": "regular",
+            "difficulty_rationale": "Ada braces on the stair rail.",
+            "roll": 44,
+            "outcome": "regular_success",
+            "pushed": True,
+            "failure_consequence": "Ada would fall down the stairs.",
+            "skill_check_earned": True,
+        },
+    })
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", rolls)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "invalid_skill_check_earned" in finding_codes(audit)
+
+
 def test_rulebook_audit_classifies_smoke_run_gaps(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "smoke-run"
     create_smoke_run(run_dir)

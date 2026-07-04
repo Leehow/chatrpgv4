@@ -57,6 +57,7 @@ CHASE_REQUIRED_DECISION_KINDS = [
     "hazard_choice",
     "barrier_hide",
 ]
+NEVER_SKILL_CHECK_SKILLS = {"Credit Rating", "Cthulhu Mythos"}
 
 TRANSCRIPT_DETAIL_ALLOWED_ASCII_TOKENS = {
     "APP",
@@ -446,6 +447,29 @@ def _character_chronicle_gaps(characters: list[dict[str, Any]], rolls: list[dict
             gaps.append(f"{investigator_id} missing history.jsonl scenario experience")
         if investigator_id in earned_skill_checks and not development:
             gaps.append(f"{investigator_id} earned skill checks but lacks development.jsonl")
+    return gaps
+
+
+def _invalid_skill_check_earned_gaps(characters: list[dict[str, Any]], rolls: list[dict[str, Any]]) -> list[str]:
+    skills_by_actor: dict[str, set[str]] = {}
+    for character in characters:
+        actor_id = str(character.get("id") or character.get("investigator_id") or "")
+        skills = character.get("skills", {})
+        if actor_id and isinstance(skills, dict):
+            skills_by_actor[actor_id] = {str(skill) for skill in skills}
+
+    gaps: list[str] = []
+    for event in rolls:
+        payload = event.get("payload", {})
+        if not isinstance(payload, dict) or payload.get("skill_check_earned") is not True:
+            continue
+        actor = str(event.get("actor") or "")
+        skill = str(payload.get("skill") or "")
+        actor_skills = skills_by_actor.get(actor)
+        if actor_skills is None:
+            continue
+        if skill in NEVER_SKILL_CHECK_SKILLS or skill not in actor_skills:
+            gaps.append(f"{actor}:{skill}")
     return gaps
 
 
@@ -2282,6 +2306,17 @@ def audit_run(run_dir: Path) -> dict[str, Any]:
             "medium",
             "; ".join(chronicle_gaps),
             "Write sandbox investigator history.jsonl and development.jsonl records so the playtest proves cross-campaign carryover without mutating the real investigator library.",
+        ))
+
+    invalid_skill_checks = _invalid_skill_check_earned_gaps(context["characters"], context["rolls"]) if active_profile else []
+    if invalid_skill_checks:
+        findings.append(_finding(
+            "invalid_skill_check_earned",
+            "system_gap",
+            "high",
+            "Structured roll payloads award skill development checks to non-skill or never-check rolls: "
+            + ", ".join(invalid_skill_checks),
+            "Only set skill_check_earned=true for successful investigator skills that can receive development checks in the rulebook.",
         ))
 
     creation_gaps = _character_creation_gaps(context["characters"]) if active_profile else []
