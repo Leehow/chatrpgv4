@@ -648,6 +648,13 @@ def suite_report_fixture() -> str:
 
 def rulebook_audit_fixture(run_id: str = "fixture-run", audit_profile: str = "fixture") -> str:
     positive_evidence = ["- Fixture evidence."]
+    if audit_profile == "chase_drill":
+        positive_evidence.extend([
+            "- Chase evidence: 1 chase events; save/chase.json fields present: participants, location_chain, rounds, outcome; Chase Tracker rendered: yes.",
+            "- Chase player pressure: careful_investigator, reckless_investigator, skeptical_rules_lawyer.",
+            "- Pushed-roll protocol stages: "
+            f"{run_id}-pushed-roll=player_reframes_action -> keeper_foreshadows_failure -> player_confirms_risk -> roll_resolved.",
+        ])
     if audit_profile == "multi_profile_pressure":
         positive_evidence.extend([
             "- Multi-profile pressure: careful_investigator=谨慎调查员, reckless_investigator=鲁莽调查员, skeptical_rules_lawyer=规则质疑玩家.",
@@ -786,6 +793,11 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         "scenario": "Fixture Scenario",
         "audit_profile": audit_profile,
         "player_profile": "fixture",
+        "player_profiles_tested": (
+            ["careful_investigator", "reckless_investigator", "skeptical_rules_lawyer"]
+            if audit_profile in {"chase_drill", "multi_profile_pressure"}
+            else []
+        ),
         "play_language": "zh-Hans",
         "language_profile": {
             "language": "zh-Hans",
@@ -815,11 +827,14 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
         {"turn": 5, "role": "player_simulator", "speaker": "Ada King", "mode": "play", "text": "fixture confirms pushed risk", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "player_confirms_risk", "risk_confirmed": True}},
         {"turn": 6, "role": "system", "speaker": "System", "mode": "roll", "roll_count": 2, "text": "fixture pushed roll resolved", "pushed_roll_protocol": {"roll_id": pushed_roll_id, "stage": "roll_resolved"}},
     ]
-    if audit_profile == "multi_profile_pressure":
+    if audit_profile in {"chase_drill", "multi_profile_pressure"}:
         transcript_rows.extend([
             {"turn": 7, "role": "player_simulator", "speaker": "Careful Player", "mode": "play", "player_profile": "careful_investigator", "intent": "careful_planning", "intent_display": "谨慎规划", "text": "fixture careful profile turn"},
             {"turn": 8, "role": "player_simulator", "speaker": "Reckless Player", "mode": "play", "player_profile": "reckless_investigator", "intent": "reckless_risk", "intent_display": "鲁莽冒险", "text": "fixture reckless profile turn"},
             {"turn": 9, "role": "player_simulator", "speaker": "Rules Player", "mode": "meta", "player_profile": "skeptical_rules_lawyer", "intent": "rules_challenge", "intent_display": "规则质疑", "text": "fixture skeptical rules profile turn"},
+        ])
+    if audit_profile == "multi_profile_pressure":
+        transcript_rows.extend([
             {
                 "turn": 10,
                 "role": "keeper_under_test",
@@ -914,7 +929,7 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
     feedback_rows = [
         {"category": "kp_clarity", "score": 5, "text": "fixture feedback"},
     ]
-    if audit_profile == "multi_profile_pressure":
+    if audit_profile in {"chase_drill", "multi_profile_pressure"}:
         feedback_rows.extend([
             {"player_profile": "careful_investigator", "category": "kp_clarity", "score": 5, "text": "fixture careful feedback"},
             {"player_profile": "reckless_investigator", "category": "agency", "score": 4, "text": "fixture reckless feedback"},
@@ -4023,6 +4038,40 @@ def test_completion_audit_fails_when_multi_profile_rulebook_audit_lacks_protocol
     assert "multi_profile_pressure rulebook-audit profile careful_investigator" in finding["missing_evidence"]
     assert "multi_profile_pressure rulebook-audit pushed protocol v4-multi-profile-pressure-pushed-roll" in finding["missing_evidence"]
     assert "multi_profile_pressure rulebook-audit spoiler protocol fixture-spoiler-reveal" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_chase_rulebook_audit_lacks_state_evidence(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\n')
+    write_text(
+        tmp_path / ".coc" / "playtests" / "v3-chase-drill" / "artifacts" / "rulebook-audit.md",
+        rulebook_audit_fixture(),
+    )
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    finding = next(
+        finding for finding in audit["findings"]
+        if finding["code"] == "rulebook_audit_positive_evidence_missing"
+    )
+    assert finding["run_id"] == "v3-chase-drill"
+    assert "chase_drill rulebook-audit chase state field participants" in finding["missing_evidence"]
+    assert "chase_drill rulebook-audit chase state field location_chain" in finding["missing_evidence"]
+    assert "chase_drill rulebook-audit player profile skeptical_rules_lawyer" in finding["missing_evidence"]
 
 
 def test_completion_audit_fails_when_required_coverage_dimension_missing_from_index(tmp_path):

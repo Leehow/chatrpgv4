@@ -1741,6 +1741,78 @@ def test_multi_profile_rulebook_audit_lists_pressure_protocol_evidence(tmp_path)
     assert "Spoiler protocol stages: fixture-spoiler=warning_issued -> player_confirmed -> limited_reveal." in text
 
 
+def test_chase_rulebook_audit_lists_pushed_protocol_evidence(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "chase-drill"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "chase_drill"
+    metadata["player_profiles_tested"] = [
+        "reckless_investigator",
+        "skeptical_rules_lawyer",
+        "genre_savvy_player",
+    ]
+    metadata_path.write_text(json.dumps(metadata))
+    transcript_path = run_dir / "transcript.jsonl"
+    transcript = [
+        json.loads(line)
+        for line in transcript_path.read_text().splitlines()
+        if line.strip()
+    ]
+    transcript.extend([
+        {
+            "turn": 11,
+            "role": "player_simulator",
+            "player_profile": "reckless_investigator",
+            "mode": "play",
+            "pushed_roll_protocol": {
+                "roll_id": "fixture-chase-push",
+                "stage": "player_reframes_action",
+            },
+            "text": "我冒险多看一眼。",
+        },
+        {
+            "turn": 12,
+            "role": "keeper_under_test",
+            "mode": "play",
+            "pushed_roll_protocol": {
+                "roll_id": "fixture-chase-push",
+                "stage": "keeper_foreshadows_failure",
+                "failure_consequence_source": "keeper",
+            },
+            "text": "如果失败，他会立刻发现你。",
+        },
+        {
+            "turn": 13,
+            "role": "player_simulator",
+            "player_profile": "reckless_investigator",
+            "mode": "play",
+            "pushed_roll_protocol": {
+                "roll_id": "fixture-chase-push",
+                "stage": "player_confirms_risk",
+                "risk_confirmed": True,
+            },
+            "text": "确定。",
+        },
+        {
+            "turn": 14,
+            "role": "system",
+            "mode": "roll",
+            "pushed_roll_protocol": {
+                "roll_id": "fixture-chase-push",
+                "stage": "roll_resolved",
+            },
+            "text": "Spot Hidden 33 vs 55 -> regular_success.",
+        },
+    ])
+    write_jsonl(transcript_path, transcript)
+
+    artifact = coc_playtest_audit.generate_rulebook_audit(run_dir)
+    text = artifact.read_text()
+
+    assert "Pushed-roll protocol stages: fixture-chase-push=player_reframes_action -> keeper_foreshadows_failure -> player_confirms_risk -> roll_resolved." in text
+
+
 def test_active_audit_rejects_unlocalized_transcript_labels(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "localized-transcript-labels"
     create_final_rulebook_run(run_dir)

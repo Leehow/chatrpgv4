@@ -1758,15 +1758,26 @@ def _protocol_ids_with_stages(
 def _rulebook_audit_positive_evidence_findings(
     run_id: str,
     run_dir: Path,
+    campaign_dir: Path,
     metadata: dict[str, Any],
     rulebook_audit: str,
 ) -> list[dict[str, Any]]:
     audit_profile = str(metadata.get("audit_profile") or "")
-    if audit_profile != "multi_profile_pressure":
+    if audit_profile not in {"chase_drill", "multi_profile_pressure"}:
         return []
 
-    transcript = _read_jsonl(run_dir / "transcript.jsonl")
     missing_evidence: list[str] = []
+    if audit_profile == "chase_drill":
+        chase_state = _read_json(campaign_dir / "save" / "chase.json", {})
+        if isinstance(chase_state, dict):
+            for field in ("participants", "location_chain", "rounds", "outcome"):
+                if chase_state.get(field) not in (None, "", [], {}) and field not in rulebook_audit:
+                    missing_evidence.append(f"{audit_profile} rulebook-audit chase state field {field}")
+        for profile_id in metadata.get("player_profiles_tested", []):
+            if isinstance(profile_id, str) and profile_id.strip() and profile_id not in rulebook_audit:
+                missing_evidence.append(f"{audit_profile} rulebook-audit player profile {profile_id}")
+
+    transcript = _read_jsonl(run_dir / "transcript.jsonl")
     for profile_id in MULTI_PROFILE_SOURCE_REQUIREMENTS.get(audit_profile, []):
         if any(row.get("player_profile") == profile_id for row in transcript) and profile_id not in rulebook_audit:
             missing_evidence.append(f"{audit_profile} rulebook-audit profile {profile_id}")
@@ -1794,8 +1805,8 @@ def _rulebook_audit_positive_evidence_findings(
     return [_finding(
         "rulebook_audit_positive_evidence_missing",
         "report_gap",
-        f"{run_id} rulebook-audit.md omits structured multi-profile positive evidence: {', '.join(missing_evidence)}.",
-        "Regenerate rulebook-audit.md so Positive Rulebook Evidence cites multi-profile player profile ids plus pushed-roll and spoiler protocol ids/stages from transcript.jsonl.",
+        f"{run_id} rulebook-audit.md omits structured positive evidence: {', '.join(missing_evidence)}.",
+        "Regenerate rulebook-audit.md so Positive Rulebook Evidence cites profile-specific source ids, chase state fields, and protocol ids/stages from structured source files.",
         run_id=run_id,
         missing_evidence=missing_evidence,
     )]
@@ -4138,7 +4149,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     rulebook_audit = _read_text(artifacts_dir / "rulebook-audit.md")
     findings.extend(_rulebook_audit_section_findings(run_id, rulebook_audit))
     findings.extend(_rulebook_audit_result_findings(run_id, rulebook_audit))
-    findings.extend(_rulebook_audit_positive_evidence_findings(run_id, run_dir, metadata, rulebook_audit))
+    findings.extend(_rulebook_audit_positive_evidence_findings(run_id, run_dir, campaign_dir, metadata, rulebook_audit))
 
     evaluation_report = _read_text(artifacts_dir / "evaluation-report.md")
     findings.extend(_evaluation_report_section_findings(run_id, evaluation_report))

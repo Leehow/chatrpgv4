@@ -2109,6 +2109,11 @@ def _positive_rulebook_evidence(context: dict[str, Any]) -> list[str]:
         )
         lines.append(f"Chase DEX turn sequences: {turn_sequence_count}/{len(rounds) if isinstance(rounds, list) else 0} rounds recorded.")
         lines.append(f"Chase player pressure: {profile_pressure}.")
+        lines.append(
+            "Pushed-roll protocol stages: "
+            + _protocol_stage_summary(transcript, "pushed_roll_protocol", "roll_id")
+            + "."
+        )
     if metadata.get("audit_profile") == "multi_profile_pressure":
         profile_ids = list(dict.fromkeys(
             str(profile_id)
