@@ -232,6 +232,32 @@ def test_reference_documents_exist_and_use_ascii_system_markers():
             assert marker not in text
 
 
+def test_agents_coc_mode_template_documents_passive_activation():
+    template_path = PLUGIN_ROOT / "references" / "AGENTS-coc-mode-template.md"
+    assert template_path.exists()
+    text = template_path.read_text()
+    required_terms = [
+        "COC mode is passive",
+        "explicit activation",
+        "Do not proactively offer COC mode",
+        "play_language",
+        "zh-Hans",
+        "language_profile",
+        "localized_terms",
+        "ASCII markers",
+        "[meta]",
+        "[spoiler_warning]",
+        "coc-main",
+        "coc-keeper-play",
+        "coc-meta",
+        "save and exit",
+    ]
+    for term in required_terms:
+        assert term in text
+    for marker in ["[超游]", "[剧透警告]", "[回到游戏]"]:
+        assert marker not in text
+
+
 def test_rules_json_guide_documents_rule_index_traceability():
     guide_text = (PLUGIN_ROOT / "references" / "rules-json-guide.md").read_text()
     spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()

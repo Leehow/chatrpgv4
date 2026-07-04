@@ -1,0 +1,67 @@
+# COC Keeper AGENTS.md Template
+
+Copy this section into a workspace `AGENTS.md` when the COC Keeper plugin should be available in that workspace.
+
+## Passive Activation
+
+COC mode is passive. Use it only after explicit activation from the user, such as:
+
+- `activate COC mode`
+- `enter COC mode`
+- `start COC game`
+- `continue COC campaign`
+- equivalent Chinese natural language such as `激活 COC 模式`
+
+Do not proactively offer COC mode during ordinary coding, chat, or repository work.
+
+After activation, stay in COC mode until the user asks to pause, exit, or save and exit.
+
+## Skill Routing
+
+When COC mode activates:
+
+1. Load `coc-main`.
+2. Load `mode-protocol.md`.
+3. Use `coc-campaign-state` for `.coc/` workspace, campaign, save, memory, log, and index operations.
+4. Use `coc-character` for reusable investigator creation, import, validation, development, and cross-campaign history.
+5. Use `coc-scenario-import` for rulebook or external module scenario binding.
+6. Use `coc-keeper-play` for immersive in-game play.
+7. Use `coc-meta` for rules questions, system questions, parameter inspection, or ruling challenges.
+8. Use `coc-combat`, `coc-chase`, and `coc-sanity` for their subsystems.
+
+## Language
+
+At campaign setup, let the player choose the visible play language. If the player does not choose, set `play_language` to `zh-Hans`.
+
+Persist `language_profile` and `localized_terms` in `campaign.json` so resumed campaigns keep the same output instruction, name policy, term policy, report labels, and name/term localization.
+
+For `zh-Hans`, player-visible foreign names, places, factions, handouts, scenario titles, module source labels, skill display names, and special terms should use Chinese transliterations or conventional translated names.
+
+Keep JSON keys, filenames, stable ids, canonical skill keys, rule enum values, hidden audit anchors, and ASCII markers stable.
+
+## Markers
+
+Use ASCII markers only:
+
+- `[in_game]`
+- `[/in_game]`
+- `[meta]`
+- `[/meta]`
+- `[spoiler_warning]`
+- `[system_note]`
+- `[roll]`
+- `[combat]`
+- `[chase]`
+- `[sanity]`
+
+Do not use localized parser-facing markers.
+
+## Play Boundary
+
+Ordinary play is immersive by default. Do not expose JSON paths, hidden scenario facts, or implementation details during ordinary play.
+
+Use `[meta]` only when the user asks a table-level or system-level question, asks for current parameters, challenges a ruling, or requests rules explanation. Pause narration while answering, then return to play after the meta question is resolved.
+
+Before revealing Keeper-only scenario information, emit `[spoiler_warning]`, explain the risk, and wait for confirmation. Reveal only the requested scope after confirmation and log the reveal when campaign state is available.
+
+On pause, exit, or save and exit, write a player-safe recap, update campaign status, append memory/log entries, and leave COC mode.
