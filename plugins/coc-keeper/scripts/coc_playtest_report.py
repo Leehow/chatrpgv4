@@ -353,6 +353,7 @@ def _format_state_event(
     event: dict[str, Any],
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
+    actor_names: dict[str, str] | None = None,
 ) -> str:
     terms = localized_terms or {}
     event_type = event.get("type", "event")
@@ -361,6 +362,8 @@ def _format_state_event(
     if play_language not in {"", "unknown", "en-US"}:
         summary = _payload_summary(event, terms, play_language)
         if summary:
+            actor = _display_roll_actor(event.get("actor", "unknown"), actor_names or {})
+            summary = _naturalize_player_event_summary(str(event_type), actor, summary)
             return f"- {summary}"
     if event_type == "scene":
         scene_id = payload.get("scene_id", "unknown")
@@ -1577,7 +1580,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         ))
     roll_lines = [_format_roll(event) for event in rolls]
     state_lines = [
-        _format_state_event(event, localized_terms, str(play_language))
+        _format_state_event(event, localized_terms, str(play_language), actor_names)
         for event in state_events
     ]
     decision_lines = [

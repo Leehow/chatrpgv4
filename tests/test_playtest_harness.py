@@ -1092,6 +1092,14 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "摘要表" in scene_replay
     assert "结果解释为暴力" in scene_replay
     assert "控制权回到玩家" in scene_replay
+    damage_event_summaries = [
+        event["payload"]["summary"]
+        for event in campaign_events_by_type(run_dir, "damage")
+    ]
+    assert "Bed Attack 造成 Damage: 5 HP；HP 12 -> 7。" not in damage_event_summaries
+    assert "pushed basement search 失败造成 Damage: 4 HP；HP 7 -> 3。" not in damage_event_summaries
+    assert "床铺袭击造成艾达·金 5 HP 伤害；HP 12 -> 7。" in damage_event_summaries
+    assert "推骰地下室搜索失败造成艾达·金 4 HP 伤害；HP 7 -> 3。" in damage_event_summaries
     assert "床铺袭击造成艾达·金 5 HP 伤害；HP 12 -> 7。" in scene_replay
     assert "推骰地下室搜索失败造成艾达·金 4 HP 伤害；HP 7 -> 3。" in scene_replay
     resource_events = campaign_events_by_type(run_dir, "resource_change")
@@ -1369,7 +1377,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "worm-eaten book" not in state_changes
     assert "worm-eaten book" not in story_recap
     assert "虫蛀书" in state_changes
-    assert "伤害: 5 HP" in battle_text
+    assert "造成伤害: 5 HP" not in battle_text
+    assert "造成艾达·金 5 HP 伤害" in battle_text
     assert "Damage: 5 HP" not in battle_text
     assert "最终 HP: 3" in battle_text
     assert "最终 SAN: 49" in battle_text
