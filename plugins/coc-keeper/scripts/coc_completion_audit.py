@@ -2346,6 +2346,47 @@ def _ids_from_index_rows(rows: Any) -> set[str]:
     }
 
 
+def _payload_rule_refs(row: dict[str, Any]) -> list[str]:
+    payload = row.get("payload")
+    if not isinstance(payload, dict):
+        return []
+    refs = payload.get("rule_refs")
+    if not isinstance(refs, list):
+        return []
+    return [
+        ref.strip()
+        for ref in refs
+        if isinstance(ref, str) and ref.strip()
+    ]
+
+
+def _source_rule_refs_from_logs(campaign_dir: Path) -> set[str]:
+    source_refs: set[str] = set()
+    for log_name in ("logs/rolls.jsonl", "logs/events.jsonl"):
+        for row in _read_jsonl(campaign_dir / log_name):
+            source_refs.update(_payload_rule_refs(row))
+    return source_refs
+
+
+def _rule_ref_index_entry_points_to_source(
+    ref: str,
+    entry: Any,
+    rows_by_log: dict[str, list[dict[str, Any]]],
+) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    log_name = entry.get("log")
+    row_number = entry.get("row")
+    if not isinstance(log_name, str) or log_name not in rows_by_log:
+        return False
+    if not isinstance(row_number, int) or isinstance(row_number, bool):
+        return False
+    rows = rows_by_log[log_name]
+    if row_number < 1 or row_number > len(rows):
+        return False
+    return ref in _payload_rule_refs(rows[row_number - 1])
+
+
 def _campaign_index_integrity_findings(
     run_id: str,
     campaign_dir: Path,
@@ -2354,6 +2395,7 @@ def _campaign_index_integrity_findings(
     world_state = _read_json(campaign_dir / "save" / "world-state.json", {})
     scene_index = _read_json(campaign_dir / "index" / "scene-index.json", {})
     clue_index = _read_json(campaign_dir / "index" / "clue-index.json", {})
+    rule_ref_index = _read_json(campaign_dir / "index" / "rule-ref-index.json", {})
     missing_evidence: list[str] = []
     incomplete_files: list[str] = []
 
@@ -2378,17 +2420,60 @@ def _campaign_index_integrity_findings(
         missing_evidence.append("discovered clue ids not present in index/clue-index.json")
         incomplete_files.append(f"{campaign_prefix}index/clue-index.json")
 
+    source_rule_refs = _source_rule_refs_from_logs(campaign_dir)
+    indexed_rule_refs = {
+        ref
+        for ref in rule_ref_index.get("rule_refs", [])
+        if isinstance(ref, str) and ref.strip()
+    } if isinstance(rule_ref_index.get("rule_refs"), list) else set()
+    by_ref = rule_ref_index.get("by_ref") if isinstance(rule_ref_index.get("by_ref"), dict) else {}
+    indexed_trace_refs = {
+        ref
+        for ref, entries in by_ref.items()
+        if isinstance(ref, str)
+        and ref.strip()
+        and isinstance(entries, list)
+        and entries
+    }
+    missing_rule_refs = sorted(source_rule_refs - indexed_rule_refs)
+    missing_rule_ref_traces = sorted(source_rule_refs - indexed_trace_refs)
+    if missing_rule_refs:
+        missing_evidence.append("source rule refs not present in index/rule-ref-index.json")
+        incomplete_files.append(f"{campaign_prefix}index/rule-ref-index.json")
+    if missing_rule_ref_traces:
+        missing_evidence.append("source rule refs lack by_ref entries in index/rule-ref-index.json")
+        incomplete_files.append(f"{campaign_prefix}index/rule-ref-index.json")
+
+    rows_by_log = {
+        "logs/rolls.jsonl": _read_jsonl(campaign_dir / "logs" / "rolls.jsonl"),
+        "logs/events.jsonl": _read_jsonl(campaign_dir / "logs" / "events.jsonl"),
+    }
+    unresolved_rule_ref_traces = sorted(
+        ref
+        for ref in source_rule_refs.intersection(indexed_trace_refs)
+        if not any(
+            _rule_ref_index_entry_points_to_source(ref, entry, rows_by_log)
+            for entry in by_ref.get(ref, [])
+        )
+    )
+    if unresolved_rule_ref_traces:
+        missing_evidence.append("rule-ref index entries do not resolve to source log rows")
+        incomplete_files.append(f"{campaign_prefix}index/rule-ref-index.json")
+
     if not missing_evidence:
         return []
     return [_finding(
         "campaign_index_integrity_missing",
         "system_gap",
         f"{run_id} campaign indexes do not resolve active save state: {', '.join(missing_evidence)}.",
-        "Regenerate campaign indexes so active scene ids and discovered clue ids resolve to structured index rows.",
+        "Regenerate campaign indexes so active scene ids, discovered clue ids, and source rule refs resolve to structured index rows.",
         run_id=run_id,
         incomplete_files=list(dict.fromkeys(incomplete_files)),
         missing_evidence=missing_evidence,
         unresolved_clue_ids=unresolved_clue_ids[:20],
+        missing_rule_refs=missing_rule_refs[:20],
+        missing_rule_ref_traces=missing_rule_ref_traces[:20],
+        unresolved_rule_ref_traces=unresolved_rule_ref_traces[:20],
     )]
 
 

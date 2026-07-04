@@ -688,9 +688,23 @@ def write_campaign_save_index_fixture(campaign_dir: Path, run_id: str, investiga
         "schema_version": 1,
         "campaign_id": run_id,
         "scenario_id": "fixture-scenario",
-        "rule_refs": ["core.percentile_check", "core.success_level", "core.difficulty.regular"],
+        "rule_refs": ["core.percentile_check", "core.success_level", "core.difficulty.regular", "core.pushed_roll"],
         "by_ref": {
-            "core.percentile_check": [{"log": "logs/rolls.jsonl", "row": 1, "type": "roll"}],
+            "core.percentile_check": [
+                {"log": "logs/rolls.jsonl", "row": 1, "type": "roll"},
+                {"log": "logs/rolls.jsonl", "row": 2, "type": "roll"},
+            ],
+            "core.success_level": [
+                {"log": "logs/rolls.jsonl", "row": 1, "type": "roll"},
+                {"log": "logs/rolls.jsonl", "row": 2, "type": "roll"},
+            ],
+            "core.difficulty.regular": [
+                {"log": "logs/rolls.jsonl", "row": 1, "type": "roll"},
+                {"log": "logs/rolls.jsonl", "row": 2, "type": "roll"},
+            ],
+            "core.pushed_roll": [
+                {"log": "logs/rolls.jsonl", "row": 2, "type": "roll"},
+            ],
         },
     })
 
@@ -1256,6 +1270,41 @@ def test_completion_audit_fails_when_campaign_indexes_do_not_resolve_active_stat
     assert finding["run_id"] == "v2-haunting-module"
     assert "active scene id not present in index/scene-index.json" in finding["missing_evidence"]
     assert "discovered clue ids not present in index/clue-index.json" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_rule_ref_index_is_stale(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    campaign_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module" / "sandbox" / ".coc" / "campaigns" / "v2-haunting-module"
+    write_json(campaign_dir / "index" / "rule-ref-index.json", {
+        "schema_version": 1,
+        "campaign_id": "v2-haunting-module",
+        "scenario_id": "fixture-scenario",
+        "rule_refs": [],
+        "by_ref": {},
+    })
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "campaign_index_integrity_missing")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert "source rule refs not present in index/rule-ref-index.json" in finding["missing_evidence"]
+    assert "sandbox/.coc/campaigns/v2-haunting-module/index/rule-ref-index.json" in finding["incomplete_files"]
 
 
 def test_completion_audit_fails_when_active_run_source_files_are_empty(tmp_path):
