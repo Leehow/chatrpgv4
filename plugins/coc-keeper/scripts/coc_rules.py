@@ -97,6 +97,23 @@ def pushed_roll_rule() -> dict[str, Any]:
     }
 
 
+def chase_rule() -> dict[str, Any]:
+    table = load_rule_table("chase")
+    movement_actions = table["movement_actions"]
+    pushed_rolls = table["pushed_rolls"]
+    return {
+        "movement_actions": {
+            "base_movement_actions": int(movement_actions["base_movement_actions"]),
+            "extra_actions_per_mov_above_slowest": int(movement_actions["extra_actions_per_mov_above_slowest"]),
+            "minimum_movement_actions": int(movement_actions["minimum_movement_actions"]),
+        },
+        "pushed_rolls": {
+            "allowed_inside_active_chase": bool(pushed_rolls["allowed_inside_active_chase"]),
+            "applies_to": [str(item) for item in pushed_rolls["applies_to"]],
+        },
+    }
+
+
 def _threshold_value(value: int, key: str) -> int:
     table = load_rule_table("half-fifth-values")
     divisor = int(table[key]["divisor"])

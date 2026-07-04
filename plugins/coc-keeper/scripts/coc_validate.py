@@ -12,6 +12,7 @@ REQUIRED_RULE_FILES = [
     "rule-index.json",
     "age-adjustments.json",
     "cash-assets.json",
+    "chase.json",
     "damage-bonus-build.json",
     "derived-attributes.json",
     "difficulty-levels.json",

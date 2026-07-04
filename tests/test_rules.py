@@ -75,6 +75,23 @@ def test_pushed_roll_rule_uses_structured_table():
     }
 
 
+def test_chase_rule_uses_structured_table():
+    table = coc_rules.load_rule_table("chase")
+
+    assert table["movement_actions"]["base_movement_actions"] == 1
+    assert coc_rules.chase_rule() == {
+        "movement_actions": {
+            "base_movement_actions": 1,
+            "extra_actions_per_mov_above_slowest": 1,
+            "minimum_movement_actions": 1,
+        },
+        "pushed_rolls": {
+            "allowed_inside_active_chase": False,
+            "applies_to": ["hazard", "barrier", "conflict"],
+        },
+    }
+
+
 def test_success_level_uses_percentile_check_bounds(monkeypatch):
     def fake_percentile_check_rule():
         return {
@@ -248,6 +265,7 @@ def test_rule_index_exposes_stable_ids_for_playtest_traceability():
         "core.pushed_roll",
         "core.sanity.temporary_insanity_threshold",
         "core.chase.movement_actions",
+        "core.chase.no_pushed_rolls",
         "module.haunting.corbitt_flesh_ward",
         "module.haunting.corbitt_floating_knife_mp",
         "module.haunting.corbitt_animate_body",

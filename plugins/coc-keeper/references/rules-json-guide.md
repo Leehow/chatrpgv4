@@ -12,6 +12,7 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 - `rule-index.json`
 - `age-adjustments.json`
 - `cash-assets.json`
+- `chase.json`
 - `damage-bonus-build.json`
 - `derived-attributes.json`
 - `difficulty-levels.json`
@@ -29,7 +30,7 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 
 Use:
 
-- `scripts/coc_rules.py` for percentile bounds, pushed-roll procedure, bonus/penalty dice, thresholds, success levels, damage bonus, build, half/fifth values, movement rate, and age adjustments.
+- `scripts/coc_rules.py` for percentile bounds, pushed-roll procedure, chase movement actions and pushed-roll boundaries, bonus/penalty dice, thresholds, success levels, damage bonus, build, half/fifth values, movement rate, and age adjustments.
 - `scripts/coc_rules.py` also exposes `rule_ids()` and `resolve_rule_refs()` for `rule_refs` validation.
 - `scripts/coc_roll.py` for dice expressions and percentile checks.
 - `scripts/coc_validate.py` to verify rule files exist and parse as JSON.

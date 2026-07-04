@@ -1,0 +1,16 @@
+{
+  "source_note": "Keeper Rulebook chase procedure assigns movement actions from adjusted MOV relative to the slowest participant, and active chase hazards, barriers, and conflicts resolve inside chase action economy rather than by pushed rerolls.",
+  "movement_actions": {
+    "base_movement_actions": 1,
+    "extra_actions_per_mov_above_slowest": 1,
+    "minimum_movement_actions": 1
+  },
+  "pushed_rolls": {
+    "allowed_inside_active_chase": false,
+    "applies_to": [
+      "hazard",
+      "barrier",
+      "conflict"
+    ]
+  }
+}
