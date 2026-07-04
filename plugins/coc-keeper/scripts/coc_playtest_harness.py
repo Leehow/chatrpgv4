@@ -1583,7 +1583,7 @@ def create_rulebook_smoke_run(root: Path, run_id: str = "v1-rulebook-smoke") -> 
         ],
         "failed_test_cases": [],
         "recommended_fixes": [],
-        "regression_tests": ["Rulebook audit must pass for the rulebook smoke harness."],
+        "regression_tests": [],
     })
     _write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,
@@ -2052,7 +2052,7 @@ def create_haunting_module_run(root: Path, run_id: str = "v2-haunting-module") -
         ],
         "failed_test_cases": [],
         "future_enhancements": [],
-        "regression_tests": ["Haunting module audit must pass for the module-level harness."],
+        "regression_tests": [],
     }, ZH_HANS_HAUNTING_GLOSSARY))
     _write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,
@@ -2759,7 +2759,7 @@ def create_chase_drill_run(root: Path, run_id: str = "v3-chase-drill") -> Path:
         "future_enhancements": [
             "Replace this scripted multi-profile chase scene with a live LLM-vs-KP chase stress test when a live multi-agent playtest runner is available.",
         ],
-        "regression_tests": ["Chase drill audit must pass for a report with real chase state."],
+        "regression_tests": [],
     }, ZH_HANS_CHASE_GLOSSARY))
     _write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,
@@ -3256,7 +3256,7 @@ def create_multi_profile_pressure_run(root: Path, run_id: str = "v4-multi-profil
         ],
         "failed_test_cases": [],
         "recommended_fixes": [],
-        "regression_tests": ["Multi-profile pressure run must preserve distinct virtual player labels in battle reports."],
+        "regression_tests": [],
     }, ZH_HANS_HAUNTING_GLOSSARY))
     _write_json(campaign_dir / "campaign.json", {
         "schema_version": 1,

@@ -1049,6 +1049,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "## Future Enhancements" in evaluation_text
     assert "- No future enhancements recorded." in evaluation_text
     assert "## Recommended Fixes\n- No fixes recorded." in evaluation_text
+    assert "## Regression Tests To Add\n- No regression tests recorded." in evaluation_text
+    assert "Haunting module audit must pass for the module-level harness." not in evaluation_text
     assert metadata["simulation_method"] == "transcript_driven_virtual_table"
     assert metadata["future_enhancements"] == []
     assert [
@@ -1841,6 +1843,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "Evidence:" in evaluation_text
     assert "## Future Enhancements" in evaluation_text
     assert "## Recommended Fixes\n- No fixes recorded." in evaluation_text
+    assert "## Regression Tests To Add\n- No regression tests recorded." in evaluation_text
+    assert "Chase drill audit must pass for a report with real chase state." not in evaluation_text
     assert "live LLM-vs-KP chase stress test" in evaluation_text
     assert "PASS" in audit_text
     assert_zh_hans_locale(metadata, zh_terms | visible_scene_terms | ZH_SKILL_TERMS)
@@ -2353,6 +2357,8 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
 
     assert audit["result"] == "pass"
     assert "Evidence:" in evaluation_text
+    assert "## Regression Tests To Add\n- No regression tests recorded." in evaluation_text
+    assert "Multi-profile pressure run must preserve distinct virtual player labels in battle reports." not in evaluation_text
     assert metadata["audit_profile"] == "multi_profile_pressure"
     assert metadata["player_profile"] == "multi_profile_matrix"
     assert metadata["player_profiles_tested"] == [
