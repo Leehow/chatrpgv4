@@ -61,6 +61,23 @@ def test_derive_values_uses_rules_json_movement_rate(monkeypatch):
     assert result["MOV"] == 8
 
 
+def test_derive_values_applies_age_movement_penalty():
+    characteristics = {
+        "STR": 80,
+        "CON": 50,
+        "SIZ": 65,
+        "DEX": 75,
+        "APP": 45,
+        "INT": 65,
+        "POW": 60,
+        "EDU": 70,
+    }
+
+    result = coc_character.derive_values(characteristics, age_mov_penalty=1)
+
+    assert result["MOV"] == 8
+
+
 def test_apply_age_modifiers_uses_rules_json_age_adjustment(monkeypatch):
     calls = []
 
@@ -117,6 +134,45 @@ def test_apply_age_modifiers_applies_rulebook_edu_improvement_amount():
     }, 32, edu_improvement_rolls=[{"roll": 80, "improvement_roll": 4}])
 
     assert result["EDU"] == 74
+
+
+def test_apply_age_modifiers_applies_rulebook_characteristic_reductions():
+    result = coc_character.apply_age_modifiers({
+        "STR": 60,
+        "CON": 50,
+        "SIZ": 70,
+        "DEX": 55,
+        "APP": 50,
+        "INT": 65,
+        "POW": 60,
+        "EDU": 70,
+    }, 47, edu_improvement_rolls=[
+        {"roll": 20},
+        {"roll": 30},
+    ], characteristic_reductions=[
+        {"characteristic": "DEX", "amount": 5},
+    ])
+
+    assert result["DEX"] == 50
+    assert result["APP"] == 45
+    assert result["EDU"] == 70
+
+
+def test_apply_age_modifiers_rejects_missing_required_characteristic_reductions():
+    with pytest.raises(ValueError, match="characteristic_reductions"):
+        coc_character.apply_age_modifiers({
+            "STR": 60,
+            "CON": 50,
+            "SIZ": 70,
+            "DEX": 55,
+            "APP": 50,
+            "INT": 65,
+            "POW": 60,
+            "EDU": 70,
+        }, 47, edu_improvement_rolls=[
+            {"roll": 20},
+            {"roll": 30},
+        ])
 
 
 def test_validate_character_sheet_reports_missing_required_fields():
