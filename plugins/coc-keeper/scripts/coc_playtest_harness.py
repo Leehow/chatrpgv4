@@ -932,14 +932,21 @@ def _public_character_states(run_dir: Path, campaign_dir: Path | None) -> list[d
     investigator_ids = party.get("investigator_ids", [])
     states: list[dict[str, Any]] = []
     for investigator_id in investigator_ids if isinstance(investigator_ids, list) else []:
+        investigator_id = str(investigator_id)
         character = _read_json(
-            run_dir / "sandbox" / ".coc" / "investigators" / str(investigator_id) / "character.json",
+            run_dir / "sandbox" / ".coc" / "investigators" / investigator_id / "character.json",
             {},
         )
         if not character:
             continue
-        states.append({
-            "investigator_id": str(investigator_id),
+        saved_state = _read_json(campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json", {})
+        public_state = {
+            key: saved_state[key]
+            for key in ("current_hp", "current_san", "current_mp", "conditions", "last_status_summary")
+            if key in saved_state
+        }
+        character_state = {
+            "investigator_id": investigator_id,
             "name": character.get("name"),
             "occupation": character.get("occupation"),
             "era": character.get("era"),
@@ -947,7 +954,10 @@ def _public_character_states(run_dir: Path, campaign_dir: Path | None) -> list[d
             "derived": character.get("derived", {}),
             "skills": character.get("skills", {}),
             "backstory": character.get("backstory", {}),
-        })
+        }
+        if public_state:
+            character_state["current_state"] = public_state
+        states.append(character_state)
     return states
 
 
@@ -1160,6 +1170,26 @@ def _localize_public_derived_values(
     }
 
 
+def _localize_public_current_state(current_state: dict[str, Any], glossary: dict[str, str]) -> dict[str, Any]:
+    visible = dict(current_state)
+    conditions = visible.get("conditions", [])
+    if isinstance(conditions, list):
+        visible["conditions"] = [
+            {
+                key: _localize_public_value(value, glossary)
+                if key in {"label", "player_visible_summary", "summary"}
+                else value
+                for key, value in condition.items()
+            }
+            if isinstance(condition, dict)
+            else _localize_public_value(condition, glossary)
+            for condition in conditions
+        ]
+    if isinstance(visible.get("last_status_summary"), str):
+        visible["last_status_summary"] = _localize_text(visible["last_status_summary"], glossary)
+    return visible
+
+
 def _localize_public_character_state(
     character: dict[str, Any],
     glossary: dict[str, str],
@@ -1182,6 +1212,11 @@ def _localize_public_character_state(
         visible["derived"] = _localize_public_derived_values(derived, glossary, language_profile)
     else:
         visible["derived"] = _localize_public_value(derived, glossary)
+    current_state = visible.get("current_state", {})
+    if isinstance(current_state, dict):
+        visible["current_state"] = _localize_public_current_state(current_state, glossary)
+    else:
+        visible["current_state"] = _localize_public_value(current_state, glossary)
     visible["backstory"] = _localize_public_value(visible.get("backstory", {}), glossary)
     return visible
 

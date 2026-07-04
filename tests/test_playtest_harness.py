@@ -286,6 +286,31 @@ def assert_player_view_public_state_localized(run_dir: Path) -> None:
         assert english_tokens == set()
 
 
+def assert_player_view_current_state_matches_campaign_save(run_dir: Path) -> None:
+    campaign_dir = campaign_dir_for_run(run_dir)
+    public_state = next(
+        event
+        for event in run_jsonl(run_dir, "player-view.jsonl")
+        if event.get("type") == "public_character_state"
+    )
+    investigators = {
+        investigator.get("investigator_id"): investigator
+        for investigator in public_state.get("investigators", [])
+        if isinstance(investigator, dict)
+    }
+    for state_path in sorted((campaign_dir / "save" / "investigator-state").glob("*.json")):
+        saved_state = read_json(state_path)
+        investigator_id = saved_state["investigator_id"]
+        investigator = investigators[investigator_id]
+        current_state = investigator.get("current_state")
+        assert isinstance(current_state, dict)
+        assert current_state["current_hp"] == saved_state["current_hp"]
+        assert current_state["current_san"] == saved_state["current_san"]
+        assert current_state["current_mp"] == saved_state["current_mp"]
+        assert current_state["conditions"] == saved_state["conditions"]
+        assert current_state["last_status_summary"] == saved_state.get("last_status_summary")
+
+
 def assert_player_view_transcript_speakers_localized(run_dir: Path) -> None:
     metadata = playtest_metadata(run_dir)
     glossary = metadata["localized_terms"][metadata["play_language"]]
@@ -1295,6 +1320,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert_view_streams_separated(run_dir, ["secret-corbitt-body", "secret-floating-knife"])
     assert_player_view_roll_outcomes_localized(run_dir)
     assert_player_view_public_state_localized(run_dir)
+    assert_player_view_current_state_matches_campaign_save(run_dir)
     assert_player_view_transcript_speakers_localized(run_dir)
     assert_player_view_transcript_details_localized(run_dir)
     assert_player_view_text_strips_protocol_wrappers(run_dir)
@@ -1974,6 +2000,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert_view_streams_separated(run_dir, ["secret-warehouse"])
     assert_player_view_roll_outcomes_localized(run_dir)
     assert_player_view_public_state_localized(run_dir)
+    assert_player_view_current_state_matches_campaign_save(run_dir)
     assert_player_view_transcript_speakers_localized(run_dir)
     assert_player_view_transcript_details_localized(run_dir)
     assert_player_view_text_strips_protocol_wrappers(run_dir)
@@ -2486,6 +2513,7 @@ def test_multi_profile_pressure_run_records_distinct_virtual_players(tmp_path):
     assert_view_streams_separated(run_dir, ["secret-corbitt-body"])
     assert_player_view_roll_outcomes_localized(run_dir)
     assert_player_view_public_state_localized(run_dir)
+    assert_player_view_current_state_matches_campaign_save(run_dir)
     assert_player_view_transcript_speakers_localized(run_dir)
     assert_player_view_transcript_details_localized(run_dir)
     assert_player_view_text_strips_protocol_wrappers(run_dir)

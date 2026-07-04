@@ -272,6 +272,35 @@ def _localize_text(text: str, localized_terms: dict[str, str]) -> str:
     return CJK_BOUNDARY_SPACE.sub("", localized)
 
 
+def _localize_json_value(value: Any, localized_terms: dict[str, str]) -> Any:
+    if isinstance(value, str):
+        return _localize_text(value, localized_terms)
+    if isinstance(value, list):
+        return [_localize_json_value(item, localized_terms) for item in value]
+    if isinstance(value, dict):
+        return {key: _localize_json_value(item, localized_terms) for key, item in value.items()}
+    return value
+
+
+def _localize_current_state_value(key: str, value: Any, localized_terms: dict[str, str]) -> Any:
+    if key == "conditions" and isinstance(value, list):
+        localized_conditions: list[Any] = []
+        for condition in value:
+            if not isinstance(condition, dict):
+                localized_conditions.append(_localize_json_value(condition, localized_terms))
+                continue
+            localized_conditions.append({
+                condition_key: _localize_json_value(condition_value, localized_terms)
+                if condition_key in {"label", "player_visible_summary", "summary"}
+                else condition_value
+                for condition_key, condition_value in condition.items()
+            })
+        return localized_conditions
+    if key == "last_status_summary":
+        return _localize_json_value(value, localized_terms)
+    return value
+
+
 def _text_rendered_in_report(text: str, battle_report: str, localized_terms: dict[str, str]) -> bool:
     candidates = {text, _localize_text(text, localized_terms)}
     return any(candidate and candidate in battle_report for candidate in candidates)
@@ -2311,6 +2340,68 @@ def _player_view_public_state_findings(
     )]
 
 
+def _player_view_current_state_findings(
+    run_id: str,
+    run_dir: Path,
+    campaign_dir: Path,
+    campaign_prefix: str,
+    investigator_ids: list[str],
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    public_investigators: dict[str, dict[str, Any]] = {}
+    for row in _read_jsonl(run_dir / "player-view.jsonl"):
+        if row.get("view") != "player" or row.get("type") != "public_character_state":
+            continue
+        investigators = row.get("investigators", [])
+        if not isinstance(investigators, list):
+            continue
+        for investigator in investigators:
+            if not isinstance(investigator, dict) or not isinstance(investigator.get("investigator_id"), str):
+                continue
+            public_investigators[investigator["investigator_id"]] = investigator
+
+    if not public_investigators and not investigator_ids:
+        return []
+
+    localized_terms = _metadata_localized_terms(metadata)
+    missing_evidence: list[str] = []
+    incomplete_files: list[str] = []
+    for investigator_id in investigator_ids:
+        state_ref = f"save/investigator-state/{investigator_id}.json"
+        saved_state = _read_json(campaign_dir / state_ref, {})
+        if not isinstance(saved_state, dict) or not saved_state:
+            continue
+        public_investigator = public_investigators.get(investigator_id)
+        if not isinstance(public_investigator, dict):
+            missing_evidence.append(f"player-view public_character_state missing investigator {investigator_id}")
+            incomplete_files.append("player-view.jsonl")
+            continue
+        current_state = public_investigator.get("current_state")
+        if not isinstance(current_state, dict):
+            missing_evidence.append(f"player-view current_state missing for {investigator_id}")
+            incomplete_files.append("player-view.jsonl")
+            continue
+        for key in ("current_hp", "current_san", "current_mp", "conditions", "last_status_summary"):
+            if key not in saved_state:
+                continue
+            expected = _localize_current_state_value(key, saved_state[key], localized_terms)
+            if current_state.get(key) != expected:
+                missing_evidence.append(f"player-view {key} does not match campaign save {key}")
+                incomplete_files.extend(["player-view.jsonl", f"{campaign_prefix}{state_ref}"])
+
+    if not missing_evidence:
+        return []
+    return [_finding(
+        "player_view_current_state_stale",
+        "system_gap",
+        f"{run_id} player-view.jsonl public_character_state current_state is missing or stale.",
+        "Regenerate player-view.jsonl from campaign save investigator-state so the player-safe view shows current campaign HP, SAN, MP, conditions, and status summary without mutating reusable character cards.",
+        run_id=run_id,
+        incomplete_files=list(dict.fromkeys(incomplete_files)),
+        missing_evidence=list(dict.fromkeys(missing_evidence)),
+    )]
+
+
 def _player_view_speaker_findings(
     run_id: str,
     run_dir: Path,
@@ -3834,6 +3925,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
         ))
     findings.extend(_source_structure_findings(run_id, run_dir))
     findings.extend(_player_view_public_state_findings(run_id, run_dir, metadata))
+    findings.extend(_player_view_current_state_findings(run_id, run_dir, campaign_dir, campaign_prefix, investigator_ids, metadata))
     findings.extend(_player_view_speaker_findings(run_id, run_dir, metadata))
     findings.extend(_player_profile_display_findings(run_id, run_dir, metadata))
     findings.extend(_player_view_localized_text_findings(run_id, run_dir, metadata))

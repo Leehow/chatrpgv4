@@ -871,7 +871,23 @@ def write_run(root: Path, run_id: str, audit_profile: str, *, virtual_pressure: 
             row["text_display"] = "Spot Hidden：艾达·金掷出 33 / 55，结果普通成功；Spot Hidden：艾达·金掷出 22 / 55，结果困难成功。"
     write_jsonl(run_dir / "transcript.jsonl", transcript_rows)
     write_jsonl(run_dir / "player-view.jsonl", [
-        {"view": "player", "type": "public_character_state", "campaign_id": run_id},
+        {
+            "view": "player",
+            "type": "public_character_state",
+            "campaign_id": run_id,
+            "investigators": [
+                {
+                    "investigator_id": investigator_id,
+                    "name": "艾达·金",
+                    "current_state": {
+                        "current_hp": 12,
+                        "current_san": 55,
+                        "current_mp": 11,
+                        "conditions": [],
+                    },
+                },
+            ],
+        },
         {"view": "player", "type": "transcript_turn", "turn": 2, "role": "player_simulator", "text": "fixture player turn"},
         {
             "view": "player",
@@ -1724,6 +1740,41 @@ def test_completion_audit_fails_when_investigator_state_values_are_stale(tmp_pat
     assert finding["run_id"] == run_id
     assert "investigator-state current_hp does not match latest status final_hp" in finding["missing_evidence"]
     assert "investigator-state current_san does not match latest status final_san" in finding["missing_evidence"]
+
+
+def test_completion_audit_fails_when_player_view_current_state_is_stale(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_id = "v2-haunting-module"
+    player_view_path = tmp_path / ".coc" / "playtests" / run_id / "player-view.jsonl"
+    player_view = read_jsonl(player_view_path)
+    for row in player_view:
+        if row.get("type") == "public_character_state":
+            row["investigators"][0]["current_state"]["current_hp"] = 7
+            row["investigators"][0]["current_state"]["current_san"] = 44
+    write_jsonl(player_view_path, player_view)
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "multi-profile virtual player pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "player_view_current_state_stale")
+    assert finding["run_id"] == run_id
+    assert "player-view current_hp does not match campaign save current_hp" in finding["missing_evidence"]
+    assert "player-view current_san does not match campaign save current_san" in finding["missing_evidence"]
 
 
 def test_completion_audit_fails_when_investigator_skill_checks_disagree_with_development(tmp_path):
@@ -4254,7 +4305,23 @@ def test_completion_audit_accepts_selected_non_default_play_language(tmp_path):
         for row in transcript
     ])
     write_jsonl(run_dir / "player-view.jsonl", [
-        {"view": "player", "type": "public_character_state", "campaign_id": "v2-haunting-module"},
+        {
+            "view": "player",
+            "type": "public_character_state",
+            "campaign_id": "v2-haunting-module",
+            "investigators": [
+                {
+                    "investigator_id": "v2-haunting-module-investigator",
+                    "name": "エイダ・キング",
+                    "current_state": {
+                        "current_hp": 12,
+                        "current_san": 55,
+                        "current_mp": 11,
+                        "conditions": [],
+                    },
+                },
+            ],
+        },
         {"view": "player", "type": "transcript_turn", "turn": 2, "role": "player_simulator", "text": "fixture player turn"},
         {
             "view": "player",
