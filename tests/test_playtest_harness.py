@@ -936,6 +936,9 @@ def test_serious_playtests_persist_recoverable_campaign_save_and_indexes(tmp_pat
         assert set(investigator_ids).issubset(investigator_index["investigators"])
         campaign_entry = campaign_index["campaigns"][campaign_id]
         assert campaign_entry["campaign_id"] == campaign_id
+        campaign = read_json(campaign_dir / "campaign.json")
+        assert campaign["status"] == "concluded"
+        assert campaign_entry["status"] == "concluded"
         assert campaign_entry["path"] == f".coc/campaigns/{campaign_id}/campaign.json"
         assert campaign_entry["party_path"] == f".coc/campaigns/{campaign_id}/party.json"
         assert campaign_entry["save_path"] == f".coc/campaigns/{campaign_id}/save"
@@ -967,6 +970,7 @@ def test_serious_playtests_persist_recoverable_campaign_save_and_indexes(tmp_pat
 
         world_state = read_json(campaign_dir / "save" / "world-state.json")
         assert world_state["scenario_id"] == metadata["scenario_id"]
+        assert world_state["status"] == "concluded"
         assert world_state["memory_refs"] == ["memory/session-summaries.jsonl"]
         assert isinstance(world_state["discovered_clue_ids"], list)
         assert isinstance(world_state["major_decisions"], list)

@@ -25,7 +25,7 @@ Top-level indexes provide machine-readable entry points across the workspace:
 └── module-catalog.json
 ```
 
-`investigators.json` records reusable investigator ids, display names, and paths to `creation.json`, `character.json`, `history.jsonl`, `development.jsonl`, and `inventory-history.jsonl`. `campaigns.json` records campaign ids, titles, status, play language, party file, and paths to each campaign's `save/`, `memory/`, and `logs/` folders.
+`investigators.json` records reusable investigator ids, display names, and paths to `creation.json`, `character.json`, `history.jsonl`, `development.jsonl`, and `inventory-history.jsonl`. `campaigns.json` records campaign ids, titles, status, play language, party file, and paths to each campaign's `save/`, `memory/`, and `logs/` folders. Campaign lifecycle `status` values describe only campaign saves; use `concluded` for a finished scenario, not `complete`, so save files and semantic requests do not read like Codex thread-goal completion signals.
 
 ## Reusable Investigators
 

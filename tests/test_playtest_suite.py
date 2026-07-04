@@ -245,6 +245,7 @@ def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     assert "actual-play" in quality_questions["actual_play_replay"]
     assert "multiple player profiles" in quality_questions["virtual_player_pressure"]
     assert "battle_report" in request["inputs"]
+    assert request["inputs"]["campaign"]["status"] == "concluded"
     assert request["inputs"]["scenario"]["scenario_id"] == "rooftop-chase-drill"
     assert request["inputs"]["scenario"]["title"] == "The Ledger on the Rooftops"
     assert request["inputs"]["scenario"]["opening_scene"]
