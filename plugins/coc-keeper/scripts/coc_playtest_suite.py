@@ -481,6 +481,12 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
             "path": str(run_dir),
             "campaign_title": metadata.get("campaign_title", "unknown"),
             "scenario": metadata.get("scenario", "unknown"),
+            "play_language": metadata.get("play_language", "unknown"),
+            "language_profile": (
+                metadata.get("language_profile", {}).get("language")
+                if isinstance(metadata.get("language_profile"), dict)
+                else metadata.get("play_language", "unknown")
+            ),
             "audit_profile": metadata.get("audit_profile", "baseline"),
             "audit_result": _audit_result(run_dir),
             "player_profile": metadata.get("player_profile", "unknown"),
@@ -796,7 +802,8 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
     for run in index["runs"]:
         lines.append(
             f"- {run['run_id']}: {run['campaign_title']} | {run['audit_profile']} {run['audit_result']} | "
-            f"scenario: {run['scenario']} | player: {run['player_profile']}"
+            f"scenario: {run['scenario']} | language: {run.get('play_language', 'unknown')} | "
+            f"player: {run['player_profile']}"
         )
 
     lines.extend(["", "## Non-Passing Evaluated Runs"])

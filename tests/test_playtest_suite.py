@@ -212,6 +212,24 @@ def test_suite_report_uses_semantic_evaluator_instead_of_text_shape(tmp_path):
     assert "Semantic evaluator found pursuit pacing and an escape outcome." in report_text
 
 
+def test_suite_report_surfaces_selected_play_language_per_run(tmp_path):
+    coc_playtest_harness.create_multi_profile_pressure_run(
+        tmp_path,
+        run_id="v4-ja-pressure",
+        play_language="ja-JP",
+    )
+
+    report_path = coc_playtest_suite.generate_suite_report(tmp_path)
+    index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
+    report_text = report_path.read_text()
+
+    run = index["runs"][0]
+    assert run["play_language"] == "ja-JP"
+    assert run["language_profile"] == "ja-JP"
+    assert "v4-ja-pressure" in report_text
+    assert "language: ja-JP" in report_text
+
+
 def test_semantic_eval_request_exports_llm_judge_contract(tmp_path):
     coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="v3-chase-drill")
 
