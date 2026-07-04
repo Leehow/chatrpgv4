@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,14 @@ _COC_RULES_SPEC.loader.exec_module(coc_rules)
 
 
 REQUIRED_CHARACTERISTICS = ("STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU")
+SINGLE_DIE_PATTERN = re.compile(r"^1D(?P<sides>\d+)$")
+
+
+def _single_die_range(expression: str) -> tuple[int, int]:
+    match = SINGLE_DIE_PATTERN.match(expression.strip().upper())
+    if match is None:
+        raise ValueError(f"unsupported single-die expression: {expression}")
+    return 1, int(match.group("sides"))
 
 
 def derive_values(
@@ -73,9 +82,14 @@ def apply_age_modifiers(
             f"characteristic_reductions total {applied_reduction_total} does not match required {required_reduction_total}"
         )
 
+    age_rules = coc_rules.load_rule_table("age-adjustments")
     required_checks = int(age_adjustment.get("edu_improvement_checks", 0))
-    edu_maximum = int(coc_rules.load_rule_table("age-adjustments").get("edu_maximum", 99))
-    for record in edu_improvement_rolls[:required_checks]:
+    if len(edu_improvement_rolls) != required_checks:
+        raise ValueError(f"edu_improvement_rolls count {len(edu_improvement_rolls)} does not match required {required_checks}")
+    edu_maximum = int(age_rules.get("edu_maximum", 99))
+    improvement_die = str(age_rules.get("edu_improvement_amount", "1D10"))
+    improvement_min, improvement_max = _single_die_range(improvement_die)
+    for record in edu_improvement_rolls:
         if not isinstance(record, dict):
             raise ValueError("EDU improvement checks must include roll and improvement_roll fields")
         roll = int(record["roll"])
@@ -84,6 +98,8 @@ def apply_age_modifiers(
             if improvement_roll in (None, "", [], {}):
                 raise ValueError("successful EDU improvement check requires improvement_roll")
             improvement_amount = int(improvement_roll)
+            if not improvement_min <= improvement_amount <= improvement_max:
+                raise ValueError(f"successful EDU improvement_roll must be within {improvement_die}")
             adjusted["EDU"] = min(edu_maximum, adjusted["EDU"] + improvement_amount)
     return adjusted
 

@@ -100,7 +100,7 @@ def test_apply_age_modifiers_uses_rules_json_age_adjustment(monkeypatch):
         "INT": 65,
         "POW": 60,
         "EDU": 70,
-    }, 44, edu_improvement_rolls=[{"roll": 80, "improvement_roll": 1}, {"roll": 90, "improvement_roll": 8}])
+    }, 44, edu_improvement_rolls=[{"roll": 80, "improvement_roll": 1}])
 
     assert calls == [44]
     assert result["APP"] == 43
@@ -119,6 +119,42 @@ def test_apply_age_modifiers_rejects_successful_edu_check_without_improvement_ro
             "POW": 60,
             "EDU": 70,
         }, 32, edu_improvement_rolls=[80])
+
+
+def test_apply_age_modifiers_requires_exact_edu_improvement_check_count():
+    characteristics = {
+        "STR": 60,
+        "CON": 50,
+        "SIZ": 70,
+        "DEX": 55,
+        "APP": 50,
+        "INT": 65,
+        "POW": 60,
+        "EDU": 70,
+    }
+
+    with pytest.raises(ValueError, match="edu_improvement_rolls"):
+        coc_character.apply_age_modifiers(characteristics, 32, edu_improvement_rolls=[])
+
+    with pytest.raises(ValueError, match="edu_improvement_rolls"):
+        coc_character.apply_age_modifiers(characteristics, 32, edu_improvement_rolls=[
+            {"roll": 20},
+            {"roll": 30},
+        ])
+
+
+def test_apply_age_modifiers_rejects_edu_improvement_roll_outside_rule_die():
+    with pytest.raises(ValueError, match="1D10"):
+        coc_character.apply_age_modifiers({
+            "STR": 60,
+            "CON": 50,
+            "SIZ": 70,
+            "DEX": 55,
+            "APP": 50,
+            "INT": 65,
+            "POW": 60,
+            "EDU": 70,
+        }, 32, edu_improvement_rolls=[{"roll": 80, "improvement_roll": 11}])
 
 
 def test_apply_age_modifiers_applies_rulebook_edu_improvement_amount():
