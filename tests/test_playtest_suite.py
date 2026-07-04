@@ -274,6 +274,9 @@ def test_suite_report_surfaces_selected_play_language_per_run(tmp_path):
     assert run["language_profile"] == "ja-JP"
     assert "v4-ja-pressure" in report_text
     assert "language: ja-JP" in report_text
+    assert "単独プレイヤー複数スタイル圧力テスト PASS" in report_text
+    assert "player: 単独プレイヤー複数スタイル分岐" in report_text
+    assert "複数プレイヤー" not in report_text
 
 
 def test_suite_report_localizes_run_index_display_values(tmp_path):

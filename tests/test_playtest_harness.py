@@ -897,9 +897,14 @@ def test_serious_harness_accepts_selected_play_language(tmp_path):
     assert "ja-JP" in metadata["localized_terms"]
     assert "zh-Hans" not in metadata["localized_terms"]
     assert metadata["player_profile_labels"]["ja-JP"]["careful_investigator"] == "慎重な探索者"
+    assert metadata["language_profile"]["report_value_labels"]["multi_profile_pressure"] == "単独プレイヤー複数スタイル圧力テスト"
+    assert metadata["language_profile"]["report_value_labels"]["multi_profile_matrix"] == "単独プレイヤー複数スタイル分岐"
     assert campaign["play_language"] == "ja-JP"
     assert "# プレイ報告 <!-- report-anchor: Battle Report -->" in battle_text
     assert "## 実行設定 <!-- report-anchor: Run Setup -->" in battle_text
+    assert "監査プロファイル: 単独プレイヤー複数スタイル圧力テスト" in battle_text
+    assert "プレイヤープロファイル: 単独プレイヤー複数スタイル分岐" in battle_text
+    assert "複数プレイヤー" not in battle_text
     assert "プレイ言語: 日本語" in battle_text
     assert "導入シーン: ノット氏がコービット屋敷の鍵を机に置き" in battle_text
     assert "出典: 『クトゥルフの呼び声キーパー・ルールブック』40周年記念版 PDF" in battle_text

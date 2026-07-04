@@ -569,7 +569,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "rulebook_smoke": "ルールブックスモークテスト",
             "haunting_module": "『ホーンティング』全編モジュール監査",
             "chase_drill": "チェイスルールドリル",
-            "multi_profile_pressure": "複数プレイヤープロファイル圧力テスト",
+            "multi_profile_pressure": "単独プレイヤー複数スタイル圧力テスト",
             "transcript_driven_virtual_table": "トランスクリプト駆動の仮想卓",
             "codex": "Codex ダイス",
             "warn_before_reveal": "ネタバレ前に警告",
@@ -579,7 +579,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "careful_investigator": "慎重な探索者",
             "reckless_investigator": "無謀な探索者",
             "skeptical_rules_lawyer": "ルール確認型プレイヤー",
-            "multi_profile_matrix": "複数プロファイル行列",
+            "multi_profile_matrix": "単独プレイヤー複数スタイル分岐",
         },
         "character_dossier_labels": {
             "Player": "プレイヤー",
