@@ -92,6 +92,67 @@ def test_chase_rule_uses_structured_table():
     }
 
 
+def test_combined_roll_rule_uses_structured_table():
+    table = coc_rules.load_rule_table("combat")
+
+    assert table["combined_roll"]["source_rule_id"] == "core.combined_roll"
+    assert coc_rules.combined_roll_rule() == {
+        "roll_count": 1,
+        "minimum_compared_targets": 2,
+        "requires_compared_targets": True,
+        "success_if_roll_lte_any_target": True,
+    }
+
+
+def test_opposed_roll_rule_uses_structured_table():
+    table = coc_rules.load_rule_table("combat")
+
+    assert table["opposed_roll"]["source_rule_id"] == "core.opposed_roll"
+    assert coc_rules.opposed_roll_rule() == {
+        "participant_rolls": 2,
+        "requires_mutually_exclusive_goals": True,
+        "uses_success_level_order": True,
+        "tie_breakers": [
+            "higher_skill_or_characteristic",
+            "impasse_or_reroll",
+        ],
+        "can_be_pushed": False,
+    }
+
+
+def test_combat_rule_uses_structured_table():
+    table = coc_rules.load_rule_table("combat")
+
+    assert table["melee_combat"]["source_rule_id"] == "core.combat.attack_or_maneuver"
+    assert coc_rules.combat_rule() == {
+        "order": {
+            "sort_key": "DEX",
+            "direction": "descending",
+        },
+        "actions_per_round": 1,
+        "uses_percentile_check": True,
+        "uses_success_level": True,
+        "combat_rolls_can_be_pushed": False,
+        "defense_options": ["dodge", "fight_back", "maneuver"],
+        "attack_vs_dodge": {
+            "attacker_requires_higher_success_level": True,
+            "tie_winner": "defender",
+            "both_fail_damage": False,
+        },
+        "attack_vs_fight_back": {
+            "higher_success_level_wins": True,
+            "tie_winner": "attacker",
+            "both_fail_damage": False,
+        },
+        "maneuver": {
+            "build_difference_impossible_at": 3,
+            "penalty_die_per_build_difference": 1,
+            "attack_vs_dodge_tie_winner": "target",
+            "attack_vs_fight_back_tie_winner": "maneuver_actor",
+        },
+    }
+
+
 def test_damage_rule_uses_structured_table():
     table = coc_rules.load_rule_table("damage")
 

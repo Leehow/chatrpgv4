@@ -114,6 +114,62 @@ def chase_rule() -> dict[str, Any]:
     }
 
 
+def combined_roll_rule() -> dict[str, Any]:
+    table = load_rule_table("combat")["combined_roll"]
+    return {
+        "roll_count": int(table["roll_count"]),
+        "minimum_compared_targets": int(table["minimum_compared_targets"]),
+        "requires_compared_targets": bool(table["requires_compared_targets"]),
+        "success_if_roll_lte_any_target": bool(table["success_if_roll_lte_any_target"]),
+    }
+
+
+def opposed_roll_rule() -> dict[str, Any]:
+    table = load_rule_table("combat")["opposed_roll"]
+    return {
+        "participant_rolls": int(table["participant_rolls"]),
+        "requires_mutually_exclusive_goals": bool(table["requires_mutually_exclusive_goals"]),
+        "uses_success_level_order": bool(table["uses_success_level_order"]),
+        "tie_breakers": [str(item) for item in table["tie_breakers"]],
+        "can_be_pushed": bool(table["can_be_pushed"]),
+    }
+
+
+def combat_rule() -> dict[str, Any]:
+    table = load_rule_table("combat")["melee_combat"]
+    order = table["order"]
+    attack_vs_dodge = table["attack_vs_dodge"]
+    attack_vs_fight_back = table["attack_vs_fight_back"]
+    maneuver = table["maneuver"]
+    return {
+        "order": {
+            "sort_key": str(order["sort_key"]),
+            "direction": str(order["direction"]),
+        },
+        "actions_per_round": int(table["actions_per_round"]),
+        "uses_percentile_check": bool(table["uses_percentile_check"]),
+        "uses_success_level": bool(table["uses_success_level"]),
+        "combat_rolls_can_be_pushed": bool(table["combat_rolls_can_be_pushed"]),
+        "defense_options": [str(item) for item in table["defense_options"]],
+        "attack_vs_dodge": {
+            "attacker_requires_higher_success_level": bool(attack_vs_dodge["attacker_requires_higher_success_level"]),
+            "tie_winner": str(attack_vs_dodge["tie_winner"]),
+            "both_fail_damage": bool(attack_vs_dodge["both_fail_damage"]),
+        },
+        "attack_vs_fight_back": {
+            "higher_success_level_wins": bool(attack_vs_fight_back["higher_success_level_wins"]),
+            "tie_winner": str(attack_vs_fight_back["tie_winner"]),
+            "both_fail_damage": bool(attack_vs_fight_back["both_fail_damage"]),
+        },
+        "maneuver": {
+            "build_difference_impossible_at": int(maneuver["build_difference_impossible_at"]),
+            "penalty_die_per_build_difference": int(maneuver["penalty_die_per_build_difference"]),
+            "attack_vs_dodge_tie_winner": str(maneuver["attack_vs_dodge_tie_winner"]),
+            "attack_vs_fight_back_tie_winner": str(maneuver["attack_vs_fight_back_tie_winner"]),
+        },
+    }
+
+
 def damage_rule() -> dict[str, Any]:
     table = load_rule_table("damage")
     return {

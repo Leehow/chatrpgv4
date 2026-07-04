@@ -115,27 +115,43 @@
     {
       "id": "core.combined_roll",
       "category": "roll_procedure",
+      "source_table": "combat.json",
       "source_note": "Combined checks use one roll compared against more than one relevant target.",
       "numeric": {
+        "roll_count": 1,
         "single_roll": true,
-        "minimum_compared_targets": 2
+        "minimum_compared_targets": 2,
+        "success_if_roll_lte_any_target": true
       }
     },
     {
       "id": "core.opposed_roll",
       "category": "roll_procedure",
+      "source_table": "combat.json",
       "source_note": "Opposed rolls compare success levels before resolving ties or outcomes.",
       "numeric": {
-        "compare_success_level": true
+        "participant_rolls": 2,
+        "compare_success_level": true,
+        "tie_breakers": [
+          "higher_skill_or_characteristic",
+          "impasse_or_reroll"
+        ],
+        "can_be_pushed": false
       }
     },
     {
       "id": "core.combat.attack_or_maneuver",
       "category": "combat",
+      "source_table": "combat.json",
       "source_note": "Combat attacks and fighting maneuvers are resolved as percentile combat checks.",
       "numeric": {
+        "actions_per_round": 1,
         "uses_percentile_check": true,
-        "uses_success_level": true
+        "uses_success_level": true,
+        "combat_rolls_can_be_pushed": false,
+        "dodge_tie_winner": "defender",
+        "fight_back_tie_winner": "attacker",
+        "maneuver_build_difference_impossible_at": 3
       }
     },
     {
