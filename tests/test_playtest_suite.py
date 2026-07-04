@@ -154,12 +154,17 @@ def test_suite_report_indexes_runs_and_core_rulebook_coverage(tmp_path):
     assert "# COC Playtest Suite Report" in report_text
     assert "## Run Index" in report_text
     assert "v2-haunting-module" in report_text
-    assert "The Haunting Module Playthrough" in report_text
-    assert "haunting_module" in report_text
+    run_index = report_text.split("## Non-Passing Evaluated Runs", 1)[0]
+    assert "《鬼屋》模组实录" in run_index
+    assert "《鬼屋》完整模组审计" in run_index
+    assert "The Haunting Module Playthrough" not in run_index
+    assert "haunting_module PASS" not in run_index
     assert "v3-chase-drill" in report_text
-    assert "The Ledger on the Rooftops" in report_text
+    assert "屋顶上的账本" in run_index
     assert "Rooftop Chase Drill" not in report_text
-    assert "chase_drill" in report_text
+    assert "追逐规则演练" in run_index
+    assert "The Ledger on the Rooftops" not in run_index
+    assert "chase_drill PASS" not in run_index
     assert "## Core Coverage Matrix" in report_text
     assert "character_dossier: covered" in report_text
     assert "kp_player_transcript: covered" in report_text
@@ -271,7 +276,7 @@ def test_suite_report_surfaces_selected_play_language_per_run(tmp_path):
     assert "language: ja-JP" in report_text
 
 
-def test_suite_report_localizes_run_index_player_profile_display(tmp_path):
+def test_suite_report_localizes_run_index_display_values(tmp_path):
     write_semantic_artifact_run(
         tmp_path,
         "v4-multi-profile-pressure",
@@ -280,10 +285,19 @@ def test_suite_report_localizes_run_index_player_profile_display(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "v4-multi-profile-pressure"
     metadata_path = run_dir / "playtest.json"
     metadata = json.loads(metadata_path.read_text())
+    metadata["campaign_title"] = "Three Roads into the Corbitt House"
+    metadata["scenario"] = "The Haunting Opening Crossroads"
     metadata["player_profile"] = "multi_profile_matrix"
+    metadata["localized_terms"] = {
+        "zh-Hans": {
+            "Three Roads into the Corbitt House": "科比特宅邸的三条路",
+            "The Haunting Opening Crossroads": "《鬼屋》开场分歧",
+        }
+    }
     metadata["language_profile"] = {
         "language": "zh-Hans",
         "report_value_labels": {
+            "multi_profile_pressure": "单人多风格压测",
             "multi_profile_matrix": "单人多风格开局",
         },
     }
@@ -293,13 +307,23 @@ def test_suite_report_localizes_run_index_player_profile_display(tmp_path):
     report_text = report_path.read_text()
     index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
 
+    assert index["runs"][0]["campaign_title"] == "Three Roads into the Corbitt House"
+    assert index["runs"][0]["campaign_title_display"] == "科比特宅邸的三条路"
+    assert index["runs"][0]["scenario"] == "The Haunting Opening Crossroads"
+    assert index["runs"][0]["scenario_display"] == "《鬼屋》开场分歧"
+    assert index["runs"][0]["audit_profile"] == "multi_profile_pressure"
+    assert index["runs"][0]["audit_profile_display"] == "单人多风格压测"
     assert index["runs"][0]["player_profile"] == "multi_profile_matrix"
     assert index["runs"][0]["player_profile_display"] == "单人多风格开局"
+    assert "- v4-multi-profile-pressure: 科比特宅邸的三条路 | 单人多风格压测 PASS | scenario: 《鬼屋》开场分歧 | language: zh-Hans | player: 单人多风格开局" in report_text
+    assert "Three Roads into the Corbitt House" not in report_text
+    assert "The Haunting Opening Crossroads" not in report_text
+    assert "multi_profile_pressure PASS" not in report_text
     assert "player: 单人多风格开局" in report_text
     assert "player: multi_profile_matrix" not in report_text
 
 
-def test_suite_report_does_not_invent_profile_display_without_language_metadata(tmp_path):
+def test_suite_report_does_not_invent_run_index_display_without_language_metadata(tmp_path):
     write_semantic_artifact_run(
         tmp_path,
         "legacy-smoke",
@@ -315,8 +339,12 @@ def test_suite_report_does_not_invent_profile_display_without_language_metadata(
     report_text = report_path.read_text()
     index = json.loads((tmp_path / ".coc" / "playtests" / "index.json").read_text())
 
+    assert index["runs"][0]["campaign_title_display"] == "legacy-smoke fixture"
+    assert index["runs"][0]["scenario_display"] == "Fixture Scenario"
+    assert index["runs"][0]["audit_profile_display"] == "baseline"
     assert index["runs"][0]["player_profile"] == "careful_investigator"
     assert index["runs"][0]["player_profile_display"] == "careful_investigator"
+    assert "legacy-smoke fixture | baseline PASS | scenario: Fixture Scenario" in report_text
     assert "player: careful_investigator" in report_text
     assert "player: 谨慎风格" not in report_text
 

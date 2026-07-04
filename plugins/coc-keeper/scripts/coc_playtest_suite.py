@@ -91,7 +91,16 @@ def _suite_report_value(value: Any, metadata: dict[str, Any]) -> str:
     text = str(value)
     labels = _metadata_language_profile(metadata).get("report_value_labels", {})
     if isinstance(labels, dict):
-        return str(labels.get(text, text))
+        labeled = labels.get(text)
+        if isinstance(labeled, str) and labeled:
+            return labeled
+    play_language = metadata.get("play_language")
+    localized_terms = metadata.get("localized_terms", {})
+    language_terms = localized_terms.get(play_language, {}) if isinstance(localized_terms, dict) else {}
+    if isinstance(language_terms, dict):
+        localized = language_terms.get(text)
+        if isinstance(localized, str) and localized:
+            return localized
     return text
 
 
@@ -516,7 +525,9 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
             "run_id": run_id,
             "path": str(run_dir),
             "campaign_title": metadata.get("campaign_title", "unknown"),
+            "campaign_title_display": _suite_report_value(metadata.get("campaign_title", "unknown"), metadata),
             "scenario": metadata.get("scenario", "unknown"),
+            "scenario_display": _suite_report_value(metadata.get("scenario", "unknown"), metadata),
             "play_language": metadata.get("play_language", "unknown"),
             "language_profile": (
                 metadata.get("language_profile", {}).get("language")
@@ -524,6 +535,7 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
                 else metadata.get("play_language", "unknown")
             ),
             "audit_profile": metadata.get("audit_profile", "baseline"),
+            "audit_profile_display": _suite_report_value(metadata.get("audit_profile", "baseline"), metadata),
             "audit_result": _audit_result(run_dir),
             "player_profile": metadata.get("player_profile", "unknown"),
             "player_profile_display": _suite_report_value(metadata.get("player_profile", "unknown"), metadata),
@@ -909,8 +921,9 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
     ]
     for run in index["runs"]:
         lines.append(
-            f"- {run['run_id']}: {run['campaign_title']} | {run['audit_profile']} {run['audit_result']} | "
-            f"scenario: {run['scenario']} | language: {run.get('play_language', 'unknown')} | "
+            f"- {run['run_id']}: {run.get('campaign_title_display') or run['campaign_title']} | "
+            f"{run.get('audit_profile_display') or run['audit_profile']} {run['audit_result']} | "
+            f"scenario: {run.get('scenario_display') or run['scenario']} | language: {run.get('play_language', 'unknown')} | "
             f"player: {run.get('player_profile_display') or run['player_profile']}"
         )
 
