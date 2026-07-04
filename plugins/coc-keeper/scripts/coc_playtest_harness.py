@@ -2888,6 +2888,13 @@ def create_haunting_module_run(
                 "summary": "沃尔特·科比特花费 1 点魔法值驱使浮空匕首本轮攻击；魔法值 16 -> 15。",
             },
         },
+        {
+            "type": "sanity",
+            "actor": investigator_id,
+            "payload": {
+                "summary": "艾达·金因浮空匕首成功 SAN 1/1D4，失去 1 SAN；SAN 52 -> 51。",
+            },
+        },
         {"type": "combat", "actor": "keeper_under_test", "payload": {"summary": "The Floating Knife 开始 combat round；Corbitt POW hard success 与 Ada Dodge hard success 打平，所以 Ada 避开攻击。"}},
         {"type": "decision", "actor": investigator_id, "payload": {"summary": "Ada 选择用外套抓住 The Floating Knife，而不是逃跑。"}},
         {"type": "combat", "actor": investigator_id, "payload": {"summary": "Ada 用 coat-assisted Fighting Maneuver 抓住 The Floating Knife；Corbitt opposed POW 失败。"}},
