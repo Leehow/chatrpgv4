@@ -189,6 +189,7 @@ REQUIRED_SEMANTIC_REQUEST_FIELDS = [
 REPORT_ANCHOR_PREFIX = "<!-- report-anchor: "
 REPORT_ANCHOR_SUFFIX = " -->"
 CJK_BOUNDARY_SPACE = re.compile(r"(?<=[\u4e00-\u9fff·》」』”）]) (?=[\u4e00-\u9fff《「『“（])")
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 INVESTIGATOR_CHRONICLE_TEXT_FIELDS = {
     "history.jsonl": ["summary"],
     "development.jsonl": ["summary", "carryover_notes"],
@@ -267,6 +268,10 @@ def _localize_text(text: str, localized_terms: dict[str, str]) -> str:
 def _text_rendered_in_report(text: str, battle_report: str, localized_terms: dict[str, str]) -> bool:
     candidates = {text, _localize_text(text, localized_terms)}
     return any(candidate and candidate in battle_report for candidate in candidates)
+
+
+def _visible_markdown_text(text: str) -> str:
+    return HTML_COMMENT.sub("", text)
 
 
 def _localized_source_field(
@@ -541,22 +546,31 @@ def _mechanical_roll_line(row: dict[str, Any]) -> str | None:
 
 def _battle_report_mechanical_log_findings(
     run_id: str,
+    run_dir: Path,
     campaign_dir: Path,
+    metadata: dict[str, Any],
     battle_report: str,
 ) -> list[dict[str, Any]]:
-    mechanical_log = _battle_report_anchor_section(battle_report, "Mechanical Log")
+    mechanical_log = _visible_markdown_text(_battle_report_anchor_section(battle_report, "Mechanical Log"))
     rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
-    required_roll_lines = [
-        line
-        for row in rolls
-        for line in [_mechanical_roll_line(row)]
-        if line
-    ]
-    missing_roll_lines = [
-        line
-        for line in required_roll_lines
-        if line not in mechanical_log
-    ]
+    localized_terms = _metadata_localized_terms(metadata)
+    language_profile = metadata.get("language_profile", {})
+    if not isinstance(language_profile, dict):
+        language_profile = {}
+    play_language = str(metadata.get("play_language") or "en-US")
+    actor_names = _localized_actor_names(_campaign_characters(run_dir, campaign_dir), localized_terms)
+    required_roll_lines: list[str] = []
+    missing_roll_lines: list[str] = []
+    for row in rolls:
+        canonical_line = _mechanical_roll_line(row)
+        if not canonical_line:
+            continue
+        required_roll_lines.append(canonical_line)
+        localized_roll = _format_roll_recap(row, actor_names, localized_terms, play_language, language_profile)
+        localized_summary = localized_roll.splitlines()[0].removeprefix("- ").strip() if localized_roll.splitlines() else ""
+        visible_candidates = [canonical_line, localized_summary]
+        if not any(candidate and candidate in mechanical_log for candidate in visible_candidates):
+            missing_roll_lines.append(canonical_line)
     if not missing_roll_lines:
         return []
     return [_finding(
@@ -3374,7 +3388,7 @@ def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, An
     battle_report = _read_text(artifacts_dir / "battle-report.md")
     findings.extend(_battle_report_anchor_findings(run_id, battle_report))
     findings.extend(_battle_report_source_dialogue_findings(run_id, run_dir, battle_report))
-    findings.extend(_battle_report_mechanical_log_findings(run_id, campaign_dir, battle_report))
+    findings.extend(_battle_report_mechanical_log_findings(run_id, run_dir, campaign_dir, metadata, battle_report))
     findings.extend(_battle_report_rule_ref_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_event_summary_findings(run_id, campaign_dir, battle_report))
     findings.extend(_battle_report_feedback_text_findings(run_id, run_dir, battle_report))
