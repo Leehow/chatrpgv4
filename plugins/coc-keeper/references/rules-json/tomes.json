@@ -114,11 +114,11 @@
       "mythos_rating": 27
     },
     "Cthaat Aquadingen": {
-      "full_study_weeks": 29,
-      "sanity_cost": "2D4",
-      "cthulhu_mythos_initial": 2,
-      "cthulhu_mythos_full": 4,
-      "mythos_rating": 18
+      "full_study_weeks": 46,
+      "sanity_cost": "2D8",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 9,
+      "mythos_rating": 39
     },
     "Cthulhu in the Necronomicon": {
       "full_study_weeks": 14,
