@@ -116,11 +116,17 @@ def chase_rule() -> dict[str, Any]:
 
 def combined_roll_rule() -> dict[str, Any]:
     table = load_rule_table("combat")["combined_roll"]
+    teamwork = table.get("teamwork", {})
     return {
         "roll_count": int(table["roll_count"]),
         "minimum_compared_targets": int(table["minimum_compared_targets"]),
         "requires_compared_targets": bool(table["requires_compared_targets"]),
         "success_if_roll_lte_any_target": bool(table["success_if_roll_lte_any_target"]),
+        "teamwork": {
+            "lead_uses_highest_skill": bool(teamwork.get("lead_uses_highest_skill", False)),
+            "helpers_grant_bonus_die_per_helper": bool(teamwork.get("helpers_grant_bonus_die_per_helper", False)),
+            "max_bonus_dice": int(teamwork.get("max_bonus_dice", 0)),
+        },
     }
 
 
@@ -238,13 +244,23 @@ def difficulty_target(target: int, difficulty: str) -> int:
 
 def damage_bonus_build(str_value: int, siz_value: int) -> dict[str, int | str]:
     total = str_value + siz_value
-    for row in load_rule_table("damage-bonus-build"):
+    rows = load_rule_table("damage-bonus-build")
+    for row in rows:
         if row["min"] <= total <= row["max"]:
-            return {
+            result: dict[str, int | str] = {
                 "total": total,
                 "damage_bonus": row["damage_bonus"],
                 "build": row["build"],
             }
+            extrapolation = row.get("extrapolation")
+            if extrapolation is not None and total > extrapolation["applies_when_total_greater_than"]:
+                excess = total - extrapolation["applies_when_total_greater_than"]
+                steps = (excess + extrapolation["per_80_points"] - 1) // extrapolation["per_80_points"]
+                base_db = 5  # last fixed row is +5D6 (build 6)
+                base_build = 6
+                result["damage_bonus"] = f"+{base_db + steps}D6"
+                result["build"] = base_build + steps
+            return result
     raise ValueError(f"STR+SIZ total out of V1 table range: {total}")
 
 
@@ -584,3 +600,53 @@ def poisons_table() -> dict[str, Any]:
 def artifacts_table() -> dict[str, Any]:
     """Return the artifacts and alien devices."""
     return load_rule_table("artifacts").get("artifacts", {})
+
+def sanity_max_formula() -> dict[str, Any]:
+    """Return the maximum Sanity formula block (Keeper Rulebook p.167, F9).
+
+    Maximum Sanity = 99 minus the current Cthulhu Mythos skill.
+    """
+    return load_rule_table("sanity").get("max_san", {})
+
+def luck_rule() -> dict[str, Any]:
+    """Return the Luck rule block (Keeper Rulebook pp.93-95)."""
+    table = load_rule_table("luck")
+    spend = table.get("spend", {})
+    roll = table.get("roll", {})
+    recovery = table.get("recovery", {})
+    return {
+        "spend": {
+            "luck_point_value": int(spend.get("luck_point_value", 1)),
+            "cost_per_point_off_roll": int(spend.get("cost_per_point_off_roll", 1)),
+            "applies": spend.get("applies", "lower_total_roll_toward_target"),
+        },
+        "roll": {
+            "use": roll.get("use", "group_luck_check"),
+            "group_roll_policy": roll.get("group_roll_policy", "take_lowest"),
+        },
+        "recovery": {
+            "applies_when": recovery.get("applies_when", "investigator_development_phase"),
+            "check": recovery.get("check", "1D100 > current_luck"),
+            "gain_on_success": recovery.get("gain_on_success", "1D10"),
+            "cap": int(recovery.get("cap", 99)),
+            "optional_rule": bool(recovery.get("optional_rule", False)),
+        },
+    }
+
+def development_rule() -> dict[str, Any]:
+    """Return the Investigator Development Phase rule block (pp.94-95)."""
+    table = load_rule_table("development")
+    tick = table.get("tick", {})
+    improvement = table.get("improvement_roll", {})
+    return {
+        "tick": {
+            "awarded_when": tick.get("awarded_when", "regular_or_hard_or_extreme_success"),
+            "ticks_per_qualifying_success": int(tick.get("ticks_per_qualifying_success", 1)),
+            "excluded_outcomes": tick.get("excluded_outcomes", []),
+        },
+        "improvement_roll": {
+            "check": improvement.get("check", "1D100 > current_skill"),
+            "gain_on_success": improvement.get("gain_on_success", "1D10"),
+            "cap_for_san_reward": int(improvement.get("cap_for_san_reward", 90)),
+        },
+    }

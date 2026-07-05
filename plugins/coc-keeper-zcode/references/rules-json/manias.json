@@ -36,6 +36,39 @@
     },
     "Photonomania": {
       "trigger": "addiction to light"
+    },
+    "Aboulomania": {
+      "trigger": "pathological indecisiveness"
+    },
+    "Agonomania": {
+      "trigger": "obsession with contests and struggle"
+    },
+    "Catapedamania": {
+      "trigger": "obsession with jumping from high places"
+    },
+    "Dromomania": {
+      "trigger": "compulsive urge to wander or travel"
+    },
+    "Elpomamia": {
+      "trigger": "obsession with hope and expectation"
+    },
+    "Hedonomania": {
+      "trigger": "obsessive pursuit of pleasure"
+    },
+    "Klazomania": {
+      "trigger": "compulsive shouting"
+    },
+    "Logomania": {
+      "trigger": "obsessive talking or word fixation"
+    },
+    "Metromania": {
+      "trigger": "compulsive writing of verse"
+    },
+    "Plutomania": {
+      "trigger": "obsessive pursuit of wealth"
+    },
+    "Trichotillomania": {
+      "trigger": "compulsive hair-pulling"
     }
   }
 }

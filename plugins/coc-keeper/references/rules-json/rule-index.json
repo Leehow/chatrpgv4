@@ -310,7 +310,7 @@
         "group_marker": "G",
         "modern_marker": "Omega",
         "uncommon_marker": "T",
-        "skill_count": 66
+        "skill_count": 80
       }
     },
     {
@@ -498,7 +498,7 @@
       "source_table": "spells.json",
       "source_note": "Keeper Rulebook Ch.12 Grimoire (pp.258-277). Each spell has cost_mp, cost_pow, cost_sanity, casting_time, source_page.",
       "numeric": {
-        "spell_count": 55
+        "spell_count": 82
       }
     },
     {
@@ -544,7 +544,7 @@
       "source_table": "phobias.json",
       "source_note": "Keeper Rulebook Table IX Sample Phobias (p.160). Each phobia has a trigger.",
       "numeric": {
-        "phobia_count": 18
+        "phobia_count": 29
       }
     },
     {
@@ -553,7 +553,7 @@
       "source_table": "manias.json",
       "source_note": "Keeper Rulebook Table X Sample Manias (p.161). Each mania has a trigger.",
       "numeric": {
-        "mania_count": 12
+        "mania_count": 23
       }
     },
     {
@@ -593,6 +593,69 @@
       "source_note": "Keeper Rulebook Chapter 8 Sanity (pp.154-156). Encountering a monster costs SAN: success/failure notation e.g. 1/1D10.",
       "numeric": {
         "format": "success_loss/failure_loss_die"
+      }
+    },
+    {
+      "id": "core.sanity.max_formula",
+      "category": "sanity",
+      "source_table": "sanity.json",
+      "source_note": "Keeper Rulebook p.167 (Sanity checklist F9): maximum Sanity = 99 minus current Cthulhu Mythos skill.",
+      "numeric": {
+        "formula": "99 - cthulhu_mythos",
+        "base_max": 99,
+        "subtract": "cthulhu_mythos_current_skill"
+      }
+    },
+    {
+      "id": "core.luck.spend",
+      "category": "luck",
+      "source_table": "luck.json",
+      "source_note": "Keeper Rulebook p.93: spend Luck points to lower a roll toward a target number; one Luck point reduces the rolled total by one.",
+      "numeric": {
+        "luck_point_value": 1,
+        "cost_per_point_off_roll": 1
+      }
+    },
+    {
+      "id": "core.luck.roll",
+      "category": "luck",
+      "source_table": "luck.json",
+      "source_note": "Keeper Rulebook p.93: a group Luck roll uses the lowest individual Luck roll among participating investigators.",
+      "numeric": {
+        "group_roll_policy": "take_lowest"
+      }
+    },
+    {
+      "id": "core.luck.recovery",
+      "category": "luck",
+      "source_table": "luck.json",
+      "source_note": "Keeper Rulebook p.95 (optional): during the Investigator Development Phase, roll 1D100 against current Luck; higher roll gains 1D10 Luck (cap 99).",
+      "numeric": {
+        "check": "1D100 > current_luck",
+        "gain_on_success": "1D10",
+        "cap": 99,
+        "optional_rule": true
+      }
+    },
+    {
+      "id": "core.development.tick",
+      "category": "development",
+      "source_table": "development.json",
+      "source_note": "Keeper Rulebook pp.94-95: a skill earns one tick per regular, hard, or extreme success; excluded for bonus-die-only successes, opposed-roll losers, and combined-roll participants.",
+      "numeric": {
+        "awarded_when": "regular_or_hard_or_extreme_success",
+        "ticks_per_qualifying_success": 1
+      }
+    },
+    {
+      "id": "core.development.improvement_roll",
+      "category": "development",
+      "source_table": "development.json",
+      "source_note": "Keeper Rulebook p.95: during the Investigator Development Phase, for each ticked skill roll 1D100; higher than the current skill increases it by 1D10 (cap 90 for SAN-reward-raised skills).",
+      "numeric": {
+        "check": "1D100 > current_skill",
+        "gain_on_success": "1D10",
+        "cap_for_san_reward": 90
       }
     }
   ]

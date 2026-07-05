@@ -101,6 +101,11 @@ def test_combined_roll_rule_uses_structured_table():
         "minimum_compared_targets": 2,
         "requires_compared_targets": True,
         "success_if_roll_lte_any_target": True,
+        "teamwork": {
+            "lead_uses_highest_skill": True,
+            "helpers_grant_bonus_die_per_helper": True,
+            "max_bonus_dice": 2,
+        },
     }
 
 
@@ -657,3 +662,65 @@ def test_equipment_and_poisons_and_artifacts():
     assert len(po) >= 5
     ar = coc_rules.artifacts_table()
     assert len(ar) >= 3
+
+
+def test_damage_bonus_build_extrapolation_above_524():
+    # Totals at or below 524 follow the fixed table (sanity-check unchanged).
+    assert coc_rules.damage_bonus_build(300, 200) == {
+        "total": 500,
+        "damage_bonus": "+5D6",
+        "build": 6,
+    }
+    # 525 is the first extrapolated step beyond 524: +1 step.
+    result = coc_rules.damage_bonus_build(300, 225)
+    assert result["total"] == 525
+    assert result["damage_bonus"] == "+6D6"
+    assert result["build"] == 7
+    # 604 is still within the first 80-point band (525-604), so still +6D6.
+    result = coc_rules.damage_bonus_build(300, 304)
+    assert result["total"] == 604
+    assert result["damage_bonus"] == "+6D6"
+    assert result["build"] == 7
+    # 605 begins the second 80-point band: +2 steps.
+    result = coc_rules.damage_bonus_build(302, 303)
+    assert result["total"] == 605
+    assert result["damage_bonus"] == "+7D6"
+    assert result["build"] == 8
+
+
+def test_sanity_max_formula_uses_structured_table():
+    block = coc_rules.sanity_max_formula()
+    assert block["formula"] == "99 - cthulhu_mythos"
+    assert block["base_max"] == 99
+
+
+def test_luck_rule_uses_structured_table():
+    rule = coc_rules.luck_rule()
+    assert rule["spend"]["luck_point_value"] == 1
+    assert rule["spend"]["cost_per_point_off_roll"] == 1
+    assert rule["roll"]["group_roll_policy"] == "take_lowest"
+    assert rule["recovery"]["gain_on_success"] == "1D10"
+    assert rule["recovery"]["cap"] == 99
+    assert rule["recovery"]["optional_rule"] is True
+
+
+def test_development_rule_uses_structured_table():
+    rule = coc_rules.development_rule()
+    assert rule["tick"]["awarded_when"] == "regular_or_hard_or_extreme_success"
+    assert rule["tick"]["ticks_per_qualifying_success"] == 1
+    assert "opposed_roll_loser" in rule["tick"]["excluded_outcomes"]
+    assert rule["improvement_roll"]["gain_on_success"] == "1D10"
+    assert rule["improvement_roll"]["cap_for_san_reward"] == 90
+
+
+def test_rule_index_exposes_luck_and_development_and_max_san_ids():
+    ids = coc_rules.rule_ids()
+    for rule_id in [
+        "core.luck.spend",
+        "core.luck.roll",
+        "core.luck.recovery",
+        "core.development.tick",
+        "core.development.improvement_roll",
+        "core.sanity.max_formula",
+    ]:
+        assert rule_id in ids, f"missing rule-id: {rule_id}"

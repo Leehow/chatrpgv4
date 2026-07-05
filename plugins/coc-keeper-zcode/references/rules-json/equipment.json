@@ -46,6 +46,36 @@
         "item": "Typewriter",
         "category": "office",
         "price": "$40"
+      },
+      {
+        "item": "Lantern (oil)",
+        "category": "tool",
+        "price": "$3"
+      },
+      {
+        "item": "Crowbar",
+        "category": "tool",
+        "price": "$1"
+      },
+      {
+        "item": "Pocket Watch",
+        "category": "personal",
+        "price": "$10"
+      },
+      {
+        "item": "Field Radio",
+        "category": "electronics",
+        "price": "$45"
+      },
+      {
+        "item": "Hunting Rifle",
+        "category": "weapon",
+        "price": "$35"
+      },
+      {
+        "item": "Automobile (Ford Model T)",
+        "category": "vehicle",
+        "price": "$260"
       }
     ],
     "modern": [
@@ -83,6 +113,46 @@
         "item": "GPS Unit",
         "category": "electronics",
         "price": "$150"
+      },
+      {
+        "item": "Tablet",
+        "category": "electronics",
+        "price": "$500"
+      },
+      {
+        "item": "Digital Voice Recorder",
+        "category": "electronics",
+        "price": "$60"
+      },
+      {
+        "item": "Body Armor (concealed vest)",
+        "category": "armor",
+        "price": "$300"
+      },
+      {
+        "item": "Night Vision Goggles",
+        "category": "tool",
+        "price": "$2000"
+      },
+      {
+        "item": "Drone (reconnaissance)",
+        "category": "electronics",
+        "price": "$800"
+      },
+      {
+        "item": "Lockpick Set",
+        "category": "tool",
+        "price": "$40"
+      },
+      {
+        "item": "Satellite Phone",
+        "category": "electronics",
+        "price": "$600"
+      },
+      {
+        "item": "Smartwatch",
+        "category": "electronics",
+        "price": "$300"
       }
     ]
   }

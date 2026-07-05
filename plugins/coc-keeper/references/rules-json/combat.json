@@ -5,7 +5,13 @@
     "roll_count": 1,
     "minimum_compared_targets": 2,
     "requires_compared_targets": true,
-    "success_if_roll_lte_any_target": true
+    "success_if_roll_lte_any_target": true,
+    "teamwork": {
+      "lead_uses_highest_skill": true,
+      "helpers_grant_bonus_die_per_helper": true,
+      "max_bonus_dice": 2,
+      "source_note": "Keeper Rulebook combined rolls (p.92): a teamwork combined roll uses the lead investigator's skill (the highest among the group), and each helping investigator grants one bonus die to the lead's roll, up to a maximum of two bonus dice."
+    }
   },
   "opposed_roll": {
     "source_rule_id": "core.opposed_roll",

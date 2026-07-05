@@ -54,6 +54,39 @@
     },
     "Zoophobia": {
       "trigger": "fear of animals"
+    },
+    "Algophobia": {
+      "trigger": "fear of pain"
+    },
+    "Aviophobia": {
+      "trigger": "fear of flying"
+    },
+    "Bacteriophobia": {
+      "trigger": "fear of bacteria and germs"
+    },
+    "Brontophobia": {
+      "trigger": "fear of thunder"
+    },
+    "Carcinophobia": {
+      "trigger": "fear of cancer"
+    },
+    "Demonophobia": {
+      "trigger": "fear of demons and evil spirits"
+    },
+    "Erythrophobia": {
+      "trigger": "fear of blushing or redness"
+    },
+    "Gamophobia": {
+      "trigger": "fear of marriage or commitment"
+    },
+    "Hodophobia": {
+      "trigger": "fear of travel"
+    },
+    "Monophobia": {
+      "trigger": "fear of being alone"
+    },
+    "Phagophobia": {
+      "trigger": "fear of swallowing or choking"
     }
   }
 }

@@ -40,6 +40,8 @@ REQUIRED_RULE_FILES = [
     "equipment.json",
     "poisons.json",
     "artifacts.json",
+    "luck.json",
+    "development.json",
 ]
 
 REQUIRED_CAMPAIGN_DIRS = [

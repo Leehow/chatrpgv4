@@ -50,6 +50,48 @@
       "d10_roll": 10,
       "result": "Childhood regression",
       "kind": "regression"
+    },
+    {
+      "d10_roll": 3,
+      "result": "Violence - attack the nearest person with fists",
+      "kind": "violence",
+      "parent_roll": 3,
+      "sub_result": 1
+    },
+    {
+      "d10_roll": 3,
+      "result": "Violence - grab a weapon and attack",
+      "kind": "violence",
+      "parent_roll": 3,
+      "sub_result": 2
+    },
+    {
+      "d10_roll": 4,
+      "result": "Paranoia - convinced companions are enemies",
+      "kind": "paranoia",
+      "parent_roll": 4,
+      "sub_result": 1
+    },
+    {
+      "d10_roll": 7,
+      "result": "Hysteria - screaming and weeping uncontrollably",
+      "kind": "hysteria",
+      "parent_roll": 7,
+      "sub_result": 1
+    },
+    {
+      "d10_roll": 8,
+      "result": "Phobia - manifests a specific phobia (roll on Table IX)",
+      "kind": "phobia",
+      "parent_roll": 8,
+      "sub_result": 1
+    },
+    {
+      "d10_roll": 9,
+      "result": "Mania - manifests a specific mania (roll on Table X)",
+      "kind": "mania",
+      "parent_roll": 9,
+      "sub_result": 1
     }
   ],
   "summary": [
@@ -102,6 +144,48 @@
       "d10_roll": 10,
       "result": "Mania",
       "kind": "mania"
+    },
+    {
+      "d10_roll": 4,
+      "result": "Violence - investigator commits an act of violence during the lost time",
+      "kind": "violence",
+      "parent_roll": 4,
+      "sub_result": 1
+    },
+    {
+      "d10_roll": 5,
+      "result": "Ideology/Beliefs - adopts a new extreme belief during the bout",
+      "kind": "ideology",
+      "parent_roll": 5,
+      "sub_result": 1
+    },
+    {
+      "d10_roll": 6,
+      "result": "Significant People - obsession with a particular person develops",
+      "kind": "obsession",
+      "parent_roll": 6,
+      "sub_result": 1
+    },
+    {
+      "d10_roll": 7,
+      "result": "Institutionalized - confined for the duration of the bout",
+      "kind": "institution",
+      "parent_roll": 7,
+      "sub_result": 1
+    },
+    {
+      "d10_roll": 8,
+      "result": "Flee in panic - travels far from the trigger before recovering",
+      "kind": "flight",
+      "parent_roll": 8,
+      "sub_result": 1
+    },
+    {
+      "d10_roll": 9,
+      "result": "Phobia - gains a lasting phobia (roll on Table IX)",
+      "kind": "phobia",
+      "parent_roll": 9,
+      "sub_result": 1
     }
   ]
 }

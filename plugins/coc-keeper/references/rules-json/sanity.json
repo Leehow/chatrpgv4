@@ -14,5 +14,11 @@
       "involuntary_combat_action",
       "freeze"
     ]
+  },
+  "max_san": {
+    "formula": "99 - cthulhu_mythos",
+    "source_note": "Keeper Rulebook p.167 (Sanity checklist F9): an investigator's maximum Sanity starts at 99 and is reduced by the investigator's Cthulhu Mythos score (current unmodified Cthulhu Mythos skill percentage). Maximum Sanity cannot exceed 99.",
+    "base_max": 99,
+    "subtract": "cthulhu_mythos_current_skill"
   }
 }
