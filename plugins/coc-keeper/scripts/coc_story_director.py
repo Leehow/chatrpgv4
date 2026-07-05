@@ -226,7 +226,16 @@ def _eval_exit(condition: str, ctx: dict[str, Any]) -> bool:
 
 
 def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
-    """Layer 3: hard overrides. Returns a forced action dict or None."""
+    """Layer 3: hard overrides. Returns a forced action dict or None.
+
+    Note on lethal-endings (Spec Layer 3): the "lethal_chances_used < 3 in a
+    lethal scene → block lethal ending" rule is currently enforced
+    *structurally* — v1's ACTIONS set (see ACTIONS above) contains no
+    lethal-ending action, so no plan can ever emit one. When v2 adds a
+    death-capable action, an explicit branch must be added here that checks
+    rule_signals["tension_clock"]["lethal_chances_used"] and downgrades/blocks
+    the lethal action.
+    """
     sig = ctx["rule_signals"]
     if sig["bout_active"]:
         return {"scene_action": "SUBSYSTEM", "subsystem": "sanity", "handoff": "rules",
@@ -326,6 +335,11 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
             credit_rating=ctx["rule_signals"].get("credit_rating", 50),
             rng=ctx["rng"],
         ) if action == "CHARACTER" else None
+        if reaction is not None and ctx["rule_signals"].get("npc_reaction_roll") is None:
+            # Hold the FIRST rolled NPC reaction on the shared rule_signal so the
+            # emitted plan reflects at least one reaction (generate_director_plan
+            # copies rule_signals verbatim). Per-NPC rolls still live in npc_moves.
+            ctx["rule_signals"]["npc_reaction_roll"] = reaction
         moves.append({
             "npc_id": npc_id,
             "agenda": agenda.get("agenda", ""),
@@ -393,6 +407,14 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
 
     tension_delta = 1 if action in ("PRESSURE", "SUBSYSTEM") else (0 if action in ("REVEAL", "DEEPEN", "RECOVER") else -1)
 
+    # Dying (and any future override carrying extra_pressure) forces PRESSURE
+    # clock-ticks even though the chosen action is SUBSYSTEM. _build_pressure_moves
+    # gates on action ∈ {PRESSURE, RECOVER}, so feed it "PRESSURE" directly here.
+    if overrides and overrides.get("extra_pressure"):
+        pressure_moves = _build_pressure_moves(ctx, "PRESSURE")
+    else:
+        pressure_moves = _build_pressure_moves(ctx, action)
+
     narrative_directives = {
         "tone": scene.get("tone", []),
         "must_include": [],
@@ -417,7 +439,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "rule_signals": ctx["rule_signals"],
         "clue_policy": _select_clue_policy(ctx, action),
         "npc_moves": _build_npc_moves(ctx, action),
-        "pressure_moves": _build_pressure_moves(ctx, action),
+        "pressure_moves": pressure_moves,
         "rules_requests": _build_rules_requests(ctx, action),
         "memory_reads": [],
         "memory_writes": [],
