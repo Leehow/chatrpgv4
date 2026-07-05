@@ -496,13 +496,13 @@ def audit_weapon_db_flags(root: Path) -> list[str]:
     for name, row in w.items():
         skill = str(row.get("skill", ""))
         adds = row.get("adds_damage_bonus")
+        damage_type = str(row.get("damage_type", ""))
         damage = str(row.get("damage_die", ""))
         special = str(row.get("special", ""))
-        # Some Fighting weapons deal fixed damage + status (burn/stun) and
-        # legitimately do NOT add DB (Burning Torch, Live Wire, Mace Spray,
-        # Taser). Skip those.
-        is_status_weapon = any(t in (damage + " " + special).lower()
-                               for t in ("burn", "stun"))
+        # Status weapons (burn/stun) use Fighting skill but don't add DB.
+        is_status_weapon = damage_type in ("burn", "stun") or any(
+            t in (damage + " " + special).lower() for t in ("burn", "stun")
+        )
         if skill.startswith("Fighting") and adds is False and not is_status_weapon:
             gaps.append(f"[D] weapons {name}: Fighting skill but adds_damage_bonus=False (melee adds DB)")
         if skill.startswith("Firearms") and adds is True:

@@ -30,7 +30,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "brass_knuckles": {
       "display_name": "Brass Knuckles",
@@ -46,7 +47,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "bullwhip": {
       "display_name": "Bullwhip",
@@ -61,7 +63,8 @@
       "special": "uses half DB; reach 10 feet",
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "chainsaw": {
       "display_name": "Chainsaw",
@@ -76,7 +79,8 @@
       "special": "awkward: double fumble chance; fumble causes 2D8 to user",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "club_small": {
       "display_name": "Club, small (nightstick)",
@@ -92,7 +96,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "club_large": {
       "display_name": "Club, large (baseball/cricket bat, poker)",
@@ -108,7 +113,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "garrote": {
       "display_name": "Garrote",
@@ -124,7 +130,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "hatchet": {
       "display_name": "Hatchet/Sickle",
@@ -140,7 +147,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "knife_small": {
       "display_name": "Knife, small (switchblade)",
@@ -156,7 +164,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "knife_medium": {
       "display_name": "Knife, medium (carving knife, ritual dagger)",
@@ -172,7 +181,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "knife_large": {
       "display_name": "Knife, large (machete)",
@@ -188,7 +198,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "sword_light": {
       "display_name": "Sword, light (fencing foil, sword cane)",
@@ -204,7 +215,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "sword_medium": {
       "display_name": "Sword, medium (rapier, heavy epee)",
@@ -220,7 +232,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "sword_heavy": {
       "display_name": "Sword, heavy (cavalry saber)",
@@ -236,7 +249,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "spear": {
       "display_name": "Spear (cavalry lance)",
@@ -252,7 +266,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "bow": {
       "display_name": "Bow and Arrows",
@@ -268,7 +283,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "crossbow": {
       "display_name": "Crossbow",
@@ -284,7 +300,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "revolver_38": {
       "display_name": ".38 or 9mm Revolver",
@@ -300,7 +317,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "revolver_45": {
       "display_name": ".45 Revolver",
@@ -316,7 +334,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "automatic_45": {
       "display_name": ".45 Automatic",
@@ -332,7 +351,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "rifle_22": {
       "display_name": ".22 Bolt-Action Rifle",
@@ -348,7 +368,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "rifle_303_enfield": {
       "display_name": ".303 Lee-Enfield Rifle",
@@ -364,7 +385,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "shotgun_12g": {
       "display_name": "12-gauge Shotgun",
@@ -385,7 +407,8 @@
         "point_blank": "4D6",
         "half": "2D6",
         "max": "1D6"
-      }
+      },
+      "damage_type": "normal"
     },
     "shotgun_10g": {
       "display_name": "10-gauge Shotgun",
@@ -405,7 +428,8 @@
         "point_blank": "4D6+2",
         "half": "2D6+1",
         "max": "1D4"
-      }
+      },
+      "damage_type": "normal"
     },
     "submachine_gun_thompson": {
       "display_name": "Thompson Submachine Gun",
@@ -420,7 +444,8 @@
       "special": "burst/full auto uses automatic fire rules",
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "claws": {
       "display_name": "Claws/Bite (natural weapon)",
@@ -436,12 +461,13 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "burning_torch": {
       "display_name": "Burning Torch",
       "skill": "Fighting (Brawl)",
-      "damage_die": "1D6+burn",
+      "damage_die": "1D6",
       "base_range_yards": null,
       "uses_per_round": "1",
       "magazine": null,
@@ -452,7 +478,9 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "burn",
+      "status_effect": "burn"
     },
     "blackjack": {
       "display_name": "Blackjack (Cosh, life-preserver)",
@@ -468,12 +496,13 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "live_wire_220_volt_charge": {
       "display_name": "Live Wire, 220-volt charge",
       "skill": "Fighting (Brawl)",
-      "damage_die": "2D8+Stun",
+      "damage_die": "2D8",
       "base_range_yards": null,
       "uses_per_round": "1",
       "magazine": null,
@@ -483,7 +512,9 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "stun",
+      "status_effect": "stun"
     },
     "mace_spray": {
       "display_name": "Mace Spray*",
@@ -499,7 +530,9 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "stun",
+      "status_effect": "stun"
     },
     "nunchaku": {
       "display_name": "Nunchaku",
@@ -515,7 +548,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "rock_thrown": {
       "display_name": "Rock, Thrown",
@@ -531,7 +565,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "shuriken": {
       "display_name": "Shuriken (i)",
@@ -547,7 +582,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "spear_thrown": {
       "display_name": "Spear, Thrown (i)",
@@ -562,7 +598,8 @@
       "special": "+half DB",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "swordlight": {
       "display_name": "Sword,light (sharpened fencing foil, sword cane)",
@@ -578,22 +615,25 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "taser": {
       "display_name": "Taser (dart)",
       "skill": "Firearms (Handgun)",
-      "damage_die": "1D3+stun",
+      "damage_die": "1D3",
       "base_range_yards": 5,
       "uses_per_round": "1",
       "magazine": 3,
       "malfunction": 95,
-      "impales": true,
+      "impales": false,
       "adds_damage_bonus": false,
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "stun",
+      "status_effect": "stun"
     },
     "war_boomerang": {
       "display_name": "War Boomerang",
@@ -608,7 +648,8 @@
       "special": "range-banded: 1D8+1/2 DB",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "wood_axe": {
       "display_name": "Wood Axe (i)",
@@ -623,7 +664,8 @@
       "special": null,
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "handguns": {
       "display_name": "Handguns (i)*",
@@ -638,7 +680,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "flintlock_22_short": {
       "display_name": "Flintlock .22 Short",
@@ -653,7 +696,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "automatic_25_derringer": {
       "display_name": "Automatic .25 Derringer",
@@ -669,7 +713,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "revolver_32_or_7_65mm": {
       "display_name": "Revolver .32 or 7.65mm",
@@ -685,7 +730,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "automatic_357_magnum": {
       "display_name": "Automatic .357 Magnum",
@@ -701,7 +747,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "revolver_38_or_9mm": {
       "display_name": "Revolver .38 or 9mm",
@@ -716,7 +763,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "revolver_38_automatic": {
       "display_name": "Revolver .38 Automatic",
@@ -732,7 +780,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "beretta_m9": {
       "display_name": "Beretta M9",
@@ -748,7 +797,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "glock_17": {
       "display_name": "Glock 17",
@@ -763,7 +813,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "9mm_auto_model_p08": {
       "display_name": "9mm Auto Model P08",
@@ -778,7 +829,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "luger_41_revolver": {
       "display_name": "Luger .41 Revolver",
@@ -794,7 +846,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "imi_desert_eagle": {
       "display_name": "IMI Desert Eagle",
@@ -809,7 +862,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "col_moranx27s_air_rifle": {
       "display_name": "Col. Moran&#x27;s Air Rifle",
@@ -824,7 +878,8 @@
       "special": null,
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "garand_m1_m2_rifle": {
       "display_name": "Garand M1, M2 Rifle",
@@ -839,7 +894,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "sks_carbine": {
       "display_name": "SKS Carbine",
@@ -854,7 +910,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "elephant_gun": {
       "display_name": "Elephant Gun (2B)",
@@ -870,7 +927,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "20_gauge_shotgun": {
       "display_name": "20-gauge Shotgun (2B)",
@@ -880,12 +938,13 @@
       "uses_per_round": "1 or 2",
       "magazine": 2,
       "malfunction": 100,
-      "impales": true,
+      "impales": false,
       "adds_damage_bonus": false,
       "special": "range-banded: 2D6/1D6/1D3",
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "16_gauge_shotgun": {
       "display_name": "16-gauge Shotgun (2B)",
@@ -895,12 +954,13 @@
       "uses_per_round": "1 or 2",
       "magazine": 2,
       "malfunction": 100,
-      "impales": true,
+      "impales": false,
       "adds_damage_bonus": false,
       "special": "range-banded: 2D6+2/1D6+1/1D4",
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "12_gauge_benelli_m3": {
       "display_name": "12-gauge Benelli M3 (folding stock)",
@@ -915,7 +975,8 @@
       "special": "range-banded: 4D6/2D6/1D6",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "12_gauge_spas": {
       "display_name": "12-gauge SPAS (folding stock)",
@@ -930,7 +991,8 @@
       "special": "range-banded: 4D6/2D6/1D6",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "ak_47_or_akm": {
       "display_name": "AK-47 or AKM",
@@ -945,7 +1007,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "ak_74": {
       "display_name": "AK-74",
@@ -960,7 +1023,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "barrett_model_82": {
       "display_name": "Barrett Model 82",
@@ -975,7 +1039,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "fn_fal_light_automatic": {
       "display_name": "FN FAL Light Automatic",
@@ -990,7 +1055,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "galil_assault_rifle": {
       "display_name": "Galil Assault Rifle",
@@ -1005,7 +1071,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "m16a2": {
       "display_name": "M16A2",
@@ -1020,7 +1087,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "m4": {
       "display_name": "M4",
@@ -1035,7 +1103,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "steyr_aug": {
       "display_name": "Steyr AUG",
@@ -1050,7 +1119,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "beretta_m7090": {
       "display_name": "Beretta M70/90",
@@ -1065,7 +1135,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "bergmann_mp181_mp2811": {
       "display_name": "Bergmann MP181/ MP2811",
@@ -1080,7 +1151,8 @@
       "special": null,
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "heckleramp_koch_mp5": {
       "display_name": "Heckler&amp; Koch MP5",
@@ -1095,7 +1167,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "ingram_mac_11": {
       "display_name": "Ingram MAC-11",
@@ -1110,7 +1183,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "skorpion_smg": {
       "display_name": "Skorpion SMG",
@@ -1125,7 +1199,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "thompson": {
       "display_name": "Thompson",
@@ -1140,7 +1215,8 @@
       "special": null,
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "uzi_smg": {
       "display_name": "Uzi SMG",
@@ -1155,7 +1231,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "model_1882_gatling_gun": {
       "display_name": "Model 1882 Gatling Gun",
@@ -1170,7 +1247,8 @@
       "special": null,
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "browning_auto_rifle_m1918": {
       "display_name": "Browning Auto Rifle M1918",
@@ -1185,7 +1263,8 @@
       "special": null,
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "bren_gun": {
       "display_name": "Bren Gun",
@@ -1200,7 +1279,8 @@
       "special": null,
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "mark_i_lewis_gun": {
       "display_name": "Mark I Lewis Gun",
@@ -1215,7 +1295,8 @@
       "special": null,
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "minigun": {
       "display_name": "Minigun*",
@@ -1230,7 +1311,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "fn_minimi_5_56mm": {
       "display_name": "FN Minimi, 5.56mm,",
@@ -1245,7 +1327,8 @@
       "special": null,
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "vickers_303_machine_gun": {
       "display_name": "Vickers .303 Machine Gun",
@@ -1260,12 +1343,13 @@
       "special": null,
       "eras": [
         "1920s"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "molotov_cocktail": {
       "display_name": "Molotov Cocktail",
       "skill": "Throw",
-      "damage_die": "2D6+burn",
+      "damage_die": "2D6",
       "base_range_yards": 5,
       "uses_per_round": "1/2",
       "magazine": 1,
@@ -1276,23 +1360,27 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "burn",
+      "status_effect": "burn"
     },
     "signal_handgun": {
       "display_name": "Signal Handgun (Flare gun)",
       "skill": "Firearms (HG)",
-      "damage_die": "1D10+1D3 burn",
+      "damage_die": "1D10+1D3",
       "base_range_yards": 10,
       "uses_per_round": "1/2",
       "magazine": 1,
       "malfunction": 100,
-      "impales": true,
+      "impales": false,
       "adds_damage_bonus": false,
       "special": null,
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "burn",
+      "status_effect": "burn"
     },
     "m79_grenade_launcher": {
       "display_name": "M79 Grenade Launcher",
@@ -1307,7 +1395,8 @@
       "special": "range-banded: 3D10/2 yards",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     },
     "dynamite_stick": {
       "display_name": "Dynamite Stick*",
@@ -1323,7 +1412,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "blasting_cap": {
       "display_name": "Blasting Cap",
@@ -1339,7 +1429,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "pipe_bomb": {
       "display_name": "Pipe Bomb",
@@ -1355,7 +1446,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "plastique_4_oz": {
       "display_name": "Plastique (C-4), 4 oz.",
@@ -1370,7 +1462,8 @@
       "special": "range-banded: 6D10/3 yards",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "hand_grenade": {
       "display_name": "Hand Grenade*",
@@ -1386,7 +1479,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "81mm_mortar": {
       "display_name": "81mm Mortar",
@@ -1401,7 +1495,8 @@
       "special": "range-banded: 6D10/6 yards",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "75mm_field_gun": {
       "display_name": "75mm Field Gun",
@@ -1417,7 +1512,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "120mm_tank_gun": {
       "display_name": "120mm Tank Gun (stabilized)",
@@ -1432,7 +1528,8 @@
       "special": "range-banded: 15D10/4 yards",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "ship_mounted_5_inch_rifle_stabilized": {
       "display_name": "Ship-mounted 5-inch rifle, stabilized",
@@ -1447,7 +1544,8 @@
       "special": "range-banded: 12D10/4 yards",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "anti_personnel_mine": {
       "display_name": "Anti- Personnel Mine",
@@ -1463,7 +1561,8 @@
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "claymore_mine": {
       "display_name": "Claymore Mine*",
@@ -1478,23 +1577,26 @@
       "special": "range-banded: 6D6/20 yards",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "normal"
     },
     "flamethrower": {
       "display_name": "Flamethrower",
       "skill": "Firearms (Flamethrower)",
-      "damage_die": "2D6+burn",
+      "damage_die": "2D6",
       "base_range_yards": 25,
       "uses_per_round": "1",
       "magazine": 10,
       "malfunction": 93,
-      "impales": true,
+      "impales": false,
       "adds_damage_bonus": false,
       "special": null,
       "eras": [
         "1920s",
         "modern"
-      ]
+      ],
+      "damage_type": "burn",
+      "status_effect": "burn"
     },
     "law": {
       "display_name": "LAW*",
@@ -1509,7 +1611,8 @@
       "special": "range-banded: 8D10/1 yard",
       "eras": [
         "modern"
-      ]
+      ],
+      "damage_type": "impale"
     }
   },
   "rule_refs": {
