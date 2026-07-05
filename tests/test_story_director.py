@@ -203,3 +203,19 @@ def test_generate_plan_fumble_handoff_narration(tmp_path):
     plan = coc_story_director.generate_director_plan(ctx, decision_id="d3")
     assert plan["scene_action"] == "PRESSURE"
     assert plan["handoff"] == "narration"
+
+
+def test_director_handles_null_clock_segments(tmp_path):
+    """Director must tolerate null/missing current_segments in threat-fronts (LLM-compiled data)."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # overwrite threat-fronts with a clock that has current_segments: null
+    tf = {"fronts": [{"front_id": "f1", "scope": "scenario",
+                      "clocks": [{"clock_id": "c1", "segments": 6, "current_segments": None,
+                                  "on_tick_visible": ["x"], "on_full": "y"}]}]}
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps(tf))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="investigate", player_intent_class="investigate", rng=random.Random(42))
+    # must not raise; PRESSURE scoring reads the null clock
+    plan = coc_story_director.generate_director_plan(ctx, "null-clock-test")
+    assert plan["scene_action"] in coc_story_director.ACTIONS

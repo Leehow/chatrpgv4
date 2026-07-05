@@ -145,6 +145,18 @@ def _load_structure_weights() -> dict[str, Any]:
 ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]
 
 
+def _clock_segments(clock: dict, key: str, default: int = 0) -> int:
+    """Read a clock segment count, tolerating null/missing/non-int values.
+    Director consumes LLM-compiled JSON which may have type inconsistencies."""
+    val = clock.get(key, default)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def _base_score(action: str, ctx: dict[str, Any]) -> float:
     """Layer 1: structure-agnostic trigger conditions. Returns 0.0-1.0."""
     scene = ctx.get("active_scene") or {}
@@ -167,7 +179,7 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
     if action == "PRESSURE":
         fronts = ctx.get("threat_fronts", {}).get("fronts", [])
         near_full = any(
-            any(c.get("current_segments", 0) >= c.get("segments", 6) * 2 / 3
+            any(_clock_segments(c, "current_segments", 0) >= _clock_segments(c, "segments", 6) * 2 / 3
                 for c in f.get("clocks", []))
             for f in fronts
         )
@@ -217,7 +229,7 @@ def _eval_exit(condition: str, ctx: dict[str, Any]) -> bool:
             n = int(condition.split("reaches")[-1].strip())
             fronts = ctx.get("threat_fronts", {}).get("fronts", [])
             return any(
-                any(c.get("current_segments", 0) >= n for c in f.get("clocks", []))
+                any(_clock_segments(c, "current_segments", 0) >= n for c in f.get("clocks", []))
                 for f in fronts
             )
         except (ValueError, IndexError):
@@ -357,8 +369,8 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
         return moves
     for front in ctx.get("threat_fronts", {}).get("fronts", []):
         for clock in front.get("clocks", []):
-            current = clock.get("current_segments", 0)
-            if current < clock.get("segments", 6):
+            current = _clock_segments(clock, "current_segments", 0)
+            if current < _clock_segments(clock, "segments", 6):
                 symptom = clock.get("on_tick_visible", ["tension rises"])
                 idx = min(current, len(symptom) - 1) if symptom else 0
                 moves.append({
