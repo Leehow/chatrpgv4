@@ -144,6 +144,59 @@ def audit_teamwork(root: Path) -> list[str]:
     return []
 
 
+def _load_ref(project: Path, name: str) -> dict | None:
+    p = project / "checks" / f"rulebook-{name}-ref.json"
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except json.JSONDecodeError:
+        return None
+
+
+def audit_weapon_content(root: Path, project: Path) -> list[str]:
+    """Section D: weapon damage_die / base_range / malfunction / magazine vs Table XVII."""
+    ref = _load_ref(project, "weapons")
+    if not ref:
+        return []
+    rb = ref.get("weapons", {})
+    try:
+        w = _load_table(root, "weapons").get("weapons", {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ["[D] weapons.json: UNREADABLE"]
+    gaps = []
+    for name, rrow in rb.items():
+        if name not in w:
+            gaps.append(f"[D] weapons: '{name}' in rulebook ref but not in weapons.json")
+            continue
+        m = w[name]
+        for field, rbv in rrow.items():
+            if field == "note":
+                continue
+            ours = m.get(field)
+            if field == "uses_per_round":
+                if str(ours).strip() != str(rbv).strip():
+                    gaps.append(f"[D] weapons {name}.uses_per_round: ours={ours!r} rulebook={rbv!r}")
+                continue
+            if field == "base_range_yards":
+                # null range in rulebook == melee/Touch. Our null is fine. A non-null
+                # value is acceptable only if special mentions feet/reach (reach weapon).
+                if rbv is None:
+                    if ours is not None:
+                        sp = str(m.get("special", "")).lower()
+                        if "feet" not in sp and "reach" not in sp:
+                            gaps.append(f"[D] weapons {name}.base_range_yards: ours={ours} rulebook=null (Touch)")
+                    continue
+                # rulebook has a yard range -> ours must match the integer
+                if ours != rbv:
+                    gaps.append(f"[D] weapons {name}.base_range_yards: ours={ours!r} rulebook={rbv!r}")
+                continue
+            # default exact comparison (damage_die, malfunction, magazine)
+            if ours != rbv:
+                gaps.append(f"[D] weapons {name}.{field}: ours={ours!r} rulebook={rbv!r}")
+    return gaps
+
+
 def audit_parity(keeper: Path, zcode: Path) -> list[str]:
     """Both plugins must have identical rule-id sets and shared JSON content."""
     gaps = []
@@ -242,8 +295,26 @@ def audit_weapon_db_flags(root: Path) -> list[str]:
     return gaps
 
 
+def _norm_stat(v) -> str:
+    """Normalize a stat value to a comparable string token."""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if s in ("N/A", "n/a", "varies", "special"):
+        return s.lower()
+    # strip trailing .0
+    try:
+        return str(int(s))
+    except (ValueError, TypeError):
+        return s
+
+
 def audit_monster_stats(root: Path, project: Path) -> list[str]:
-    """Section D: monster STR/CON/SIZ/HP must match rulebook (if reference exists)."""
+    """Section D: monster STR/CON/SIZ/DEX/INT/POW/HP must match rulebook.
+
+    Ref values may be ints, 'N/A', 'varies'. Our value is skipped only if
+    it is absent or explicitly N/A; otherwise it must match the rulebook int.
+    """
     ref_path = project / "checks" / "rulebook-monsters-ref.json"
     if not ref_path.exists():
         return []  # no reference file, skip
@@ -262,12 +333,132 @@ def audit_monster_stats(root: Path, project: Path) -> list[str]:
             continue
         m = monsters[name]
         for attr in ("STR", "CON", "SIZ", "DEX", "INT", "POW", "HP"):
-            if attr in rb:
-                ours = m.get(attr.lower())
-                if ours is not None and str(ours) != "N/A" and int(ours) != int(rb[attr]):
+            if attr not in rb:
+                continue
+            rbv = rb[attr]
+            rbn = _norm_stat(rbv)
+            ours = m.get(attr.lower())
+            on = _norm_stat(ours)
+            if on == "":
+                # missing in our data
+                if rbn not in ("n/a", "varies", ""):
+                    gaps.append(f"[D] monsters {name}.{attr}: ours=MISSING rulebook={rbv}")
+                continue
+            if on == "n/a":
+                continue  # our data marks it N/A; acceptable for N/A/varies rulebook values
+            # numeric comparison
+            if rbn in ("n/a", "varies"):
+                continue  # rulebook is non-numeric; cannot compare numerically
+            try:
+                if int(on) != int(rbn):
+                    gaps.append(f"[D] monsters {name}.{attr}: ours={ours} rulebook={rbv}")
+            except ValueError:
+                if on != rbn:
+                    gaps.append(f"[D] monsters {name}.{attr}: ours={ours} rulebook={rbv}")
+    return gaps
+
+
+def audit_monster_san_loss(root: Path, project: Path) -> list[str]:
+    """Section D: monster san_loss must match rulebook 'success/failure' dice.
+
+    Our schema: san_loss={"success": "X", "failure": "Y"} OR {"success":"X/Y",...}.
+    Rulebook ref: san_loss="X/Y". We compare X==success and Y==failure.
+    """
+    ref_path = project / "checks" / "rulebook-monsters-ref.json"
+    if not ref_path.exists():
+        return []
+    try:
+        ref = json.loads(ref_path.read_text())["monsters"]
+    except (json.JSONDecodeError, KeyError):
+        return []
+    try:
+        monsters = _load_table(root, "monsters").get("monsters", {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ["[D] monsters.json: UNREADABLE"]
+    gaps = []
+    for name, rb in ref.items():
+        if name not in monsters:
+            continue
+        if "san_loss" not in rb:
+            continue  # ref has no SAN value for this monster (e.g. supplements)
+        rb_san = rb["san_loss"]  # "X/Y"
+        ours = monsters[name].get("san_loss")
+        if ours is None:
+            gaps.append(f"[D] monsters {name}.san_loss: ours=MISSING rulebook={rb_san}")
+            continue
+        # parse our value
+        if isinstance(ours, dict):
+            our_success = str(ours.get("success", "")).strip()
+            our_failure = str(ours.get("failure", "")).strip()
+        else:
+            our_success = our_failure = ""
+        # rulebook split
+        if "/" in rb_san:
+            rb_success, rb_failure = rb_san.split("/", 1)
+            rb_success = rb_success.strip()
+            rb_failure = rb_failure.strip()
+        else:
+            rb_success = rb_failure = rb_san.strip()
+        # normalize our success: it may erroneously hold "X/Y"
+        if "/" in our_success:
+            our_success = our_success.split("/", 1)[0].strip()
+        # normalize dice case-insensitively (1d6 == 1D6)
+        def _dn(s):
+            return s.upper().replace(" ", "")
+        if _dn(our_success) != _dn(rb_success):
+            gaps.append(
+                f"[D] monsters {name}.san_loss.success: ours={our_success!r} rulebook={rb_success!r}"
+            )
+        if _dn(our_failure) != _dn(rb_failure):
+            gaps.append(
+                f"[D] monsters {name}.san_loss.failure: ours={our_failure!r} rulebook={rb_failure!r}"
+            )
+    return gaps
+
+
+def audit_monster_armor(root: Path, project: Path) -> list[str]:
+    """Section D: monster armor must match rulebook.
+
+    Ref armor is int, "special", or omitted. When the ref is an int, our armor
+    must equal it. When ref is "special", our armor may be any non-positive or
+    'special'/text value (we only flag if we claim a specific large number that
+    contradicts special). When ref omits armor, skip.
+    """
+    ref_path = project / "checks" / "rulebook-monsters-ref.json"
+    if not ref_path.exists():
+        return []
+    try:
+        ref = json.loads(ref_path.read_text())["monsters"]
+    except (json.JSONDecodeError, KeyError):
+        return []
+    try:
+        monsters = _load_table(root, "monsters").get("monsters", {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ["[D] monsters.json: UNREADABLE"]
+    gaps = []
+    for name, rb in ref.items():
+        if name not in monsters:
+            continue
+        if "armor" not in rb:
+            continue
+        rb_armor = rb["armor"]
+        ours = monsters[name].get("armor")
+        if isinstance(rb_armor, int):
+            try:
+                if int(ours) != rb_armor:
+                    gaps.append(f"[D] monsters {name}.armor: ours={ours} rulebook={rb_armor}")
+            except (ValueError, TypeError):
+                gaps.append(f"[D] monsters {name}.armor: ours={ours!r} rulebook={rb_armor}")
+        # rb_armor == "special": only flag if our value is a positive int > 0
+        # (a concrete armor number contradicts "no numeric armor / special rule")
+        elif rb_armor == "special":
+            try:
+                if isinstance(ours, (int, float)) and int(ours) > 0:
                     gaps.append(
-                        f"[D] monsters {name}.{attr}: ours={ours} rulebook={rb[attr]}"
+                        f"[D] monsters {name}.armor: ours={ours} but rulebook=special (no numeric armor pts)"
                     )
+            except (ValueError, TypeError):
+                pass
     return gaps
 
 
@@ -290,6 +481,9 @@ def main() -> int:
     all_gaps += audit_bout_content(root)
     all_gaps += audit_weapon_db_flags(root)
     all_gaps += audit_monster_stats(root, project)
+    all_gaps += audit_monster_san_loss(root, project)
+    all_gaps += audit_monster_armor(root, project)
+    all_gaps += audit_weapon_content(root, project)
     all_gaps += audit_parity(root, zroot)
 
     if all_gaps:

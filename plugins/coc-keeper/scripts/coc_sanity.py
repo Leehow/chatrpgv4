@@ -122,7 +122,10 @@ class SanitySession:
         roll_id = self._roll_id()
 
         # Determine SAN loss.
-        if res["outcome"] in ("failure", "fumble"):
+        # p.166: fumbled SAN roll = maximum possible SAN loss for this source.
+        if res["outcome"] == "fumble":
+            lost = self._max_dice(san_loss_fail_expr)
+        elif res["outcome"] == "failure":
             lost = self._roll_dice(san_loss_fail_expr)
         else:
             lost = san_loss_success
@@ -354,3 +357,16 @@ class SanitySession:
             return int(expr)
         except ValueError:
             return 1  # safe fallback
+
+    def _max_dice(self, expr: str) -> int:
+        """Maximum possible value of a dice expression. Used for fumbled SAN rolls
+        (p.166: 'losing the maximum Sanity points for that situation')."""
+        m = re.fullmatch(r"(\d+)D(\d+)(\+(\d+))?", expr.strip())
+        if m:
+            n, sides = int(m.group(1)), int(m.group(2))
+            mod = int(m.group(4)) if m.group(4) else 0
+            return n * sides + mod
+        try:
+            return int(expr)
+        except ValueError:
+            return 1

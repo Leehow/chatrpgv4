@@ -9,11 +9,11 @@
       "int": 50,
       "pow": 50,
       "hp": 14,
-      "armor": 0,
+      "armor": 2,
       "mov": 10,
       "san_loss": {
-        "success": "1/1D4",
-        "failure": "1D4"
+        "success": "1",
+        "failure": "1D6"
       },
       "attacks": [
         {
@@ -33,11 +33,11 @@
       "int": 90,
       "pow": 90,
       "hp": 46,
-      "armor": 4,
+      "armor": 5,
       "mov": 8,
       "san_loss": {
-        "success": "1/1D6",
-        "failure": "1D6"
+        "success": "1D3",
+        "failure": "1D20"
       },
       "attacks": [
         {
@@ -53,17 +53,17 @@
       "source_page": 295
     },
     "Colour Out of Space": {
-      "str": 0,
+      "str": 15,
       "con": 0,
       "siz": 0,
-      "dex": 0,
-      "int": 50,
-      "pow": 100,
+      "dex": 95,
+      "int": 70,
+      "pow": 50,
       "hp": 0,
       "armor": 0,
       "mov": 0,
       "san_loss": {
-        "success": "1/1D6",
+        "success": "1",
         "failure": "1D6"
       },
       "attacks": [
@@ -87,8 +87,8 @@
       "armor": 0,
       "mov": 4,
       "san_loss": {
-        "success": "0/1D3",
-        "failure": "1D3"
+        "success": "1D3",
+        "failure": "2D6"
       },
       "attacks": [
         {
@@ -142,8 +142,8 @@
       "armor": 0,
       "mov": 9,
       "san_loss": {
-        "success": "1/1D6",
-        "failure": "1D6"
+        "success": "1D3",
+        "failure": "1D10"
       },
       "attacks": [
         {
@@ -166,7 +166,7 @@
       "armor": 1,
       "mov": 8,
       "san_loss": {
-        "success": "0/1D6",
+        "success": "0",
         "failure": "1D6"
       },
       "attacks": [
@@ -194,8 +194,8 @@
       "armor": 0,
       "mov": 8,
       "san_loss": {
-        "success": "0/1D3",
-        "failure": "1D3"
+        "success": "0",
+        "failure": "1D4"
       },
       "attacks": [
         {
@@ -218,8 +218,8 @@
       "armor": 0,
       "mov": 8,
       "san_loss": {
-        "success": "1/1D10",
-        "failure": "1D10"
+        "success": "1D4",
+        "failure": "1D20"
       },
       "attacks": [
         {
@@ -248,8 +248,8 @@
       "armor": 3,
       "mov": 9,
       "san_loss": {
-        "success": "1/1D4",
-        "failure": "1D4"
+        "success": "0",
+        "failure": "1D10"
       },
       "attacks": [
         {
@@ -269,11 +269,11 @@
       "int": 70,
       "pow": 80,
       "hp": 37,
-      "armor": 0,
+      "armor": 4,
       "mov": 8,
       "san_loss": {
-        "success": "1/1D8",
-        "failure": "1D8"
+        "success": "1D3",
+        "failure": "1D20"
       },
       "attacks": [
         {
@@ -289,17 +289,17 @@
     },
     "Formless Spawn": {
       "str": 90,
-      "con": 90,
-      "siz": 80,
-      "dex": 80,
-      "int": 90,
-      "pow": 90,
+      "con": 50,
+      "siz": 120,
+      "dex": 95,
+      "int": 65,
+      "pow": 50,
       "hp": 17,
       "armor": 0,
       "mov": 10,
       "san_loss": {
-        "success": "1/1D6",
-        "failure": "1D6"
+        "success": "1",
+        "failure": "1D10"
       },
       "attacks": [
         {
@@ -323,14 +323,14 @@
       "con": 70,
       "siz": 130,
       "dex": 65,
-      "int": 50,
+      "int": 15,
       "pow": 50,
-      "hp": 14,
+      "hp": 20,
       "armor": 0,
       "mov": 9,
       "san_loss": {
-        "success": "0/1D4",
-        "failure": "1D4"
+        "success": "0",
+        "failure": "1D8"
       },
       "attacks": [
         {
@@ -353,8 +353,8 @@
       "armor": 0,
       "mov": 9,
       "san_loss": {
-        "success": "0/1D4",
-        "failure": "1D4"
+        "success": "0",
+        "failure": "1D6"
       },
       "attacks": [
         {
@@ -405,8 +405,8 @@
       "armor": 9,
       "mov": 10,
       "san_loss": {
-        "success": "1/1D4",
-        "failure": "1D4"
+        "success": "0",
+        "failure": "1D10"
       },
       "attacks": [
         {
@@ -430,11 +430,11 @@
       "int": 100,
       "pow": 65,
       "hp": 45,
-      "armor": 5,
+      "armor": 8,
       "mov": 6,
       "san_loss": {
-        "success": "1/1D10",
-        "failure": "1D10"
+        "success": "0",
+        "failure": "1D6"
       },
       "attacks": [
         {
@@ -450,18 +450,18 @@
       "source_page": 308
     },
     "Hound of Tindalos": {
-      "str": 50,
-      "con": 50,
-      "siz": 30,
-      "dex": 80,
-      "int": 90,
-      "pow": 90,
-      "hp": 8,
+      "str": 80,
+      "con": 150,
+      "siz": 85,
+      "dex": 50,
+      "int": 85,
+      "pow": 120,
+      "hp": 23,
       "armor": 0,
       "mov": 10,
       "san_loss": {
-        "success": "1/1D10",
-        "failure": "1D10"
+        "success": "1D3",
+        "failure": "1D20"
       },
       "attacks": [
         {
@@ -483,13 +483,13 @@
       "siz": 205,
       "dex": 65,
       "int": 75,
-      "pow": 80,
-      "hp": 19,
-      "armor": 0,
+      "pow": 105,
+      "hp": 25,
+      "armor": 9,
       "mov": 12,
       "san_loss": {
-        "success": "1/1D8",
-        "failure": "1D8"
+        "success": "0",
+        "failure": "1D10"
       },
       "attacks": [
         {
@@ -515,10 +515,10 @@
       "int": 65,
       "pow": 65,
       "hp": 10,
-      "armor": 7,
+      "armor": 0,
       "mov": 8,
       "san_loss": {
-        "success": "1/1D6",
+        "success": "0",
         "failure": "1D6"
       },
       "attacks": [
@@ -547,11 +547,11 @@
       "int": 20,
       "pow": 50,
       "hp": 12,
-      "armor": 0,
+      "armor": 2,
       "mov": 10,
       "san_loss": {
-        "success": "0/1D4",
-        "failure": "1D4"
+        "success": "0",
+        "failure": "1D6"
       },
       "attacks": [
         {
@@ -564,17 +564,17 @@
       "source_page": 312
     },
     "Serpent Person": {
-      "str": 40,
+      "str": 50,
       "con": 50,
-      "siz": 40,
-      "dex": 50,
-      "int": 100,
-      "pow": 100,
-      "hp": 9,
-      "armor": 2,
+      "siz": 50,
+      "dex": 65,
+      "int": 80,
+      "pow": 65,
+      "hp": 10,
+      "armor": 1,
       "mov": 8,
       "san_loss": {
-        "success": "0/1D6",
+        "success": "0",
         "failure": "1D6"
       },
       "attacks": [
@@ -605,10 +605,10 @@
       "int": 15,
       "pow": 50,
       "hp": 31,
-      "armor": 3,
+      "armor": 9,
       "mov": 10,
       "san_loss": {
-        "success": "1/1D6",
+        "success": "0",
         "failure": "1D6"
       },
       "attacks": [
@@ -636,8 +636,8 @@
       "armor": 0,
       "mov": 8,
       "san_loss": {
-        "success": "1/1D10",
-        "failure": "1D10"
+        "success": "1D6",
+        "failure": "1D20"
       },
       "attacks": [
         {
@@ -664,8 +664,8 @@
       "armor": 10,
       "mov": 8,
       "san_loss": {
-        "success": "1/1D10",
-        "failure": "1D10"
+        "success": "1D6",
+        "failure": "1D20"
       },
       "attacks": [
         {
@@ -710,17 +710,17 @@
       "source_page": 320
     },
     "Cthulhu": {
-      "str": 2525,
-      "con": 755,
-      "siz": 2775,
-      "dex": 10,
-      "int": 35,
-      "pow": 170,
-      "hp": 353,
-      "armor": 0,
+      "str": 700,
+      "con": 550,
+      "siz": 1050,
+      "dex": 105,
+      "int": 210,
+      "pow": 210,
+      "hp": 160,
+      "armor": 21,
       "mov": 8,
       "san_loss": {
-        "success": "1/1D10",
+        "success": "1D10",
         "failure": "1D100"
       },
       "attacks": [
@@ -740,17 +740,17 @@
       "source_page": 325
     },
     "Azathoth": {
-      "str": 170,
-      "con": 65,
-      "siz": 250,
-      "dex": 50,
-      "int": 15,
-      "pow": 50,
-      "hp": 31,
-      "armor": 9,
+      "str": "N/A",
+      "con": 1500,
+      "siz": "varies",
+      "dex": "N/A",
+      "int": 0,
+      "pow": 500,
+      "hp": 300,
+      "armor": 0,
       "mov": 0,
       "san_loss": {
-        "success": "1/1D20",
+        "success": "1D10",
         "failure": "1D100"
       },
       "attacks": [
@@ -766,18 +766,18 @@
       "source_page": 326
     },
     "Hastur": {
-      "str": 90,
-      "con": 50,
-      "siz": 90,
-      "dex": 70,
-      "int": 50,
-      "pow": 50,
-      "hp": 14,
-      "armor": 2,
+      "str": 125,
+      "con": 530,
+      "siz": 70,
+      "dex": 135,
+      "int": 250,
+      "pow": 175,
+      "hp": 60,
+      "armor": 0,
       "mov": 8,
       "san_loss": {
-        "success": "1/1D10",
-        "failure": "1D20"
+        "success": "1D10",
+        "failure": "1D100"
       },
       "attacks": [
         {
@@ -792,18 +792,18 @@
       "source_page": 329
     },
     "Nyarlathotep": {
-      "str": 145,
-      "con": 50,
-      "siz": 205,
-      "dex": 65,
-      "int": 75,
-      "pow": 105,
-      "hp": 25,
-      "armor": 9,
+      "str": 60,
+      "con": 95,
+      "siz": 55,
+      "dex": 95,
+      "int": 430,
+      "pow": 500,
+      "hp": 15,
+      "armor": 0,
       "mov": 10,
       "san_loss": {
-        "success": "1/1D10",
-        "failure": "1D20"
+        "success": "1D10",
+        "failure": "1D100"
       },
       "attacks": [
         {
@@ -818,18 +818,18 @@
       "source_page": 331
     },
     "Shub-Niggurath": {
-      "str": 220,
-      "con": 80,
-      "siz": 220,
-      "dex": 80,
-      "int": 70,
-      "pow": 90,
-      "hp": 30,
+      "str": 360,
+      "con": 850,
+      "siz": 600,
+      "dex": 140,
+      "int": 105,
+      "pow": 350,
+      "hp": 145,
       "armor": 0,
       "mov": 8,
       "san_loss": {
-        "success": "1/1D10",
-        "failure": "1D20"
+        "success": "1D10",
+        "failure": "1D100"
       },
       "attacks": [
         {
@@ -844,18 +844,18 @@
       "source_page": 333
     },
     "Yog-Sothoth": {
-      "str": 0,
-      "con": 0,
-      "siz": 0,
-      "dex": 0,
-      "int": 100,
-      "pow": 100,
-      "hp": 0,
+      "str": "N/A",
+      "con": 2000,
+      "siz": "varies",
+      "dex": 5,
+      "int": 200,
+      "pow": 500,
+      "hp": 400,
       "armor": 0,
       "mov": 0,
       "san_loss": {
-        "success": "1/1D10",
-        "failure": "1D20"
+        "success": "1D10",
+        "failure": "1D100"
       },
       "attacks": [
         {
@@ -870,18 +870,18 @@
       "source_page": 335
     },
     "Werewolf": {
-      "str": 80,
-      "con": 80,
-      "siz": 60,
-      "dex": 60,
-      "int": 50,
-      "pow": 50,
-      "hp": 14,
-      "armor": 0,
+      "str": 105,
+      "con": 65,
+      "siz": 55,
+      "dex": 65,
+      "int": 20,
+      "pow": 65,
+      "hp": 12,
+      "armor": 1,
       "mov": 9,
       "san_loss": {
-        "success": "0/1D4",
-        "failure": "1D4"
+        "success": "0",
+        "failure": "1D8"
       },
       "attacks": [
         {
@@ -898,17 +898,17 @@
       "source_page": 344
     },
     "Vampire": {
-      "str": 80,
-      "con": 80,
-      "siz": 70,
-      "dex": 80,
-      "int": 80,
-      "pow": 80,
-      "hp": 15,
+      "str": 105,
+      "con": 65,
+      "siz": 50,
+      "dex": 50,
+      "int": 65,
+      "pow": 65,
+      "hp": 11,
       "armor": 0,
       "mov": 9,
       "san_loss": {
-        "success": "1/1D4",
+        "success": "0",
         "failure": "1D4"
       },
       "attacks": [
@@ -929,14 +929,14 @@
       "con": 0,
       "siz": 0,
       "dex": 60,
-      "int": 80,
-      "pow": 80,
+      "int": "varies",
+      "pow": "varies",
       "hp": 0,
       "armor": 0,
       "mov": 8,
       "san_loss": {
-        "success": "0/1D6",
-        "failure": "1D6"
+        "success": "0",
+        "failure": "1D8"
       },
       "attacks": [
         {
@@ -951,18 +951,18 @@
       "source_page": 348
     },
     "Zombie": {
-      "str": 60,
-      "con": 0,
-      "siz": 60,
-      "dex": 30,
+      "str": 80,
+      "con": 80,
+      "siz": 65,
+      "dex": 35,
       "int": 0,
-      "pow": 0,
-      "hp": 12,
+      "pow": 5,
+      "hp": 14,
       "armor": 0,
       "mov": 6,
       "san_loss": {
-        "success": "0/1D4",
-        "failure": "1D4"
+        "success": "0",
+        "failure": "1D8"
       },
       "attacks": [
         {
