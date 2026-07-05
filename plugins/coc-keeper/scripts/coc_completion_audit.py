@@ -2810,15 +2810,56 @@ def _public_state_visible_strings(row: dict[str, Any]) -> list[str]:
             value = investigator.get(field)
             if isinstance(value, str) and value.strip():
                 strings.append(value)
-        skills = investigator.get("skills", {})
-        if isinstance(skills, dict):
-            strings.extend(str(skill) for skill in skills if str(skill).strip())
+        skill_display = investigator.get("skill_display", [])
+        if isinstance(skill_display, list) and skill_display:
+            strings.extend(_display_entry_visible_strings(skill_display))
+        else:
+            skills = investigator.get("skills", {})
+            if isinstance(skills, dict):
+                strings.extend(str(skill) for skill in skills if str(skill).strip())
         derived = investigator.get("derived", {})
-        if isinstance(derived, dict):
+        derived_display = investigator.get("derived_display", [])
+        if isinstance(derived_display, list) and derived_display:
+            strings.extend(_display_entry_visible_strings(derived_display))
+        elif isinstance(derived, dict):
             strings.extend(str(key) for key in derived if str(key).strip())
-        strings.extend(_nested_string_values(derived))
+            strings.extend(_nested_string_values(derived))
         strings.extend(_nested_string_values(investigator.get("backstory", {})))
     return strings
+
+
+def _display_entry_visible_strings(entries: Any) -> list[str]:
+    if not isinstance(entries, list):
+        return []
+    strings: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        for field in ("label", "value"):
+            value = entry.get(field)
+            if isinstance(value, str) and value.strip():
+                strings.append(value)
+            elif value not in (None, "", [], {}):
+                strings.append(str(value))
+    return strings
+
+
+def _public_state_unstable_key_paths(value: Any, path: str = "") -> list[str]:
+    if isinstance(value, dict):
+        paths: list[str] = []
+        for key, item in value.items():
+            key_text = str(key)
+            key_path = f"{path}/{key_text}" if path else key_text
+            if re.search(r"[\u4e00-\u9fff]", key_text):
+                paths.append(key_path)
+            paths.extend(_public_state_unstable_key_paths(item, key_path))
+        return paths
+    if isinstance(value, list):
+        paths: list[str] = []
+        for index, item in enumerate(value):
+            paths.extend(_public_state_unstable_key_paths(item, f"{path}[{index}]"))
+        return paths
+    return []
 
 
 ZH_HANS_ALLOWED_PUBLIC_STATE_TOKENS = {
@@ -2859,10 +2900,23 @@ def _player_view_public_state_findings(
     localized_terms = _metadata_localized_terms(metadata)
     play_language = str(metadata.get("play_language") or "")
 
+    findings: list[dict[str, Any]] = []
     public_strings: list[str] = []
+    unstable_keys: list[str] = []
     for row in _read_jsonl(run_dir / "player-view.jsonl"):
         if row.get("view") == "player" and row.get("type") == "public_character_state":
             public_strings.extend(_public_state_visible_strings(row))
+            unstable_keys.extend(_public_state_unstable_key_paths(row))
+
+    if unstable_keys:
+        findings.append(_finding(
+            "player_view_public_state_unstable_keys",
+            "system_gap",
+            f"{run_id} player-view.jsonl public_character_state uses localized or non-ASCII JSON keys.",
+            "Keep public_character_state JSON keys and canonical skill/derived keys stable ASCII; put player-language labels in skill_display/derived_display values.",
+            run_id=run_id,
+            public_state_unstable_keys=unstable_keys[:20],
+        ))
 
     leaked_terms = sorted({
         canonical
@@ -2873,13 +2927,13 @@ def _player_view_public_state_findings(
     })
     english_tokens = _public_state_english_tokens(public_strings, play_language)
     if not leaked_terms and not english_tokens:
-        return []
+        return findings
     issue_parts = []
     if leaked_terms:
         issue_parts.append(f"canonical player-visible terms: {', '.join(leaked_terms[:8])}")
     if english_tokens:
         issue_parts.append(f"non-localized English tokens: {', '.join(english_tokens[:8])}")
-    return [_finding(
+    findings.append(_finding(
         "player_view_public_state_not_localized",
         "report_gap",
         f"{run_id} player-view.jsonl public_character_state leaks {'; '.join(issue_parts)}.",
@@ -2888,7 +2942,8 @@ def _player_view_public_state_findings(
         leaked_public_state_terms=leaked_terms,
         english_public_state_tokens=english_tokens,
         public_state_samples=public_strings[:8],
-    )]
+    ))
+    return findings
 
 
 def _player_view_current_state_findings(

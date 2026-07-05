@@ -1,0 +1,59 @@
+{
+  "source_note": "Keeper Rulebook Chapter 8: Sanity, Sample Phobias Table IX (p.160 / PDF idx 159). Each phobia has a trigger description.",
+  "phobias": {
+    "Agoraphobia": {
+      "trigger": "fear of open spaces"
+    },
+    "Acrophobia": {
+      "trigger": "fear of heights"
+    },
+    "Ailurophobia": {
+      "trigger": "fear of cats"
+    },
+    "Arachnophobia": {
+      "trigger": "fear of spiders"
+    },
+    "Astrophobia": {
+      "trigger": "fear of thunder and lightning"
+    },
+    "Claustrophobia": {
+      "trigger": "fear of enclosed spaces"
+    },
+    "Cynophobia": {
+      "trigger": "fear of dogs"
+    },
+    "Entomophobia": {
+      "trigger": "fear of insects"
+    },
+    "Hemophobia": {
+      "trigger": "fear of blood"
+    },
+    "Hydrophobia": {
+      "trigger": "fear of water"
+    },
+    "Mysophobia": {
+      "trigger": "fear of dirt and contamination"
+    },
+    "Necrophobia": {
+      "trigger": "fear of dead things"
+    },
+    "Nyctophobia": {
+      "trigger": "fear of darkness"
+    },
+    "Ophidiophobia": {
+      "trigger": "fear of snakes"
+    },
+    "Pyrophobia": {
+      "trigger": "fear of fire"
+    },
+    "Thanatophobia": {
+      "trigger": "fear of death"
+    },
+    "Triskaidekaphobia": {
+      "trigger": "fear of the number 13"
+    },
+    "Zoophobia": {
+      "trigger": "fear of animals"
+    }
+  }
+}

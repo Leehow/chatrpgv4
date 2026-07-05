@@ -1,0 +1,107 @@
+{
+  "source_note": "Keeper Rulebook Chapter 8: Sanity, Table VII Bouts of Madness-Real Time (p.156) and Table VIII Bouts of Madness-Summary (p.159). Each table is a 1D10 roll of results.",
+  "realtime": [
+    {
+      "d10_roll": 1,
+      "result": "Amnesia",
+      "kind": "loss_of_memory"
+    },
+    {
+      "d10_roll": 2,
+      "result": "Psychosomatic disability",
+      "kind": "physical"
+    },
+    {
+      "d10_roll": 3,
+      "result": "Violence",
+      "kind": "violence"
+    },
+    {
+      "d10_roll": 4,
+      "result": "Paranoia",
+      "kind": "paranoia"
+    },
+    {
+      "d10_roll": 5,
+      "result": "Significant person",
+      "kind": "obsession"
+    },
+    {
+      "d10_roll": 6,
+      "result": "Fugue",
+      "kind": "fugue"
+    },
+    {
+      "d10_roll": 7,
+      "result": "Hysteria",
+      "kind": "hysteria"
+    },
+    {
+      "d10_roll": 8,
+      "result": "Phobia",
+      "kind": "phobia"
+    },
+    {
+      "d10_roll": 9,
+      "result": "Mania",
+      "kind": "mania"
+    },
+    {
+      "d10_roll": 10,
+      "result": "Childhood regression",
+      "kind": "regression"
+    }
+  ],
+  "summary": [
+    {
+      "d10_roll": 1,
+      "result": "Amnesia",
+      "kind": "loss_of_memory"
+    },
+    {
+      "d10_roll": 2,
+      "result": "Robbed",
+      "kind": "robbery"
+    },
+    {
+      "d10_roll": 3,
+      "result": "Battered",
+      "kind": "physical"
+    },
+    {
+      "d10_roll": 4,
+      "result": "Violence",
+      "kind": "violence"
+    },
+    {
+      "d10_roll": 5,
+      "result": "Ideology/Beliefs",
+      "kind": "ideology"
+    },
+    {
+      "d10_roll": 6,
+      "result": "Significant People",
+      "kind": "obsession"
+    },
+    {
+      "d10_roll": 7,
+      "result": "Institutionalized",
+      "kind": "institution"
+    },
+    {
+      "d10_roll": 8,
+      "result": "Flee in panic",
+      "kind": "flight"
+    },
+    {
+      "d10_roll": 9,
+      "result": "Phobia",
+      "kind": "phobia"
+    },
+    {
+      "d10_roll": 10,
+      "result": "Mania",
+      "kind": "mania"
+    }
+  ]
+}

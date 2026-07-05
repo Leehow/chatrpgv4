@@ -1,0 +1,41 @@
+{
+  "source_note": "Keeper Rulebook Chapter 8: Sanity, Sample Manias Table X (p.161 / PDF idx 160). Each mania has a trigger description.",
+  "manias": {
+    "Bibliomania": {
+      "trigger": "obsessive book collecting"
+    },
+    "Dipsomania": {
+      "trigger": "compulsive drinking"
+    },
+    "Kleptomania": {
+      "trigger": "compulsive stealing"
+    },
+    "Megalomania": {
+      "trigger": "delusions of grandeur"
+    },
+    "Monomania": {
+      "trigger": "obsessive single-subject fixation"
+    },
+    "Nymphomania": {
+      "trigger": "compulsive sexual behavior"
+    },
+    "Pyromania": {
+      "trigger": "compulsive fire-setting"
+    },
+    "Ergomania": {
+      "trigger": "obsessive work"
+    },
+    "Graphomania": {
+      "trigger": "compulsive writing"
+    },
+    "Mythomania": {
+      "trigger": "compulsive lying"
+    },
+    "Oniomania": {
+      "trigger": "compulsive shopping"
+    },
+    "Photonomania": {
+      "trigger": "addiction to light"
+    }
+  }
+}

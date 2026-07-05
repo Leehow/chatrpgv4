@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@zcode/coc-keeper-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Call of Cthulhu Keeper mode plugin published as a ZCode plugin."
+}

@@ -1,0 +1,5 @@
+{
+  "regular": {"divisor": 1},
+  "hard": {"divisor": 2},
+  "extreme": {"divisor": 5}
+}

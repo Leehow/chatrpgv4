@@ -1,0 +1,142 @@
+{
+  "source_note": "Keeper Rulebook Chapter 4 Skill List (p.56 / PDF idx 55). Each entry maps a canonical skill name to its base chance percentage, its specialization group (or null), whether it is modern-era only (Omega marker in the rulebook), and whether it is uncommon (T marker - not printed on the standard investigator sheet). Group skills (G) are broken into separate specializations; this file lists each specialization individually with its group set to the parent skill name (e.g. 'Fighting', 'Firearms'). Source: chapter 4, p.56.",
+  "schema": {
+    "base_chance": "starting percentage for the skill",
+    "group": "parent specialization group (e.g. 'Fighting', 'Firearms', 'Art and Craft', 'Science', 'Language (Other)', 'Survival', 'Pilot') or null for standalone skills",
+    "modern_only": "true when the rulebook marks the skill with Omega (modern era only)",
+    "uncommon": "true when the rulebook marks the skill with T (not on the standard investigator sheet)"
+  },
+  "specialization_groups": {
+    "Art and Craft": {
+      "base_chance": 5,
+      "specializations": ["Acting", "Fine Art", "Forgery", "Photography", "Writing"],
+      "note": "Pick one or more specializations; the rulebook cross-references Acting/Fine Art/Forgery/Photography to Art and Craft (05%)."
+    },
+    "Firearms": {
+      "base_chance": "varies",
+      "specializations": {
+        "Handgun": 20,
+        "Rifle/Shotgun": 25,
+        "Bow": 15,
+        "Heavy Weapons": 10,
+        "Flamethrower": 10,
+        "Machine Gun": 10,
+        "Submachine Gun": 15
+      },
+      "note": "G: each specialization is a separate skill with its own base chance."
+    },
+    "Fighting": {
+      "base_chance": "varies",
+      "specializations": {
+        "Brawl": 25,
+        "Axe": 15,
+        "Sword": 20,
+        "Spear": 20,
+        "Flail": 10,
+        "Garrote": 15,
+        "Chainsaw": 10,
+        "Whip": 5
+      },
+      "note": "G: each specialization is a separate skill with its own base chance."
+    },
+    "Language (Other)": {
+      "base_chance": 1,
+      "specializations": "any language other than the investigator's own",
+      "note": "G: pick one language per point; each is a separate skill at 01%."
+    },
+    "Language (Own)": {
+      "base_chance": "EDU",
+      "specializations": null,
+      "note": "The investigator's native language; base chance equals EDUx5 (derived, not a flat number)."
+    },
+    "Pilot": {
+      "base_chance": 1,
+      "specializations": ["Pilot Aircraft", "Pilot Boat"],
+      "note": "G: pick one vehicle type; base chance 01%."
+    },
+    "Science": {
+      "base_chance": 1,
+      "specializations": ["Astronomy", "Biology", "Botany", "Chemistry", "Cryptography", "Forensics", "Geology", "Mathematics", "Medicine", "Meteorology", "Pharmacy", "Physics", "Zoology"],
+      "note": "Several standalone skills (Biology, Botany, Chemistry, etc.) are cross-referenced to Science (01%) in the rulebook; Medicine (01%) and Pharmacy (01%) are listed separately on the sheet but treated as Science specializations."
+    },
+    "Survival": {
+      "base_chance": 10,
+      "specializations": ["any terrain"],
+      "note": "G: pick one terrain type; base chance 10%."
+    }
+  },
+  "skills": {
+    "Accounting": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false},
+    "Animal Handling": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": true},
+    "Anthropology": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": false},
+    "Appraise": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false},
+    "Archaeology": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": false},
+    "Artillery": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": true},
+    "Charm": {"base_chance": 15, "group": null, "modern_only": false, "uncommon": false},
+    "Climb": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false},
+    "Computer Use": {"base_chance": 5, "group": null, "modern_only": true, "uncommon": false},
+    "Credit Rating": {"base_chance": 0, "group": null, "modern_only": false, "uncommon": false},
+    "Cthulhu Mythos": {"base_chance": 0, "group": null, "modern_only": false, "uncommon": false},
+    "Demolitions": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": true},
+    "Disguise": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false},
+    "Diving": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": true},
+    "Dodge": {"base_chance": "half_DEX", "group": null, "modern_only": false, "uncommon": false},
+    "Drive Auto": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false},
+    "Electrical Repair": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false},
+    "Electronics": {"base_chance": 1, "group": null, "modern_only": true, "uncommon": false},
+    "Engineering": {"base_chance": 1, "group": "Science", "modern_only": false, "uncommon": false},
+    "Fast Talk": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false},
+    "Fighting (Brawl)": {"base_chance": 25, "group": "Fighting", "modern_only": false, "uncommon": false},
+    "Fighting (Axe)": {"base_chance": 15, "group": "Fighting", "modern_only": false, "uncommon": false},
+    "Fighting (Sword)": {"base_chance": 20, "group": "Fighting", "modern_only": false, "uncommon": false},
+    "Fighting (Spear)": {"base_chance": 20, "group": "Fighting", "modern_only": false, "uncommon": false},
+    "Fighting (Flail)": {"base_chance": 10, "group": "Fighting", "modern_only": false, "uncommon": false},
+    "Fighting (Garrote)": {"base_chance": 15, "group": "Fighting", "modern_only": false, "uncommon": false},
+    "Fighting (Chainsaw)": {"base_chance": 10, "group": "Fighting", "modern_only": false, "uncommon": false},
+    "Fighting (Whip)": {"base_chance": 5, "group": "Fighting", "modern_only": false, "uncommon": false},
+    "Firearms (Handgun)": {"base_chance": 20, "group": "Firearms", "modern_only": false, "uncommon": false},
+    "Firearms (Rifle/Shotgun)": {"base_chance": 25, "group": "Firearms", "modern_only": false, "uncommon": false},
+    "Firearms (Bow)": {"base_chance": 15, "group": "Firearms", "modern_only": false, "uncommon": false},
+    "Firearms (Heavy Weapons)": {"base_chance": 10, "group": "Firearms", "modern_only": false, "uncommon": false},
+    "Firearms (Flamethrower)": {"base_chance": 10, "group": "Firearms", "modern_only": false, "uncommon": false},
+    "Firearms (Machine Gun)": {"base_chance": 10, "group": "Firearms", "modern_only": false, "uncommon": false},
+    "Firearms (Submachine Gun)": {"base_chance": 15, "group": "Firearms", "modern_only": false, "uncommon": false},
+    "First Aid": {"base_chance": 30, "group": null, "modern_only": false, "uncommon": false},
+    "History": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false},
+    "Hypnosis": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": true},
+    "Intimidate": {"base_chance": 15, "group": null, "modern_only": false, "uncommon": false},
+    "Jump": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false},
+    "Language (Own)": {"base_chance": "EDU", "group": "Language (Own)", "modern_only": false, "uncommon": false},
+    "Law": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false},
+    "Library Use": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false},
+    "Listen": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false},
+    "Locksmith": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": false},
+    "Lore": {"base_chance": 1, "group": "Lore", "modern_only": false, "uncommon": true},
+    "Mechanical Repair": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false},
+    "Medicine": {"base_chance": 1, "group": "Science", "modern_only": false, "uncommon": false},
+    "Natural World": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false},
+    "Navigate": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false},
+    "Occult": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false},
+    "Operate Heavy Machinery": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": false},
+    "Persuade": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false},
+    "Pilot": {"base_chance": 1, "group": "Pilot", "modern_only": false, "uncommon": false},
+    "Psychoanalysis": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": false},
+    "Psychology": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false},
+    "Read Lips": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": true},
+    "Ride": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false},
+    "Science": {"base_chance": 1, "group": "Science", "modern_only": false, "uncommon": false},
+    "Sleight of Hand": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false},
+    "Spot Hidden": {"base_chance": 25, "group": null, "modern_only": false, "uncommon": false},
+    "Stealth": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false},
+    "Survival": {"base_chance": 10, "group": "Survival", "modern_only": false, "uncommon": false},
+    "Swim": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false},
+    "Throw": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false},
+    "Track": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false}
+  },
+  "rule_refs": {
+    "skill_list_page": "Keeper Rulebook p.56 (PDF idx 55)",
+    "specialization_marker": "G denotes a group skill broken into specializations",
+    "modern_marker": "Omega denotes a skill available only in Modern Era games",
+    "uncommon_marker": "T denotes an uncommon skill not on the standard investigator sheet"
+  }
+}

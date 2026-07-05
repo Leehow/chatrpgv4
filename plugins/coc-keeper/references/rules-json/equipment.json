@@ -1,0 +1,89 @@
+{
+  "source_note": "Keeper Rulebook Chapter 16: Appendices, Equipment (pp.388-391 1920s / pp.391-393 modern / PDF idx 387-392). Prices are era-appropriate.",
+  "periods": {
+    "1920s": [
+      {
+        "item": "Flashlight",
+        "category": "tool",
+        "price": "$2"
+      },
+      {
+        "item": "Rope (50ft)",
+        "category": "tool",
+        "price": "$1"
+      },
+      {
+        "item": "Camera",
+        "category": "tool",
+        "price": "$25"
+      },
+      {
+        "item": "First Aid Kit",
+        "category": "medical",
+        "price": "$5"
+      },
+      {
+        "item": ".38 Revolver",
+        "category": "weapon",
+        "price": "$25"
+      },
+      {
+        "item": "Shotgun",
+        "category": "weapon",
+        "price": "$30"
+      },
+      {
+        "item": "Binoculars",
+        "category": "tool",
+        "price": "$28"
+      },
+      {
+        "item": "Torch (electric)",
+        "category": "tool",
+        "price": "$2"
+      },
+      {
+        "item": "Typewriter",
+        "category": "office",
+        "price": "$40"
+      }
+    ],
+    "modern": [
+      {
+        "item": "Flashlight (LED)",
+        "category": "tool",
+        "price": "$20"
+      },
+      {
+        "item": "Cell phone",
+        "category": "electronics",
+        "price": "$200"
+      },
+      {
+        "item": "Laptop",
+        "category": "electronics",
+        "price": "$800"
+      },
+      {
+        "item": "First Aid Kit",
+        "category": "medical",
+        "price": "$25"
+      },
+      {
+        "item": "9mm Pistol",
+        "category": "weapon",
+        "price": "$400"
+      },
+      {
+        "item": "Digital Camera",
+        "category": "tool",
+        "price": "$150"
+      },
+      {
+        "item": "GPS Unit",
+        "category": "electronics",
+        "price": "$150"
+      }
+    ]
+  }
+}

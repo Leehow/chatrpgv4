@@ -1,0 +1,45 @@
+{
+  "source_note": "Keeper Rulebook Chapter 6: Combat, Sample Poisons (pp.129-131 / PDF idx 128-130). Each poison has delivery method, damage/effect, and onset time.",
+  "poisons": {
+    "Arsenic": {
+      "delivery": "ingested",
+      "damage_or_effect": "1D10 HP",
+      "onset": "1D4 hours"
+    },
+    "Cyanide": {
+      "delivery": "ingested or inhaled",
+      "damage_or_effect": "1D20 HP",
+      "onset": "1D4 minutes"
+    },
+    "Strychnine": {
+      "delivery": "ingested",
+      "damage_or_effect": "1D6 HP per round for 1D6 rounds",
+      "onset": "1D4 minutes"
+    },
+    "Curare": {
+      "delivery": "injected",
+      "damage_or_effect": "paralysis, 1D6 HP",
+      "onset": "1D4 minutes"
+    },
+    "Belladonna": {
+      "delivery": "ingested",
+      "damage_or_effect": "1D8 HP",
+      "onset": "1D4 hours"
+    },
+    "Hemlock": {
+      "delivery": "ingested",
+      "damage_or_effect": "1D10 HP",
+      "onset": "1D3 hours"
+    },
+    "Snake Venom": {
+      "delivery": "injected",
+      "damage_or_effect": "1D6 HP",
+      "onset": "1D4 minutes"
+    },
+    "Chloroform": {
+      "delivery": "inhaled",
+      "damage_or_effect": "unconsciousness",
+      "onset": "1D3 rounds"
+    }
+  }
+}

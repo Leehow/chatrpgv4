@@ -37,6 +37,16 @@ def test_derive_values_calculates_hp_mp_san_db_build_and_mov():
     assert result["MOV"] == 7
 
 
+def test_derive_values_requires_luck():
+    """Luck must be rolled as 3D6x5 and supplied; it is not derived from POW (rulebook p31)."""
+    characteristics = {
+        "STR": 60, "CON": 50, "SIZ": 70, "DEX": 55,
+        "APP": 45, "INT": 65, "POW": 60, "EDU": 70,
+    }
+    with pytest.raises(ValueError, match="Luck must be rolled"):
+        coc_character.derive_values(characteristics)
+
+
 def test_derive_values_uses_rules_json_movement_rate(monkeypatch):
     calls = []
 
@@ -55,7 +65,7 @@ def test_derive_values_uses_rules_json_movement_rate(monkeypatch):
         "INT": 65,
         "POW": 60,
         "EDU": 70,
-    })
+    }, luck=45)
 
     assert calls == [(60, 55, 70, 0)]
     assert result["MOV"] == 8
@@ -67,7 +77,7 @@ def test_derive_values_uses_rules_json_derived_attributes(monkeypatch):
             "hit_points": {"sources": ["CON", "SIZ"], "divisor": 20, "rounding": "floor"},
             "magic_points": {"source": "POW", "divisor": 10, "rounding": "floor"},
             "sanity": {"source": "EDU"},
-            "luck_default": {"source": "APP"},
+            "luck_default": {"source": "rolled", "formula": "3D6", "multiplier": 5, "independent_of_pow": True},
         }
 
     monkeypatch.setattr(coc_character.coc_rules, "derived_attributes_rule", fake_derived_attributes_rule, raising=False)
@@ -81,7 +91,7 @@ def test_derive_values_uses_rules_json_derived_attributes(monkeypatch):
         "INT": 65,
         "POW": 60,
         "EDU": 70,
-    })
+    }, luck=45)
 
     assert result["HP"] == 6
     assert result["MP"] == 6
@@ -101,7 +111,7 @@ def test_derive_values_applies_age_movement_penalty():
         "EDU": 70,
     }
 
-    result = coc_character.derive_values(characteristics, age_mov_penalty=1)
+    result = coc_character.derive_values(characteristics, luck=50, age_mov_penalty=1)
 
     assert result["MOV"] == 8
 

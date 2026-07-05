@@ -300,6 +300,75 @@ def test_damage_bonus_and_build_use_structured_table():
     }
 
 
+def test_weapons_table_structure_and_schema():
+    """Table XVII weapons.json (pp.401-405) loads with the expected shape."""
+    table = coc_rules.load_rule_table("weapons")
+
+    assert "Table XVII" in table["source_note"]
+    assert "401-405" in table["source_note"]
+    weapons = coc_rules.weapons_table()
+    # Schema sanity on a melee row and a firearm row.
+    knife = weapons["knife_medium"]
+    assert knife["skill"] == "Fighting (Brawl)"
+    assert knife["damage_die"] == "1D4+2"
+    assert knife["adds_damage_bonus"] is True
+    assert knife["impales"] is True
+    revolver = weapons["revolver_38"]
+    assert revolver["skill"] == "Firearms (Handgun)"
+    assert revolver["damage_die"] == "1D10"
+    assert revolver["adds_damage_bonus"] is False
+    assert revolver["impales"] is True
+    assert revolver["magazine"] == 6
+    assert revolver["malfunction"] == 100
+    # Shotguns carry range-banded damage.
+    shotgun = weapons["shotgun_12g"]
+    assert shotgun["range_banded_damage"] == {
+        "point_blank": "4D6", "half": "2D6", "max": "1D6",
+    }
+
+
+def test_weapon_by_name_lookup_success_and_missing_key():
+    """weapon_by_name returns the row for a known key and raises KeyError otherwise."""
+    row = coc_rules.weapon_by_name("revolver_45")
+    assert row["damage_die"] == "1D10+2"
+    assert row["eras"] == ["1920s", "modern"]
+
+    with pytest.raises(KeyError):
+        coc_rules.weapon_by_name("nonexistent_weapon")
+
+
+def test_characteristic_dice_table_structure_and_schema():
+    """Chapter 3 characteristic dice (pp.30-31) load with the expected shape."""
+    table = coc_rules.load_rule_table("characteristic-dice")
+
+    assert "30-31" in table["source_note"]
+    assert table["multiplier"] == 5
+    assert table["luck_independent_of_pow"] is True
+    dice = coc_rules.characteristic_dice()
+    # 9 characteristics: STR/CON/SIZ/DEX/APP/INT/POW/EDU/Luck
+    assert set(dice.keys()) == {
+        "STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "Luck",
+    }
+    # 3D6 characteristics (STR/CON/DEX/APP/POW/Luck)
+    for name in ("STR", "CON", "DEX", "APP", "POW", "Luck"):
+        assert dice[name]["dice"] == "3D6"
+    # 2D6+6 characteristics (SIZ/INT/EDU)
+    for name in ("SIZ", "INT", "EDU"):
+        assert dice[name]["dice"] == "2D6+6"
+    # Luck is flagged independent of POW.
+    assert dice["Luck"]["independent_of_pow"] is True
+
+
+def test_characteristic_dice_for_lookup_success_and_missing_key():
+    """characteristic_dice_for returns the dice expr; raises KeyError otherwise."""
+    assert coc_rules.characteristic_dice_for("SIZ") == "2D6+6"
+    assert coc_rules.characteristic_dice_for("STR") == "3D6"
+    assert coc_rules.characteristic_dice_for("Luck") == "3D6"
+
+    with pytest.raises(KeyError):
+        coc_rules.characteristic_dice_for("NONEXISTENT")
+
+
 def test_movement_rate_uses_structured_table():
     table = coc_rules.load_rule_table("movement-rate")
 
@@ -336,7 +405,10 @@ def test_derived_attributes_rule_uses_structured_table():
             "source": "POW",
         },
         "luck_default": {
-            "source": "POW",
+            "source": "rolled",
+            "formula": "3D6",
+            "multiplier": 5,
+            "independent_of_pow": True,
         },
     }
 
@@ -417,13 +489,171 @@ def test_rule_index_exposes_stable_ids_for_playtest_traceability():
         "core.character_creation.derived_attributes",
         "core.character_creation.damage_bonus_build",
         "core.character_creation.movement_rate",
+        "core.character_creation.occupations",
+        "core.character_creation.characteristic_dice",
         "core.pushed_roll",
         "core.sanity.temporary_insanity_threshold",
         "core.chase.movement_actions",
         "core.chase.no_pushed_rolls",
+        "core.combat.weapons",
+        "core.magic.spell_schema",
+        "core.magic.casting",
+        "core.magic.learning",
+        "core.magic.mp_economy",
+        "core.tomes.stat_block",
+        "core.monsters.stat_block",
+        "core.sanity.bout_realtime",
+        "core.sanity.bout_summary",
+        "core.sanity.phobia",
+        "core.sanity.mania",
+        "core.equipment.price_list",
+        "core.combat.poisons",
+        "core.artifacts.alien_device",
         "module.haunting.corbitt_flesh_ward",
         "module.haunting.corbitt_floating_knife_mp",
         "module.haunting.corbitt_animate_body",
         "module.haunting.corbitt_own_dagger",
     ]:
         assert rule_id in ids
+
+
+def test_occupations_table_structure():
+    """occupations_table returns the Chapter 3 Sample Occupations."""
+    table = coc_rules.occupations_table()
+    assert isinstance(table, dict)
+    assert "Journalist" in table
+    j = table["Journalist"]
+    assert j["credit_rating_range"] == [9, 30]
+    assert j["skill_point_formula"] == "EDU*4"
+    assert "lovecraftian" in j["tags"]
+
+
+def test_occupation_by_name_success_and_missing_key():
+    """occupation_by_name returns the row for a known occupation."""
+    row = coc_rules.occupation_by_name("Doctor of Medicine")
+    assert row["credit_rating_range"] == [30, 80]
+    assert "First Aid" in row["occupational_skills"]
+
+    with pytest.raises(KeyError):
+        coc_rules.occupation_by_name("Nonexistent Job")
+
+
+def test_spells_table_structure():
+    """spells_table returns the Grimoire data with mechanics + spell list."""
+    table = coc_rules.spells_table()
+    assert "casting" in table
+    assert "learning" in table
+    assert "mp_economy" in table
+    assert "spells" in table
+    assert isinstance(table["spells"], list)
+    assert len(table["spells"]) >= 50
+    # Verify casting mechanics
+    assert table["casting"]["first_cast_roll"] == "Hard POW"
+    assert table["casting"]["pushable"] is True
+    # Verify mp economy
+    assert table["mp_economy"]["initial"] == "POW/5 floor"
+
+
+def test_spell_by_name_success_and_missing_key():
+    """spell_by_name returns the row for a known spell and raises KeyError otherwise."""
+    row = coc_rules.spell_by_name("Flesh Ward")
+    assert row["cost_sanity"] == "1D4"
+    assert row["source_page"] == 253
+
+    row2 = coc_rules.spell_by_name("Dominate")
+    assert row2["cost_mp"] == "1"
+
+    with pytest.raises(KeyError):
+        coc_rules.spell_by_name("Nonexistent Spell")
+
+
+def test_magic_mechanic_accessors():
+    """Casting, learning, and MP economy accessors return structured blocks."""
+    casting = coc_rules.magic_casting_rules()
+    assert casting["first_cast_roll"] == "Hard POW"
+    assert casting["push_mp_multiplier"] == "1D6"
+
+    learning = coc_rules.magic_learning_rules()
+    assert learning["roll"] == "Hard INT"
+    assert learning["from_tome_weeks"] == "2D6"
+
+    mp = coc_rules.magic_mp_economy()
+    assert mp["regen_per_hour"] == 1
+    assert mp["after_zero_costs_hp_one_for_one"] is True
+
+
+def test_tomes_table_structure():
+    """tomes_table returns the Eldritch Tomes data (dict keyed by name)."""
+    table = coc_rules.tomes_table()
+    assert isinstance(table, dict)
+    assert len(table) >= 15
+    # Verify Necronomicon sentinel exists
+    assert any("Necronomicon" in n for n in table)
+
+
+def test_tome_by_name_success_and_missing_key():
+    """tome_by_name returns the row for a known tome and raises KeyError otherwise."""
+    row = coc_rules.tome_by_name("Necronomicon")
+    assert "sanity_cost" in row
+    assert isinstance(row.get("full_study_weeks"), int)
+
+    with pytest.raises(KeyError):
+        coc_rules.tome_by_name("Nonexistent Tome")
+
+
+def test_tomes_table_structure():
+    """tomes_table returns the Chapter 11 Mythos Tomes table."""
+    table = coc_rules.tomes_table()
+    assert isinstance(table, dict)
+    assert len(table) >= 30
+    # Check a well-known tome
+    al_azif = [k for k in table if "Al Azif" in k]
+    assert len(al_azif) >= 1
+    t = table[al_azif[0]]
+    assert t["sanity_cost"] == "2D10"
+    assert t["cthulhu_mythos_full"] == 12
+
+
+def test_tome_by_name_success_and_missing_key():
+    """tome_by_name returns the row for a known tome and raises KeyError otherwise."""
+    # Find the Necronomicon
+    necro = [k for k in coc_rules.tomes_table() if "Necronomicon" in k]
+    assert len(necro) >= 1
+    row = coc_rules.tome_by_name(necro[0])
+    assert "sanity_cost" in row
+    assert "mythos_rating" in row
+
+    with pytest.raises(KeyError):
+        coc_rules.tome_by_name("Nonexistent Tome of Doom")
+
+
+
+def test_monsters_table_structure():
+    table = coc_rules.monsters_table()
+    assert isinstance(table, dict)
+    assert len(table) >= 5
+
+
+def test_bout_tables_structure():
+    rt = coc_rules.bout_realtime_table()
+    sm = coc_rules.bout_summary_table()
+    assert len(rt) == 10
+    assert len(sm) == 10
+    assert rt[0]["d10_roll"] == 1
+
+
+def test_phobias_and_manias_structure():
+    ph = coc_rules.phobias_table()
+    ma = coc_rules.manias_table()
+    assert len(ph) >= 10
+    assert len(ma) >= 5
+    assert "Claustrophobia" in ph
+
+
+def test_equipment_and_poisons_and_artifacts():
+    eq = coc_rules.equipment_table()
+    assert "1920s" in eq
+    po = coc_rules.poisons_table()
+    assert len(po) >= 5
+    ar = coc_rules.artifacts_table()
+    assert len(ar) >= 3

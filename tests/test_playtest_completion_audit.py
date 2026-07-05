@@ -2545,6 +2545,58 @@ def test_completion_audit_fails_when_player_view_public_state_derived_keys_are_n
     assert {"damage_bonus", "build"}.issubset(set(finding["english_public_state_tokens"]))
 
 
+def test_completion_audit_fails_when_player_view_public_state_uses_localized_json_keys(tmp_path):
+    runs = [
+        {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v3-chase-drill", "audit_profile": "chase_drill", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+        {"run_id": "v4-multi-profile-pressure", "audit_profile": "multi_profile_pressure", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},
+    ]
+    for run in runs:
+        write_run(
+            tmp_path,
+            run["run_id"],
+            run["audit_profile"],
+            virtual_pressure=run["audit_profile"] == "multi_profile_pressure",
+        )
+    write_index(tmp_path, runs)
+    run_dir = tmp_path / ".coc" / "playtests" / "v2-haunting-module"
+    player_view = [
+        row
+        for row in read_jsonl(run_dir / "player-view.jsonl")
+        if row.get("type") != "public_character_state"
+    ]
+    write_jsonl(run_dir / "player-view.jsonl", [
+        {
+            "view": "player",
+            "type": "public_character_state",
+            "campaign_id": "v2-haunting-module",
+            "scenario": {"title": "《夹具剧本》"},
+            "investigators": [
+                {
+                    "name": "艾达·金",
+                    "occupation": "古物学者",
+                    "skills": {"侦查": 55},
+                    "derived": {"体格": 0},
+                    "skill_display": [{"key": "Spot Hidden", "label": "侦查", "value": 55}],
+                    "derived_display": [{"key": "build", "label": "体格", "value": 0}],
+                },
+            ],
+        },
+        *player_view,
+    ])
+    automation_path = tmp_path / "automation.toml"
+    write_text(automation_path, 'status = "ACTIVE"\nprompt = "single-player style pressure"\n')
+
+    coc_completion_audit.generate_completion_audit(tmp_path, automation_path=automation_path)
+    audit = json.loads((tmp_path / ".coc" / "playtests" / "completion-audit.json").read_text())
+
+    assert audit["result"] == "fail"
+    finding = next(finding for finding in audit["findings"] if finding["code"] == "player_view_public_state_unstable_keys")
+    assert finding["run_id"] == "v2-haunting-module"
+    assert any("skills/侦查" in key for key in finding["public_state_unstable_keys"])
+    assert any("derived/体格" in key for key in finding["public_state_unstable_keys"])
+
+
 def test_completion_audit_fails_when_player_view_transcript_speakers_are_not_localized(tmp_path):
     runs = [
         {"run_id": "v2-haunting-module", "audit_profile": "haunting_module", "audit_result": "PASS", "coverage_evaluator": "codex-llm-semantic-v1"},

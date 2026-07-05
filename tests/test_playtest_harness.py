@@ -241,15 +241,31 @@ def public_state_visible_strings(public_state: dict) -> list[str]:
     strings.extend(nested_string_values(public_state.get("scenario", {})))
     for investigator in public_state.get("investigators", []):
         strings.extend(str(investigator.get(field, "")) for field in ("name", "occupation", "era"))
-        skills = investigator.get("skills", {})
-        if isinstance(skills, dict):
-            strings.extend(str(skill) for skill in skills)
-        derived = investigator.get("derived", {})
-        if isinstance(derived, dict):
-            strings.extend(str(key) for key in derived)
-        strings.extend(nested_string_values(derived))
+        for entry in investigator.get("skill_display", []):
+            if isinstance(entry, dict):
+                strings.extend(str(entry.get(field, "")) for field in ("label", "value"))
+        for entry in investigator.get("derived_display", []):
+            if isinstance(entry, dict):
+                strings.extend(str(entry.get(field, "")) for field in ("label", "value"))
         strings.extend(nested_string_values(investigator.get("backstory", {})))
     return [text for text in strings if text]
+
+
+def public_state_cjk_keys(value, path: str = "") -> list[str]:
+    if isinstance(value, dict):
+        keys: list[str] = []
+        for key, item in value.items():
+            key_path = f"{path}/{key}" if path else str(key)
+            if has_cjk(str(key)):
+                keys.append(key_path)
+            keys.extend(public_state_cjk_keys(item, key_path))
+        return keys
+    if isinstance(value, list):
+        keys: list[str] = []
+        for index, item in enumerate(value):
+            keys.extend(public_state_cjk_keys(item, f"{path}[{index}]"))
+        return keys
+    return []
 
 
 def assert_player_view_public_state_localized(run_dir: Path) -> None:
@@ -261,6 +277,7 @@ def assert_player_view_public_state_localized(run_dir: Path) -> None:
         if event.get("type") == "public_character_state"
     )
     visible_strings = public_state_visible_strings(public_state)
+    assert public_state_cjk_keys(public_state) == []
 
     for canonical, display in glossary.items():
         if canonical in {"DEX", "POW", "INT", "SAN"}:
@@ -273,8 +290,32 @@ def assert_player_view_public_state_localized(run_dir: Path) -> None:
     for investigator in public_state["investigators"]:
         assert investigator["name"] not in glossary
         assert investigator["occupation"] not in glossary
+        assert isinstance(investigator.get("skills"), dict)
+        assert isinstance(investigator.get("skill_display"), list)
+        display_by_key = {
+            entry["key"]: entry
+            for entry in investigator["skill_display"]
+            if isinstance(entry, dict) and "key" in entry
+        }
+        assert set(display_by_key) == set(investigator["skills"])
         for skill in investigator["skills"]:
-            assert skill not in glossary
+            assert not has_cjk(skill)
+            display = display_by_key[skill]
+            assert display["label"] == glossary.get(skill, skill)
+            assert display["value"] == investigator["skills"][skill]
+        assert isinstance(investigator.get("derived"), dict)
+        assert isinstance(investigator.get("derived_display"), list)
+        derived_display_by_key = {
+            entry["key"]: entry
+            for entry in investigator["derived_display"]
+            if isinstance(entry, dict) and "key" in entry
+        }
+        assert set(derived_display_by_key) == set(investigator["derived"])
+        for key in investigator["derived"]:
+            assert not has_cjk(key)
+            display = derived_display_by_key[key]
+            assert "label" in display
+            assert display["value"] == investigator["derived"][key]
     if metadata["play_language"] == "zh-Hans":
         allowed_tokens = {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK", "HP", "MP", "SAN", "MOV", "DB"}
         english_tokens = {
@@ -1137,11 +1178,16 @@ def test_serious_playtests_persist_recoverable_campaign_save_and_indexes(tmp_pat
         subsystems = set(metadata["subsystems_covered"])
         if "combat" in subsystems:
             combat = read_json(campaign_dir / "save" / "combat.json")
-            assert combat["campaign_id"] == campaign_id
-            assert combat["status"] == "resolved"
-            assert combat["combatants"]
-            assert combat["dex_order"]
+            # New Chapter 6 structured combat schema (coc_combat.CombatSession).
+            assert combat["status"] == "concluded"
+            assert combat["outcome"] == "investigators_win"
+            assert combat["participants"]
             assert combat["rounds"]
+            assert isinstance(combat["damage_chain"], list)
+            # DEX order proven in every round's initiative_order.
+            for rnd in combat["rounds"]:
+                assert rnd["initiative_order"]
+                assert rnd["turns"]
         if "chase" in subsystems:
             assert (campaign_dir / "save" / "chase.json").exists()
 
@@ -1662,6 +1708,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         "difficulty_rationale": "The Haunting rewards each participating investigator with 1D6 SAN when Corbitt is conquered and destroyed.",
         "roll": 4,
         "die": "1D6",
+        "die_rolls": [4],
         "outcome": "sanity_reward",
         "failure_consequence": "No failure consequence; this is a reward die, not a skill check.",
         "san_before": 45,
@@ -1722,7 +1769,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "KP[Gabriela Macario]" not in actual_play
     assert "KP[Vittorio Macario]" not in actual_play
     assert "第 6 轮 系统: 说服：艾达·金掷出 72 / 55，结果失败。" in actual_play
-    assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in actual_play
+    assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 4 / 25，结果极难成功。浮空匕首刺空。" in actual_play
     assert "第 48 轮 KP: \"疯狂发作（摘要）" in actual_play
     assert "第 48a 轮 系统: 格斗（斗殴）：艾达·金掷出 21 / 40，结果普通成功。摘要疯狂中的暴力结果" in actual_play
     assert actual_play.index("第 48a 轮 系统") < actual_play.index("第 49 轮 单人玩家[谨慎风格]")
@@ -1745,7 +1792,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "KP[诺特先生]" in session_transcript
     assert "KP[阿蒂·威尔莫特]" in session_transcript
     assert "KP[加布里埃拉·马卡里奥]" in session_transcript
-    assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 18 / 25，结果困难成功。浮空匕首刺空。" in session_transcript
+    assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 4 / 25，结果极难成功。浮空匕首刺空。" in session_transcript
     assert "临时疯狂底层状态仍持续" in session_transcript
     assert "若在 1 小时内再次损失 SAN，会再次触发疯狂发作" in session_transcript
     assert "Persuade 72 vs 55" not in session_transcript

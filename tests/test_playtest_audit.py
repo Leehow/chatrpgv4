@@ -2504,6 +2504,67 @@ def test_active_audit_rejects_unlocalized_player_visible_skill_names(tmp_path):
     assert "report_skill_names_not_localized" in finding_codes(audit)
 
 
+def test_active_audit_rejects_unlocalized_mechanical_log_skill_names(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-mechanical-log-skill-names"
+    create_final_rulebook_run(run_dir)
+    metadata_path = run_dir / "playtest.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["audit_profile"] = "haunting_module"
+    metadata["play_language"] = "zh-Hans"
+    metadata["localized_terms"] = {
+        "zh-Hans": {
+            "Ada King": "艾达·金",
+            "Antiquarian": "古物学者",
+            "Library Use": "图书馆使用",
+        }
+    }
+    metadata_path.write_text(json.dumps(metadata))
+    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path.write_text(
+        "# 跑团战报 <!-- report-anchor: Battle Report -->\n\n"
+        "## 运行设置 <!-- report-anchor: Run Setup -->\n"
+        "- 战役: 《鬼屋》\n"
+        "- 游玩语言: 简体中文\n"
+        "- 游玩风格: 单人玩家（谨慎风格）\n\n"
+        "## 模组 <!-- report-anchor: Module -->\n"
+        "- 模组: 《鬼屋》\n"
+        "- 开场场景: 诺特先生给出委托。\n\n"
+        "## 角色档案 <!-- report-anchor: Character Dossier -->\n"
+        "- 艾达·金\n"
+        "  - 职业: 古物学者\n"
+        "  - 年代: 1920s\n"
+        "  - 属性: STR: 60\n"
+        "  - 衍生值: HP: 12\n"
+        "  - 技能: 图书馆使用: 60\n"
+        "  - 背景:\n"
+        "    - 描述: 艾达·金是一名古物学者。\n\n"
+        "## 调查员经历 <!-- report-anchor: Investigator Chronicle -->\n"
+        "- 成长:\n"
+        "  - 获得成长标记: 图书馆使用\n\n"
+        "## 逐场景回放 <!-- report-anchor: Scene-by-Scene Replay -->\n"
+        "- 诺特先生给出委托，艾达选择先查资料。\n\n"
+        "## 实际跑团回放 <!-- report-anchor: Actual Play Replay -->\n"
+        "- 第 1 轮 系统: 图书馆使用：艾达·金掷出 42 / 60，结果困难成功。\n\n"
+        "## 会话记录 <!-- report-anchor: Session Transcript -->\n"
+        "- 第 1 轮 系统: 图书馆使用：艾达·金掷出 42 / 60，结果困难成功。\n"
+        "  - 模式: 掷骰\n\n"
+        "## 规则与掷骰回顾 <!-- report-anchor: Rules & Rolls Recap -->\n"
+        "- 图书馆使用：艾达·金掷出 42 / 60，结果困难成功。\n"
+        "  - 成长标记：是\n\n"
+        "## 机制日志 <!-- report-anchor: Mechanical Log -->\n"
+        "- Library Use: ada-king rolled 42 vs 60 -> regular_success\n\n"
+        "## 剧情回顾 <!-- report-anchor: Story Recap -->\n"
+        "- 艾达接受委托并找到线索。\n\n"
+        "## 玩家对 KP 的反馈 <!-- report-anchor: Player Feedback On KP -->\n"
+        "- KP 清晰度: 5 - KP 解释清楚。\n"
+    )
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "report_skill_names_not_localized" in finding_codes(audit)
+
+
 def test_active_audit_rejects_missing_status_event_in_scene_replay(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "localized-status-replay"
     create_final_rulebook_run(run_dir)
@@ -2712,6 +2773,26 @@ def test_haunting_module_audit_requires_conclusion_sanity_reward_roll(tmp_path):
         for roll in rolls
         if roll.get("payload", {}).get("reward_kind") != "sanity"
     ])
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "haunting_conclusion_reward_roll_missing" in finding_codes(audit)
+
+
+def test_haunting_module_audit_requires_conclusion_sanity_reward_die_faces(tmp_path):
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    rolls_path = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-module" / "logs" / "rolls.jsonl"
+    rolls = [
+        json.loads(line)
+        for line in rolls_path.read_text().splitlines()
+        if line.strip()
+    ]
+    for roll in rolls:
+        payload = roll.get("payload", {})
+        if payload.get("reward_kind") == "sanity":
+            payload.pop("die_rolls", None)
+    write_jsonl(rolls_path, rolls)
 
     audit = coc_playtest_audit.audit_run(run_dir)
 
@@ -3311,3 +3392,53 @@ def test_haunting_module_audit_rejects_realtime_bout_for_solo_corbitt_insanity(t
 
     assert audit["result"] == "fail"
     assert "temporary_insanity_bout_mode_mismatch" in finding_codes(audit)
+
+
+def test_haunting_module_audit_requires_involuntary_action_on_failed_san_roll(tmp_path):
+    """Keeper Rulebook p.166: failing a SAN roll always causes loss of self-control.
+
+    A failed SAN roll must carry an ``involuntary_action`` block. Removing it
+    from any failed SAN roll surfaces ``sanity_failure_involuntary_action_missing``.
+    """
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    rolls_path = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-module" / "logs" / "rolls.jsonl"
+    rolls = [json.loads(line) for line in rolls_path.read_text().splitlines() if line.strip()]
+    removed = False
+    for roll in rolls:
+        payload = roll.get("payload", {})
+        if roll.get("type") == "sanity" and payload.get("outcome") == "failure":
+            payload.pop("involuntary_action", None)
+            removed = True
+            break
+    assert removed, "expected at least one failed SAN roll in the haunting module run"
+    write_jsonl(rolls_path, rolls)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "sanity_failure_involuntary_action_missing" in finding_codes(audit)
+
+
+def test_haunting_module_audit_rejects_unknown_involuntary_action_kind(tmp_path):
+    """The involuntary_action.kind must be one of the five rulebook kinds."""
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    rolls_path = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-module" / "logs" / "rolls.jsonl"
+    rolls = [json.loads(line) for line in rolls_path.read_text().splitlines() if line.strip()]
+    for roll in rolls:
+        payload = roll.get("payload", {})
+        if roll.get("type") == "sanity" and payload.get("outcome") == "failure":
+            payload["involuntary_action"] = {"kind": "scream_and_flee", "summary": "not a rulebook kind"}
+            break
+    write_jsonl(rolls_path, rolls)
+
+    audit = coc_playtest_audit.audit_run(run_dir)
+
+    assert audit["result"] == "fail"
+    assert "sanity_failure_involuntary_action_missing" in finding_codes(audit)
+
+
+def test_haunting_module_audit_accepts_failed_san_roll_with_involuntary_action(tmp_path):
+    """Regression guard: a well-formed haunting module run does not surface the finding."""
+    run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
+    audit = coc_playtest_audit.audit_run(run_dir)
+    assert "sanity_failure_involuntary_action_missing" not in finding_codes(audit)
