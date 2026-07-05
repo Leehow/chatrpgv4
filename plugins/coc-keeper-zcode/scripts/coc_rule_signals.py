@@ -178,3 +178,50 @@ def read_tension_clock(tension_level: str, lethal_chances_used: int) -> dict[str
         "lethal_chances_used": lethal_chances_used,
         "death_allowed": lethal_chances_used >= 3,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Task 3: v2 translation functions (written now, director does not reference in v1)
+# --------------------------------------------------------------------------- #
+
+def read_phobia_penalty(insane: bool, trigger_in_scene: bool) -> dict[str, Any]:
+    """Phobia penalty die when insane + trigger present. Rulebook p.159.
+
+    While sane, phobia is just roleplay; while insane + direct exposure,
+    non-fight/flee actions take 1 penalty die.
+    """
+    return {"penalty_die": bool(insane and trigger_in_scene)}
+
+
+def read_psychology_concealed(skill_value: int, roll: int, npc_lying: bool) -> dict[str, Any]:
+    """Concealed Psychology roll determines if player gets accurate NPC read.
+    Rulebook p.191. Failed roll → director feeds false info.
+    """
+    feed_accurate = roll <= skill_value
+    return {"feed_accurate": feed_accurate, "npc_actually_lying": npc_lying}
+
+
+def read_pushed_fail_pending(is_pushed: bool, outcome: str) -> bool:
+    """Pushed-roll failure requires worse narrative consequence. Rulebook p.84."""
+    return bool(is_pushed and outcome == "failure")
+
+
+def read_contacts_difficulty(home_ground: bool, same_profession: bool) -> str:
+    """Contacts roll difficulty by location/profession match. Rulebook p.97."""
+    if home_ground and same_profession:
+        return "regular"
+    if not home_ground:
+        return "hard"
+    return "regular"
+
+
+# D4 (failed-SAN involuntary action) and F3 (believer SAN bomb) stubs:
+# These need session-state fields not yet in save schema; defined as no-op
+# placeholders so the function registry is complete.
+def read_failed_san_involuntary(*args, **kwargs) -> dict[str, Any]:
+    """D4: director inserts involuntary action on failed SAN roll. Stub for v2."""
+    return {"implemented": False}
+
+def read_believer_bomb(*args, **kwargs) -> dict[str, Any]:
+    """F3: pending SAN loss = current Cthulhu Mythos on becoming believer. Stub for v2."""
+    return {"implemented": False}

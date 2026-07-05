@@ -150,3 +150,32 @@ def test_tension_clock_low():
 def test_tension_clock_death_allowed_after_3():
     sig = coc_rule_signals.read_tension_clock(tension_level="climax", lethal_chances_used=3)
     assert sig["death_allowed"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Task 3: v2 translation functions (phobia / psychology / pushed / contacts)
+# --------------------------------------------------------------------------- #
+def test_phobia_penalty_active_when_insane_and_trigger_present():
+    result = coc_rule_signals.read_phobia_penalty(insane=True, trigger_in_scene=True)
+    assert result["penalty_die"] is True
+
+def test_phobia_penalty_inactive_when_sane():
+    result = coc_rule_signals.read_phobia_penalty(insane=False, trigger_in_scene=True)
+    assert result["penalty_die"] is False
+
+def test_psychology_concealed_returns_feed_direction():
+    result = coc_rule_signals.read_psychology_concealed(skill_value=60, roll=34, npc_lying=True)
+    assert result["feed_accurate"] is True
+    result2 = coc_rule_signals.read_psychology_concealed(skill_value=60, roll=70, npc_lying=True)
+    assert result2["feed_accurate"] is False  # failed → feed false read
+
+def test_pushed_fail_pending():
+    assert coc_rule_signals.read_pushed_fail_pending(is_pushed=True, outcome="failure") is True
+    assert coc_rule_signals.read_pushed_fail_pending(is_pushed=False, outcome="failure") is False
+    assert coc_rule_signals.read_pushed_fail_pending(is_pushed=True, outcome="success") is False
+
+def test_contacts_difficulty_home_same_profession():
+    assert coc_rule_signals.read_contacts_difficulty(home_ground=True, same_profession=True) == "regular"
+
+def test_contacts_difficulty_foreign_remote():
+    assert coc_rule_signals.read_contacts_difficulty(home_ground=False, same_profession=False) == "hard"
