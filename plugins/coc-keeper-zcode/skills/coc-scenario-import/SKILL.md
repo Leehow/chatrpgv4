@@ -25,3 +25,17 @@ Use `../../scripts/coc_scenario.py` for:
 ## Spoiler Split
 
 Keep player-safe summaries separate from Keeper-only material. Never reveal `keeper-secrets.json` content without `[spoiler_warning]` and confirmation.
+
+## 剧情图编译（Story-Graph Compilation）
+
+当用户要"编译模组"/"生成剧情图"/"为 <模组> 准备 director"时：
+
+1. 读模组 PDF（用 read/grep；中文模组直接读）。
+2. 判定 structure_type（参考 references/compile-protocol.md 的 7 种原型判定）。
+3. 按顺序产出 7 个 JSON 到 campaigns/<id>/scenario/（schema 见 references/story-graph-schema.md）：
+   module-meta / story-graph / clue-graph / npc-agendas / threat-fronts / pacing-map / improvisation-boundaries
+4. 跑 `scripts/coc_scenario_compile.py --validate <dir>` 校验结构完整性。
+5. 校验报告的缺漏逐个补，直到 errors 为空。
+6. 写 player-safe recap + keeper-only recap。
+
+关键约束：每个 critical conclusion 至少 3 条线索路径；keeper_secrets 与 player-safe 物理隔离。
