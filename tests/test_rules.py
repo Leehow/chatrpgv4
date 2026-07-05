@@ -513,6 +513,9 @@ def test_rule_index_exposes_stable_ids_for_playtest_traceability():
         "core.sanity.mania",
         "core.equipment.price_list",
         "core.combat.poisons",
+        "core.combat.special_damage_effects",
+        "core.combat.special_damage_effects.stun",
+        "core.combat.special_damage_effects.burn",
         "core.artifacts.alien_device",
         "module.haunting.corbitt_flesh_ward",
         "module.haunting.corbitt_floating_knife_mp",
@@ -730,3 +733,18 @@ def test_rule_index_exposes_luck_and_development_and_max_san_ids():
         "core.sanity.max_formula",
     ]:
         assert rule_id in ids, f"missing rule-id: {rule_id}"
+
+
+def test_special_damage_effects_rule_uses_structured_table():
+    """Stun/Burn/+DB special-damage tags must resolve to structured rules."""
+    rule = coc_rules.special_damage_effects_rule()
+    # Stun: target cannot act for 1D6 rounds
+    assert rule["stun"]["effect"] == "target_cannot_act"
+    assert rule["stun"]["duration"] == "1D6 rounds"
+    # Burn: Luck roll to avoid ignition, then escalating damage
+    assert rule["burn"]["luck_roll_to_avoid_ignition"] is True
+    assert rule["burn"]["escalation"] == "double_each_round_until_extinguished"
+    # +DB
+    assert rule["plus_db"]["effect"] == "add_attacker_damage_bonus"
+    # weapon table markers
+    assert rule["weapon_table_markers"]["impale_marker"] == "(i)"

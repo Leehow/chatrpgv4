@@ -667,6 +667,32 @@
         "structure_types": 7,
         "actions": 10
       }
+    },
+    {
+      "id": "core.combat.special_damage_effects",
+      "category": "combat",
+      "source_table": "combat.json",
+      "source_note": "Keeper Rulebook Table XVII Key (p405-406): special-damage tags (Stun/Burn/+DB) and weapon-table markers ((i) impale, *, 1B/2B barrels, rate, era)."
+    },
+    {
+      "id": "core.combat.special_damage_effects.stun",
+      "category": "combat",
+      "source_table": "combat.json",
+      "source_note": "Keeper Rulebook p406: Stun — target may not act for 1D6 rounds.",
+      "numeric": {
+        "duration_dice": "1D6",
+        "duration_unit": "rounds"
+      }
+    },
+    {
+      "id": "core.combat.special_damage_effects.burn",
+      "category": "combat",
+      "source_table": "combat.json",
+      "source_note": "Keeper Rulebook p406: Burn — Luck roll to avoid ignition; minimum damage next round, doubled each round until extinguished.",
+      "numeric": {
+        "luck_roll_to_avoid": true,
+        "escalation": "double_per_round"
+      }
     }
   ]
 }

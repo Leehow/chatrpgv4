@@ -55,5 +55,38 @@
       "attack_vs_dodge_tie_winner": "target",
       "attack_vs_fight_back_tie_winner": "maneuver_actor"
     }
+  },
+  "special_damage_effects": {
+    "source_rule_id": "core.combat.special_damage_effects",
+    "source_note": "Keeper Rulebook Table XVII Key (p.405-406). Defines special-damage tags appearing in weapon damage expressions (e.g. '1D6+burn', '1D3+stun').",
+    "stun": {
+      "source_rule_id": "core.combat.special_damage_effects.stun",
+      "effect": "target_cannot_act",
+      "duration": "1D6 rounds",
+      "duration_keeper_discretion": true,
+      "source_note": "Stun: Target may not act for 1D6 rounds (or as the Keeper indicates)."
+    },
+    "burn": {
+      "source_rule_id": "core.combat.special_damage_effects.burn",
+      "luck_roll_to_avoid_ignition": true,
+      "on_ignition": "minimum_weapon_damage_next_round",
+      "escalation": "double_each_round_until_extinguished",
+      "requires_flammable_target": true,
+      "source_note": "Burn: Target must roll Luck to avoid catching on fire. Take minimum damage on following round. Double this each round until extinguished (providing target is flammable)."
+    },
+    "plus_db": {
+      "source_rule_id": "core.combat.special_damage_effects.plus_db",
+      "effect": "add_attacker_damage_bonus",
+      "varies_by_individual": true,
+      "source_note": "+DB: Plus damage bonus, which varies by individual."
+    },
+    "weapon_table_markers": {
+      "impale_marker": "(i)",
+      "special_marker": "*",
+      "barrel_markers": {"1B": "1 barrel", "2B": "2 barrels"},
+      "rate_markers": {"1/2": "can fire 1 shot per 2 rounds", "1/3": "can fire 1 shot per 3 rounds", "1/4": "can fire 1 shot per 4 rounds"},
+      "burst_full_auto": "some automatic weapons can switch to burst or full auto; usually unavailable to civilians; prices reflect black-market",
+      "era_markers": {"Rare": "perhaps obsolete; a fine specimen for collectors or perhaps illegal"}
+    }
   }
 }

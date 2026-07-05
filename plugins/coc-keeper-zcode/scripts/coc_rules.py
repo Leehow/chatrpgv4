@@ -176,6 +176,36 @@ def combat_rule() -> dict[str, Any]:
     }
 
 
+def special_damage_effects_rule() -> dict[str, Any]:
+    """Return the special-damage-effects block (Stun/Burn/+DB + table markers).
+
+    Source: Keeper Rulebook Table XVII Key (pp.405-406). These define the
+    tags that appear in weapon damage expressions like '1D6+burn' or '1D3+stun'.
+    """
+    table = load_rule_table("combat")["special_damage_effects"]
+    return {
+        "stun": {
+            "effect": str(table["stun"]["effect"]),
+            "duration": str(table["stun"]["duration"]),
+            "duration_keeper_discretion": bool(table["stun"]["duration_keeper_discretion"]),
+        },
+        "burn": {
+            "luck_roll_to_avoid_ignition": bool(table["burn"]["luck_roll_to_avoid_ignition"]),
+            "on_ignition": str(table["burn"]["on_ignition"]),
+            "escalation": str(table["burn"]["escalation"]),
+            "requires_flammable_target": bool(table["burn"]["requires_flammable_target"]),
+        },
+        "plus_db": {
+            "effect": str(table["plus_db"]["effect"]),
+            "varies_by_individual": bool(table["plus_db"]["varies_by_individual"]),
+        },
+        "weapon_table_markers": {
+            "impale_marker": str(table["weapon_table_markers"]["impale_marker"]),
+            "special_marker": str(table["weapon_table_markers"]["special_marker"]),
+        },
+    }
+
+
 def damage_rule() -> dict[str, Any]:
     table = load_rule_table("damage")
     return {

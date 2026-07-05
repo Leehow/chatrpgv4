@@ -7,13 +7,12 @@ description: Run immersive Call of Cthulhu play after COC mode is active. Use fo
 
 ## Loop
 
-1. Read campaign state, active scene, scenario data, and memory.
-2. Present player-safe scene description.
-3. Wait for player action.
-4. Decide whether a rule check, sanity check, combat, chase, or meta answer is needed.
-5. Resolve mechanics through the relevant skill and scripts.
-6. Narrate consequences.
-7. Update save, memory, and logs.
+1. Read player input + campaign state + scenario story-graph.
+2. Call `coc-story-director` (scripts/coc_story_director.py) to generate a DirectorPlan.
+3. If DirectorPlan.handoff == "rules": resolve mechanics via coc-roll/combat/chase/sanity.
+4. Backfill rule results into the plan.
+5. Narrate consequences per DirectorPlan.narrative_directives (immersive, in play_language).
+6. Update save, logs, and pacing-state.
 
 ## Style
 
