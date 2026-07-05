@@ -11,7 +11,7 @@ import json, re, sys
 from pathlib import Path
 
 BASE = Path("plugins/coc-keeper/references/rules-json")
-MD = Path("pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen)_mineru/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen)/auto/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).md")
+MD = Path("checks/ocr-cached/monsters-ch14.md")
 
 
 def extract_san(md: str) -> dict[str, str]:
@@ -54,9 +54,24 @@ def main() -> int:
     for name in monsters:
         target = norm(name)
         ocr_key = None
+        # Pass 1: exact normalized match (so 'Vampire'/'VAMPIRES' beats
+        # 'Star Vampires' which only contains 'vampire' as a substring).
         for ok in ocr_san:
-            if target == norm(ok) or target in norm(ok) or norm(ok) in target:
+            if target == norm(ok):
                 ocr_key = ok; break
+        # Pass 2: singular/plural exact (vampire <-> vampires).
+        if not ocr_key:
+            sing = target.rstrip("s")
+            for ok in ocr_san:
+                nok = norm(ok)
+                if sing == nok or sing == nok.rstrip("s"):
+                    ocr_key = ok; break
+        # Pass 3: substring fallback.
+        if not ocr_key:
+            for ok in ocr_san:
+                nok = norm(ok)
+                if target in nok or nok in target:
+                    ocr_key = ok; break
         if not ocr_key:
             continue
         matched += 1

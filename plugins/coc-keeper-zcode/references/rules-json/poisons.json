@@ -24,7 +24,7 @@
       "delivery": "injury",
       "damage_or_effect": "1D10 HP",
       "onset": "2 to 8 hours",
-      "note": "Chills, sweats, nausea. Rarely fatal with treatment."
+      "note": "Chills, sweats, nausea. Rarely causes death with treatment."
     },
     "Chloroform": {
       "delivery": "inhaled",
@@ -36,7 +36,7 @@
       "delivery": "injury",
       "damage_or_effect": "4D10 HP",
       "onset": "15 to 60 minutes",
-      "note": "Convulsions, respiratory failure. Serum can prevent death."
+      "note": "Convulsions, respiratory failure. Serum can avoid death."
     },
     "Curare": {
       "delivery": "injury",

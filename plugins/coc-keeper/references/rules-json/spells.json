@@ -332,7 +332,7 @@
       "name": "Melt Flesh",
       "alternative_names": [],
       "cost_mp": "variable",
-      "cost_sanity": "1D6",
+      "cost_sanity": "1D4",
       "description": "Causes the target's flesh to melt from bone.",
       "source_page": 253,
       "pow_cost": "variable"

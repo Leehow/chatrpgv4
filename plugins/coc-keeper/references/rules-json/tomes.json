@@ -64,13 +64,6 @@
       "cthulhu_mythos_full": 8,
       "mythos_rating": 33
     },
-    "unknown": {
-      "full_study_weeks": 51,
-      "sanity_cost": "2D6",
-      "cthulhu_mythos_initial": 4,
-      "cthulhu_mythos_full": 8,
-      "mythos_rating": 36
-    },
     "Book of Iod": {
       "full_study_weeks": 10,
       "sanity_cost": "1D6",
@@ -338,19 +331,12 @@
       "cthulhu_mythos_full": 8,
       "mythos_rating": 36
     },
-    "Magic and the Black Arts": {
+    "Marvels of Science": {
       "full_study_weeks": 12,
       "sanity_cost": "1D6",
       "cthulhu_mythos_initial": 1,
       "cthulhu_mythos_full": 4,
       "mythos_rating": 15
-    },
-    "Marvels of Science": {
-      "full_study_weeks": 11,
-      "sanity_cost": "1D4",
-      "cthulhu_mythos_initial": 1,
-      "cthulhu_mythos_full": 2,
-      "mythos_rating": 9
     },
     "Monstres and their Kynde": {
       "full_study_weeks": 36,
@@ -543,7 +529,7 @@
     },
     "Revelations of Gla'aki": {
       "full_study_weeks": 32,
-      "sanity_cost": "2D8",
+      "sanity_cost": "2D6",
       "cthulhu_mythos_initial": 5,
       "cthulhu_mythos_full": 10,
       "mythos_rating": 45
@@ -774,6 +760,14 @@
       "cthulhu_mythos_initial": 1,
       "cthulhu_mythos_full": 2,
       "mythos_rating": 9
+    },
+    "ancient tongue unknown": {
+      "full_study_weeks": 51,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 36,
+      "display_name": "Book of Iod"
     }
   }
 }

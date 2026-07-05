@@ -63,8 +63,8 @@
       "armor": 0,
       "mov": 0,
       "san_loss": {
-        "success": "1",
-        "failure": "1D6"
+        "success": "0",
+        "failure": "1D4"
       },
       "attacks": [
         {
@@ -148,7 +148,11 @@
       "attacks": [
         {
           "weapon": "tentacles",
-          "damage": "1D6+DB"
+          "damage": "+DB"
+        },
+        {
+          "weapon": "trample",
+          "damage": "2D6+DB"
         }
       ],
       "spells": [],
@@ -277,8 +281,12 @@
       },
       "attacks": [
         {
-          "weapon": "wind",
-          "damage": "1D6"
+          "weapon": "tentacle",
+          "damage": "1D10"
+        },
+        {
+          "weapon": "wind blast",
+          "damage": "DB"
         }
       ],
       "spells": [
@@ -465,12 +473,12 @@
       },
       "attacks": [
         {
-          "weapon": "tongue",
-          "damage": "1D4+DB"
+          "weapon": "claws/bite",
+          "damage": "1D6+DB"
         },
         {
-          "weapon": "soul drain",
-          "damage": "1D4 POW"
+          "weapon": "tongue",
+          "damage": "3D6 POW"
         }
       ],
       "spells": [],
@@ -580,11 +588,11 @@
       "attacks": [
         {
           "weapon": "weapon",
-          "damage": "varies"
+          "damage": "1D3+DB"
         },
         {
           "weapon": "bite",
-          "damage": "1D4+poison"
+          "damage": "1D8+poison"
         }
       ],
       "spells": [
@@ -885,12 +893,8 @@
       },
       "attacks": [
         {
-          "weapon": "claws",
-          "damage": "1D6+DB"
-        },
-        {
-          "weapon": "bite",
-          "damage": "1D4+DB"
+          "weapon": "claws/bite",
+          "damage": "1D8+DB"
         }
       ],
       "spells": [],

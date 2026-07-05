@@ -514,9 +514,12 @@ def audit_weapon_db_flags(root: Path) -> list[str]:
 #   "Rifles and handguns can impale, however shotguns cannot"
 #   "(i) marks a weapon which can impale"
 # Firearms impale by category (except shotguns); specific melee weapons
-# are marked (i) in Table XVII. Bow/arrow and Sword heavy are NOT marked.
+# are marked (i) in Table XVII. Per OCR of Table XVII, the (i)-marked
+# melee/thrown weapons are: chainsaw, garrote, hatchet/sickle, knife (all),
+# shuriken, spear (cavalry lance), spear thrown, sword medium, wood axe,
+# crossbow. Sword heavy and Sword light are NOT marked (do not impale).
 _IMPALE_MELEE_NAMES = {
-    "knife", "sword, medium", "sword, light", "rapier", "epee", "foil",
+    "knife", "sword, medium", "rapier", "epee",
     "spear", "dagger", "hatchet", "sickle", "axe", "shuriken",
     "crossbow", "garrote", "chainsaw", "switchblade", "machete",
     "cavalry lance", "wood axe",
@@ -526,7 +529,10 @@ _IMPALE_MELEE_NAMES = {
 def audit_weapon_damage_type(root: Path) -> list[str]:
     """Section D: damage_type must match rulebook impale rules (p405-406).
 
-    - Firearms (handgun/rifle/SMG/MG/Heavy/Bow): impale
+    - Firearms (handgun/rifle/SMG/MG/Bow): impale
+    - Firearms (Heavy Weapons): impale EXCEPT explosive launchers
+      (grenade launchers, rockets, LAW) which deal area damage and do not
+      impale.
     - Firearms (shotgun): normal (cannot impale)
     - Fighting weapons in _IMPALE_MELEE_NAMES: impale
     - Other Fighting weapons: normal
@@ -537,6 +543,9 @@ def audit_weapon_damage_type(root: Path) -> list[str]:
         w = _load_table(root, "weapons").get("weapons", {})
     except (FileNotFoundError, json.JSONDecodeError) as e:
         return [f"[D] weapons.json: UNREADABLE ({e})"]
+    # Explosive heavy weapons (area-effect; do not impale). The OCR damage
+    # cell carries a "<dice>/<N> yards" blast-radius pattern for these.
+    EXPLOSIVE_NAMES = {"m79 grenade launcher", "law", "bazooka", "rpg"}
     for key, row in w.items():
         dtype = str(row.get("damage_type", ""))
         skill = str(row.get("skill", "")).lower()
@@ -552,6 +561,8 @@ def audit_weapon_damage_type(root: Path) -> list[str]:
             # Bow/arrow is NOT impale (rulebook has no (i) marker for it)
             if "bow" in skill and "crossbow" not in name:
                 expected = "normal"
+            elif "heavy" in skill and any(name.startswith(e) or e in name for e in EXPLOSIVE_NAMES):
+                expected = "normal"  # explosive launcher, area-effect
             else:
                 expected = "impale"
         elif skill.startswith("fighting"):

@@ -8,30 +8,181 @@
     "uses_per_round": "verbatim string"
   },
   "weapons": {
-    "unarmed": {"damage_die": "1D3", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "brass_knuckles": {"damage_die": "1D3+1", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "bullwhip": {"damage_die": "1D3", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1", "note": "Rulebook range '10 feet' (reach), not a yard range; damage 1D3+half DB"},
-    "chainsaw": {"damage_die": "2D8", "base_range_yards": null, "malfunction": 95, "magazine": null, "uses_per_round": "1"},
-    "club_small": {"damage_die": "1D6", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "club_large": {"damage_die": "1D8", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "garrote": {"damage_die": "1D6", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "hatchet": {"damage_die": "1D6+1", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "knife_small": {"damage_die": "1D4", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "knife_medium": {"damage_die": "1D4+2", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "knife_large": {"damage_die": "1D8", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "sword_light": {"damage_die": "1D6", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "sword_medium": {"damage_die": "1D6+1", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "sword_heavy": {"damage_die": "1D8+1", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "spear": {"damage_die": "1D8+1", "base_range_yards": null, "malfunction": null, "magazine": null, "uses_per_round": "1"},
-    "bow": {"damage_die": "1D6", "base_range_yards": 30, "malfunction": 97, "magazine": 1, "uses_per_round": "1"},
-    "crossbow": {"damage_die": "1D8+2", "base_range_yards": 50, "malfunction": 96, "magazine": 1, "uses_per_round": "1/2"},
-    "revolver_38": {"damage_die": "1D10", "base_range_yards": 15, "malfunction": 100, "magazine": 6, "uses_per_round": "1 (3)"},
-    "revolver_45": {"damage_die": "1D10+2", "base_range_yards": 15, "malfunction": 100, "magazine": 6, "uses_per_round": "1 (3)"},
-    "automatic_45": {"damage_die": "1D10+2", "base_range_yards": 15, "malfunction": 100, "magazine": 7, "uses_per_round": "1 (3)"},
-    "rifle_22": {"damage_die": "1D6+1", "base_range_yards": 30, "malfunction": 99, "magazine": 6, "uses_per_round": "1"},
-    "rifle_303_enfield": {"damage_die": "2D6+4", "base_range_yards": 110, "malfunction": 100, "magazine": 10, "uses_per_round": "1"},
-    "shotgun_12g": {"damage_die": "4D6", "base_range_yards": 10, "malfunction": 100, "magazine": 5, "uses_per_round": "1 or 2"},
-    "shotgun_10g": {"damage_die": "4D6+2", "base_range_yards": 10, "malfunction": 100, "magazine": 2, "uses_per_round": "1 or 2"},
-    "submachine_gun_thompson": {"damage_die": "1D10+2", "base_range_yards": 20, "malfunction": 96, "magazine": 30, "uses_per_round": "1 or full auto"}
+    "unarmed": {
+      "damage_die": "1D3",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "brass_knuckles": {
+      "damage_die": "1D3+1",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "bullwhip": {
+      "damage_die": "1D3",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1",
+      "note": "Rulebook range '10 feet' (reach), not a yard range; damage 1D3+half DB"
+    },
+    "chainsaw": {
+      "damage_die": "2D8",
+      "base_range_yards": null,
+      "malfunction": 95,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "club_small": {
+      "damage_die": "1D6",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "club_large": {
+      "damage_die": "1D8",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "garrote": {
+      "damage_die": "1D6",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "hatchet": {
+      "damage_die": "1D6+1",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "knife_small": {
+      "damage_die": "1D4",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "knife_medium": {
+      "damage_die": "1D4+2",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "knife_large": {
+      "damage_die": "1D8",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "sword_light": {
+      "damage_die": "1D6",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "sword_medium": {
+      "damage_die": "1D6+1",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "sword_heavy": {
+      "damage_die": "1D8+1",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "spear": {
+      "damage_die": "1D8+1",
+      "base_range_yards": null,
+      "malfunction": null,
+      "magazine": null,
+      "uses_per_round": "1"
+    },
+    "bow": {
+      "damage_die": "1D6",
+      "base_range_yards": 30,
+      "malfunction": 97,
+      "magazine": 1,
+      "uses_per_round": "1"
+    },
+    "crossbow": {
+      "damage_die": "1D8+2",
+      "base_range_yards": 50,
+      "malfunction": 96,
+      "magazine": 1,
+      "uses_per_round": "1/2"
+    },
+    "revolver_38": {
+      "damage_die": "1D10",
+      "base_range_yards": 15,
+      "malfunction": 100,
+      "magazine": 6,
+      "uses_per_round": "1 (3)"
+    },
+    "revolver_45": {
+      "damage_die": "1D10+2",
+      "base_range_yards": 15,
+      "malfunction": 100,
+      "magazine": 6,
+      "uses_per_round": "1 (3)"
+    },
+    "automatic_45": {
+      "damage_die": "1D10+2",
+      "base_range_yards": 15,
+      "malfunction": 100,
+      "magazine": 7,
+      "uses_per_round": "1 (3)"
+    },
+    "rifle_22": {
+      "damage_die": "1D6+1",
+      "base_range_yards": 30,
+      "malfunction": 99,
+      "magazine": 6,
+      "uses_per_round": "1"
+    },
+    "rifle_303_enfield": {
+      "damage_die": "2D6+4",
+      "base_range_yards": 110,
+      "malfunction": 100,
+      "magazine": 10,
+      "uses_per_round": "1"
+    },
+    "shotgun_12g": {
+      "damage_die": "4D6",
+      "base_range_yards": 10,
+      "malfunction": 100,
+      "magazine": 5,
+      "uses_per_round": "1"
+    },
+    "shotgun_10g": {
+      "damage_die": "4D6+2",
+      "base_range_yards": 10,
+      "malfunction": 100,
+      "magazine": 2,
+      "uses_per_round": "1 or 2"
+    },
+    "thompson": {
+      "damage_die": "1D10+2",
+      "base_range_yards": 20,
+      "malfunction": 96,
+      "magazine": 20,
+      "uses_per_round": "1 or full auto"
+    }
   }
 }
