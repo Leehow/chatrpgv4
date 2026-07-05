@@ -81,3 +81,100 @@ def read_credit_tier(credit_rating: int) -> str:
     if credit_rating <= 89:
         return "wealthy"
     return "super_rich"
+
+
+# --------------------------------------------------------------------------- #
+# Task 2: NPC reaction / Luck / Crit-Fumble / Stalled / Tension
+# --------------------------------------------------------------------------- #
+
+def _load_sibling(name: str, filename: str):
+    """Resolve a sibling script module without a package context."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / filename)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_roll = _load_sibling("coc_roll", "coc_roll.py")
+
+
+def roll_npc_reaction(app: int, credit_rating: int, rng: random.Random | None = None) -> dict[str, Any]:
+    """Concealed APP/CR roll to set NPC disposition. Rulebook p.191.
+
+    Use the higher of APP or Credit Rating as target (rulebook: "if you are
+    unsure, use the higher of the two"). Roll 1D100; below half = helpful
+    (positive, strong), below target = neutral (positive), above = hostile.
+    Returns dict with used/target/roll/disposition.
+    """
+    rng = rng or random.Random()
+    used = "credit_rating" if credit_rating >= app else "app"
+    target = max(app, credit_rating)
+    roll = rng.randint(1, 100)
+    if roll <= target // 2:
+        disposition = "helpful"
+    elif roll <= target:
+        disposition = "neutral"
+    else:
+        disposition = "hostile"
+    return {"used": used, "target": target, "roll": roll, "disposition": disposition}
+
+
+def read_luck_signal(current_luck: int, luck_spent_last: int) -> tuple[str, bool]:
+    """Classify Luck level + whether player spent luck last turn. Rulebook p.99.
+
+    Returns (level, spent_last) where level: high | moderate | low | depleted.
+    Luck is a depleting tension clock; low-luck investigators attract
+    misfortune (group-Luck rule).
+    """
+    if current_luck >= 60:
+        level = "high"
+    elif current_luck >= 30:
+        level = "moderate"
+    elif current_luck >= 10:
+        level = "low"
+    else:
+        level = "depleted"
+    return (level, luck_spent_last > 0)
+
+
+def read_critical_fumble(last_roll_outcome: str | None) -> tuple[bool, bool]:
+    """Detect critical (01) / fumble (96-100) from last roll outcome string.
+
+    Returns (is_critical, is_fumble). Both drive mandatory director action
+    (rulebook p.89): critical -> invent benefit; fumble -> invent immediate
+    misfortune, cannot be negated by pushing.
+    """
+    if last_roll_outcome is None:
+        return (False, False)
+    return (last_roll_outcome == "critical", last_roll_outcome == "fumble")
+
+
+def read_stalled_turns(recent_intent_classes: list[str]) -> int:
+    """Count trailing idle/stuck turns from recent player intent classes.
+
+    Used by the Idea Roll recovery valve (rulebook p.199). Director triggers
+    RECOVER action when stalled >= 3.
+    """
+    count = 0
+    for cls in reversed(recent_intent_classes):
+        if cls in ("idle", "stuck"):
+            count += 1
+        else:
+            break
+    return count
+
+
+def read_tension_clock(tension_level: str, lethal_chances_used: int) -> dict[str, Any]:
+    """Read pacing/tension state. Rulebook p.198, p.209 (three chances).
+
+    Returns dict with tension_level, lethal_chances_used, death_allowed.
+    death_allowed only after 3+ lethal chances used (p.209 "give players up
+    to three chances to avoid certain death").
+    """
+    return {
+        "tension_level": tension_level,
+        "lethal_chances_used": lethal_chances_used,
+        "death_allowed": lethal_chances_used >= 3,
+    }
