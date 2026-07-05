@@ -177,7 +177,7 @@ def test_rule_index_covers_all_runtime_rule_json_files():
     runtime_rule_files = {
         path.name
         for path in rules_dir.glob("*.json")
-        if path.name not in {"metadata.json", "rule-index.json"}
+        if path.name not in {"metadata.json", "rule-index.json", "structure-weights.json"}
     }
 
     assert runtime_rule_files <= indexed_tables

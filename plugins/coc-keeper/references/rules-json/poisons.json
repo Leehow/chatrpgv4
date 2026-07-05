@@ -1,45 +1,72 @@
 {
-  "source_note": "Keeper Rulebook Chapter 6: Combat, Sample Poisons (pp.129-131 / PDF idx 128-130). Each poison has delivery method, damage/effect, and onset time.",
+  "source_rule_id": "core.combat.poisons",
+  "source_note": "Keeper Rulebook Chapter 6: Sample Poisons (p129, Table). Damage per 1 dose.",
   "poisons": {
-    "Arsenic": {
+    "Amanita": {
       "delivery": "ingested",
       "damage_or_effect": "1D10 HP",
-      "onset": "1D4 hours"
+      "onset": "6 to 24 hours",
+      "note": "Violent stomach pains, vomiting, jaundice. Agaric mushrooms; death cap foremost."
     },
-    "Cyanide": {
-      "delivery": "ingested or inhaled",
-      "damage_or_effect": "1D20 HP",
-      "onset": "1D4 minutes"
-    },
-    "Strychnine": {
+    "Arsenic": {
       "delivery": "ingested",
-      "damage_or_effect": "1D6 HP per round for 1D6 rounds",
-      "onset": "1D4 minutes"
-    },
-    "Curare": {
-      "delivery": "injected",
-      "damage_or_effect": "paralysis, 1D6 HP",
-      "onset": "1D4 minutes"
+      "damage_or_effect": "4D10 HP",
+      "onset": "30 minutes to 24 hours",
+      "note": "Burning pain, vomiting, violent diarrhea."
     },
     "Belladonna": {
       "delivery": "ingested",
-      "damage_or_effect": "1D8 HP",
-      "onset": "1D4 hours"
+      "damage_or_effect": "4D10 HP",
+      "onset": "2 hours to 2 days",
+      "note": "Rapid heartbeat, impaired vision, convulsions. Deadly nightshade."
     },
-    "Hemlock": {
-      "delivery": "ingested",
+    "Black Widow Spider Venom": {
+      "delivery": "injury",
       "damage_or_effect": "1D10 HP",
-      "onset": "1D3 hours"
-    },
-    "Snake Venom": {
-      "delivery": "injected",
-      "damage_or_effect": "1D6 HP",
-      "onset": "1D4 minutes"
+      "onset": "2 to 8 hours",
+      "note": "Chills, sweats, nausea. Rarely fatal with treatment."
     },
     "Chloroform": {
       "delivery": "inhaled",
-      "damage_or_effect": "unconsciousness",
-      "onset": "1D3 rounds"
+      "damage_or_effect": "no damage (unconsciousness 1 hour)",
+      "onset": "1 round",
+      "note": "Unconsciousness for 1 hour."
+    },
+    "Cobra Venom": {
+      "delivery": "injury",
+      "damage_or_effect": "4D10 HP",
+      "onset": "15 to 60 minutes",
+      "note": "Convulsions, respiratory failure. Serum can prevent death."
+    },
+    "Curare": {
+      "delivery": "injury",
+      "damage_or_effect": "4D10 HP",
+      "onset": "1 round",
+      "note": "Muscular paralysis, respiratory failure. Harmless if ingested."
+    },
+    "Cyanide": {
+      "delivery": "ingested or inhaled",
+      "damage_or_effect": "4D10 HP",
+      "onset": "1 to 15 minutes",
+      "note": "Dizziness, convulsions, fainting, death."
+    },
+    "Rattlesnake Venom": {
+      "delivery": "injury",
+      "damage_or_effect": "2D10 HP",
+      "onset": "6 to 24 hours",
+      "note": "Vomiting, violent spasms, yellowish vision."
+    },
+    "Rohypnol": {
+      "delivery": "ingested",
+      "damage_or_effect": "no damage (unconsciousness 4-8 hours)",
+      "onset": "15 to 30 minutes",
+      "note": "Unconsciousness for 4-8 hours, possible amnesia."
+    },
+    "Strychnine": {
+      "delivery": "ingested",
+      "damage_or_effect": "4D10 HP",
+      "onset": "10 to 20 minutes",
+      "note": "Violent muscle contractions, asphyxiation, death."
     }
   }
 }
