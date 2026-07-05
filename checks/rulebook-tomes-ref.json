@@ -1,0 +1,915 @@
+{
+  "source_note": "Authoritative Mythos Tomes table from Keeper Rulebook p237-240 (MinerU OCR).",
+  "tomes": {
+    "Al Azif": {
+      "language": "Arabic",
+      "date": "c.730",
+      "author": "Abdul al-Hazrad",
+      "full_study_weeks": 68,
+      "sanity_cost": "2D10",
+      "cthulhu_mythos_initial": 6,
+      "cthulhu_mythos_full": 12,
+      "mythos_rating": 54
+    },
+    "Azathoth and Others": {
+      "language": "English",
+      "date": "1919",
+      "author": "Edward Derby",
+      "full_study_weeks": 1,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Black Book of the Skull": {
+      "language": "Greek",
+      "date": "",
+      "author": "J&#x27;cak Igguratian",
+      "full_study_weeks": 29,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 18
+    },
+    "Black God of Madness": {
+      "language": "English",
+      "date": "1930s",
+      "author": "Amadaeus Carson",
+      "full_study_weeks": 7,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Black Rites": {
+      "language": "Egyptian",
+      "date": "",
+      "author": "Luveh-Keraphf",
+      "full_study_weeks": 41,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 33
+    },
+    "Black Sutra": {
+      "language": "Burmese",
+      "date": "c. 700",
+      "author": "U Pao",
+      "full_study_weeks": 18,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 15
+    },
+    "Black Tome": {
+      "language": "Latin",
+      "date": "",
+      "author": "Alsophocus",
+      "full_study_weeks": 37,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 7,
+      "mythos_rating": 30
+    },
+    "Book of Dzyan": {
+      "language": "English",
+      "date": "",
+      "author": "unknown",
+      "full_study_weeks": 14,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 27
+    },
+    "Book of Eibon": {
+      "language": "English",
+      "date": "15th C.",
+      "author": "unknown",
+      "full_study_weeks": 32,
+      "sanity_cost": "2D4",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 33
+    },
+    "Book of Iod": {
+      "language": "English trans.",
+      "date": "",
+      "author": "Johann Negus",
+      "full_study_weeks": 10,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Book of Skelos": {
+      "language": "Aklo",
+      "date": "",
+      "author": "unknown",
+      "full_study_weeks": 54,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 7,
+      "mythos_rating": 30
+    },
+    "Cabala of Saboth": {
+      "language": "Greek",
+      "date": "1686",
+      "author": "unknown",
+      "full_study_weeks": 16,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 9
+    },
+    "Celaeno Fragments": {
+      "language": "English",
+      "date": "1915",
+      "author": "Laban Shrewsbury",
+      "full_study_weeks": 15,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 27
+    },
+    "Chronike von Nath": {
+      "language": "German",
+      "date": "",
+      "author": "Rudolf Yergler",
+      "full_study_weeks": 22,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 18
+    },
+    "Confessions of the Mad Monk Clithanus": {
+      "language": "Latin",
+      "date": "c. 400",
+      "author": "Clithanus",
+      "full_study_weeks": 29,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 27
+    },
+    "Cthaat Aquadingen": {
+      "language": "Latin",
+      "date": "11-12th C.",
+      "author": "unknown",
+      "full_study_weeks": 46,
+      "sanity_cost": "2D8",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 9,
+      "mythos_rating": 39
+    },
+    "Cthulhu in the Necronomicon": {
+      "language": "English",
+      "date": "1915",
+      "author": "Laban Shrewsbury",
+      "full_study_weeks": 14,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 18
+    },
+    "Cthonic Revelations": {
+      "language": "Laotian",
+      "date": "",
+      "author": "Thanang Phram",
+      "full_study_weeks": 18,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 5,
+      "mythos_rating": 21
+    },
+    "Cultes des Goules": {
+      "language": "French",
+      "date": "1702",
+      "author": "Francois-Honore Balfour",
+      "full_study_weeks": 22,
+      "sanity_cost": "1D10",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 36
+    },
+    "Daemonolatreia": {
+      "language": "English",
+      "date": "1595",
+      "author": "Remigius",
+      "full_study_weeks": 28,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 24
+    },
+    "De Vermiis Mysteriis": {
+      "language": "Latin",
+      "date": "1542",
+      "author": "Ludwig Prinn",
+      "full_study_weeks": 48,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 36
+    },
+    "Dhol Chants": {
+      "language": "German",
+      "date": "1890s",
+      "author": "Heinrich Zimmerman",
+      "full_study_weeks": 17,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 5,
+      "mythos_rating": 21
+    },
+    "Dwellers in the Depths": {
+      "language": "French",
+      "date": "",
+      "author": "Gaston Le Fé",
+      "full_study_weeks": 12,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 24
+    },
+    "Eltdown Shards": {
+      "language": "English",
+      "date": "1912",
+      "author": "Arthur B Winters-Hall",
+      "full_study_weeks": 6,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 33
+    },
+    "Ethics of Ygor": {
+      "language": "Latin",
+      "date": "",
+      "author": "unknown",
+      "full_study_weeks": 13,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Fischbuch": {
+      "language": "German",
+      "date": "1598",
+      "author": "Konrad von Gerner",
+      "full_study_weeks": 8,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 9
+    },
+    "Fourth Book of D'harsis": {
+      "language": "English",
+      "date": "",
+      "author": "D'harsis",
+      "full_study_weeks": 42,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 33
+    },
+    "Geph Transcriptions": {
+      "language": "English",
+      "date": "",
+      "author": "unknown",
+      "full_study_weeks": 20,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 5,
+      "mythos_rating": 21
+    },
+    "G'harne Fragments": {
+      "language": "English",
+      "date": "",
+      "author": "Amery Wendy- Smith",
+      "full_study_weeks": 12,
+      "sanity_cost": "1D10",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 7,
+      "mythos_rating": 30
+    },
+    "Ghorl Nigral": {
+      "language": "Muvian",
+      "date": "",
+      "author": "Naacal Zakuba",
+      "full_study_weeks": 46,
+      "sanity_cost": "2D8",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 10,
+      "mythos_rating": 42
+    },
+    "Green Book": {
+      "language": "English",
+      "date": "",
+      "author": "unknown",
+      "full_study_weeks": 50,
+      "sanity_cost": "2D8",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 9,
+      "mythos_rating": 39
+    },
+    "Hydrophinnae": {
+      "language": "Latin",
+      "date": "",
+      "author": "Mr. Gantley",
+      "full_study_weeks": 7,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 9
+    },
+    "Ilarnek Papyri": {
+      "language": "English",
+      "date": "",
+      "author": "unknown",
+      "full_study_weeks": 15,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 18
+    },
+    "In Pressured Places": {
+      "language": "English",
+      "date": "",
+      "author": "Hartrack",
+      "full_study_weeks": 3,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 15
+    },
+    "Invocations to Dagon": {
+      "language": "English",
+      "date": "",
+      "author": "Asaph Waite",
+      "full_study_weeks": 16,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 27
+    },
+    "Johansen Narrative": {
+      "language": "English",
+      "date": "",
+      "author": "Gustaf Johansen",
+      "full_study_weeks": 6,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "King in Yellow, The": {
+      "language": "English",
+      "date": "1895",
+      "author": "unknown",
+      "full_study_weeks": 1,
+      "sanity_cost": "1D10",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 15
+    },
+    "Legends of Liqualia": {
+      "language": "English",
+      "date": "",
+      "author": "Oswald",
+      "full_study_weeks": 9,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Liber Damnatus Damnationum": {
+      "language": "English",
+      "date": "1647",
+      "author": "Janus Aquaticus",
+      "full_study_weeks": 34,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 7,
+      "mythos_rating": 30
+    },
+    "Liber Ivonis": {
+      "language": "Latin",
+      "date": "9th C.",
+      "author": "Caius Phillipus",
+      "full_study_weeks": 36,
+      "sanity_cost": "2D4",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 9,
+      "mythos_rating": 39
+    },
+    "Life of Eibon": {
+      "language": "French",
+      "date": "",
+      "author": "Cyron",
+      "full_study_weeks": 8,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 9
+    },
+    "Livre D'Ivon Magic and the Black Arts": {
+      "language": "French",
+      "date": "13th .",
+      "author": "Gaspard du Nord",
+      "full_study_weeks": 36,
+      "sanity_cost": "2D4",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 36
+    },
+    "Marvels of Science": {
+      "language": "English",
+      "date": "",
+      "author": "Kane",
+      "full_study_weeks": 12,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 15
+    },
+    "Massa di Requiem": {
+      "language": "English Italian",
+      "date": "1768",
+      "author": "Morryster B Chieti",
+      "full_study_weeks": "11 2",
+      "sanity_cost": "1D4 1D6",
+      "cthulhu_mythos_initial": "+1 +1",
+      "cthulhu_mythos_full": "+2 +3",
+      "mythos_rating": "9 12"
+    },
+    "Per Shuggay": {
+      "language": "",
+      "date": "",
+      "author": "Brodighera",
+      "full_study_weeks": "",
+      "sanity_cost": "",
+      "cthulhu_mythos_initial": "",
+      "cthulhu_mythos_full": "",
+      "mythos_rating": ""
+    },
+    "Monstres and their Kynde Mum-Rath Papyri": {
+      "language": "English",
+      "date": "16th C.",
+      "author": "unknown",
+      "full_study_weeks": 36,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 24
+    },
+    "Naacal Key": {
+      "language": "Latin",
+      "date": "",
+      "author": "Ibn Shoddathua",
+      "full_study_weeks": 10,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Nameless Cults": {
+      "language": "English",
+      "date": "1845",
+      "author": "unknown",
+      "full_study_weeks": 48,
+      "sanity_cost": "2D8",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 36
+    },
+    "Necrolatry Necronomicon": {
+      "language": "German",
+      "date": "1702 c.950",
+      "author": "Ivor Gorstadt Theodoras Philetas",
+      "full_study_weeks": 20,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 36
+    },
+    "Necronomicon": {
+      "language": "Latin",
+      "date": "1228",
+      "author": "Olaus Wormius John Dee",
+      "full_study_weeks": 66,
+      "sanity_cost": "2D10 2D10",
+      "cthulhu_mythos_initial": "+5 +5",
+      "cthulhu_mythos_full": "+11 +10",
+      "mythos_rating": 45
+    },
+    "Night-Gaunt": {
+      "language": "English",
+      "date": "1586",
+      "author": "",
+      "full_study_weeks": 50,
+      "sanity_cost": "",
+      "cthulhu_mythos_initial": "",
+      "cthulhu_mythos_full": "",
+      "mythos_rating": ""
+    },
+    "The Occult Foundation": {
+      "language": "English English",
+      "date": "c. 1980",
+      "author": "Edgar Gordon J. C. Wassermann",
+      "full_study_weeks": "4 16",
+      "sanity_cost": "1D3 1D6",
+      "cthulhu_mythos_initial": "0 +1",
+      "cthulhu_mythos_full": "+1 +4",
+      "mythos_rating": "3 15"
+    },
+    "Of Evil Sorceries Done in New": {
+      "language": "English",
+      "date": "c.1600",
+      "author": "unknown",
+      "full_study_weeks": 9,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "England Othuum Omnicia": {
+      "language": "",
+      "date": "",
+      "author": "",
+      "full_study_weeks": "",
+      "sanity_cost": "",
+      "cthulhu_mythos_initial": "",
+      "cthulhu_mythos_full": "",
+      "mythos_rating": ""
+    },
+    "Parchments of Pnom": {
+      "language": "Latin Hyperborean",
+      "date": "",
+      "author": "unknown Pnom",
+      "full_study_weeks": "12 31",
+      "sanity_cost": "1D4 2D6",
+      "cthulhu_mythos_initial": "+1 +3",
+      "cthulhu_mythos_full": "+2 +8",
+      "mythos_rating": "9 33"
+    },
+    "People of the Monolith": {
+      "language": "English",
+      "date": "1926",
+      "author": "Justin Geoffrey",
+      "full_study_weeks": 1,
+      "sanity_cost": "1D3",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 9
+    },
+    "Pnakotic Manuscripts": {
+      "language": "English",
+      "date": "15th C.",
+      "author": "unknown",
+      "full_study_weeks": 45,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 7,
+      "mythos_rating": 30
+    },
+    "Polynesian Mythology withaoteon the Cthulhu Legend-Cycle": {
+      "language": "English",
+      "date": "1906",
+      "author": "Harold H. Copeland",
+      "full_study_weeks": 8,
+      "sanity_cost": "1D3",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 9
+    },
+    "Ponape Scripture": {
+      "language": "",
+      "date": "1734",
+      "author": "Abner Ezekiel",
+      "full_study_weeks": 10,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 15
+    },
+    "Prehistoric Pacific in the Light of the Ponape Scripture": {
+      "language": "English",
+      "date": "1911",
+      "author": "Harold H. Copeland",
+      "full_study_weeks": 7,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Prehistory in the Pacific: A Preliminary Investigation": {
+      "language": "English",
+      "date": "1902",
+      "author": "Harold H. Copeland",
+      "full_study_weeks": 4,
+      "sanity_cost": "1D2",
+      "cthulhu_mythos_initial": 0,
+      "cthulhu_mythos_full": 1,
+      "mythos_rating": 3
+    },
+    "Reflections": {
+      "language": "English",
+      "date": "",
+      "author": "Ibn Schacabao",
+      "full_study_weeks": 27,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 24
+    },
+    "Remnants of Lost Empires": {
+      "language": "German",
+      "date": "1809",
+      "author": "Otto Dostmann",
+      "full_study_weeks": 5,
+      "sanity_cost": "1D3",
+      "cthulhu_mythos_initial": 0,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 6
+    },
+    "Revelations of Gla'aki": {
+      "language": "English",
+      "date": "1842",
+      "author": "various authors",
+      "full_study_weeks": 32,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 5,
+      "cthulhu_mythos_full": 10,
+      "mythos_rating": 45
+    },
+    "Revelations of Hali": {
+      "language": "English",
+      "date": "1913",
+      "author": "E. S. Bayrolles",
+      "full_study_weeks": 5,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "R'lyeh Text": {
+      "language": "Chinese",
+      "date": "c. 300",
+      "author": "unknown",
+      "full_study_weeks": 54,
+      "sanity_cost": "2D8",
+      "cthulhu_mythos_initial": 5,
+      "cthulhu_mythos_full": 10,
+      "mythos_rating": 45
+    },
+    "Saducismus Triumphatus": {
+      "language": "English",
+      "date": "1681",
+      "author": "Joseph Glanvill",
+      "full_study_weeks": 6,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Sapientia Maglorum": {
+      "language": "Latin",
+      "date": "",
+      "author": "Ostanes",
+      "full_study_weeks": 40,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 7,
+      "mythos_rating": 30
+    },
+    "Saracenic Rituals": {
+      "language": "English",
+      "date": "19th C.",
+      "author": "Clergyman X",
+      "full_study_weeks": 6,
+      "sanity_cost": "1D3",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 9
+    },
+    "Secret Mysteries of Asia, with a Commentary on the": {
+      "language": "German",
+      "date": "1847",
+      "author": "Gotfried Mulder",
+      "full_study_weeks": 16,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 5,
+      "mythos_rating": 21
+    },
+    "Ghorl Nigral Secret Watcher, The": {
+      "language": "English",
+      "date": "",
+      "author": "Halpin Chalmers",
+      "full_study_weeks": 10,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Seven Cryptical Books of Hsan": {
+      "language": "Chinese",
+      "date": "2nd C.",
+      "author": "Hsan the Greater",
+      "full_study_weeks": 40,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 24
+    },
+    "Song of Yste": {
+      "language": "Greek",
+      "date": "",
+      "author": "Dirka Family",
+      "full_study_weeks": 11,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 15
+    },
+    "Soul of Chaos": {
+      "language": "English",
+      "date": "",
+      "author": "Edgar Gordon",
+      "full_study_weeks": 7,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Sussex Manuscript": {
+      "language": "English",
+      "date": "1597",
+      "author": "Baron Frederic",
+      "full_study_weeks": 36,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 5,
+      "mythos_rating": 21
+    },
+    "Testament of Carnamagos": {
+      "language": "Greek",
+      "date": "12th C.",
+      "author": "Carnamagos",
+      "full_study_weeks": 23,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 18
+    },
+    "Thaumaturgical Prodigies in the New-England Canaan": {
+      "language": "English",
+      "date": "1788",
+      "author": "Ward Philips",
+      "full_study_weeks": 8,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "True Magick": {
+      "language": "English",
+      "date": "17th C.",
+      "author": "Theophilus Wenn",
+      "full_study_weeks": 24,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 18
+    },
+    "Tunneler Below, The": {
+      "language": "English",
+      "date": "1936",
+      "author": "Georg Reuter",
+      "full_study_weeks": 2,
+      "sanity_cost": "1D3",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 9
+    },
+    "Tuscan Rituals": {
+      "language": "Italian",
+      "date": "",
+      "author": "unknown",
+      "full_study_weeks": 3,
+      "sanity_cost": "1D3",
+      "cthulhu_mythos_initial": 0,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 6
+    },
+    "Unaussprechlichen Kulten": {
+      "language": "German",
+      "date": "1839",
+      "author": "F W von Junzt",
+      "full_study_weeks": 52,
+      "sanity_cost": "2D8",
+      "cthulhu_mythos_initial": 5,
+      "cthulhu_mythos_full": 10,
+      "mythos_rating": 45
+    },
+    "Unter Zee Kulten": {
+      "language": "German",
+      "date": "17th C.",
+      "author": "Graf Gauberg",
+      "full_study_weeks": 17,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 18
+    },
+    "Uralteschrecken": {
+      "language": "German",
+      "date": "19th C.",
+      "author": "Graf von Konnenberg",
+      "full_study_weeks": 22,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 18
+    },
+    "Visions from Yaddith": {
+      "language": "English",
+      "date": "1927",
+      "author": "Ariel Prescott",
+      "full_study_weeks": 1,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Von denen Verdammten Oder": {
+      "language": "German",
+      "date": "",
+      "author": "Karaj Heinz Vogel",
+      "full_study_weeks": 24,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 36
+    },
+    "Von denen Verdammten": {
+      "language": "German (repr.)",
+      "date": "1907",
+      "author": "Edith Brendall",
+      "full_study_weeks": 10,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 15
+    },
+    "Watchers on the Other Side": {
+      "language": "English",
+      "date": "1940s",
+      "author": "Nayland Colum",
+      "full_study_weeks": 2,
+      "sanity_cost": "1D4",
+      "cthulhu_mythos_initial": 0,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 9
+    },
+    "We Pass from View": {
+      "language": "English",
+      "date": "1964",
+      "author": "Roland Franklyn",
+      "full_study_weeks": 1,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Yhe Ritual": {
+      "language": "Egyptian",
+      "date": "",
+      "author": "Niggoum-Zhog",
+      "full_study_weeks": 14,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 27
+    },
+    "Yuggya Chants": {
+      "language": "English",
+      "date": "",
+      "author": "Unknown",
+      "full_study_weeks": 11,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12
+    },
+    "Zanthu Tablets": {
+      "language": "English",
+      "date": "1916",
+      "author": "H Hadley Copeland",
+      "full_study_weeks": 8,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 9
+    }
+  }
+}

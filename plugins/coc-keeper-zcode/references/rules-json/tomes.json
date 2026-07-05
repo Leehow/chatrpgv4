@@ -118,7 +118,8 @@
       "sanity_cost": "2D8",
       "cthulhu_mythos_initial": 4,
       "cthulhu_mythos_full": 9,
-      "mythos_rating": 39
+      "mythos_rating": 39,
+      "note": "Latin 11-12th C. version (MR 39, 2D8, +4/+9, 46w). English 14th C. version exists: MR 18, 2D4, +2/+4, 29w."
     },
     "Cthulhu in the Necronomicon": {
       "full_study_weeks": 14,
@@ -542,7 +543,7 @@
     },
     "Revelations of Gla'aki": {
       "full_study_weeks": 32,
-      "sanity_cost": "2D6",
+      "sanity_cost": "2D8",
       "cthulhu_mythos_initial": 5,
       "cthulhu_mythos_full": 10,
       "mythos_rating": 45
