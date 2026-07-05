@@ -74,13 +74,13 @@
       "uses_per_round": "1",
       "magazine": null,
       "malfunction": 95,
-      "impales": false,
+      "impales": true,
       "adds_damage_bonus": true,
       "special": "awkward: double fumble chance; fumble causes 2D8 to user",
       "eras": [
         "modern"
       ],
-      "damage_type": "normal"
+      "damage_type": "impale"
     },
     "club_small": {
       "display_name": "Club, small (nightstick)",
@@ -124,14 +124,14 @@
       "uses_per_round": "1",
       "magazine": null,
       "malfunction": null,
-      "impales": false,
+      "impales": true,
       "adds_damage_bonus": true,
       "special": "victim must maneuver to escape or take 1D6/round; humanoids only",
       "eras": [
         "1920s",
         "modern"
       ],
-      "damage_type": "normal"
+      "damage_type": "impale"
     },
     "hatchet": {
       "display_name": "Hatchet/Sickle",
@@ -609,14 +609,14 @@
       "uses_per_round": "1",
       "magazine": null,
       "malfunction": null,
-      "impales": false,
+      "impales": true,
       "adds_damage_bonus": true,
       "special": null,
       "eras": [
         "1920s",
         "modern"
       ],
-      "damage_type": "normal"
+      "damage_type": "impale"
     },
     "taser": {
       "display_name": "Taser (dart)",
@@ -970,13 +970,13 @@
       "uses_per_round": "1 (2)",
       "magazine": 7,
       "malfunction": 100,
-      "impales": true,
+      "impales": false,
       "adds_damage_bonus": false,
       "special": "range-banded: 4D6/2D6/1D6",
       "eras": [
         "modern"
       ],
-      "damage_type": "impale"
+      "damage_type": "normal"
     },
     "12_gauge_spas": {
       "display_name": "12-gauge SPAS (folding stock)",
@@ -986,13 +986,13 @@
       "uses_per_round": "1",
       "magazine": 8,
       "malfunction": 98,
-      "impales": true,
+      "impales": false,
       "adds_damage_bonus": false,
       "special": "range-banded: 4D6/2D6/1D6",
       "eras": [
         "modern"
       ],
-      "damage_type": "impale"
+      "damage_type": "normal"
     },
     "ak_47_or_akm": {
       "display_name": "AK-47 or AKM",

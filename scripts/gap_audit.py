@@ -510,6 +510,64 @@ def audit_weapon_db_flags(root: Path) -> list[str]:
     return gaps
 
 
+# Rulebook p405-406 authoritative impale rules:
+#   "Rifles and handguns can impale, however shotguns cannot"
+#   "(i) marks a weapon which can impale"
+# Firearms impale by category (except shotguns); specific melee weapons
+# are marked (i) in Table XVII. Bow/arrow and Sword heavy are NOT marked.
+_IMPALE_MELEE_NAMES = {
+    "knife", "sword, medium", "sword, light", "rapier", "epee", "foil",
+    "spear", "dagger", "hatchet", "sickle", "axe", "shuriken",
+    "crossbow", "garrote", "chainsaw", "switchblade", "machete",
+    "cavalry lance", "wood axe",
+}
+
+
+def audit_weapon_damage_type(root: Path) -> list[str]:
+    """Section D: damage_type must match rulebook impale rules (p405-406).
+
+    - Firearms (handgun/rifle/SMG/MG/Heavy/Bow): impale
+    - Firearms (shotgun): normal (cannot impale)
+    - Fighting weapons in _IMPALE_MELEE_NAMES: impale
+    - Other Fighting weapons: normal
+    - burn/stun weapons: keep their type
+    """
+    gaps = []
+    try:
+        w = _load_table(root, "weapons").get("weapons", {})
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        return [f"[D] weapons.json: UNREADABLE ({e})"]
+    for key, row in w.items():
+        dtype = str(row.get("damage_type", ""))
+        skill = str(row.get("skill", "")).lower()
+        name = str(row.get("display_name", key)).lower()
+        if dtype in ("burn", "stun"):
+            continue  # status weapons, no impale check
+        # determine expected
+        # Shotguns (by name) cannot impale; rifles/handguns can.
+        is_shotgun = "shotgun" in name or ("shotgun" in skill and "rifle" not in name)
+        if is_shotgun:
+            expected = "normal"
+        elif skill.startswith("firearms"):
+            # Bow/arrow is NOT impale (rulebook has no (i) marker for it)
+            if "bow" in skill and "crossbow" not in name:
+                expected = "normal"
+            else:
+                expected = "impale"
+        elif skill.startswith("fighting"):
+            expected = "impale" if any(n in name for n in _IMPALE_MELEE_NAMES) else "normal"
+        elif "throw" in skill:
+            expected = "impale" if any(n in name for n in ("spear", "shuriken")) else "normal"
+        else:
+            continue  # demolitions/artillery/etc — skip
+        if dtype != expected:
+            gaps.append(
+                f"[D] weapons {key}: damage_type='{dtype}' expected '{expected}' "
+                f"(skill={row.get('skill')}, name={row.get('display_name','')[:40]})"
+            )
+    return gaps
+
+
 def _norm_stat(v) -> str:
     """Normalize a stat value to a comparable string token."""
     if v is None:
@@ -695,6 +753,7 @@ def main() -> int:
     all_gaps += audit_teamwork(root)
     all_gaps += audit_bout_content(root)
     all_gaps += audit_weapon_db_flags(root)
+    all_gaps += audit_weapon_damage_type(root)
     all_gaps += audit_monster_stats(root, project)
     all_gaps += audit_monster_san_loss(root, project)
     all_gaps += audit_monster_armor(root, project)
