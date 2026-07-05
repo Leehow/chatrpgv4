@@ -1,12 +1,117 @@
 # COC Story Director — 剧情编排层设计蓝图
 
 **Date:** 2026-07-05
-**Status:** Blueprint (待实现)
-**Scope:** 在现有规则层之上新增隐藏的剧情编排层 `coc-story-director`：`SKILL.md` + `coc_story_director.py` + `coc_memory.py` + `coc_story_harness.py`，以及模组"剧情图"文件 schema、记忆分层方案、GM 质量 harness 评测项。目标是让 LGM 从"规则检索器"变成"有导演脑的 KP"。
+**Status:** 设计进行中（brainstorming → 已确认方案 A，正在分章节定稿）
+**Scope:** 在现有规则层之上新增隐藏的剧情编排层 `coc-story-director`：`SKILL.md` + `coc_story_director.py` + `coc_rule_signals.py` + `coc_story_harness.py`，以及模组"剧情图"文件 schema、规则状态→剧情信号映射、GM 质量 harness 评测项。目标是让插件从"规则检索器"变成"有导演脑的 KP"。
+
+> **本文件是本任务的唯一真相源（single source of truth）。** 下文两部分：
+> - **[A] 决策台账与进度** —— 每次确认一个决策就更新这里。上下文被压缩/腐烂时，先读本节找回定位。
+> - **[B] 原始设计讨论** —— 蓝图原文，论证与背景，不轻易改动。
 
 ---
 
-> 本文件为设计蓝图原文存档，下文为设计讨论内容。
+## [A] 决策台账与进度
+
+> **使用约定：** 每完成一个设计决策或里程碑，更新对应行的 `状态`，并在 `进度日志` 追加一行。`v1 范围` 列出本轮明确做与不做的边界。
+
+### A.0 当前进度（最后更新：2026-07-05 design session）
+
+- [x] 蓝图存档（本文件 [B] 节）
+- [x] brainstorming 启动
+- [x] 范围切片确认：**闭环 + harness 验证**（不做完整记忆层/向量库）
+- [x] 集成方式确认：**独立 Python 模块 + v1 直接接 keeper-play 循环**
+- [x] 决策强度确认：**真决策**（deterministic planner 选一个导演动作，方案 A）
+- [x] harness 输入确认：**JSON profile 驱动**，放 `.coc/playtests/v7-director-smoke/profiles/`
+- [x] 模组类型调研：12 个模组归为 7 种结构原型（见 A.3）
+- [x] 规则耦合调研：22 个"规则→剧情"耦合点跨 11 域（见 A.4）
+- [ ] 设计 Section 2 定稿：DirectorPlan schema + 规则信号注入方式
+- [ ] 设计 Section 3 定稿：v1 接入哪些规则耦合点（从 22 个里选）
+- [ ] 设计 Section 4 定稿：评分规则表（按 structure_type 参数化）
+- [ ] 设计 Section 5 定稿：harness 断言项 + 验证模组选择
+- [ ] 写正式 design spec（本文件定稿后另存为 `-design.md`）
+- [ ] spec 自审 + 用户复审
+- [ ] 转 writing-plans 出实现计划
+
+### A.1 v1 范围（做 / 不做）
+
+**v1 做：**
+- `coc_story_director.py` —— deterministic planner，含 `apply_rule_signals()` / `score_scene_options()` / `write_director_plan()`
+- `coc_rule_signals.py` —— 22 耦合点中 v1 选定子集的"规则状态→剧情信号"纯函数映射（独立可测）
+- `coc-story-director/SKILL.md` —— 内部顾问 skill
+- `coc-keeper-play/SKILL.md` —— **改循环**，接入 director（端到端打通）
+- `coc_story_harness.py` —— GM 质量评测，走完整 keeper-play 循环
+- `references/director-protocol.md` —— DirectorPlan schema + 评分规则说明
+- 模组剧情图编译：**≥2 种结构原型**的代表模组（待 Section 5 定）
+- harness profiles：`.coc/playtests/v7-director-smoke/profiles/`，JSON 驱动
+
+**v1 不做（明确切掉，留给后续轮次）：**
+- 完整记忆层：semantic-cards 检索打分、向量库、embeddings（DirectorPlan 的 `memory_reads/writes` 字段先留 schema，v1 只读 session-summaries 或留空）
+- 其余 10 个模组的剧情图编译
+- LLM 兜底分支（director 全 deterministic，符合蓝图"第一版不用 LLM 也能工作"）
+- 完整 22 耦合点实现（v1 只选高价值子集，见 A.4 / Section 3）
+
+### A.2 已确认架构决策
+
+| 决策点 | 选择 | 理由 |
+|---|---|---|
+| 方案形态 | **A：规则优先级 + 评分表** | 完全可测，符合"deterministic planner"主张；B 状态机违背 prep-situations，C LLM 兜底破坏可测性 |
+| director 与规则层关系 | **读规则状态**（只读），通过 `coc_rule_signals.py` 转成剧情信号 | 规则状态（hp/san/cr/luck...）反向影响剧情决策，不能脱离规则层独立存在 |
+| 集成方式 | **独立模块 + v1 直接接 keeper-play 循环** | 像 coc_combat 一样可独立测；用户要求直接测端到端 |
+| 决策强度 | **真决策**：每回合选一个导演动作 | 符合蓝图核心算法主张 |
+| harness 形态 | **JSON profile 驱动 + 端到端走 keeper-play** | 与现有 v1-v6 playtest 形态一致 |
+| 模组鲁棒性 | **按 structure_type 参数化评分权重** | 7 种结构原型，单一假设会失败 |
+| 记忆层 | **v1 不做**，schema 留位 | 避免范围爆炸 |
+
+### A.3 模组类型分布（12 模组 → 7 结构原型）
+
+调研对象：`/Users/haoli/leehow/code/chatrpgv4/pdf/model/` 12 个 PDF。
+
+| 结构原型 | 代表模组 | director 核心能力需求 |
+|---|---|---|
+| 线性/分幕 | Cursed Be the City, King of Shreds | scene 顺序推进 |
+| 时间循环 | An Amaranthine Desire | 跨迭代记忆/知识状态 |
+| 分支调查（线索沙盒） | Cold Harvest, Dust to Dust | 无序线索图、lead graph |
+| 据点式地点沙盒 | 人煎百味, Garden of Earthly Delights | 地点列表、自由移动、地点触发场景 |
+| 多阵营政治网 | They Did Not Think It Too Many | 阵营关系模型、社交解决路径 |
+| 战役续作 | Herald of the Yellow King | 跨模组状态、前作角色回调 |
+| 混合巨结构 | 血色公路（111 页） | 沙盒+时间线+地城 全部组合 |
+
+非场景资料书 1 个：黑暗时代的哈斯塔崇拜（Coven vs Court 分类法 → 可当阵营生成器）。
+
+**设计约束：** director 评分规则表必须按 `structure_type` 选权重；`血色公路` 是终极压力测试。
+
+### A.4 规则→剧情耦合点（22 个，跨 11 域）
+
+调研对象：Keeper Rulebook 40th Anniversary 全 465 页。详见正式 spec 的耦合明细表。v1 优先级：
+
+| 优先级 | 耦合点 | 域 | 规则书页 | 现状 |
+|---|---|---|---|---|
+| ⭐⭐⭐ | APP/CR NPC 反应检定（concealed roll 设 NPC 情绪） | A2 | p.191 | 完全没实现 |
+| ⭐⭐⭐ | Idea Roll 卡住恢复阀（成功给线索/失败 in medias res） | I1 | p.199 | 完全没实现 |
+| ⭐⭐ | Credit Rating 分层→场景准入/NPC 态度 | A1 | p.45-47 | 有数据，无剧情映射 |
+| ⭐⭐ | Major Wound/Dying/Unconscious→行动约束+死亡钟 | B1-3 | p.120 | 部分（combat conditions） |
+| ⭐⭐ | 临时疯狂/疯狂发作→接管调查员+改 backstory | D1,D3 | p.155-158 | 有阈值数据+bout 表，无触发逻辑 |
+| ⭐⭐ | 大成功(01)→director 编造利好 / 大失败(96-100)→编造厄运 | C1,C2 | p.89 | 有阈值，无 director 动作 |
+| ⭐⭐ | NPC Luck pool（反派逃脱阀） | E2 | p.199 | 完全没实现 |
+| ⭐ | 失败 SAN roll→插入非自愿动作 / 恐惧症激活罚骰 | D4,D5 | p.154,159 | 有种类数据，无触发 |
+| ⭐ | Psychology 隐骰→喂假情报 | F1 | p.191 | 无 |
+| ⭐ | Pushed fail→必须更糟后果 | H1 | p.84 | 有 foreshadow 数据，无生成 |
+| ⭐ | 张力钟+"三次免死"+怪物脱敏 | K1 | p.198,209 | 无 |
+
+**v1 选定子集：待 Section 3 确认**（候选：A1/A2/B1-3/C1-2/D1/D3/I1，约 8-10 个高价值耦合）。
+
+### A.5 进度日志
+
+- `2026-07-05` 蓝图原文存档（[B] 节）
+- `2026-07-05` brainstorming 启动；确认范围=闭环+harness；集成=独立模块+接 keeper-play；决策=真决策方案 A；harness=JSON profile
+- `2026-07-05` 模组类型调研完成（7 结构原型）；规则耦合调研完成（22 耦合点/11 域）
+- `2026-07-05` 架构修订：新增 `coc_rule_signals.py` 独立模块；v1 直接改 keeper-play 循环
+
+---
+
+## [B] 原始设计讨论（蓝图原文）
+
+> 以下为初始设计讨论原文，保留作为背景论证。当前实现以 [A] 节台账为准。
 
 你这个判断是对的：**现在这个项目再补战斗、追逐、SAN、装备、魔法，本质上还是"规则器"**。规则层只能保证"不会胡判"，但跑团的灵魂不是规则，而是 **GM 如何把模组变成一场有节奏、有情绪、有选择后果的共同叙事**。
 
