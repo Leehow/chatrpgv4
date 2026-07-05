@@ -164,3 +164,42 @@ def test_rule_override_bout_forces_subsystem_sanity(tmp_path):
     overrides = coc_story_director.apply_rule_signal_overrides(ctx)
     assert overrides["scene_action"] == "SUBSYSTEM"
     assert overrides["subsystem"] == "sanity"
+
+
+def test_generate_plan_reveal_includes_clue_policy(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我检查门框", player_intent_class="investigate", rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="d1")
+    assert plan["scene_action"] == "REVEAL"
+    assert len(plan["clue_policy"]["reveal"]) >= 1
+    assert "secret-1" in plan["narrative_directives"]["must_not_reveal"]
+
+
+def test_generate_plan_has_required_fields(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="d2")
+    required = ["decision_id", "turn_input", "scene_action", "dramatic_question", "pacing_mode",
+                "tension_delta", "rule_signals", "clue_policy", "npc_moves", "pressure_moves",
+                "rules_requests", "memory_reads", "memory_writes", "narrative_directives",
+                "handoff", "rationale"]
+    for field in required:
+        assert field in plan, f"missing {field}"
+
+
+def test_generate_plan_fumble_handoff_narration(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    ctx["rule_signals"]["last_roll_fumble"] = True
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="d3")
+    assert plan["scene_action"] == "PRESSURE"
+    assert plan["handoff"] == "narration"

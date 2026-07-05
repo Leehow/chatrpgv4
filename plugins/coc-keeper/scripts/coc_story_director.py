@@ -80,6 +80,8 @@ def build_director_context(
             lost_this_event=inv_state.get("san_lost_this_event", 0),
         ),
         "credit_tier": coc_rule_signals.read_credit_tier(credit_rating),
+        "credit_rating": credit_rating,  # raw value for roll_npc_reaction
+        "app": app,  # raw value for roll_npc_reaction
         "npc_reaction_roll": None,  # populated per-NPC at scoring time
         "luck_level": coc_rule_signals.read_luck_signal(luck, pacing.get("luck_spent_last", 0))[0],
         "luck_spent_last": pacing.get("luck_spent_last", 0) > 0,
@@ -278,3 +280,148 @@ def select_action(ctx: dict[str, Any]) -> tuple[str, dict[str, float]]:
         if action in candidates:
             return action, scores
     return candidates[0], scores
+
+
+# =============================================================================
+# DirectorPlan assembly
+# =============================================================================
+
+def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
+    """Choose reveal/withhold/fallback per clue-graph."""
+    scene = ctx.get("active_scene") or {}
+    discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
+    available = [c for c in scene.get("available_clues", []) if c not in discovered]
+    secrets = ctx.get("improvisation_boundaries", {}).get("keeper_secrets", [])
+
+    reveal = available[:1] if action == "REVEAL" and available else []
+    # fallback: if stalled, pull an alternate route
+    fallback = []
+    if action == "RECOVER":
+        for concl in ctx.get("clue_graph", {}).get("conclusions", []):
+            not_found = [c["clue_id"] for c in concl.get("clues", []) if c["clue_id"] not in discovered]
+            if not_found:
+                fallback.append(not_found[0])
+                break
+    return {"reveal": reveal, "withhold": list(secrets), "fallback_routes": fallback,
+            "clue_type": "obscured"}
+
+
+def _disposition_to_tone(disposition: str) -> str:
+    return {"helpful": "warm and cooperative",
+            "neutral": "guarded but civil",
+            "hostile": "cold and suspicious"}.get(disposition, "neutral")
+
+
+def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
+    """Activate NPCs in scene with agenda + disposition from rule signal."""
+    scene = ctx.get("active_scene") or {}
+    agendas = ctx.get("npc_agendas", {}).get("npcs", [])
+    moves = []
+    for npc_id in scene.get("npc_ids", []):
+        agenda = next((n for n in agendas if n["npc_id"] == npc_id), None)
+        if not agenda:
+            continue
+        reaction = coc_rule_signals.roll_npc_reaction(
+            app=ctx["rule_signals"].get("app", 50),
+            credit_rating=ctx["rule_signals"].get("credit_rating", 50),
+            rng=ctx["rng"],
+        ) if action == "CHARACTER" else None
+        moves.append({
+            "npc_id": npc_id,
+            "agenda": agenda.get("agenda", ""),
+            "emotional_tone": _disposition_to_tone(reaction["disposition"]) if reaction else "neutral",
+            "secret_limit": f"do not reveal: {', '.join(agenda.get('secret', '').split()[:3])}" if agenda.get("secret") else "",
+            "disposition_source": "rule_signal:npc_reaction_roll" if reaction else None,
+        })
+    return moves
+
+
+def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
+    """Tick clocks when PRESSURE or stalled."""
+    moves = []
+    if action not in ("PRESSURE", "RECOVER") and ctx["rule_signals"]["stalled_turns"] < 1:
+        return moves
+    for front in ctx.get("threat_fronts", {}).get("fronts", []):
+        for clock in front.get("clocks", []):
+            current = clock.get("current_segments", 0)
+            if current < clock.get("segments", 6):
+                symptom = clock.get("on_tick_visible", ["tension rises"])
+                idx = min(current, len(symptom) - 1) if symptom else 0
+                moves.append({
+                    "clock_id": clock["clock_id"], "tick": 1,
+                    "visible_symptom": symptom[idx] if isinstance(symptom, list) and symptom else "tension rises",
+                    "reason": f"stalled_{ctx['rule_signals']['stalled_turns']}_turns" if ctx["rule_signals"]["stalled_turns"] else "pressure_action",
+                })
+                break
+        if moves:
+            break
+    return moves
+
+
+def _build_rules_requests(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
+    """Request skill checks only when justified."""
+    if action == "SUBSYSTEM":
+        sig = ctx["rule_signals"]
+        if sig["bout_active"] or sig["sanity_state"] == "temp_insane":
+            return [{"kind": "sanity_check", "skill": "SAN", "reason": "bout procedure",
+                     "difficulty": "regular", "bonus_penalty_dice": 0}]
+        if sig["hp_state"] == "dying":
+            return [{"kind": "characteristic_check", "skill": "CON", "reason": "death-clock CON roll",
+                     "difficulty": "regular", "bonus_penalty_dice": 0}]
+    if action == "REVEAL":
+        # request Spot Hidden / Library Use if clue delivery requires it
+        return [{"kind": "skill_check", "skill": "Spot Hidden", "reason": "obscured clue in scene",
+                 "difficulty": "regular", "bonus_penalty_dice": 0}]
+    return []
+
+
+def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, Any]:
+    """Produce full DirectorPlan. The core output of the director."""
+    action, scores = select_action(ctx)
+    overrides = apply_rule_signal_overrides(ctx)
+    scene = ctx.get("active_scene") or {}
+
+    handoff = "narration"
+    subsystem = None
+    if overrides:
+        handoff = overrides.get("handoff", "narration")
+        subsystem = overrides.get("subsystem")
+    elif action == "SUBSYSTEM":
+        handoff = "rules"
+    elif action in ("REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "RECOVER", "PAYOFF"):
+        handoff = "rules" if _build_rules_requests(ctx, action) else "narration"
+
+    tension_delta = 1 if action in ("PRESSURE", "SUBSYSTEM") else (0 if action in ("REVEAL", "DEEPEN", "RECOVER") else -1)
+
+    narrative_directives = {
+        "tone": scene.get("tone", []),
+        "must_include": [],
+        "must_not_reveal": ctx.get("improvisation_boundaries", {}).get("keeper_secrets", []),
+        "improvisation_allowed": ctx.get("improvisation_boundaries", {}).get("invent_allowed", []),
+        "horror_escalation_stage": "wrongness",  # v1 static; pacing-map drives in v2
+    }
+
+    return {
+        "decision_id": decision_id,
+        "turn_input": {
+            "player_intent": ctx["player_intent"],
+            "player_intent_class": ctx["player_intent_class"],
+            "active_scene_id": ctx["active_scene_id"],
+            "turn_number": ctx["turn_number"],
+        },
+        "scene_action": action,
+        "subsystem": subsystem,
+        "dramatic_question": scene.get("dramatic_question", ""),
+        "pacing_mode": "investigation" if action in ("REVEAL", "DEEPEN") else ("pressure" if action == "PRESSURE" else "social"),
+        "tension_delta": tension_delta,
+        "rule_signals": ctx["rule_signals"],
+        "clue_policy": _select_clue_policy(ctx, action),
+        "npc_moves": _build_npc_moves(ctx, action),
+        "pressure_moves": _build_pressure_moves(ctx, action),
+        "rules_requests": _build_rules_requests(ctx, action),
+        "memory_reads": [],
+        "memory_writes": [],
+        "narrative_directives": narrative_directives,
+        "handoff": handoff,
+        "rationale": overrides["rationale"] if overrides else f"top-scored action {action} (score={scores.get(action, 0)})",
+    }
