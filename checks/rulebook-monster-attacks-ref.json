@@ -1,0 +1,13 @@
+{
+  "source_note": "Authoritative monster primary-attack damage dice from Keeper Rulebook Ch.14 stat blocks. Verified by reading the 'Fighting NN%, damage X' line. Our monsters.json attacks[0] is the primary attack; its damage should match (with '+DB' normalized to '+damage bonus' equivalence). Only monsters whose rulebook Fighting damage is a clean dice expression are listed; special attacks (death, STR/CON drain, swallow, stun) are not comparable as a single die and are excluded.",
+  "attacks": {
+    "Byakhee": "1D6+DB",
+    "Deep One": "1D6+DB",
+    "Formless Spawn": "2D6+DB",
+    "Ghast": "1D6+DB",
+    "Ghoul": "1D6+DB",
+    "Gnoph-Keh": "1D6+DB",
+    "Hunting Horror": "1D6+DB",
+    "Cthulhu": "1D6+DB"
+  }
+}

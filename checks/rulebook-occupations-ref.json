@@ -1,0 +1,33 @@
+{
+  "source_note": "Authoritative occupation credit_rating_range from Keeper Rulebook Sample Occupations (printed p40-41, PDF idx 51-52). Each occupation lists 'Credit Rating: X-Y'. Verified by reading the ordered Credit Rating lines. Range is [low, high] inclusive.",
+  "occupations": {
+    "Antiquarian": [30, 70],
+    "Artist": [9, 50],
+    "Athlete": [9, 70],
+    "Author": [9, 30],
+    "Clergy": [9, 60],
+    "Criminal": [5, 65],
+    "Dilettante": [50, 99],
+    "Doctor of Medicine": [30, 80],
+    "Drifter": [0, 5],
+    "Engineer": [30, 60],
+    "Entertainer": [9, 70],
+    "Farmer": [9, 30],
+    "Hacker": [10, 70],
+    "Journalist": [9, 30],
+    "Lawyer": [30, 80],
+    "Librarian": [9, 35],
+    "Military Officer": [20, 70],
+    "Missionary": [0, 30],
+    "Musician": [9, 30],
+    "Parapsychologist": [9, 30],
+    "Pilot": [20, 70],
+    "Police Detective": [20, 50],
+    "Police Officer": [9, 30],
+    "Private Investigator": [9, 30],
+    "Professor": [20, 70],
+    "Soldier": [9, 30],
+    "Tribe Member": [0, 15],
+    "Zealot": [0, 30]
+  }
+}

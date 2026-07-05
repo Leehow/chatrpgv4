@@ -23,87 +23,752 @@
     "max_cannot_exceed_pow_divided_5": true
   },
   "spells": [
-    {"name": "Apportion Ka", "alternative_names": ["Imbue Essence","Extraction of the Will","The Deathless Breath"], "cost_mp": "10", "cost_pow": "5", "cost_sanity": "2D10", "description": "Transfer life essence into a vital organ for safekeeping, granting invulnerability.", "source_page": 246},
-    {"name": "Banishment of Yde Etad", "alternative_names": [], "cost_mp": "1D4+3", "cost_sanity": "1D4", "description": "Sends trans-dimensional human-like intelligences home.", "source_page": 247},
-    {"name": "Bless Blade", "alternative_names": [], "cost_mp": "0", "cost_pow": "5", "cost_sanity": "1D4", "description": "Enchants a blade to deal magical damage.", "source_page": 247},
-    {"name": "Body Warping of Gorgoroth", "alternative_names": [], "cost_mp": "6+", "cost_pow": "5", "cost_sanity": "2D6", "description": "Reshapes the body of a victim into a grotesque form.", "source_page": 247},
-    {"name": "Breath of the Deep", "alternative_names": [], "cost_mp": "8", "cost_sanity": "1D6", "description": "Causes the victim to grow gills and breathe water.", "source_page": 247},
-    {"name": "Brew Space Mead", "alternative_names": ["Brew Golden Mead"], "cost_mp": "20", "cost_sanity": "variable", "description": "Creates space-mead for interstellar travel.", "source_page": 247},
-    {"name": "Call Deity", "alternative_names": [], "cost_mp": "1+ per person", "cost_sanity": "1D10", "description": "Calls a Great Old One or Outer God.", "source_page": 248},
-    {"name": "Dismiss Deity", "alternative_names": [], "cost_mp": "1+ per person", "cost_sanity": "variable", "description": "Dismisses a called deity.", "source_page": 249},
-    {"name": "Cause/Cure Blindness", "alternative_names": [], "cost_mp": "8", "cost_sanity": "2D6 for Cause", "description": "Causes or cures blindness in the target.", "source_page": 249},
-    {"name": "Chant of Thoth", "alternative_names": [], "cost_mp": "10", "cost_sanity": "1D4", "description": "Allows the caster to read any text.", "source_page": 249},
-    {"name": "Cloud Memory", "alternative_names": [], "cost_mp": "1D6", "cost_sanity": "1D2", "description": "Erases a specific memory from the target.", "source_page": 249},
-    {"name": "Clutch of Nyogtha", "alternative_names": [], "cost_mp": "1+ equal to twice damage", "cost_sanity": "1D20", "description": "Conjures a tentacle to crush the target.", "source_page": 249},
-    {"name": "Consume Likeness", "alternative_names": [], "cost_mp": "10 per 6 hours", "cost_pow": "5", "cost_sanity": "1D20", "description": "Steals the appearance of another being.", "source_page": 250},
-    {"name": "Contact Spells", "alternative_names": [], "cost_mp": "variable", "cost_sanity": "1D3 plus more", "description": "Contact a specific Mythos entity via telepathy.", "source_page": 250},
-    {"name": "Contact Deity Spells", "alternative_names": [], "cost_mp": "variable", "cost_pow": "5", "cost_sanity": "1D6", "description": "Contact a specific deity telepathically.", "source_page": 250},
-    {"name": "Create Barrier of Naach-Tith", "alternative_names": [], "cost_mp": "variable", "cost_sanity": "1D10", "description": "Creates an impenetrable barrier.", "source_page": 250},
-    {"name": "Create Zombie", "alternative_names": [], "cost_mp": "16", "cost_sanity": "1D6", "description": "Animates a corpse as a zombie servant.", "source_page": 250},
-    {"name": "Curse of the Putrid Husk", "alternative_names": [], "cost_mp": "5", "cost_sanity": "10", "description": "Withers the target's body over time.", "source_page": 250},
-    {"name": "Death Spell", "alternative_names": [], "cost_mp": "24", "cost_sanity": "3D10", "description": "Kills a living target outright.", "source_page": 250},
-    {"name": "Dominate", "alternative_names": [], "cost_mp": "1", "cost_sanity": "1", "description": "Takes control of a target's mind. Opposed POW roll.", "source_page": 250},
-    {"name": "Dread Curse of Azathoth", "alternative_names": [], "cost_mp": "4", "cost_sanity": "1D6", "description": "Channels destructive energy from Azathoth.", "source_page": 251},
-    {"name": "Dust of Suleiman", "alternative_names": [], "cost_mp": "10 per 3 doses", "cost_sanity": "0", "description": "Creates magical dust that reveals invisible entities.", "source_page": 251},
-    {"name": "Elder Sign", "alternative_names": [], "cost_mp": "0", "cost_pow": "10", "cost_sanity": "0", "description": "Creates a protective ward against Mythos entities.", "source_page": 251},
-    {"name": "Enchant Book", "alternative_names": [], "cost_mp": "0", "cost_pow": "variable", "cost_sanity": "1D4", "description": "Enchants a book to be indestructible.", "source_page": 251},
-    {"name": "Enchant Knife", "alternative_names": [], "cost_mp": "0", "cost_pow": "variable", "cost_sanity": "1D4", "description": "Enchants a knife for ritual use.", "source_page": 251},
-    {"name": "Enchant Pipes", "alternative_names": [], "cost_mp": "variable", "cost_sanity": "1D6", "description": "Enchants pan pipes to summon or control.", "source_page": 252},
-    {"name": "Enchant Sacrificial Dagger", "alternative_names": [], "cost_mp": "0", "cost_pow": "30", "cost_sanity": "0", "description": "Enchants a dagger to bypass magical protections.", "source_page": 252},
-    {"name": "Enchant Whistle", "alternative_names": [], "cost_mp": "0", "cost_pow": "variable", "cost_sanity": "1D4", "description": "Enchants a whistle to summon specific creatures.", "source_page": 252},
-    {"name": "Enthrall Victim", "alternative_names": [], "cost_mp": "2", "cost_sanity": "1D6", "description": "Mesmerizes a target into a trance.", "source_page": 252},
-    {"name": "Evil Eye", "alternative_names": [], "cost_mp": "10", "cost_sanity": "1D4", "description": "Inflicts a curse through eye contact.", "source_page": 252},
-    {"name": "Fist of Yog-Sothoth", "alternative_names": [], "cost_mp": "variable", "cost_sanity": "1D6", "description": "Conjures a massive invisible fist to strike.", "source_page": 252},
-    {"name": "Flesh Ward", "alternative_names": [], "cost_mp": "variable", "cost_sanity": "1D4", "description": "Creates magical armor absorbing physical damage.", "source_page": 253},
-    {"name": "Green Decay", "alternative_names": [], "cost_mp": "15", "cost_pow": "10", "cost_sanity": "2D8", "description": "Causes the target's flesh to rot and decay.", "source_page": 253},
-    {"name": "Implant Fear", "alternative_names": [], "cost_mp": "12", "cost_sanity": "1D6", "description": "Plants a deep terror in the target's mind.", "source_page": 253},
-    {"name": "Melt Flesh", "alternative_names": [], "cost_mp": "variable", "cost_sanity": "1D6", "description": "Causes the target's flesh to melt from bone.", "source_page": 253},
-    {"name": "Mental Suggestion", "alternative_names": [], "cost_mp": "variable", "cost_sanity": "variable", "description": "Plants a suggestion in the target's mind.", "source_page": 253},
-    {"name": "Mindblast", "alternative_names": [], "cost_mp": "10", "cost_sanity": "1D3", "description": "Psychic assault causing stun and damage.", "source_page": 253},
-    {"name": "Mind Exchange", "alternative_names": [], "cost_mp": "10+1D6", "cost_sanity": "1D3", "description": "Swaps the caster's mind with the target's.", "source_page": 254},
-    {"name": "Mind Transfer", "alternative_names": [], "cost_mp": "10", "cost_sanity": "1D10", "description": "Permanently transfers mind to a new body.", "source_page": 254},
-    {"name": "Mirror of Tarkhun Atep", "alternative_names": ["Crux Ansata"], "cost_mp": "5", "cost_pow": "25", "cost_sanity": "1D6", "description": "Reflects spells and magical effects back at caster.", "source_page": 254},
-    {"name": "Powder of Ibn-Ghazi", "alternative_names": [], "cost_mp": "1 per dose", "cost_sanity": "0", "description": "Creates powder that reveals invisible creatures.", "source_page": 254},
-    {"name": "Resurrection", "alternative_names": [], "cost_mp": "3", "cost_sanity": "1D10", "description": "Returns a recently dead person to life.", "source_page": 255},
-    {"name": "Shrivelling", "alternative_names": [], "cost_mp": "variable", "cost_sanity": "variable", "description": "Withers and weakens the target's body.", "source_page": 255},
-    {"name": "Song of Hastur", "alternative_names": [], "cost_mp": "1D4 per round", "cost_sanity": "1D4 per round", "description": "Sustained song that drives listeners insane.", "source_page": 255},
-    {"name": "Summon/Bind Spells", "alternative_names": ["Summoning Spells"], "cost_mp": "variable", "cost_sanity": "1D4", "description": "Summons and binds a Mythos creature.", "source_page": 255},
-    {"name": "Separate Binding", "alternative_names": [], "cost_mp": "0", "cost_sanity": "1", "description": "Separates a bound creature from the caster.", "source_page": 256},
-    {"name": "Voorish Sign", "alternative_names": [], "cost_mp": "1", "cost_sanity": "1", "description": "Enhances the caster's magical sensing ability.", "source_page": 256},
-    {"name": "Warding", "alternative_names": [], "cost_mp": "1 per stone", "cost_sanity": "0", "description": "Creates a protective ward on a stone or object.", "source_page": 256},
-    {"name": "Wave of Oblivion", "alternative_names": [], "cost_mp": "30", "cost_sanity": "1D8", "description": "Erases all memory of a target from the world.", "source_page": 256},
-    {"name": "Wither Limb", "alternative_names": [], "cost_mp": "8", "cost_sanity": "1D6", "description": "Permanently withers one of the target's limbs.", "source_page": 256},
-    {"name": "Words of Power", "alternative_names": [], "cost_mp": "3+", "cost_sanity": "1D6", "description": "Channels raw cosmic energy through speech.", "source_page": 256},
-    {"name": "Wrack", "alternative_names": [], "cost_mp": "3", "cost_sanity": "1", "description": "Inflicts intense pain on the target.", "source_page": 256},
-    {"name": "Bargain with Nyogtha", "alternative_names": [], "cost_mp": "5", "cost_pow": "0", "cost_sanity": "1D6", "description": "Opens a pact with the dweller Nyogtha to exchange service for power.", "source_page": 257},
-    {"name": "Blast of Power", "alternative_names": [], "cost_mp": "10", "cost_pow": "0", "cost_sanity": "1D4", "description": "Hurls a bolt of pure magical force at a single target.", "source_page": 258},
-    {"name": "Bone Gleam", "alternative_names": [], "cost_mp": "3", "cost_pow": "0", "cost_sanity": "1", "description": "Coats bone with a protective sheen that wards against breakage.", "source_page": 259},
-    {"name": "Cursed Wound", "alternative_names": [], "cost_mp": "6", "cost_pow": "0", "cost_sanity": "1D4", "description": "Ensures a wound inflicted will not heal by ordinary means.", "source_page": 260},
-    {"name": "Drain Life", "alternative_names": [], "cost_mp": "5", "cost_pow": "0", "cost_sanity": "1D4", "description": "Siphons life force from a victim to restore the caster.", "source_page": 261},
-    {"name": "Eldritch Sign", "alternative_names": [], "cost_mp": "4", "cost_pow": "0", "cost_sanity": "1", "description": "Inscribes a sign that repels Mythos entities.", "source_page": 262},
-    {"name": "Enslave Mind", "alternative_names": [], "cost_mp": "12", "cost_pow": "0", "cost_sanity": "1D6", "description": "Binds the target's will to the caster's commands.", "source_page": 263},
-    {"name": "Eyes of Eibon", "alternative_names": [], "cost_mp": "5", "cost_pow": "0", "cost_sanity": "1", "description": "Grants sight into the spirit world and invisible things.", "source_page": 264},
-    {"name": "Falcon's Eye", "alternative_names": [], "cost_mp": "4", "cost_pow": "0", "cost_sanity": "1", "description": "Sharpen distant vision to that of a bird of prey.", "source_page": 265},
-    {"name": "Glamour", "alternative_names": [], "cost_mp": "5", "cost_pow": "0", "cost_sanity": "1", "description": "Alters the caster's appearance and voice to deceive others.", "source_page": 266},
-    {"name": "Ironhands", "alternative_names": [], "cost_mp": "4", "cost_pow": "0", "cost_sanity": "1", "description": "Grants tremendous crushing strength to the hands and grip.", "source_page": 267},
-    {"name": "Lend Life", "alternative_names": [], "cost_mp": "0", "cost_pow": "0", "cost_sanity": "1", "description": "Permanently transfers some of the caster's life energy to another.", "source_page": 268},
-    {"name": "Lycanthropic Control", "alternative_names": [], "cost_mp": "8", "cost_pow": "0", "cost_sanity": "1D4", "description": "Commands a were-creature or assumes its form.", "source_page": 269},
-    {"name": "Mantle of Cthulhu", "alternative_names": [], "cost_mp": "10", "cost_pow": "0", "cost_sanity": "1D6", "description": "Cloaks the caster in the dream-aura of Great Cthulhu.", "source_page": 270},
-    {"name": "Mesmerize", "alternative_names": [], "cost_mp": "3", "cost_pow": "0", "cost_sanity": "1", "description": "Holds a target spellbound and unable to act.", "source_page": 271},
-    {"name": "Morpheus", "alternative_names": [], "cost_mp": "3", "cost_pow": "0", "cost_sanity": "1", "description": "Induces or steers the dreams of a sleeping target.", "source_page": 272},
-    {"name": "Offering of the Blood", "alternative_names": [], "cost_mp": "0", "cost_pow": "0", "cost_sanity": "1", "description": "Sacrifices blood to strengthen another spell or summoning.", "source_page": 273},
-    {"name": "Pillar of Hellfire", "alternative_names": [], "cost_mp": "15", "cost_pow": "0", "cost_sanity": "1D6", "description": "Calls down a roaring column of infernal flame.", "source_page": 274},
-    {"name": "Query the Spirit", "alternative_names": [], "cost_mp": "6", "cost_pow": "0", "cost_sanity": "1D4", "description": "Forces a summoned spirit to answer one truthful question.", "source_page": 275},
-    {"name": "Resurrection of Me", "alternative_names": [], "cost_mp": "20", "cost_pow": "1", "cost_sanity": "1D10", "description": "Restores life to a corpse at terrible personal cost.", "source_page": 276},
-    {"name": "Seal of Nyarlathotep", "alternative_names": [], "cost_mp": "8", "cost_pow": "0", "cost_sanity": "1D4", "description": "Marks a place or object with the crawling chaos's sigil.", "source_page": 277},
-    {"name": "See Invisible", "alternative_names": [], "cost_mp": "3", "cost_pow": "0", "cost_sanity": "1", "description": "Reveals entities and objects hidden from normal sight.", "source_page": 278},
-    {"name": "Send Dreams", "alternative_names": [], "cost_mp": "4", "cost_pow": "0", "cost_sanity": "1", "description": "Projects a chosen dream or vision to a distant target.", "source_page": 279},
-    {"name": "Steal Mind", "alternative_names": [], "cost_mp": "8", "cost_pow": "0", "cost_sanity": "1D4", "description": "Tears knowledge or memories from a victim's mind.", "source_page": 280},
-    {"name": "Stifle", "alternative_names": [], "cost_mp": "3", "cost_pow": "0", "cost_sanity": "1", "description": "Smothers a target's breath, choking them.", "source_page": 281},
-    {"name": "Summon Hellfire", "alternative_names": [], "cost_mp": "12", "cost_pow": "0", "cost_sanity": "1D6", "description": "Calls elemental fire from the pit to consume the target.", "source_page": 282},
-    {"name": "Swim Like a Fish", "alternative_names": [], "cost_mp": "3", "cost_pow": "0", "cost_sanity": "1", "description": "Grants the caster extraordinary agility and breath in water.", "source_page": 283},
-    {"name": "Touch of Death", "alternative_names": [], "cost_mp": "10", "cost_pow": "0", "cost_sanity": "1D6", "description": "A single touch stops the target's heart.", "source_page": 284},
-    {"name": "True Seeing", "alternative_names": [], "cost_mp": "4", "cost_pow": "0", "cost_sanity": "1", "description": "Pierces illusions and disguises to reveal the truth.", "source_page": 285},
-    {"name": "Walk the Path", "alternative_names": [], "cost_mp": "8", "cost_pow": "0", "cost_sanity": "1D4", "description": "Steps the caster between two points via the dreamlands.", "source_page": 286}
+    {
+      "name": "Apportion Ka",
+      "alternative_names": [
+        "Imbue Essence",
+        "Extraction of the Will",
+        "The Deathless Breath"
+      ],
+      "cost_mp": "10",
+      "cost_pow": "5",
+      "cost_sanity": "2D10",
+      "description": "Transfer life essence into a vital organ for safekeeping, granting invulnerability.",
+      "source_page": 246
+    },
+    {
+      "name": "Banishment of Yde Etad",
+      "alternative_names": [],
+      "cost_mp": "1D4+3",
+      "cost_sanity": "1D4",
+      "description": "Sends trans-dimensional human-like intelligences home.",
+      "source_page": 247
+    },
+    {
+      "name": "Bless Blade",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_pow": "5",
+      "cost_sanity": "1D4",
+      "description": "Enchants a blade to deal magical damage.",
+      "source_page": 247
+    },
+    {
+      "name": "Body Warping of Gorgoroth",
+      "alternative_names": [],
+      "cost_mp": "6+",
+      "cost_pow": "5",
+      "cost_sanity": "2D6",
+      "description": "Reshapes the body of a victim into a grotesque form.",
+      "source_page": 247
+    },
+    {
+      "name": "Breath of the Deep",
+      "alternative_names": [],
+      "cost_mp": "8",
+      "cost_sanity": "1D6",
+      "description": "Causes the victim to grow gills and breathe water.",
+      "source_page": 247
+    },
+    {
+      "name": "Brew Space Mead",
+      "alternative_names": [
+        "Brew Golden Mead"
+      ],
+      "cost_mp": "20",
+      "cost_sanity": "variable",
+      "description": "Creates space-mead for interstellar travel.",
+      "source_page": 247
+    },
+    {
+      "name": "Call Deity",
+      "alternative_names": [],
+      "cost_mp": "1+ per person",
+      "cost_sanity": "1D10",
+      "description": "Calls a Great Old One or Outer God.",
+      "source_page": 248
+    },
+    {
+      "name": "Dismiss Deity",
+      "alternative_names": [],
+      "cost_mp": "1+ per person",
+      "cost_sanity": "variable",
+      "description": "Dismisses a called deity.",
+      "source_page": 249
+    },
+    {
+      "name": "Cause/Cure Blindness",
+      "alternative_names": [],
+      "cost_mp": "8",
+      "cost_sanity": "2D6",
+      "description": "Causes or cures blindness in the target.",
+      "source_page": 249
+    },
+    {
+      "name": "Chant of Thoth",
+      "alternative_names": [],
+      "cost_mp": "10",
+      "cost_sanity": "1D4",
+      "description": "Allows the caster to read any text.",
+      "source_page": 249
+    },
+    {
+      "name": "Cloud Memory",
+      "alternative_names": [],
+      "cost_mp": "1D6",
+      "cost_sanity": "1D2",
+      "description": "Erases a specific memory from the target.",
+      "source_page": 249
+    },
+    {
+      "name": "Clutch of Nyogtha",
+      "alternative_names": [],
+      "cost_mp": "1+",
+      "cost_sanity": "1D20",
+      "description": "Conjures a tentacle to crush the target.",
+      "source_page": 249
+    },
+    {
+      "name": "Consume Likeness",
+      "alternative_names": [],
+      "cost_mp": "10 per 6 hours",
+      "cost_pow": "5",
+      "cost_sanity": "1D20",
+      "description": "Steals the appearance of another being.",
+      "source_page": 250
+    },
+    {
+      "name": "Contact Spells",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_sanity": "1D3",
+      "description": "Contact a specific Mythos entity via telepathy.",
+      "source_page": 250
+    },
+    {
+      "name": "Contact Deity Spells",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_pow": "5",
+      "cost_sanity": "1D6",
+      "description": "Contact a specific deity telepathically.",
+      "source_page": 250
+    },
+    {
+      "name": "Create Barrier of Naach-Tith",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_sanity": "1D10",
+      "description": "Creates an impenetrable barrier.",
+      "source_page": 250
+    },
+    {
+      "name": "Create Zombie",
+      "alternative_names": [],
+      "cost_mp": "16",
+      "cost_sanity": "1D6",
+      "description": "Animates a corpse as a zombie servant.",
+      "source_page": 250
+    },
+    {
+      "name": "Curse of the Putrid Husk",
+      "alternative_names": [],
+      "cost_mp": "5",
+      "cost_sanity": "10",
+      "description": "Withers the target's body over time.",
+      "source_page": 250
+    },
+    {
+      "name": "Death Spell",
+      "alternative_names": [],
+      "cost_mp": "24",
+      "cost_sanity": "3D10",
+      "description": "Kills a living target outright.",
+      "source_page": 250
+    },
+    {
+      "name": "Dominate",
+      "alternative_names": [],
+      "cost_mp": "1",
+      "cost_sanity": "1",
+      "description": "Takes control of a target's mind. Opposed POW roll.",
+      "source_page": 250
+    },
+    {
+      "name": "Dread Curse of Azathoth",
+      "alternative_names": [],
+      "cost_mp": "4",
+      "cost_sanity": "1D6",
+      "description": "Channels destructive energy from Azathoth.",
+      "source_page": 251
+    },
+    {
+      "name": "Dust of Suleiman",
+      "alternative_names": [],
+      "cost_mp": "10 per 3 doses",
+      "cost_sanity": "0",
+      "description": "Creates magical dust that reveals invisible entities.",
+      "source_page": 251
+    },
+    {
+      "name": "Elder Sign",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_pow": "10",
+      "cost_sanity": "0",
+      "description": "Creates a protective ward against Mythos entities.",
+      "source_page": 251
+    },
+    {
+      "name": "Enchant Book",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_pow": "variable",
+      "cost_sanity": "1D4",
+      "description": "Enchants a book to be indestructible.",
+      "source_page": 251
+    },
+    {
+      "name": "Enchant Knife",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_pow": "variable",
+      "cost_sanity": "1D4",
+      "description": "Enchants a knife for ritual use.",
+      "source_page": 251
+    },
+    {
+      "name": "Enchant Pipes",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_sanity": "1D6",
+      "description": "Enchants pan pipes to summon or control.",
+      "source_page": 252
+    },
+    {
+      "name": "Enchant Sacrificial Dagger",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_pow": "30",
+      "cost_sanity": "0",
+      "description": "Enchants a dagger to bypass magical protections.",
+      "source_page": 252
+    },
+    {
+      "name": "Enchant Whistle",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_pow": "variable",
+      "cost_sanity": "1D4",
+      "description": "Enchants a whistle to summon specific creatures.",
+      "source_page": 252
+    },
+    {
+      "name": "Enthrall Victim",
+      "alternative_names": [],
+      "cost_mp": "2",
+      "cost_sanity": "1D6",
+      "description": "Mesmerizes a target into a trance.",
+      "source_page": 252
+    },
+    {
+      "name": "Evil Eye",
+      "alternative_names": [],
+      "cost_mp": "10",
+      "cost_sanity": "1D4",
+      "description": "Inflicts a curse through eye contact.",
+      "source_page": 252
+    },
+    {
+      "name": "Fist of Yog-Sothoth",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_sanity": "1D6",
+      "description": "Conjures a massive invisible fist to strike.",
+      "source_page": 252
+    },
+    {
+      "name": "Flesh Ward",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_sanity": "1D4",
+      "description": "Creates magical armor absorbing physical damage.",
+      "source_page": 253
+    },
+    {
+      "name": "Green Decay",
+      "alternative_names": [],
+      "cost_mp": "15",
+      "cost_pow": "10",
+      "cost_sanity": "2D8",
+      "description": "Causes the target's flesh to rot and decay.",
+      "source_page": 253
+    },
+    {
+      "name": "Implant Fear",
+      "alternative_names": [],
+      "cost_mp": "12",
+      "cost_sanity": "1D6",
+      "description": "Plants a deep terror in the target's mind.",
+      "source_page": 253
+    },
+    {
+      "name": "Melt Flesh",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_sanity": "1D6",
+      "description": "Causes the target's flesh to melt from bone.",
+      "source_page": 253
+    },
+    {
+      "name": "Mental Suggestion",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_sanity": "variable",
+      "description": "Plants a suggestion in the target's mind.",
+      "source_page": 253
+    },
+    {
+      "name": "Mindblast",
+      "alternative_names": [],
+      "cost_mp": "10",
+      "cost_sanity": "1D3",
+      "description": "Psychic assault causing stun and damage.",
+      "source_page": 253
+    },
+    {
+      "name": "Mind Exchange",
+      "alternative_names": [],
+      "cost_mp": "10+1D6",
+      "cost_sanity": "1D3",
+      "description": "Swaps the caster's mind with the target's.",
+      "source_page": 254
+    },
+    {
+      "name": "Mind Transfer",
+      "alternative_names": [],
+      "cost_mp": "10",
+      "cost_sanity": "1D10",
+      "description": "Permanently transfers mind to a new body.",
+      "source_page": 254
+    },
+    {
+      "name": "Mirror of Tarkhun Atep",
+      "alternative_names": [
+        "Crux Ansata"
+      ],
+      "cost_mp": "5",
+      "cost_pow": null,
+      "cost_sanity": "1",
+      "description": "Reflects spells and magical effects back at caster.",
+      "source_page": 261
+    },
+    {
+      "name": "Powder of Ibn-Ghazi",
+      "alternative_names": [],
+      "cost_mp": "1 per dose",
+      "cost_sanity": "0",
+      "description": "Creates powder that reveals invisible creatures.",
+      "source_page": 254
+    },
+    {
+      "name": "Prinn's Crux Ansata",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_pow": "25",
+      "cost_sanity": "1D6",
+      "description": "Creates an ankh (looped cross) that can temporarily or permanently banish individual Mythos creatures.",
+      "source_page": 261
+    },
+    {
+      "name": "Resurrection",
+      "alternative_names": [],
+      "cost_mp": "3",
+      "cost_sanity": "1D10",
+      "description": "Returns a recently dead person to life.",
+      "source_page": 255
+    },
+    {
+      "name": "Shrivelling",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_sanity": "variable",
+      "description": "Withers and weakens the target's body.",
+      "source_page": 255
+    },
+    {
+      "name": "Song of Hastur",
+      "alternative_names": [],
+      "cost_mp": "1D4 per round",
+      "cost_sanity": "1D4 per round",
+      "description": "Sustained song that drives listeners insane.",
+      "source_page": 255
+    },
+    {
+      "name": "Summon/Bind Spells",
+      "alternative_names": [
+        "Summoning Spells"
+      ],
+      "cost_mp": "variable",
+      "cost_sanity": "1D4",
+      "description": "Summons and binds a Mythos creature.",
+      "source_page": 255
+    },
+    {
+      "name": "Separate Binding",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_sanity": "1",
+      "description": "Separates a bound creature from the caster.",
+      "source_page": 256
+    },
+    {
+      "name": "Voorish Sign",
+      "alternative_names": [],
+      "cost_mp": "1",
+      "cost_sanity": "1",
+      "description": "Enhances the caster's magical sensing ability.",
+      "source_page": 256
+    },
+    {
+      "name": "Warding",
+      "alternative_names": [],
+      "cost_mp": "1 per stone",
+      "cost_sanity": "0",
+      "description": "Creates a protective ward on a stone or object.",
+      "source_page": 256
+    },
+    {
+      "name": "Wave of Oblivion",
+      "alternative_names": [],
+      "cost_mp": "30",
+      "cost_sanity": "1D8",
+      "description": "Erases all memory of a target from the world.",
+      "source_page": 256
+    },
+    {
+      "name": "Wither Limb",
+      "alternative_names": [],
+      "cost_mp": "8",
+      "cost_sanity": "1D6",
+      "description": "Permanently withers one of the target's limbs.",
+      "source_page": 256
+    },
+    {
+      "name": "Words of Power",
+      "alternative_names": [],
+      "cost_mp": "3+",
+      "cost_sanity": "1D6",
+      "description": "Channels raw cosmic energy through speech.",
+      "source_page": 256
+    },
+    {
+      "name": "Wrack",
+      "alternative_names": [],
+      "cost_mp": "3",
+      "cost_sanity": "1",
+      "description": "Inflicts intense pain on the target.",
+      "source_page": 256
+    },
+    {
+      "name": "Bargain with Nyogtha",
+      "alternative_names": [],
+      "cost_mp": "5",
+      "cost_pow": "0",
+      "cost_sanity": "1D6",
+      "description": "Opens a pact with the dweller Nyogtha to exchange service for power.",
+      "source_page": 257,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Blast of Power",
+      "alternative_names": [],
+      "cost_mp": "10",
+      "cost_pow": "0",
+      "cost_sanity": "1D4",
+      "description": "Hurls a bolt of pure magical force at a single target.",
+      "source_page": 258,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Bone Gleam",
+      "alternative_names": [],
+      "cost_mp": "3",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Coats bone with a protective sheen that wards against breakage.",
+      "source_page": 259,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Cursed Wound",
+      "alternative_names": [],
+      "cost_mp": "6",
+      "cost_pow": "0",
+      "cost_sanity": "1D4",
+      "description": "Ensures a wound inflicted will not heal by ordinary means.",
+      "source_page": 260,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Drain Life",
+      "alternative_names": [],
+      "cost_mp": "5",
+      "cost_pow": "0",
+      "cost_sanity": "1D4",
+      "description": "Siphons life force from a victim to restore the caster.",
+      "source_page": 261,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Eldritch Sign",
+      "alternative_names": [],
+      "cost_mp": "4",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Inscribes a sign that repels Mythos entities.",
+      "source_page": 262,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Enslave Mind",
+      "alternative_names": [],
+      "cost_mp": "12",
+      "cost_pow": "0",
+      "cost_sanity": "1D6",
+      "description": "Binds the target's will to the caster's commands.",
+      "source_page": 263,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Eyes of Eibon",
+      "alternative_names": [],
+      "cost_mp": "5",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Grants sight into the spirit world and invisible things.",
+      "source_page": 264,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Falcon's Eye",
+      "alternative_names": [],
+      "cost_mp": "4",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Sharpen distant vision to that of a bird of prey.",
+      "source_page": 265,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Glamour",
+      "alternative_names": [],
+      "cost_mp": "5",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Alters the caster's appearance and voice to deceive others.",
+      "source_page": 266,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Ironhands",
+      "alternative_names": [],
+      "cost_mp": "4",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Grants tremendous crushing strength to the hands and grip.",
+      "source_page": 267,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Lend Life",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Permanently transfers some of the caster's life energy to another.",
+      "source_page": 268,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Lycanthropic Control",
+      "alternative_names": [],
+      "cost_mp": "8",
+      "cost_pow": "0",
+      "cost_sanity": "1D4",
+      "description": "Commands a were-creature or assumes its form.",
+      "source_page": 269,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Mantle of Cthulhu",
+      "alternative_names": [],
+      "cost_mp": "10",
+      "cost_pow": "0",
+      "cost_sanity": "1D6",
+      "description": "Cloaks the caster in the dream-aura of Great Cthulhu.",
+      "source_page": 270,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Mesmerize",
+      "alternative_names": [],
+      "cost_mp": "3",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Holds a target spellbound and unable to act.",
+      "source_page": 271,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Morpheus",
+      "alternative_names": [],
+      "cost_mp": "3",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Induces or steers the dreams of a sleeping target.",
+      "source_page": 272,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Offering of the Blood",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Sacrifices blood to strengthen another spell or summoning.",
+      "source_page": 273,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Pillar of Hellfire",
+      "alternative_names": [],
+      "cost_mp": "15",
+      "cost_pow": "0",
+      "cost_sanity": "1D6",
+      "description": "Calls down a roaring column of infernal flame.",
+      "source_page": 274,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Query the Spirit",
+      "alternative_names": [],
+      "cost_mp": "6",
+      "cost_pow": "0",
+      "cost_sanity": "1D4",
+      "description": "Forces a summoned spirit to answer one truthful question.",
+      "source_page": 275,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Resurrection of Me",
+      "alternative_names": [],
+      "cost_mp": "20",
+      "cost_pow": "1",
+      "cost_sanity": "1D10",
+      "description": "Restores life to a corpse at terrible personal cost.",
+      "source_page": 276,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Seal of Nyarlathotep",
+      "alternative_names": [],
+      "cost_mp": "8",
+      "cost_pow": "0",
+      "cost_sanity": "1D4",
+      "description": "Marks a place or object with the crawling chaos's sigil.",
+      "source_page": 277,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "See Invisible",
+      "alternative_names": [],
+      "cost_mp": "3",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Reveals entities and objects hidden from normal sight.",
+      "source_page": 278,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Send Dreams",
+      "alternative_names": [],
+      "cost_mp": "4",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Projects a chosen dream or vision to a distant target.",
+      "source_page": 279,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Steal Mind",
+      "alternative_names": [],
+      "cost_mp": "8",
+      "cost_pow": "0",
+      "cost_sanity": "1D4",
+      "description": "Tears knowledge or memories from a victim's mind.",
+      "source_page": 280,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Stifle",
+      "alternative_names": [],
+      "cost_mp": "3",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Smothers a target's breath, choking them.",
+      "source_page": 281,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Summon Hellfire",
+      "alternative_names": [],
+      "cost_mp": "12",
+      "cost_pow": "0",
+      "cost_sanity": "1D6",
+      "description": "Calls elemental fire from the pit to consume the target.",
+      "source_page": 282,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Swim Like a Fish",
+      "alternative_names": [],
+      "cost_mp": "3",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Grants the caster extraordinary agility and breath in water.",
+      "source_page": 283,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Touch of Death",
+      "alternative_names": [],
+      "cost_mp": "10",
+      "cost_pow": "0",
+      "cost_sanity": "1D6",
+      "description": "A single touch stops the target's heart.",
+      "source_page": 284,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "True Seeing",
+      "alternative_names": [],
+      "cost_mp": "4",
+      "cost_pow": "0",
+      "cost_sanity": "1",
+      "description": "Pierces illusions and disguises to reveal the truth.",
+      "source_page": 285,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Walk the Path",
+      "alternative_names": [],
+      "cost_mp": "8",
+      "cost_pow": "0",
+      "cost_sanity": "1D4",
+      "description": "Steps the caster between two points via the dreamlands.",
+      "source_page": 286,
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    }
   ]
 }

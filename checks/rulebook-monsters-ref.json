@@ -24,6 +24,12 @@
       "rulebook_page": 287, "STR": 45, "CON": 70, "SIZ": 65, "DEX": 35, "INT": 65, "POW": 100, "HP": 13,
       "armor": 0, "san_loss": "1D3/2D6"
     },
+    "Dagon": {
+      "rulebook_name": "Dagon and Hydra, Rulers of the deep ones", "rulebook_page": 287,
+      "STR": 260, "CON": 250, "SIZ": 300, "DEX": 100, "INT": 100, "POW": 150, "HP": 55,
+      "armor": 6, "san_loss": "1/1D10",
+      "source_note": "Dagon shares a stat block with Mother Hydra (identical stats)."
+    },
     "Dark Young of Shub-Niggurath": {
       "rulebook_page": 287, "STR": 220, "CON": 80, "SIZ": 220, "DEX": 80, "INT": 70, "POW": 90, "HP": 30,
       "armor": "special", "san_loss": "1D3/1D10",
@@ -138,10 +144,10 @@
       "source_note": "Seething nuclear chaos. At 0 HP dispelled (not slain), returns in 1D6 hours. 3D6 damage from Elder Sign."
     },
     "Hastur": {
-      "rulebook_name": "King in Yellow, Avatar of Hastur", "rulebook_page": 321,
-      "STR": 125, "CON": 530, "SIZ": 70, "DEX": 135, "INT": 250, "POW": 175, "HP": 60,
-      "armor": "special", "san_loss": "1D10/1D100",
-      "source_note": "Avatar of Hastur. The most common avatar; Hastur itself has no single stat block."
+      "rulebook_name": "Hastur, He Who Is Not to Be Named", "rulebook_page": 320,
+      "STR": 600, "CON": 1000, "SIZ": 500, "DEX": 150, "INT": 75, "POW": 175, "HP": 150,
+      "armor": 30, "san_loss": "1D10/1D100",
+      "source_note": "Hastur the GOO itself (p320). The King in Yellow (p321) is a frequently-encountered avatar with different stats: STR 125 CON 530 SIZ 70 DEX 135 INT 250 POW 175 HP 60."
     },
     "Nyarlathotep": {
       "rulebook_name": "Nyarlathotep, The Crawling Chaos (Human Form)", "rulebook_page": 323,

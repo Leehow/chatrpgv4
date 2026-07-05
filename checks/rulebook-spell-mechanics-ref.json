@@ -1,0 +1,29 @@
+{
+  "source_note": "Authoritative spellcasting mechanics from Keeper Rulebook Chapter 9: Magic (printed p176-180, PDF idx 187-191). These are the structural mechanic values our spells.json stores under casting/learning/mp_economy keys. Verified against the PDF text.",
+  "casting": {
+    "first_cast_roll": "Hard POW",
+    "pushable": true,
+    "push_mp_multiplier": "1D6",
+    "mp_overspill_to_hp_one_for_one": true,
+    "subsequent_casts_no_roll": true,
+    "npcs_no_casting_roll": true
+  },
+  "learning": {
+    "roll": "Hard INT",
+    "pushable": true,
+    "from_tome_weeks": "2D6",
+    "from_person_days": "1D8"
+  },
+  "mp_economy": {
+    "initial": "POW/5",
+    "regen_per_hour": 1,
+    "regen_per_hour_pow_above_100": 2,
+    "after_zero_costs_hp_one_for_one": true,
+    "max_cannot_exceed_pow_divided_5": true
+  },
+  "source_pages": {
+    "casting_p176_177": "p176 'Magic points must be expended'; p177 'Casting Spells' Hard POW first cast, push multiplier 1D6",
+    "learning_p176": "p176 'Learning a Spell' 2D6 weeks + Hard INT; learning from person 1D8 days",
+    "mp_economy_p176": "p176 'Magic Points (MP)': initial = one-fifth POW; regen 1/hour (2/hour POW>100); overspill to HP one-for-one; max cannot exceed POW/5"
+  }
+}

@@ -197,6 +197,214 @@ def audit_weapon_content(root: Path, project: Path) -> list[str]:
     return gaps
 
 
+def _norm_cost(v) -> str:
+    """Normalize a spell cost token for comparison.
+
+    Strips descriptive units, lowercases, and reduces per-unit/variable forms
+    to their base comparator. e.g. '10 magic points' -> '10'; 'variable' stays
+    'variable'; None/0 -> '0'.
+    """
+    if v is None:
+        return "0"
+    s = str(v).strip().lower()
+    if s in ("0", "none", "n/a", ""):
+        return "0"
+    # strip common unit words
+    for word in ("magic points", "magic point", "sanity points", "sanity point",
+                 "pow", "per organ", "per caster", "per dose", "per stone",
+                 "per person", "per round", "per 6 hours", "per 3 doses",
+                 "each", "every 6 hours of casting"):
+        s = s.replace(word, "")
+    s = s.strip().rstrip(";,. ").strip()
+    if s in ("", "variable", "varies"):
+        return "variable"
+    return s
+
+
+def audit_spell_costs(root: Path, project: Path) -> list[str]:
+    """Section D: spell cost_mp / cost_pow / cost_sanity vs the Grimoire.
+
+    Comparison is normalized: '10 magic points' == '10'. Variable/per-unit costs
+    compare loosely. Spells marked with a non-core source_note (supplement) are
+    skipped. Also checks source_page is within the Grimoire range (240-263).
+    """
+    ref = _load_ref(project, "spells")
+    if not ref:
+        return []
+    core = ref.get("core_spells", {})
+    cat = ref.get("category_spells", {})
+    rb = {**core, **cat}
+    try:
+        spells = _load_table(root, "spells")
+        spell_list = spells.get("spells", [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ["[D] spells.json: UNREADABLE"]
+    gaps = []
+    by_name = {}
+    for s in spell_list:
+        by_name[s.get("name", "")] = s
+    for name, rrow in rb.items():
+        s = by_name.get(name)
+        if s is None:
+            gaps.append(f"[D] spells: '{name}' in rulebook ref but not in spells.json")
+            continue
+        for field in ("cost_mp", "cost_pow", "cost_sanity"):
+            rbv = rrow.get(field)
+            ours = s.get(field)
+            # treat our None as 0 for cost fields
+            if _norm_cost(ours) != _norm_cost(rbv):
+                gaps.append(
+                    f"[D] spells {name}.{field}: ours={ours!r} rulebook={rbv!r}"
+                )
+    # source_page range check for core spells only
+    for name in core:
+        s = by_name.get(name)
+        if s is None:
+            continue
+        sp = s.get("source_page")
+        try:
+            spv = int(sp)
+            if spv < 240 or spv > 263:
+                gaps.append(
+                    f"[D] spells {name}.source_page: ours={spv} outside Grimoire range 240-263"
+                )
+        except (ValueError, TypeError):
+            gaps.append(f"[D] spells {name}.source_page: ours={sp!r} not an int in Grimoire range")
+    return gaps
+
+
+def audit_skill_base_chance(root: Path, project: Path) -> list[str]:
+    """Section D: skill base_chance vs Skill List p56."""
+    ref = _load_ref(project, "skills")
+    if not ref:
+        return []
+    rb = ref.get("skills", {})
+    try:
+        skills = _load_table(root, "skills").get("skills", {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ["[D] skills.json: UNREADABLE"]
+    gaps = []
+    for name, rbv in rb.items():
+        if name not in skills:
+            gaps.append(f"[D] skills: '{name}' in rulebook ref but not in skills.json")
+            continue
+        ours = skills[name].get("base_chance")
+        # normalize: int stays int; tokens compared case-insensitively
+        def _norm(x):
+            if isinstance(x, (int, float)):
+                return int(x)
+            return str(x).strip()
+        if _norm(ours) != _norm(rbv):
+            gaps.append(f"[D] skills {name}.base_chance: ours={ours!r} rulebook={rbv!r}")
+    return gaps
+
+
+def audit_occupation_credit_rating(root: Path, project: Path) -> list[str]:
+    """Section D: occupation credit_rating_range vs Sample Occupations p40-41."""
+    ref = _load_ref(project, "occupations")
+    if not ref:
+        return []
+    rb = ref.get("occupations", {})
+    try:
+        occs = _load_table(root, "occupations").get("occupations", {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ["[D] occupations.json: UNREADABLE"]
+    gaps = []
+    for name, rbv in rb.items():
+        if name not in occs:
+            gaps.append(f"[D] occupations: '{name}' in rulebook ref but not in occupations.json")
+            continue
+        ours = occs[name].get("credit_rating_range")
+        if isinstance(rbv, list) and isinstance(ours, list):
+            if [int(ours[0]), int(ours[1])] != [int(rbv[0]), int(rbv[1])]:
+                gaps.append(
+                    f"[D] occupations {name}.credit_rating_range: ours={ours} rulebook={rbv}"
+                )
+        else:
+            gaps.append(f"[D] occupations {name}.credit_rating_range: ours={ours!r} rulebook={rbv!r}")
+    return gaps
+
+
+def audit_spell_mechanics(root: Path, project: Path) -> list[str]:
+    """Section D: spell casting/learning/mp_economy mechanic values vs Ch.9 p176-180."""
+    ref = _load_ref(project, "spell-mechanics")
+    if not ref:
+        return []
+    try:
+        spells = _load_table(root, "spells")
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ["[D] spells.json: UNREADABLE"]
+    gaps = []
+
+    def _norm_mech(v):
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return int(v)
+        s = str(v).strip().lower()
+        # strip filler words that don't change semantics
+        for w in (" floor", " (floor)", "exactly"):
+            s = s.replace(w, "")
+        return s
+
+    for section in ("casting", "learning", "mp_economy"):
+        rb_sec = ref.get(section, {})
+        ours_sec = spells.get(section, {})
+        if not isinstance(ours_sec, dict):
+            gaps.append(f"[D] spells.{section}: missing or not an object")
+            continue
+        for key, rbv in rb_sec.items():
+            ours = ours_sec.get(key)
+            if _norm_mech(ours) != _norm_mech(rbv):
+                gaps.append(
+                    f"[D] spells.{section}.{key}: ours={ours!r} rulebook={rbv!r}"
+                )
+    return gaps
+
+
+def _norm_damage(s) -> str:
+    """Normalize a damage die string: lowercase, collapse whitespace, treat
+    '+DB', '+db', '+damage bonus' as equivalent ('+db')."""
+    if s is None:
+        return ""
+    t = str(s).strip().lower().replace(" ", "")
+    t = t.replace("+damagebonus", "+db")
+    return t
+
+
+def audit_monster_attacks(root: Path, project: Path) -> list[str]:
+    """Section D: monster primary-attack damage dice vs rulebook Fighting damage.
+
+    Compares monsters.json attacks[0].damage to the rulebook's primary Fighting
+    damage. Only monsters listed in the reference are checked (others have
+    special/non-dice attacks that aren't comparable).
+    """
+    ref = _load_ref(project, "monster-attacks")
+    if not ref:
+        return []
+    rb = ref.get("attacks", {})
+    try:
+        monsters = _load_table(root, "monsters").get("monsters", {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ["[D] monsters.json: UNREADABLE"]
+    gaps = []
+    for name, rb_dmg in rb.items():
+        m = monsters.get(name)
+        if m is None:
+            gaps.append(f"[D] monsters {name}: missing (cannot check attacks)")
+            continue
+        atks = m.get("attacks", [])
+        if not atks:
+            gaps.append(f"[D] monsters {name}.attacks: empty, expected primary '{rb_dmg}'")
+            continue
+        primary = atks[0].get("damage", "") if isinstance(atks[0], dict) else ""
+        if _norm_damage(primary) != _norm_damage(rb_dmg):
+            gaps.append(
+                f"[D] monsters {name}.attacks[0].damage: ours={primary!r} rulebook={rb_dmg!r}"
+            )
+    return gaps
+
+
 def audit_parity(keeper: Path, zcode: Path) -> list[str]:
     """Both plugins must have identical rule-id sets and shared JSON content."""
     gaps = []
@@ -484,6 +692,11 @@ def main() -> int:
     all_gaps += audit_monster_san_loss(root, project)
     all_gaps += audit_monster_armor(root, project)
     all_gaps += audit_weapon_content(root, project)
+    all_gaps += audit_spell_costs(root, project)
+    all_gaps += audit_skill_base_chance(root, project)
+    all_gaps += audit_occupation_credit_rating(root, project)
+    all_gaps += audit_spell_mechanics(root, project)
+    all_gaps += audit_monster_attacks(root, project)
     all_gaps += audit_parity(root, zroot)
 
     if all_gaps:

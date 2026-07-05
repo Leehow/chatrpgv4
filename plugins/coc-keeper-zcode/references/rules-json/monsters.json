@@ -50,7 +50,7 @@
         "Dominate"
       ],
       "description": "Tentacled burrowers that cause earthquakes.",
-      "source_page": 295
+      "source_page": 296
     },
     "Colour Out of Space": {
       "str": 15,
@@ -74,7 +74,7 @@
       ],
       "spells": [],
       "description": "Alien life-force feeder that drains vitality.",
-      "source_page": 296
+      "source_page": 297
     },
     "Crawling One": {
       "str": 45,
@@ -102,7 +102,7 @@
         "Mindblast"
       ],
       "description": "Wriggling sorcerers made of worms.",
-      "source_page": 296
+      "source_page": 298
     },
     "Dagon": {
       "str": 260,
@@ -115,7 +115,7 @@
       "armor": 6,
       "mov": 10,
       "san_loss": {
-        "success": "1/1D10",
+        "success": "1",
         "failure": "1D10"
       },
       "attacks": [
@@ -129,7 +129,7 @@
         "Flesh Ward"
       ],
       "description": "Giant deep one deity, ruler of the deep ones.",
-      "source_page": 297
+      "source_page": 298
     },
     "Dark Young of Shub-Niggurath": {
       "str": 220,
@@ -172,7 +172,7 @@
       "attacks": [
         {
           "weapon": "claws",
-          "damage": "1D4+DB"
+          "damage": "1D6+DB"
         },
         {
           "weapon": "weapon",
@@ -205,7 +205,7 @@
       ],
       "spells": [],
       "description": "Innsmouth-tainted progeny of deep ones and humans.",
-      "source_page": 299
+      "source_page": 300
     },
     "Dhole": {
       "str": 2525,
@@ -235,7 +235,7 @@
         "Shrivelling"
       ],
       "description": "Enormous burrowing worm-like horrors.",
-      "source_page": 300
+      "source_page": 301
     },
     "Dimensional Shambler": {
       "str": 95,
@@ -259,7 +259,7 @@
       ],
       "spells": [],
       "description": "Hairy other-dimensional creature that can phase between worlds.",
-      "source_page": 301
+      "source_page": 302
     },
     "Flying Polyp": {
       "str": 250,
@@ -285,7 +285,7 @@
         "Wind control"
       ],
       "description": "Terrors from below that control wind and weather.",
-      "source_page": 302
+      "source_page": 304
     },
     "Formless Spawn": {
       "str": 90,
@@ -303,8 +303,8 @@
       },
       "attacks": [
         {
-          "weapon": "acid",
-          "damage": "1D6+DB"
+          "weapon": "pseudopod",
+          "damage": "2D6+DB"
         },
         {
           "weapon": "engulf",
@@ -316,7 +316,7 @@
         "Green Decay"
       ],
       "description": "Shape-shifting black blobs of Tsathoggua.",
-      "source_page": 303
+      "source_page": 305
     },
     "Ghast": {
       "str": 110,
@@ -340,7 +340,7 @@
       ],
       "spells": [],
       "description": "Hooved carnivorous subterranean beasts.",
-      "source_page": 304
+      "source_page": 305
     },
     "Ghoul": {
       "str": 80,
@@ -359,7 +359,7 @@
       "attacks": [
         {
           "weapon": "claws",
-          "damage": "1D3+DB"
+          "damage": "1D6+DB"
         },
         {
           "weapon": "bite",
@@ -368,7 +368,7 @@
       ],
       "spells": [],
       "description": "Corpse-eating humanoid creatures that live in crypts.",
-      "source_page": 305
+      "source_page": 306
     },
     "Gnorri": {
       "str": 50,
@@ -410,12 +410,12 @@
       },
       "attacks": [
         {
-          "weapon": "horns",
+          "weapon": "claws",
           "damage": "1D6+DB"
         },
         {
-          "weapon": "bite",
-          "damage": "1D4+DB"
+          "weapon": "gore",
+          "damage": "1D10+DB"
         }
       ],
       "spells": [],
@@ -475,7 +475,7 @@
       ],
       "spells": [],
       "description": "Angular time-predators that hunt through angles.",
-      "source_page": 309
+      "source_page": 310
     },
     "Hunting Horror": {
       "str": 145,
@@ -493,8 +493,8 @@
       },
       "attacks": [
         {
-          "weapon": "bite",
-          "damage": "1D10+DB"
+          "weapon": "strike",
+          "damage": "1D6+DB"
         },
         {
           "weapon": "crush",
@@ -537,7 +537,7 @@
         "Body Warping of Gorgoroth"
       ],
       "description": "Fungus-like alien scientists from Yuggoth (Pluto).",
-      "source_page": 311
+      "source_page": 313
     },
     "Nightgaunt": {
       "str": 50,
@@ -561,7 +561,7 @@
       ],
       "spells": [],
       "description": "Faceless bat-winged humanoids that tickle victims.",
-      "source_page": 312
+      "source_page": 314
     },
     "Serpent Person": {
       "str": 50,
@@ -595,7 +595,7 @@
         "Voorish Sign"
       ],
       "description": "Reptilian sorcerers who ruled prehistoric Earth.",
-      "source_page": 313
+      "source_page": 316
     },
     "Shantak": {
       "str": 170,
@@ -623,7 +623,7 @@
       ],
       "spells": [],
       "description": "Winged elephantine mounts found in the Dreamlands.",
-      "source_page": 315
+      "source_page": 319
     },
     "Shoggoth": {
       "str": 315,
@@ -651,7 +651,7 @@
       ],
       "spells": [],
       "description": "Shape-shifting protoplasmic servants created by the Elder Things.",
-      "source_page": 316
+      "source_page": 319
     },
     "Star-Spawn of Cthulhu": {
       "str": 350,
@@ -683,7 +683,7 @@
         "Mindblast"
       ],
       "description": "Octopoid satraps of Great Cthulhu.",
-      "source_page": 318
+      "source_page": 319
     },
     "Zoog": {
       "str": 20,
@@ -726,7 +726,7 @@
       "attacks": [
         {
           "weapon": "claws",
-          "damage": "1D10+DB"
+          "damage": "1D6+DB"
         },
         {
           "weapon": "tentacles",
@@ -737,7 +737,7 @@
         "all"
       ],
       "description": "High priest of the Great Old Ones, slumbering in Rlyeh.",
-      "source_page": 325
+      "source_page": 327
     },
     "Azathoth": {
       "str": "N/A",
@@ -763,17 +763,17 @@
         "all"
       ],
       "description": "Blind idiot god at the center of the universe.",
-      "source_page": 326
+      "source_page": 323
     },
     "Hastur": {
-      "str": 125,
-      "con": 530,
-      "siz": 70,
-      "dex": 135,
-      "int": 250,
+      "str": 600,
+      "con": 1000,
+      "siz": 500,
+      "dex": 150,
+      "int": 75,
       "pow": 175,
-      "hp": 60,
-      "armor": 0,
+      "hp": 150,
+      "armor": 30,
       "mov": 8,
       "san_loss": {
         "success": "1D10",
@@ -789,7 +789,7 @@
         "all"
       ],
       "description": "The Unspeakable One, Lord of Carcosa, Master of the Yellow Sign.",
-      "source_page": 329
+      "source_page": 331
     },
     "Nyarlathotep": {
       "str": 60,
@@ -815,7 +815,7 @@
         "all"
       ],
       "description": "Crawling Chaos, messenger of the Outer Gods.",
-      "source_page": 331
+      "source_page": 334
     },
     "Shub-Niggurath": {
       "str": 360,
@@ -841,7 +841,7 @@
         "all"
       ],
       "description": "Black Goat of the Woods, fertility deity.",
-      "source_page": 333
+      "source_page": 336
     },
     "Yog-Sothoth": {
       "str": "N/A",
@@ -867,7 +867,7 @@
         "all"
       ],
       "description": "The Lurker at the Threshold, gate and key.",
-      "source_page": 335
+      "source_page": 342
     },
     "Werewolf": {
       "str": 105,
@@ -895,7 +895,7 @@
       ],
       "spells": [],
       "description": "Traditional horror: lycanthrope that transforms at the full moon.",
-      "source_page": 344
+      "source_page": 330
     },
     "Vampire": {
       "str": 105,
@@ -922,7 +922,7 @@
         "Create Zombie"
       ],
       "description": "Traditional horror: undead blood-drinker.",
-      "source_page": 346
+      "source_page": 329
     },
     "Ghost": {
       "str": 0,
@@ -948,7 +948,7 @@
         "varies"
       ],
       "description": "Traditional horror: spirit of the dead.",
-      "source_page": 348
+      "source_page": 344
     },
     "Zombie": {
       "str": 80,
@@ -976,7 +976,7 @@
       ],
       "spells": [],
       "description": "Traditional horror: reanimated corpse.",
-      "source_page": 350
+      "source_page": 330
     },
     "Walter Corbitt": {
       "str": 90,
