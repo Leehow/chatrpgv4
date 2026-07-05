@@ -242,6 +242,35 @@ def audit_weapon_db_flags(root: Path) -> list[str]:
     return gaps
 
 
+def audit_monster_stats(root: Path, project: Path) -> list[str]:
+    """Section D: monster STR/CON/SIZ/HP must match rulebook (if reference exists)."""
+    ref_path = project / "checks" / "rulebook-monsters-ref.json"
+    if not ref_path.exists():
+        return []  # no reference file, skip
+    try:
+        ref = json.loads(ref_path.read_text())["monsters"]
+    except (json.JSONDecodeError, KeyError):
+        return ["[D] rulebook-monsters-ref.json: UNREADABLE"]
+    try:
+        monsters = _load_table(root, "monsters").get("monsters", {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ["[D] monsters.json: UNREADABLE"]
+    gaps = []
+    for name, rb in ref.items():
+        if name not in monsters:
+            gaps.append(f"[D] monsters: '{name}' in rulebook ref but not in monsters.json")
+            continue
+        m = monsters[name]
+        for attr in ("STR", "CON", "SIZ", "DEX", "INT", "POW", "HP"):
+            if attr in rb:
+                ours = m.get(attr.lower())
+                if ours is not None and str(ours) != "N/A" and int(ours) != int(rb[attr]):
+                    gaps.append(
+                        f"[D] monsters {name}.{attr}: ours={ours} rulebook={rb[attr]}"
+                    )
+    return gaps
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--plugin-root", default="plugins/coc-keeper")
@@ -250,6 +279,8 @@ def main() -> int:
     args = ap.parse_args()
     root = Path(args.plugin_root)
     zroot = Path(args.zcode_root)
+    # project root = parent of plugin-root (for checks/ dir)
+    project = root.parent.parent if root.parent.name == "plugins" else Path.cwd()
 
     all_gaps = []
     all_gaps += audit_data_counts(root)
@@ -258,6 +289,7 @@ def main() -> int:
     all_gaps += audit_teamwork(root)
     all_gaps += audit_bout_content(root)
     all_gaps += audit_weapon_db_flags(root)
+    all_gaps += audit_monster_stats(root, project)
     all_gaps += audit_parity(root, zroot)
 
     if all_gaps:

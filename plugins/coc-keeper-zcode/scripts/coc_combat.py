@@ -401,7 +401,7 @@ class CombatSession:
             "source_actor_id": source_actor_id,
             "target_actor_id": target_actor_id,
             "weapon_id": weapon_id,
-            "die": die_expr,
+            "die": full_expr,
             "die_rolls": die_rolls,
             "raw_damage": raw,
             "hp_before": hp_before,
@@ -429,8 +429,13 @@ class CombatSession:
         return raw, roll_id, record
 
     def _roll_damage_expr(self, die_expr: str) -> tuple[int, list[int], str]:
-        """Returns (total, all_dice, breakdown_str). Supports NdS+NdS+M forms."""
-        parts = [p.strip() for p in die_expr.split("+")]
+        """Returns (total, all_dice, breakdown_str).
+
+        Supports NdS+NdS+M and NdS-M forms (negative modifiers like DB -1).
+        """
+        # Normalize: convert leading '-' to '+-' so split('+') handles negatives.
+        normalized = die_expr.replace("-", "+-")
+        parts = [p.strip() for p in normalized.split("+") if p.strip()]
         total = 0
         all_dice: list[int] = []
         breakdown_parts: list[str] = []
@@ -452,6 +457,85 @@ class CombatSession:
                 except ValueError:
                     raise ValueError(f"unsupported damage token: {part!r} in {die_expr!r}")
         return total, all_dice, "+".join(breakdown_parts)
+
+    def _max_damage_for_expr(self, die_expr: str) -> int:
+        """Maximum possible roll for a die expression (e.g. '1D4+2' → 6, '1D3+1D4' → 7, '1D4-1' → 3)."""
+        total = 0
+        normalized = die_expr.replace("-", "+-")
+        for part in normalized.split("+"):
+            part = part.strip()
+            m = re.fullmatch(r"(\d+)D(\d+)", part)
+            if m:
+                n, sides = int(m.group(1)), int(m.group(2))
+                total += n * sides
+            else:
+                try:
+                    total += int(part)
+                except ValueError:
+                    pass  # ignore unknown tokens
+        return total
+
+    def _apply_extreme_damage(self, dmg_rec: dict, weapon: dict, attacker: dict) -> None:
+        """Apply Extreme-success damage per rulebook p.115.
+
+        Non-impaling weapon (fist/club): max weapon damage + max DB (no roll).
+        Impaling weapon (blade/bullet): max weapon damage + max DB + one extra
+        weapon-damage roll.
+
+        Modifies the damage_chain record in place: updates raw_damage, hp
+        bookkeeping (hp_before/delta/after), armor absorption, and stamps
+        impale_or_max + extreme_damage_breakdown.
+        """
+        weapon_id = dmg_rec.get("weapon_id", "unknown")
+        target_id = dmg_rec.get("target_actor_id")
+        target = self.participants.get(target_id)
+        if not target:
+            return
+
+        weapon_max = self._max_damage_for_expr(weapon["damage"])
+        db_expr = self._weapon_db_expr(attacker, weapon)
+        db_max = self._max_damage_for_expr(db_expr) if db_expr else 0
+        is_impale = weapon.get("impales", False)
+
+        # Base extreme damage: max weapon + max DB.
+        extreme_raw = weapon_max + db_max
+        breakdown = f"extreme: max_weapon({weapon_max})+max_db({db_max})"
+
+        # Impale: add one extra weapon-damage roll (p.119 example).
+        extra_roll = 0
+        if is_impale:
+            extra_raw, extra_dice, _ = self._roll_damage_expr(weapon["damage"])
+            extreme_raw += extra_raw
+            breakdown += f"+impale_extra_roll({extra_raw})"
+
+        # Re-apply armor to the new raw damage.
+        hp_before = dmg_rec["hp_before"]
+        armor_before = dmg_rec.get("armor_before", target.get("armor", 0))
+        armor_rule = target.get("armor_rule")
+        bypass = dmg_rec.get("bypass_armor", False)
+        absorbed = 0
+        remaining = extreme_raw
+        if not bypass and armor_before > 0:
+            absorbed = min(armor_before, remaining)
+            remaining -= absorbed
+            if armor_rule == "degrades_1_per_damage":
+                # Restore armor to before-state (undo the original roll's
+                # degradation), then re-degrade from the extreme damage.
+                target["armor"] = armor_before
+                target["armor"] = max(0, armor_before - absorbed)
+        hp_after = max(0, hp_before - remaining)
+        hp_delta = hp_after - hp_before
+        target["hp_current"] = hp_after
+
+        dmg_rec["raw_damage"] = extreme_raw
+        dmg_rec["hp_delta"] = hp_delta
+        dmg_rec["hp_after"] = hp_after
+        dmg_rec["armor_absorbed"] = absorbed
+        dmg_rec["armor_after"] = target["armor"]
+        dmg_rec["impale_or_max"] = True
+        dmg_rec["extreme_damage"] = True
+        dmg_rec["extreme_breakdown"] = breakdown
+        dmg_rec["is_impale"] = is_impale
 
     # ------------------------------------------------------------------ #
     # Opposed resolution (p.115)
@@ -744,8 +828,11 @@ class CombatSession:
                 weapon["damage"], actor_id, target_id, weapon_id, turn["turn_id"],
                 bypass_armor=bypass, rulebook_exception=rulebook_exception,
                 db_expr=self._weapon_db_expr(attacker, weapon))
-            if LVL[atk_oc] == LVL["extreme"] or LVL[atk_oc] == LVL["critical"]:
-                dmg_rec["impale_or_max"] = True
+            # Extreme success → max damage per p.115 (only on attacker's own
+            # turn in DEX order, not fight_back — caller controls this by only
+            # declaring extreme on their turn).
+            if LVL[atk_oc] >= LVL["extreme"]:
+                self._apply_extreme_damage(dmg_rec, weapon, attacker)
             turn["damage_roll_id"] = dmg_id
         elif opp == "both_fail":
             turn["outcome"] = "no_damage"

@@ -127,3 +127,107 @@ def test_zcode_copy_carries_failed_san_roll_involuntary_action_rule():
     assert "involuntary_action.kind" in sanity_skill or "involuntary action" in sanity_skill
     playtest_skill = (ZCODE_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
     assert "sanity_failure_involuntary_action_missing" in playtest_skill
+
+
+# --------------------------------------------------------------------------- #
+# Dual-directory sync: verify every file in coc-keeper is either identical
+# in coc-keeper-zcode, or has only intentional Codex→ZCode wording changes.
+# This prevents silent drift between the two plugin copies.
+# --------------------------------------------------------------------------- #
+
+# Files where Codex→ZCode wording differences are intentional.
+# For these files, we verify the diff is ONLY platform wording (not logic).
+INTENTIONAL_DRIFT_FILES = {
+    "references/mode-protocol.md",
+    "references/state-schema.md",
+    "scripts/coc_completion_audit.py",
+    "scripts/coc_language.py",
+    "skills/coc-main/SKILL.md",
+    "skills/coc-playtest/SKILL.md",
+    "skills/coc-rules-engine/SKILL.md",
+}
+
+CODEX_ROOT = Path("plugins/coc-keeper")
+# ZCODE_ROOT already defined above
+
+
+def _all_plugin_files(root: Path) -> set[str]:
+    """All tracked file paths relative to the plugin root."""
+    files = set()
+    for p in root.rglob("*"):
+        if p.is_file() and "__pycache__" not in p.parts and ".codex-plugin" not in p.parts:
+            # Skip Codex-only agents/ dirs (openai.yaml) — ZCode doesn't use them.
+            if "agents" in p.parts:
+                continue
+            files.add(str(p.relative_to(root)))
+    return files
+
+
+def test_no_unintentional_drift_between_codex_and_zcode_copies():
+    """Every file must be either identical or in the intentional-drift allowlist.
+
+    For allowlisted files, the diff must be platform-wording only (Codex→ZCode),
+    never a logic/code change. This catches silent drift from partial syncs.
+    """
+    codex_files = _all_plugin_files(CODEX_ROOT)
+    zcode_files = _all_plugin_files(ZCODE_ROOT)
+
+    # Files in Codex but missing from ZCode (excluding .codex-plugin).
+    missing_in_zcode = codex_files - zcode_files - {".codex-plugin/plugin.json"}
+    # The .codex-plugin is Codex-only by design; ZCode uses .zcode-plugin.
+    missing_in_zcode = {f for f in missing_in_zcode if not f.startswith(".codex-plugin")}
+    assert not missing_in_zcode, f"Files in coc-keeper missing from coc-keeper-zcode: {missing_in_zcode}"
+
+    # For each file, check it's identical or intentionally drifted.
+    unintentional = []
+    for rel in sorted(codex_files & zcode_files):
+        if rel in INTENTIONAL_DRIFT_FILES:
+            continue  # checked separately below
+        codex_content = (CODEX_ROOT / rel).read_bytes()
+        zcode_content = (ZCODE_ROOT / rel).read_bytes()
+        if codex_content != zcode_content:
+            unintentional.append(rel)
+
+    assert not unintentional, (
+        f"Unintentional drift detected — these files differ between "
+        f"coc-keeper and coc-keeper-zcode but are not in the allowlist: {unintentional}"
+    )
+
+
+def test_intentional_drift_files_only_differ_in_platform_wording():
+    """Allowlisted files must only differ in Codex→ZCode wording, not logic.
+
+    Replaces 'Codex' with 'ZCode' in the Codex version and checks the result
+    matches the ZCode version (after also normalizing the dice label
+    'Codex 掷骰'→'AI 掷骰' etc).
+    """
+    for rel in sorted(INTENTIONAL_DRIFT_FILES):
+        codex_path = CODEX_ROOT / rel
+        zcode_path = ZCODE_ROOT / rel
+        if not codex_path.exists() or not zcode_path.exists():
+            continue
+        codex_text = codex_path.read_text(encoding="utf-8")
+        zcode_text = zcode_path.read_text(encoding="utf-8")
+        # Normalize: special replacements first (before generic Codex→ZCode),
+        # then generic Codex→ZCode for remaining mentions.
+        normalized = codex_text.replace("Codex 掷骰", "AI 掷骰")
+        normalized = normalized.replace("Codex ダイス", "AI ダイス")
+        normalized = normalized.replace("Codex", "ZCode")
+        if normalized != zcode_text:
+            # Find first differing line for diagnostics
+            for i, (c, z) in enumerate(zip(normalized.splitlines(), zcode_text.splitlines())):
+                if c != z:
+                    pytest.fail(
+                        f"{rel}: line {i+1} differs beyond Codex→ZCode wording.\n"
+                        f"  Codex(normalized): {c[:100]}\n"
+                        f"  ZCode:              {z[:100]}"
+                    )
+                    break
+            else:
+                pytest.fail(f"{rel}: file lengths differ beyond Codex→ZCode wording")
+
+
+def test_zcode_copy_has_all_three_engines():
+    """coc-keeper-zcode must have coc_combat.py, coc_sanity.py, coc_chase.py."""
+    for engine in ("coc_combat.py", "coc_sanity.py", "coc_chase.py"):
+        assert (ZCODE_ROOT / "scripts" / engine).exists(), f"ZCode copy missing {engine}"
