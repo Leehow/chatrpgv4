@@ -1,0 +1,101 @@
+"""Tests for coc_story_director: deterministic planner producing DirectorPlan."""
+import importlib.util
+import json
+import random
+from pathlib import Path
+
+import pytest
+
+def _load(name, rel):
+    spec = importlib.util.spec_from_file_location(name, rel)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+coc_story_director = _load("coc_story_director", "plugins/coc-keeper/scripts/coc_story_director.py")
+
+
+def _make_minimal_campaign(tmp_path):
+    """Build a minimal campaign dir with save + scenario story-graph."""
+    camp = tmp_path / "campaigns" / "test"
+    (camp / "save").mkdir(parents=True)
+    (camp / "scenario").mkdir(parents=True)
+    (camp / "save" / "investigator-state").mkdir()
+    (camp / "save" / "investigator-state" / "inv1.json").write_text(json.dumps({
+        "schema_version": 1, "campaign_id": "test", "investigator_id": "inv1",
+        "current_hp": 12, "current_san": 55, "current_mp": 11,
+        "conditions": [], "skill_checks_earned": [],
+    }))
+    (camp / "save" / "world-state.json").write_text(json.dumps({
+        "schema_version": 1, "campaign_id": "test", "scenario_id": "test-mod",
+        "status": "active", "active_scene_id": "scene-1", "active_subsystem": "play",
+        "current_phase": "middle", "discovered_clue_ids": [], "major_decisions": [],
+    }))
+    (camp / "save" / "flags.json").write_text(json.dumps({
+        "schema_version": 1, "campaign_id": "test", "clues_found": {}, "decisions": [],
+    }))
+    (camp / "save" / "pacing-state.json").write_text(json.dumps({
+        "schema_version": 1, "tension_level": "low", "lethal_chances_used": 0,
+        "recent_intent_classes": [],
+    }))
+    (camp / "scenario" / "module-meta.json").write_text(json.dumps({
+        "schema_version": 1, "scenario_id": "test-mod", "structure_type": "branching_investigation",
+        "era": "1920s", "content_flags": [], "win_condition": "test",
+    }))
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps({"scenes": [
+        {"scene_id": "scene-1", "scene_type": "investigation",
+         "dramatic_question": "能否找到线索？",
+         "entry_conditions": [], "exit_conditions": ["clue-1 discovered"],
+         "available_clues": ["clue-1"], "npc_ids": [], "pressure_moves": [],
+         "tone": ["tense"], "allowed_improvisation": []},
+    ]}))
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps({"conclusions": [
+        {"conclusion_id": "concl-1", "importance": "critical", "minimum_routes": 3,
+         "clues": [
+             {"clue_id": "clue-1", "delivery": "investigate", "visibility": "player-safe"},
+             {"clue_id": "clue-1b", "delivery": "social", "visibility": "player-safe"},
+             {"clue_id": "clue-1c", "delivery": "spot hidden", "visibility": "player-safe"},
+         ], "fallback_policy": "move clue if 2 missed"},
+    ]}))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({"npcs": []}))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": []}))
+    (camp / "scenario" / "pacing-map.json").write_text(json.dumps({"pacing_curve": []}))
+    (camp / "scenario" / "improvisation-boundaries.json").write_text(json.dumps({
+        "invent_allowed": [], "never_invent": [], "keeper_secrets": ["secret-1"],
+    }))
+    # character.json for inv1
+    char_dir = tmp_path / "investigators" / "inv1"
+    char_dir.mkdir(parents=True)
+    (char_dir / "character.json").write_text(json.dumps({
+        "schema_version": 1, "id": "inv1", "occupation": "Antiquarian", "era": "1920s",
+        "characteristics": {"STR":60,"CON":55,"SIZ":65,"DEX":50,"APP":45,"INT":70,"POW":55,"EDU":75,"LUCK":55},
+        "derived": {"HP":12,"MP":11,"SAN":55,"MOV":7,"damage_bonus":"0","build":0},
+        "skills": {"Credit Rating": 50, "Spot Hidden": 60, "Psychology": 55},
+        "backstory": {},
+    }))
+    return camp, char_dir / "character.json"
+
+
+def test_build_director_context_reads_state(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我检查门框", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert ctx["active_scene_id"] == "scene-1"
+    assert ctx["structure_type"] == "branching_investigation"
+    assert ctx["rule_signals"]["hp_state"] == "healthy"
+    assert ctx["rule_signals"]["credit_tier"] == "wealthy"
+    assert ctx["rule_signals"]["tension_clock"]["death_allowed"] is False
+
+
+def test_build_director_context_fallen_back_on_missing_pacing(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    (camp / "save" / "pacing-state.json").unlink()
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    # defaults applied, no crash
+    assert ctx["rule_signals"]["stalled_turns"] == 0
