@@ -177,7 +177,7 @@ def test_rule_index_covers_all_runtime_rule_json_files():
     runtime_rule_files = {
         path.name
         for path in rules_dir.glob("*.json")
-        if path.name not in {"metadata.json", "rule-index.json", "structure-weights.json"}
+        if path.name not in {"metadata.json", "rule-index.json"}
     }
 
     assert runtime_rule_files <= indexed_tables
@@ -204,6 +204,7 @@ def test_all_v1_skills_have_valid_frontmatter():
         "coc-chase",
         "coc-sanity",
         "coc-mythos-reference",
+        "coc-story-director",
     }
     found = set()
     for skill_path in (PLUGIN_ROOT / "skills").glob("*/SKILL.md"):
