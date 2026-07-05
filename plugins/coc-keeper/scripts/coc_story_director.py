@@ -126,3 +126,155 @@ def write_director_plan(plan: dict[str, Any], artifacts_dir: Path) -> Path:
     out = artifacts_dir / f"{plan['decision_id']}.json"
     out.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return out
+
+
+# =============================================================================
+# Three-layer scoring engine
+# Spec: docs/superpowers/specs/2026-07-05-story-director-design.md
+# =============================================================================
+
+RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"
+
+
+def _load_structure_weights() -> dict[str, Any]:
+    return _read_json(RULES_DIR / "structure-weights.json", {"weights": {}, "tiebreak_order": []})
+
+
+ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]
+
+
+def _base_score(action: str, ctx: dict[str, Any]) -> float:
+    """Layer 1: structure-agnostic trigger conditions. Returns 0.0-1.0."""
+    scene = ctx.get("active_scene") or {}
+    sig = ctx["rule_signals"]
+    intent = ctx["player_intent_class"]
+    clue_graph = ctx.get("clue_graph", {})
+    discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
+
+    if action == "REVEAL":
+        if intent != "investigate":
+            return 0.0
+        avail = [c for c in scene.get("available_clues", []) if c not in discovered]
+        return 0.9 if avail else 0.0
+
+    if action == "DEEPEN":
+        if intent not in ("investigate", "social"):
+            return 0.0
+        return 0.5 if scene.get("dramatic_question") else 0.0
+
+    if action == "PRESSURE":
+        fronts = ctx.get("threat_fronts", {}).get("fronts", [])
+        near_full = any(
+            any(c.get("current_segments", 0) >= c.get("segments", 6) * 2 / 3
+                for c in f.get("clocks", []))
+            for f in fronts
+        )
+        return 0.8 if (near_full or sig["stalled_turns"] >= 1) else 0.2
+
+    if action == "CHARACTER":
+        npcs_in_scene = scene.get("npc_ids", [])
+        agendas = ctx.get("npc_agendas", {}).get("npcs", [])
+        has_agenda_npc = any(n["npc_id"] in npcs_in_scene and n.get("agenda") for n in agendas)
+        return 0.7 if has_agenda_npc else 0.0
+
+    if action == "CHOICE":
+        if intent not in ("idle", "ambiguous", "stuck"):
+            return 0.0
+        avail = [c for c in scene.get("available_clues", []) if c not in discovered]
+        return 0.7 if len(avail) >= 2 else 0.0
+
+    if action == "CUT":
+        # dramatic question answered OR exit condition met
+        exit_met = any(_eval_exit(e, ctx) for e in scene.get("exit_conditions", []))
+        return 0.8 if exit_met else 0.0
+
+    if action == "MONTAGE":
+        return 0.6 if intent == "montage" else 0.0
+
+    if action == "SUBSYSTEM":
+        return 0.9 if intent in ("combat", "flee", "cast") else 0.0
+
+    if action == "RECOVER":
+        return 0.85 if sig["stalled_turns"] >= 2 else 0.0
+
+    if action == "PAYOFF":
+        # v1: no memory layer; minimal — true if scene tone matches a prior cue
+        return 0.0  # v1 leaves PAYOFF to v2 (memory layer)
+
+    return 0.0
+
+
+def _eval_exit(condition: str, ctx: dict[str, Any]) -> bool:
+    """Heuristic exit-condition eval. v1 supports 'clue discovered' and 'pressure clock reaches N'."""
+    discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
+    if "discovered" in condition:
+        clue_id = condition.split()[0]
+        return clue_id in discovered
+    if "pressure clock reaches" in condition:
+        try:
+            n = int(condition.split("reaches")[-1].strip())
+            fronts = ctx.get("threat_fronts", {}).get("fronts", [])
+            return any(
+                any(c.get("current_segments", 0) >= n for c in f.get("clocks", []))
+                for f in fronts
+            )
+        except (ValueError, IndexError):
+            return False
+    return False
+
+
+def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    """Layer 3: hard overrides. Returns a forced action dict or None."""
+    sig = ctx["rule_signals"]
+    if sig["bout_active"]:
+        return {"scene_action": "SUBSYSTEM", "subsystem": "sanity", "handoff": "rules",
+                "rationale": "bout_active forces sanity subsystem"}
+    if sig["hp_state"] == "dying":
+        return {"scene_action": "SUBSYSTEM", "subsystem": "combat", "handoff": "rules",
+                "rationale": "dying forces combat CON-clock + pressure",
+                "extra_pressure": True}
+    if sig["sanity_state"] == "temp_insane":
+        return {"scene_action": "SUBSYSTEM", "subsystem": "sanity", "handoff": "rules",
+                "rationale": "temp_insane triggers bout procedure"}
+    if sig["last_roll_fumble"]:
+        return {"scene_action": "PRESSURE", "handoff": "narration",
+                "rationale": "fumble forces immediate misfortune, cannot be pushed off"}
+    if sig["stalled_turns"] >= 3:
+        return {"scene_action": "RECOVER", "handoff": "narration",
+                "rationale": "3 stalled turns forces Idea Roll recovery valve"}
+    return None
+
+
+def select_action(ctx: dict[str, Any]) -> tuple[str, dict[str, float]]:
+    """Three-layer scoring. Returns (chosen_action, scores_dict)."""
+    overrides = apply_rule_signal_overrides(ctx)
+    if overrides is not None:
+        # Layer 3 hit — bypass scoring
+        scores = {a: 0.0 for a in ACTIONS}
+        scores[overrides["scene_action"]] = 1.0
+        scores["_override"] = 1.0  # type: ignore
+        return overrides["scene_action"], scores
+
+    weights_cfg = _load_structure_weights()
+    stype = ctx["structure_type"]
+    weights = weights_cfg.get("weights", {}).get(stype, {})
+    tiebreak = weights_cfg.get("tiebreak_order", ACTIONS)
+
+    scores: dict[str, float] = {}
+    for action in ACTIONS:
+        base = _base_score(action, ctx)
+        w = weights.get(action, 1.0)
+        scores[action] = round(base * w, 4)
+
+    # pick max; tiebreak by order
+    max_score = max(scores.values()) if scores else 0.0
+    if max_score <= 0.0:
+        return "CHOICE", scores  # no-trigger default
+
+    candidates = [a for a, s in scores.items() if s == max_score]
+    if len(candidates) == 1:
+        return candidates[0], scores
+    for action in tiebreak:
+        if action in candidates:
+            return action, scores
+    return candidates[0], scores

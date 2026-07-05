@@ -99,3 +99,68 @@ def test_build_director_context_fallen_back_on_missing_pacing(tmp_path):
     )
     # defaults applied, no crash
     assert ctx["rule_signals"]["stalled_turns"] == 0
+
+
+def test_select_action_reveal_for_active_investigation(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我仔细检查门框寻找线索", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    action, scores = coc_story_director.select_action(ctx)
+    # Active investigation + clue available in scene → REVEAL should win
+    assert action == "REVEAL"
+
+
+def test_select_action_recover_when_stalled(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # make 3 idle turns
+    pacing = json.loads((camp/"save"/"pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["idle","idle","idle"]
+    (camp/"save"/"pacing-state.json").write_text(json.dumps(pacing))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="不知道该干嘛", player_intent_class="idle", rng=random.Random(42),
+    )
+    action, _ = coc_story_director.select_action(ctx)
+    assert action == "RECOVER"
+
+
+def test_rule_override_dying_forces_subsystem(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    inv = json.loads((camp/"save"/"investigator-state"/"inv1.json").read_text())
+    inv["current_hp"] = 0
+    inv["conditions"] = ["major_wound", "dying"]
+    (camp/"save"/"investigator-state"/"inv1.json").write_text(json.dumps(inv))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我继续调查", player_intent_class="investigate", rng=random.Random(42),
+    )
+    overrides = coc_story_director.apply_rule_signal_overrides(ctx)
+    assert overrides is not None
+    assert overrides["scene_action"] == "SUBSYSTEM"
+    assert overrides["handoff"] == "rules"
+
+
+def test_rule_override_fumble_forces_pressure(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    ctx["rule_signals"]["last_roll_fumble"] = True
+    overrides = coc_story_director.apply_rule_signal_overrides(ctx)
+    assert overrides["scene_action"] == "PRESSURE"
+
+
+def test_rule_override_bout_forces_subsystem_sanity(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    ctx["rule_signals"]["bout_active"] = True
+    overrides = coc_story_director.apply_rule_signal_overrides(ctx)
+    assert overrides["scene_action"] == "SUBSYSTEM"
+    assert overrides["subsystem"] == "sanity"
