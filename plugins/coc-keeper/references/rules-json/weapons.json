@@ -519,7 +519,7 @@
     "mace_spray": {
       "display_name": "Mace Spray*",
       "skill": "Fighting (Brawl)",
-      "damage_die": "Stun",
+      "damage_die": "",
       "base_range_yards": 2,
       "uses_per_round": "1",
       "magazine": 25,
