@@ -64,7 +64,7 @@
       "magazine": null,
       "malfunction": 95,
       "impales": false,
-      "adds_damage_bonus": false,
+      "adds_damage_bonus": true,
       "special": "awkward: double fumble chance; fumble causes 2D8 to user",
       "eras": ["modern"]
     },
@@ -207,7 +207,7 @@
       "magazine": null,
       "malfunction": null,
       "impales": true,
-      "adds_damage_bonus": false,
+      "adds_damage_bonus": true,
       "special": null,
       "eras": ["1920s", "modern"]
     },
