@@ -1,6 +1,8 @@
 """Tests for coc_scenario_compile: story-graph structure validator."""
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -77,3 +79,54 @@ def test_validate_bad_structure_type(tmp_path):
     (sc/"module-meta.json").write_text(json.dumps(m))
     result = coc_scenario_compile.validate_scenario(sc)
     assert any("structure_type" in e for e in result["errors"])
+
+
+def _scenario_script_path() -> Path:
+    return Path("plugins/coc-keeper/scripts/coc_scenario_compile.py")
+
+
+def test_cli_valid_scenario_exits_zero(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    proc = subprocess.run(
+        [sys.executable, str(_scenario_script_path()), str(sc)],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    assert "OK" in proc.stdout
+
+
+def test_cli_invalid_scenario_exits_nonzero(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"story-graph.json").read_text())
+    g["scenes"][0]["dramatic_question"] = ""
+    (sc/"story-graph.json").write_text(json.dumps(g))
+    proc = subprocess.run(
+        [sys.executable, str(_scenario_script_path()), str(sc)],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 1
+    assert any(line.startswith("ERROR:") for line in proc.stdout.splitlines())
+
+
+def test_horror_stage_regression_errors(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"pacing-map.json").read_text())
+    g["pacing_curve"] = [
+        {"scene_id": "late", "horror_stage": "revelation"},
+        {"scene_id": "after", "horror_stage": "ordinary"},
+    ]
+    (sc/"pacing-map.json").write_text(json.dumps(g))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("horror_stage" in e for e in result["errors"])
+
+
+def test_horror_stage_minor_dip_ok(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"pacing-map.json").read_text())
+    g["pacing_curve"] = [
+        {"scene_id": "s1", "horror_stage": "pattern"},
+        {"scene_id": "s2", "horror_stage": "wrongness"},  # dip of 1: allowed
+    ]
+    (sc/"pacing-map.json").write_text(json.dumps(g))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert not any("horror_stage" in e for e in result["errors"])

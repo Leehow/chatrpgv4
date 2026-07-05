@@ -72,4 +72,65 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             if clue.get("visibility") == "player-safe" and clue.get("clue_id") in secrets:
                 errors.append(f"clue '{clue.get('clue_id')}' marked player-safe but is a keeper_secret")
 
+    # horror_stage monotonicity check on pacing-map.pacing_curve.
+    # Stages should broadly advance ordinary->wrongness->pattern->revelation.
+    # A scene may stay at the same stage or advance; a minor dip of 1 is
+    # acceptable, but a regression of more than 1 from the max rank reached
+    # so far (e.g. revelation back to ordinary) is an error.
+    stage_rank = {"ordinary": 0, "wrongness": 1, "pattern": 2, "revelation": 3}
+    pacing_path = scenario_dir / "pacing-map.json"
+    if pacing_path.exists():
+        pacing = _read(pacing_path)
+        curve = pacing.get("pacing_curve")
+        if isinstance(curve, list):
+            max_rank = -1
+            max_stage = None
+            for entry in curve:
+                stage = entry.get("horror_stage")
+                rank = stage_rank.get(stage)
+                if rank is None:
+                    continue  # unknown stage; not this check's concern
+                if max_rank >= 0 and rank < max_rank - 1:
+                    errors.append(
+                        f"pacing-map horror_stage regressed: scene '{entry.get('scene_id')}' "
+                        f"is '{stage}' after reaching '{max_stage}'"
+                    )
+                if rank > max_rank:
+                    max_rank = rank
+                    max_stage = stage
+
     return {"errors": errors, "warnings": warnings}
+
+
+def _main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="coc_scenario_compile.py",
+        description="Validate a compiled scenario story-graph (compilation Layer 2).",
+    )
+    parser.add_argument("scenario_dir", help="path to the compiled scenario directory")
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="always validates (accepted for documentation consistency with SKILL.md)",
+    )
+    args = parser.parse_args()
+
+    result = validate_scenario(Path(args.scenario_dir))
+    errors = result.get("errors", [])
+    warnings = result.get("warnings", [])
+
+    for w in warnings:
+        print(f"WARNING: {w}")
+    for e in errors:
+        print(f"ERROR: {e}")
+
+    if errors:
+        return 1
+    print("OK: scenario story-graph valid")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
