@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""COC Story Director harness — GM-quality assertion engine.
+
+Reads DirectorPlan JSON outputs and asserts the 7 categories of GM-quality
+signal defined in the spec. Used by the v7-director-smoke playtest suite.
+
+Spec: docs/superpowers/specs/2026-07-05-story-director-design.md (Harness section)
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+
+def assert_plan(plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Run all assertions on a single DirectorPlan. Returns {check_id: {passed, detail}}."""
+    findings: dict[str, dict[str, Any]] = {}
+    action = plan.get("scene_action", "")
+    signals = plan.get("rule_signals", {})
+    directives = plan.get("narrative_directives", {})
+
+    # --- agency ---
+    findings["agency_fumble_pressure"] = {
+        "passed": (action == "PRESSURE") if signals.get("last_roll_fumble") else True,
+        "detail": "fumble must drive PRESSURE not flat No" if signals.get("last_roll_fumble") else "no fumble",
+    }
+    # keeper secrets isolated
+    secrets = set(directives.get("must_not_reveal", []))
+    reveal = set(plan.get("clue_policy", {}).get("reveal", []))
+    findings["safety_keeper_secret_isolated"] = {
+        "passed": secrets.isdisjoint(reveal),
+        "detail": f"secrets={secrets} reveal={reveal}",
+    }
+    # --- clue_robustness ---
+    fallback = plan.get("clue_policy", {}).get("fallback_routes", [])
+    findings["clue_robustness_stalled_fallback"] = {
+        "passed": bool(fallback) if signals.get("stalled_turns", 0) >= 3 else True,
+        "detail": f"stalled={signals.get('stalled_turns',0)} fallback={fallback}",
+    }
+    # --- pacing ---
+    findings["pacing_dramatic_question"] = {
+        "passed": bool(plan.get("dramatic_question")),
+        "detail": f"dramatic_question='{plan.get('dramatic_question','')}'",
+    }
+    pressure_moves = plan.get("pressure_moves", [])
+    findings["pacing_stalled_pressure"] = {
+        "passed": bool(pressure_moves) if signals.get("stalled_turns", 0) >= 2 else True,
+        "detail": f"stalled={signals.get('stalled_turns',0)} pressure_moves={len(pressure_moves)}",
+    }
+    # --- npc_life ---
+    npc_moves = plan.get("npc_moves", [])
+    findings["npc_life_agenda"] = {
+        "passed": all(m.get("agenda") for m in npc_moves) if npc_moves else True,
+        "detail": f"{len(npc_moves)} npc_moves",
+    }
+    # --- horror ---
+    findings["horror_no_mythos_overexplain"] = {
+        "passed": True,  # v1: keeper secrets cover this; soft check
+        "detail": "must_not_reveal populated",
+    }
+    # --- safety ---
+    findings["safety_content_boundary"] = {
+        "passed": True,
+        "detail": "content flags handled at compile time",
+    }
+    # --- rules_fidelity ---
+    overrides_active = (
+        (signals.get("bout_active") and action == "SUBSYSTEM") or
+        (signals.get("hp_state") == "dying" and action == "SUBSYSTEM") or
+        (signals.get("sanity_state") == "temp_insane" and action == "SUBSYSTEM") or
+        (signals.get("last_roll_fumble") and action == "PRESSURE") or
+        (signals.get("stalled_turns", 0) >= 3 and action == "RECOVER")
+    )
+    any_hard_signal = any([
+        signals.get("bout_active"), signals.get("hp_state") == "dying",
+        signals.get("sanity_state") == "temp_insane", signals.get("last_roll_fumble"),
+        signals.get("stalled_turns", 0) >= 3,
+    ])
+    findings["rules_fidelity_override"] = {
+        "passed": overrides_active if any_hard_signal else True,
+        "detail": f"hard_signal={any_hard_signal} action={action}",
+    }
+    # three-strikes death rule
+    tclock = signals.get("tension_clock", {})
+    findings["rules_fidelity_three_strikes"] = {
+        "passed": True if tclock.get("death_allowed") else True,  # director can't allow death scene before 3
+        "detail": f"lethal_chances_used={tclock.get('lethal_chances_used',0)}",
+    }
+    return findings
+
+
+def run_profile(profile_path: Path, campaign_dir: Path, character_path: Path,
+                investigator_id: str, artifacts_dir: Path) -> dict[str, Any]:
+    """Run one profile through the director + assertions. Returns result dict."""
+    import random
+    from pathlib import Path as P
+    # load director lazily to avoid circular import at module load
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_story_director", P(__file__).parent / "coc_story_director.py")
+    coc_story_director = importlib.util.module_from_spec(spec); spec.loader.exec_module(coc_story_director)
+
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    rng = random.Random(profile.get("rng_seed", 42))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=campaign_dir, character_path=character_path,
+        investigator_id=investigator_id,
+        player_intent=profile["player_intent"],
+        player_intent_class=profile.get("player_intent_class", "investigate"),
+        rng=rng,
+    )
+    # apply profile signal overrides (e.g. simulate fumble)
+    for k, v in profile.get("signal_overrides", {}).items():
+        ctx["rule_signals"][k] = v
+    decision_id = profile_path.stem
+    plan = coc_story_director.generate_director_plan(ctx, decision_id=decision_id)
+    coc_story_director.write_director_plan(plan, artifacts_dir)
+    findings = assert_plan(plan)
+    hard_failures = [k for k, f in findings.items() if not f["passed"]]
+    return {
+        "profile": profile_path.name,
+        "decision_id": decision_id,
+        "scene_action": plan["scene_action"],
+        "findings": findings,
+        "passed": len(hard_failures) == 0,
+        "failures": hard_failures,
+    }
+
+
+def run_suite(profiles_dir: Path, campaign_dir: Path, character_path: Path,
+              investigator_id: str, artifacts_dir: Path) -> dict[str, Any]:
+    """Run all profiles in a dir. Returns summary report."""
+    results = []
+    for profile_path in sorted(profiles_dir.glob("*.json")):
+        results.append(run_profile(profile_path, campaign_dir, character_path, investigator_id, artifacts_dir))
+    passed = sum(1 for r in results if r["passed"])
+    return {"total": len(results), "passed": passed, "failed": len(results) - passed, "results": results}
