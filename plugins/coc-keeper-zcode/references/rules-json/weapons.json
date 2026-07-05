@@ -356,7 +356,7 @@
     },
     "rifle_22": {
       "display_name": ".22 Bolt-Action Rifle",
-      "skill": "Firearms (Rifle/Shotgun)",
+      "skill": "Firearms (Rifle/shotgun)",
       "damage_die": "1D6+1",
       "base_range_yards": 30,
       "uses_per_round": "1",
@@ -373,7 +373,7 @@
     },
     "rifle_303_enfield": {
       "display_name": ".303 Lee-Enfield Rifle",
-      "skill": "Firearms (Rifle/Shotgun)",
+      "skill": "Firearms (Rifle/shotgun)",
       "damage_die": "2D6+4",
       "base_range_yards": 110,
       "uses_per_round": "1",
@@ -390,7 +390,7 @@
     },
     "shotgun_12g": {
       "display_name": "12-gauge Shotgun",
-      "skill": "Firearms (Rifle/Shotgun)",
+      "skill": "Firearms (Rifle/shotgun)",
       "damage_die": "4D6",
       "base_range_yards": 10,
       "uses_per_round": "1 or 2",
@@ -412,7 +412,7 @@
     },
     "shotgun_10g": {
       "display_name": "10-gauge Shotgun",
-      "skill": "Firearms (Rifle/Shotgun)",
+      "skill": "Firearms (Rifle/shotgun)",
       "damage_die": "4D6+2",
       "base_range_yards": 10,
       "uses_per_round": "1 or 2",
@@ -667,25 +667,9 @@
       ],
       "damage_type": "impale"
     },
-    "handguns": {
-      "display_name": "Handguns (i)*",
-      "skill": "",
-      "damage_die": "",
-      "base_range_yards": null,
-      "uses_per_round": "1",
-      "magazine": null,
-      "malfunction": null,
-      "impales": true,
-      "adds_damage_bonus": false,
-      "special": null,
-      "eras": [
-        "modern"
-      ],
-      "damage_type": "impale"
-    },
     "flintlock_22_short": {
       "display_name": "Flintlock .22 Short",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D6+1",
       "base_range_yards": 10,
       "uses_per_round": "1/4",
@@ -701,7 +685,7 @@
     },
     "automatic_25_derringer": {
       "display_name": "Automatic .25 Derringer",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D6",
       "base_range_yards": 10,
       "uses_per_round": "1(3)",
@@ -718,7 +702,7 @@
     },
     "revolver_32_or_7_65mm": {
       "display_name": "Revolver .32 or 7.65mm",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D8",
       "base_range_yards": 15,
       "uses_per_round": "1(3)",
@@ -735,7 +719,7 @@
     },
     "automatic_357_magnum": {
       "display_name": "Automatic .357 Magnum",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D8",
       "base_range_yards": 15,
       "uses_per_round": "1(3)",
@@ -752,7 +736,7 @@
     },
     "revolver_38_or_9mm": {
       "display_name": "Revolver .38 or 9mm",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D8+1D4",
       "base_range_yards": 15,
       "uses_per_round": "1(3)",
@@ -768,7 +752,7 @@
     },
     "revolver_38_automatic": {
       "display_name": "Revolver .38 Automatic",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
       "uses_per_round": "1 (3)",
@@ -785,7 +769,7 @@
     },
     "beretta_m9": {
       "display_name": "Beretta M9",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
       "uses_per_round": "1(3)",
@@ -802,7 +786,7 @@
     },
     "glock_17": {
       "display_name": "Glock 17",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
       "uses_per_round": "1(3)",
@@ -818,7 +802,7 @@
     },
     "9mm_auto_model_p08": {
       "display_name": "9mm Auto Model P08",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
       "uses_per_round": "1(3)",
@@ -834,7 +818,7 @@
     },
     "luger_41_revolver": {
       "display_name": "Luger .41 Revolver",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
       "uses_per_round": "1(3)",
@@ -851,7 +835,7 @@
     },
     "imi_desert_eagle": {
       "display_name": "IMI Desert Eagle",
-      "skill": "Firearms (handgun)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D10+1D6+3",
       "base_range_yards": 15,
       "uses_per_round": "1(3)",
@@ -867,7 +851,7 @@
     },
     "col_moranx27s_air_rifle": {
       "display_name": "Col. Moran&#x27;s Air Rifle",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6+1",
       "base_range_yards": 20,
       "uses_per_round": "1/3",
@@ -883,7 +867,7 @@
     },
     "garand_m1_m2_rifle": {
       "display_name": "Garand M1, M2 Rifle",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6+4",
       "base_range_yards": 110,
       "uses_per_round": "1",
@@ -899,7 +883,7 @@
     },
     "sks_carbine": {
       "display_name": "SKS Carbine",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6+1",
       "base_range_yards": 90,
       "uses_per_round": "1 (2)",
@@ -915,7 +899,7 @@
     },
     "elephant_gun": {
       "display_name": "Elephant Gun (2B)",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "3D6+4",
       "base_range_yards": 100,
       "uses_per_round": "1 or 2",
@@ -932,7 +916,7 @@
     },
     "20_gauge_shotgun": {
       "display_name": "20-gauge Shotgun (2B)",
-      "skill": "Firearms (shotgun)",
+      "skill": "Firearms (Shotgun)",
       "damage_die": "2D6",
       "base_range_yards": 50,
       "uses_per_round": "1 or 2",
@@ -948,7 +932,7 @@
     },
     "16_gauge_shotgun": {
       "display_name": "16-gauge Shotgun (2B)",
-      "skill": "Firearms (shotgun)",
+      "skill": "Firearms (Shotgun)",
       "damage_die": "2D6+2",
       "base_range_yards": 50,
       "uses_per_round": "1 or 2",
@@ -964,7 +948,7 @@
     },
     "12_gauge_benelli_m3": {
       "display_name": "12-gauge Benelli M3 (folding stock)",
-      "skill": "Firearms (shotgun)",
+      "skill": "Firearms (Shotgun)",
       "damage_die": "4D6",
       "base_range_yards": 50,
       "uses_per_round": "1 (2)",
@@ -980,7 +964,7 @@
     },
     "12_gauge_spas": {
       "display_name": "12-gauge SPAS (folding stock)",
-      "skill": "Firearms (shotgun)",
+      "skill": "Firearms (Shotgun)",
       "damage_die": "4D6",
       "base_range_yards": 50,
       "uses_per_round": "1",
@@ -996,7 +980,7 @@
     },
     "ak_47_or_akm": {
       "display_name": "AK-47 or AKM",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6+1",
       "base_range_yards": 100,
       "uses_per_round": "1 (2) or full auto",
@@ -1012,7 +996,7 @@
     },
     "ak_74": {
       "display_name": "AK-74",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6",
       "base_range_yards": 110,
       "uses_per_round": "1 (2) or full auto",
@@ -1028,7 +1012,7 @@
     },
     "barrett_model_82": {
       "display_name": "Barrett Model 82",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D10+1D8+6",
       "base_range_yards": 250,
       "uses_per_round": "1",
@@ -1044,7 +1028,7 @@
     },
     "fn_fal_light_automatic": {
       "display_name": "FN FAL Light Automatic",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6+4",
       "base_range_yards": 110,
       "uses_per_round": "1 (2) or burst 3",
@@ -1060,7 +1044,7 @@
     },
     "galil_assault_rifle": {
       "display_name": "Galil Assault Rifle",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6",
       "base_range_yards": 110,
       "uses_per_round": "1 or full auto",
@@ -1076,7 +1060,7 @@
     },
     "m16a2": {
       "display_name": "M16A2",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6",
       "base_range_yards": 110,
       "uses_per_round": "1 (2) or burst 3",
@@ -1092,7 +1076,7 @@
     },
     "m4": {
       "display_name": "M4",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6",
       "base_range_yards": 90,
       "uses_per_round": "1 or burst 3",
@@ -1108,7 +1092,7 @@
     },
     "steyr_aug": {
       "display_name": "Steyr AUG",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6",
       "base_range_yards": 110,
       "uses_per_round": "1 (2) or full auto",
@@ -1124,7 +1108,7 @@
     },
     "beretta_m7090": {
       "display_name": "Beretta M70/90",
-      "skill": "Firearms (rifle)",
+      "skill": "Firearms (Rifle)",
       "damage_die": "2D6",
       "base_range_yards": 110,
       "uses_per_round": "1 or full auto",
@@ -1140,7 +1124,7 @@
     },
     "bergmann_mp181_mp2811": {
       "display_name": "Bergmann MP181/ MP2811",
-      "skill": "Firearms (SMG)",
+      "skill": "Firearms (Submachine Gun)",
       "damage_die": "1D10",
       "base_range_yards": 20,
       "uses_per_round": "1 (2) or full auto",
@@ -1156,7 +1140,7 @@
     },
     "heckleramp_koch_mp5": {
       "display_name": "Heckler&amp; Koch MP5",
-      "skill": "Firearms (SMG)",
+      "skill": "Firearms (Submachine Gun)",
       "damage_die": "1D10",
       "base_range_yards": 20,
       "uses_per_round": "1 (2) or full auto",
@@ -1172,7 +1156,7 @@
     },
     "ingram_mac_11": {
       "display_name": "Ingram MAC-11",
-      "skill": "Firearms (SMG)",
+      "skill": "Firearms (Submachine Gun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
       "uses_per_round": "1 (3) or full auto",
@@ -1188,7 +1172,7 @@
     },
     "skorpion_smg": {
       "display_name": "Skorpion SMG",
-      "skill": "Firearms (SMG)",
+      "skill": "Firearms (Submachine Gun)",
       "damage_die": "1D8",
       "base_range_yards": 15,
       "uses_per_round": "1 (3) or full auto",
@@ -1204,7 +1188,7 @@
     },
     "thompson": {
       "display_name": "Thompson",
-      "skill": "Firearms (SMG)",
+      "skill": "Firearms (Submachine Gun)",
       "damage_die": "1D10+2",
       "base_range_yards": 20,
       "uses_per_round": "1 or full auto",
@@ -1220,7 +1204,7 @@
     },
     "uzi_smg": {
       "display_name": "Uzi SMG",
-      "skill": "Firearms (SMG)",
+      "skill": "Firearms (Submachine Gun)",
       "damage_die": "1D10",
       "base_range_yards": 20,
       "uses_per_round": "1 (2) or full auto",
@@ -1236,7 +1220,7 @@
     },
     "model_1882_gatling_gun": {
       "display_name": "Model 1882 Gatling Gun",
-      "skill": "Firearms (MG)",
+      "skill": "Firearms (Machine Gun)",
       "damage_die": "2D6+4",
       "base_range_yards": 100,
       "uses_per_round": "Full auto",
@@ -1252,7 +1236,7 @@
     },
     "browning_auto_rifle_m1918": {
       "display_name": "Browning Auto Rifle M1918",
-      "skill": "Firearms (MG)",
+      "skill": "Firearms (Machine Gun)",
       "damage_die": "2D6+4",
       "base_range_yards": 90,
       "uses_per_round": "1 (2) or full auto",
@@ -1268,7 +1252,7 @@
     },
     "bren_gun": {
       "display_name": "Bren Gun",
-      "skill": "Firearms (MG)",
+      "skill": "Firearms (Machine Gun)",
       "damage_die": "2D6+4",
       "base_range_yards": 110,
       "uses_per_round": "1 or full auto",
@@ -1284,7 +1268,7 @@
     },
     "mark_i_lewis_gun": {
       "display_name": "Mark I Lewis Gun",
-      "skill": "Firearms (MG)",
+      "skill": "Firearms (Machine Gun)",
       "damage_die": "2D6+4",
       "base_range_yards": 110,
       "uses_per_round": "Full auto",
@@ -1300,7 +1284,7 @@
     },
     "minigun": {
       "display_name": "Minigun*",
-      "skill": "Firearms (MG)",
+      "skill": "Firearms (Machine Gun)",
       "damage_die": "2D6+4",
       "base_range_yards": 200,
       "uses_per_round": "Full auto",
@@ -1316,7 +1300,7 @@
     },
     "fn_minimi_5_56mm": {
       "display_name": "FN Minimi, 5.56mm,",
-      "skill": "Firearms (MG)",
+      "skill": "Firearms (Machine Gun)",
       "damage_die": "2D6",
       "base_range_yards": 110,
       "uses_per_round": "Full auto",
@@ -1332,7 +1316,7 @@
     },
     "vickers_303_machine_gun": {
       "display_name": "Vickers .303 Machine Gun",
-      "skill": "Firearms (MG)",
+      "skill": "Firearms (Machine Gun)",
       "damage_die": "2D6+4",
       "base_range_yards": 110,
       "uses_per_round": "Full auto",
@@ -1366,7 +1350,7 @@
     },
     "signal_handgun": {
       "display_name": "Signal Handgun (Flare gun)",
-      "skill": "Firearms (HG)",
+      "skill": "Firearms (Handgun)",
       "damage_die": "1D10+1D3",
       "base_range_yards": 10,
       "uses_per_round": "1/2",
@@ -1384,7 +1368,7 @@
     },
     "m79_grenade_launcher": {
       "display_name": "M79 Grenade Launcher",
-      "skill": "Firearms (Heavy)",
+      "skill": "Firearms (Heavy Weapons)",
       "damage_die": "3D10",
       "base_range_yards": 20,
       "uses_per_round": "1/3",
@@ -1600,7 +1584,7 @@
     },
     "law": {
       "display_name": "LAW*",
-      "skill": "Firearms (Heavy)",
+      "skill": "Firearms (Heavy Weapons)",
       "damage_die": "8D10",
       "base_range_yards": 150,
       "uses_per_round": "1",

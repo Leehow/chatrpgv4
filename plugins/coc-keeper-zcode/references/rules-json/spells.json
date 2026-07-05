@@ -60,7 +60,8 @@
       "cost_pow": "5",
       "cost_sanity": "2D6",
       "description": "Reshapes the body of a victim into a grotesque form.",
-      "source_page": 247
+      "source_page": 247,
+      "pow_cost": "5"
     },
     {
       "name": "Breath of the Deep",
@@ -86,7 +87,8 @@
       "cost_mp": "1+ per person",
       "cost_sanity": "1D10",
       "description": "Calls a Great Old One or Outer God.",
-      "source_page": 248
+      "source_page": 248,
+      "pow_cost": "variable"
     },
     {
       "name": "Dismiss Deity",
@@ -94,7 +96,8 @@
       "cost_mp": "1+ per person",
       "cost_sanity": "variable",
       "description": "Dismisses a called deity.",
-      "source_page": 249
+      "source_page": 249,
+      "pow_cost": "variable"
     },
     {
       "name": "Cause/Cure Blindness",
@@ -135,7 +138,8 @@
       "cost_pow": "5",
       "cost_sanity": "1D20",
       "description": "Steals the appearance of another being.",
-      "source_page": 250
+      "source_page": 250,
+      "pow_cost": "5"
     },
     {
       "name": "Contact Spells",
@@ -143,7 +147,8 @@
       "cost_mp": "variable",
       "cost_sanity": "1D3",
       "description": "Contact a specific Mythos entity via telepathy.",
-      "source_page": 250
+      "source_page": 250,
+      "pow_cost": "variable"
     },
     {
       "name": "Contact Deity Spells",
@@ -152,7 +157,8 @@
       "cost_pow": "5",
       "cost_sanity": "1D6",
       "description": "Contact a specific deity telepathically.",
-      "source_page": 250
+      "source_page": 250,
+      "pow_cost": "5"
     },
     {
       "name": "Create Barrier of Naach-Tith",
@@ -160,7 +166,8 @@
       "cost_mp": "variable",
       "cost_sanity": "1D10",
       "description": "Creates an impenetrable barrier.",
-      "source_page": 250
+      "source_page": 250,
+      "pow_cost": "variable"
     },
     {
       "name": "Create Zombie",
@@ -192,7 +199,8 @@
       "cost_mp": "1",
       "cost_sanity": "1",
       "description": "Takes control of a target's mind. Opposed POW roll.",
-      "source_page": 250
+      "source_page": 250,
+      "pow_cost": "variable"
     },
     {
       "name": "Dread Curse of Azathoth",
@@ -217,7 +225,8 @@
       "cost_pow": "10",
       "cost_sanity": "0",
       "description": "Creates a protective ward against Mythos entities.",
-      "source_page": 251
+      "source_page": 251,
+      "pow_cost": "10"
     },
     {
       "name": "Enchant Book",
@@ -226,7 +235,8 @@
       "cost_pow": "variable",
       "cost_sanity": "1D4",
       "description": "Enchants a book to be indestructible.",
-      "source_page": 251
+      "source_page": 251,
+      "pow_cost": "variable"
     },
     {
       "name": "Enchant Knife",
@@ -235,7 +245,8 @@
       "cost_pow": "variable",
       "cost_sanity": "1D4",
       "description": "Enchants a knife for ritual use.",
-      "source_page": 251
+      "source_page": 251,
+      "pow_cost": "variable"
     },
     {
       "name": "Enchant Pipes",
@@ -243,7 +254,8 @@
       "cost_mp": "variable",
       "cost_sanity": "1D6",
       "description": "Enchants pan pipes to summon or control.",
-      "source_page": 252
+      "source_page": 252,
+      "pow_cost": "variable"
     },
     {
       "name": "Enchant Sacrificial Dagger",
@@ -261,7 +273,8 @@
       "cost_pow": "variable",
       "cost_sanity": "1D4",
       "description": "Enchants a whistle to summon specific creatures.",
-      "source_page": 252
+      "source_page": 252,
+      "pow_cost": "variable"
     },
     {
       "name": "Enthrall Victim",
@@ -285,7 +298,8 @@
       "cost_mp": "variable",
       "cost_sanity": "1D6",
       "description": "Conjures a massive invisible fist to strike.",
-      "source_page": 252
+      "source_page": 252,
+      "pow_cost": "variable"
     },
     {
       "name": "Flesh Ward",
@@ -293,7 +307,8 @@
       "cost_mp": "variable",
       "cost_sanity": "1D4",
       "description": "Creates magical armor absorbing physical damage.",
-      "source_page": 253
+      "source_page": 253,
+      "pow_cost": "variable"
     },
     {
       "name": "Green Decay",
@@ -302,7 +317,8 @@
       "cost_pow": "10",
       "cost_sanity": "2D8",
       "description": "Causes the target's flesh to rot and decay.",
-      "source_page": 253
+      "source_page": 253,
+      "pow_cost": "10"
     },
     {
       "name": "Implant Fear",
@@ -318,7 +334,8 @@
       "cost_mp": "variable",
       "cost_sanity": "1D6",
       "description": "Causes the target's flesh to melt from bone.",
-      "source_page": 253
+      "source_page": 253,
+      "pow_cost": "variable"
     },
     {
       "name": "Mental Suggestion",
@@ -326,7 +343,8 @@
       "cost_mp": "variable",
       "cost_sanity": "variable",
       "description": "Plants a suggestion in the target's mind.",
-      "source_page": 253
+      "source_page": 253,
+      "pow_cost": "variable"
     },
     {
       "name": "Mindblast",
@@ -369,7 +387,8 @@
       "cost_mp": "1 per dose",
       "cost_sanity": "0",
       "description": "Creates powder that reveals invisible creatures.",
-      "source_page": 254
+      "source_page": 254,
+      "pow_cost": "variable"
     },
     {
       "name": "Prinn's Crux Ansata",
@@ -378,7 +397,8 @@
       "cost_pow": "25",
       "cost_sanity": "1D6",
       "description": "Creates an ankh (looped cross) that can temporarily or permanently banish individual Mythos creatures.",
-      "source_page": 261
+      "source_page": 261,
+      "pow_cost": "25"
     },
     {
       "name": "Resurrection",
@@ -394,7 +414,8 @@
       "cost_mp": "variable",
       "cost_sanity": "variable",
       "description": "Withers and weakens the target's body.",
-      "source_page": 255
+      "source_page": 255,
+      "pow_cost": "variable"
     },
     {
       "name": "Song of Hastur",
@@ -412,7 +433,8 @@
       "cost_mp": "variable",
       "cost_sanity": "1D4",
       "description": "Summons and binds a Mythos creature.",
-      "source_page": 255
+      "source_page": 255,
+      "pow_cost": "variable"
     },
     {
       "name": "Separate Binding",
@@ -436,7 +458,8 @@
       "cost_mp": "1 per stone",
       "cost_sanity": "0",
       "description": "Creates a protective ward on a stone or object.",
-      "source_page": 256
+      "source_page": 256,
+      "pow_cost": "variable"
     },
     {
       "name": "Wave of Oblivion",
@@ -478,7 +501,8 @@
       "cost_sanity": "1D6",
       "description": "Opens a pact with the dweller Nyogtha to exchange service for power.",
       "source_page": 257,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined.",
+      "pow_cost": "variable"
     },
     {
       "name": "Blast of Power",
