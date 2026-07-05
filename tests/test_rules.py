@@ -642,8 +642,14 @@ def test_monsters_table_structure():
 def test_bout_tables_structure():
     rt = coc_rules.bout_realtime_table()
     sm = coc_rules.bout_summary_table()
-    assert len(rt) == 10
-    assert len(sm) == 10
+    # The core 1D10 categories (rolls 1-10) are always present; the table
+    # may also carry sub-result detail rows for selected categories.
+    rt_core_rolls = {row["d10_roll"] for row in rt}
+    sm_core_rolls = {row["d10_roll"] for row in sm}
+    assert rt_core_rolls == set(range(1, 11))
+    assert sm_core_rolls == set(range(1, 11))
+    assert len(rt) >= 10
+    assert len(sm) >= 10
     assert rt[0]["d10_roll"] == 1
 
 
