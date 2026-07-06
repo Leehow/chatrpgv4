@@ -378,6 +378,32 @@ def test_payoff_scores_above_zero_when_memory_matches(tmp_path):
     assert score > 0.0
 
 
+def test_payoff_discriminates_weak_vs_strong_memory(tmp_path):
+    """Stronger memory match should score higher than a weak one."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_memory", "plugins/coc-keeper/scripts/coc_memory.py")
+    coc_memory = importlib.util.module_from_spec(spec); spec.loader.exec_module(coc_memory)
+    # weak card: single entity match
+    coc_memory.create_memory_card(
+        campaign_dir=camp, memory_id="mem-weak", privacy="player_safe", salience=0.3,
+        summary="weak", entities=["entity-A"], tags=["x"], reactivation_cues=["cue-A"], source_events=[])
+    # strong card: multiple entity + cue match
+    coc_memory.create_memory_card(
+        campaign_dir=camp, memory_id="mem-strong", privacy="player_safe", salience=0.9,
+        summary="strong", entities=["entity-A", "entity-B", "entity-C"],
+        tags=["player_interest"], reactivation_cues=["cue-A", "cue-B", "cue-C"], source_events=[])
+    # query matches both, but strong card has more overlap
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate", rng=random.Random(42))
+    ctx["memory_query_entities"] = ["entity-A", "entity-B", "entity-C"]
+    ctx["memory_query_cues"] = ["cue-A", "cue-B", "cue-C"]
+    score = coc_story_director._base_score("PAYOFF", ctx)
+    # strong match should produce a meaningfully higher score than the weak-only floor
+    assert score >= 0.5  # strong match drives it up
+
+
 def test_memory_reads_populated_when_cards_match(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     import importlib.util

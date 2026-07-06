@@ -237,15 +237,18 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         return 0.85 if sig["stalled_turns"] >= 2 else 0.0
 
     if action == "PAYOFF":
-        # v2: score from memory layer — PAYOFF fires when a recalled memory
-        # card matches the current scene/intent. Score scales with top card.
         if coc_memory is None:
             return 0.0
         cards = _retrieve_memory_for_ctx(ctx)
         if not cards:
             return 0.0
+        # Discriminative scoring: normalize the raw retrieval score.
+        # A single weak match (entity OR cue, top~4-6) should score ~0.3-0.4
+        # (below REVEAL's 0.55-0.85, so PAYOFF only wins when memory is clearly relevant).
+        # A strong match (multiple entities + cues, top~12+) scores ~0.7-0.85.
+        # This keeps PAYOFF from firing on incidental overlap.
         top = max(float(c.get("score", 0)) for c in cards)
-        return min(0.9, 0.3 + top * 0.1)
+        return min(0.85, 0.15 + top * 0.05)
 
     return 0.0
 
