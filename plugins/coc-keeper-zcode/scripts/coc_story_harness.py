@@ -64,6 +64,14 @@ def assert_plan(plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "passed": True,
         "detail": "content flags handled at compile time",
     }
+    # --- memory (soft): no recap dump ---
+    # The director recalls up to N cards per turn; >5 means it is dumping the
+    # whole memory store into narration rather than selecting a sharp payoff.
+    memory_reads = plan.get("memory_reads", [])
+    findings["memory_relevant_not_dumped"] = {
+        "passed": len(memory_reads) <= 5,  # no recap dump
+        "detail": f"{len(memory_reads)} memory_reads",
+    }
     # --- rules_fidelity ---
     overrides_active = (
         (signals.get("bout_active") and action == "SUBSYSTEM") or

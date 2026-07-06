@@ -72,6 +72,52 @@ def test_assert_fumble_produces_pressure(tmp_path):
     findings = coc_story_harness.assert_plan(plan)
     assert findings["agency_fumble_pressure"]["passed"] is True
 
+def test_memory_continuity_recalls_earlier_interest(tmp_path):
+    """Director writes a memory card in turn 1, recalls it in turn 2 when entity matches.
+
+    End-to-end memory continuity drill: the apply layer (coc_director_apply)
+    persists a memory_write to disk in turn 1, and the director's memory
+    retrieval (wired in Task 4) surfaces it as a memory_read in turn 2 when
+    the query entities/cues overlap.
+    """
+    import importlib.util, random
+    # load apply + memory
+    spec_mem = importlib.util.spec_from_file_location("coc_memory_apply", "plugins/coc-keeper/scripts/coc_memory.py")
+    coc_memory = importlib.util.module_from_spec(spec_mem); spec_mem.loader.exec_module(coc_memory)
+    spec_apply = importlib.util.spec_from_file_location("coc_apply", "plugins/coc-keeper/scripts/coc_director_apply.py")
+    coc_director_apply = importlib.util.module_from_spec(spec_apply); spec_apply.loader.exec_module(coc_director_apply)
+
+    camp, char_path = _make_campaign_with_fumble(tmp_path)
+    # ensure memory dirs
+    (camp / "memory" / "cards" / "player-safe").mkdir(parents=True, exist_ok=True)
+
+    # turn 1: director plan with a memory_write about a door
+    plan1 = {"decision_id": "turn-1", "scene_action": "REVEAL",
+             "clue_policy": {"reveal": []}, "pressure_moves": [],
+             "memory_writes": [{"type": "player_interest", "privacy": "player_safe",
+                                "salience": 0.8, "entities": ["front-door"],
+                                "tags": ["player_interest"], "summary": "玩家关注门划痕",
+                                "reactivation_cues": ["door"]}],
+             "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan1, investigator_id="inv1")
+
+    # turn 2: director asked about a door -> should recall
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="检查后门", player_intent_class="investigate", rng=random.Random(7))
+    ctx["memory_query_entities"] = ["front-door"]
+    ctx["memory_query_cues"] = ["door"]
+    plan2 = coc_story_director.generate_director_plan(ctx, "turn-2")
+    assert len(plan2["memory_reads"]) >= 1
+    # The recalled card must be the door-interest card written in turn 1.
+    # memory_reads carries {memory_id, path, reason, use}; confirm the card
+    # file on disk actually contains the door entity we wrote.
+    recalled_paths = [r.get("path") for r in plan2["memory_reads"] if r.get("path")]
+    recalled_bodies = [Path(p).read_text(encoding="utf-8") for p in recalled_paths]
+    assert any("front-door" in body and "门" in body for body in recalled_bodies), \
+        f"recalled card did not contain door entity: {recalled_bodies}"
+
+
 def test_assert_rules_fidelity_dying(tmp_path):
     camp, char = _make_campaign_with_fumble(tmp_path)
     inv = json.loads((camp/"save"/"investigator-state"/"inv1.json").read_text())
