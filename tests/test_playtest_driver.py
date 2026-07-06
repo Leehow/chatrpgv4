@@ -6,11 +6,13 @@ from pathlib import Path
 
 import pytest
 
+
 def _load(name, rel):
     spec = importlib.util.spec_from_file_location(name, rel)
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
+
 
 driver = _load("coc_playtest_driver", "plugins/coc-keeper/scripts/coc_playtest_driver.py")
 
@@ -20,6 +22,7 @@ def _build_mini_campaign(tmp_path):
     camp = tmp_path / "campaigns" / "drive"
     scn = camp / "scenario"; save = camp / "save"
     save.mkdir(parents=True); (save / "investigator-state").mkdir(); scn.mkdir(parents=True)
+    (camp / "logs").mkdir(parents=True)
     (save / "world-state.json").write_text(json.dumps({
         "schema_version": 1, "campaign_id": "drive", "active_scene_id": "scene-1",
         "discovered_clue_ids": [], "major_decisions": []}))
@@ -96,3 +99,37 @@ def test_driver_tension_curve_recorded(tmp_path):
     )
     assert len(result["tension_curve"]) == len(result["turns"])
     assert all(t in ("low", "medium", "high", "climax") for t in result["tension_curve"])
+
+
+def test_driver_failed_obscured_roll_does_not_reveal_exact_clue(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    # Make the first clue obscured. With rng_seed=42, the first percentile roll is 82,
+    # so Spot Hidden 60 fails and apply_plan must withhold the exact clue.
+    cg = {"conclusions": [{"conclusion_id": "cc1", "importance": "critical", "minimum_routes": 3,
+        "clues": [
+            {"clue_id":"c1","delivery":"Spot Hidden","delivery_kind":"skill_check",
+             "skill":"Spot Hidden","difficulty":"regular","visibility":"player-safe"},
+            {"clue_id":"c2","delivery":"y","visibility":"player-safe"},
+            {"clue_id":"c3","delivery":"z","visibility":"player-safe"}],
+        "fallback_policy": ""}]}
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(cg))
+    result = driver.run_full_session(
+        camp, char_path, "inv1",
+        player_choices=[{"intent": "search", "intent_class": "investigate"}],
+        max_turns=1,
+        rng_seed=42,
+    )
+    assert result["clue_coverage"]["discovered_count"] == 0
+    assert result["turns"][0]["rule_results"][0]["outcome"] == "failure"
+    assert "clue_withheld" in result["turns"][0]["event_types"]
+
+
+def test_driver_stalled_recover_surfaces_fallback_route(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    result = driver.run_full_session(
+        camp, char_path, "inv1",
+        player_choices=[{"intent": "不知道该做什么", "intent_class": "idle"}] * 3,
+        max_turns=3,
+    )
+    assert result["clue_coverage"]["discovered_count"] >= 1
+    assert "fail_forward_recovery" in result["turns"][-1]["event_types"]
