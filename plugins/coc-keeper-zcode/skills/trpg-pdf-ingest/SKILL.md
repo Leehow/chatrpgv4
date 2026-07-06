@@ -1,76 +1,81 @@
 ---
 name: trpg-pdf-ingest
-description: Parse TRPG rulebook PDFs (especially 2-column layouts like Call of Cthulhu Keeper Rulebook) into structured data using a multi-parser approach. Use when extracting rules data from a PDF rulebook, verifying data against the source PDF, doing OCR cross-verification, or comparing parser outputs. Handles the notorious 2-column reading-order problem by running pymupdf4llm (fast, good for prose) and MinerU (accurate, good for tables/stat blocks) side by side, then scoring which output is better for each page type. Also provides bbox overlay visualization for manual inspection of layout detection. Use when the user says "解析 PDF / 核对规则书 / 双栏排版 / parser 对比 / OCR 交叉验证 / extract from rulebook".
+description: Parse TRPG rulebook PDFs (especially 2-column layouts like Call of Cthulhu Keeper Rulebook) into structured data using pymupdf4llm. Use when extracting rules data from a PDF rulebook, verifying data against the source PDF, or doing OCR cross-verification. Handles the 2-column reading-order problem with pymupdf4llm (0.4s/page, correct column order, Markdown table output). Also provides bbox overlay visualization and quality scoring for manual inspection. MinerU is available as a slow fallback for scanned pages only. Use when the user says "解析 PDF / 核对规则书 / 双栏排版 / OCR 交叉验证 / extract from rulebook".
 ---
 
-# TRPG PDF Ingest — multi-parser extraction with quality scoring
+# TRPG PDF Ingest — fast pymupdf4llm extraction with quality scoring
 
-Solves the 2-column reading-order problem that plagues PDF text extraction
-from TRPG rulebooks. Instead of trusting a single parser, this skill runs
-**pymupdf4llm** (fast, built on PyMuPDF) and **MinerU** (layout-aware, with
-table reconstruction) on the same pages, compares outputs, and scores which
-parser wins for each page type.
+Solves the 2-column reading-order problem for TRPG rulebook PDFs.
+**pymupdf4llm** is the primary parser — it's fast (0.4s/page vs MinerU's
+10s/page), correctly reconstructs 2-column reading order, and outputs
+Markdown tables for structured data (weapon tables, stat blocks).
 
-## When to use which parser
+MinerU is kept as an optional fallback for scanned/image-heavy pages only.
 
-| Page type | Primary | Why |
+## Why pymupdf4llm is the default
+
+Benchmarked on the CoC 40th Anniversary rulebook:
+
+| Metric | pymupdf4llm | MinerU |
 |---|---|---|
-| Prose (single/double column text) | **pymupdf4llm** | Fast (seconds), good reading order |
-| Tables (weapon tables, stat blocks) | **MinerU** | HTML table reconstruction, structure preserved |
-| Mixed (stat block + description) | **Both + compare** | Compare to catch errors |
-| Scanned/image pages | **MinerU** | Built-in OCR fallback |
-| Quick spot-check (1-2 pages) | **pymupdf4llm** | Instant results |
+| Speed | **0.4s/page** | 10s/page |
+| 2-column order | ✅ correct | ✅ correct |
+| Weapon table (Table XVII) | ✅ **Markdown table** | HTML `<table>` |
+| Monster stat block | inline text (regex-parsable) | HTML `<table>` |
+| Prose readability | ✅ clean Markdown | clean Markdown |
+| Scanned pages | ❌ needs OCR fallback | ✅ built-in OCR |
+| Dependencies | pip install (lightweight) | GPU models (~2GB) |
+
+For 465-page rulebook: pymupdf4llm = ~3 min, MinerU = ~80 min.
+
+## Parser selection
+
+| Page type | Parser | Why |
+|---|---|---|
+| All text pages (prose + tables) | **pymupdf4llm** | Fast, correct order, Markdown tables |
+| Scanned/image pages only | **MinerU** | Built-in OCR (rare for digital rulebooks) |
 
 ## Workflow
 
 ```
 probe_pdf.py  →  detect columns/tables/scan
        ↓
-parse_pymupdf4llm.py  +  parse_mineru.sh  →  dual output
-       ↓
-compare_parsers.py  →  diff + agreement score
+parse_pymupdf4llm.py  →  markdown output (default for all pages)
+       ↓ (optional, for scanned pages only)
+parse_mineru.sh  →  OCR fallback
        ↓
 score_parse_quality.py  →  6-metric quality score
-       ↓
-render_overlay.py  →  bbox visualization (if needed)
+       ↓ (optional)
+render_overlay.py  →  bbox visualization
 ```
 
 ## Scripts
 
-All scripts live in `scripts/` under this skill directory. They are
-designed to be run from the project root.
-
 ### probe_pdf.py
 ```bash
-python3 plugins/coc-keeper-zcode/skills/trpg-pdf-ingest/scripts/probe_pdf.py pdf/<book>.pdf
+python3 .../probe_pdf.py pdf/<book>.pdf [--start S] [--end E]
 ```
 Detects: page count, column layout (1/2/mixed), scanned pages, table-heavy
-pages. Outputs JSON with per-page metadata + a parser recommendation matrix.
+pages. Outputs JSON with parser recommendation per page.
 
-### parse_pymupdf4llm.py
+### parse_pymupdf4llm.py (primary)
 ```bash
 python3 .../parse_pymupdf4llm.py pdf/<book>.pdf --pages 294-296 -o output.md
 ```
-Fast parser. Produces markdown with reading-order reconstruction. Best for
-prose pages. Stat blocks become inline text (not tables).
+Fast parser (0.4s/page). Produces Markdown with reading-order reconstruction.
+Weapon tables become Markdown pipe tables. Stat blocks become inline text
+(regex-parsable: `STR 90 (5D6 ×5) CON 50...`).
 
-### parse_mineru.sh
+### parse_mineru.sh (fallback, scanned pages only)
 ```bash
 bash .../parse_mineru.sh pdf/<book>.pdf --slug monsters-ch14 --pages 287-348
 ```
-Thin wrapper over the MinerU skill. Caches output to `checks/ocr-cached/`.
-Best for table-heavy pages and complex layouts.
-
-### compare_parsers.py
-```bash
-python3 .../compare_parsers.py --pymupdf4llm output.md --mineru checks/ocr-cached/<slug>.md
-```
-Diffs the two outputs line-by-line. Reports agreement percentage, table row
-counts, and key discrepancies (numbers that differ, missing stat blocks).
+MinerU wrapper with OCR caching. Only use for scanned/image pages where
+pymupdf4llm fails. ~10x slower.
 
 ### score_parse_quality.py
 ```bash
-python3 .../score_parse_quality.py --pdf pdf/<book>.pdf --page 294 --output checks/quality/
+python3 .../score_parse_quality.py --pdf pdf/<book>.pdf --page 294
 ```
 Scores 6 dimensions: reading order, table structure, sidebar isolation,
 header/footer removal, bbox coverage, entity continuity.
@@ -79,31 +84,39 @@ header/footer removal, bbox coverage, entity continuity.
 ```bash
 python3 .../render_overlay.py --pdf pdf/<book>.pdf --page 294 -o overlay.png
 ```
-Draws bbox boxes on the PDF page using pdfplumber. Red = tables, blue =
-text blocks, green = images. For manual inspection of layout detection.
+Draws bbox boxes on the PDF page using pdfplumber. For manual inspection.
+
+## Extracting data from pymupdf4llm output
+
+ pymupdf4llm outputs two formats depending on content:
+
+**Tables** (weapon tables, equipment lists) → Markdown pipe tables:
+```markdown
+|Name|Skill|Damage|Base Range|...|
+|---|---|---|---|---|
+|Bow and Arrows|Firearms (Bow)|1D6+half DB|30 yards|...|
+```
+Parse with standard Markdown table parsers.
+
+**Stat blocks** (monster attributes) → inline text:
+```
+STR 90 (5D6 ×5) CON 50 (3D6 ×5) SIZ 90 (5D6 ×5) ...
+```
+Parse with regex: `re.findall(r'(STR|CON|SIZ|...)\s+(\d+)', text)`
 
 ## Integration with existing verify scripts
 
-The `scripts/verify_*_ocr.py` family reads from `checks/ocr-cached/`. This
-skill's `parse_mineru.sh` writes to that same directory, so verified data
-flows seamlessly into the existing verification pipeline.
+The `scripts/verify_*_ocr.py` family reads from `checks/ocr-cached/`.
+Use `parse_pymupdf4llm.py -o checks/ocr-cached/<slug>.md` to write directly
+to the cache, then run verify scripts as usual.
 
-For dual-parser confirmation, run `compare_parsers.py` to check that both
-pymupdf4llm and MinerU agree on key values (stat numbers, weapon damage,
-spell costs) before trusting the data.
+For migrating existing MinerU-cached data to pymupdf4llm:
+```bash
+python3 .../parse_pymupdf4llm.py pdf/<book>.pdf --pages 287-348 -o checks/ocr-cached/monsters-ch14-py4llm.md
+```
 
 ## Dependencies
 
-- **pymupdf4llm**: `pip install pymupdf4llm` (installs PyMuPDF + layout engine)
-- **MinerU**: via the mineru skill at `~/.zcode/cli/plugins/local/mineru/`
-- **pdfplumber**: already installed (`pip install pdfplumber`)
-- No GPU required (MinerU uses MPS on Apple Silicon)
-
-## Key facts
-
-- pymupdf4llm is ~10x faster than MinerU (seconds vs ~10s/page)
-- MinerU produces HTML `<table>` output (better for structured extraction);
-  pymupdf4llm produces inline text (better for prose readability)
-- Both correctly reconstruct 2-column reading order for the CoC rulebook
-- The 2-column problem is NOT solved by any single parser perfectly —
-  comparison + scoring is the reliable approach (OmniDocBench CVPR 2025)
+- **pymupdf4llm**: `pip install pymupdf4llm` (PyMuPDF + layout engine, lightweight)
+- **pdfplumber**: `pip install pdfplumber` (for overlay, already installed)
+- **MinerU**: only if you need OCR fallback for scanned pages
