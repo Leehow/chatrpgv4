@@ -494,76 +494,6 @@
       "source_page": 256
     },
     {
-      "name": "Enslave Mind",
-      "alternative_names": [],
-      "cost_mp": "12",
-      "cost_pow": "0",
-      "cost_sanity": "1D6",
-      "description": "Binds the target's will to the caster's commands.",
-      "source_page": 263,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Eyes of Eibon",
-      "alternative_names": [],
-      "cost_mp": "5",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Grants sight into the spirit world and invisible things.",
-      "source_page": 264,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Falcon's Eye",
-      "alternative_names": [],
-      "cost_mp": "4",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Sharpen distant vision to that of a bird of prey.",
-      "source_page": 265,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Glamour",
-      "alternative_names": [],
-      "cost_mp": "5",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Alters the caster's appearance and voice to deceive others.",
-      "source_page": 266,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Ironhands",
-      "alternative_names": [],
-      "cost_mp": "4",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Grants tremendous crushing strength to the hands and grip.",
-      "source_page": 267,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Lend Life",
-      "alternative_names": [],
-      "cost_mp": "0",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Permanently transfers some of the caster's life energy to another.",
-      "source_page": 268,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Lycanthropic Control",
-      "alternative_names": [],
-      "cost_mp": "8",
-      "cost_pow": "0",
-      "cost_sanity": "1D4",
-      "description": "Commands a were-creature or assumes its form.",
-      "source_page": 269,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
       "name": "Mantle of Cthulhu",
       "alternative_names": [],
       "cost_mp": "10",
@@ -571,56 +501,6 @@
       "cost_sanity": "1D6",
       "description": "Cloaks the caster in the dream-aura of Great Cthulhu.",
       "source_page": 270,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Mesmerize",
-      "alternative_names": [],
-      "cost_mp": "3",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Holds a target spellbound and unable to act.",
-      "source_page": 271,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Morpheus",
-      "alternative_names": [],
-      "cost_mp": "3",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Induces or steers the dreams of a sleeping target.",
-      "source_page": 272,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Offering of the Blood",
-      "alternative_names": [],
-      "cost_mp": "0",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Sacrifices blood to strengthen another spell or summoning.",
-      "source_page": 273,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Pillar of Hellfire",
-      "alternative_names": [],
-      "cost_mp": "15",
-      "cost_pow": "0",
-      "cost_sanity": "1D6",
-      "description": "Calls down a roaring column of infernal flame.",
-      "source_page": 274,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Query the Spirit",
-      "alternative_names": [],
-      "cost_mp": "6",
-      "cost_pow": "0",
-      "cost_sanity": "1D4",
-      "description": "Forces a summoned spirit to answer one truthful question.",
-      "source_page": 275,
       "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
     },
     {
@@ -654,16 +534,6 @@
       "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
     },
     {
-      "name": "Send Dreams",
-      "alternative_names": [],
-      "cost_mp": "4",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Projects a chosen dream or vision to a distant target.",
-      "source_page": 279,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
       "name": "Steal Mind",
       "alternative_names": [],
       "cost_mp": "8",
@@ -671,16 +541,6 @@
       "cost_sanity": "1D4",
       "description": "Tears knowledge or memories from a victim's mind.",
       "source_page": 280,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Stifle",
-      "alternative_names": [],
-      "cost_mp": "3",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Smothers a target's breath, choking them.",
-      "source_page": 281,
       "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
     },
     {
