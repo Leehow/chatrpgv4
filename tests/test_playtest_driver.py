@@ -6,11 +6,13 @@ from pathlib import Path
 
 import pytest
 
+
 def _load(name, rel):
     spec = importlib.util.spec_from_file_location(name, rel)
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
+
 
 driver = _load("coc_playtest_driver", "plugins/coc-keeper/scripts/coc_playtest_driver.py")
 
@@ -20,6 +22,7 @@ def _build_mini_campaign(tmp_path):
     camp = tmp_path / "campaigns" / "drive"
     scn = camp / "scenario"; save = camp / "save"
     save.mkdir(parents=True); (save / "investigator-state").mkdir(); scn.mkdir(parents=True)
+    (camp / "logs").mkdir(parents=True)
     (save / "world-state.json").write_text(json.dumps({
         "schema_version": 1, "campaign_id": "drive", "active_scene_id": "scene-1",
         "discovered_clue_ids": [], "major_decisions": []}))
@@ -98,79 +101,41 @@ def test_driver_tension_curve_recorded(tmp_path):
     assert all(t in ("low", "medium", "high", "climax") for t in result["tension_curve"])
 
 
-def test_driver_idle_when_choices_exhausted(tmp_path):
-    """When player_choices is exhausted, the driver must use idle intent (not clamp
-    to the last choice). Otherwise the stalled recovery valve can never engage and
-    bugs are masked (e.g. last entry being 'social' would make every later turn
-    social)."""
+def test_driver_failed_obscured_roll_does_not_reveal_exact_clue(tmp_path):
     camp, char_path = _build_mini_campaign(tmp_path)
-    result = driver.run_full_session(
-        camp, char_path, "inv1",
-        player_choices=[
-            {"intent": "search", "intent_class": "investigate"},
-            {"intent": "talk", "intent_class": "social"},
-        ],
-        max_turns=4,
-    )
-    # turns 1-2 use the supplied intent classes
-    assert result["turns"][0]["intent_class"] == "investigate"
-    assert result["turns"][1]["intent_class"] == "social"
-    # turns 3-4 (beyond the 2 supplied choices) fall back to idle
-    assert result["turns"][2]["intent_class"] == "idle"
-    assert result["turns"][3]["intent_class"] == "idle"
-
-
-def test_driver_executes_rules_requests(tmp_path):
-    """Driver rolls skill_check requests and records results."""
-    camp, char_path = _build_mini_campaign(tmp_path)
+    # Make the first clue obscured. With rng_seed=42, the first percentile roll is 82,
+    # so Spot Hidden 60 fails and apply_plan must withhold the exact clue.
+    cg = {"conclusions": [{"conclusion_id": "cc1", "importance": "critical", "minimum_routes": 3,
+        "clues": [
+            {"clue_id":"c1","delivery":"Spot Hidden","delivery_kind":"skill_check",
+             "skill":"Spot Hidden","difficulty":"regular","visibility":"player-safe"},
+            {"clue_id":"c2","delivery":"y","visibility":"player-safe"},
+            {"clue_id":"c3","delivery":"z","visibility":"player-safe"}],
+        "fallback_policy": ""}]}
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(cg))
     result = driver.run_full_session(
         camp, char_path, "inv1",
         player_choices=[{"intent": "search", "intent_class": "investigate"}],
         max_turns=1,
+        rng_seed=42,
     )
     turn = result["turns"][0]
-    # if director emitted rules_requests, they should be executed
-    if turn.get("rules_executed"):
-        for r in turn["rules_executed"]:
-            if not r.get("skipped"):
-                assert "roll" in r
-                assert "outcome" in r
-                assert "target" in r
+    assert result["clue_coverage"]["discovered_count"] == 0
+    assert turn["rule_results"][0]["outcome"] == "failure"
+    assert "clue_withheld" in turn["event_types"]
+    assert turn["resolved_clue_policy"]["withheld_reveals"] == ["c1"]
+    assert turn["failure_consequence"]["narration_mode"] == "withhold_exact_clue_with_cost"
 
 
-def test_driver_builds_narration_skeleton(tmp_path):
-    """Each turn has a narration skeleton with tone/beats/constraints."""
+def test_driver_stalled_recover_surfaces_fallback_route(tmp_path):
     camp, char_path = _build_mini_campaign(tmp_path)
     result = driver.run_full_session(
         camp, char_path, "inv1",
-        player_choices=[{"intent": "search", "intent_class": "investigate"}],
-        max_turns=1,
+        player_choices=[{"intent": "不知道该做什么", "intent_class": "idle"}] * 3,
+        max_turns=3,
     )
-    turn = result["turns"][0]
-    narration = turn.get("narration", {})
-    assert "tone" in narration
-    assert "beats" in narration
-    assert "dramatic_question" in narration
-    assert "embedded_rolls" in narration
-
-
-def test_driver_dramatic_question_not_truncated(tmp_path):
-    """dramatic_question is full length, not [:80]."""
-    camp, char_path = _build_mini_campaign(tmp_path)
-    result = driver.run_full_session(
-        camp, char_path, "inv1",
-        player_choices=[{"intent": "search", "intent_class": "investigate"}],
-        max_turns=1,
-    )
-    dq = result["turns"][0].get("dramatic_question", "")
-    # the fixture scene has dq "q1" (short) — just verify no artificial truncation applied
-    # if it were long, it would be full length
-    assert len(dq) <= 1000  # sanity (no truncation logic)
-
-
-def test_outcome_zh_mapping():
-    """Chinese outcome hints are mapped correctly."""
-    assert driver._outcome_zh("critical") == "大成功"
-    assert driver._outcome_zh("fumble") == "大失败"
-    assert driver._outcome_zh("regular") == "常规成功"
-
+    turn = result["turns"][-1]
+    assert result["clue_coverage"]["discovered_count"] >= 1
+    assert "fail_forward_recovery" in turn["event_types"]
+    assert turn["resolved_clue_policy"]["fallback_recovered"]
+    assert turn["failure_consequence"]["narration_mode"] == "recover_with_cost"

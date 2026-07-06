@@ -161,3 +161,93 @@ def test_apply_cut_forces_scene_transition(tmp_path):
     coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
     world2 = json.loads((camp / "save" / "world-state.json").read_text())
     assert world2["active_scene_id"] == "scene-2"
+
+
+def test_apply_obscured_reveal_waits_for_rule_result(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {"decision_id": "d-rule", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"], "clue_type": "obscured"},
+            "rules_requests": [{"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular"}],
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert "clue-A" not in world["discovered_clue_ids"]
+    assert any(e.get("event_type") == "clue_pending_rule_result" for e in events)
+
+
+def test_apply_obscured_reveal_commits_on_success(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {"decision_id": "d-rule", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"], "clue_type": "obscured"},
+            "rules_requests": [{"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular"}],
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1",
+        rules_results=[{"skill": "Spot Hidden", "outcome": "regular_success", "success": True}],
+    )
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert "clue-A" in world["discovered_clue_ids"]
+    assert any(e.get("event_type") == "clue_reveal" for e in events)
+
+
+def test_apply_obscured_reveal_withholds_on_failure_and_costs(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {"decision_id": "d-rule", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"], "clue_type": "obscured", "fallback_routes": ["clue-B"]},
+            "rules_requests": [{"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular"}],
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1",
+        rules_results=[{"skill": "Spot Hidden", "outcome": "failure", "success": False}],
+    )
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert "clue-A" not in world["discovered_clue_ids"]
+    assert any(e.get("event_type") == "clue_withheld" for e in events)
+    assert any(e.get("event_type") == "failure_consequence" for e in events)
+    assert pacing["tension_level"] == "medium"
+
+
+def test_apply_recover_fallback_reveals_after_stall_with_cost(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {"decision_id": "d-recover", "scene_action": "RECOVER",
+            "clue_policy": {"reveal": [], "fallback_routes": ["clue-B"]},
+            "pressure_moves": [], "memory_writes": [],
+            "rule_signals": {"stalled_turns": 3}, "narrative_directives": {}}
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert "clue-B" in world["discovered_clue_ids"]
+    assert any(e.get("event_type") == "fail_forward_recovery" for e in events)
+    assert pacing["tension_level"] == "medium"
+
+
+def test_backfill_rule_results_failure_prunes_exact_clue_anchor():
+    plan = {"decision_id": "d-rule", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"], "clue_type": "obscured", "fallback_routes": ["clue-B"]},
+            "rules_requests": [{"kind": "skill_check", "skill": "Library Use", "difficulty": "regular"}],
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+            "narrative_directives": {"must_include": ["exact archive detail"], "tone": ["dust"]}}
+    resolved = coc_director_apply.backfill_rule_results(
+        plan,
+        [{"skill": "Library Use", "outcome": "failure", "success": False}],
+    )
+    assert resolved["resolved_clue_policy"]["committed_reveals"] == []
+    assert resolved["resolved_clue_policy"]["withheld_reveals"] == ["clue-A"]
+    assert resolved["narrative_directives"]["must_include"] == []
+    failure = resolved["narrative_directives"]["failure_consequence"]
+    assert failure["narration_mode"] == "withhold_exact_clue_with_cost"
+    assert "do not end the scene" in " ".join(failure["must_not_claim"])
+
+
+def test_backfill_rule_results_recover_marks_fallback_as_in_world_recovery():
+    plan = {"decision_id": "d-recover", "scene_action": "RECOVER",
+            "clue_policy": {"reveal": [], "fallback_routes": ["clue-B"]},
+            "pressure_moves": [], "memory_writes": [],
+            "rule_signals": {"stalled_turns": 3},
+            "narrative_directives": {"must_include": ["fallback anchor"], "tone": []}}
+    resolved = coc_director_apply.backfill_rule_results(plan, [])
+    assert resolved["resolved_clue_policy"]["fallback_recovered"] == ["clue-B"]
+    failure = resolved["narrative_directives"]["failure_consequence"]
+    assert failure["narration_mode"] == "recover_with_cost"
+    assert "do not present this as a table-level hint" in failure["must_not_claim"]
