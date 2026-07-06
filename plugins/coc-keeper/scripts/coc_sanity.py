@@ -39,6 +39,12 @@ def _load_sibling(name: str, filename: str):
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 
+coc_time = None
+try:
+    coc_time = _load_sibling("coc_time", "coc_time.py")
+except Exception:
+    coc_time = None  # time layer optional; sanity degrades gracefully
+
 # Success-level ordering (same as combat).
 LVL = {"fumble": 0, "failure": 1, "regular": 2, "hard": 3, "extreme": 4, "critical": 5}
 
@@ -50,6 +56,22 @@ INVOLUNTARY_KINDS = {
 
 # Bout of madness modes.
 BOUT_MODES = {"real_time", "summary"}
+
+# Phobia / mania table loader (references/rules-json/{phobias,manias}.json).
+RULES_DIR = Path(__file__).resolve().parent.parent / "references" / "rules-json"
+
+
+def _load_phobia_mania_table(name: str) -> dict[str, Any]:
+    """Load phobias.json or manias.json as a flat {Name: {trigger,...}} dict.
+
+    Returns {} if the file is missing so the module degrades gracefully.
+    """
+    path = RULES_DIR / f"{name}.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    # files store {"phobias": {...}} / {"manias": {...}}
+    return data.get(name, data)
 
 
 class SanitySession:
@@ -66,7 +88,8 @@ class SanitySession:
     def __init__(self, investigator_id: str, san_max: int, int_value: int,
                  rng: random.Random,
                  glossary: dict | None = None,
-                 play_language: str = "zh-Hans") -> None:
+                 play_language: str = "zh-Hans",
+                 campaign_dir: Path | None = None) -> None:
         self.investigator_id = investigator_id
         self.san_max = san_max  # = POW (or 99 - Cthulhu Mythos)
         self.san_current = san_max
@@ -74,6 +97,9 @@ class SanitySession:
         self._rng = rng
         self._glossary = glossary or {}
         self._play_language = play_language
+        # Optional campaign_dir: when set, sanity-state changes also schedule
+        # / clear time-layer triggers (coc_time) and align with day anchors.
+        self.campaign_dir = campaign_dir
 
         self.events: list[dict[str, Any]] = []
         self.pending_rolls: list[dict[str, Any]] = []
@@ -88,6 +114,11 @@ class SanitySession:
         self.bouts_of_madness: list[dict[str, Any]] = []
         self.daily_san_lost: int = 0  # resets at "end of day" (Keeper-defined)
         self.involuntary_actions: list[dict[str, Any]] = []
+        # Phobia / mania (p.159, p.171 bout table IX/X).
+        # Set when a bout-of-madness result is 9 (phobia) or 10 (mania).
+        self.phobia: str | None = None
+        self.mania: str | None = None
+        self.conditions: list[str] = []
 
     # ------------------------------------------------------------------ #
     # Core: SAN roll + loss
@@ -229,11 +260,30 @@ class SanitySession:
             bout["duration_rounds"] = self._rng.randint(1, 10)
         self.bouts_of_madness.append(bout)
 
+        # p.171 bout-of-madness table: result 9 → phobia, 10 → mania.
+        # Roll on Table IX (phobias) / Table X (manias) and record the result
+        # on the session + in conditions for downstream penalty-die logic (p.159).
+        if bout_roll == 9:
+            phobia_name = self._roll_phobia()
+            if phobia_name:
+                bout["phobia"] = phobia_name
+        elif bout_roll == 10:
+            mania_name = self._roll_mania()
+            if mania_name:
+                bout["mania"] = mania_name
+
         self._event("bout_of_madness", {
             **bout,
             "summary": f"{self.investigator_id} bout of madness ({mode}): roll {bout_roll}, "
                        f"duration {duration_hours}h. {bout_result}",
         })
+
+        # p.176: temporary insanity recovers after 1D10 hours. When the time
+        # layer is attached, schedule a recovery trigger due at
+        # current_elapsed + remaining_hours*60. The trigger uses policy
+        # auto_apply_if_safe so recovery only fires once the investigator
+        # reaches a safe place (p.176 "rest in a safe place").
+        self._schedule_recovery_trigger(duration_hours)
 
     def _trigger_indefinite_insanity(self) -> None:
         """p.168: 1/5+ SAN lost in one day → indefinite insanity."""
@@ -262,10 +312,134 @@ class SanitySession:
             "summary": f"{self.investigator_id} {kind}: {summary or source}"})
 
     # ------------------------------------------------------------------ #
+    # Phobia / mania (p.159, p.171)
+    # ------------------------------------------------------------------ #
+    def _roll_phobia(self) -> str | None:
+        """Roll 1D100 on Table IX (phobias) and record the result (p.171).
+
+        Sets ``self.phobia`` and adds ``"phobia:<name>"`` to conditions.
+        Returns the phobia name, or None if the phobia table is unavailable.
+        """
+        table = _load_phobia_mania_table("phobias")
+        if not table:
+            return None
+        names = list(table.keys())
+        roll = self._rng.randint(1, 100)
+        idx = min(roll - 1, len(names) - 1)
+        name = names[idx]
+        self.phobia = name
+        cond = f"phobia:{name}"
+        if cond not in self.conditions:
+            self.conditions.append(cond)
+        self._event("phobia_gained", {
+            "phobia": name, "roll": roll,
+            "trigger": table.get(name, {}).get("trigger", ""),
+            "summary": f"{self.investigator_id} developed phobia: {name} (Table IX roll {roll}).",
+        })
+        return name
+
+    def _roll_mania(self) -> str | None:
+        """Roll 1D100 on Table X (manias) and record the result (p.171).
+
+        Sets ``self.mania`` and adds ``"mania:<name>"`` to conditions.
+        Returns the mania name, or None if the mania table is unavailable.
+        """
+        table = _load_phobia_mania_table("manias")
+        if not table:
+            return None
+        names = list(table.keys())
+        roll = self._rng.randint(1, 100)
+        idx = min(roll - 1, len(names) - 1)
+        name = names[idx]
+        self.mania = name
+        cond = f"mania:{name}"
+        if cond not in self.conditions:
+            self.conditions.append(cond)
+        self._event("mania_gained", {
+            "mania": name, "roll": roll,
+            "trigger": table.get(name, {}).get("trigger", ""),
+            "summary": f"{self.investigator_id} developed mania: {name} (Table X roll {roll}).",
+        })
+        return name
+
+    @property
+    def is_insane(self) -> bool:
+        """True if the investigator is currently in any insanity state."""
+        return self.temporary_insane or self.indefinite_insane or self.permanently_insane
+
+    def penalty_die_for_exposure(self, *, phobia_source: str | None = None,
+                                 mania_source: str | None = None) -> int:
+        """Penalty dice applied when an insane investigator is exposed to a
+        phobia or mania source (p.159).
+
+        - Phobia exposure while insane: 1 penalty die to all non-SAN rolls.
+        - Mania exposure while insane: 1 penalty die until the mania is indulged.
+
+        ``phobia_source``/``mania_source`` are the name (or substring) of the
+        phobia/mania being confronted. Returns 0 or 1 (penalty dice count).
+        """
+        if not self.is_insane:
+            return 0
+        penalty = 0
+        if phobia_source and self.phobia and phobia_source.lower() in self.phobia.lower():
+            penalty += 1
+        if mania_source and self.mania and mania_source.lower() in self.mania.lower():
+            penalty += 1
+        return penalty
+
+    # ------------------------------------------------------------------ #
+    # coc_time integration: schedule / clear recovery triggers
+    # ------------------------------------------------------------------ #
+    def _time_layer_ready(self) -> bool:
+        """True if both the time layer and a campaign_dir are attached."""
+        return coc_time is not None and self.campaign_dir is not None
+
+    def _schedule_recovery_trigger(self, remaining_hours: int) -> str | None:
+        """Schedule a coc_time trigger to recover temporary insanity.
+
+        Due at current_elapsed + remaining_hours*60 minutes, handler
+        ``recover_temporary_insanity``, policy ``auto_apply_if_safe`` so
+        recovery only fires once the investigator is in a safe place (p.176).
+        Returns the trigger_id, or None if the time layer is not attached.
+        """
+        if not self._time_layer_ready():
+            return None
+        # Ensure time-state is initialized so elapsed can be read.
+        state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
+        if not state:
+            coc_time.initialize_time_state(self.campaign_dir)  # type: ignore[union-attr]
+            state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
+        now = int(state.get("clock", {}).get("elapsed_minutes", 0))
+        due = now + max(0, int(remaining_hours)) * 60
+        trig_id = coc_time.schedule_trigger(self.campaign_dir, {  # type: ignore[union-attr]
+            "kind": "condition_expiry",
+            "scope": "investigator",
+            "target_id": self.investigator_id,
+            "due_elapsed_minutes": due,
+            "policy": "auto_apply_if_safe",
+            "handler": "recover_temporary_insanity",
+            "payload": {"condition": "temporary_insane"},
+        })
+        self._event("recovery_trigger_scheduled", {
+            "trigger_id": trig_id,
+            "due_elapsed_minutes": due,
+            "remaining_hours": remaining_hours,
+            "summary": (f"{self.investigator_id} temporary-insanity recovery "
+                        f"scheduled for elapsed>{due} (auto_apply_if_safe)."),
+        })
+        return trig_id
+
+    # ------------------------------------------------------------------ #
     # Recovery
     # ------------------------------------------------------------------ #
     def recover_temporary(self) -> bool:
-        """p.176: temporary insanity ends after 1D10 hours."""
+        """p.176: temporary insanity ends after 1D10 hours.
+
+        Clears the condition and emits a recovery event. When the time layer
+        is attached, any pending recovery trigger is left to fire normally
+        (the caller/time layer marks safe rest); this method only resolves
+        the in-session insanity state.
+        """
         if self.temporary_insane:
             self.temporary_insane = False
             self.temporary_insane_remaining_hours = 0
@@ -276,8 +450,31 @@ class SanitySession:
         return False
 
     def end_day(self) -> None:
-        """Reset daily SAN loss counter (Keeper defines when a 'day' ends)."""
+        """Reset daily SAN loss counter (Keeper defines when a 'day' ends).
+
+        When the time layer is attached, this also records the day boundary
+        in the investigator's sanity period (the elapsed anchor used to
+        compute 1/5-SAN-per-day indefinite-insanity thresholds).
+        """
         self.daily_san_lost = 0
+        if not self._time_layer_ready():
+            return
+        state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
+        if not state:
+            return
+        now = int(state.get("clock", {}).get("elapsed_minutes", 0))
+        periods = state.get("sanity_periods", {})
+        key = self.investigator_id
+        period = periods.get(key, {})
+        period["day_started_elapsed"] = now
+        periods[key] = period
+        state["sanity_periods"] = periods
+        # Persist back through the time layer's own write path.
+        import json as _json
+        path = self.campaign_dir / "save" / "time-state.json"  # type: ignore[union-attr]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8")
 
     def gain_san(self, amount: int, source: str = "reward") -> None:
         """Increase current SAN (e.g. module conclusion reward). Cannot exceed san_max."""
@@ -315,6 +512,9 @@ class SanitySession:
             "daily_san_lost": self.daily_san_lost,
             "bouts_of_madness": list(self.bouts_of_madness),
             "involuntary_actions": list(self.involuntary_actions),
+            "phobia": self.phobia,
+            "mania": self.mania,
+            "conditions": list(self.conditions),
             "events": list(self.events),
         }
 

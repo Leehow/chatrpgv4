@@ -284,3 +284,88 @@ def test_current_stamp(campaign):
     assert stamp["elapsed_minutes"] == 120
     assert "day_phase" in stamp
     assert "1925" in stamp["display"]
+
+
+# --------------------------------------------------------------------------- #
+# DirectorPlan apply integration (coc_director_apply.apply_plan -> coc_time)
+# --------------------------------------------------------------------------- #
+def _load_director_apply():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "coc_director_apply",
+        PLUGIN_ROOT / "scripts" / "coc_director_apply.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _apply_campaign(tmp_path):
+    """A campaign directory seeded for apply_plan (save/logs + state files)."""
+    camp = tmp_path / "apply-campaign"
+    (camp / "save" / "investigator-state").mkdir(parents=True)
+    (camp / "logs").mkdir(parents=True)
+    (camp / "save" / "world-state.json").write_text(json.dumps({
+        "schema_version": 1, "campaign_id": "test",
+        "discovered_clue_ids": [], "active_scene_id": "scene-1"}))
+    (camp / "save" / "pacing-state.json").write_text(json.dumps({
+        "schema_version": 1, "tension_level": "low",
+        "turn_number": 0}))
+    (camp / "logs" / "events.jsonl").write_text("")
+    return camp
+
+
+def test_apply_plan_advances_time(tmp_path):
+    """apply_plan should apply the DirectorPlan's time_advance via coc_time."""
+    director_apply = _load_director_apply()
+    camp = _apply_campaign(tmp_path)
+    coc_time.initialize_time_state(camp)
+
+    plan = {
+        "decision_id": "d-time-1",
+        "scene_action": "REVEAL",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "time_advance": {
+            "mode": "elapsed",
+            "category": "single_room_search",
+            "delta_minutes": 20,
+            "confidence": 0.8,
+            "reason": "careful search",
+        },
+    }
+    events = director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    # A game_time event should be among the returned events
+    time_events = [e for e in events if e.get("event_type") == "game_time"]
+    assert len(time_events) == 1
+    assert time_events[0]["delta_minutes"] == 20
+    assert time_events[0]["investigator_id"] == "inv1"
+    # The world clock should reflect the advance
+    state = coc_time.read_time_state(camp)
+    assert state["clock"]["elapsed_minutes"] == 20
+    # And an audit record + event should be persisted
+    log = (camp / "logs" / "time.jsonl").read_text()
+    assert "time_advance" in log
+    ev_log = (camp / "logs" / "events.jsonl").read_text()
+    assert "game_time" in ev_log
+
+
+def test_apply_plan_without_time_advance_is_noop(tmp_path):
+    """A plan with no time_advance must not touch the clock (no spurious advance)."""
+    director_apply = _load_director_apply()
+    camp = _apply_campaign(tmp_path)
+    coc_time.initialize_time_state(camp)
+
+    plan = {
+        "decision_id": "d-noop",
+        "scene_action": "CHOICE",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        # no time_advance key
+    }
+    events = director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    assert not any(e.get("event_type") == "game_time" for e in events)
+    state = coc_time.read_time_state(camp)
+    assert state["clock"]["elapsed_minutes"] == 0

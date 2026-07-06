@@ -32,6 +32,12 @@ try:
 except Exception:
     coc_memory = None
 
+coc_time = None
+try:
+    coc_time = _load_sibling("coc_time", "coc_time.py")
+except Exception:
+    coc_time = None
+
 
 def _read_json(path: Path, fallback: Any) -> Any:
     if not path.exists():
@@ -111,7 +117,16 @@ def apply_plan(campaign_dir: Path, plan: dict[str, Any], investigator_id: str) -
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)
 
-    # 3. memory writes -> cards
+    # 3. time advance -> world clock + triggers (coc_time layer)
+    if coc_time is not None:
+        time_events = coc_time.apply_time_advance_from_plan(
+            campaign_dir, plan, investigator_id
+        )
+        events.extend(time_events)
+        for ev in time_events:
+            _append_jsonl(logs / "events.jsonl", ev)
+
+    # 4. memory writes -> cards
     if coc_memory is not None:
         for i, mw in enumerate(plan.get("memory_writes", [])):
             mid = f"mem-{decision_id}-{i}"

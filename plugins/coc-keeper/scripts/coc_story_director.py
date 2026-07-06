@@ -27,6 +27,12 @@ def _load_sibling(name: str, filename: str):
 
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 
+coc_time = None
+try:
+    coc_time = _load_sibling("coc_time", "coc_time.py")
+except Exception:
+    coc_time = None  # time layer optional; director degrades gracefully
+
 coc_memory = None
 try:
     coc_memory = _load_sibling("coc_memory", "coc_memory.py")
@@ -125,6 +131,14 @@ def build_director_context(
     scenes = story_graph.get("scenes", [])
     active_scene = next((s for s in scenes if s["scene_id"] == active_scene_id), None)
 
+    # --- time signals (deterministic world-clock layer) ---
+    time_signals: dict[str, Any] = {}
+    if coc_time is not None:
+        time_state = coc_time.read_time_state(campaign_dir)
+        if time_state:
+            due = coc_time.peek_due_triggers(campaign_dir)
+            time_signals = coc_time.build_time_signals(time_state, due)
+
     return {
         "campaign_dir": campaign_dir,
         "investigator_id": investigator_id,
@@ -142,6 +156,7 @@ def build_director_context(
         "improvisation_boundaries": _read_json(scenario / "improvisation-boundaries.json", {}),
         "world_state": world,
         "rule_signals": rule_signals,
+        "time_signals": time_signals,
         "rng": rng,
         "turn_number": pacing.get("turn_number", 0),
     }
@@ -341,6 +356,72 @@ def select_action(ctx: dict[str, Any]) -> tuple[str, dict[str, float]]:
 # =============================================================================
 # DirectorPlan assembly
 # =============================================================================
+
+# Default time deltas (minutes) the director proposes per scene_action when the
+# world-clock layer is present. These are conservative proposals that the
+# apply layer will still validate/clamp against time-costs.json categories.
+_ACTION_TIME_PROFILES: dict[str, dict[str, Any]] = {
+    "REVEAL":   {"mode": "elapsed", "category": "single_room_search", "delta_minutes": 20},
+    "DEEPEN":   {"mode": "elapsed", "category": "single_room_search", "delta_minutes": 15},
+    "PRESSURE": {"mode": "instant", "category": None, "delta_minutes": 1},
+    "CHARACTER":{"mode": "elapsed", "category": "speak_briefly",      "delta_minutes": 5},
+    "CHOICE":   {"mode": "instant", "category": None, "delta_minutes": 1},
+    "CUT":      {"mode": "elapsed", "category": "local_travel",       "delta_minutes": 30},
+    "MONTAGE":  {"mode": "downtime","category": "short_rest",         "delta_minutes": 120},
+    "SUBSYSTEM":{"mode": "instant", "category": None, "delta_minutes": 1},
+    "RECOVER":  {"mode": "downtime","category": "sleep_night",        "delta_minutes": 480},
+    "PAYOFF":   {"mode": "instant", "category": None, "delta_minutes": 0},
+}
+
+
+def _derive_time_advance(action: str, time_signals: dict[str, Any]) -> dict[str, Any]:
+    """Derive a time_advance proposal for the DirectorPlan.
+
+    Combines the action's default time profile with the live time_signals
+    (e.g. escalate to downtime sleep when the investigator is exhausted, or
+    suppress advancement for OOC-style actions). Falls back to mode=none when
+    the time layer is absent (no time_signals).
+    """
+    if not time_signals:
+        return {"mode": "none", "reason": "time layer not initialized"}
+
+    profile = _ACTION_TIME_PROFILES.get(action, {"mode": "none"})
+    mode = profile.get("mode", "none")
+    category = profile.get("category")
+    delta = int(profile.get("delta_minutes", 0))
+    confidence = 0.7
+    reason = f"director proposal for {action}"
+
+    # Exhaustion override: if the investigator has not rested in >18h and the
+    # action is not already a recovery, propose a long downtime so the apply
+    # layer can advance the clock through a sleep period (which fires healing
+    # / sanity-day-reset triggers).
+    hours_since_rest = float(time_signals.get("hours_since_last_rest", 0) or 0)
+    if hours_since_rest > 18 and action not in ("RECOVER", "MONTAGE", "PAYOFF"):
+        mode = "downtime"
+        category = "sleep_night"
+        delta = 480
+        confidence = 0.85
+        reason = f"exhausted ({hours_since_rest}h since last rest) → propose sleep"
+
+    # High time-pressure: don't propose large jumps when a deadline is imminent.
+    if time_signals.get("time_pressure") == "high" and mode == "downtime":
+        mode = "elapsed"
+        category = "quick_observation"
+        delta = 5
+        confidence = 0.6
+        reason = "deadline imminent; minimal time advance"
+
+    return {
+        "mode": mode,
+        "category": category,
+        "delta_minutes": delta,
+        "confidence": round(confidence, 2),
+        "reason": reason,
+    }
+
+
+
 
 # Skill-name / difficulty-qualifier triggers that mark a clue delivery as
 # obscured (i.e. one that requires a die roll to surface). Anything else — a
@@ -663,6 +744,8 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         for c in mem_cards
     ]
 
+    time_advance = _derive_time_advance(action, ctx.get("time_signals", {}))
+
     return {
         "decision_id": decision_id,
         "turn_input": {
@@ -677,6 +760,8 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "pacing_mode": pacing_mode,
         "tension_delta": tension_delta,
         "rule_signals": ctx["rule_signals"],
+        "time_signals": ctx.get("time_signals", {}),
+        "time_advance": time_advance,
         "clue_policy": clue_policy,
         "npc_moves": _build_npc_moves(ctx, action),
         "pressure_moves": pressure_moves,
