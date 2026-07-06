@@ -712,14 +712,6 @@
       "cthulhu_mythos_full": 2,
       "mythos_rating": 9
     },
-    "ancient tongue unknown": {
-      "full_study_weeks": 51,
-      "sanity_cost": "2D6",
-      "cthulhu_mythos_initial": 4,
-      "cthulhu_mythos_full": 8,
-      "mythos_rating": 36,
-      "display_name": "Book of Iod"
-    },
     "clithanus_latin_400": {
       "full_study_weeks": 29,
       "sanity_cost": "2D6",
@@ -782,6 +774,15 @@
       "mythos_rating": 9,
       "display_name": "Polynesian Mythology (Copeland 1906)",
       "note": "Edition variant from Mythos Tomes table"
+    },
+    "book_of_iod_ancient": {
+      "full_study_weeks": 51,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 36,
+      "display_name": "Book of Iod (Ancient Tongue)",
+      "note": "Ancient tongue edition from Mythos Tomes table"
     }
   }
 }
