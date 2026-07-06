@@ -73,3 +73,16 @@ director 在 3 种结构原型的真实模组上产出合理 DirectorPlan，dete
 | M4 | DirectorPlan memory_reads/writes 接入 + PAYOFF 评分不再 hardcoded 0 | ⏳ |
 | M5 | coc_director_apply.py（把 plan 的 reveal/pressure/memory_write 落盘） | ⏳ |
 | M6 | memory Continuity harness drill + 全量测试 | ⏳ |
+
+### v2 骨架结果（6 task + 1 fix）
+- Task 1 must_include：commit 60aaad5
+- Task 2 pacing-map 运行期消费：commit 2633961
+- Task 3 coc_memory.py（grep-native Markdown cards）：commit 1f1a024
+- Task 4 director 接入 memory + PAYOFF：commit f952875
+- Task 5 coc_director_apply.py 写回层：commit 3f2feaf
+- Task 6 memory continuity drill：commit afe8a82
+- Fix PAYOFF 判别（弱 0.53 vs 强 0.85）：commit 464dbad
+- 测试：532 passed，v7 smoke 10/10
+- 双 plugin 字节一致
+- whole-branch review: READY TO MERGE
+- Minor（留后续）：memory 检索可缓存、privacy 罚分分支是 defense-in-depth、index 批量写 O(n²)
