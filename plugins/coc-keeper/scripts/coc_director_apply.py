@@ -209,6 +209,83 @@ def _resolve_committed_clues(
     return [], events, pressure
 
 
+def _copy_jsonable(payload: dict[str, Any]) -> dict[str, Any]:
+    """Deep-copy a JSON-shaped DirectorPlan without importing copy for stable output."""
+    return json.loads(json.dumps(payload, ensure_ascii=False))
+
+
+def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Return a narration-ready plan with rule outcomes reconciled.
+
+    This is the bridge between rules and prose: narrator-facing directives no
+    longer contain an exact clue anchor when the obscured check failed. Instead,
+    the plan carries a player-safe failure_consequence telling the narrator to
+    show cost, pressure, and an alternate route without claiming the clue was
+    found.
+    """
+    resolved_plan = _copy_jsonable(plan)
+    resolved_results = list(rules_results or [])
+    resolved_plan["rules_results"] = resolved_results
+
+    committed, resolution_events, extra_pressure = _resolve_committed_clues(
+        resolved_plan, resolved_results, ts="", investigator_id=""
+    )
+    planned_reveals = [cid for cid in resolved_plan.get("clue_policy", {}).get("reveal", []) if cid]
+    withheld: list[str] = []
+    recovered: list[str] = []
+    failure_event: dict[str, Any] | None = None
+    recovery_event: dict[str, Any] | None = None
+    for event in resolution_events:
+        etype = event.get("event_type")
+        if etype == "clue_withheld":
+            withheld = [cid for cid in event.get("clue_ids", []) if cid]
+        elif etype == "failure_consequence":
+            failure_event = event
+        elif etype == "fail_forward_recovery":
+            clue_id = event.get("clue_id")
+            recovered = [clue_id] if clue_id else []
+            recovery_event = event
+
+    resolved_plan["resolved_clue_policy"] = {
+        "planned_reveals": planned_reveals,
+        "committed_reveals": committed,
+        "withheld_reveals": withheld,
+        "fallback_recovered": recovered,
+        "pending_rule_result": any(e.get("event_type") == "clue_pending_rule_result" for e in resolution_events),
+        "extra_pressure_moves": extra_pressure,
+    }
+
+    directives = resolved_plan.setdefault("narrative_directives", {})
+    if failure_event is not None:
+        # Prevent the narrator from including the exact clue anchor that was only
+        # valid on success. The next beat may still surface a fallback route.
+        directives["must_include"] = []
+        directives["failure_consequence"] = {
+            "narration_mode": "withhold_exact_clue_with_cost",
+            "consequence_type": failure_event.get("consequence_type"),
+            "severity": failure_event.get("severity", "regular"),
+            "fallback_routes": failure_event.get("fallback_routes", []),
+            "costs": ["time_pressure", "alternate_route_hint"],
+            "must_not_claim": [
+                "do not say the exact planned clue was found",
+                "do not end the scene with no possible next action",
+            ],
+        }
+    elif recovery_event is not None:
+        directives["failure_consequence"] = {
+            "narration_mode": "recover_with_cost",
+            "consequence_type": "fallback_route_surfaces",
+            "severity": "regular",
+            "fallback_routes": recovery_event.get("fallback_routes", []),
+            "costs": ["time_pressure"],
+            "must_not_claim": ["do not present this as a table-level hint"],
+        }
+    else:
+        directives.pop("failure_consequence", None)
+
+    return resolved_plan
+
+
 def apply_plan(
     campaign_dir: Path,
     plan: dict[str, Any],
