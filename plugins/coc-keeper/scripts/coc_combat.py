@@ -160,6 +160,10 @@ class CombatSession:
         self.participants: dict[str, dict[str, Any]] = {}
         self.rounds: list[dict[str, Any]] = []
         self.damage_chain: list[dict[str, Any]] = []
+        # Jammed weapons (Table XVII malfunction): a jammed weapon_id is
+        # unusable until repaired. Tracked per-actor so the same model in
+        # two actors' hands is independent.
+        self.jammed_weapons: set[str] = set()
         # Roll/event sinks — the harness reads these after each turn to write
         # to rolls.jsonl/events.jsonl. Keeping them on the session means the
         # session is the single producer of combat records.
@@ -350,6 +354,56 @@ class CombatSession:
         if not db or str(db).lower() in ("none", "0", ""):
             return None
         return str(db)
+
+    def _check_malfunction(self, actor_id: str, weapon: dict, roll_value: int,
+                           turn_id: str) -> dict[str, Any] | None:
+        """Firearm malfunction check (Table XVII, p.401).
+
+        If the weapon has a ``malfunction`` number (non-null) and the attack
+        ``roll_value`` is greater than or equal to it, the weapon jams: it
+        becomes unusable until repaired, and a ``malfunction_event`` record is
+        appended to the damage_chain. Returns the event dict, or None when no
+        malfunction applies.
+
+        Per Table XVII the malfunction is keyed to the percentile attack roll,
+        independent of the hit/miss outcome — a roll at or above the number
+        jams the gun even if it would otherwise have hit.
+        """
+        malf = weapon.get("malfunction")
+        if malf is None:
+            return None
+        try:
+            threshold = int(malf)
+        except (TypeError, ValueError):
+            return None
+        if roll_value < threshold:
+            return None
+        # Jam: weapon unusable until repaired.
+        weapon_id = weapon.get("weapon_id", "")
+        jam_key = f"{actor_id}:{weapon_id}"
+        self.jammed_weapons.add(jam_key)
+        event = {
+            "malfunction_roll_id": self._roll_id(),
+            "source_turn_id": turn_id,
+            "source_actor_id": actor_id,
+            "weapon_id": weapon_id,
+            "weapon_display_name": weapon.get("display_name", weapon_id),
+            "roll": roll_value,
+            "malfunction_threshold": threshold,
+            "effect": "jammed_until_repaired",
+            "marker": (f"[malfunction]{weapon_id} roll {roll_value} >= {threshold}: "
+                       f"jammed, unusable until repaired[/malfunction]"),
+        }
+        self.damage_chain.append(event)
+        self.pending_events.append({
+            "event_type": "weapon_malfunction",
+            "actor_id": actor_id,
+            "weapon_id": weapon_id,
+            "roll": roll_value,
+            "threshold": threshold,
+            "summary": f"{actor_id} {weapon_id} malfunction (roll {roll_value} >= {threshold}); jammed.",
+        })
+        return event
 
     def _damage_roll(self, die_expr: str, source_actor_id: str,
                      target_actor_id: str, weapon_id: str,
@@ -737,6 +791,17 @@ class CombatSession:
         turn["attack_modifiers"] = {"bonus": atk_bonus, "penalty": atk_penalty,
                                     "range_band": range_band, "point_blank": point_blank,
                                     "cover": cover, "outnumbered_penalty": outnumbered_penalty}
+
+        # --- Firearm malfunction (Table XVII, p.401): if the weapon has a
+        # malfunction number and the attack roll >= that number, the weapon
+        # jams and is unusable until repaired. The roll value is checked
+        # regardless of hit/miss outcome. The event is recorded on the turn
+        # and appended to damage_chain for downstream audit. --- #
+        malfunction_event = self._check_malfunction(
+            actor_id, weapon, atk_rec["roll"], turn["turn_id"]
+        )
+        if malfunction_event is not None:
+            turn["malfunction"] = malfunction_event
 
         # --- Target response ---
         target = self.participants[target_id]
@@ -1158,11 +1223,16 @@ class CombatSession:
         # major_wound: single hit damage >= half hp_max (p.119)
         half_max = p["hp_max"] // 2
         for d in self.damage_chain:
+            # Skip non-damage records (e.g. malfunction events).
+            if "target_actor_id" not in d:
+                continue
             if d["target_actor_id"] == target_id and d.get("rulebook_exception"):
                 continue
         # Recompute major_wound based on worst single hit
         worst_single = 0
         for d in self.damage_chain:
+            if "target_actor_id" not in d:
+                continue
             if d["target_actor_id"] == target_id:
                 # damage that landed (post-armor)
                 landed = -d["hp_delta"]

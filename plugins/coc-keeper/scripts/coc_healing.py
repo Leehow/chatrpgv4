@@ -382,3 +382,182 @@ def handle_time_trigger(
     sess.save(campaign_dir)
     sess.persist_events(campaign_dir)
     return max(0, gained)
+
+
+# --------------------------------------------------------------------------- #
+# Psychotherapy / asylum / self-help recovery (p.164)
+# --------------------------------------------------------------------------- #
+class PsychotherapySession:
+    """Structured SAN-recovery-via-treatment state for one investigator.
+
+    Implements the Chapter 8 (p.164) treatment paths:
+    - Psychoanalysis: a weekly Psychoanalysis skill roll; success gives a
+      chance to recover 1D3 SAN (regular) or more (hard/extreme).
+    - Asylum confinement: 1D6 months of confinement, after which a Psychoanalysis
+      roll determines recovery (p.164).
+    - Self-help: a SAN roll; success recovers 1D6 SAN, failure loses 1 SAN.
+
+    The session mutates a supplied SAN state dict (``current_san``, ``max_san``)
+    and emits structured events. It is deterministic given the RNG.
+    """
+
+    def __init__(self, investigator_id: str,
+                 san_state: dict[str, Any],
+                 rng: random.Random | None = None) -> None:
+        self.investigator_id = investigator_id
+        self._rng = rng or random.Random()
+        self.san_state = san_state  # {current_san, max_san, ...} mutated in place
+        self.events: list[dict[str, Any]] = []
+        self._event_counter = 0
+        # Track asylum confinement (months remaining).
+        self.asylum_months_remaining = 0
+
+    @property
+    def current_san(self) -> int:
+        return int(self.san_state.get("current_san", 0))
+
+    @property
+    def max_san(self) -> int:
+        return int(self.san_state.get("max_san", 99))
+
+    def _set_san(self, value: int) -> int:
+        """Set current SAN, clamped to [0, max_san]. Returns the new value."""
+        new_val = max(0, min(self.max_san, int(value)))
+        self.san_state["current_san"] = new_val
+        return new_val
+
+    def _event(self, type_: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self._event_counter += 1
+        ev = {"event_type": type_, "eid": f"ps{self._event_counter}", **payload}
+        self.events.append(ev)
+        return ev
+
+    # ------------------------------------------------------------------ #
+    # Psychoanalysis (weekly)
+    # ------------------------------------------------------------------ #
+    def psychoanalysis(self, skill_value: int, *,
+                       difficulty: str = "regular") -> dict[str, Any]:
+        """Weekly Psychoanalysis skill roll (p.164).
+
+        Success offers a recovery chance: regular success -> 1D3 SAN,
+        hard -> 2D3, extreme -> 3D3. Failure yields no recovery (but no loss).
+        Returns the event record.
+        """
+        res = coc_roll.percentile_check(skill_value, difficulty=difficulty,
+                                        rng=self._rng)
+        outcome = res.get("outcome")
+        san_before = self.current_san
+        recovered = 0
+        if outcome == "extreme":
+            dice = coc_roll.roll_expression("3D3", rng=self._rng)
+            recovered = self._recover(int(dice.get("total", 0)))
+        elif outcome == "hard":
+            dice = coc_roll.roll_expression("2D3", rng=self._rng)
+            recovered = self._recover(int(dice.get("total", 0)))
+        elif outcome in ("regular", "critical"):
+            dice = coc_roll.roll_expression("1D3", rng=self._rng)
+            recovered = self._recover(int(dice.get("total", 0)))
+        return self._event("psychoanalysis", {
+            "skill": "Psychoanalysis",
+            "difficulty": difficulty,
+            "outcome": outcome,
+            "san_before": san_before,
+            "san_recovered": recovered,
+            "san_after": self.current_san,
+            "summary": (f"{self.investigator_id} Psychoanalysis ({difficulty}) "
+                        f"-> {outcome}: +{recovered} SAN."),
+        })
+
+    # ------------------------------------------------------------------ #
+    # Asylum confinement (1D6 months)
+    # ------------------------------------------------------------------ #
+    def confine_to_asylum(self) -> dict[str, Any]:
+        """Confine the investigator to an asylum for 1D6 months (p.164).
+
+        Sets ``asylum_months_remaining`` and emits an event. Actual recovery is
+        resolved by ``resolve_asylum_release`` after the confinement period.
+        """
+        months = self._rng.randint(1, 6)
+        self.asylum_months_remaining = months
+        return self._event("asylum_confinement", {
+            "months": months,
+            "summary": (f"{self.investigator_id} committed to asylum for "
+                        f"{months} month(s)."),
+        })
+
+    def resolve_asylum_release(self, psychoanalysis_skill: int) -> dict[str, Any]:
+        """Resolve SAN recovery at the end of asylum confinement (p.164).
+
+        A Psychoanalysis roll determines whether the investigator recovers. On
+        success they recover to their max SAN (treatment worked); on failure
+        they remain at their current SAN. Clears ``asylum_months_remaining``.
+        """
+        months = self.asylum_months_remaining
+        self.asylum_months_remaining = 0
+        res = coc_roll.percentile_check(psychoanalysis_skill, rng=self._rng)
+        outcome = res.get("outcome")
+        san_before = self.current_san
+        recovered = 0
+        if outcome in ("regular", "hard", "extreme", "critical"):
+            # Treatment successful: recover to max SAN.
+            recovered = self.max_san - san_before
+            self._set_san(self.max_san)
+        return self._event("asylum_release", {
+            "psychoanalysis_outcome": outcome,
+            "months_confined": months,
+            "san_before": san_before,
+            "san_recovered": recovered,
+            "san_after": self.current_san,
+            "summary": (f"{self.investigator_id} released from asylum after "
+                        f"{months}m: Psychoanalysis {outcome}, "
+                        f"+{recovered} SAN."),
+        })
+
+    # ------------------------------------------------------------------ #
+    # Self-help (SAN roll)
+    # ------------------------------------------------------------------ #
+    def self_help(self) -> dict[str, Any]:
+        """Self-help recovery via a SAN roll (p.164).
+
+        Success: recover 1D6 SAN. Failure: lose 1 SAN.
+        """
+        res = coc_roll.percentile_check(self.current_san, rng=self._rng)
+        outcome = res.get("outcome")
+        san_before = self.current_san
+        if outcome in ("regular", "hard", "extreme", "critical"):
+            dice = coc_roll.roll_expression("1D6", rng=self._rng)
+            recovered = self._recover(int(dice.get("total", 0)))
+            san_delta = recovered
+        else:
+            # Failure: lose 1 SAN.
+            self._set_san(self.current_san - 1)
+            san_delta = -1
+        return self._event("self_help", {
+            "outcome": outcome,
+            "san_before": san_before,
+            "san_delta": san_delta,
+            "san_after": self.current_san,
+            "summary": (f"{self.investigator_id} self-help SAN roll "
+                        f"{outcome}: SAN {san_before}->{self.current_san}."),
+        })
+
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+    def _recover(self, amount: int) -> int:
+        """Apply SAN recovery, capped at max_san. Returns actual gain."""
+        if amount <= 0:
+            return 0
+        before = self.current_san
+        self._set_san(before + amount)
+        return self.current_san - before
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "investigator_id": self.investigator_id,
+            "current_san": self.current_san,
+            "max_san": self.max_san,
+            "asylum_months_remaining": self.asylum_months_remaining,
+            "events": list(self.events),
+        }
+

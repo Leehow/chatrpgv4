@@ -268,8 +268,32 @@ def difficulty_target(target: int, difficulty: str) -> int:
     table = load_rule_table("difficulty-levels")
     if difficulty not in table:
         raise ValueError(f"unsupported difficulty: {difficulty}")
-    divisor = int(table[difficulty]["divisor"])
+    block = table[difficulty]
+    if not isinstance(block, dict) or "divisor" not in block:
+        # "from_opponent" is a lookup block, not a divisor-based difficulty.
+        raise ValueError(f"difficulty {difficulty!r} has no divisor; "
+                         f"use difficulty_from_opponent() instead")
+    divisor = int(block["divisor"])
     return target // divisor
+
+
+def difficulty_from_opponent(opponent_skill: int) -> str:
+    """Return the difficulty level imposed by an opponent's skill (p.83).
+
+    In an opposed roll, the opponent's skill determines the success level the
+    actor must beat: opponent skill <50 -> Regular, 50-89 -> Hard, 90+ ->
+    Extreme (Keeper Rulebook p.83).
+    """
+    table = load_rule_table("difficulty-levels")
+    block = table.get("from_opponent", {})
+    threshold_regular = int(block.get("threshold_regular", 50))
+    threshold_hard = int(block.get("threshold_hard", 90))
+    skill = int(opponent_skill)
+    if skill >= threshold_hard:
+        return "extreme"
+    if skill >= threshold_regular:
+        return "hard"
+    return "regular"
 
 
 def damage_bonus_build(str_value: int, siz_value: int) -> dict[str, int | str]:
@@ -679,4 +703,20 @@ def development_rule() -> dict[str, Any]:
             "gain_on_success": improvement.get("gain_on_success", "1D10"),
             "cap_for_san_reward": int(improvement.get("cap_for_san_reward", 90)),
         },
+        "sanity_reward": sanity_reward_rule(),
+    }
+
+
+def sanity_reward_rule() -> dict[str, Any]:
+    """Return the SAN-reward-at-skill-90 block (p.95).
+
+    When a skill reaches 90% or above via a development improvement roll, the
+    investigator gains 2D6 Sanity (capped at max SAN).
+    """
+    table = load_rule_table("development")
+    reward = table.get("sanity_reward", {})
+    return {
+        "applies_when": reward.get("applies_when", "skill_reaches_90_or_above_via_development"),
+        "reward": reward.get("reward", "2D6"),
+        "constraint": reward.get("constraint", "cannot_exceed_max_san"),
     }

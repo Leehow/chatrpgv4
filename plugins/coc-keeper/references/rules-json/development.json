@@ -26,5 +26,15 @@
       "gain_applied_once_per_skill_per_development_phase",
       "skill_at_or_above_cap_via_san_reward_may_not_improve"
     ]
+  },
+  "sanity_reward": {
+    "applies_when": "skill_reaches_90_or_above_via_development",
+    "reward": "2D6",
+    "constraint": "cannot_exceed_max_san",
+    "source_note": "Keeper Rulebook p.95: when a skill reaches 90% or above as the result of a development improvement roll, the investigator gains 2D6 Sanity points (up to their maximum Sanity).",
+    "constraints": [
+      "granted_once_per_skill_reaching_90",
+      "capped_at_investigator_max_san"
+    ]
   }
 }

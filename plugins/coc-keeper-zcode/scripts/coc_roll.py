@@ -128,3 +128,33 @@ def percentile_check(
         "tens_values": tens_values,
         "units": units,
     }
+
+
+def idea_roll(int_value: int, *, difficulty: str = "regular",
+              bonus: int = 0, penalty: int = 0,
+              rng: random.Random | None = None) -> dict[str, Any]:
+    """Idea roll: a percentile check against INT (rule-id core.resolution.idea_roll).
+
+    Used to recall a crucial connection or insight. The target is the
+    investigator's INT characteristic; default difficulty is regular.
+    """
+    result = percentile_check(int_value, difficulty=difficulty, bonus=bonus,
+                              penalty=penalty, rng=rng)
+    result["roll_kind"] = "idea"
+    result["characteristic"] = "INT"
+    return result
+
+
+def know_roll(edu_value: int, *, difficulty: str = "regular",
+              bonus: int = 0, penalty: int = 0,
+              rng: random.Random | None = None) -> dict[str, Any]:
+    """Know roll: a percentile check against EDU (rule-id core.resolution.know_roll).
+
+    Used to recall a piece of common or specialized knowledge. The target is
+    the investigator's EDU characteristic; default difficulty is regular.
+    """
+    result = percentile_check(edu_value, difficulty=difficulty, bonus=bonus,
+                              penalty=penalty, rng=rng)
+    result["roll_kind"] = "know"
+    result["characteristic"] = "EDU"
+    return result

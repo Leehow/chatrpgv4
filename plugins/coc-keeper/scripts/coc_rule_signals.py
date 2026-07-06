@@ -217,13 +217,241 @@ def read_contacts_difficulty(home_ground: bool, same_profession: bool) -> str:
     return "regular"
 
 
-# D4 (failed-SAN involuntary action) and F3 (believer SAN bomb) stubs:
-# These need session-state fields not yet in save schema; defined as no-op
-# placeholders so the function registry is complete.
-def read_failed_san_involuntary(*args, **kwargs) -> dict[str, Any]:
-    """D4: director inserts involuntary action on failed SAN roll. Stub for v2."""
-    return {"implemented": False}
+# D4 (failed-SAN involuntary action) and F3 (believer SAN bomb):
+# Both now implemented (p.166 D4, p.179 F3).
 
-def read_believer_bomb(*args, **kwargs) -> dict[str, Any]:
-    """F3: pending SAN loss = current Cthulhu Mythos on becoming believer. Stub for v2."""
-    return {"implemented": False}
+INVOLUNTARY_KIND_DESCRIPTIONS: dict[str, str] = {
+    "jump_in_fright": "investigator physically starts/jumps in fright",
+    "cry_out": "investigator screams, gasps, or cries out",
+    "involuntary_movement": "investigator stumbles, drops something, or reels",
+    "involuntary_combat_action": "investigator fires or strikes out reflexively",
+    "freeze": "investigator freezes in place, paralyzed for a moment",
+}
+
+
+def read_failed_san_involuntary(
+    san_lost: int,
+    involuntary_kinds: list[str] | None = None,
+    rng: random.Random | None = None,
+) -> dict[str, Any]:
+    """D4: a failed SAN roll always causes a momentary loss of self-control.
+
+    Rulebook p.166: when an investigator fails a SAN roll, the Keeper chooses
+    one of five involuntary actions. This read-only signal picks one (randomly
+    when ``involuntary_kinds`` is omitted, or from the supplied candidate list
+    when the Keeper wants to constrain the outcome) and returns it for the
+    director to narrate.
+
+    Parameters:
+        san_lost: SAN lost on the failed roll (carried for context only; the
+            involuntary action itself is independent of the magnitude).
+        involuntary_kinds: optional Keeper-chosen subset of the five kinds
+            (jump_in_fright, cry_out, involuntary_movement,
+            involuntary_combat_action, freeze). When None, all five are
+            eligible. Unknown kinds are ignored.
+        rng: optional RNG for deterministic tests.
+
+    Returns:
+        {implemented, kind, description, san_lost}
+    """
+    rng = rng or random.Random()
+    all_kinds = list(INVOLUNTARY_KIND_DESCRIPTIONS.keys())
+    if involuntary_kinds:
+        candidates = [k for k in involuntary_kinds if k in INVOLUNTARY_KIND_DESCRIPTIONS]
+        if not candidates:
+            candidates = all_kinds
+    else:
+        candidates = all_kinds
+    kind = rng.choice(candidates)
+    return {
+        "implemented": True,
+        "kind": kind,
+        "description": INVOLUNTARY_KIND_DESCRIPTIONS[kind],
+        "san_lost": int(san_lost),
+        "rule_ref": "core.sanity.failure_involuntary_action",
+    }
+
+
+def read_believer_bomb(
+    cm_value: int,
+    current_san: int,
+    max_san: int | None = None,
+    *,
+    already_believer: bool = False,
+    is_first: bool = False,
+) -> dict[str, Any]:
+    """F3 (p.179): pending SAN loss when an investigator becomes a believer.
+
+    Becoming a believer costs SAN equal to the investigator's current Cthulhu
+    Mythos skill (the "believer bomb"). This read-only signal computes the
+    pending loss and whether it would drop the investigator to 0 SAN
+    (permanent insanity). The actual SAN deduction is applied by
+    ``coc_mythos.become_believer``.
+
+    Parameters:
+        cm_value: the investigator's current Cthulhu Mythos skill percentage.
+        current_san: the investigator's current SAN.
+        max_san: optional max SAN (for the clamped-after signal).
+        already_believer: True if the investigator already accepts the Mythos;
+            in that case no new SAN bomb is pending.
+        is_first: True for the investigator's first Mythos encounter (controls
+            the ``cm_gain`` value: +5 first encounter, +1 subsequent, p.167).
+
+    Returns:
+        {pending_san_loss, resulting_san, would_be_permanently_insane, ...}
+    """
+    pending = int(cm_value)
+    resulting = max(0, int(current_san) - pending)
+    cm_gain = 5 if is_first else 1
+    if cm_value <= 0 and not already_believer:
+        # No Mythos exposure yet: cannot become a believer.
+        return {
+            "implemented": True,
+            "is_believer": False,
+            "cm_value": int(cm_value),
+            "current_san": int(current_san),
+            "max_san": int(max_san) if max_san is not None else None,
+            "rule_ref": "core.mythos.become_believer",
+            "summary": "Not a believer: Cthulhu Mythos is 0.",
+        }
+    if already_believer:
+        return {
+            "implemented": True,
+            "is_believer": True,
+            "already_believer": True,
+            "san_loss_pending": 0,
+            "pending_san_loss": 0,
+            "cm_gain": cm_gain,
+            "current_san": int(current_san),
+            "resulting_san": int(current_san),
+            "would_be_permanently_insane": int(current_san) == 0,
+            "max_san": int(max_san) if max_san is not None else None,
+            "rule_ref": "core.mythos.become_believer",
+            "summary": "Already a believer: no new SAN bomb pending.",
+        }
+    return {
+        "implemented": True,
+        "is_believer": True,
+        "san_loss_pending": "see_source",
+        "cm_gain": cm_gain,
+        # Preserved pending-loss model (existing tests rely on these keys):
+        "pending_san_loss": pending,
+        "current_san": int(current_san),
+        "resulting_san": resulting,
+        "would_be_permanently_insane": resulting == 0,
+        "max_san": int(max_san) if max_san is not None else None,
+        "rule_ref": "core.mythos.become_believer",
+        "summary": (f"Believer SAN bomb: -{pending} SAN "
+                    f"({current_san}->{resulting})."),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Engine-state readers: give the director visibility into SanitySession and
+# ChaseSession-managed state without instantiating those engines.
+# --------------------------------------------------------------------------- #
+
+def _read_json(path: Path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default
+
+
+def read_sanity_engine_state(campaign_dir, investigator_id: str) -> dict[str, Any]:
+    """Read structured sanity fields for an investigator (director signal).
+
+    Reads ``save/investigator-state/<id>.json`` (written by coc_mythos and
+    merged by the director's investigator-state layer). Falls back to
+    ``save/sanity.json`` (a SanitySession snapshot) when the per-investigator
+    file is absent, then returns a structured signal describing current SAN,
+    max SAN, conditions, daily SAN lost, temporary/indefinite/permanent
+    insanity flags, CM, and phobia/mania if present.
+
+    Always returns a dict (possibly mostly empty) so the director can treat
+    the signal uniformly.
+    """
+    save = Path(campaign_dir) / "save"
+    state: dict[str, Any] = _read_json(
+        save / "investigator-state" / f"{investigator_id}.json", {}
+    )
+    if not state:
+        # Fall back to a SanitySession snapshot if present.
+        san_snap = _read_json(save / "sanity.json", {})
+        if san_snap:
+            state = san_snap
+
+    current_san = state.get("current_san", state.get("san_current"))
+    max_san = state.get("max_san", state.get("san_max"))
+    conditions = state.get("conditions", []) or []
+    daily_san_lost = state.get("daily_san_lost", 0)
+
+    # bout/temp insanity flags may live in conditions or as explicit fields.
+    bout_active = bool(
+        state.get("bout_active")
+        or state.get("temporary_insane")
+        or "bout_active" in conditions
+    )
+    temporary_insane = bool(state.get("temporary_insane"))
+    indefinite_insane = bool(state.get("indefinite_insane"))
+    permanently_insane = bool(state.get("permanently_insane"))
+
+    signal: dict[str, Any] = {
+        "investigator_id": investigator_id,
+        "has_state": bool(state),
+        "current_san": int(current_san) if current_san is not None else None,
+        "max_san": int(max_san) if max_san is not None else None,
+        "cm_value": int(state.get("cm_value", 0)),
+        "conditions": list(conditions),
+        "daily_san_lost": int(daily_san_lost or 0),
+        "bout_active": bout_active,
+        "temporary_insane": temporary_insane,
+        "indefinite_insane": indefinite_insane,
+        "permanently_insane": permanently_insane,
+    }
+    if state.get("phobia"):
+        signal["phobia"] = state["phobia"]
+    if state.get("mania"):
+        signal["mania"] = state["mania"]
+    if state.get("temporary_insane_remaining_hours") is not None:
+        signal["temporary_insane_remaining_hours"] = int(
+            state["temporary_insane_remaining_hours"]
+        )
+    return signal
+
+
+def read_chase_state(campaign_dir) -> dict[str, Any]:
+    """Read the active chase session (if any) from ``save/chase.json``.
+
+    Returns ``{active: False}`` when no chase session is saved. Otherwise
+    returns ``{active, participants, round, outcome}`` summarizing the
+    ChaseSession snapshot for director awareness.
+    """
+    save = Path(campaign_dir) / "save"
+    snap = _read_json(save / "chase.json", {})
+    if not snap:
+        return {"active": False}
+    rounds = snap.get("rounds", []) or []
+    last_round = rounds[-1]["round"] if rounds else 0
+    status = snap.get("status", "active")
+    outcome = snap.get("outcome")
+    participants = snap.get("participants", []) or []
+    return {
+        "active": status == "active",
+        "chase_id": snap.get("chase_id"),
+        "status": status,
+        "participants": [
+            {
+                "actor_id": p.get("actor_id"),
+                "side": p.get("side"),
+                "mov_adjusted": p.get("mov_adjusted"),
+                "position": p.get("position"),
+                "escaped": bool(p.get("escaped")),
+                "captured": bool(p.get("captured")),
+                "is_vehicle": bool(p.get("is_vehicle")),
+            }
+            for p in participants
+        ],
+        "round": last_round,
+        "outcome": outcome,
+    }

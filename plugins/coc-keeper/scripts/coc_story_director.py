@@ -139,6 +139,16 @@ def build_director_context(
             due = coc_time.peek_due_triggers(campaign_dir)
             time_signals = coc_time.build_time_signals(time_state, due)
 
+    # --- engine-state signals (SanitySession / ChaseSession awareness) ---
+    sanity_engine_state: dict[str, Any] | None = None
+    if hasattr(coc_rule_signals, "read_sanity_engine_state"):
+        sanity_engine_state = coc_rule_signals.read_sanity_engine_state(
+            campaign_dir, investigator_id
+        )
+    chase_state: dict[str, Any] | None = None
+    if hasattr(coc_rule_signals, "read_chase_state"):
+        chase_state = coc_rule_signals.read_chase_state(campaign_dir)
+
     return {
         "campaign_dir": campaign_dir,
         "investigator_id": investigator_id,
@@ -157,6 +167,8 @@ def build_director_context(
         "world_state": world,
         "rule_signals": rule_signals,
         "time_signals": time_signals,
+        "sanity_engine_state": sanity_engine_state,
+        "chase_state": chase_state,
         "rng": rng,
         "turn_number": pacing.get("turn_number", 0),
     }

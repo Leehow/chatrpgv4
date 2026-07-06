@@ -8,6 +8,18 @@
       "source_note": "Keeper Rulebook percentile skill and characteristic checks; runtime bounds use percentile-check.json."
     },
     {
+      "id": "core.resolution.idea_roll",
+      "category": "core_resolution",
+      "source_table": "percentile-check.json",
+      "source_note": "Keeper Rulebook Idea roll: a percentile check against the investigator's INT characteristic, used to recall a crucial connection or insight."
+    },
+    {
+      "id": "core.resolution.know_roll",
+      "category": "core_resolution",
+      "source_table": "percentile-check.json",
+      "source_note": "Keeper Rulebook Know roll: a percentile check against the investigator's EDU characteristic, used to recall a piece of common or specialized knowledge."
+    },
+    {
       "id": "core.percentile_check.roll_modifiers",
       "category": "core_resolution",
       "source_table": "roll-modifiers.json",
@@ -42,6 +54,16 @@
       "source_table": "difficulty-levels.json",
       "numeric": {
         "divisor": 5
+      }
+    },
+    {
+      "id": "core.difficulty.from_opponent",
+      "category": "difficulty",
+      "source_table": "difficulty-levels.json",
+      "source_note": "Keeper Rulebook p.83 opposed rolls: the opponent's skill sets the required success level. Opponent skill <50 -> Regular, 50-89 -> Hard, 90+ -> Extreme.",
+      "numeric": {
+        "threshold_regular": 50,
+        "threshold_hard": 90
       }
     },
     {
@@ -259,6 +281,26 @@
         "default_locations": 2,
         "minimum_locations": 1,
         "advised_maximum_locations": 2
+      }
+    },
+    {
+      "id": "core.chase.vehicles",
+      "category": "chase",
+      "source_table": "chase.json",
+      "source_note": "Keeper Rulebook Table V (pp.145-146): common chase vehicles with MOV, Build, armor, and passenger capacity; looked up by name via get_vehicle_stats.",
+      "numeric": {
+        "table_v_page": "145-146",
+        "vehicle_count": 5
+      }
+    },
+    {
+      "id": "core.chase.vehicular_collisions",
+      "category": "chase",
+      "source_table": "chase.json",
+      "source_note": "Keeper Rulebook Table VI (p.147): collision severity tiers (minor/moderate/severe/mayhem/roadkill) with Build damage to the vehicle and HP damage to passengers; resolved by vehicle_collision.",
+      "numeric": {
+        "table_vi_page": 147,
+        "severity_tiers": 5
       }
     },
     {
@@ -607,6 +649,16 @@
       }
     },
     {
+      "id": "core.mythos.become_believer",
+      "category": "mythos",
+      "source_table": "sanity.json",
+      "source_note": "Keeper Rulebook p.179 becoming a believer: a first-hand Mythos encounter forces belief and costs SAN equal to the current Cthulhu Mythos skill; reading a tome may let the investigator choose not to believe (still gain CM, lose max SAN, but no SAN points lost).",
+      "numeric": {
+        "believer_san_loss": "current_cthulhu_mythos",
+        "tome_choice_not_to_believe": "no_san_points_lost"
+      }
+    },
+    {
       "id": "core.luck.spend",
       "category": "luck",
       "source_table": "luck.json",
@@ -656,6 +708,16 @@
         "check": "1D100 > current_skill",
         "gain_on_success": "1D10",
         "cap_for_san_reward": 90
+      }
+    },
+    {
+      "id": "core.development.sanity_reward",
+      "category": "development",
+      "source_table": "development.json",
+      "source_note": "Keeper Rulebook p.95: when a skill reaches 90% or above as the result of a development improvement roll, the investigator gains 2D6 Sanity points (up to maximum Sanity).",
+      "numeric": {
+        "applies_when": "skill_reaches_90_or_above_via_development",
+        "reward": "2D6"
       }
     },
     {

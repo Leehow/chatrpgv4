@@ -34,5 +34,83 @@
     "default_locations": 2,
     "minimum_locations": 1,
     "advised_maximum_locations": 2
+  },
+  "vehicles": {
+    "source_rule_id": "core.chase.vehicles",
+    "source_note": "Keeper Rulebook Table V (pp.145-146): common chase vehicles with MOV, Build, armor, and passenger capacity. MOV here is the chase MOV (1 location/round baseline for the slowest). Build is the vehicle's structural Build (used for collision damage and ramming). Armor reduces incoming collision/weapon damage. Passengers is the maximum including the driver.",
+    "entries": {
+      "car_economy": {
+        "label": "Economy car (e.g. Model T, compact sedan)",
+        "mov": 3,
+        "build": 2,
+        "armor": 1,
+        "passengers": 4
+      },
+      "car_standard": {
+        "label": "Standard car (family sedan / cruiser)",
+        "mov": 4,
+        "build": 3,
+        "armor": 2,
+        "passengers": 5
+      },
+      "car_deluxe": {
+        "label": "Deluxe car (luxury / performance)",
+        "mov": 5,
+        "build": 4,
+        "armor": 3,
+        "passengers": 4
+      },
+      "motorcycle": {
+        "label": "Motorcycle (with or without sidecar)",
+        "mov": 5,
+        "build": 1,
+        "armor": 0,
+        "passengers": 2
+      },
+      "truck": {
+        "label": "Truck (lorry / pickup)",
+        "mov": 3,
+        "build": 5,
+        "armor": 2,
+        "passengers": 3
+      }
+    }
+  },
+  "vehicular_collisions": {
+    "source_rule_id": "core.chase.vehicular_collisions",
+    "source_note": "Keeper Rulebook Table VI (p.147): collision severity tiers by narrative outcome. Each tier applies Build damage to the vehicle(s) and an HP cost to passengers. Passenger damage assumes an un-fastened occupant; a successful Drive Auto or CON-based roll may halve it at the Keeper's discretion.",
+    "tiers": {
+      "minor": {
+        "label": "Minor (fender-bender, low-speed bump)",
+        "build_damage": "1D3-1",
+        "passenger_damage": "1",
+        "description": "Low-speed bump; vehicle may be drivable. Passengers are jolted."
+      },
+      "moderate": {
+        "label": "Moderate (side-swipe, clipped obstacle)",
+        "build_damage": "1D6",
+        "passenger_damage": "1D6",
+        "description": "Significant impact; vehicle impaired but possibly moving. Passengers thrown about."
+      },
+      "severe": {
+        "label": "Severe (head-on at speed, roll-over)",
+        "build_damage": "1D10",
+        "passenger_damage": "2D6",
+        "description": "Major structural damage; vehicle likely disabled. Passengers at risk of major wounds."
+      },
+      "mayhem": {
+        "label": "Mayhem (high-speed crash, multi-vehicle)",
+        "build_damage": "2D10",
+        "passenger_damage": "3D6",
+        "description": "Catastrophic wreck; vehicle destroyed. Survival unlikely without restraint/luck."
+      },
+      "roadkill": {
+        "label": "Roadkill (pedestrian / cyclist struck at speed)",
+        "build_damage": "5D10",
+        "passenger_damage": "1D4",
+        "description": "Vehicle strikes an unprotected person; the struck party suffers the bulk of the damage."
+      }
+    },
+    "default_severity": "moderate"
   }
 }

@@ -89,7 +89,9 @@ class SanitySession:
                  rng: random.Random,
                  glossary: dict | None = None,
                  play_language: str = "zh-Hans",
-                 campaign_dir: Path | None = None) -> None:
+                 campaign_dir: Path | None = None,
+                 cm_value: int = 0,
+                 awfulness_caps: dict[str, int] | None = None) -> None:
         self.investigator_id = investigator_id
         self.san_max = san_max  # = POW (or 99 - Cthulhu Mythos)
         self.san_current = san_max
@@ -100,6 +102,15 @@ class SanitySession:
         # Optional campaign_dir: when set, sanity-state changes also schedule
         # / clear time-layer triggers (coc_time) and align with day anchors.
         self.campaign_dir = campaign_dir
+        # Cthulhu Mythos score — drives Mythos-Hardened SAN-loss halving
+        # (p.169: when CM > current SAN, SAN loss is halved, round down) and
+        # the max-SAN formula (99 - CM).
+        self.cm_value = int(cm_value)
+        # Per-creature-type cumulative SAN loss tracking for the "getting used
+        # to awfulness" cap (p.169): once the investigator has lost the
+        # creature's full max possible SAN loss, further encounters with that
+        # type cost nothing. Maps creature_type -> cumulative_san_lost.
+        self.awfulness_caps: dict[str, int] = dict(awfulness_caps or {})
 
         self.events: list[dict[str, Any]] = []
         self.pending_rolls: list[dict[str, Any]] = []
@@ -128,7 +139,8 @@ class SanitySession:
                      involuntary_kind: str | None = None,
                      involuntary_summary: str = "",
                      alone: bool = False,
-                     module_bout_override: dict | None = None) -> dict[str, Any]:
+                     module_bout_override: dict | None = None,
+                     creature_type: str | None = None) -> dict[str, Any]:
         """Resolve a SAN check per Chapter 8.
 
         Parameters:
@@ -142,6 +154,10 @@ class SanitySession:
                 instead of real-time (Table VII) — per p.171 for lone investigators.
             module_bout_override: module-specific bout config (e.g. The Haunting's
                 Corbitt scene forces summary mode with a fixed result).
+            creature_type: optional creature type key for the "getting used to
+                awfulness" cap (p.169). When provided, cumulative SAN loss from
+                this creature type is tracked in ``awfulness_caps`` and capped
+                at the creature's max possible loss (success + max-failure).
 
         Returns the event record.
         """
@@ -161,6 +177,22 @@ class SanitySession:
         else:
             lost = san_loss_success
 
+        # Mythos-Hardened (p.169): when the investigator's Cthulhu Mythos
+        # score exceeds their current SAN, SAN loss is halved (round down).
+        mythos_hardened = self.cm_value > san_before
+        if mythos_hardened and lost > 0:
+            lost = lost // 2
+
+        # Getting used to awfulness cap (p.169): track cumulative SAN loss per
+        # creature type. Once the cumulative loss reaches the creature's max
+        # possible loss (success + max-failure), further losses are zero.
+        if creature_type is not None:
+            max_possible = int(san_loss_success) + self._max_dice(san_loss_fail_expr)
+            cumulative = self.awfulness_caps.get(creature_type, 0)
+            remaining_cap = max(0, max_possible - cumulative)
+            lost = min(lost, remaining_cap)
+            self.awfulness_caps[creature_type] = cumulative + lost
+
         self.san_current = max(0, self.san_current - lost)
         self.daily_san_lost += lost
 
@@ -176,6 +208,7 @@ class SanitySession:
             "san_loss": lost,
             "san_delta": -lost,
             "san_after": self.san_current,
+            "mythos_hardened": mythos_hardened,
             "marker": (f"[san_check]SAN {san_loss_success}/{san_loss_fail_expr}|"
                        f"理智{san_before}:(d100->{res['roll']})->{res['outcome']}|"
                        f"{san_loss_fail_expr}->{lost if res['outcome'] in ('failure','fumble') else lost}"
@@ -189,6 +222,8 @@ class SanitySession:
             "san_loss": lost,
             "san_after": self.san_current,
             "roll_outcome": res["outcome"],
+            "mythos_hardened": mythos_hardened,
+            "creature_type": creature_type,
             "summary": f"{self.investigator_id} {source}: SAN {san_before}->{self.san_current} (lost {lost}).",
         })
 
@@ -249,10 +284,19 @@ class SanitySession:
         bout_roll = self._rng.randint(1, 10)
         bout_result = module_bout_override.get("result_description", "") if module_bout_override else ""
 
+        # Look up the bout result text + kind from Table VII (realtime) or
+        # Table VIII (summary) per p.156/p.159.
+        table_key = "summary" if mode == "summary" else "realtime"
+        bout_entry = self._resolve_bout_result(table_key, bout_roll)
+        bout_result_text = bout_result or bout_entry.get("result", "")
+        bout_kind = bout_entry.get("kind", "")
+
         bout = {
             "mode": mode,
             "summary_table": "table_viii_summary" if mode == "summary" else "table_vii_realtime",
             "bout_roll": bout_roll,
+            "bout_result": bout_result_text,
+            "bout_kind": bout_kind,
             "duration_hours": duration_hours,
             "source": source,
         }
@@ -275,7 +319,7 @@ class SanitySession:
         self._event("bout_of_madness", {
             **bout,
             "summary": f"{self.investigator_id} bout of madness ({mode}): roll {bout_roll}, "
-                       f"duration {duration_hours}h. {bout_result}",
+                       f"duration {duration_hours}h. {bout_result_text}",
         })
 
         # p.176: temporary insanity recovers after 1D10 hours. When the time
@@ -310,6 +354,30 @@ class SanitySession:
         self.involuntary_actions.append(action)
         self._event("involuntary_action", {**action,
             "summary": f"{self.investigator_id} {kind}: {summary or source}"})
+
+    # ------------------------------------------------------------------ #
+    # Bout-of-madness table resolution (p.156 Table VII / p.159 Table VIII)
+    # ------------------------------------------------------------------ #
+    def _resolve_bout_result(self, table_key: str, bout_roll: int) -> dict[str, Any]:
+        """Look up a bout-of-madness result by d10 roll.
+
+        ``table_key`` is "realtime" (Table VII) or "summary" (Table VIII).
+        Returns {"result": <text>, "kind": <kind>} for the row whose
+        ``d10_roll`` matches ``bout_roll``. Returns an empty dict if the
+        table is unavailable so the bout still resolves gracefully.
+        """
+        try:
+            if table_key == "summary":
+                rows = coc_rules.bout_summary_table()
+            else:
+                rows = coc_rules.bout_realtime_table()
+        except Exception:
+            return {}
+        for row in rows or []:
+            if int(row.get("d10_roll", 0)) == int(bout_roll):
+                return {"result": str(row.get("result", "")),
+                        "kind": str(row.get("kind", ""))}
+        return {}
 
     # ------------------------------------------------------------------ #
     # Phobia / mania (p.159, p.171)
@@ -505,6 +573,8 @@ class SanitySession:
             "investigator_id": self.investigator_id,
             "san_max": self.san_max,
             "san_current": self.san_current,
+            "cm_value": self.cm_value,
+            "awfulness_caps": dict(self.awfulness_caps),
             "temporary_insane": self.temporary_insane,
             "temporary_insane_remaining_hours": self.temporary_insane_remaining_hours,
             "indefinite_insane": self.indefinite_insane,

@@ -189,3 +189,84 @@ class ChaseSession:
 
     def _next_turn(self):
         self._turn_counter += 1; return self._turn_counter
+
+
+# --------------------------------------------------------------------------- #
+# Module-level helpers: vehicle stats + collisions (Table V / Table VI)
+# --------------------------------------------------------------------------- #
+
+RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"
+
+
+def _load_chase_rules() -> dict[str, Any]:
+    path = RULES_DIR / "chase.json"
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+_DICE_RE = re.compile(r"^(\d+)D(\d+)(?:([+-])(\d+))?$")
+
+
+def _roll_dice(expr: str, rng: random.Random) -> int:
+    """Roll a dice expression like '1D6', '1D3-1', '2D10', '5D10'."""
+    m = _DICE_RE.match(expr.strip())
+    if not m:
+        try:
+            return int(expr)
+        except (TypeError, ValueError):
+            return 0
+    n, sides = int(m.group(1)), int(m.group(2))
+    total = sum(rng.randint(1, sides) for _ in range(n))
+    if m.group(3) == "+":
+        total += int(m.group(4))
+    elif m.group(3) == "-":
+        total -= int(m.group(4))
+    return total
+
+
+def get_vehicle_stats(vehicle_name: str) -> dict[str, Any]:
+    """Look up a vehicle's MOV/Build/armor/passengers (Table V, p.145-146).
+
+    ``vehicle_name`` is matched case-insensitively against the keys in
+    ``chase.json -> vehicles.entries`` (e.g. "car_economy", "Motorcycle").
+    Returns the full entry plus its key; raises ``KeyError`` if unknown.
+    """
+    rules = _load_chase_rules()
+    entries = (rules.get("vehicles") or {}).get("entries") or {}
+    needle = vehicle_name.strip().lower()
+    for key, entry in entries.items():
+        if key.lower() == needle:
+            return {"vehicle": key, **entry}
+    raise KeyError(f"unknown vehicle: {vehicle_name!r}")
+
+
+def vehicle_collision(severity: str, rng: random.Random | None = None) -> dict[str, Any]:
+    """Resolve a vehicular collision by severity tier (Table VI, p.147).
+
+    Parameters:
+        severity: one of minor, moderate, severe, mayhem, roadkill.
+            Falls back to the table's ``default_severity`` when unknown.
+        rng: optional RNG for deterministic tests.
+
+    Returns ``{severity, build_damage, passenger_damage, description}`` where
+    ``build_damage`` and ``passenger_damage`` are rolled integers (Build
+    damage applied to the vehicle, HP damage applied to each passenger).
+    """
+    rng = rng or random.Random()
+    rules = _load_chase_rules()
+    tiers = (rules.get("vehicular_collisions") or {}).get("tiers") or {}
+    default_sev = (rules.get("vehicular_collisions") or {}).get(
+        "default_severity", "moderate"
+    )
+    tier = tiers.get(severity)
+    if tier is None:
+        severity = default_sev
+        tier = tiers.get(severity, {})
+    return {
+        "severity": severity,
+        "build_damage": _roll_dice(tier.get("build_damage", "0"), rng),
+        "passenger_damage": _roll_dice(tier.get("passenger_damage", "0"), rng),
+        "description": tier.get("description", ""),
+        "rule_ref": "core.chase.vehicular_collisions",
+    }
