@@ -19,6 +19,30 @@ def test_plugin_manifest_declares_coc_keeper_skill_plugin():
     assert "Call of Cthulhu" in manifest["description"]
 
 
+def test_repo_marketplace_exposes_coc_keeper_plugin():
+    marketplace_path = Path(".agents/plugins/marketplace.json")
+    assert marketplace_path.exists()
+
+    marketplace = json.loads(marketplace_path.read_text())
+    assert marketplace["name"] == "coc-keeper"
+    assert marketplace["interface"]["displayName"] == "COC Keeper Plugins"
+
+    assert marketplace["plugins"] == [
+        {
+            "name": "coc-keeper",
+            "source": {
+                "source": "local",
+                "path": "./plugins/coc-keeper",
+            },
+            "policy": {
+                "installation": "AVAILABLE",
+                "authentication": "ON_INSTALL",
+            },
+            "category": "Productivity",
+        }
+    ]
+
+
 def test_validate_rules_script_accepts_seed_rules():
     import importlib.util
 
@@ -294,6 +318,17 @@ def test_mode_protocol_documents_play_language_and_localized_terms():
     ]
     for term in required_terms:
         assert term in text
+
+
+def test_play_protocol_prohibits_player_visible_action_menus():
+    mode_protocol = (PLUGIN_ROOT / "references" / "mode-protocol.md").read_text()
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+    state_schema = (PLUGIN_ROOT / "references" / "state-schema.md").read_text()
+
+    assert "Do not present numbered or bulleted action menus" in mode_protocol
+    assert "open-ended prompt" in mode_protocol
+    assert "diegetic cues" in keeper_skill
+    assert "`pending_choices` is Keeper-facing" in state_schema
 
 
 def test_design_blueprint_documents_play_language_and_localized_terms():

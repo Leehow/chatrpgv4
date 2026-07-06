@@ -16,6 +16,7 @@ import pytest
 
 
 ZCODE_ROOT = Path("plugins/coc-keeper-zcode")
+SYNC_SCRIPT = None
 
 
 def _load_module(name: str, relative_path: str):
@@ -25,6 +26,9 @@ def _load_module(name: str, relative_path: str):
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+SYNC_SCRIPT = _load_module("sync_coc_plugin_copy", "scripts/sync_coc_plugin_copy.py")
 
 
 def test_zcode_plugin_manifest_uses_zcode_shape_not_codex_interface():
@@ -135,17 +139,10 @@ def test_zcode_copy_carries_failed_san_roll_involuntary_action_rule():
 # This prevents silent drift between the two plugin copies.
 # --------------------------------------------------------------------------- #
 
-# Files where Codex→ZCode wording differences are intentional.
-# For these files, we verify the diff is ONLY platform wording (not logic).
-INTENTIONAL_DRIFT_FILES = {
-    "references/mode-protocol.md",
-    "references/state-schema.md",
-    "scripts/coc_completion_audit.py",
-    "scripts/coc_language.py",
-    "skills/coc-main/SKILL.md",
-    "skills/coc-playtest/SKILL.md",
-    "skills/coc-rules-engine/SKILL.md",
-}
+# Files where Codex→ZCode differences are intentional. The sync script is the
+# single source of truth for platform drift, including Codex-only sections that
+# are stripped from the ZCode copy.
+INTENTIONAL_DRIFT_FILES = SYNC_SCRIPT.INTENTIONAL_PLATFORM_DRIFT_FILES
 
 CODEX_ROOT = Path("plugins/coc-keeper")
 # ZCODE_ROOT already defined above
@@ -208,11 +205,7 @@ def test_intentional_drift_files_only_differ_in_platform_wording():
             continue
         codex_text = codex_path.read_text(encoding="utf-8")
         zcode_text = zcode_path.read_text(encoding="utf-8")
-        # Normalize: special replacements first (before generic Codex→ZCode),
-        # then generic Codex→ZCode for remaining mentions.
-        normalized = codex_text.replace("Codex 掷骰", "AI 掷骰")
-        normalized = normalized.replace("Codex ダイス", "AI ダイス")
-        normalized = normalized.replace("Codex", "ZCode")
+        normalized = SYNC_SCRIPT._zcode_text_from_codex(codex_text)
         if normalized != zcode_text:
             # Find first differing line for diagnostics
             for i, (c, z) in enumerate(zip(normalized.splitlines(), zcode_text.splitlines())):

@@ -22,6 +22,14 @@ Use `../../scripts/coc_scenario.py` for:
 - scenario skeleton files
 - `index/source-map.json`
 
+After a PDF module or parsed scenario is bound to a campaign, generate a
+player-safe character creation briefing with
+`../../scripts/coc_character_creation_briefing.py`. The briefing is Markdown
+only and lives under
+`.coc/campaigns/<campaign-id>/assets/character-creation/`. It may use
+`scenario.player_safe_summary`, public module metadata, source labels, era, and
+structure type, but it must not read or summarize `keeper-secrets.json`.
+
 ## Spoiler Split
 
 Keep player-safe summaries separate from Keeper-only material. Never reveal `keeper-secrets.json` content without `[spoiler_warning]` and confirmation.

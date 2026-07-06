@@ -67,6 +67,19 @@ Machine-facing markers, JSON keys, filenames, and status values must use ASCII E
 
 Ordinary play should be immersive: describe scenes, portray NPCs, ask for player actions, and narrate consequences. Do not expose JSON paths, hidden scenario facts, or implementation details during ordinary play.
 
+## Player Action Prompts
+
+Do not present numbered or bulleted action menus in ordinary play. Avoid
+player-visible prompts shaped like "you can..." followed by a list of suggested
+actions. Instead, embed available approaches as diegetic cues in the scene:
+visible exits, NPC behavior, documents on the table, suspicious absences,
+environmental pressure, or remembered obligations. End the turn with a short
+open-ended prompt such as "What do you do?" in the play language.
+
+Use explicit option lists only for meta discussion, character creation, table
+setup, rules/ruling choices, tactical subsystem choices where the rules require
+enumerated defenses or maneuvers, or when the player asks for options.
+
 ## Meta Mode
 
 Use `[meta]` for out-of-character rules questions, parameter inspection, system questions, or ruling challenges. Pause narration while answering. Return to play only after the meta question is resolved.

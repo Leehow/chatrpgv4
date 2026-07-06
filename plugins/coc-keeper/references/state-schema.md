@@ -69,6 +69,13 @@ Campaigns store temporary and scenario-specific state:
 `party.json` references reusable investigator ids. Campaign-specific HP, SAN, conditions, and scene position live under `save/`.
 `create_campaign` initializes the minimal resume contract: `world-state.json` tracks active scene, subsystem, clue ids, decisions, memory refs, log refs, and investigator-state refs; `active-scene.json` stores the current player-safe scene pointer; `flags.json` stores clue, decision, and spoiler-reveal flags. `campaign.json` persists `play_language`, `language_profile`, and a `localized_terms` map keyed by language, so resumed campaigns keep the same visible narration language, output instruction, name policy, term policy, report labels, and name/term localization. Logs and memory may include `localized_text[play_language]` for player-visible prose that should be rendered directly before falling back to `localized_terms`.
 
+`pending_choices` is Keeper-facing resume state, not a player menu. It may record
+latent affordances, unresolved pressures, or rules choices for continuity, but
+ordinary player-facing narration must translate those entries into diegetic
+cues and an open-ended prompt instead of rendering them as numbered or bulleted
+actions. Visible action lists belong only to meta discussion, setup/character
+creation, explicit rules subsystems, or player-requested option summaries.
+
 ## Logs And Memory
 
 - `logs/*.jsonl` is append-only event history.

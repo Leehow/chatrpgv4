@@ -756,12 +756,13 @@
       "damage_die": "1D10",
       "base_range_yards": 15,
       "uses_per_round": "1(3)",
-      "magazine": 17,
-      "malfunction": 98,
+      "magazine": 8,
+      "malfunction": 99,
       "impales": true,
       "adds_damage_bonus": false,
       "special": null,
       "eras": [
+        "1920s",
         "modern"
       ],
       "damage_type": "impale"

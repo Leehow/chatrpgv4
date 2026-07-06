@@ -325,6 +325,12 @@ def test_weapons_table_structure_and_schema():
     assert revolver["impales"] is True
     assert revolver["magazine"] == 6
     assert revolver["malfunction"] == 100
+    p08 = weapons["9mm_auto_model_p08"]
+    assert p08["skill"] == "Firearms (Handgun)"
+    assert p08["damage_die"] == "1D10"
+    assert p08["magazine"] == 8
+    assert p08["malfunction"] == 99
+    assert p08["eras"] == ["1920s", "modern"]
     # Shotguns carry range-banded damage.
     shotgun = weapons["shotgun_12g"]
     assert shotgun["range_banded_damage"] == {
