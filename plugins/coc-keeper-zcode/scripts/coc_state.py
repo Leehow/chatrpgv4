@@ -284,6 +284,18 @@ def _initialize_campaign_runtime_files(campaign_dir: Path, campaign_id: str) -> 
             "spoiler_reveals": [],
         },
     )
+    _write_json_if_missing(
+        campaign_dir / "save" / "pacing-state.json",
+        {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "tension_level": "low",
+            "lethal_chances_used": 0,
+            "recent_intent_classes": [],
+            "turn_number": 0,
+            "luck_spent_last": 0,
+        },
+    )
     for relative_path in (
         "logs/events.jsonl",
         "logs/rolls.jsonl",

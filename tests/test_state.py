@@ -153,6 +153,18 @@ def test_create_campaign_initializes_resume_state_files(tmp_path):
     assert (campaign_dir / "logs" / "audit.jsonl").read_text() == ""
     assert (campaign_dir / "memory" / "session-summaries.jsonl").read_text() == ""
 
+    # pacing-state.json is created so the director does not always fall back
+    pacing_state = json.loads((campaign_dir / "save" / "pacing-state.json").read_text())
+    assert pacing_state == {
+        "schema_version": 1,
+        "campaign_id": "haunting-test",
+        "tension_level": "low",
+        "lethal_chances_used": 0,
+        "recent_intent_classes": [],
+        "turn_number": 0,
+        "luck_spent_last": 0,
+    }
+
 
 def test_custom_language_profiles_are_independent_copies():
     first = coc_language.language_profile("fr-FR")
