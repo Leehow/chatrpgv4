@@ -111,13 +111,14 @@
     - `skill` (string，可选)：当 `delivery_kind=skill_check` 时使用的技能名（如 `Spot Hidden`、`Library Use`）。其它 `delivery_kind` 留空。
     - `difficulty` (string，可选)：技能检定难度 `regular` | `hard` | `extreme`，默认 `regular`。仅 `skill_check` 有效。
     - `player_safe_summary` (string，可选)：可向玩家揭示的、面向玩家的安全摘要文本（导演会把它放入 `narrative_directives.must_include`）。**遗留字段 `player_visible_anchor` 仍被读取作回退**，两者都存在时优先用 `player_safe_summary`。
-    - `source_refs` (object[]，可选)：溯源引用数组，指向来源 PDF 中的具体位置。每条 `source_ref`：
-      - `path` (string)：来源文件路径（如 `pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf`）。
-      - `page` (int)：页码（整数）。
-      - `note` (string，可选)：可选说明。
+    - `source_refs` (object[]，可选)：溯源引用数组，指向来源 PDF 中的具体位置。每条 `source_ref` 含 4 个规范字段：
+      - `source_id` (string)：稳定 id（如 `pdf:the-haunting`），用于跨文件交叉引用。
+      - `path` (string)：PDF 文件路径（相对或绝对，如 `pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf`）。
+      - `page` (int)：0 基 PDF 页码（与 pdf_cache 一致）。
+      - `grep_anchor` (string)：该页中一句可辨识的短语，可用 `grep` 对 pdf_cache markdown 验证。
   - `fallback_policy` (string)：当多数路径被错过时导演的兜底策略。
 
-> **向后兼容**：`delivery_kind` / `skill` / `difficulty` / `player_safe_summary` / `source_refs` 全部可选。没有这些字段的旧 clue-graph 仍能通过校验并正常工作——导演会回退到读取 `delivery` 字符串做启发式判断。只有当某个字段被填了但格式不对（如 `delivery_kind=skill_check` 却没给 `skill`，或 `source_ref` 缺 `path`/整数 `page`）时，编译器才会发 warning（不是 error）。
+> **向后兼容**：`delivery_kind` / `skill` / `difficulty` / `player_safe_summary` / `source_refs` 全部可选。没有这些字段的旧 clue-graph 仍能通过校验并正常工作——导演会回退到读取 `delivery` 字符串做启发式判断。只有当某个字段被填了但格式不对（如 `delivery_kind=skill_check` 却没给 `skill`，或 `source_ref` 缺 `source_id`/`path`/整数 `page`/`grep_anchor`）时，编译器才会发 warning（不是 error）。
 
 **示例：**
 
@@ -138,7 +139,7 @@
           "difficulty": "regular",
           "player_safe_summary": "1920年的剪报提到教堂地下室的诉讼记录被转移",
           "source_refs": [
-            { "path": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf", "page": 92 }
+            { "source_id": "pdf:the-haunting", "path": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf", "page": 92, "grep_anchor": "Chapel records were moved" }
           ]
         },
         {
@@ -168,7 +169,7 @@
 
 ### source_refs（scenes / npcs / fronts 通用可选字段）
 
-除 clue 外，`story-graph.json` 的 scene、`npc-agendas.json` 的 npc、`threat-fronts.json` 的 front 也可各自挂一个可选的 `source_refs` 数组，格式同上（`path` + 整数 `page` + 可选 `note`）。用于把场景/NPC/前沿溯源到来源 PDF。当 `source_ref` 缺 `path` 或整数 `page` 时编译器发 warning（不是 error）。
+除 clue 外，`story-graph.json` 的 scene、`npc-agendas.json` 的 npc、`threat-fronts.json` 的 front 也可各自挂一个可选的 `source_refs` 数组，格式同上（4 个规范字段 `source_id` + `path` + 整数 `page` + `grep_anchor`）。用于把场景/NPC/前沿溯源到来源 PDF。当 `source_ref` 缺任一规范字段（`source_id`/`path`/整数 `page`/`grep_anchor`）时编译器发 warning（不是 error）。
 
 **scene 示例片段：**
 
@@ -176,7 +177,7 @@
 {
   "scene_id": "archive-research",
   "source_refs": [
-    { "path": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf", "page": 90 }
+    { "source_id": "pdf:the-haunting", "path": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf", "page": 90, "grep_anchor": "public records" }
   ]
 }
 ```
