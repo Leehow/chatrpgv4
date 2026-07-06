@@ -307,6 +307,50 @@ def select_action(ctx: dict[str, Any]) -> tuple[str, dict[str, float]]:
 # DirectorPlan assembly
 # =============================================================================
 
+# Skill-name / difficulty-qualifier triggers that mark a clue delivery as
+# obscured (i.e. one that requires a die roll to surface). Anything else — a
+# Handout, a "directly given", a plain location/event description — is treated
+# as obvious and delivered by the narrator without a roll.
+_OBSCURED_DELIVERY_TRIGGERS = (
+    "spot hidden", "library use", "listen", "medicine", "science", "psychology",
+    "luck roll", "tracking", "investigate", "search", "examine",
+    # difficulty qualifiers (Hard/Extreme rolls)
+    "hard", "extreme",
+    # other common CoC skill names that imply a check
+    "persuade", "fast talk", "charm", "intimidate", "law", "occult",
+    "cthulhu mythos", "pharmacy", "archaeology", "anthropology",
+)
+
+
+def _infer_clue_type(clue_id: str | None, clue_graph: dict[str, Any]) -> str:
+    """Infer 'obvious' vs 'obscured' from a clue's delivery description.
+
+    Reads the `delivery` field of the clue with `clue_id` from clue_graph's
+    conclusions. If the delivery mentions a skill-name trigger or difficulty
+    qualifier (Spot Hidden, Library Use, Hard, Extreme, ...) the clue requires
+    a roll and is 'obscured'. Handouts, direct gives, plain location/event
+    descriptions are 'obvious'.
+
+    Defaults to 'obscured' (conservative — if we don't know, require a roll).
+    """
+    if not clue_id:
+        return "obscured"
+    needle = None
+    for concl in clue_graph.get("conclusions", []):
+        for clue in concl.get("clues", []):
+            if clue.get("clue_id") == clue_id:
+                needle = clue.get("delivery")
+                break
+        if needle is not None:
+            break
+    if needle is None:
+        return "obscured"
+    delivery = str(needle).lower()
+    if any(trigger in delivery for trigger in _OBSCURED_DELIVERY_TRIGGERS):
+        return "obscured"
+    return "obvious"
+
+
 def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     """Choose reveal/withhold/fallback per clue-graph."""
     scene = ctx.get("active_scene") or {}
@@ -315,16 +359,20 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     secrets = ctx.get("improvisation_boundaries", {}).get("keeper_secrets", [])
 
     reveal = available[:1] if action == "REVEAL" and available else []
+    # Infer obvious vs obscured from the first revealed clue's delivery. This
+    # gates whether _build_rules_requests emits a Spot Hidden skill check.
+    clue_graph = ctx.get("clue_graph", {})
+    clue_type = _infer_clue_type(reveal[0] if reveal else None, clue_graph)
     # fallback: if stalled, pull an alternate route
     fallback = []
     if action == "RECOVER":
-        for concl in ctx.get("clue_graph", {}).get("conclusions", []):
+        for concl in clue_graph.get("conclusions", []):
             not_found = [c["clue_id"] for c in concl.get("clues", []) if c["clue_id"] not in discovered]
             if not_found:
                 fallback.append(not_found[0])
                 break
     return {"reveal": reveal, "withhold": list(secrets), "fallback_routes": fallback,
-            "clue_type": "obscured"}
+            "clue_type": clue_type}
 
 
 def _disposition_to_tone(disposition: str) -> str:
@@ -384,7 +432,8 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
     return moves
 
 
-def _build_rules_requests(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
+def _build_rules_requests(ctx: dict[str, Any], action: str,
+                          clue_policy: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Request skill checks only when justified."""
     if action == "SUBSYSTEM":
         sig = ctx["rule_signals"]
@@ -395,7 +444,13 @@ def _build_rules_requests(ctx: dict[str, Any], action: str) -> list[dict[str, An
             return [{"kind": "characteristic_check", "skill": "CON", "reason": "death-clock CON roll",
                      "difficulty": "regular", "bonus_penalty_dice": 0}]
     if action == "REVEAL":
-        # request Spot Hidden / Library Use if clue delivery requires it
+        # Only request a Spot Hidden skill check when the revealed clue is
+        # obscured (its delivery requires a die roll). Obvious clues — Handouts,
+        # direct gives, plain location/event descriptions — are delivered by
+        # the narrator without a roll.
+        clue_type = (clue_policy or {}).get("clue_type", "obscured")
+        if clue_type == "obvious":
+            return []
         return [{"kind": "skill_check", "skill": "Spot Hidden", "reason": "obscured clue in scene",
                  "difficulty": "regular", "bonus_penalty_dice": 0}]
     return []
@@ -407,6 +462,12 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     overrides = apply_rule_signal_overrides(ctx)
     scene = ctx.get("active_scene") or {}
 
+    # Compute clue_policy once and thread it through to _build_rules_requests so
+    # the REVEAL skill-check decision matches the clue_type that lands in the
+    # emitted plan (Spec v1.1 gap #1: obvious clues should not roll Spot Hidden).
+    clue_policy = _select_clue_policy(ctx, action)
+    rules_requests = _build_rules_requests(ctx, action, clue_policy)
+
     handoff = "narration"
     subsystem = None
     if overrides:
@@ -415,7 +476,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     elif action == "SUBSYSTEM":
         handoff = "rules"
     elif action in ("REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "RECOVER", "PAYOFF"):
-        handoff = "rules" if _build_rules_requests(ctx, action) else "narration"
+        handoff = "rules" if rules_requests else "narration"
 
     tension_delta = 1 if action in ("PRESSURE", "SUBSYSTEM") else (0 if action in ("REVEAL", "DEEPEN", "RECOVER") else -1)
 
@@ -449,10 +510,10 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "pacing_mode": "investigation" if action in ("REVEAL", "DEEPEN") else ("pressure" if action == "PRESSURE" else "social"),
         "tension_delta": tension_delta,
         "rule_signals": ctx["rule_signals"],
-        "clue_policy": _select_clue_policy(ctx, action),
+        "clue_policy": clue_policy,
         "npc_moves": _build_npc_moves(ctx, action),
         "pressure_moves": pressure_moves,
-        "rules_requests": _build_rules_requests(ctx, action),
+        "rules_requests": rules_requests,
         "memory_reads": [],
         "memory_writes": [],
         "narrative_directives": narrative_directives,

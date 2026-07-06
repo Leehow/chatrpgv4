@@ -219,3 +219,45 @@ def test_director_handles_null_clock_segments(tmp_path):
     # must not raise; PRESSURE scoring reads the null clock
     plan = coc_story_director.generate_director_plan(ctx, "null-clock-test")
     assert plan["scene_action"] in coc_story_director.ACTIONS
+
+
+def test_clue_type_obscured_for_skill_delivery(tmp_path):
+    """A clue whose delivery names a skill (e.g. 'investigate') is obscured and rolls."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # clue-1 delivery in the default minimal campaign is "investigate"
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "obscured-test")
+    assert plan["clue_policy"]["clue_type"] == "obscured"
+    # obscured clue should trigger a Spot Hidden rules_request
+    assert any("Spot Hidden" in r.get("skill", "") for r in plan["rules_requests"])
+
+
+def test_clue_type_obvious_for_handout_delivery(tmp_path):
+    """A clue delivered via a Handout / direct give is obvious and skips the Spot Hidden roll."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # rewrite clue-graph so clue-1 is delivered as a Handout (no skill roll)
+    cg = {"conclusions": [{"conclusion_id": "concl-1", "importance": "critical",
+            "minimum_routes": 3,
+            "clues": [{"clue_id": "clue-1", "delivery": "Handout 1 — Mr. X gives this directly", "visibility": "player-safe"},
+                      {"clue_id": "clue-1b", "delivery": "Spot Hidden", "visibility": "player-safe"},
+                      {"clue_id": "clue-1c", "delivery": "Library Use", "visibility": "player-safe"}],
+            "fallback_policy": ""}]}
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(cg))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "obvious-test")
+    assert plan["clue_policy"]["clue_type"] == "obvious"
+    # obvious clue should NOT trigger a Spot Hidden rules_request
+    assert plan["rules_requests"] == [] or all("Spot Hidden" not in r.get("skill", "") for r in plan["rules_requests"])
+
+
+def test_infer_clue_type_unknown_defaults_obscured():
+    """A clue_id not present in clue_graph defaults to obscured (conservative)."""
+    cg = {"conclusions": [{"conclusion_id": "c1", "clues": [
+        {"clue_id": "known", "delivery": "Handout"}], "fallback_policy": ""}]}
+    assert coc_story_director._infer_clue_type("missing-clue", cg) == "obscured"
+    assert coc_story_director._infer_clue_type(None, cg) == "obscured"
+    assert coc_story_director._infer_clue_type("known", cg) == "obvious"
