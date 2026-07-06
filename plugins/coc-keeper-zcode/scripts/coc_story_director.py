@@ -394,6 +394,20 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
             "clue_type": clue_type}
 
 
+def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[str]:
+    """Collect player_visible_anchor strings for given clue ids from clue-graph.
+    Used to populate narrative_directives.must_include so the narrator knows
+    what concrete visible detail a REVEAL must surface."""
+    anchors: list[str] = []
+    for concl in clue_graph.get("conclusions", []):
+        for clue in concl.get("clues", []):
+            if clue.get("clue_id") in clue_ids:
+                anchor = clue.get("player_visible_anchor")
+                if anchor:
+                    anchors.append(anchor)
+    return anchors
+
+
 def _disposition_to_tone(disposition: str) -> str:
     return {"helpful": "warm and cooperative",
             "neutral": "guarded but civil",
@@ -509,7 +523,10 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
 
     narrative_directives = {
         "tone": scene.get("tone", []),
-        "must_include": [],
+        "must_include": _collect_anchors(
+            clue_policy.get("reveal", []) + clue_policy.get("fallback_routes", []),
+            ctx.get("clue_graph", {}),
+        ),
         "must_not_reveal": ctx.get("improvisation_boundaries", {}).get("keeper_secrets", []),
         "improvisation_allowed": ctx.get("improvisation_boundaries", {}).get("invent_allowed", []),
         "horror_escalation_stage": "wrongness",  # v1 static; pacing-map drives in v2

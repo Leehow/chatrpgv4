@@ -290,3 +290,36 @@ def test_infer_clue_type_unknown_defaults_obscured():
     assert coc_story_director._infer_clue_type("missing-clue", cg) == "obscured"
     assert coc_story_director._infer_clue_type(None, cg) == "obscured"
     assert coc_story_director._infer_clue_type("known", cg) == "obvious"
+
+
+def test_must_include_filled_from_clue_anchor(tmp_path):
+    """clue with player_visible_anchor populates must_include."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # rewrite clue-graph: clue-1 has player_visible_anchor
+    cg = {"conclusions": [{"conclusion_id": "concl-1", "importance": "critical",
+            "minimum_routes": 3,
+            "clues": [
+                {"clue_id": "clue-1", "delivery": "Handout 1 — direct give",
+                 "visibility": "player-safe",
+                 "player_visible_anchor": "门闩边缘的新鲜划痕"},
+                {"clue_id": "clue-1b", "delivery": "Spot Hidden", "visibility": "player-safe"},
+                {"clue_id": "clue-1c", "delivery": "Library Use", "visibility": "player-safe"},
+            ], "fallback_policy": ""}]}
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(cg))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "anchor-test")
+    # clue-1 is revealed (REVEAL action), its anchor must appear in must_include
+    assert "门闩边缘的新鲜划痕" in plan["narrative_directives"]["must_include"]
+
+
+def test_must_include_empty_when_clue_has_no_anchor(tmp_path):
+    """clue without player_visible_anchor leaves must_include empty (no crash)."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # default _make_minimal_campaign clues have no player_visible_anchor
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "no-anchor-test")
+    assert plan["narrative_directives"]["must_include"] == []
