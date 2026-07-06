@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Multi-turn playtest driver — runs continuous player→director→apply loops.
+"""Multi-turn playtest driver — runs continuous player→director→rules→apply loops.
 
 Drives a full play session from a sequence of player choices, advancing the
 campaign state each turn. Does NOT call an LLM for narration (the DirectorPlan's
 narrative_directives are the narrator contract; prose quality is tested separately).
-This validates: autonomous scene progression, clue coverage, tension curve.
+This validates: autonomous scene progression, clue coverage, fail-forward rule
+resolution, and tension curve.
 
 Usage:
     python3 coc_playtest_driver.py <campaign_dir> <character_path> <investigator_id> --choices <choices.json>
@@ -16,6 +17,7 @@ import importlib.util
 import json
 import random
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,107 @@ def _load_sibling(name: str, filename: str):
 
 director = _load_sibling("coc_story_director", "coc_story_director.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
+coc_roll = _load_sibling("coc_roll", "coc_roll.py")
+
+_SUCCESS_OUTCOMES = {"critical", "extreme_success", "hard_success", "regular_success", "success"}
+
+
+def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _record_intent_class(campaign_dir: Path, intent_class: str, keep: int = 8) -> None:
+    """Persist recent intent classes so stalled_turns is meaningful in drivers."""
+    pacing_path = campaign_dir / "save" / "pacing-state.json"
+    pacing = apply_mod._read_json(pacing_path, {"tension_level": "low", "turn_number": 0})
+    recent = pacing.get("recent_intent_classes", [])
+    if not isinstance(recent, list):
+        recent = []
+    recent.append(intent_class)
+    pacing["recent_intent_classes"] = recent[-keep:]
+    _write_json(pacing_path, pacing)
+
+
+def _target_for_request(character: dict[str, Any], request: dict[str, Any]) -> int:
+    skill = str(request.get("skill", ""))
+    skills = character.get("skills", {}) if isinstance(character.get("skills"), dict) else {}
+    characteristics = character.get("characteristics", {}) if isinstance(character.get("characteristics"), dict) else {}
+    if skill in skills:
+        return int(skills[skill])
+    if skill in characteristics:
+        return int(characteristics[skill])
+    if request.get("kind") == "sanity_check":
+        derived = character.get("derived", {}) if isinstance(character.get("derived"), dict) else {}
+        return int(derived.get("SAN", characteristics.get("POW", 50)))
+    return 50
+
+
+def _execute_rules_requests(
+    campaign_dir: Path,
+    character_path: Path,
+    investigator_id: str,
+    plan: dict[str, Any],
+    rng: random.Random,
+) -> list[dict[str, Any]]:
+    """Execute DirectorPlan.rules_requests and append roll rows.
+
+    This closes the director→rules→apply loop used by D1: apply_plan can now
+    decide whether an obscured clue is committed, withheld, or converted into a
+    fail-forward cost using actual rule results.
+    """
+    requests = plan.get("rules_requests", [])
+    if not requests:
+        return []
+    character = json.loads(character_path.read_text(encoding="utf-8"))
+    results: list[dict[str, Any]] = []
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    rolls_path = campaign_dir / "logs" / "rolls.jsonl"
+
+    for idx, request in enumerate(requests, start=1):
+        kind = request.get("kind")
+        if kind not in {"skill_check", "characteristic_check", "sanity_check"}:
+            continue
+        target = _target_for_request(character, request)
+        difficulty = str(request.get("difficulty", "regular"))
+        bonus_penalty = int(request.get("bonus_penalty_dice", 0) or 0)
+        bonus = max(0, bonus_penalty)
+        penalty = max(0, -bonus_penalty)
+        roll = coc_roll.percentile_check(
+            target,
+            difficulty=difficulty,
+            bonus=bonus,
+            penalty=penalty,
+            rng=rng,
+        )
+        payload = {
+            "roll_id": f"{plan.get('decision_id', 'turn')}-rule-{idx}",
+            "decision_id": plan.get("decision_id"),
+            "kind": kind,
+            "skill": request.get("skill"),
+            "target": target,
+            "difficulty": difficulty,
+            "reason": request.get("reason"),
+            "bonus_penalty_dice": bonus_penalty,
+            "roll": roll.get("roll"),
+            "effective_target": roll.get("effective_target"),
+            "outcome": roll.get("outcome"),
+            "success": roll.get("outcome") in _SUCCESS_OUTCOMES,
+        }
+        results.append(payload)
+        _append_jsonl(rolls_path, {
+            "type": "roll",
+            "actor": investigator_id,
+            "payload": payload,
+            "ts": ts,
+        })
+    return results
 
 
 def run_full_session(
@@ -42,7 +145,7 @@ def run_full_session(
     max_turns: int = 20,
     rng_seed: int = 42,
 ) -> dict[str, Any]:
-    """Run a multi-turn session. Each turn: build context → director plan → apply → record.
+    """Run a multi-turn session. Each turn: build context → director plan → rules → apply → record.
 
     player_choices is a list of {intent, intent_class, signal_overrides?}. If fewer
     choices than max_turns, the last choice repeats. If more, extra are ignored.
@@ -50,7 +153,7 @@ def run_full_session(
     Returns:
         {
             "turns": [{"turn": N, "scene_id": ..., "action": ..., "clue_revealed": ...,
-                       "tension": ..., "events": [...], "narrative_directives": {...}}],
+                       "rule_results": [...], "tension": ..., "events": [...]}],
             "final_state": {"active_scene": ..., "discovered_clues": [...], "tension": ...},
             "clue_coverage": {"discovered_count": N, "total_in_graph": M},
             "tension_curve": [list of tension per turn],
@@ -74,18 +177,21 @@ def run_full_session(
 
     for turn_num in range(1, max_turns + 1):
         choice = player_choices[min(turn_num - 1, len(player_choices) - 1)]
+        intent_class = choice.get("intent_class", "investigate")
+        _record_intent_class(campaign_dir, str(intent_class))
         ctx = director.build_director_context(
             campaign_dir=campaign_dir, character_path=character_path,
             investigator_id=investigator_id,
             player_intent=choice.get("intent", "..."),
-            player_intent_class=choice.get("intent_class", "investigate"),
+            player_intent_class=str(intent_class),
             rng=rng,
         )
         for k, v in choice.get("signal_overrides", {}).items():
             ctx["rule_signals"][k] = v
 
         plan = director.generate_director_plan(ctx, decision_id=f"turn-{turn_num:03d}")
-        events = apply_mod.apply_plan(campaign_dir, plan, investigator_id)
+        rule_results = _execute_rules_requests(campaign_dir, character_path, investigator_id, plan, rng)
+        events = apply_mod.apply_plan(campaign_dir, plan, investigator_id, rules_results=rule_results)
 
         # record
         current_scene = ctx.get("active_scene_id", "?")
@@ -103,10 +209,12 @@ def run_full_session(
             "turn": turn_num,
             "scene_id": current_scene,
             "action": plan["scene_action"],
-            "clue_revealed": plan.get("clue_policy", {}).get("reveal", []),
+            "clue_revealed": [e.get("clue_id") for e in events if e.get("event_type") == "clue_reveal"],
+            "rule_results": rule_results,
             "tension": tension,
             "horror_stage": plan.get("narrative_directives", {}).get("horror_escalation_stage"),
             "events_count": len(events),
+            "event_types": [e.get("event_type") for e in events],
             "scene_transition": any(e.get("event_type") == "scene_transition" for e in events),
             "dramatic_question": plan.get("dramatic_question", "")[:80],
         })
