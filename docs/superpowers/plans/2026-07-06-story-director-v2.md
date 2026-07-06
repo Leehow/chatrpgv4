@@ -46,7 +46,7 @@ tests/
 
 ---
 
-## Task M1: clue-graph 锚点 → must_include 自动填充
+## Task 1: clue-graph 锚点 → must_include 自动填充
 
 **Files:**
 - Modify: `plugins/coc-keeper/scripts/coc_story_director.py` + zcode 副本
@@ -144,7 +144,7 @@ git commit -m "feat: populate must_include from clue player_visible_anchor"
 
 ---
 
-## Task M2: pacing-map 运行期消费（horror_stage/pacing_mode/tension_delta）
+## Task 2: pacing-map 运行期消费（horror_stage/pacing_mode/tension_delta）
 
 **Files:**
 - Modify: `plugins/coc-keeper/scripts/coc_story_director.py` + zcode 副本
@@ -249,7 +249,7 @@ git commit -m "feat: consume pacing-map for horror_stage/pacing_mode/tension_del
 
 ---
 
-## Task M3: coc_memory.py — Markdown memory cards + 检索 + context pack
+## Task 3: coc_memory.py — Markdown memory cards + 检索 + context pack
 
 **Files:**
 - Create: `plugins/coc-keeper/scripts/coc_memory.py` + zcode 副本
@@ -684,7 +684,7 @@ git commit -m "feat: add coc_memory grep-native markdown memory cards + retrieva
 
 ---
 
-## Task M4: Director 接入 memory（memory_reads/writes + PAYOFF 评分）
+## Task 4: Director 接入 memory（memory_reads/writes + PAYOFF 评分）
 
 **Files:**
 - Modify: `plugins/coc-keeper/scripts/coc_story_director.py` + zcode 副本
@@ -837,7 +837,7 @@ git commit -m "feat: wire memory retrieval into director (PAYOFF scores + memory
 
 ---
 
-## Task M5: coc_director_apply.py — DirectorPlan 写回层
+## Task 5: coc_director_apply.py — DirectorPlan 写回层
 
 **Files:**
 - Create: `plugins/coc-keeper/scripts/coc_director_apply.py` + zcode 副本
@@ -1099,7 +1099,7 @@ git commit -m "feat: add coc_director_apply write-back layer (reveal/pressure/me
 
 ---
 
-## Task M6: memory continuity harness drill + 全量验证
+## Task 6: memory continuity harness drill + 全量验证
 
 **Files:**
 - Modify: `plugins/coc-keeper/scripts/coc_story_harness.py` + zcode 副本（加 memory continuity 检查）
