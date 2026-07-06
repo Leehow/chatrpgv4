@@ -34,6 +34,24 @@ def _read_json(path: Path, fallback: Any = None) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _read_last_roll_outcome(campaign_dir: Path) -> str | None:
+    """Read the outcome of the last roll in logs/rolls.jsonl. Returns None if no rolls."""
+    rolls_path = campaign_dir / "logs" / "rolls.jsonl"
+    if not rolls_path.exists():
+        return None
+    last_line = None
+    for line in rolls_path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            last_line = line
+    if last_line is None:
+        return None
+    try:
+        record = json.loads(last_line)
+        return record.get("payload", {}).get("outcome")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+
+
 def build_director_context(
     campaign_dir: Path,
     character_path: Path,
@@ -55,6 +73,7 @@ def build_director_context(
     character = _read_json(character_path, {})
     world = _read_json(save / "world-state.json", {})
     pacing = _read_json(save / "pacing-state.json", {})
+    _last_outcome = _read_last_roll_outcome(campaign_dir)
     module_meta = _read_json(scenario / "module-meta.json", {})
     story_graph = _read_json(scenario / "story-graph.json", {"scenes": []})
 
@@ -85,8 +104,8 @@ def build_director_context(
         "npc_reaction_roll": None,  # populated per-NPC at scoring time
         "luck_level": coc_rule_signals.read_luck_signal(luck, pacing.get("luck_spent_last", 0))[0],
         "luck_spent_last": pacing.get("luck_spent_last", 0) > 0,
-        "last_roll_critical": False,
-        "last_roll_fumble": False,
+        "last_roll_critical": _last_outcome == "critical",
+        "last_roll_fumble": _last_outcome == "fumble",
         "active_conditions": conditions,
         "stalled_turns": coc_rule_signals.read_stalled_turns(recent_intents),
         "tension_clock": coc_rule_signals.read_tension_clock(

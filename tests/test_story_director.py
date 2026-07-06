@@ -101,6 +101,35 @@ def test_build_director_context_fallen_back_on_missing_pacing(tmp_path):
     assert ctx["rule_signals"]["stalled_turns"] == 0
 
 
+def test_build_director_context_reads_last_roll_fumble(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    (camp / "logs").mkdir(parents=True, exist_ok=True)
+    (camp / "logs" / "rolls.jsonl").write_text(
+        json.dumps({"type": "roll", "payload": {"outcome": "regular"}}) + "\n"
+        + json.dumps({"type": "roll", "payload": {"outcome": "fumble"}}) + "\n"
+    )
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["last_roll_fumble"] is True
+    assert ctx["rule_signals"]["last_roll_critical"] is False
+
+
+def test_build_director_context_reads_last_roll_critical(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    (camp / "logs").mkdir(parents=True, exist_ok=True)
+    (camp / "logs" / "rolls.jsonl").write_text(
+        json.dumps({"type": "roll", "payload": {"outcome": "critical"}}) + "\n"
+    )
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["last_roll_critical"] is True
+    assert ctx["rule_signals"]["last_roll_fumble"] is False
+
+
 def test_select_action_reveal_for_active_investigation(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     ctx = coc_story_director.build_director_context(
