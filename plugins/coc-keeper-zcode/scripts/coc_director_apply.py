@@ -65,7 +65,9 @@ def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
 
 
 _TENSION_LADDER = ["low", "medium", "high", "climax"]
-_SUCCESS_OUTCOMES = {"critical", "extreme_success", "hard_success", "regular_success", "success"}
+_SUCCESS_OUTCOMES = {"critical", "extreme", "hard", "regular", "success",
+                     # legacy aliases (some callers may emit *_success forms)
+                     "extreme_success", "hard_success", "regular_success"}
 _FAILURE_OUTCOMES = {"failure", "fumble"}
 
 

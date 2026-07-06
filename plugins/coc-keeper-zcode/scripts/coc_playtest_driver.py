@@ -36,7 +36,9 @@ director = _load_sibling("coc_story_director", "coc_story_director.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 
-_SUCCESS_OUTCOMES = {"critical", "extreme_success", "hard_success", "regular_success", "success"}
+_SUCCESS_OUTCOMES = {"critical", "extreme", "hard", "regular", "success",
+                     # legacy aliases (some callers may emit *_success forms)
+                     "extreme_success", "hard_success", "regular_success"}
 
 
 def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
