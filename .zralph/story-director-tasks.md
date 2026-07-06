@@ -37,3 +37,26 @@ director 在 3 种结构原型的真实模组上产出合理 DirectorPlan，dete
 - #3 events 写回指令：不进 plan。理由：该由 keeper-play SKILL.md 按 plan 的 reveal/scene_transition 自行处理，plan 不越权。
 
 测试：512 passed
+
+---
+
+## 阶段 4：v2（codex/story-director-v2 分支）
+
+**真相源：** docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md
+
+### v2 Task 进度
+
+| Task | 内容 | 状态 |
+|---|---|---|
+| B1 | 修 Luck 读取（derived.Luck fallback） | ⏳ |
+| B2 | 修 CR rich tier（90-98=rich, 99=super_rich） | ⏳ |
+| B3 | pacing-state.json 进 campaign 初始化 | ⏳ |
+| B4 | last_roll critical/fumble 从 logs/rolls.jsonl 读 | ⏳ |
+
+### B1-B4 结果：全部修复
+- B1 Luck fallback：commit 2642fb8
+- B2 CR rich tier（90-98=rich, 99=super_rich）：commit 5cafd46
+- B3 pacing-state 进初始化：commit d417939
+- B4 last_roll 从 logs/rolls.jsonl 读：commit dedf3d3
+- 测试：515 passed（+3 新）
+- 双 plugin 字节一致
