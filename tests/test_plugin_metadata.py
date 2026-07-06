@@ -205,6 +205,7 @@ def test_all_v1_skills_have_valid_frontmatter():
         "coc-sanity",
         "coc-mythos-reference",
         "coc-story-director",
+        "trpg-pdf-ingest",
     }
     found = set()
     for skill_path in (PLUGIN_ROOT / "skills").glob("*/SKILL.md"):
