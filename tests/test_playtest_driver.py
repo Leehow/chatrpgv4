@@ -119,9 +119,12 @@ def test_driver_failed_obscured_roll_does_not_reveal_exact_clue(tmp_path):
         max_turns=1,
         rng_seed=42,
     )
+    turn = result["turns"][0]
     assert result["clue_coverage"]["discovered_count"] == 0
-    assert result["turns"][0]["rule_results"][0]["outcome"] == "failure"
-    assert "clue_withheld" in result["turns"][0]["event_types"]
+    assert turn["rule_results"][0]["outcome"] == "failure"
+    assert "clue_withheld" in turn["event_types"]
+    assert turn["resolved_clue_policy"]["withheld_reveals"] == ["c1"]
+    assert turn["failure_consequence"]["narration_mode"] == "withhold_exact_clue_with_cost"
 
 
 def test_driver_stalled_recover_surfaces_fallback_route(tmp_path):
@@ -131,5 +134,8 @@ def test_driver_stalled_recover_surfaces_fallback_route(tmp_path):
         player_choices=[{"intent": "不知道该做什么", "intent_class": "idle"}] * 3,
         max_turns=3,
     )
+    turn = result["turns"][-1]
     assert result["clue_coverage"]["discovered_count"] >= 1
-    assert "fail_forward_recovery" in result["turns"][-1]["event_types"]
+    assert "fail_forward_recovery" in turn["event_types"]
+    assert turn["resolved_clue_policy"]["fallback_recovered"]
+    assert turn["failure_consequence"]["narration_mode"] == "recover_with_cost"
