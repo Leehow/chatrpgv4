@@ -487,26 +487,29 @@ def audit_bout_content(root: Path) -> list[str]:
 
 
 def audit_weapon_db_flags(root: Path) -> list[str]:
-    """Section D: melee weapons add DB, firearms do not (rulebook p103-104)."""
+    """Section D: check adds_damage_bonus internal consistency.
+
+    The rulebook Table XVII marks +DB per-weapon (not per-category).
+    Some Fighting weapons add DB (those with '+DB' in damage), some
+    don't (chainsaw '2D8', spear '1D8+1'). So we cannot assert
+    'Fighting implies DB'. Instead we check:
+    - burn/stun weapons never add DB
+    - adds_damage_bonus field is not None (must be explicit bool)
+    """
     gaps = []
     try:
         w = _load_table(root, "weapons").get("weapons", {})
     except (FileNotFoundError, json.JSONDecodeError) as e:
         return [f"[D] weapons.json: UNREADABLE ({e})"]
     for name, row in w.items():
-        skill = str(row.get("skill", ""))
         adds = row.get("adds_damage_bonus")
         damage_type = str(row.get("damage_type", ""))
-        damage = str(row.get("damage_die", ""))
-        special = str(row.get("special", ""))
-        # Status weapons (burn/stun) use Fighting skill but don't add DB.
-        is_status_weapon = damage_type in ("burn", "stun") or any(
-            t in (damage + " " + special).lower() for t in ("burn", "stun")
-        )
-        if skill.startswith("Fighting") and adds is False and not is_status_weapon:
-            gaps.append(f"[D] weapons {name}: Fighting skill but adds_damage_bonus=False (melee adds DB)")
-        if skill.startswith("Firearms") and adds is True:
-            gaps.append(f"[D] weapons {name}: Firearms skill but adds_damage_bonus=True (firearms do not add DB)")
+        # burn/stun weapons must not add DB
+        if damage_type in ("burn", "stun") and adds is True:
+            gaps.append(f"[D] weapons {name}: {damage_type} weapon but adds_damage_bonus=True")
+        # adds_damage_bonus must be a bool, not None
+        if adds is None:
+            gaps.append(f"[D] weapons {name}: adds_damage_bonus is None (must be bool)")
     return gaps
 
 

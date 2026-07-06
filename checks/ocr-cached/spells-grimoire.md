@@ -1347,3 +1347,659 @@ minutes, contact is established with the Yithian attuned to the jewel. The Yithi
 A Yithian temporal communicator isfairly straightforward to operate， provided that an investigator can understand and determine which carving turns it on.
 
 Temporal Communicator
+# Chapter Fourteen Monsters, Beasts, and Alien Gods
+
+Jt is absolutely necessary,for the peace and safety of mankind,that somerofearth's dark,dead corners and unplumbeddepths be let alone; lest sleeping abnormalities wake to resurgent lifeand blasphemously surviving nightmares squirm and splash out of their black lairs to newerand wider conquests.
+
+H.P.LovecraftAtheMountains ofMadness"
+
+
+
+his chapter provides a selection of monsters, beasts, and alien beings for use within Call of Cthulhu. The chapter is divided into four sections, each focusing on a specific monster type: Cthulhu Mythos entities, Cthulhu Mythos gods, classic monsters, and beasts. The selection of monsters across the sections is not exhaustive-every horror fan can probably think of some terror not present. The ones here are those found in the most important stories, frequently appear in scenarios, or are commonly referred to. Many more can be found in the Callof Cthulhu supplement Malleus Monstrorum, also from Chaosium.
+
+## About the Entries
+
+Most monsters and entities have characteristics including STR, CON, SIZ, POW, INT, and DEX. However many do not have an APP or EDU, since these qualities are meaningless in such alien and horrific creatures. Keepers have full reign to alter, modify, and rethink these entries. Lovecraft did not codify the monsters in his stories, so neither should you if you wish to present dramatically different versions.
+
+These are creatures of nightmare, and individual monsters may vary from one encounter to the next in their characteristics and abilities. The characteristic values given for each monster are those of an average specimen. As Keeper, you have the option to roll an individual monster's statistics, or choose to create a lesser or greater specimen using the dice ranges as a guide to generating characteristic values.
+
+# Size Comparison Charts
+
+The diagrams be/ow il/ustrate various denizens of the Cthu/hu Mythos, providing Some idea of the re/ative Size of these Creatures. Note the various unfortunate investigators Splattered about the monsters. Some of these creatures, notably Cthulhu, are able to alter their mass and Size at wil/; the illustration Shows only one VerSion of such images.
+
+Only full characteristic values (i.e. no halves and fifths) are listed for monsters. Non-player character and monster characteristics are primarily used to set the diffculty level of players' skill rolls. As Keeper, you may occasionally need to figure out one-half or one-fifth of a particular monster's characteristic value, but this will be unusual.
+
+## Monster Sizes
+
+Certain monsters are staggeringly huge when compared to the human scale, just take a look at the diagram below!
+
+
+## Builds
+
+Along with the characteristic of SIZ, each monster, character, and vehicle has a build value. This figure provides an at a glance guide to scale. The average human has a Build of O, with the full range extending from -2 (children and small persons） to 2 (heavyweight boxers for example). The build scale is not linear; combining 5 motorcycles would not create something larger than a truck.
+
+When considering what a being can lift or throw, use a standard human as a guide. The average human of Build 0 could lift someone of equal build off the floor, perhaps carrying them over their shoulder. Something of 1 build smaller could easily be lifted, and a thing of 2 builds smaller could be thrown. With a strain, a human of Build 0 might just lift a person of Build 1. The most a person of Build 0 might do to a person of Build 2 is to unbalance them or disarm them.
+
+Using this as a guide, it becomes simple to figure the relative capability of a monster to lift and throw things—for example, whether a monster is large enough to throw a car.
+
+Table XV: Comparative Builds
+<table><tr><td>Build -2</td><td>Natural World Child, fruit bat Large dog</td><td>Mythos Fire vampire</td><td>Inanimate</td></tr><tr><td>-1 0</td><td> Average human</td><td> Servant of Gla&#x27;aki</td><td></td></tr><tr><td></td><td>adult, wolf</td><td></td><td></td></tr><tr><td>1</td><td></td><td>Deep one</td><td> Light motorcycle</td></tr><tr><td>2</td><td>Large human, Lion</td><td>Byakhee</td><td></td></tr><tr><td>3</td><td> Black bear, gorilla</td><td>Formless spawn</td><td> Heavy motorcycle</td></tr><tr><td>4</td><td>Cape buffalo, horse</td><td> Elder things</td><td> Economy car</td></tr><tr><td>5</td><td></td><td> Dark Young</td><td> Standard car</td></tr><tr><td>6</td><td></td><td>Adult Chthonian</td><td> Pickup truck</td></tr><tr><td>7</td><td>African elephant </td><td>Dagon</td><td> 6 ton truck</td></tr><tr><td>9</td><td></td><td>Shoggoth</td><td>18-wheeler truck</td></tr><tr><td></td><td></td><td></td><td></td></tr><tr><td>11</td><td></td><td>Star-spawn of Cthulhu</td><td></td></tr><tr><td></td><td>Blue Whale</td><td>Great Cthulhu</td><td></td></tr><tr><td>2265</td><td></td><td>Dhole</td><td> Battleship</td></tr></table>
+
+
+## Quick-reference Build comparison:
+
+③ Ifa target is 2 builds smaller: it can be thrown.
+
+③Ifa target is 1 build smaller: it can be lifted with ease.
+
+③ If a target is of equal build: it can be carried for a short time.
+
+③ If a target is 1 build larger: it can barely be lifted.
+
+③ If a target is 2 builds larger: it cannot be lifted, but might be unbalanced or disarmed.
+
+## Playing Monsters Effectively
+
+Monsters are,for the most part, not mindless animals. Many are of equal or greater intelligence than the investigators, with motivations and concerns beyond the scope of the average human's understanding. Monsters will not automatically seek combat and, if they do, they will not necessarily seek to kill the investigators. The more intelligent monsters may take the investigators captive, either to use as slaves or sacrifices, or perhaps for experimental purposes. Not every encounter has to be a fight; hiding or fleeing may be the wisest option.
+
+When involved in combat, consider the monster's objective. If its aim is to kill the investigator,it should fight back rather than dodge. If it wants to escape from the investigators, it may choose to dodge in order to gain an opportunity to flee.
+
+Many Mythos monsters can use spells, casting them as any other spell caster would. In some cases a monster's spell may be portrayed as a manifestation of that monster's innate power.
+
+Monsters may not have skills listed, though most or all might have a few skills such as Listen, Stealth, or Spot Hidden. Keepers should add skills as required, using comparative beings as a guide.
+
+Mythos gods and some Mythos monsters are multidimensional, existing in our plane of reality as well as others beyond our reasoning,and thus cannot be truly slain. While hit points are given, should such a creature as an Outer God or Great Old One be somehow reduced to 0 or negative hit points, the thing is not killed or rendered unconscious, but is dispelled or forced back from whence it came. Mere damage will not destroy or even harm these powers. If they are forced or persuaded to leave, they can return.
+
+## Monsters and Investigators-a Comparison
+
+It is quite possible for the investigators to beat some monsters in combat. Against others, their only chance of survival is generally to flee or hide. Deep ones, byakhee, dimensional shamblers, fire vampires， ghasts， ghouls, servants of Gla'aki， mi-go, moon-beasts, nightgaunts, rat-things, sand-dwellers, serpent people, insects from Shagghai, tcho-tcho, and of course human cultists can all be "taken on" in combat by several investigators with some hope of success. This is the reason that so many scenarios feature cultists, deep ones, mi-go, and ghouls-they make approximately human-scale adversaries. Such Mythos entities can, on first reflection, appear human-like in terms of their vulnerability and relative size; yet beware of humanizing such monsters. As stated, their goals, knowledge, and abilities should be difficult, if not impossible, to fathom. They will act in unexpected ways and the mere sight of them can draw madness down upon the inquisitive investigator.
+
+# Chaosium Pronunciations of Mythos Names
+
+Lovecraft developed unpronounceable names for his monsters to drive home their alien quality.These are not official, but it's how we say them.
+
+Entity   
+Abhoth   
+Atlach-Nacha   
+Azathoth   
+Bast   
+Bokrug   
+Byakhee   
+Chaugnar Faugn   
+Chthonian   
+Cthugha   
+Cthulhu   
+Cyaegha   
+Pronunciation   
+AB-hauth   
+AT-lach NACH-ah   
+AZ-uh-thoth   
+BAST   
+BOE-kruhg   
+b'YAHK-ee   
+SHAHG-ner FAHN   
+kuh-THOEN-ee-un   
+kuh-THOOG-hah   
+kuh-THOO-l00   
+sigh-AE-guh   
+Dagon   
+Daoloth   
+Dhole   
+Eihort   
+Ghast   
+Ghatanothoa   
+Gla'aki   
+Gnoph-Keh   
+Hastur   
+Hydra   
+Hypnos   
+Ithaqua   
+Lloigor   
+Mi-Go   
+Nodens   
+Nyarlathotep   
+Nyogtha   
+Quachil Uttaus   
+DAE-gaun   
+DAE-oe-lauth   
+DOEL   
+IGH-hort   
+GAST   
+gah-tahn-oe-THOE-ah   
+GLAH-ah-kee   
+nauf-KAE   
+has-TOOR   
+HIGH-drah   
+HIP-noes   
+ITH-uh-kwah   
+LOl-goer   
+MEE-goe   
+NOE-denz   
+NIGH-ar-LAT-hoe-tep   
+nee-AUG-thah   
+KWAH-chil oo-TAUS   
+Rhan-Tegoth   
+Shaggai   
+Shantak   
+Shoggoth   
+Shub-Niggurat   
+Shudde M'ell   
+Tcho-Tcho   
+Tindalos   
+Tsathoggua   
+Tulzscha   
+Ubbo Sathla   
+Xiclotl   
+Y'golonac   
+Yibb-Tstll   
+yig   
+Yog-Sothoth   
+Yuggoth   
+Zhar   
+ran-TEE-gauth   
+shah-GIGH   
+SHAN-tak   
+SHOE-gauth   
+shub-NIG-er-ath   
+shood-ih-MEL   
+Choe-choe   
+TIN-dah-loes   
+tsah-THAUG-wah   
+TUHLZ-chuh   
+OO-boe SATH-lah   
+ZIGH-klaut'l   
+ee-GOE-laun-ahk   
+yib-TIS-tuhl   
+YIG   
+yOG-sau-thauth   
+yuG-gauth   
+ZAR
+
+## Combat
+
+By default, every monster (with a few exceptions), has the Fighting skill-a generic combat skill covering all manner of strikes, kicks, claws, teeth, tentacles, elbows, head butts, etc. If the being is able to use melee weapons, the Fighting skill should be used for those as well. Be creative in how you use and portray these attacks. Each entry describes how the monster would normally attack, and key words, such as bite or kick, are provided to give Keepers ideas on how best to describe differing attacks. The environment can also be added to the description of attacks and damage: an investigator could be crushed between an elephant and a tree; a ghoul could crack open an investigator's head against a gravestone; and so on.
+
+While a monsters standard attck could be used every time, this can become repetitive and dull. Using the damage listed for the monster's standard Fighting attack frees the Keeper from having to adjust the damage with each variation, allowing the Keeper greater freedom to describe the monster's attacks in creative and imaginative ways. The Keeper is neither gaining an advantage or disadvantage in varying the monster's attacks-he or she is making the story more exciting and engaging.
+
+## A deep one has the following attack listed:
+
+Fighting 45% (22/9), damage 1D6 + damage bonus (1D4) Using this skill, the Keeper could describe a successful attack in any of the following ways. Regardless of the manner of attack, for ease of play, the same 1D6 + 1D4 damage is dealt.
+
+③ The deep one rakes its claws across Harvey's chest, slicing through his clothes.
+
+Thedeepnechargesint Hrveybody slamming him.
+
+③Kicking out backwards like a horse, the deep one slams its foot into Harvey's midriff.
+
+The deep one grabs Harvey's jacket, thrusting Harvey's head into the crumbling plaster of the wall in the Gilman House Hotel.
+
+## Monsters and Maneuvers
+
+Maneuvers (mnvr) use the monster's Fighting skill. Build is an important factor for maneuvers; if the opponent is 3 Build points above that of an attacker, a maneuver is ineffective. Any monster of Build 2 or greater is never going to have penalty dice when using a maneuver against a human being. The largest opponent a human (maximum Build 2) could take on with a maneuver would be Build 4 (horse, elder thing, etc.)-even then, the largest of humans would attack with 2 penalty dice due to the difference in Build.
+
+In combat, monsters can use the same range ofmaneuvers open to humans. The Keeper should visualize the monster
+
+A dark young is fghting a group of investigators. The dark young may initiate five separate atacks on its turn in the DEX order, one of which may be its trample attack.
+
+First attack: The dark young raises one of its many hooves to stamp on a hapless investigator. The investigator's player rolls a failure on the attempt to dodge the attack, while the Keeper rolls a Regular success on the dark young's Fighting skill, and deals damageequal todamage bonus(4D6),for 1 damage.
+
+Second attack: This time the dark young lashes out with a tentacle to attempt to grasp an investigator. This uses a fghting maneuver; of course the dark young has a larger build than any investigator, so does not take any penalty dice on the maneuver. The Keeper rolls an Extreme success. The investigator fails to dodge and is seized and lifted high in theair,being drained of 12 points of Strength. The dark young will keep the investigator held until the poor unfortunate has been completely drained.
+
+Third attack: Two of the investigators are getting into their pickup truck. Remember that the dark young has an INT of 70, as much as most investigators, so it may well know what a pickup truck is. It uses its trample attack on the pickup. At present, the vehicle is static and so the Keeper allows an automatic success, but makes the attack roll in case of a fumble or Extreme success. The attack would normally have failed but was not a fumble, so in this case the attack against a stationary object is successful. This deals (6D6) 17 damage. Each 10 full points of damage reduces the build of a vehicle by 1 point.
+
+Fourth attack: Annoyed at how tough the pickup truck proved to be, the Keeper decides that the dark young will attempt to flip the vehicle. The pickup has a build of 6 (it has 1 point of damage, but its listed build is stil 6),1 higher than the dark young's build; the dark young can use its fighting maneuver but must apply 1 penalty die. Again, the car is not moving so unless the Keeper rolls a fumble, the attack will be successful. The Keeper rolls 24 or 14 (with the penalty die) which, taking the higher roll, still gives a Hard success. Builds (see page 279) states that a being is just able to lift something that is of 1 build larger than itself. The dark young manages to tip the pickup truck over onto its side, with a crash.
+
+For its final attack the dark young simply lashes out with a kick at a nearby investigator, and the Keeper rolls a Hard success. The player rolls a Hard success to dodge, so the investigator avoids the blow.
+
+and imagine how it might take advantage of its physical form in combat. If it has tentacles, hands, or pincers, it might seize hold of its opponent. If it has a prominent mouth then it might bite and hold onto its prey. Large creatures might simply trap their opponents with their bulk, crushing the life out of them. Opponents that are seized or grabbed are held until they succeed in an opposed STR roll or maneuver of their own to free themselves.
+
+With a successful maneuver, a monster could:
+
+③ Knock an investigator to the floor, gaining a bonus die on its next attack if the investigator is still prone.
+
+③ Push an investigator out of a window or over a clif.
+
+③Disarm an investigator, knocking that annoying "boom-stick" out of his or her hands.
+
+Grasp hold ofan investigator with a tentacle,gaining a bonus die to cause harm by constriction or pum-meling the held investigator against a wall on the next attack.
+
+③ If the monster is large enough, it could seize an investigator and carry him or her off next round, perhaps flying away or carrying the held investigator aloft with a writhing tentacle.
+
+@ A standard car has Build 5, so any monster with Build 3+ has the potential to damage vehicles. Larger monsters might even seize hold of a vehicle containing the investigators, much like an angry child throwing a cereal box.
+
+## Monsters and Fighting Back
+
+Unless a monster is trying to escape or being especially crafty, you should respond to investigator attacks by fighting back rather than dodging. When fighting back, a monster should generally use its basic Fighting skil. A monster that has more than one attack per round may also dodge or fight back that number of times before its enemies are granted a bonus die for outnumbering it (see Outnumbered, page 108). Thus a ghoul with three attacks can fight back three times before its attackers gain a bonus die to their attacks. Some Mythos entities can never be outnumbered by investigators.
+
+## Killing Monsters
+
+Rather than declaring that a monster or opponent is dead, the Keeper is encouraged to describe what the investigators can see-the monster has stopped moving, it appears to be melting, a thick green fluid is welling up from a hole in the side of its body,and so on. Remember that these monsters are strange and alien beings; determining death should not be simple. Some monsters (when reduced to unconsciousness or zero hit points) may appear to be dead, only to rise again moments or hours later to inflict a grisly revenge on their attackers. Only a successful First Aid or Medicine rol will determine for sure whether a being is alive or dead.
+
+
+## Monster Spells
+
+The higher a monster's POW and INT, the more likely it is to know spells. As a guide, those with POW and INT of 50 to 100 might know 1D6 spells. In choosing spells, consider the purpose and the nature of the creature. Keepers are encouraged to manipulate and alter spells to better suit particular Mythos monsters. No casting rol is required for the initial casting of a spell by a monster. Expend magic points as required by the spell cost, but disregard any SAN costs or Sanity rolls.
+
+Suitable spells for each monster are suggested, although others may be known if the Keeper wishes.
+
+In many cases, the Mythos monsters described here worship one or more of the Outer Gods or Great Old Ones, and it should be assumed that they would know at least one spell to contact, call, or summon their masters.
+
+Chapter 12: Grimoire details many suitable spells, however Keepers are encouraged to adjust spells and use the deeper magic versions; after all these beings are not some fumbling human wizard seeking the mysteries of magic, but rather the very embodiment of the Mythos in all of its horrific splendor.
+
+## Section One: Mythos Monsters
+
+This section details the abominations of the Cthulhu Mythos-creatures of this world and from beyond. The monsters described here are, in the main, repugnant to humanity in their visage and aspect, being a threat to both an investigator's mind and body.
+
+Keepers are reminded that these embodiments of the Mythos are not uniform in their appearance,and distinctions can be made between creatures of the same race.
+
+When portraying a Mythos monster, the Keeper should avoid only illustrating the visual aspect to the players. Smell and sound are important signifiers, so too is the otherworldly atmosphere such creatures create. As the Necronomicon states,“"...as a foulness shall ye shall know Them"
+
+## Byakhee
+
+There flapped rhythmically a horde of tame, trained, hybrid winged things..not altogether crows, nor moles, nor buzzards, nor ants, nor decomposed human beings, but something I cannot and must not recall.
+
+-H.P. Lovecraft, The Festival
+
+This interstellar race often serves Hastur the Unnamable, and may be summoned to partake in rituals. Composed of conventional mater, they are vulnerable to ordinary weapons, such as pistols.
+
+Dwelling in interstellar space, byakhee do not have bases on Earth, but may be summoned to perform deeds or to serve as steeds, carrying riders through interstellar space.
+
+## SPECIAL POWERS
+
+Fly: Byakhee can fly through space and carry a rider; though such riders need protection from the vacuum and cold by suitable spells or potions (e.g. Space-Mead).
+
+Spells: Byakhee have a 40% chance of knowing 1D4 spells.   
+Such spells may relate to Hastur and associated beings.
+
+## BYAKHEE, The star-steeds
+
+<table><tr><td>char.</td><td> averages</td><td> rolls</td></tr><tr><td> STR</td><td>90</td><td>(5D6 x5)</td></tr><tr><td>CON</td><td>50</td><td>(3D6 ×5)</td></tr><tr><td>SIZ</td><td>90</td><td>(5D6 x5)</td></tr><tr><td>DEX</td><td>70</td><td>(3D6+3 ×5)</td></tr><tr><td>INT</td><td>50</td><td>(3D6 x5)</td></tr><tr><td>POW</td><td>50</td><td>(3D6 ×5)</td></tr></table>
+
+Average Damage Bonus: 1D6   
+Average Build: 2   
+Average Magic Points: 10   
+Move: 5/16 flying
+
+## ATTACKS
+
+Attacks per round: 2
+
+Fighting attacks: The byakhee may strike with claws or crash intoitsvictim, delivering grievous wounds.
+
+
+Bite and hold (mnvr): If the bite strikes home the byakhee
+
+remains attached to the victim and begins to drain his or her blood. Each round the byakhee remains atached, including the first, the blood drain subtracts 3D10 points of STR from the victim, until death occurs (at STR O). The byakhee characteristically remains attached with this attack until the victim is drained of blood, unless the victim can make a successful opposed STR rol Escaping death, let the victim rest and regain blood (by transfusion as well),at up to 1D10+5 STR per day. A Byakhee may hold only one victim at a time.
+
+Fighting 55% (27/1), damage 1D6 + damage bonus
+
+Bite and hold (mnvr) damage 1D6 + 3D10 STR (blood) drain (single victim)
+
+Dodge 35% (17/7)
+
+Armor: 2 points of fur and tough hide.
+
+Skills: Listen 50%, Spot Hidden 50%.
+
+Sanity Los: 1/1D6 Sanity points to seea byakhee.
+
+Do byakhee possess the ability to fold space? Some conjecture that this power manifests via a certain internal organ, sometimes known as a "hune." There are some who would find great interest in the potential applications such an organ could have as a weapon or method of transport.
+
+Perhaps a specimen of this organ resides in some forgotten museum or laboratory, just waiting for an unwitting scientist to activate its terrible secrets.
+
+## Chthonians
+
+Flowing tentacles and pulpy gray-black, elongated sack of a body... no distinguishing features at all other than the reaching, groping tentacles. Or was there-yes-a lump in the upper body of the thing.. a container of sorts for the brain, ganglia, or whichever diseased organ governed this horror's loathsome life!
+
+-Brian Lumley, The Burrowers Beneath
+
+These creatures are like immense earth-bound squids, and their elongated wormlike bodies are coated with slime. A chanting sound accompanies them. These powerful burrowers live more than a thousand years, and are protective of their young. A jumble of remarkable properties, chthonians bear litle resemblance to anything else on this planet. The most important individual chthonian is the gigantic Shudde M'ell.
+
+All stages of chthonians communicate by telepathy and can thus reach another of their race anywhere in the world, and can sense other minds. Only adults can telepathically control members of other species with this power.
+
+They can tunnel through rock as though it were butter and have no need to breathe. Adult chthonians can withstand enormous temperatures, up to 4000oC (7200°F). It may be that the majority of chthonians live toward the core of this planet, and that only outcasts, wanderers, and those accidentally caught up in pluming magma explore the cold outer crust where man thrives. Perhaps they migrate here to give birth, since the younger stages cannot withstand extreme heat. We do not know their motives.
+
+Full adults can cause powerful earthquakes.
+
+Chthonians are extremely susceptible to water. While their slime coating protects them from small amounts of water, general immersion destroys a chthonian. Burrowing, these monsters detect significant water by distinguishing the relatively low echo profiles of water and watery sediment, avoiding such areas.
+
+Chthonians are worldwide, even found in basalt under the oceans. In western Africa is a mystery city called G'harne, which they frequent. They may have been imprisoned there once, aeons ago.
+
+The general discussion and statistics concern a full adult chthonian, the last and largest stage (instar) between molts. This is the sort which investigators are most likely to meet. A chthonian matures through different life stages, ranging from hatchlings and nests of younger chthonians to immature and fully mature. In theory, chthonians of varying ages could be encountered.
+
+## SPECIAL POWERS
+
+Chthonian telepathic control: Chthonians can use telepa-thy to control humans, though they do not often do so unless the target has something they want, such as odd spherical mineral formations.
+
+The target may attempt to resist a single chthonian with an opposed POW roll. Overcome, the victim is bound to the area where psychically atacked. At first the target has mobility of a mile or so, but this progressively lessens as the chthonian draws nearer, until the victim may not be able to leave a particular room, or even a particular chair. The target immobilized, the chthonian erupts through the floor and collects its due. If the victim becomes aware of the mental influence of a chthonian, the hold may be broken by successfully making a POW roll versus the chthonian. Once a victim has experience of chthonians, a successful INT roll constitutes awareness.
+
+A chthonian can telepathically contact a known human anywhere on the Earth, but it may take time before it can locate its victim's mind.
+
+It costs a chthonian one magic point to communicate with a human or to bind a human to a site for a day. Each ten miles of distance from a binding also costs another magic point. Several chthonians may contribute magic points to compensate for distance, but the POW rols are made individually.
+
+It costs no magic points to contact another chthonian, no matter at what distance.
+
+Anecdotal evidence suggests that adults may be able to drain a human's magic points, but nothing definite is truly known.
+
+Earthquake attacks: All adult chthonians can create earth-quakes. Figure an earthquake's force by totaling the POW of participating chthonians and dividing by 100. The result is the earthquake's magnitude on the Richter Scale, but only in the first diameter of 100 yards. In the next 100 yards, the Richter force is lessened by one,and so on for each additional 100 yards until the strength of the quake can be ignored. Al-ternatively, the chthonians might limit the force in the center diameter and instead extend the quake's diameter-of-effect or maximum effect by multiples of 100 yards.
+
+At least half of the participants must be directly under the center of the earthquake. Each chthonian must spend magic points equal to the highest Richter Scale number generated for the quake. Historically, the highest Richter numbers have been approximately nines, but geological evidence exists of quakes that have been much stronger.
+
+Spells: A fulladult has a 50% chance of knowing 1D6 spells, most of which should be connected with Shudde M'ell and Great Old Ones tied to this earth,such as Cthulhu, Y'golonac, Yig, etc.
+
+
+## CHTHONIAN FULL ADULTS, Tentacled burrowers
+
+<table><tr><td>char.</td><td> averages</td><td> rolls</td></tr><tr><td>STR</td><td>260</td><td>(3D6 ×25)</td></tr><tr><td>CON</td><td>200</td><td>(3D6+30 x5)</td></tr><tr><td>SIZ</td><td>260</td><td>(3D6 ×25)</td></tr><tr><td>DEX</td><td>35</td><td>(2D6 ×5)</td></tr><tr><td>INT</td><td>90</td><td>(5D6 ×5)</td></tr><tr><td>POW</td><td>90</td><td>(5D6 ×5)</td></tr></table>
+
+Average Damage Bonus: +5D6
+
+Average Build: 6
+
+Average Magic Points: 18
+
+Move: 6/1 burrowing
+
+## ATTACKS
+
+Atacks per round: 1D8. It may only use its crush atack once per
+
+Fighting atacks: Its dangerous to get near to these things. Their crushing bulk and flailing tentacles may strike at any moment.
+
+Hold and Drain (mnvr): Each round, a chthonian can attack with 1D8 tentacles, each of which cause damage equal to half the creature's damage bonus (round down). If a tentacle strikes home, it clings and worms its way into the victim's vitals, and begins to drain off blood and fluids, costing 3D10 CON each round. Reaching 0 CON, the victim dies. CON lost to a chthonian is gone for good. While a tentacle is draining a victim, it cannot be used to drain other targets, but it could still be used to fight-back, swinging the poor held victim like a ball on a chain at its attacker.
+
+Tentacles draining their targets will continue to sap CON each round. Each tentacle could attack a different target or they could all attack the same one.
+
+Crush: A chthonian may use its immense bulk to crush a foe. If crushing, it can continue to hold and drain victims that are already caught. The chthonian rears up and crashes down on a group: the crush area is circular, striking equally all within. The crush area equals a diameter in yards of the chthonian's SIZ divided by fifty. Within the crush area,an investigator must succeed with DEX, Dodge, or Jump, or lose hit points equal to the creature's full damage bonus.
+
+## Fighting 75% (37/15), damage 2D6 (thrashing tentacles)
+
+Hold & Drain (mnvr) damage 2D6 + blood drain (seizing tentacles)
+
+Crush 80% (40/16), damage: damage bonus (bulk, group)
+
+## Dodge 17% (8/3)
+
+Armor: 5-point hide and muscle; regenerates 5 hit points per round after wounded, but ceases to work when below 1 hit point.
+
+Sanity Loss: 1D3/1D20 Sanity points for a full adult; 1/1D10 Sanity points for the lesser instars; no Sanity points to see a hatchling.
+
+Near nvulnerable, the weaknesses of Chthonians have been explored by only a few (mad) wizards. Purported vulnerabilities include the Vach-Viraj Chant, the Elder Sign,and total immersion in a body of water.
+
+<table><tr><td>char. STR</td><td>averages 15</td><td>rolls (1D6 × 5) per 50 POW or fraction thereof</td></tr><tr><td>CON SIZ</td><td>N/A equal to POW</td><td></td></tr><tr><td> DEX</td><td>95</td><td>(2D6+12 ×5)</td></tr><tr><td>INT</td><td>70 50*</td><td>(4D6 ×5) (2D6 ×5)</td></tr><tr><td>POW</td><td></td><td>*Base amount, which then increases as a colour feeds.</td></tr><tr><td>HP: N/A</td><td> Average Damage Bonus: N/A</td><td></td></tr><tr><td></td><td> Average Build: 0</td><td></td></tr><tr><td></td><td> Average Magic Points: 10*</td><td></td></tr><tr><td></td><td> Move: 12 pouring/20 flying</td><td></td></tr></table>
+
+## Colours Out of Space
+
+The shaft of phosphorescence from the wel brought a sense of doom and abnormality which far outraced any image their conscious minds could form. It was no longer shining out, it was pouring out; and as the shapeless stream of unplaceable colour left the wel it seemed toflowdirectly into the sky.
+
+## -H.P. Lovecraft, The Colour Out of Space
+
+A colour is a sentient organism that manifests as pure colour—it is not gaseous, it is insubstantial. When it moves, it is visible as an amorphous, glistening patch of colour, rolling and shining in shades of its pale colours that match nothing in the known spectrum. This patch pours over the ground or flies in a living fashion. When it feeds, its victim's skin and face glow with the colour.
+
+Though incorporeal, its passing nonetheless feels like the touch of a slimy, unhealthy vapor. Geiger counters register its presence as a distinctive burst of radiation. With today's light-intensification gear, it shows as a bright patch of luminosity. Infrared viewers are useless.
+
+Colours come from the depths of space, where natural laws differ. Adult colours create embryos, harmless three-inch spheres seemingly empty. Deposited on verdant soil or in shallow waters, the embryo begins to germinate. After a few days, the outer shell dissolves and the new creature, which we may term a larva, emerges.
+
+The jellylike larva can grow to great size. As it infiltrates the ecosystem, local vegetation exhibits a tremendous but unhealthy growth. Fruit tastes bitter. Insects and animals are born deformed. At night, all plant life glows with the colour, and the vegetation begins to twist and writhe, as though in a strong wind. Even humans shine with the spectral light. After a few months, the larva transforms into a young colour.
+
+It now makes brief trips from its lair to feed, and begins to drain the life force from the area previously affected by the larva. When it drains enough energy, it departs the planet for space and adulthood. In so maturing, the colour may drain life force from an area of five acres or so if rich in life, or perhaps 10-20 acres of moor or grassland. The area drained is ruined thereafter, and no plant can grow.
+
+Bright light inhibits a colour. It spends daylight hours in dark, cool hideaways, preferably underwater: cisterns, wells, lakes, reservoirs, and oceans are all suitable.
+
+## SPECIAL POWERS
+
+Disintegrate: A colour can focus its energies to disintegrate a hole through almost any material. This ability is used primarily to excavate a lair underground. The same effort to melt a cubic foot of titanium removes several cubic yards of pinewood. The sides of the hole appear melted, but no heat is generated.
+
+Solidify: A colour can concentrate and solidify a part of itself. That part becomes translucent. It can then manipulate objects.
+
+Colour Out of Space
+
+## COLOURS OUT OF SPACE, Life-force feeders
+
+## ATTACKS
+
+## Attacks per round: 1
+
+Since a colour is so efficient an attacker, Keepers may wish to allow investigators to see it coming, allowing Spot Hidden rols to detect its slight glow or to notice a sudden presence of ozone. Colours lack any recognized Fighting skill and cannot be harmed by normal means.
+
+Characteristic Drain: When the colour is feeding, the victim must make an opposed POW roll. If the colour wins, it permanently drains 1Di0 points each of STR, CON, POW, DEX, and APP from the victim, and costs him or her 1D6 hit points as well. Each point of POW so drained increases the colour's POW. The victim is aware of a sucking, burning sensation and progressively withers and greys. The victim's face sinks, the skin ageing with hideous cracks and wrinkles. Once drained, the victim dies.
+
+Mental Attack: A colour can weaken the minds of nearby sentient beings. For each day in the colour's vicinity, each person must make an opposed INT roll or lose 1D6 magic points and 1D6 Sanity points. Magic points so destroyed cannot be regained without leaving the area. The influence also strongly binds the victim to his or her home and the influence becomes increasingly irresistible as the victim's will weakens. To leave the area, he or she must make a successful Hard or Extreme POW roll (half POW if magic points are reduced by 50%, or one-fifth of POW if magic points have been reduced to 0 or less), or be inexplicably compelled to stay.
+
+Drain Opposed rol: victim's POW vs. colour's POW, damage 1D6 + characteristic loss
+
+Mental Attack Opposed roll:victim's INT vs. colour's POW,damage 1D6 magic points + 1D6 Sanity points
+
+Dodge 47% (23/9)
+
+HP: 13
+
+Armor: None-invulnerable to physical attck except by strong magnetic felds, which can imprison it. Vulnerable to magic. Sanity Los: 0/1D4 Sanity points to see a colour; 1/1D8 Sanity points to see a victim of a colour.
+
+Could the colour of out space have sought Earth as place to pupate or gestate its young? Perhaps the Earth provides asafeand bountiful haven againstotherworldly Mythos predators. What strange experiments would the mi-go perform if they successfully captured or reared a colour?
+
+## Crawling One
+
+Wisely did Ibn Schacabao say, that happy the town at night whose wizards are all ashes. For it is of old rumor that the soul of the devil-bought hastes not from his charnel clay, but fats and instructs the very worm that gnaws; till out of corruption horrid life springs, and the dull scavengers of earth wax crafty to vex it and swel monstrous to plague it. Great holes secretly are digged where earth's pores ought to suffice, and things have learnt to walk that ought to crawl.
+
+## -H.P. Lovecraft, The Festival
+
+A crawling one is composed of thousands of worms and maggots. Each worm is individually alive and constantly moves, though they generally hold the shape of a human body. The collective mass of wriggling creatures possesses the mind of a dead sorcerer, long since devoured by the maggoty horde. The ingested "will" of the wizard effectively drives the mass to work collectively to perform deeds and actions.
+
+## SPECIAL POWERS
+
+Crawling ones cannot speak but can write messages. It is un-necessary for them to use spoken words in performing spells or when communing with their alien masters or creatures from beyond.
+
+Spells: Each crawling one knows at least 1D10 spells.
+
+## CRAWLING ONES, wriggling masters of sorcery
+
+<table><tr><td>char.</td><td> averages</td><td> rolls</td></tr><tr><td> STR</td><td>45</td><td>(1D6+6 ×5)</td></tr><tr><td>CON</td><td>70</td><td>(4D6 x5)</td></tr><tr><td> SIZ</td><td>65</td><td>(2D6+6 ×5)</td></tr><tr><td>DEX</td><td>35</td><td>(2D6 ×5)</td></tr><tr><td>INT</td><td>65</td><td>(4D6 x5)</td></tr><tr><td>POW</td><td>100</td><td>(4D6+6 ×5)</td></tr></table>
+
+Average Damage Bonus: none.  
+Average Build: 0
+
+Average Magic Points: 20
+
+ATTACKS Attacks per round: 1
+
+
+Fighting attacks: Crawling ones can use weapons as humans do, however they prefer to use spells or their minions to undertake physical tasks.
+
+Fighting 35% (17/7),damage 1D3 (unarmed) or by weapon type Dodge 20% (10/4)
+
+Armor: None; however due to the soft and resilient quality of the crawling one's bodies, normal weapons do minimal damage to the things. Bullets only cause a single point of damage, except for shotgun pelets, which do minimum damage for that type of firearm.
+
+Skill: Stealth 60%.
+
+Sanity Loss 1D3/2D6 Sanity points to see a crawling one.
+
+## Dagon & Hydra (Unique Beings)
+
+Vast, Polyphemous-like,and loathsome, it darted like a stupendous monster of nightmares to the monolith, about which it flung its gigantic scaly arms.
+
+-H.P. Lovecraft, Dagon
+
+Father Dagon and Mother Hydra are deep ones who have grown enormously in size and age, each over 20 feet tall and perhaps millions of years old. They rule the deep ones and lead them in their worship of Cthulhu. This pair is active and mobile, unlike Cthulhu and his minions, but are rarely met. Dagon and Hydra's characteristics are identical. It is possible that more than two deep ones have grown to the enormous size and strength comparable to that described in Lovecraft's Dagon.
+
+Dagon & Hydra
+
+## SPECIAL POWERS
+
+Spells: Each knows all Summon and Bind spels and Contact spells.
+
+## DAGON and HYDRA, Rulers of the deep ones
+
+STR 260 CON 250 SIZ300INT100POW150   
+DEX 100 HP 55   
+Damage Bonus: +6D6   
+Build: 7   
+Magic Points: 30   
+Move: 10/15 swimming
+
+## ATTACKS
+
+Attacks per round: 2
+
+Fighting attacks: These huge monsters can strike investigators in a variety of ways, kicking, clawing, punching, stamping, etc.
+
+Fighting 80% (40/18), damage 1D6 + damage bonus
+
+Dodge 50% (25/10)
+
+Armor: 6-point skin.
+
+Sanity Los: 1/1D10 Sanity points to see Dagon or Hydra.
+
+The worship of Dagon by humanity appears to be ancient, with many cults flourishing and dying out throughout history. Often hidden behind a benign facade, such cults operate in public with only the members of the inner circle aware of the true nature and purpose of the cult.
+
+The Phoenicians, Sumerians, Canaanites, and Philistines all appear to have revered a fertility god named Dagon or Dagan. The Dogon People of Mali revere amphibious, fishlike ancestor spirits who came to Earth in the distant past, as twins from an invisible star, whose return will herald a new age.
+
+Keen observers state that the growth of the Esoteric Order of Dagon, popular with the residents of seaports and towns along the New England coast, is something to be watched closely.
+
+Some claim that Dagon and Hydra are but facets or avatars of Great Cthulhu, being the elements or portions of that immense being that were not trapped in R'lyeh beneath the ocean.
+
+## Dark Young
+
+Something black in the road, something that wasn't a tree. Something big and black and ropy, just squating there, waiting, with ropy arms squirming and reaching.. It came crawling up the hillside.and it was the black thing of my dreams-that black, ropy, slimy jelly tree-thing out of the woods. It crawled up and it flowed up on its hoofs and mouths and snaky arms.
+
+-Robert Bloch, Notebook Found in a Deserted House
+
+These beings are enormous writhing masses, formed out of ropy black tentacles. Here and there over the surfaces of the things are great puckered mouths that drip green goo.
+
+Beneath the creatures, tentacles end in black hooves, on which they stamp. The monsters roughly resemble trees in silhouette-the trunks being the short legs, and the tops of the trees represented by the ropy, branching bodies. The whole mass of these things smell like open graves. Dark young stand between 12 and 20 feet tall.
+
+Such entities are the “young” referred to in Shub-Niggurath's epithet, “Black Goat of the Woods with a Thousand Young." They are closely connected to her, and are found only in areas where she is worshiped. Dark young act as proxies for Shub-Niggurath in accepting sacrifices, accepting worship from cultists, devouring non-cultists, and spreading their mothers faith acrossthe world. Luckily, they are rarely met with.
+
+## SPECIAL POWERS
+
+Spels: Each dark young knows a number ofspels equal to a tenth of its INT.
+
+## DARK YOUNG of Shub-Niggurath
+
+<table><tr><td>char.</td><td>averages</td><td> rolls</td></tr><tr><td> STR</td><td>220</td><td>(4D6+30 ×5)</td></tr><tr><td>CON</td><td>80</td><td>(3D6+6 ×5)</td></tr><tr><td> SIZ</td><td>220</td><td>(4D6+30 ×5)</td></tr><tr><td>DEX</td><td>80</td><td>(3D6+6 ×5)</td></tr><tr><td>INT</td><td>70</td><td>(4D6 ×5)</td></tr><tr><td>POW</td><td>90</td><td>(5D6 ×5)</td></tr></table>
+
+Average Damage Bonus: 4D6 Average Build: 5 Average Magic Points: 18 Move: 8
+
+
+## ATTACKS
+
+Attacks per round: 5. Dark young may only use a Trample attack once per round.
+
+Fighting atacks: In its masses of tentacles,a typical dark young has four thicker sinuous tentacles with which it attacks. Each of these thicker tentacles can strike out to injure. It may also kick out with its hooves, simply crush, or strike with its massive bulk.
+
+Grab (mnvr): The Dark young can use its tentacles to grab and capture up to four victims. If a victim is grabbed, he or she is held to one of the horrible sucking mouths
+
+and drained of 1D10+5 STR per round. This STR loss cannot be restored. While being drained, a victim is capable only of ineffectual writhing and screaming.
+
+Trample: The dark young can also trample with its massive hooves， typically hooting and bellowing as it rears up and attempts to trample as many opponents as it can (up to 1D4 humans if they are situated close together).
+
+Fighting 80% (40/16), damage bonus
+
+Grab (mnvr) grabbed and held for 1D10 + 5 STR drain per round
+
+Trample 40% (20/8), damage 2D6 + damage bonus Dodge 40% (20/8)
+
+
+Armor: Dark young are of non-Earthly material and make-up, so that any successful hit with a firearm atack does only 1 point of damage per bullet (2 points for an impale). Hand-to-hand weapons do normal damage. Attacks dependent on heat, blast, corrosion, electrical charge, or poisoning have no effect.
+
+Skills: Stealth (bonus die in woods) 30%.
+
+Sanity Los: 1D3/1D10 Sanity points to seea dark young.
+
+Recent research by field archaeologists in central England have uncovered curious clues about an ancient Pagan fertility cult. The findings reveal an unhealthy devotion to trees and darkly suggest hideous religious rites involving the sacrifice of virgins to something named only as the "Withering Tree."
+
+Perhaps connected are the claims of certain Amazonian elders who speak of regions of the jungle that walk, and how gifts must be given to the "tall ones" to satiate their hunger. Indeed, a handful of travelers in these regions have returned with strange tales of being awoken at night by vines seemingly encroaching on their tents, with some going as far to claim that they awoke to find black vines encircling their legs or arms.
+
+## Deep One
+
+I think their predominant colour was a greyish-green, though they had white belles. They were mostly shiny and slippery, but the ridges of their backs were scaly. Their forms vaguely suggested the anthropoid, while their heads were the heads offish, with prodigious bulging eyes that never closed. At the sides of their necks were palpitating gills and their long paws were webbed. They hopped irregularly, sometimes on hind legs and sometimes on four.. their croaking, baying voices.. held all the dark shades ofexpression which their staring faces lacked.
+
+## -H.P. Lovecraft, The Shadow over Innsmouth
+
+The deep ones are an amphibious race that primarily serves Cthulhu and two beings known as Father Dagon and Mother Hydra. Locked in the timeless depths of the sea, their alien, arrogant lives are coldly beautiful, unbelievably cruel, and
+
+effectively immortal. They come together to mate or to worship Great Cthulhu, but do not crave touching or being touched as humans do. They are a marine race, unknown in freshwater environments， and globally have many cities, all submerged beneath the waves. One is off the coast of Massachusetts, near Innsmouth, while other sites are rumored to lie off the British Isles.
+
+Deep ones may be worshiped by humans with whom they regularly interbreed, for deep ones are immortal unless slain, and so are any hybrid offspring.
+
+## SPECIAL POWERS
+
+Breathe underwater: Dwelling under the sea, deep ones re-quire no exterior help to breathe underwater and are equally capable of breathing on land.
+
+Spell: Deep ones have a 40% chance of knowing 1D4 spells.
+
+## DEEP ONES, Gilled masters of the deep seas
+
+<table><tr><td>char.</td><td> averages</td><td> rolls</td></tr><tr><td> STR</td><td>70</td><td>(4D6 ×5)</td></tr><tr><td>CON</td><td>50</td><td>(3D6 ×5)</td></tr><tr><td> SIZ</td><td>80</td><td>(3D6+6 ×5)</td></tr><tr><td>DEX</td><td>50</td><td>(3D6 x5)</td></tr><tr><td>INT</td><td>65</td><td>(2D6+6 ×5)</td></tr><tr><td>POW</td><td>50</td><td>(3D6 x5)</td></tr><tr><td> HP: 13</td><td></td><td></td></tr><tr><td></td><td> Average Damage Bonus: 1D4</td><td></td></tr><tr><td>Average Build: 1</td><td></td><td></td></tr><tr><td></td><td> Average Magic Points: 10</td><td></td></tr><tr><td></td><td></td><td></td></tr><tr><td> Move: 8/10 Swimming</td><td></td><td></td></tr></table>
+
+## ATTACKS
+
+## Attacks per round: 1
+
+Fighting attcks: Deep ones can use weapons as humans do. They are skilled with their spears and tridents.
+
+Fighting 45% (22/9), damage 1D6 + damage bonus or by weapon type (e.g. spear, damage 1D8 + damage bonus)
+
+Dodge 25% (12/5)
+
+Armor: 1-point skin and scales.
+
+Sanity Loss:0/1D6 Sanity points to see adeep one.
+
+For centuries the deep ones have had to build their fabulous underwater cities, hidden in the deepest oceans for no man to see. Occasionally found in the diaries， memoirs, or tales of sailors, fishermen， and pearl divers are hints and claims of strange jewelry, huge worked stones (often encrusted with mother of pearl) and, of course, mermaids.
+
+If collected together, such stories might lead one to conclude that certain regions are host to immortal deep one communities. Names such as Ahu-y'hloa, Y'ha-nth-lei, and G'll-oo have been recorded.
+
+## Deep One Hybrid
+
+
+It was a thin, stoop-shouldered man not much under six feet tall... His age was perhaps thirty-five, but the odd, deep creases in the sides of his neck made him seem older when one did not study his dull, expressionless face. He had a narrow head, bulging, watery blue eyes that seemed never to wink, a flat nose, a receding forehead and chin, and singularly underdeveloped ears. His long, thick lip and coarse pored, greyish cheeks seemed almost beardless except for some sparse yellow hairs that straggled and curled in Deep One Hybrid
+
+irregular patches; and in places the surface seemed queerly iregular, as ifpeelingfrom some cutaneous disease.
+
+## -H.P. Lovecraft, The Shadow over Innsmouth
+
+Deep one hybrids are the progeny of deep one and human mating. Although the offspring of such unions are usually born as normal humans, changes in appearance and physiology tend to occur in late teens-commonly known as the "Innsmouth Look." By middle age, most hybrids display some form of gross deformity and such individuals retire to the privacy of their close-shuttered homes. Within a few years, the hybrid undergoes the final transformation into a deep one and embarks on a new life in the sea.
+
+The physical changes are accompanied by an awakening of new senses, strange dreams of undersea cities, and a longing to visit seaside locales-particularly ancestral homes or the individual's birth place.
+
+Typically, hybrids inhabit remote coastal villages, however they can be found further afield (particularly in the early stages of their transformation). As the final transformations take place the hybrid either learns to embrace their monstrous heritage or goes mad in the process.
+
+Deep ones will attempt to lure hybrids to their lairs or places of safety, where they can supervise the final metamorphosis and ensure the hybrid is appropriately schooled in their shared heritage. About 10% of hybrids do not complete the transformation and are doomed to spend the rest of their life as a half-human half-deep one, while a further 10% do not undergo the metamorphosis at all with the deep one genes essentially missing a generation一only to manifest in a future descendent.
+
+## SPECIAL POWERS
+
+Breathe underwater: Hybrids are unable to breathe under-water until they have undergone the full change into a deep one; however, from early childhood onwards they can remain underwater for up to twice as long as the average human.
+
+Spells: Older hybrids who have begun to embrace their watery heritage have a 10% chance of knowing 1D3 spells.
+
+## DEEP ONE HYBRID, Innsmouth-tainted progeny
+
+<table><tr><td>char.</td><td>averages</td><td> rolls</td></tr><tr><td> STR</td><td>65</td><td>(2D6+6 ×5)</td></tr><tr><td>CON</td><td>65</td><td>(2D6+6 ×5)</td></tr><tr><td>SIZ</td><td>50</td><td>(3D6 ×5)</td></tr><tr><td>DEX</td><td>65</td><td>(2D6+6 ×5)</td></tr><tr><td>INT</td><td>65</td><td>(2D6+6 x5)</td></tr><tr><td>POW</td><td>50</td><td>(3D6 x5)</td></tr><tr><td>APP</td><td>35</td><td>(2D6 ×5)</td></tr></table>
+
+HP: 11
+
+Average Damage Bonus: none. ld:0 Average Magic Points: 10 Move: 8/8 Swimming
+
+## ATTACKS
+
+Attacks per round: 1
+
+Fighting attacks: Deep one hybrids can use weapons as humans do. Fighting 45% (22/9),damage per weapon type + damage bnus, or unarmed (1D3) + damage bonus.
+
+Dodge 30% (15/6)
+
+Armor: None.
+
+Skills: Jump 45%, Listen 50%, Stealth 46%, Swim 60%.
+
+Sanity Loss: 0/1D4 Sanity points to see a deep one hybrid,although this may be increased (1/1D6+） for particularly monstrous specimens.
+
+## Dhole
+
+Below him the ground was festering with gigantic Dholes, and even as he looked, one reared up several hundred feet and levelled a bleached, viscous end at him.
+
+## -H.P. Lovecraft and E. Hoffman Price, Through the Gate ofthe Silver Key
+
+Dholes are gigantic wormlike burrowing horrors. They are not native to the Earth and none seem to have been brought here for more than brief periods, fortunately, for they seem to have riddled and laid waste to several other worlds. They dislike light, though it does not visibly harm them. They are only rarely seen in daylight, and then only on planets that they have thoroughly conquered. Some unknown relation between dholes and chthonians may exist. Similar creatures, bholes, exist in the Dreamlands.

@@ -75,7 +75,7 @@
       "magazine": null,
       "malfunction": 95,
       "impales": true,
-      "adds_damage_bonus": true,
+      "adds_damage_bonus": false,
       "special": "awkward: double fumble chance; fumble causes 2D8 to user",
       "eras": [
         "modern"
@@ -261,7 +261,7 @@
       "magazine": null,
       "malfunction": null,
       "impales": true,
-      "adds_damage_bonus": true,
+      "adds_damage_bonus": false,
       "special": null,
       "eras": [
         "1920s",
@@ -278,8 +278,8 @@
       "magazine": 1,
       "malfunction": 97,
       "impales": false,
-      "adds_damage_bonus": false,
-      "special": "uses half DB",
+      "adds_damage_bonus": true,
+      "special": "uses half DB (not full)",
       "eras": [
         "1920s",
         "modern"
@@ -612,7 +612,7 @@
       "malfunction": null,
       "impales": false,
       "adds_damage_bonus": true,
-      "special": "+half DB",
+      "special": "uses half DB (not full)",
       "eras": [
         "modern"
       ],
@@ -1547,6 +1547,136 @@
         "modern"
       ],
       "damage_type": "normal"
+    },
+    "44_magnum_revolver": {
+      "display_name": ".44 Magnum Revolver",
+      "skill": "Firearms (handgun)",
+      "damage_die": "1D10+1D4+2",
+      "base_range_yards": 15,
+      "uses_per_round": "1(3)",
+      "magazine": 6,
+      "malfunction": 100,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "modern"
+      ],
+      "damage_type": "impale"
+    },
+    "58_springfield_rifle_musket": {
+      "display_name": ".58 Springfield Rifle Musket",
+      "skill": "Firearms (rifle)",
+      "damage_die": "1D10+4",
+      "base_range_yards": 60,
+      "uses_per_round": "1/4",
+      "magazine": 1,
+      "malfunction": 95,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "modern"
+      ],
+      "damage_type": "impale"
+    },
+    "30_lever_action_carbine": {
+      "display_name": ".30 Lever- Action Carbine",
+      "skill": "Firearms (rifle)",
+      "damage_die": "2D6",
+      "base_range_yards": 50,
+      "uses_per_round": "1",
+      "magazine": 6,
+      "malfunction": 98,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "1920s",
+        "modern"
+      ],
+      "damage_type": "impale"
+    },
+    "45_martini_henry_rifle": {
+      "display_name": ".45 Martini- Henry Rifle",
+      "skill": "Firearms (rifle)",
+      "damage_die": "1D8+1D6+3",
+      "base_range_yards": 80,
+      "uses_per_round": "1/3",
+      "magazine": 1,
+      "malfunction": 100,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "1920s"
+      ],
+      "damage_type": "impale"
+    },
+    "30_06_bolt_action_rifle": {
+      "display_name": ".30-06 Bolt- Action Rifle",
+      "skill": "Firearms (rifle)",
+      "damage_die": "2D6+4",
+      "base_range_yards": 110,
+      "uses_per_round": "1",
+      "magazine": 5,
+      "malfunction": 100,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "1920s",
+        "modern"
+      ],
+      "damage_type": "impale"
+    },
+    "30_06_semi_automatic_rifle": {
+      "display_name": ".30-06 Semi- Automatic Rifle",
+      "skill": "Firearms (rifle)",
+      "damage_die": "2D6+4",
+      "base_range_yards": 110,
+      "uses_per_round": "1",
+      "magazine": 5,
+      "malfunction": 100,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "modern"
+      ],
+      "damage_type": "impale"
+    },
+    "444_marlin_rifle": {
+      "display_name": ".444 Marlin Rifle",
+      "skill": "Firearms (rifle)",
+      "damage_die": "2D8+4",
+      "base_range_yards": 110,
+      "uses_per_round": "1",
+      "magazine": 5,
+      "malfunction": 98,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "modern"
+      ],
+      "damage_type": "impale"
+    },
+    "30_browning_m1917a1": {
+      "display_name": ".30 Browning M1917A1",
+      "skill": "Firearms (MG)",
+      "damage_die": "2D6+4",
+      "base_range_yards": 150,
+      "uses_per_round": "Full auto",
+      "magazine": 250,
+      "malfunction": 96,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "1920s"
+      ],
+      "damage_type": "impale"
     }
   },
   "rule_refs": {
