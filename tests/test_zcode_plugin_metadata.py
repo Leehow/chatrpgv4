@@ -38,11 +38,15 @@ def test_zcode_plugin_manifest_uses_zcode_shape_not_codex_interface():
 
     assert manifest["name"] == "coc-keeper"
     assert manifest["version"] == "0.1.0"
+    assert manifest["license"] == "Apache-2.0"
     # ZCode plugins point at the skills dir without the ./ prefix and have no
     # Codex-style interface block.
     assert manifest["skills"] == "skills"
     assert "interface" not in manifest
     assert "Call of Cthulhu" in manifest["description"]
+
+    package = json.loads((ZCODE_ROOT / "package.json").read_text())
+    assert package["license"] == "Apache-2.0"
 
 
 def test_zcode_plugin_has_no_codex_only_artifacts():

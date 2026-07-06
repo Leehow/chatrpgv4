@@ -19,6 +19,15 @@ def test_plugin_manifest_declares_coc_keeper_skill_plugin():
     assert "Call of Cthulhu" in manifest["description"]
 
 
+def test_repository_declares_apache_2_license():
+    license_path = Path("LICENSE")
+    assert license_path.exists()
+
+    text = license_path.read_text()
+    assert "Apache License" in text
+    assert "Version 2.0" in text
+
+
 def test_repo_marketplace_exposes_coc_keeper_plugin():
     marketplace_path = Path(".agents/plugins/marketplace.json")
     assert marketplace_path.exists()

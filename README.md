@@ -174,3 +174,7 @@ The combat engine (`scripts/coc_combat.py`) implements the full Chapter 6 system
 - **Structured state**: `save/combat.json` (participants, rounds, turns, damage_chain) — audit verifies from state alone
 
 See `docs/superpowers/specs/2026-07-05-combat-state-design.md` for the full design.
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).

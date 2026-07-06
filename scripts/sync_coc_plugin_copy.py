@@ -41,7 +41,7 @@ ZCODE_MANIFEST = {
     "author": {
         "name": "Local developer",
     },
-    "license": "MIT",
+    "license": "Apache-2.0",
     "skills": "skills",
 }
 
@@ -50,7 +50,7 @@ ZCODE_PACKAGE = {
     "name": "@zcode/coc-keeper-plugin",
     "version": "0.1.0",
     "private": True,
-    "license": "MIT",
+    "license": "Apache-2.0",
     "description": "Call of Cthulhu Keeper mode plugin published as a ZCode plugin.",
 }
 
