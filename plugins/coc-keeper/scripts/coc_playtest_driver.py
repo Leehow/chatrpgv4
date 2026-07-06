@@ -32,6 +32,130 @@ def _load_sibling(name: str, filename: str):
 
 director = _load_sibling("coc_story_director", "coc_story_director.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
+coc_roll = _load_sibling("coc_roll", "coc_roll.py")
+
+
+def _execute_rules_requests(plan: dict, character: dict, rng: random.Random) -> list[dict]:
+    """Execute skill_check rules_requests from the plan. Returns roll records.
+
+    For each {kind: "skill_check", skill: "Spot Hidden", difficulty: "regular"}:
+    - read the skill value from character["skills"] as target
+    - call coc_roll.percentile_check(target, difficulty, rng)
+    - record {skill, target, difficulty, roll, outcome, success}
+
+    Skills not found in character default to target 50 (competent amateur).
+    Non-skill_check requests (e.g. sanity_check) are skipped (recorded as {kind, skipped: True}).
+    """
+    results = []
+    for req in plan.get("rules_requests", []):
+        kind = req.get("kind", "")
+        skill = req.get("skill", "")
+        if kind == "skill_check":
+            skills = character.get("skills", {})
+            target = skills.get(skill, 50)
+            difficulty = req.get("difficulty", "regular")
+            roll_result = coc_roll.percentile_check(target, difficulty=difficulty, rng=rng)
+            results.append({
+                "kind": "skill_check",
+                "skill": skill,
+                "target": target,
+                "difficulty": difficulty,
+                "roll": roll_result["roll"],
+                "outcome": roll_result["outcome"],
+                "success": roll_result["outcome"] not in ("failure", "fumble"),
+                "reason": req.get("reason", ""),
+            })
+        else:
+            results.append({"kind": kind, "skill": skill, "skipped": True,
+                            "reason": "non-skill_check not yet wired in driver"})
+    return results
+
+
+def _outcome_zh(outcome: str) -> str:
+    """Map outcome enum to Chinese narration hint."""
+    return {
+        "critical": "大成功",
+        "extreme": "极限成功",
+        "hard": "困难成功",
+        "regular": "常规成功",
+        "failure": "失败",
+        "fumble": "大失败",
+    }.get(outcome, outcome)
+
+
+def _build_narration_skeleton(plan: dict, roll_results: list[dict]) -> dict:
+    """Build a structured narration skeleton from the plan's directives + roll results.
+
+    This is NOT prose — it's the narrator's input contract made visible, so D3
+    (narrative immersion) becomes evaluable: can an LLM narrator write good prose
+    from this skeleton? Does it have tone/anchors/constraints/roll-weaving?
+
+    Returns:
+        {
+            "tone": [...],                    # scene atmosphere cues
+            "dramatic_question": str,         # scene purpose
+            "beats": [str, ...],              # action-driven narration beats
+            "must_include": [...],            # anchors narrator must surface
+            "must_not_reveal_count": int,     # keeper secrets (count only, don't list)
+            "content_constraints": [...],     # safety flags passed through
+            "horror_stage": str,
+            "embedded_rolls": [...],          # roll results woven into narrative position
+        }
+    """
+    nd = plan.get("narrative_directives", {})
+    action = plan.get("scene_action", "")
+    beats = []
+
+    # action-driven beats
+    clue_policy = plan.get("clue_policy", {})
+    if action == "REVEAL" and clue_policy.get("reveal"):
+        anchors = nd.get("must_include", [])
+        for i, clue_id in enumerate(clue_policy["reveal"]):
+            anchor = anchors[i] if i < len(anchors) else "(no anchor)"
+            beats.append(f"揭示线索 {clue_id}：{anchor}")
+    elif action == "PRESSURE":
+        for mv in plan.get("pressure_moves", []):
+            beats.append(f"施压：{mv.get('visible_symptom', 'tension rises')}")
+    elif action == "CHARACTER":
+        for nm in plan.get("npc_moves", []):
+            beats.append(f"NPC {nm.get('npc_id','?')}：{nm.get('agenda','?')}，语气 {nm.get('emotional_tone','?')}")
+    elif action == "RECOVER":
+        fallback = clue_policy.get("fallback_routes", [])
+        beats.append(f"扶手：建议方向 {fallback}" if fallback else "扶手：玩家卡住，给方向")
+    elif action == "SUBSYSTEM":
+        for req in plan.get("rules_requests", []):
+            beats.append(f"规则事件：{req.get('skill', req.get('kind','?'))} 检定")
+    elif action == "CHOICE":
+        leads = clue_policy.get("leads", [])
+        beats.append(f"给选择：{leads}" if leads else "给玩家方向选择")
+    elif action == "CUT":
+        beats.append("转场到下一场景")
+    elif action == "DEEPEN":
+        beats.append("深化谜团但不给结论")
+
+    # embedded rolls — weave results into narrative-ready format
+    embedded_rolls = []
+    for r in roll_results:
+        if r.get("skipped"):
+            continue
+        embedded_rolls.append({
+            "skill": r["skill"],
+            "roll": r["roll"],
+            "target": r["target"],
+            "outcome": r["outcome"],
+            "narration_hook": f"{r['skill']} 检定 {r['roll']}/{r['target']} {_outcome_zh(r['outcome'])}",
+        })
+
+    return {
+        "tone": nd.get("tone", []),
+        "dramatic_question": plan.get("dramatic_question", ""),
+        "beats": beats,
+        "must_include": nd.get("must_include", []),
+        "must_not_reveal_count": len(nd.get("must_not_reveal", [])),
+        "content_constraints": nd.get("content_constraints", []),
+        "horror_stage": nd.get("horror_escalation_stage", ""),
+        "embedded_rolls": embedded_rolls,
+    }
 
 
 def run_full_session(
@@ -73,6 +197,9 @@ def run_full_session(
             total_clues.add(cl.get("clue_id"))
     scene_ids = [s["scene_id"] for s in story.get("scenes", [])]
 
+    # load character once for rules execution (skill values are static per session)
+    character = apply_mod._read_json(character_path, {})
+
     for turn_num in range(1, max_turns + 1):
         if turn_num - 1 < len(player_choices):
             choice = player_choices[turn_num - 1]
@@ -89,6 +216,13 @@ def run_full_session(
             ctx["rule_signals"][k] = v
 
         plan = director.generate_director_plan(ctx, decision_id=f"turn-{turn_num:03d}")
+
+        # execute rules layer (D1) — roll any skill_check requests
+        roll_results = _execute_rules_requests(plan, character, rng)
+
+        # build narration skeleton (D3) — make narrator contract visible
+        narration = _build_narration_skeleton(plan, roll_results)
+
         events = apply_mod.apply_plan(campaign_dir, plan, investigator_id)
 
         # record
@@ -112,8 +246,11 @@ def run_full_session(
             "tension": tension,
             "horror_stage": plan.get("narrative_directives", {}).get("horror_escalation_stage"),
             "events_count": len(events),
+            "events_detail": events,  # full events, not just count (D5)
             "scene_transition": any(e.get("event_type") == "scene_transition" for e in events),
-            "dramatic_question": plan.get("dramatic_question", "")[:80],
+            "dramatic_question": plan.get("dramatic_question", ""),  # no truncation (D5 fix)
+            "rules_executed": roll_results,  # dice/outcomes (D1)
+            "narration": narration,  # narration skeleton (D3)
         })
 
         # check terminal: reached last scene
