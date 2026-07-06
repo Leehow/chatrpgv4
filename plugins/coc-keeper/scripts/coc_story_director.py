@@ -69,7 +69,7 @@ def build_director_context(
     max_san = 99  # simplified; spec's believer-bomb is v2
     credit_rating = char_skills.get("Credit Rating", 0)
     app = char_chars.get("APP", 50)
-    luck = char_chars.get("LUCK", 50)
+    luck = char_derived.get("Luck") or char_chars.get("LUCK", 50)
 
     recent_intents = pacing.get("recent_intent_classes", [])
     rule_signals = {
