@@ -1,0 +1,8 @@
+{
+  "player_intent": "不知道该干什么",
+  "player_intent_class": "stuck",
+  "rng_seed": 42,
+  "signal_overrides": {
+    "stalled_turns": 3
+  }
+}

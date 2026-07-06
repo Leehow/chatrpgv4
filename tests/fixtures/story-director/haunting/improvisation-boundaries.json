@@ -1,0 +1,5 @@
+{
+  "invent_allowed": ["minor locals", "weather"],
+  "never_invent": ["new supernatural facts"],
+  "keeper_secrets": ["secret-basement-truth", "secret-antagonist-mechanics"]
+}

@@ -1,0 +1,62 @@
+{
+  "conclusions": [
+    {
+      "conclusion_id": "conclusion-history-link",
+      "importance": "critical",
+      "minimum_routes": 3,
+      "clues": [
+        {
+          "clue_id": "clue-job-briefing",
+          "delivery_kind": "handout",
+          "visibility": "player-safe",
+          "player_safe_summary": "一条关于房子历史的线索"
+        },
+        {
+          "clue_id": "clue-history-link",
+          "delivery_kind": "skill_check",
+          "skill": "Library Use",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "player_safe_summary": "档案中显示房子的过往记录"
+        },
+        {
+          "clue_id": "clue-old-lawsuit",
+          "delivery_kind": "skill_check",
+          "skill": "Library Use",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "player_safe_summary": "一份与房子相关的旧诉讼记录"
+        }
+      ],
+      "fallback_policy": "drop clue if 2 missed"
+    },
+    {
+      "conclusion_id": "conclusion-house-anomaly",
+      "importance": "critical",
+      "minimum_routes": 3,
+      "clues": [
+        {
+          "clue_id": "clue-physical-anomaly",
+          "delivery_kind": "skill_check",
+          "skill": "Spot Hidden",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "player_safe_summary": "房子里的一处异常迹象"
+        },
+        {
+          "clue_id": "clue-neighbor-rumor",
+          "delivery_kind": "npc_dialogue",
+          "visibility": "player-safe",
+          "player_safe_summary": "邻居提到的一则传闻"
+        },
+        {
+          "clue_id": "clue-old-records",
+          "delivery_kind": "handout",
+          "visibility": "player-safe",
+          "player_safe_summary": "一份记录房子的旧资料"
+        }
+      ],
+      "fallback_policy": "drop clue if 2 missed"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "player_intent": "我检查门框",
+  "player_intent_class": "investigate",
+  "rng_seed": 42,
+  "signal_overrides": {
+    "last_roll_fumble": true
+  }
+}

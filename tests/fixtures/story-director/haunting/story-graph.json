@@ -1,0 +1,40 @@
+{
+  "scenes": [
+    {
+      "scene_id": "client-briefing",
+      "scene_type": "social",
+      "dramatic_question": "玩家是否接受委托并理解要先调查？",
+      "entry_conditions": ["scenario start"],
+      "exit_conditions": ["accept job"],
+      "available_clues": ["clue-job-briefing"],
+      "npc_ids": ["npc-client"],
+      "pressure_moves": [],
+      "tone": ["formal"],
+      "allowed_improvisation": ["minor client small talk"]
+    },
+    {
+      "scene_id": "archive-research",
+      "scene_type": "investigation",
+      "dramatic_question": "玩家能否从档案里找到房子的历史关联？",
+      "entry_conditions": ["player seeks records"],
+      "exit_conditions": ["clue-history-link discovered"],
+      "available_clues": ["clue-history-link", "clue-old-lawsuit"],
+      "npc_ids": ["npc-archivist"],
+      "pressure_moves": [],
+      "tone": ["quiet"],
+      "allowed_improvisation": ["minor archive staff"]
+    },
+    {
+      "scene_id": "house-entry",
+      "scene_type": "investigation",
+      "dramatic_question": "玩家进入房子后能否察觉异常？",
+      "entry_conditions": ["player enters house"],
+      "exit_conditions": ["player retreats or confrontation"],
+      "available_clues": ["clue-physical-anomaly"],
+      "npc_ids": [],
+      "pressure_moves": [],
+      "tone": ["eerie"],
+      "allowed_improvisation": ["minor room details"]
+    }
+  ]
+}

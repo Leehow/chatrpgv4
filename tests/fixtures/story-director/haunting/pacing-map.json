@@ -1,0 +1,19 @@
+{
+  "pacing_curve": [
+    {
+      "scene_id": "client-briefing",
+      "tension_target": "low",
+      "horror_stage": "ordinary"
+    },
+    {
+      "scene_id": "archive-research",
+      "tension_target": "medium",
+      "horror_stage": "wrongness"
+    },
+    {
+      "scene_id": "house-entry",
+      "tension_target": "high",
+      "horror_stage": "pattern"
+    }
+  ]
+}

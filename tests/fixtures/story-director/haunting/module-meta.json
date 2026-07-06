@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "scenario_id": "haunting-fixture",
+  "title": "Sanitized Investigation Fixture",
+  "structure_type": "branching_investigation",
+  "era": "1920s",
+  "content_flags": [],
+  "win_condition": "resolve_or_survive"
+}

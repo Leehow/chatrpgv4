@@ -1,0 +1,5 @@
+{
+  "player_intent": "我想先去档案馆查这栋房子的历史",
+  "player_intent_class": "investigate",
+  "rng_seed": 42
+}

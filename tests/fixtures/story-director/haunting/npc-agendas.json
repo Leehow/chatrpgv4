@@ -1,0 +1,18 @@
+{
+  "npcs": [
+    {
+      "npc_id": "npc-client",
+      "agenda": "wants investigation done quickly",
+      "fear": "losing money",
+      "secret": "secret-client-doubts",
+      "voice": "businesslike"
+    },
+    {
+      "npc_id": "npc-archivist",
+      "agenda": "helpful if treated respectfully",
+      "fear": "trouble",
+      "secret": "",
+      "voice": "terse"
+    }
+  ]
+}

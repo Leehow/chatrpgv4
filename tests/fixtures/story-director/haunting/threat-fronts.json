@@ -1,0 +1,16 @@
+{
+  "fronts": [
+    {
+      "front_id": "awareness",
+      "scope": "scenario",
+      "clocks": [
+        {
+          "clock_id": "antagonist-alert",
+          "segments": 6,
+          "on_tick_visible": ["tension rises"],
+          "on_full": "direct confrontation"
+        }
+      ]
+    }
+  ]
+}
