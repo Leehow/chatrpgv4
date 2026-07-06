@@ -1044,6 +1044,40 @@ def _write_campaign_save_and_indexes(campaign_dir: Path) -> None:
         "by_ref": by_ref,
     })
 
+    # Time layer: initialize if missing (so director/apply can use it)
+    _time_state_path = campaign_dir / "save" / "time-state.json"
+    if not _time_state_path.exists():
+        era = campaign.get("era", "1920s")
+        _era_clocks = {
+            "1920s": {"calendar_mode": "gregorian", "local_datetime": "1925-01-15T20:00:00", "display": "1925-01-15 20:00"},
+            "modern": {"calendar_mode": "gregorian", "local_datetime": "2025-01-15T20:00:00", "display": "2025-01-15 20:00"},
+        }
+        _ec = _era_clocks.get(era, {"calendar_mode": "relative", "local_datetime": None, "display": ""})
+        _write_json(_time_state_path, {
+            "schema_version": 1, "campaign_id": campaign_id,
+            "timeline_id": "tl-main", "branch_id": "main", "forked_from": None,
+            "sequence": 0,
+            "clock": {"elapsed_minutes": 0, "scale": "scene",
+                       "calendar_mode": _ec["calendar_mode"],
+                       "local_datetime": _ec["local_datetime"],
+                       "timezone": None, "location_id": None,
+                       "display": _ec["display"]},
+            "anchors": {"campaign_start_elapsed": 0, "last_rest_elapsed": 0,
+                        "last_safe_place_elapsed": 0, "last_scene_change_elapsed": 0},
+            "sanity_periods": {}, "safe_place": False,
+        })
+        _write_json(campaign_dir / "save" / "time-triggers.json", {"schema_version": 1, "triggers": []})
+    _pacing_path = campaign_dir / "save" / "pacing-state.json"
+    if not _pacing_path.exists():
+        _write_json(_pacing_path, {
+            "schema_version": 1, "campaign_id": campaign_id,
+            "tension_level": "low", "lethal_chances_used": 0,
+            "recent_intent_classes": [], "turn_number": 0, "luck_spent_last": 0,
+        })
+    _time_log = campaign_dir / "logs" / "time.jsonl"
+    if not _time_log.exists():
+        _time_log.touch()
+
     combat_rows = [event for event in events if event.get("type") == "combat"]
     combat_roll_rows = [row for row in rolls if row.get("type") == "combat"]
     if combat_rows or combat_roll_rows:
