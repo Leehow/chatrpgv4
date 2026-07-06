@@ -494,67 +494,6 @@
       "source_page": 256
     },
     {
-      "name": "Bargain with Nyogtha",
-      "alternative_names": [],
-      "cost_mp": "5",
-      "cost_pow": "0",
-      "cost_sanity": "1D6",
-      "description": "Opens a pact with the dweller Nyogtha to exchange service for power.",
-      "source_page": 257,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined.",
-      "pow_cost": "variable"
-    },
-    {
-      "name": "Blast of Power",
-      "alternative_names": [],
-      "cost_mp": "10",
-      "cost_pow": "0",
-      "cost_sanity": "1D4",
-      "description": "Hurls a bolt of pure magical force at a single target.",
-      "source_page": 258,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Bone Gleam",
-      "alternative_names": [],
-      "cost_mp": "3",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Coats bone with a protective sheen that wards against breakage.",
-      "source_page": 259,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Cursed Wound",
-      "alternative_names": [],
-      "cost_mp": "6",
-      "cost_pow": "0",
-      "cost_sanity": "1D4",
-      "description": "Ensures a wound inflicted will not heal by ordinary means.",
-      "source_page": 260,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Drain Life",
-      "alternative_names": [],
-      "cost_mp": "5",
-      "cost_pow": "0",
-      "cost_sanity": "1D4",
-      "description": "Siphons life force from a victim to restore the caster.",
-      "source_page": 261,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
-      "name": "Eldritch Sign",
-      "alternative_names": [],
-      "cost_mp": "4",
-      "cost_pow": "0",
-      "cost_sanity": "1",
-      "description": "Inscribes a sign that repels Mythos entities.",
-      "source_page": 262,
-      "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
-    },
-    {
       "name": "Enslave Mind",
       "alternative_names": [],
       "cost_mp": "12",

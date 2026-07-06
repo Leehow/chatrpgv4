@@ -29,7 +29,7 @@ EXPECTED_MIN_COUNTS = {
     "skills": (78, "skills"),          # ~80 incl specializations
     "characteristic-dice": (9, "characteristics"),
     "occupations": (28, "occupations"),
-    "spells": (80, "spells"),          # Grimoire ~85
+    "spells": (77, "spells"),          # Grimoire ~85; 77 verified real (6 fabricated removed)
     "tomes": (15, "tomes"),
     "monsters": (25, "monsters"),
     "phobias": (100, "phobias"),       # Table IX p160 = exactly 100
