@@ -732,6 +732,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "must_not_reveal": ctx.get("improvisation_boundaries", {}).get("keeper_secrets", []),
         "improvisation_allowed": ctx.get("improvisation_boundaries", {}).get("invent_allowed", []),
         "horror_escalation_stage": horror_stage,
+        "content_constraints": ctx.get("module_meta", {}).get("content_flags", []),
     }
 
     # v2: populate memory_reads from the memory layer. PAYOFF actions mark the

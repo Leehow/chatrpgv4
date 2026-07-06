@@ -59,10 +59,16 @@ def assert_plan(plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "passed": True,  # v1: keeper secrets cover this; soft check
         "detail": "must_not_reveal populated",
     }
-    # --- safety ---
+    # --- safety: content constraint chain ---
+    # We verify the director passed content_constraints through to the plan.
+    # We CANNOT machine-judge whether narration "crosses a line" — that is LLM
+    # semantic judgment guided by keeper-play SKILL.md. Here we only check the
+    # structural contract: the field exists (even if empty for low-content modules).
+    has_cc_field = "content_constraints" in directives
+    cc_value = directives.get("content_constraints", None)
     findings["safety_content_boundary"] = {
-        "passed": True,
-        "detail": "content flags handled at compile time",
+        "passed": has_cc_field and isinstance(cc_value, list),
+        "detail": f"content_constraints={'present' if has_cc_field else 'MISSING'} ({len(cc_value or [])} flags)",
     }
     # --- memory (soft): no recap dump ---
     # The director recalls up to N cards per turn; >5 means it is dumping the

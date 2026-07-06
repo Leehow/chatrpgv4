@@ -68,6 +68,7 @@ def test_well_formed_plan_passes_all_checks(tmp_path):
         "tone_present", "must_not_reveal_populated", "dramatic_question_present",
         "horror_stage_valid", "handoff_consistency", "clue_policy_no_secret_leak",
         "scene_action_narratable", "rationale_present",
+        "content_constraints_passed_through",
     }
     failed = {k: v for k, v in findings.items() if not v["passed"]}
     assert failed == {}, f"unexpected failures: {failed}"
@@ -199,3 +200,49 @@ def test_cli_usage_error_exits_2(tmp_path, capsys):
     err = capsys.readouterr().err
     assert rc == 2
     assert "usage" in err
+
+
+# ---------------------------------------------------------------------------
+# Content-constraint chain (Spec S1/S2): meta flags must reach the plan
+# ---------------------------------------------------------------------------
+def _make_scenario_with_meta(tmp_path, content_flags):
+    """Scenario dir with both improvisation-boundaries and module-meta.json."""
+    scenario_dir = _make_scenario(tmp_path)
+    (scenario_dir / "module-meta.json").write_text(json.dumps({
+        "schema_version": 1, "scenario_id": "m",
+        "content_flags": content_flags,
+    }))
+    return scenario_dir
+
+
+def test_content_flags_in_meta_missing_from_plan_fails_chain(tmp_path):
+    """meta has content_flags but plan omits them -> chain NOT closed -> FAIL."""
+    scenario_dir = _make_scenario_with_meta(
+        tmp_path, content_flags=["cannibalism", "body_horror"])
+    plan = _good_plan()
+    # _good_plan has no content_constraints -> meta flags missing from plan
+    plan["narrative_directives"]["content_constraints"] = []
+    findings = cnc.assert_narration_ready(plan, scenario_dir)
+    assert findings["content_constraints_passed_through"]["passed"] is False
+    detail = findings["content_constraints_passed_through"]["detail"]
+    assert "cannibalism" in detail and "body_horror" in detail
+    assert cnc.is_narration_ready(plan, scenario_dir) is False
+
+
+def test_content_flags_in_meta_present_in_plan_passes_chain(tmp_path):
+    """meta flags mirrored in plan.content_constraints -> chain closed -> PASS."""
+    scenario_dir = _make_scenario_with_meta(
+        tmp_path, content_flags=["cannibalism", "body_horror"])
+    plan = _good_plan()
+    plan["narrative_directives"]["content_constraints"] = ["cannibalism", "body_horror"]
+    findings = cnc.assert_narration_ready(plan, scenario_dir)
+    assert findings["content_constraints_passed_through"]["passed"] is True
+
+
+def test_no_module_meta_passes_chain_cannot_verify(tmp_path):
+    """Scenario without module-meta.json -> check passes (cannot verify)."""
+    scenario_dir = _make_scenario(tmp_path)  # no module-meta written
+    plan = _good_plan()
+    findings = cnc.assert_narration_ready(plan, scenario_dir)
+    assert findings["content_constraints_passed_through"]["passed"] is True
+    assert "cannot verify" in findings["content_constraints_passed_through"]["detail"]

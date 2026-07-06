@@ -73,6 +73,26 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
                    f"missing_from_mnr={missing}"),
     }
 
+    # 2b. content_constraints_passed_through --------------------------------
+    # If the scenario has content_flags in module-meta, they MUST appear in the
+    # plan's narrative_directives.content_constraints. This verifies the safety
+    # constraint chain is closed (flags -> plan -> narrator). We do NOT judge
+    # whether content "crosses a line" — that is LLM semantic judgment.
+    meta_path = scenario_dir / "module-meta.json"
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta_flags = set(meta.get("content_flags", []) or [])
+        plan_flags = set(directives.get("content_constraints", []) or [])
+        chain_closed = meta_flags.issubset(plan_flags)
+        findings["content_constraints_passed_through"] = {
+            "passed": chain_closed,
+            "detail": f"meta_flags={sorted(meta_flags)} plan_flags={sorted(plan_flags)} missing={sorted(meta_flags - plan_flags)}",
+        }
+    else:
+        findings["content_constraints_passed_through"] = {
+            "passed": True, "detail": "no module-meta (cannot verify)",
+        }
+
     # 3. dramatic_question_present -----------------------------------------
     dq = plan.get("dramatic_question", "")
     findings["dramatic_question_present"] = {

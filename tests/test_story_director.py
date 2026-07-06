@@ -498,3 +498,27 @@ def test_resolve_delivery_skill_check_missing_skill_defaults_spot_hidden(tmp_pat
     rr = plan["rules_requests"]
     # falls back to Spot Hidden / regular when skill missing
     assert any(r["skill"] == "Spot Hidden" and r["difficulty"] == "regular" for r in rr)
+
+
+def test_content_constraints_passed_from_module_meta(tmp_path):
+    """content_flags in module-meta reach narrative_directives.content_constraints."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # rewrite module-meta to add content_flags
+    mm = json.loads((camp / "scenario" / "module-meta.json").read_text())
+    mm["content_flags"] = ["cannibalism", "body_horror"]
+    (camp / "scenario" / "module-meta.json").write_text(json.dumps(mm))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "cc-test")
+    assert plan["narrative_directives"]["content_constraints"] == ["cannibalism", "body_horror"]
+
+
+def test_content_constraints_empty_when_no_flags(tmp_path):
+    """No content_flags in module-meta -> content_constraints is [] (not missing)."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "cc-empty")
+    assert plan["narrative_directives"]["content_constraints"] == []
