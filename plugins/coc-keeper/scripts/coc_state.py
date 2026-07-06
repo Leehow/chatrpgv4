@@ -206,6 +206,7 @@ def create_campaign(
     title: str,
     era: str = "1920s",
     play_language: str = DEFAULT_PLAY_LANGUAGE,
+    start_clock: dict[str, Any] | None = None,
 ) -> Path:
     ensure_workspace(root)
     campaign_dir = coc_root(root) / "campaigns" / campaign_id
@@ -232,12 +233,18 @@ def create_campaign(
     }
     campaign_path = campaign_dir / "campaign.json"
     write_json_atomic(campaign_path, campaign)
-    _initialize_campaign_runtime_files(campaign_dir, campaign_id)
+    _initialize_campaign_runtime_files(campaign_dir, campaign_id, era=era, start_clock=start_clock)
     _upsert_campaign_index(root, campaign_id)
     return campaign_path
 
 
-def _initialize_campaign_runtime_files(campaign_dir: Path, campaign_id: str) -> None:
+def _initialize_campaign_runtime_files(
+    campaign_dir: Path,
+    campaign_id: str,
+    *,
+    era: str = "1920s",
+    start_clock: dict[str, Any] | None = None,
+) -> None:
     _write_json_if_missing(
         campaign_dir / "save" / "world-state.json",
         {
@@ -296,6 +303,49 @@ def _initialize_campaign_runtime_files(campaign_dir: Path, campaign_id: str) -> 
             "luck_spent_last": 0,
         },
     )
+    # Time-state: derive initial clock from era or explicit start_clock
+    _ERA_CLOCKS = {
+        "1920s": {
+            "calendar_mode": "gregorian",
+            "local_datetime": "1925-01-15T20:00:00",
+            "timezone": "America/New_York",
+            "display": "1925-01-15 20:00",
+        },
+        "modern": {
+            "calendar_mode": "gregorian",
+            "local_datetime": "2025-01-15T20:00:00",
+            "timezone": "America/New_York",
+            "display": "2025-01-15 20:00",
+        },
+        "roman": {
+            "calendar_mode": "relative",
+            "local_datetime": None,
+            "timezone": None,
+            "display": "",
+        },
+    }
+    era_clock = _ERA_CLOCKS.get(era, _ERA_CLOCKS["1920s"])
+    if start_clock:
+        # Explicit start_clock from scenario binding overrides era defaults
+        clock = {
+            "elapsed_minutes": 0,
+            "scale": start_clock.get("scale", "scene"),
+            "calendar_mode": start_clock.get("calendar_mode", era_clock["calendar_mode"]),
+            "local_datetime": start_clock.get("local_datetime", era_clock["local_datetime"]),
+            "timezone": start_clock.get("timezone", era_clock["timezone"]),
+            "location_id": start_clock.get("location_id"),
+            "display": start_clock.get("display", era_clock["display"]),
+        }
+    else:
+        clock = {
+            "elapsed_minutes": 0,
+            "scale": "scene",
+            "calendar_mode": era_clock["calendar_mode"],
+            "local_datetime": era_clock["local_datetime"],
+            "timezone": era_clock["timezone"],
+            "location_id": None,
+            "display": era_clock["display"],
+        }
     _write_json_if_missing(
         campaign_dir / "save" / "time-state.json",
         {
@@ -305,15 +355,7 @@ def _initialize_campaign_runtime_files(campaign_dir: Path, campaign_id: str) -> 
             "branch_id": "main",
             "forked_from": None,
             "sequence": 0,
-            "clock": {
-                "elapsed_minutes": 0,
-                "scale": "scene",
-                "calendar_mode": "relative",
-                "local_datetime": None,
-                "timezone": None,
-                "location_id": None,
-                "display": "",
-            },
+            "clock": clock,
             "anchors": {
                 "campaign_start_elapsed": 0,
                 "last_rest_elapsed": 0,
