@@ -57,6 +57,21 @@ def test_apply_pressure_updates_pacing_turn(tmp_path):
     assert pacing["tension_level"] == "medium"  # low + 1 pressure tick -> medium
 
 
+def test_apply_records_recent_intent_classes(tmp_path):
+    """apply_plan must append the plan's turn_input.player_intent_class to
+    pacing['recent_intent_classes'] so read_stalled_turns can detect stalls.
+    Previously this was never written, so stalled recovery was dead."""
+    camp = _campaign(tmp_path)
+    plan = {"decision_id": "d-ic", "scene_action": "CHARACTER",
+            "clue_policy": {"reveal": []},
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+            "turn_input": {"player_intent": "我和NPC聊天", "player_intent_class": "social"}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing["recent_intent_classes"] == ["social"]
+
+
+
 def test_apply_writes_event_to_logs(tmp_path):
     camp = _campaign(tmp_path)
     plan = {"decision_id": "d3", "scene_action": "REVEAL",

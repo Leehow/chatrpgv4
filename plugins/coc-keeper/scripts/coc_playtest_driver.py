@@ -45,7 +45,8 @@ def run_full_session(
     """Run a multi-turn session. Each turn: build context → director plan → apply → record.
 
     player_choices is a list of {intent, intent_class, signal_overrides?}. If fewer
-    choices than max_turns, the last choice repeats. If more, extra are ignored.
+    choices than max_turns are given, remaining turns use idle intent (so the stalled
+    recovery valve can engage). If more, extra are ignored.
 
     Returns:
         {
@@ -73,7 +74,10 @@ def run_full_session(
     scene_ids = [s["scene_id"] for s in story.get("scenes", [])]
 
     for turn_num in range(1, max_turns + 1):
-        choice = player_choices[min(turn_num - 1, len(player_choices) - 1)]
+        if turn_num - 1 < len(player_choices):
+            choice = player_choices[turn_num - 1]
+        else:
+            choice = {"intent": "(no further instruction)", "intent_class": "idle"}
         ctx = director.build_director_context(
             campaign_dir=campaign_dir, character_path=character_path,
             investigator_id=investigator_id,
@@ -102,6 +106,7 @@ def run_full_session(
         turns.append({
             "turn": turn_num,
             "scene_id": current_scene,
+            "intent_class": choice.get("intent_class", "investigate"),
             "action": plan["scene_action"],
             "clue_revealed": plan.get("clue_policy", {}).get("reveal", []),
             "tension": tension,

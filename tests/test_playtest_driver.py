@@ -96,3 +96,26 @@ def test_driver_tension_curve_recorded(tmp_path):
     )
     assert len(result["tension_curve"]) == len(result["turns"])
     assert all(t in ("low", "medium", "high", "climax") for t in result["tension_curve"])
+
+
+def test_driver_idle_when_choices_exhausted(tmp_path):
+    """When player_choices is exhausted, the driver must use idle intent (not clamp
+    to the last choice). Otherwise the stalled recovery valve can never engage and
+    bugs are masked (e.g. last entry being 'social' would make every later turn
+    social)."""
+    camp, char_path = _build_mini_campaign(tmp_path)
+    result = driver.run_full_session(
+        camp, char_path, "inv1",
+        player_choices=[
+            {"intent": "search", "intent_class": "investigate"},
+            {"intent": "talk", "intent_class": "social"},
+        ],
+        max_turns=4,
+    )
+    # turns 1-2 use the supplied intent classes
+    assert result["turns"][0]["intent_class"] == "investigate"
+    assert result["turns"][1]["intent_class"] == "social"
+    # turns 3-4 (beyond the 2 supplied choices) fall back to idle
+    assert result["turns"][2]["intent_class"] == "idle"
+    assert result["turns"][3]["intent_class"] == "idle"
+

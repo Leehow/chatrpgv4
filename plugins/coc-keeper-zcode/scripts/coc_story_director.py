@@ -218,10 +218,14 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
     discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
 
     if action == "REVEAL":
-        if intent != "investigate":
-            return 0.0
         avail = [c for c in scene.get("available_clues", []) if c not in discovered]
-        return 0.9 if avail else 0.0
+        if not avail:
+            return 0.0
+        if intent == "investigate":
+            return 0.9
+        if intent == "social":
+            return 0.75
+        return 0.0
 
     if action == "DEEPEN":
         if intent not in ("investigate", "social"):

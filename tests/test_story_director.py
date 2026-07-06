@@ -156,6 +156,25 @@ def test_select_action_recover_when_stalled(tmp_path):
     assert action == "RECOVER"
 
 
+def test_reveal_social_intent_surfaces_clue(tmp_path):
+    """A social intent in a scene with an undiscovered clue (e.g. the NPC IS the
+    clue source) must still surface clues at a lower base score (0.75). Previously
+    REVEAL was gated only on investigate, so talking to a clue-bearing NPC could
+    never reveal clues."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我和那个NPC聊聊", player_intent_class="social",
+        rng=random.Random(42),
+    )
+    # _base_score is the structure-agnostic trigger layer; the fix lives here.
+    assert coc_story_director._base_score("REVEAL", ctx) == 0.75
+    # and investigate still scores higher
+    ctx["player_intent_class"] = "investigate"
+    assert coc_story_director._base_score("REVEAL", ctx) == 0.9
+
+
+
 def test_rule_override_dying_forces_subsystem(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     inv = json.loads((camp/"save"/"investigator-state"/"inv1.json").read_text())

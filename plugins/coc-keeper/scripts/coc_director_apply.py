@@ -105,6 +105,14 @@ def apply_plan(campaign_dir: Path, plan: dict[str, Any], investigator_id: str) -
     if tension_delta or action in ("PRESSURE", "SUBSYSTEM"):
         pacing["tension_level"] = _bump_tension(pacing.get("tension_level", "low"), max(1, tension_delta))
     pacing["turn_number"] = int(pacing.get("turn_number", 0)) + 1
+    # track recent intent classes for stall detection (capped at last 5)
+    recent = list(pacing.get("recent_intent_classes", []))
+    intent_class = plan.get("turn_input", {}).get("player_intent_class", "")
+    if intent_class:
+        recent.append(intent_class)
+        if len(recent) > 5:
+            recent = recent[-5:]
+    pacing["recent_intent_classes"] = recent
     # carry horror stage from plan into pacing for next-turn director read
     horror = plan.get("narrative_directives", {}).get("horror_escalation_stage")
     if horror:
