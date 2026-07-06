@@ -732,6 +732,36 @@
       "description": "Steps the caster between two points via the dreamlands.",
       "source_page": 286,
       "source_note": "Grand Grimoire of Cthulhu supplement; not in core Keeper Rulebook. Cost values are supplement-defined."
+    },
+    {
+      "name": "Find Gate",
+      "alternative_names": [],
+      "cost_mp": "1",
+      "pow_cost": null,
+      "sanity_cost": "1D3",
+      "casting_time": "20-60 minutes\nThrough a series of gestures and a specific ch",
+      "description": "Cost: 1 magic point; 1D3 Sanity points Casting time: 20-60 minutes Through a series of gestures and a specific chant, th",
+      "source_page": 256
+    },
+    {
+      "name": "Time Gate",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "pow_cost": "variable",
+      "sanity_cost": null,
+      "casting_time": "one hour per POW spent\nThe caster may elect to prepare a Gat",
+      "description": "Cost: variable POW Casting time: one hour per POW spent The caster may elect to prepare a Gate for travel by  expending ",
+      "source_page": 256
+    },
+    {
+      "name": "View Gate",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "pow_cost": null,
+      "sanity_cost": null,
+      "casting_time": "3 rounds\nWhen cast at a suspected Gate, this \nspell allows t",
+      "description": "Cost: variable magic and Sanity points Casting time: 3 rounds When cast at a suspected Gate, this  spell allows the cast",
+      "source_page": 257
     }
   ]
 }
