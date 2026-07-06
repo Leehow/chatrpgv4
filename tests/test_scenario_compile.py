@@ -130,3 +130,99 @@ def test_horror_stage_minor_dip_ok(tmp_path):
     (sc/"pacing-map.json").write_text(json.dumps(g))
     result = coc_scenario_compile.validate_scenario(sc)
     assert not any("horror_stage" in e for e in result["errors"])
+
+
+def test_validate_warns_skill_check_without_skill(tmp_path):
+    """delivery_kind=skill_check but no skill -> warning (not error)."""
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"clue-graph.json").read_text())
+    g["conclusions"][0]["clues"][0]["delivery_kind"] = "skill_check"
+    # no skill field
+    (sc/"clue-graph.json").write_text(json.dumps(g))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+    assert any("clue 'a'" in w and "skill_check" in w and "no skill" in w for w in result["warnings"])
+
+
+def test_validate_warns_clue_source_ref_missing_page(tmp_path):
+    """clue source_ref missing integer page -> warning."""
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"clue-graph.json").read_text())
+    g["conclusions"][0]["clues"][0]["source_refs"] = [
+        {"path": "pdf/foo.pdf"}  # missing page
+    ]
+    (sc/"clue-graph.json").write_text(json.dumps(g))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+    assert any("clue 'a'" in w and "source_ref" in w for w in result["warnings"])
+
+
+def test_validate_warns_clue_source_ref_non_integer_page(tmp_path):
+    """clue source_ref with string page -> warning."""
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"clue-graph.json").read_text())
+    g["conclusions"][0]["clues"][0]["source_refs"] = [
+        {"path": "pdf/foo.pdf", "page": "12"}  # non-int page
+    ]
+    (sc/"clue-graph.json").write_text(json.dumps(g))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+    assert any("clue 'a'" in w and "source_ref" in w for w in result["warnings"])
+
+
+def test_validate_warns_scene_source_ref_missing_path(tmp_path):
+    """scene source_ref missing path -> warning."""
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"story-graph.json").read_text())
+    g["scenes"][0]["source_refs"] = [{"page": 5}]  # missing path
+    (sc/"story-graph.json").write_text(json.dumps(g))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+    assert any("scene 's1'" in w and "source_ref" in w for w in result["warnings"])
+
+
+def test_validate_warns_npc_source_ref_malformed(tmp_path):
+    """npc source_ref malformed -> warning."""
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"npc-agendas.json").read_text())
+    g["npcs"][0]["source_refs"] = [{"path": "", "page": 5}]  # empty path
+    (sc/"npc-agendas.json").write_text(json.dumps(g))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+    assert any("npc 'n1'" in w and "source_ref" in w for w in result["warnings"])
+
+
+def test_validate_warns_front_source_ref_malformed(tmp_path):
+    """front source_ref missing integer page -> warning."""
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"threat-fronts.json").read_text())
+    g["fronts"] = [{"front_id": "f1", "scope": "scenario", "clocks": [],
+                    "source_refs": [{"path": "pdf/x.pdf"}]}]  # missing page
+    (sc/"threat-fronts.json").write_text(json.dumps(g))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+    assert any("front 'f1'" in w and "source_ref" in w for w in result["warnings"])
+
+
+def test_validate_no_warnings_for_well_formed_source_refs(tmp_path):
+    """Well-formed source_refs (path + int page) produce no source_ref warnings."""
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"clue-graph.json").read_text())
+    g["conclusions"][0]["clues"][0]["delivery_kind"] = "skill_check"
+    g["conclusions"][0]["clues"][0]["skill"] = "Spot Hidden"
+    g["conclusions"][0]["clues"][0]["source_refs"] = [
+        {"path": "pdf/foo.pdf", "page": 12}
+    ]
+    (sc/"clue-graph.json").write_text(json.dumps(g))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+    # delivery_kind+skill is fine; source_ref is well-formed -> no warnings at all
+    assert result["warnings"] == []
+
+
+def test_validate_no_warnings_without_structured_fields(tmp_path):
+    """Old clue-graph without any structured fields -> no warnings (backward compat)."""
+    sc = _make_valid_scenario(tmp_path)
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+    assert result["warnings"] == []

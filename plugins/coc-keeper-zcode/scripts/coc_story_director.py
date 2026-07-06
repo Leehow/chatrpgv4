@@ -386,6 +386,43 @@ def _infer_clue_type(clue_id: str | None, clue_graph: dict[str, Any]) -> str:
     return "obvious"
 
 
+def _find_clue(clue_id: str, clue_graph: dict[str, Any]) -> dict[str, Any] | None:
+    """Find a clue dict by id across all conclusions. Returns None if not found."""
+    for concl in clue_graph.get("conclusions", []):
+        for clue in concl.get("clues", []):
+            if clue.get("clue_id") == clue_id:
+                return clue
+    return None
+
+
+def _resolve_clue_delivery(clue_id: str | None, clue_graph: dict[str, Any]) -> tuple[str, str | None, str | None]:
+    """Resolve a clue's delivery type + skill + difficulty from structured fields, with fallback.
+
+    Returns (clue_type, skill, difficulty):
+    - clue_type: "obvious" | "obscured"
+    - skill: skill name if clue_type is obscured via skill_check, else None
+    - difficulty: "regular"|"hard"|"extreme" or None
+
+    Priority:
+    1. Structured `delivery_kind` field on the clue (preferred)
+    2. Fallback to `_infer_clue_type` string heuristic (for old clue-graphs without delivery_kind)
+    """
+    if not clue_id:
+        return ("obscured", None, None)
+    clue = _find_clue(clue_id, clue_graph)
+    if clue is None:
+        return ("obscured", None, None)
+    delivery_kind = clue.get("delivery_kind")
+    if delivery_kind:
+        if delivery_kind == "skill_check":
+            return ("obscured", clue.get("skill"), clue.get("difficulty", "regular"))
+        # obvious, handout, npc_dialogue, environmental -> obvious
+        return ("obvious", None, None)
+    # Fallback: no structured field, use string heuristic on `delivery`
+    clue_type = _infer_clue_type(clue_id, clue_graph)
+    return (clue_type, None, None)
+
+
 def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     """Choose reveal/withhold/fallback per clue-graph."""
     scene = ctx.get("active_scene") or {}
@@ -394,10 +431,13 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     secrets = ctx.get("improvisation_boundaries", {}).get("keeper_secrets", [])
 
     reveal = available[:1] if action == "REVEAL" and available else []
-    # Infer obvious vs obscured from the first revealed clue's delivery. This
-    # gates whether _build_rules_requests emits a Spot Hidden skill check.
+    # Resolve obvious vs obscured (+ skill/difficulty) from the first revealed
+    # clue's structured delivery_kind, falling back to the delivery string
+    # heuristic for old clue-graphs. This gates whether _build_rules_requests
+    # emits a skill check (and which skill/difficulty it requests).
     clue_graph = ctx.get("clue_graph", {})
-    clue_type = _infer_clue_type(reveal[0] if reveal else None, clue_graph)
+    _clue_type, _clue_skill, _clue_diff = _resolve_clue_delivery(
+        reveal[0] if reveal else None, clue_graph)
     # fallback: if stalled, pull an alternate route
     fallback = []
     if action == "RECOVER":
@@ -407,18 +447,23 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
                 fallback.append(not_found[0])
                 break
     return {"reveal": reveal, "withhold": list(secrets), "fallback_routes": fallback,
-            "clue_type": clue_type}
+            "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff}
 
 
 def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[str]:
-    """Collect player_visible_anchor strings for given clue ids from clue-graph.
+    """Collect player-visible anchor strings for given clue ids from clue-graph.
     Used to populate narrative_directives.must_include so the narrator knows
-    what concrete visible detail a REVEAL must surface."""
+    what concrete visible detail a REVEAL must surface.
+
+    Reads the structured `player_safe_summary` field (preferred) and falls back
+    to the legacy `player_visible_anchor` field for old clue-graphs.
+    """
     anchors: list[str] = []
     for concl in clue_graph.get("conclusions", []):
         for clue in concl.get("clues", []):
             if clue.get("clue_id") in clue_ids:
-                anchor = clue.get("player_visible_anchor")
+                # prefer player_safe_summary (new structured field), fallback to player_visible_anchor
+                anchor = clue.get("player_safe_summary") or clue.get("player_visible_anchor")
                 if anchor:
                     anchors.append(anchor)
     return anchors
@@ -538,15 +583,19 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
             return [{"kind": "characteristic_check", "skill": "CON", "reason": "death-clock CON roll",
                      "difficulty": "regular", "bonus_penalty_dice": 0}]
     if action == "REVEAL":
-        # Only request a Spot Hidden skill check when the revealed clue is
-        # obscured (its delivery requires a die roll). Obvious clues — Handouts,
-        # direct gives, plain location/event descriptions — are delivered by
-        # the narrator without a roll.
+        # Only request a skill check when the revealed clue is obscured (its
+        # delivery requires a die roll). Obvious clues — Handouts, direct gives,
+        # plain location/event descriptions — are delivered by the narrator
+        # without a roll. Skill + difficulty come from the structured
+        # delivery_kind resolution (falling back to Spot Hidden / regular when
+        # the legacy heuristic was used).
         clue_type = (clue_policy or {}).get("clue_type", "obscured")
         if clue_type == "obvious":
             return []
-        return [{"kind": "skill_check", "skill": "Spot Hidden", "reason": "obscured clue in scene",
-                 "difficulty": "regular", "bonus_penalty_dice": 0}]
+        skill = (clue_policy or {}).get("skill") or "Spot Hidden"
+        difficulty = (clue_policy or {}).get("difficulty") or "regular"
+        return [{"kind": "skill_check", "skill": skill, "reason": "obscured clue in scene",
+                 "difficulty": difficulty, "bonus_penalty_dice": 0}]
     return []
 
 

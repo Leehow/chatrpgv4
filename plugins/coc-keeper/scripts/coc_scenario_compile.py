@@ -63,14 +63,41 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
         if not npc.get("agenda"):
             errors.append(f"npc '{npc.get('npc_id')}' missing agenda")
 
+    fronts_data = _read(scenario_dir / "threat-fronts.json")
     improv = _read(scenario_dir / "improvisation-boundaries.json")
     secrets = set(improv.get("keeper_secrets", []))
     # check secrets don't leak into player-safe clue visibility
-    clue_graph = _read(scenario_dir / "clue-graph.json")
     for concl in clue_graph.get("conclusions", []):
         for clue in concl.get("clues", []):
             if clue.get("visibility") == "player-safe" and clue.get("clue_id") in secrets:
                 errors.append(f"clue '{clue.get('clue_id')}' marked player-safe but is a keeper_secret")
+
+    # --- Structured delivery field warnings (clue-graph) ---
+    # These are warnings (not errors) so old clue-graphs without the new
+    # delivery_kind / source_refs fields still validate cleanly. Only flag
+    # scenarios that opt into the structured fields but fill them in malformed.
+    for concl in clue_graph.get("conclusions", []):
+        for clue in concl.get("clues", []):
+            dk = clue.get("delivery_kind")
+            if dk == "skill_check" and not clue.get("skill"):
+                warnings.append(f"clue '{clue.get('clue_id')}' has delivery_kind=skill_check but no skill")
+            for ref in clue.get("source_refs", []) or []:
+                if not ref.get("path") or not isinstance(ref.get("page"), int):
+                    warnings.append(f"clue '{clue.get('clue_id')}' source_ref missing path or integer page")
+
+    # source_refs warnings on scenes/npcs/fronts
+    for scene in story.get("scenes", []):
+        for ref in scene.get("source_refs", []) or []:
+            if not ref.get("path") or not isinstance(ref.get("page"), int):
+                warnings.append(f"scene '{scene.get('scene_id')}' source_ref missing path or integer page")
+    for npc in npcs.get("npcs", []):
+        for ref in npc.get("source_refs", []) or []:
+            if not ref.get("path") or not isinstance(ref.get("page"), int):
+                warnings.append(f"npc '{npc.get('npc_id')}' source_ref missing path or integer page")
+    for front in fronts_data.get("fronts", []):
+        for ref in front.get("source_refs", []) or []:
+            if not ref.get("path") or not isinstance(ref.get("page"), int):
+                warnings.append(f"front '{front.get('front_id')}' source_ref missing path or integer page")
 
     # horror_stage monotonicity check on pacing-map.pacing_curve.
     # Stages should broadly advance ordinary->wrongness->pattern->revelation.

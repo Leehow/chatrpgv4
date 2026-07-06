@@ -100,9 +100,24 @@
   - `minimum_routes` (int)：最少路径数（critical 默认 3）。
   - `clues` (object[])：线索路径数组。每条 clue：
     - `clue_id` (string)：线索唯一标识。
-    - `delivery` (string)：交付方式（技能 + 场景）。
+    - `delivery` (string)：交付方式（技能 + 场景）。**遗留字段**，保留作字符串启发式回退之用；新数据应优先填 `delivery_kind` 等结构化字段（见下）。
     - `visibility` (string)：`player-safe` | `keeper-only`。
+    - `delivery_kind` (string，可选)：结构化交付类型。导演优先读这个字段而不是猜 `delivery`。取值：
+      - `skill_check` — 需要一次技能检定才能浮出（obscured），配合 `skill` + `difficulty`。
+      - `obvious` — 直接给出，无检定（叙述者交付）。
+      - `handout` — 以手稿/文件形式给出（obvious）。
+      - `npc_dialogue` — 通过 NPC 对白给出（obvious）。
+      - `environmental` — 通过环境描写给出（obvious）。
+    - `skill` (string，可选)：当 `delivery_kind=skill_check` 时使用的技能名（如 `Spot Hidden`、`Library Use`）。其它 `delivery_kind` 留空。
+    - `difficulty` (string，可选)：技能检定难度 `regular` | `hard` | `extreme`，默认 `regular`。仅 `skill_check` 有效。
+    - `player_safe_summary` (string，可选)：可向玩家揭示的、面向玩家的安全摘要文本（导演会把它放入 `narrative_directives.must_include`）。**遗留字段 `player_visible_anchor` 仍被读取作回退**，两者都存在时优先用 `player_safe_summary`。
+    - `source_refs` (object[]，可选)：溯源引用数组，指向来源 PDF 中的具体位置。每条 `source_ref`：
+      - `path` (string)：来源文件路径（如 `pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf`）。
+      - `page` (int)：页码（整数）。
+      - `note` (string，可选)：可选说明。
   - `fallback_policy` (string)：当多数路径被错过时导演的兜底策略。
+
+> **向后兼容**：`delivery_kind` / `skill` / `difficulty` / `player_safe_summary` / `source_refs` 全部可选。没有这些字段的旧 clue-graph 仍能通过校验并正常工作——导演会回退到读取 `delivery` 字符串做启发式判断。只有当某个字段被填了但格式不对（如 `delivery_kind=skill_check` 却没给 `skill`，或 `source_ref` 缺 `path`/整数 `page`）时，编译器才会发 warning（不是 error）。
 
 **示例：**
 
@@ -114,12 +129,54 @@
       "importance": "critical",
       "minimum_routes": 3,
       "clues": [
-        { "clue_id": "newspaper-clipping", "delivery": "Library Use / archive scene", "visibility": "player-safe" },
-        { "clue_id": "neighbor-rumor", "delivery": "social scene / cautious inquiry", "visibility": "player-safe" },
-        { "clue_id": "symbol-on-doorframe", "delivery": "Spot Hidden / house entry", "visibility": "player-safe" }
+        {
+          "clue_id": "newspaper-clipping",
+          "delivery": "Library Use / archive scene",
+          "visibility": "player-safe",
+          "delivery_kind": "skill_check",
+          "skill": "Library Use",
+          "difficulty": "regular",
+          "player_safe_summary": "1920年的剪报提到教堂地下室的诉讼记录被转移",
+          "source_refs": [
+            { "path": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf", "page": 92 }
+          ]
+        },
+        {
+          "clue_id": "neighbor-rumor",
+          "delivery": "social scene / cautious inquiry",
+          "visibility": "player-safe",
+          "delivery_kind": "npc_dialogue",
+          "player_safe_summary": "邻居提到夜里听到地下室传来低语"
+        },
+        {
+          "clue_id": "symbol-on-doorframe",
+          "delivery": "Spot Hidden / house entry",
+          "visibility": "player-safe",
+          "delivery_kind": "skill_check",
+          "skill": "Spot Hidden",
+          "difficulty": "hard",
+          "player_safe_summary": "门框边缘刻着一个眼睛状的符号"
+        }
       ],
       "fallback_policy": "If two routes are missed, director may move one clue to a new scene."
     }
+  ]
+}
+```
+
+---
+
+### source_refs（scenes / npcs / fronts 通用可选字段）
+
+除 clue 外，`story-graph.json` 的 scene、`npc-agendas.json` 的 npc、`threat-fronts.json` 的 front 也可各自挂一个可选的 `source_refs` 数组，格式同上（`path` + 整数 `page` + 可选 `note`）。用于把场景/NPC/前沿溯源到来源 PDF。当 `source_ref` 缺 `path` 或整数 `page` 时编译器发 warning（不是 error）。
+
+**scene 示例片段：**
+
+```json
+{
+  "scene_id": "archive-research",
+  "source_refs": [
+    { "path": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf", "page": 90 }
   ]
 }
 ```

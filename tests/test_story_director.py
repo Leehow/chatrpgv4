@@ -422,3 +422,79 @@ def test_memory_reads_populated_when_cards_match(tmp_path):
     plan = coc_story_director.generate_director_plan(ctx, "mem-test")
     assert len(plan["memory_reads"]) >= 1
     assert plan["memory_reads"][0]["memory_id"] == "mem-test-door"
+
+
+def test_resolve_delivery_structured_skill_check(tmp_path):
+    """delivery_kind=skill_check -> obscured + skill + difficulty."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    cg = {"conclusions": [{"conclusion_id": "c1", "importance": "critical", "minimum_routes": 3,
+        "clues": [
+            {"clue_id": "clue-1", "delivery": "Spot Hidden", "visibility": "player-safe",
+             "delivery_kind": "skill_check", "skill": "Spot Hidden", "difficulty": "hard"},
+            {"clue_id": "clue-1b", "delivery": "x", "visibility": "player-safe"},
+            {"clue_id": "clue-1c", "delivery": "y", "visibility": "player-safe"}],
+        "fallback_policy": ""}]}
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(cg))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "dk-skill")
+    assert plan["clue_policy"]["clue_type"] == "obscured"
+    assert plan["clue_policy"]["skill"] == "Spot Hidden"
+    # rules_requests should use the structured skill + difficulty
+    rr = plan["rules_requests"]
+    assert any(r["skill"] == "Spot Hidden" and r["difficulty"] == "hard" for r in rr)
+
+
+def test_resolve_delivery_structured_obvious(tmp_path):
+    """delivery_kind=handout -> obvious, no rules request."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    cg = {"conclusions": [{"conclusion_id": "c1", "importance": "critical", "minimum_routes": 3,
+        "clues": [
+            {"clue_id": "clue-1", "delivery": "Handout 1", "visibility": "player-safe",
+             "delivery_kind": "handout", "player_safe_summary": "诺特先生给的钥匙和委托"},
+            {"clue_id": "clue-1b", "delivery": "x", "visibility": "player-safe"},
+            {"clue_id": "clue-1c", "delivery": "y", "visibility": "player-safe"}],
+        "fallback_policy": ""}]}
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(cg))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "dk-obvious")
+    assert plan["clue_policy"]["clue_type"] == "obvious"
+    assert plan["clue_policy"]["skill"] is None
+    assert "诺特先生给的钥匙和委托" in plan["narrative_directives"]["must_include"]
+
+
+def test_resolve_delivery_fallback_when_no_delivery_kind(tmp_path):
+    """Old clue-graph without delivery_kind falls back to string heuristic."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # default _make_minimal_campaign clues have no delivery_kind -> fallback
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "dk-fallback")
+    # clue-1 delivery is "investigate" -> heuristic says obscured
+    assert plan["clue_policy"]["clue_type"] == "obscured"
+
+
+def test_resolve_delivery_skill_check_missing_skill_defaults_spot_hidden(tmp_path):
+    """delivery_kind=skill_check without skill -> obscured, skill None -> rules request
+    falls back to Spot Hidden / regular (validator separately warns)."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    cg = {"conclusions": [{"conclusion_id": "c1", "importance": "critical", "minimum_routes": 3,
+        "clues": [
+            {"clue_id": "clue-1", "delivery": "x", "visibility": "player-safe",
+             "delivery_kind": "skill_check"},  # skill omitted
+            {"clue_id": "clue-1b", "delivery": "x", "visibility": "player-safe"},
+            {"clue_id": "clue-1c", "delivery": "y", "visibility": "player-safe"}],
+        "fallback_policy": ""}]}
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(cg))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "dk-no-skill")
+    assert plan["clue_policy"]["clue_type"] == "obscured"
+    rr = plan["rules_requests"]
+    # falls back to Spot Hidden / regular when skill missing
+    assert any(r["skill"] == "Spot Hidden" and r["difficulty"] == "regular" for r in rr)
