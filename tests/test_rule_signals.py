@@ -79,8 +79,12 @@ def test_credit_tier_wealthy():
     assert coc_rule_signals.read_credit_tier(credit_rating=65) == "wealthy"
 
 
+def test_credit_tier_rich():
+    assert coc_rule_signals.read_credit_tier(credit_rating=95) == "rich"
+
+
 def test_credit_tier_super_rich():
-    assert coc_rule_signals.read_credit_tier(credit_rating=95) == "super_rich"
+    assert coc_rule_signals.read_credit_tier(credit_rating=99) == "super_rich"
 
 
 # --------------------------------------------------------------------------- #

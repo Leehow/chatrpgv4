@@ -80,6 +80,8 @@ def read_credit_tier(credit_rating: int) -> str:
         return "average"
     if credit_rating <= 89:
         return "wealthy"
+    if credit_rating <= 98:
+        return "rich"
     return "super_rich"
 
 
