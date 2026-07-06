@@ -153,7 +153,8 @@ def run_full_session(
     Returns:
         {
             "turns": [{"turn": N, "scene_id": ..., "action": ..., "clue_revealed": ...,
-                       "rule_results": [...], "tension": ..., "events": [...]}],
+                       "rule_results": [...], "resolved_clue_policy": {...},
+                       "failure_consequence": {...}, "tension": ..., "events": [...]}],
             "final_state": {"active_scene": ..., "discovered_clues": [...], "tension": ...},
             "clue_coverage": {"discovered_count": N, "total_in_graph": M},
             "tension_curve": [list of tension per turn],
@@ -191,7 +192,8 @@ def run_full_session(
 
         plan = director.generate_director_plan(ctx, decision_id=f"turn-{turn_num:03d}")
         rule_results = _execute_rules_requests(campaign_dir, character_path, investigator_id, plan, rng)
-        events = apply_mod.apply_plan(campaign_dir, plan, investigator_id, rules_results=rule_results)
+        resolved_plan = apply_mod.backfill_rule_results(plan, rule_results)
+        events = apply_mod.apply_plan(campaign_dir, resolved_plan, investigator_id, rules_results=rule_results)
 
         # record
         current_scene = ctx.get("active_scene_id", "?")
@@ -204,19 +206,22 @@ def run_full_session(
         discovered = world.get("discovered_clue_ids", [])
         tension = pacing.get("tension_level", "low")
         tension_curve.append(tension)
+        directives = resolved_plan.get("narrative_directives", {})
 
         turns.append({
             "turn": turn_num,
             "scene_id": current_scene,
-            "action": plan["scene_action"],
+            "action": resolved_plan["scene_action"],
             "clue_revealed": [e.get("clue_id") for e in events if e.get("event_type") == "clue_reveal"],
             "rule_results": rule_results,
+            "resolved_clue_policy": resolved_plan.get("resolved_clue_policy", {}),
+            "failure_consequence": directives.get("failure_consequence"),
             "tension": tension,
-            "horror_stage": plan.get("narrative_directives", {}).get("horror_escalation_stage"),
+            "horror_stage": directives.get("horror_escalation_stage"),
             "events_count": len(events),
             "event_types": [e.get("event_type") for e in events],
             "scene_transition": any(e.get("event_type") == "scene_transition" for e in events),
-            "dramatic_question": plan.get("dramatic_question", "")[:80],
+            "dramatic_question": resolved_plan.get("dramatic_question", "")[:80],
         })
 
         # check terminal: reached last scene
