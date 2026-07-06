@@ -1,0 +1,535 @@
+#!/usr/bin/env python3
+"""Deterministic world-clock layer for Call of Cthulhu campaigns.
+
+Implements a monotonic, script-owned game-time system that is the single
+source of truth for in-world elapsed time. The LLM proposes how long an
+action takes (via DirectorPlan.time_advance); this module validates,
+clamps, advances, and fires time-based triggers.
+
+Design principles (see docs/superpowers/specs time-system design):
+1. elapsed_minutes only moves forward; never backward.
+2. LLM estimates time, script advances the clock.
+3. Game time and real (UTC) time are separate.
+4. Relative time (elapsed_minutes) is the core axis; calendar display
+   is a derived rendering layer.
+
+Files managed:
+  save/time-state.json     — current world clock (single source of truth)
+  save/time-triggers.json  — pending future events
+  logs/time.jsonl          — audit chain (why time advanced)
+"""
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+
+# --------------------------------------------------------------------------- #
+# Path helpers
+# --------------------------------------------------------------------------- #
+def _time_state_path(campaign_dir: Path) -> Path:
+    return campaign_dir / "save" / "time-state.json"
+
+
+def _triggers_path(campaign_dir: Path) -> Path:
+    return campaign_dir / "save" / "time-triggers.json"
+
+
+def _time_log_path(campaign_dir: Path) -> Path:
+    return campaign_dir / "logs" / "time.jsonl"
+
+
+# --------------------------------------------------------------------------- #
+# Read / write helpers
+# --------------------------------------------------------------------------- #
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+# --------------------------------------------------------------------------- #
+# Clock helpers
+# --------------------------------------------------------------------------- #
+def _compute_local_datetime(base_dt: str | None, delta_minutes: int) -> str | None:
+    """Advance an ISO datetime string by delta_minutes. Returns None if
+    base is None (relative calendar mode)."""
+    if base_dt is None:
+        return None
+    try:
+        dt = datetime.fromisoformat(base_dt)
+        return (dt + timedelta(minutes=delta_minutes)).isoformat()
+    except (ValueError, TypeError):
+        return base_dt
+
+
+def _day_phase(elapsed_minutes: int, *, day_length_minutes: int = 1440) -> str:
+    """Approximate day phase from elapsed within a 24h cycle."""
+    hour_of_day = (elapsed_minutes // 60) % 24
+    if 6 <= hour_of_day < 12:
+        return "morning"
+    if 12 <= hour_of_day < 18:
+        return "afternoon"
+    if 18 <= hour_of_day < 21:
+        return "evening"
+    return "night"
+
+
+# --------------------------------------------------------------------------- #
+# Public API
+# --------------------------------------------------------------------------- #
+def initialize_time_state(
+    campaign_dir: Path,
+    *,
+    start: dict[str, Any] | None = None,
+) -> Path:
+    """Create save/time-state.json with initial values if it does not exist.
+
+    ``start`` may contain clock fields like:
+        calendar_mode, local_datetime, timezone, location_id, display
+    """
+    path = _time_state_path(campaign_dir)
+    if path.exists():
+        return path
+    start = start or {}
+    clock = {
+        "elapsed_minutes": 0,
+        "scale": start.get("scale", "scene"),
+        "calendar_mode": start.get("calendar_mode", "relative"),
+        "local_datetime": start.get("local_datetime"),
+        "timezone": start.get("timezone"),
+        "location_id": start.get("location_id"),
+        "display": start.get("display", ""),
+    }
+    state = {
+        "schema_version": 1,
+        "campaign_id": start.get("campaign_id", ""),
+        "timeline_id": start.get("timeline_id", "tl-main"),
+        "branch_id": start.get("branch_id", "main"),
+        "forked_from": None,
+        "sequence": 0,
+        "clock": clock,
+        "anchors": {
+            "campaign_start_elapsed": 0,
+            "last_rest_elapsed": 0,
+            "last_safe_place_elapsed": 0,
+            "last_scene_change_elapsed": 0,
+        },
+        "sanity_periods": {},
+        "safe_place": False,
+    }
+    _write_json(path, state)
+    # Also init triggers and log
+    _write_json(_triggers_path(campaign_dir), {"schema_version": 1, "triggers": []})
+    _time_log_path(campaign_dir).touch()
+    return path
+
+
+def read_time_state(campaign_dir: Path) -> dict[str, Any]:
+    """Read the full time-state.json, returning an empty dict if missing."""
+    return _read_json(_time_state_path(campaign_dir))
+
+
+def current_stamp(campaign_dir: Path) -> dict[str, Any]:
+    """Return a compact current-time snapshot for display."""
+    state = read_time_state(campaign_dir)
+    if not state:
+        return {"elapsed_minutes": 0, "display": "", "location_id": None, "day_phase": "unknown"}
+    clock = state.get("clock", {})
+    elapsed = int(clock.get("elapsed_minutes", 0))
+    return {
+        "elapsed_minutes": elapsed,
+        "display": clock.get("display", ""),
+        "local_datetime": clock.get("local_datetime"),
+        "location_id": clock.get("location_id"),
+        "day_phase": _day_phase(elapsed),
+    }
+
+
+def advance_time(
+    campaign_dir: Path,
+    delta_minutes: int,
+    *,
+    decision_id: str,
+    reason: str,
+    source: str = "llm_proposal",
+    confidence: float = 1.0,
+    category: str | None = None,
+) -> dict[str, Any]:
+    """Advance the world clock by ``delta_minutes``.
+
+    Raises ValueError if delta_minutes < 0 (time is monotonic).
+    Writes an audit record to logs/time.jsonl. Processes due triggers
+    after advancing. Returns a summary dict.
+    """
+    if delta_minutes < 0:
+        raise ValueError(
+            f"time is monotonic: cannot advance by {delta_minutes} minutes "
+            f"(decision_id={decision_id})"
+        )
+    if delta_minutes == 0:
+        # No-op; still record for audit
+        return {"from_elapsed": 0, "to_elapsed": 0, "delta_minutes": 0, "fired_triggers": []}
+
+    path = _time_state_path(campaign_dir)
+    state = _read_json(path)
+    if not state:
+        initialize_time_state(campaign_dir)
+        state = _read_json(path)
+
+    clock = state.get("clock", {})
+    from_elapsed = int(clock.get("elapsed_minutes", 0))
+    to_elapsed = from_elapsed + delta_minutes
+    clock["elapsed_minutes"] = to_elapsed
+
+    # Advance calendar display if gregorian
+    if clock.get("calendar_mode") == "gregorian" and clock.get("local_datetime"):
+        clock["local_datetime"] = _compute_local_datetime(
+            clock["local_datetime"], delta_minutes
+        )
+
+    state["clock"] = clock
+    state["sequence"] = int(state.get("sequence", 0)) + 1
+    _write_json(path, state)
+
+    # Audit log
+    fired = process_due_triggers(campaign_dir)
+    log_record = {
+        "event_type": "time_advance",
+        "seq": state["sequence"],
+        "decision_id": decision_id,
+        "from_elapsed": from_elapsed,
+        "to_elapsed": to_elapsed,
+        "delta_minutes": delta_minutes,
+        "reason": reason,
+        "source": source,
+        "confidence": confidence,
+        "category": category,
+        "fired_triggers": [t.get("trigger_id", "") for t in fired],
+    }
+    _append_jsonl(_time_log_path(campaign_dir), log_record)
+
+    return {
+        "from_elapsed": from_elapsed,
+        "to_elapsed": to_elapsed,
+        "delta_minutes": delta_minutes,
+        "fired_triggers": fired,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Triggers
+# --------------------------------------------------------------------------- #
+def schedule_trigger(campaign_dir: Path, trigger: dict[str, Any]) -> str:
+    """Add a pending trigger to time-triggers.json. Returns trigger_id."""
+    path = _triggers_path(campaign_dir)
+    data = _read_json(path)
+    if not data:
+        data = {"schema_version": 1, "triggers": []}
+    triggers = data.get("triggers", [])
+    trigger_id = trigger.get("trigger_id") or f"trg-{uuid.uuid4().hex[:12]}"
+    trigger["trigger_id"] = trigger_id
+    trigger["status"] = trigger.get("status", "pending")
+    triggers.append(trigger)
+    data["triggers"] = triggers
+    _write_json(path, data)
+    return trigger_id
+
+
+def peek_due_triggers(campaign_dir: Path) -> list[dict[str, Any]]:
+    """Return triggers whose due_elapsed_minutes has passed but are still pending."""
+    state = read_time_state(campaign_dir)
+    now = int(state.get("clock", {}).get("elapsed_minutes", 0))
+    data = _read_json(_triggers_path(campaign_dir))
+    triggers = data.get("triggers", [])
+    return [
+        t for t in triggers
+        if t.get("status") == "pending"
+        and int(t.get("due_elapsed_minutes", float("inf"))) <= now
+    ]
+
+
+def process_due_triggers(campaign_dir: Path) -> list[dict[str, Any]]:
+    """Process all due triggers. Returns list of fired trigger records.
+
+    For triggers with policy 'auto_apply_if_safe', checks the safe_place
+    flag in time-state. If not safe, the trigger is deferred (stays pending).
+    """
+    state = read_time_state(campaign_dir)
+    safe_place = bool(state.get("safe_place", False))
+    fired: list[dict[str, Any]] = []
+
+    path = _triggers_path(campaign_dir)
+    data = _read_json(path)
+    triggers = data.get("triggers", [])
+
+    for t in triggers:
+        if t.get("status") != "pending":
+            continue
+        now = int(state.get("clock", {}).get("elapsed_minutes", 0))
+        due = int(t.get("due_elapsed_minutes", float("inf")))
+        if due > now:
+            continue
+        # Check policy
+        policy = t.get("policy", "auto_apply")
+        if policy == "auto_apply_if_safe" and not safe_place:
+            # Defer — remain pending until safe
+            continue
+        # Fire
+        t["status"] = "fired"
+        t["fired_at_elapsed"] = now
+        fired.append(t)
+        # Log
+        _append_jsonl(_time_log_path(campaign_dir), {
+            "event_type": "trigger_fired",
+            "trigger_id": t.get("trigger_id", ""),
+            "kind": t.get("kind", ""),
+            "handler": t.get("handler", ""),
+            "fired_at_elapsed": now,
+            "payload": t.get("payload", {}),
+        })
+
+    data["triggers"] = triggers
+    _write_json(path, data)
+    return fired
+
+
+# --------------------------------------------------------------------------- #
+# Time-cost validation
+# --------------------------------------------------------------------------- #
+def _load_time_costs(rules_dir: Path | None = None) -> dict[str, Any]:
+    """Load time-costs.json from the rules directory."""
+    if rules_dir is None:
+        rules_dir = Path(__file__).resolve().parent.parent / "references" / "rules-json"
+    path = rules_dir / "time-costs.json"
+    if not path.exists():
+        return {"categories": {}}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def validate_and_clamp_delta(
+    delta_minutes: int,
+    category: str | None,
+    rules_dir: Path | None = None,
+) -> tuple[int, str | None]:
+    """Validate delta against category bounds. Clamp if out of range.
+
+    Returns (accepted_delta, warning_message).
+    """
+    if not category:
+        return delta_minutes, None
+    costs = _load_time_costs(rules_dir)
+    cat = costs.get("categories", {}).get(category)
+    if not cat:
+        return delta_minutes, None
+    lo = int(cat.get("min", 0))
+    hi = int(cat.get("max", 999999))
+    if delta_minutes < lo:
+        return lo, f"delta {delta_minutes} below category '{category}' min {lo}; clamped to {lo}"
+    if delta_minutes > hi:
+        return hi, f"delta {delta_minutes} exceeds category '{category}' max {hi}; clamped to {hi}"
+    return delta_minutes, None
+
+
+# --------------------------------------------------------------------------- #
+# DirectorPlan integration
+# --------------------------------------------------------------------------- #
+_TIME_ADVANCE_MODES = {"none", "instant", "elapsed", "until", "downtime", "subsystem"}
+
+
+def apply_time_advance_from_plan(
+    campaign_dir: Path,
+    plan: dict[str, Any],
+    investigator_id: str,
+) -> list[dict[str, Any]]:
+    """Extract time_advance from a DirectorPlan and apply it.
+
+    Returns a list of event records to be appended to events.jsonl.
+    If plan has no time_advance or mode=none, returns [] (no-op).
+    """
+    ta = plan.get("time_advance")
+    if not ta:
+        return []
+    mode = ta.get("mode", "none")
+    if mode not in _TIME_ADVANCE_MODES:
+        mode = "none"
+    if mode == "none":
+        return []
+
+    delta = int(ta.get("delta_minutes", 0))
+    category = ta.get("category")
+    if mode == "instant":
+        delta = max(delta, 0)
+        if delta > 1:
+            delta = 1
+
+    # Validate and clamp
+    accepted_delta, warning = validate_and_clamp_delta(delta, category)
+    if warning:
+        _append_jsonl(_time_log_path(campaign_dir), {
+            "event_type": "time_validation_warning",
+            "reason": warning,
+            "requested_delta": delta,
+            "accepted_delta": accepted_delta,
+        })
+
+    if accepted_delta == 0 and mode != "until":
+        return []
+
+    result = advance_time(
+        campaign_dir,
+        accepted_delta,
+        decision_id=plan.get("decision_id", ""),
+        reason=ta.get("reason", ""),
+        source="llm_proposal",
+        confidence=float(ta.get("confidence", 1.0)),
+        category=category,
+    )
+
+    event = {
+        "event_type": "game_time",
+        "investigator_id": investigator_id,
+        "decision_id": plan.get("decision_id", ""),
+        "from_elapsed": result["from_elapsed"],
+        "to_elapsed": result["to_elapsed"],
+        "delta_minutes": result["delta_minutes"],
+        "mode": mode,
+        "category": category,
+        "reason": ta.get("reason", ""),
+        "player_visible": ta.get("player_visible", ""),
+        "fired_triggers": [t.get("trigger_id", "") for t in result.get("fired_triggers", [])],
+    }
+    return [event]
+
+
+# --------------------------------------------------------------------------- #
+# Safe rest / sanity day reset
+# --------------------------------------------------------------------------- #
+def mark_safe_rest(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
+    """Mark that the investigator has rested in a safe place.
+
+    Updates anchors.last_rest_elapsed and last_safe_place_elapsed,
+    sets safe_place=True, and resets the investigator's sanity period
+    (daily SAN loss counter).
+    """
+    path = _time_state_path(campaign_dir)
+    state = _read_json(path)
+    if not state:
+        return {}
+    now = int(state.get("clock", {}).get("elapsed_minutes", 0))
+    anchors = state.get("anchors", {})
+    anchors["last_rest_elapsed"] = now
+    anchors["last_safe_place_elapsed"] = now
+    state["anchors"] = anchors
+    state["safe_place"] = True
+
+    # Reset sanity period for this investigator
+    periods = state.get("sanity_periods", {})
+    key = investigator_id
+    if key in periods:
+        periods[key]["san_lost"] = 0
+        periods[key]["started_elapsed"] = now
+    state["sanity_periods"] = periods
+
+    _write_json(path, state)
+    _append_jsonl(_time_log_path(campaign_dir), {
+        "event_type": "safe_rest",
+        "investigator_id": investigator_id,
+        "at_elapsed": now,
+    })
+    return {"at_elapsed": now, "sanity_day_reset": key in periods}
+
+
+def set_unsafe(campaign_dir: Path) -> None:
+    """Mark the current location as unsafe (e.g. entering a danger zone)."""
+    path = _time_state_path(campaign_dir)
+    state = _read_json(path)
+    if not state:
+        return
+    state["safe_place"] = False
+    _write_json(path, state)
+
+
+# --------------------------------------------------------------------------- #
+# Director context signals
+# --------------------------------------------------------------------------- #
+def build_time_signals(
+    time_state: dict[str, Any],
+    due_triggers: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build a compact signals dict for the DirectorContext."""
+    clock = time_state.get("clock", {})
+    elapsed = int(clock.get("elapsed_minutes", 0))
+    anchors = time_state.get("anchors", {})
+    last_rest = int(anchors.get("last_rest_elapsed", 0))
+    hours_since_rest = (elapsed - last_rest) / 60.0
+
+    # Next deadline from due/pending triggers
+    pending = [
+        t for t in due_triggers
+        if t.get("status") == "pending"
+        and "due_elapsed_minutes" in t
+    ]
+    next_deadline_minutes = None
+    if pending:
+        next_due = min(int(t["due_elapsed_minutes"]) for t in pending)
+        next_deadline_minutes = max(0, next_due - elapsed)
+
+    # Time pressure heuristic
+    if next_deadline_minutes is not None and next_deadline_minutes < 60:
+        pressure = "high"
+    elif hours_since_rest > 18:
+        pressure = "medium"
+    else:
+        pressure = "low"
+
+    return {
+        "elapsed_minutes": elapsed,
+        "display": clock.get("display", ""),
+        "local_datetime": clock.get("local_datetime"),
+        "location_id": clock.get("location_id"),
+        "day_phase": _day_phase(elapsed),
+        "is_night": _day_phase(elapsed) == "night",
+        "hours_since_last_rest": round(hours_since_rest, 1),
+        "safe_place": bool(time_state.get("safe_place", False)),
+        "due_triggers_count": len(due_triggers),
+        "next_deadline_minutes": next_deadline_minutes,
+        "time_pressure": pressure,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Fork (IF branch) — stub for v1
+# --------------------------------------------------------------------------- #
+def fork_timeline(
+    campaign_dir: Path,
+    *,
+    new_branch_id: str,
+    forked_from: dict[str, Any],
+) -> None:
+    """Create a new timeline branch from a snapshot. (Stub for v1.)
+
+    Full implementation will generate a new timeline_id, copy state,
+    and mark forked_from. For now this is a placeholder.
+    """
+    path = _time_state_path(campaign_dir)
+    state = _read_json(path)
+    if not state:
+        return
+    state["branch_id"] = new_branch_id
+    state["forked_from"] = forked_from
+    _write_json(path, state)

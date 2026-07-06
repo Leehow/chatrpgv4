@@ -693,6 +693,15 @@
         "luck_roll_to_avoid": true,
         "escalation": "double_per_round"
       }
+    },
+    {
+      "id": "core.time.cost_categories",
+      "category": "time",
+      "source_table": "time-costs.json",
+      "source_note": "Time-cost categories for validating LLM time estimates in DirectorPlan.time_advance.",
+      "numeric": {
+        "category_count": 15
+      }
     }
   ]
 }

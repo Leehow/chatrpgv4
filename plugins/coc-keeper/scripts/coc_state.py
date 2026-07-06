@@ -296,10 +296,43 @@ def _initialize_campaign_runtime_files(campaign_dir: Path, campaign_id: str) -> 
             "luck_spent_last": 0,
         },
     )
+    _write_json_if_missing(
+        campaign_dir / "save" / "time-state.json",
+        {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "timeline_id": "tl-main",
+            "branch_id": "main",
+            "forked_from": None,
+            "sequence": 0,
+            "clock": {
+                "elapsed_minutes": 0,
+                "scale": "scene",
+                "calendar_mode": "relative",
+                "local_datetime": None,
+                "timezone": None,
+                "location_id": None,
+                "display": "",
+            },
+            "anchors": {
+                "campaign_start_elapsed": 0,
+                "last_rest_elapsed": 0,
+                "last_safe_place_elapsed": 0,
+                "last_scene_change_elapsed": 0,
+            },
+            "sanity_periods": {},
+            "safe_place": False,
+        },
+    )
+    _write_json_if_missing(
+        campaign_dir / "save" / "time-triggers.json",
+        {"schema_version": 1, "triggers": []},
+    )
     for relative_path in (
         "logs/events.jsonl",
         "logs/rolls.jsonl",
         "logs/audit.jsonl",
+        "logs/time.jsonl",
         "memory/session-summaries.jsonl",
     ):
         _touch_if_missing(campaign_dir / relative_path)

@@ -1,0 +1,21 @@
+{
+  "source_rule_id": "core.time.cost_categories",
+  "source_note": "Time-cost categories for validating LLM time estimates. Each category defines min/default/max minutes. The script clamps LLM-proposed delta_minutes to [min, max] and writes an audit warning if clamped.",
+  "categories": {
+    "speak_briefly": { "min": 0, "default": 1, "max": 3 },
+    "quick_observation": { "min": 0, "default": 1, "max": 5 },
+    "single_room_search": { "min": 10, "default": 20, "max": 45 },
+    "careful_house_search": { "min": 60, "default": 120, "max": 360 },
+    "library_research": { "min": 60, "default": 180, "max": 480 },
+    "local_travel": { "min": 10, "default": 30, "max": 120 },
+    "long_travel": { "min": 120, "default": 360, "max": 1440 },
+    "first_aid": { "min": 5, "default": 15, "max": 30 },
+    "medicine_treatment": { "min": 30, "default": 60, "max": 120 },
+    "short_rest": { "min": 60, "default": 120, "max": 240 },
+    "sleep_night": { "min": 360, "default": 480, "max": 600 },
+    "therapy_week": { "min": 10080, "default": 20160, "max": 30240 },
+    "therapy_month": { "min": 40320, "default": 43200, "max": 44640 },
+    "spell_learning": { "min": 2016, "default": 18144, "max": 36288 },
+    "tome_study": { "min": 168, "default": 1344, "max": 6720 }
+  }
+}

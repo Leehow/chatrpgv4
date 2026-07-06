@@ -32,6 +32,7 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 - `sanity.json`
 - `success-levels.json`
 - `the-haunting.json`
+- `time-costs.json`
 - `weapons.json`
 - `structure-weights.json`
 
