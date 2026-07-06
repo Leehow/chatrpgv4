@@ -20,6 +20,7 @@ def _campaign(tmp_path):
     camp = tmp_path / "campaigns" / "test"
     (camp / "save").mkdir(parents=True)
     (camp / "save" / "investigator-state").mkdir()
+    (camp / "scenario").mkdir(parents=True)
     (camp / "logs").mkdir(parents=True)
     (camp / "memory" / "cards" / "player-safe").mkdir(parents=True)
     (camp / "save" / "world-state.json").write_text(json.dumps({
@@ -81,3 +82,67 @@ def test_apply_memory_write_creates_card(tmp_path):
     cards = list((camp / "memory" / "cards" / "player-safe").glob("*.md"))
     assert len(cards) >= 1
     assert "玩家信任诺特" in cards[0].read_text(encoding="utf-8")
+
+
+def test_apply_advances_scene_when_clues_exhausted(tmp_path):
+    """When all of a scene's available_clues are discovered, apply advances to next scene."""
+    camp = _campaign(tmp_path)
+    # scene-1 has clue-A; pre-discover it
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["discovered_clue_ids"] = ["clue-A"]
+    world["active_scene_id"] = "scene-1"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    # story-graph: scene-1 (clue-A) -> scene-2 (clue-B)
+    sg = {"scenes": [
+        {"scene_id": "scene-1", "available_clues": ["clue-A"], "dramatic_question": "q1",
+         "entry_conditions": [], "exit_conditions": []},
+        {"scene_id": "scene-2", "available_clues": ["clue-B"], "dramatic_question": "q2",
+         "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {"decision_id": "d1", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": []}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "scene-2"
+
+
+def test_apply_does_not_advance_when_clues_remain(tmp_path):
+    """Scene with undiscovered clues stays active."""
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "scene-1"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "scene-1", "available_clues": ["clue-A", "clue-B"], "dramatic_question": "q",
+         "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {"decision_id": "d1", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"]}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "scene-1"  # clue-B still undiscovered
+
+
+def test_apply_cut_forces_scene_transition(tmp_path):
+    """CUT action forces scene advance regardless of clues."""
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "scene-1"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "scene-1", "available_clues": ["clue-A", "clue-B"], "dramatic_question": "q",
+         "entry_conditions": [], "exit_conditions": []},
+        {"scene_id": "scene-2", "available_clues": ["clue-C"], "dramatic_question": "q2",
+         "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {"decision_id": "d1", "scene_action": "CUT",
+            "clue_policy": {"reveal": []}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "scene-2"

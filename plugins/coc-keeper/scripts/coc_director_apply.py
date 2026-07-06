@@ -141,7 +141,45 @@ def apply_plan(campaign_dir: Path, plan: dict[str, Any], investigator_id: str) -
                 source_events=[decision_id],
             )
 
-    # 4. always emit a turn event if nothing else did
+    # 5. scene transition — advance when current scene is exhausted or plan CUTs.
+    # The Haunting's exit_conditions are natural-language sentences that can't be
+    # machine-evaluated, so we use a structural proxy: a scene is "exhausted"
+    # when all its available_clues are in discovered_clue_ids. A CUT action forces
+    # the advance regardless (the director decided the dramatic_question is answered).
+    story_graph_path = campaign_dir / "scenario" / "story-graph.json"
+    if story_graph_path.exists():
+        story = _read_json(story_graph_path, {"scenes": []})
+        scenes = story.get("scenes", [])
+        current_scene_id = world.get("active_scene_id")
+        current_scene = next((s for s in scenes if s.get("scene_id") == current_scene_id), None)
+        if current_scene:
+            available = current_scene.get("available_clues", [])
+            should_advance = False
+            if action == "CUT":
+                should_advance = True
+            elif available and all(c in discovered for c in available):
+                should_advance = True
+            if should_advance:
+                # find current scene's position; fall back to -1 if missing
+                try:
+                    idx = scenes.index(current_scene)
+                except ValueError:
+                    idx = -1
+                # advance to the first following scene that has undiscovered
+                # clues, or has no clues at all (e.g. a terminal aftermath scene)
+                for next_scene in scenes[idx + 1:]:
+                    next_clues = next_scene.get("available_clues", [])
+                    if not next_clues or any(c not in discovered for c in next_clues):
+                        world["active_scene_id"] = next_scene["scene_id"]
+                        _write_json(world_path, world)
+                        ev = {"event_type": "scene_transition", "decision_id": decision_id,
+                              "from_scene": current_scene_id, "to_scene": next_scene["scene_id"],
+                              "investigator_id": investigator_id, "ts": ts}
+                        events.append(ev)
+                        _append_jsonl(logs / "events.jsonl", ev)
+                        break
+
+    # 6. always emit a turn event if nothing else did
     if not events:
         ev = {"event_type": "turn", "decision_id": decision_id, "action": action,
               "investigator_id": investigator_id, "ts": ts}
