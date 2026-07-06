@@ -60,3 +60,16 @@ director 在 3 种结构原型的真实模组上产出合理 DirectorPlan，dete
 - B4 last_roll 从 logs/rolls.jsonl 读：commit dedf3d3
 - 测试：515 passed（+3 新）
 - 双 plugin 字节一致
+
+### v2 骨架（评审 1-4 项）：must_include + pacing-map + apply + memory v0.1
+
+**目标：** 把 director 从"会推进模组"升级到"有记忆、有节奏、能回响、会写回"。
+
+| Task | 内容 | 状态 |
+|---|---|---|
+| M1 | clue-graph 加 player_visible_anchor 字段 + must_include 自动填充 | ⏳ |
+| M2 | pacing-map 运行期消费（horror_stage/pacing_mode/tension_delta 从 active scene 读） | ⏳ |
+| M3 | coc_memory.py 薄工具（create_card/retrieve/build_context_pack）+ Markdown card schema | ⏳ |
+| M4 | DirectorPlan memory_reads/writes 接入 + PAYOFF 评分不再 hardcoded 0 | ⏳ |
+| M5 | coc_director_apply.py（把 plan 的 reveal/pressure/memory_write 落盘） | ⏳ |
+| M6 | memory Continuity harness drill + 全量测试 | ⏳ |
