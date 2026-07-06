@@ -205,3 +205,34 @@ def test_apply_recover_fallback_reveals_after_stall_with_cost(tmp_path):
     assert "clue-B" in world["discovered_clue_ids"]
     assert any(e.get("event_type") == "fail_forward_recovery" for e in events)
     assert pacing["tension_level"] == "medium"
+
+
+def test_backfill_rule_results_failure_prunes_exact_clue_anchor():
+    plan = {"decision_id": "d-rule", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"], "clue_type": "obscured", "fallback_routes": ["clue-B"]},
+            "rules_requests": [{"kind": "skill_check", "skill": "Library Use", "difficulty": "regular"}],
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+            "narrative_directives": {"must_include": ["exact archive detail"], "tone": ["dust"]}}
+    resolved = coc_director_apply.backfill_rule_results(
+        plan,
+        [{"skill": "Library Use", "outcome": "failure", "success": False}],
+    )
+    assert resolved["resolved_clue_policy"]["committed_reveals"] == []
+    assert resolved["resolved_clue_policy"]["withheld_reveals"] == ["clue-A"]
+    assert resolved["narrative_directives"]["must_include"] == []
+    failure = resolved["narrative_directives"]["failure_consequence"]
+    assert failure["narration_mode"] == "withhold_exact_clue_with_cost"
+    assert "do not end the scene" in " ".join(failure["must_not_claim"])
+
+
+def test_backfill_rule_results_recover_marks_fallback_as_in_world_recovery():
+    plan = {"decision_id": "d-recover", "scene_action": "RECOVER",
+            "clue_policy": {"reveal": [], "fallback_routes": ["clue-B"]},
+            "pressure_moves": [], "memory_writes": [],
+            "rule_signals": {"stalled_turns": 3},
+            "narrative_directives": {"must_include": ["fallback anchor"], "tone": []}}
+    resolved = coc_director_apply.backfill_rule_results(plan, [])
+    assert resolved["resolved_clue_policy"]["fallback_recovered"] == ["clue-B"]
+    failure = resolved["narrative_directives"]["failure_consequence"]
+    assert failure["narration_mode"] == "recover_with_cost"
+    assert "do not present this as a table-level hint" in failure["must_not_claim"]
