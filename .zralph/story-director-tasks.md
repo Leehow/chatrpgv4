@@ -30,3 +30,10 @@ director 在 3 种结构原型的真实模组上产出合理 DirectorPlan，dete
 - 高：#1（clue_type 精确化）— 影响每轮检定准确性
 - 中：#2（must_include）— 影响复杂场景叙事质量
 - 低：#3（events 写回）— 可由 keeper-play SKILL.md 自行处理，不必进 plan
+
+### v1.1 修复结果
+- #1 clue_type 精确化：已修（commit e184c79）。读 delivery 字段推断 obvious/obscured。smoke 全绿，01-archive-first 现 obvious + 无 Spot Hidden + handoff=narration。
+- #2 must_include：推迟到 v2。理由：v1 无足够信号（需 clue 内容结构化 + 记忆层），强行填会硬编码。
+- #3 events 写回指令：不进 plan。理由：该由 keeper-play SKILL.md 按 plan 的 reveal/scene_transition 自行处理，plan 不越权。
+
+测试：512 passed
