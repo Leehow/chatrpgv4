@@ -137,6 +137,74 @@ def _execute_rules_requests(
             "ts": ts,
         })
     return results
+_OUTCOME_ZH = {
+    "critical": "大成功", "extreme": "极限成功", "hard": "困难成功",
+    "regular": "常规成功", "failure": "失败", "fumble": "大失败",
+}
+
+
+def _build_narration_skeleton(
+    plan: dict[str, Any], rule_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build a structured narration skeleton from the plan + roll results.
+
+    Surfaces the narrator contract (tone/beats/anchors/roll-weaving/constraints)
+    so D3 (narrative immersion) is evaluable even without LLM prose. The
+    failure_consequence field (set by backfill_rule_results) is passed through
+    separately by the caller; this helper handles the success/general case.
+    """
+    nd = plan.get("narrative_directives", {})
+    action = plan.get("scene_action", "")
+    clue_policy = plan.get("clue_policy", {}) or plan.get("resolved_clue_policy", {})
+    beats: list[str] = []
+
+    reveal = clue_policy.get("committed_reveals") or clue_policy.get("reveal", [])
+    if action == "REVEAL" and reveal:
+        anchors = nd.get("must_include", [])
+        for i, cid in enumerate(reveal):
+            anchor = anchors[i] if i < len(anchors) else ""
+            beats.append(f"揭示线索 {cid}：{anchor}" if anchor else f"揭示线索 {cid}")
+    elif action == "PRESSURE":
+        for mv in plan.get("pressure_moves", []):
+            beats.append(f"施压：{mv.get('visible_symptom', 'tension rises')}")
+    elif action == "CHARACTER":
+        for nm in plan.get("npc_moves", []):
+            beats.append(f"NPC {nm.get('npc_id', '?')}：{nm.get('agenda', '?')}，语气 {nm.get('emotional_tone', '?')}")
+    elif action == "RECOVER":
+        fallback = clue_policy.get("fallback_routes", [])
+        beats.append(f"扶手：建议方向 {fallback}" if fallback else "扶手：玩家卡住，给方向")
+    elif action == "SUBSYSTEM":
+        for req in plan.get("rules_requests", []):
+            beats.append(f"规则事件：{req.get('skill', req.get('kind', '?'))} 检定")
+    elif action == "CHOICE":
+        leads = clue_policy.get("leads", [])
+        beats.append(f"给选择：{leads}" if leads else "给玩家方向选择")
+    elif action == "CUT":
+        beats.append("转场到下一场景")
+    elif action == "DEEPEN":
+        beats.append("深化谜团但不给结论")
+
+    embedded_rolls = []
+    for r in rule_results:
+        if not isinstance(r, dict) or r.get("skipped") or "roll" not in r:
+            continue
+        embedded_rolls.append({
+            "skill": r.get("skill", "?"),
+            "roll": r["roll"],
+            "target": r.get("target"),
+            "outcome": r.get("outcome", "?"),
+            "narration_hook": f"{r.get('skill', '?')} 检定 {r['roll']}/{r.get('target', '?')} {_OUTCOME_ZH.get(r.get('outcome', ''), r.get('outcome', ''))}",
+        })
+
+    return {
+        "tone": nd.get("tone", []),
+        "beats": beats,
+        "must_include": nd.get("must_include", []),
+        "must_not_reveal_count": len(nd.get("must_not_reveal", [])),
+        "content_constraints": nd.get("content_constraints", []),
+        "horror_stage": nd.get("horror_escalation_stage", ""),
+        "embedded_rolls": embedded_rolls,
+    }
 
 
 def run_full_session(
@@ -209,6 +277,10 @@ def run_full_session(
         tension = pacing.get("tension_level", "low")
         tension_curve.append(tension)
         directives = resolved_plan.get("narrative_directives", {})
+        narration = _build_narration_skeleton(resolved_plan, rule_results)
+        # merge failure_consequence (set by backfill_rule_results) into narration
+        if directives.get("failure_consequence"):
+            narration["failure_consequence"] = directives["failure_consequence"]
 
         turns.append({
             "turn": turn_num,
@@ -218,12 +290,13 @@ def run_full_session(
             "rule_results": rule_results,
             "resolved_clue_policy": resolved_plan.get("resolved_clue_policy", {}),
             "failure_consequence": directives.get("failure_consequence"),
+            "narration": narration,
             "tension": tension,
             "horror_stage": directives.get("horror_escalation_stage"),
             "events_count": len(events),
             "event_types": [e.get("event_type") for e in events],
             "scene_transition": any(e.get("event_type") == "scene_transition" for e in events),
-            "dramatic_question": resolved_plan.get("dramatic_question", "")[:80],
+            "dramatic_question": resolved_plan.get("dramatic_question", ""),
         })
 
         # check terminal: reached last scene
