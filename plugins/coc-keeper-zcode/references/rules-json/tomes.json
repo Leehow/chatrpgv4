@@ -99,13 +99,6 @@
       "cthulhu_mythos_full": 4,
       "mythos_rating": 18
     },
-    "Latin c. 400 Clithanus": {
-      "full_study_weeks": 29,
-      "sanity_cost": "2D6",
-      "cthulhu_mythos_initial": 3,
-      "cthulhu_mythos_full": 6,
-      "mythos_rating": 27
-    },
     "Cthaat Aquadingen": {
       "full_study_weeks": 46,
       "sanity_cost": "2D8",
@@ -176,13 +169,6 @@
       "cthulhu_mythos_initial": 1,
       "cthulhu_mythos_full": 4,
       "mythos_rating": 15
-    },
-    "English c.1600 unknown": {
-      "full_study_weeks": 9,
-      "sanity_cost": "1D6",
-      "cthulhu_mythos_initial": 1,
-      "cthulhu_mythos_full": 3,
-      "mythos_rating": 12
     },
     "Othuum Omnicia": {
       "full_study_weeks": 12,
@@ -303,13 +289,6 @@
       "cthulhu_mythos_full": 3,
       "mythos_rating": 12
     },
-    "English 1647 Janus Aquaticus": {
-      "full_study_weeks": 34,
-      "sanity_cost": "1D8",
-      "cthulhu_mythos_initial": 3,
-      "cthulhu_mythos_full": 7,
-      "mythos_rating": 30
-    },
     "Liber Ivonis": {
       "full_study_weeks": 36,
       "sanity_cost": "2D4",
@@ -373,13 +352,6 @@
       "cthulhu_mythos_full": 2,
       "mythos_rating": 9
     },
-    "German 1847 Gottfried Mulder": {
-      "full_study_weeks": 16,
-      "sanity_cost": "1D8",
-      "cthulhu_mythos_initial": 2,
-      "cthulhu_mythos_full": 5,
-      "mythos_rating": 21
-    },
     "Secret Watcher, The": {
       "full_study_weeks": 10,
       "sanity_cost": "1D4",
@@ -421,13 +393,6 @@
       "cthulhu_mythos_initial": 2,
       "cthulhu_mythos_full": 4,
       "mythos_rating": 18
-    },
-    "English 1788 Ward Philips": {
-      "full_study_weeks": 8,
-      "sanity_cost": "1D6",
-      "cthulhu_mythos_initial": 1,
-      "cthulhu_mythos_full": 3,
-      "mythos_rating": 12
     },
     "True Magick": {
       "full_study_weeks": 24,
@@ -471,13 +436,6 @@
       "cthulhu_mythos_full": 8,
       "mythos_rating": 36
     },
-    "1907 Edith Brendall": {
-      "full_study_weeks": 10,
-      "sanity_cost": "1D6",
-      "cthulhu_mythos_initial": 1,
-      "cthulhu_mythos_full": 4,
-      "mythos_rating": 15
-    },
     "We Pass from View": {
       "full_study_weeks": 1,
       "sanity_cost": "1D6",
@@ -505,13 +463,6 @@
       "cthulhu_mythos_initial": 3,
       "cthulhu_mythos_full": 7,
       "mythos_rating": 30
-    },
-    "English 1906 Harold H. Copeland": {
-      "full_study_weeks": 8,
-      "sanity_cost": "1D3",
-      "cthulhu_mythos_initial": 1,
-      "cthulhu_mythos_full": 2,
-      "mythos_rating": 9
     },
     "Ponape Scripture 1734 Abner Ezekiel": {
       "full_study_weeks": 10,
@@ -768,6 +719,69 @@
       "cthulhu_mythos_full": 8,
       "mythos_rating": 36,
       "display_name": "Book of Iod"
+    },
+    "clithanus_latin_400": {
+      "full_study_weeks": 29,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 6,
+      "mythos_rating": 27,
+      "display_name": "Confessions of Clithanus (Latin c.400)",
+      "note": "Edition variant from Mythos Tomes table"
+    },
+    "un_kulten_en_1600": {
+      "full_study_weeks": 9,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12,
+      "display_name": "Unaussprechlichen Kulten (English c.1600)",
+      "note": "Edition variant from Mythos Tomes table"
+    },
+    "janus_aquaticus_en_1647": {
+      "full_study_weeks": 34,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 3,
+      "cthulhu_mythos_full": 7,
+      "mythos_rating": 30,
+      "display_name": "Janus Aquaticus (English 1647)",
+      "note": "Edition variant from Mythos Tomes table"
+    },
+    "ghorl_nigral_de_1847": {
+      "full_study_weeks": 16,
+      "sanity_cost": "1D8",
+      "cthulhu_mythos_initial": 2,
+      "cthulhu_mythos_full": 5,
+      "mythos_rating": 21,
+      "display_name": "Ghorl Nigral (German 1847, Mulder)",
+      "note": "Edition variant from Mythos Tomes table"
+    },
+    "necronomicon_en_philips": {
+      "full_study_weeks": 8,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 3,
+      "mythos_rating": 12,
+      "display_name": "Necronomicon (English, Ward Philips 1788)",
+      "note": "Edition variant from Mythos Tomes table"
+    },
+    "brendall_manuscript_1907": {
+      "full_study_weeks": 10,
+      "sanity_cost": "1D6",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 4,
+      "mythos_rating": 15,
+      "display_name": "Brendall Manuscript (1907)",
+      "note": "Edition variant from Mythos Tomes table"
+    },
+    "polynesian_myth_copeland": {
+      "full_study_weeks": 8,
+      "sanity_cost": "1D3",
+      "cthulhu_mythos_initial": 1,
+      "cthulhu_mythos_full": 2,
+      "mythos_rating": 9,
+      "display_name": "Polynesian Mythology (Copeland 1906)",
+      "note": "Edition variant from Mythos Tomes table"
     }
   }
 }
