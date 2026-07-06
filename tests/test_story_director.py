@@ -354,3 +354,45 @@ def test_pacing_falls_back_when_no_matching_scene(tmp_path):
     # fallback horror stage is wrongness (v1 default), pacing_mode from action
     assert plan["narrative_directives"]["horror_escalation_stage"] == "wrongness"
     assert plan["pacing_mode"] in ("investigation", "pressure", "social", "low", "medium", "high", "climax", "aftermath", "slow_burn")
+
+
+def test_payoff_scores_above_zero_when_memory_matches(tmp_path):
+    """PAYOFF should score > 0 when retrieved memory cards match the scene."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # pre-populate a memory card keyed to scene-1 entities
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_memory", "plugins/coc-keeper/scripts/coc_memory.py")
+    coc_memory = importlib.util.module_from_spec(spec); spec.loader.exec_module(coc_memory)
+    coc_memory.create_memory_card(
+        campaign_dir=camp, memory_id="mem-test-door",
+        privacy="player_safe", salience=0.8,
+        summary="玩家关注门", entities=["scene-1-entity"],
+        tags=["player_interest"], reactivation_cues=["scene-1"], source_events=[])
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="recall", player_intent_class="investigate", rng=random.Random(42))
+    # force memory retrieval by injecting entities matching the card
+    ctx["memory_query_entities"] = ["scene-1-entity"]
+    ctx["memory_query_cues"] = ["scene-1"]
+    score = coc_story_director._base_score("PAYOFF", ctx)
+    assert score > 0.0
+
+
+def test_memory_reads_populated_when_cards_match(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_memory", "plugins/coc-keeper/scripts/coc_memory.py")
+    coc_memory = importlib.util.module_from_spec(spec); spec.loader.exec_module(coc_memory)
+    coc_memory.create_memory_card(
+        campaign_dir=camp, memory_id="mem-test-door",
+        privacy="player_safe", salience=0.9,
+        summary="玩家关注门", entities=["scene-1-entity"],
+        tags=["player_interest"], reactivation_cues=["scene-1"], source_events=[])
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate", rng=random.Random(42))
+    ctx["memory_query_entities"] = ["scene-1-entity"]
+    ctx["memory_query_cues"] = ["scene-1"]
+    plan = coc_story_director.generate_director_plan(ctx, "mem-test")
+    assert len(plan["memory_reads"]) >= 1
+    assert plan["memory_reads"][0]["memory_id"] == "mem-test-door"

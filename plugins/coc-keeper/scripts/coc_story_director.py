@@ -27,6 +27,12 @@ def _load_sibling(name: str, filename: str):
 
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 
+coc_memory = None
+try:
+    coc_memory = _load_sibling("coc_memory", "coc_memory.py")
+except Exception:
+    coc_memory = None  # memory layer optional; director degrades gracefully
+
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
     if not path.exists():
@@ -231,8 +237,15 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         return 0.85 if sig["stalled_turns"] >= 2 else 0.0
 
     if action == "PAYOFF":
-        # v1: no memory layer; minimal — true if scene tone matches a prior cue
-        return 0.0  # v1 leaves PAYOFF to v2 (memory layer)
+        # v2: score from memory layer — PAYOFF fires when a recalled memory
+        # card matches the current scene/intent. Score scales with top card.
+        if coc_memory is None:
+            return 0.0
+        cards = _retrieve_memory_for_ctx(ctx)
+        if not cards:
+            return 0.0
+        top = max(float(c.get("score", 0)) for c in cards)
+        return min(0.9, 0.3 + top * 0.1)
 
     return 0.0
 
@@ -422,6 +435,37 @@ def _current_pacing_entry(ctx: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _retrieve_memory_for_ctx(ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    """Retrieve memory cards matching the current scene/intent. Returns [] if no memory layer."""
+    if coc_memory is None:
+        return []
+    campaign_dir = ctx.get("campaign_dir")
+    if campaign_dir is None:
+        return []
+    # query terms: explicit overrides first, else derive from scene + intent
+    entities = ctx.get("memory_query_entities") or _derive_memory_entities(ctx)
+    cues = ctx.get("memory_query_cues") or [ctx.get("player_intent", "")]
+    tags = ctx.get("memory_query_tags") or []
+    cards = coc_memory.retrieve_memory_cards(
+        campaign_dir=Path(campaign_dir),
+        query_entities=[e for e in entities if e],
+        query_cues=[c for c in cues if c],
+        query_tags=tags,
+        privacy_filter="player_safe",
+        limit=5,
+    )
+    return cards
+
+
+def _derive_memory_entities(ctx: dict[str, Any]) -> list[str]:
+    """Default memory query: active scene id + npc ids + available clue ids."""
+    scene = ctx.get("active_scene") or {}
+    ents = [ctx.get("active_scene_id", "")]
+    ents += scene.get("npc_ids", [])
+    ents += scene.get("available_clues", [])
+    return [e for e in ents if e]
+
+
 def _disposition_to_tone(disposition: str) -> str:
     return {"helpful": "warm and cooperative",
             "neutral": "guarded but civil",
@@ -557,6 +601,16 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "horror_escalation_stage": horror_stage,
     }
 
+    # v2: populate memory_reads from the memory layer. PAYOFF actions mark the
+    # card use as PAYOFF (recalled payoff); everything else is TONE color.
+    # memory_writes stays empty here — writeback is decided by the M5 apply layer.
+    mem_cards = _retrieve_memory_for_ctx(ctx)
+    memory_reads = [
+        {"memory_id": c.get("memory_id"), "path": c.get("path"),
+         "reason": "entity/scene match", "use": "PAYOFF" if action == "PAYOFF" else "TONE"}
+        for c in mem_cards
+    ]
+
     return {
         "decision_id": decision_id,
         "turn_input": {
@@ -575,7 +629,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "npc_moves": _build_npc_moves(ctx, action),
         "pressure_moves": pressure_moves,
         "rules_requests": rules_requests,
-        "memory_reads": [],
+        "memory_reads": memory_reads,
         "memory_writes": [],
         "narrative_directives": narrative_directives,
         "handoff": handoff,
