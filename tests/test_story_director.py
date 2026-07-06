@@ -522,3 +522,67 @@ def test_content_constraints_empty_when_no_flags(tmp_path):
         player_intent="x", player_intent_class="investigate", rng=random.Random(42))
     plan = coc_story_director.generate_director_plan(ctx, "cc-empty")
     assert plan["narrative_directives"]["content_constraints"] == []
+
+
+# =============================================================================
+# Lead graph: clue selection by route_priority + CHOICE leads (R2)
+# =============================================================================
+
+def test_reveal_picks_highest_priority_clue(tmp_path):
+    """REVEAL picks the clue with highest route_priority, not just the first."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # rewrite clue-graph: clue-1 priority 0.3, clue-1b priority 0.9
+    # scene-1 available_clues must include both; currently _make_minimal_campaign's scene-1
+    # has available_clues ["clue-1"]. We need a scene with 2+ available clues.
+    sg = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    sg["scenes"][0]["available_clues"] = ["clue-1", "clue-1b"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    cg = {"conclusions": [{"conclusion_id": "c1", "importance": "critical", "minimum_routes": 3,
+        "clues": [
+            {"clue_id": "clue-1", "delivery": "x", "visibility": "player-safe", "route_priority": 0.3},
+            {"clue_id": "clue-1b", "delivery": "y", "visibility": "player-safe", "route_priority": 0.9},
+            {"clue_id": "clue-1c", "delivery": "z", "visibility": "player-safe"}],
+        "fallback_policy": ""}]}
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(cg))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "priority-test")
+    # REVEAL should pick clue-1b (priority 0.9) not clue-1 (priority 0.3)
+    assert plan["clue_policy"]["reveal"] == ["clue-1b"]
+
+
+def test_reveal_falls_back_to_first_when_no_priority(tmp_path):
+    """No route_priority on any clue -> stable order, takes first (backward compat)."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "no-priority")
+    # default fixture clue-1 is first available; all default 0.5 -> stable
+    assert "clue-1" in plan["clue_policy"]["reveal"]
+
+
+def test_choice_returns_two_leads(tmp_path):
+    """CHOICE action returns 2 leads ranked by priority."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    sg = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    sg["scenes"][0]["available_clues"] = ["clue-1", "clue-1b", "clue-1c"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    cg = {"conclusions": [{"conclusion_id": "c1", "importance": "critical", "minimum_routes": 3,
+        "clues": [
+            {"clue_id": "clue-1", "delivery": "x", "visibility": "player-safe", "route_priority": 0.3},
+            {"clue_id": "clue-1b", "delivery": "y", "visibility": "player-safe", "route_priority": 0.9},
+            {"clue_id": "clue-1c", "delivery": "z", "visibility": "player-safe", "route_priority": 0.7}],
+        "fallback_policy": ""}]}
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(cg))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="不知道", player_intent_class="idle", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "choice-leads")
+    # CHOICE triggers on idle intent; check leads field has 2 entries ranked
+    leads = plan["clue_policy"].get("leads", [])
+    assert len(leads) == 2
+    assert leads[0] == "clue-1b"  # highest priority 0.9
+    assert leads[1] == "clue-1c"  # second highest 0.7
+

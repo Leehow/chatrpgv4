@@ -116,9 +116,14 @@
       - `path` (string)：PDF 文件路径（相对或绝对，如 `pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf`）。
       - `page` (int)：0 基 PDF 页码（与 pdf_cache 一致）。
       - `grep_anchor` (string)：该页中一句可辨识的短语，可用 `grep` 对 pdf_cache markdown 验证。
+    - 线索路由可选字段（lead graph 用）：导演按这些字段在多条等价路径中路由，缺省时回退默认值。
+      - `route_priority` (float，可选)：0.0-1.0，越高代表越直接/可能的路径（默认 0.5）。
+      - `leads_to` (string[]，可选)：该线索自然指向的 scene_id/npc_id 列表。
+      - `risk` (string，可选)：`low` | `medium` | `high`，走这条路径的风险等级。
+      - `requires_player_action` (string，可选)：玩家为获取此线索必须执行的动作描述。
   - `fallback_policy` (string)：当多数路径被错过时导演的兜底策略。
 
-> **向后兼容**：`delivery_kind` / `skill` / `difficulty` / `player_safe_summary` / `source_refs` 全部可选。没有这些字段的旧 clue-graph 仍能通过校验并正常工作——导演会回退到读取 `delivery` 字符串做启发式判断。只有当某个字段被填了但格式不对（如 `delivery_kind=skill_check` 却没给 `skill`，或 `source_ref` 缺 `source_id`/`path`/整数 `page`/`grep_anchor`）时，编译器才会发 warning（不是 error）。
+> **向后兼容**：`delivery_kind` / `skill` / `difficulty` / `player_safe_summary` / `source_refs` / `route_priority` / `leads_to` / `risk` / `requires_player_action` 全部可选。没有这些字段的旧 clue-graph 仍能通过校验并正常工作——导演会回退到读取 `delivery` 字符串做启发式判断，线索路由字段缺省时回退 `route_priority=0.5`（所有路径等价）。只有当某个字段被填了但格式不对（如 `delivery_kind=skill_check` 却没给 `skill`，或 `source_ref` 缺 `source_id`/`path`/整数 `page`/`grep_anchor`）时，编译器才会发 warning（不是 error）。
 
 **示例：**
 

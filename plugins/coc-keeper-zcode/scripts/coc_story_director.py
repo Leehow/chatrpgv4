@@ -476,6 +476,19 @@ def _find_clue(clue_id: str, clue_graph: dict[str, Any]) -> dict[str, Any] | Non
     return None
 
 
+def _clue_route_priority(clue_id: str | None, clue_graph: dict[str, Any]) -> float:
+    """Read a clue's route_priority (default 0.5 if absent). Higher = more direct route."""
+    if not clue_id:
+        return 0.5
+    clue = _find_clue(clue_id, clue_graph)
+    if clue is None:
+        return 0.5
+    try:
+        return float(clue.get("route_priority", 0.5))
+    except (TypeError, ValueError):
+        return 0.5
+
+
 def _resolve_clue_delivery(clue_id: str | None, clue_graph: dict[str, Any]) -> tuple[str, str | None, str | None]:
     """Resolve a clue's delivery type + skill + difficulty from structured fields, with fallback.
 
@@ -505,30 +518,53 @@ def _resolve_clue_delivery(clue_id: str | None, clue_graph: dict[str, Any]) -> t
 
 
 def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
-    """Choose reveal/withhold/fallback per clue-graph."""
+    """Choose reveal/withhold/fallback/leads per clue-graph.
+
+    Clue selection is priority-aware: clues carry an optional `route_priority`
+    (0.0-1.0, higher = more direct/likely route, default 0.5). REVEAL/RECOVER
+    pick the highest-priority eligible clue; CHOICE surfaces the top 2 leads
+    so the narrator can offer them to an idle/ambiguous player.
+    """
     scene = ctx.get("active_scene") or {}
     discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
     available = [c for c in scene.get("available_clues", []) if c not in discovered]
     secrets = ctx.get("improvisation_boundaries", {}).get("keeper_secrets", [])
+    clue_graph = ctx.get("clue_graph", {})
 
-    reveal = available[:1] if action == "REVEAL" and available else []
+    # REVEAL: rank eligible clues by route_priority (desc) and take the top one.
+    if action == "REVEAL" and available:
+        ranked = sorted(available, key=lambda cid: _clue_route_priority(cid, clue_graph), reverse=True)
+        reveal = [ranked[0]]
+    else:
+        reveal = []
+
     # Resolve obvious vs obscured (+ skill/difficulty) from the first revealed
     # clue's structured delivery_kind, falling back to the delivery string
     # heuristic for old clue-graphs. This gates whether _build_rules_requests
     # emits a skill check (and which skill/difficulty it requests).
-    clue_graph = ctx.get("clue_graph", {})
     _clue_type, _clue_skill, _clue_diff = _resolve_clue_delivery(
         reveal[0] if reveal else None, clue_graph)
-    # fallback: if stalled, pull an alternate route
+
+    # fallback: if stalled (RECOVER), pull the highest-priority not-yet-found route.
     fallback = []
     if action == "RECOVER":
         for concl in clue_graph.get("conclusions", []):
             not_found = [c["clue_id"] for c in concl.get("clues", []) if c["clue_id"] not in discovered]
             if not_found:
-                fallback.append(not_found[0])
+                not_found_ranked = sorted(not_found, key=lambda cid: _clue_route_priority(cid, clue_graph), reverse=True)
+                fallback.append(not_found_ranked[0])
                 break
+
+    # leads: for CHOICE (idle/ambiguous intent with ≥2 clues), surface the top 2
+    # routes ranked by priority so the narrator can offer them to the player.
+    leads: list[str] = []
+    if action == "CHOICE":
+        ranked = sorted(available, key=lambda cid: _clue_route_priority(cid, clue_graph), reverse=True)
+        leads = ranked[:2]
+
     return {"reveal": reveal, "withhold": list(secrets), "fallback_routes": fallback,
-            "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff}
+            "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff,
+            "leads": leads}
 
 
 def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[str]:
