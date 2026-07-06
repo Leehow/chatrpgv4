@@ -400,7 +400,8 @@
       ],
       "spells": [],
       "description": "Aquatic pinniped-like sentients.",
-      "source_page": 306
+      "source_page": 306,
+      "source_note": "Not in core rulebook Ch.14; from Dreamlands/supplement source."
     },
     "Gnoph-Keh": {
       "str": 155,
@@ -715,7 +716,8 @@
       ],
       "spells": [],
       "description": "Small carnivorous mammals of the Dreamlands enchanted wood.",
-      "source_page": 320
+      "source_page": 320,
+      "source_note": "Not in core rulebook Ch.14; from Dreamlands/supplement source."
     },
     "Cthulhu": {
       "str": 700,
