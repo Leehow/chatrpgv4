@@ -323,3 +323,34 @@ def test_must_include_empty_when_clue_has_no_anchor(tmp_path):
         player_intent="search", player_intent_class="investigate", rng=random.Random(42))
     plan = coc_story_director.generate_director_plan(ctx, "no-anchor-test")
     assert plan["narrative_directives"]["must_include"] == []
+
+
+def test_pacing_drives_horror_stage_from_active_scene(tmp_path):
+    """horror_escalation_stage comes from pacing-map entry matching active scene."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # add a pacing-map with scene-1 = revelation stage
+    pm = {"pacing_curve": [
+        {"scene_id": "scene-1", "tension_target": "high", "horror_stage": "revelation"},
+    ]}
+    (camp / "scenario" / "pacing-map.json").write_text(json.dumps(pm))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "pacing-test")
+    assert plan["narrative_directives"]["horror_escalation_stage"] == "revelation"
+    assert plan["pacing_mode"] == "high"
+
+
+def test_pacing_falls_back_when_no_matching_scene(tmp_path):
+    """no pacing entry for active scene -> fallback to action-based defaults, no crash."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # pacing-map exists but no scene-1 entry
+    pm = {"pacing_curve": [{"scene_id": "other-scene", "tension_target": "low", "horror_stage": "ordinary"}]}
+    (camp / "scenario" / "pacing-map.json").write_text(json.dumps(pm))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42))
+    plan = coc_story_director.generate_director_plan(ctx, "pacing-fallback-test")
+    # fallback horror stage is wrongness (v1 default), pacing_mode from action
+    assert plan["narrative_directives"]["horror_escalation_stage"] == "wrongness"
+    assert plan["pacing_mode"] in ("investigation", "pressure", "social", "low", "medium", "high", "climax", "aftermath", "slow_burn")

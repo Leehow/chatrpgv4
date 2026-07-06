@@ -408,6 +408,20 @@ def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[st
     return anchors
 
 
+VALID_HORROR_STAGES = {"ordinary", "wrongness", "pattern", "revelation"}
+
+
+def _current_pacing_entry(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Find the pacing-map entry for the active scene. Returns {} if none."""
+    active_scene_id = ctx.get("active_scene_id")
+    if not active_scene_id:
+        return {}
+    for entry in ctx.get("pacing_map", {}).get("pacing_curve", []):
+        if entry.get("scene_id") == active_scene_id:
+            return entry
+    return {}
+
+
 def _disposition_to_tone(disposition: str) -> str:
     return {"helpful": "warm and cooperative",
             "neutral": "guarded but civil",
@@ -511,7 +525,18 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     elif action in ("REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "RECOVER", "PAYOFF"):
         handoff = "rules" if rules_requests else "narration"
 
+    pacing_entry = _current_pacing_entry(ctx)
+    # horror stage from pacing-map, validated; fallback to wrongness
+    raw_horror = pacing_entry.get("horror_stage", "wrongness")
+    horror_stage = raw_horror if raw_horror in VALID_HORROR_STAGES else "wrongness"
+    # pacing_mode: prefer pacing-map tension_target; fallback to action-based
+    pacing_mode = pacing_entry.get("tension_target")
+    if not pacing_mode:
+        pacing_mode = "investigation" if action in ("REVEAL", "DEEPEN") else ("pressure" if action == "PRESSURE" else "social")
+    # tension_delta: action-driven, but escalation scenes add +1
     tension_delta = 1 if action in ("PRESSURE", "SUBSYSTEM") else (0 if action in ("REVEAL", "DEEPEN", "RECOVER") else -1)
+    if pacing_entry.get("tension_target") in ("high", "climax") and action not in ("RECOVER", "MONTAGE"):
+        tension_delta = max(tension_delta, 1)
 
     # Dying (and any future override carrying extra_pressure) forces PRESSURE
     # clock-ticks even though the chosen action is SUBSYSTEM. _build_pressure_moves
@@ -529,7 +554,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         ),
         "must_not_reveal": ctx.get("improvisation_boundaries", {}).get("keeper_secrets", []),
         "improvisation_allowed": ctx.get("improvisation_boundaries", {}).get("invent_allowed", []),
-        "horror_escalation_stage": "wrongness",  # v1 static; pacing-map drives in v2
+        "horror_escalation_stage": horror_stage,
     }
 
     return {
@@ -543,7 +568,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "scene_action": action,
         "subsystem": subsystem,
         "dramatic_question": scene.get("dramatic_question", ""),
-        "pacing_mode": "investigation" if action in ("REVEAL", "DEEPEN") else ("pressure" if action == "PRESSURE" else "social"),
+        "pacing_mode": pacing_mode,
         "tension_delta": tension_delta,
         "rule_signals": ctx["rule_signals"],
         "clue_policy": clue_policy,
