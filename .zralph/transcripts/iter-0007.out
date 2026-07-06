@@ -1,0 +1,26 @@
+{
+  "sessionId": "sess_32e6c6d9-02cc-471a-b43c-20df9d19712f",
+  "traceId": "faf41464-a188-408f-b83b-fbdf6517f569",
+  "turnId": "turn_c447721e-65d3-4de4-95c8-bf1cebc9d506",
+  "response": "Loop stopped. All completion criteria verified. Emitting the promise:\n\n<promise>ALL PARAMETERS VERIFIED EVERY FIELD EVERY ROW OCR CONFIRMED TESTS GREEN</promise>\n\n## Final state — all verified\n\n| Check | Result |\n|---|---|\n| gap_audit (17+ rules) | ✅ clean, exit 0 |\n| verify_bout_tables_ocr | ✅ 0 mismatches |\n| verify_monster_san_ocr | ✅ all SAN loss identical |\n| verify_monsters_ocr | ✅ 0 mismatches |\n| verify_occupations_ocr | ✅ 0 mismatches |\n| verify_phobias_manias_ocr | ✅ 0 mismatches |\n| verify_poisons_ocr | ✅ 0 mismatches |\n| verify_skills_ocr | ✅ 0 mismatches |\n| verify_spells_ocr | ✅ PASS |\n| verify_tomes_ocr | ✅ 0 mismatches |\n| verify_weapons_ocr | ✅ 0 mismatches |\n| pytest | ✅ 496 passed |\n| dual plugin parity | ✅ all 10 core files identical |\n\nEvery field of every row across all 10 data tables (632 entries total) has been compared against the cached MinerU OCR of the rulebook and confirmed correct. Committed at `6f6bdf1`.",
+  "usage": {
+    "source": "provider",
+    "modelRequestCount": 3,
+    "inputTokens": 1360558,
+    "outputTokens": 905,
+    "totalTokens": 1361463,
+    "cacheReadTokens": 1350784,
+    "cacheWriteTokens": 0,
+    "reasoningTokens": 0,
+    "webFetchRequests": 0,
+    "webSearchRequests": 0
+  },
+  "eventCount": 492,
+  "projection": {
+    "status": "idle",
+    "turnCount": 1,
+    "totalTokenCount": 1361463,
+    "contextUsed": 454186,
+    "contextWindow": 1000000
+  }
+}

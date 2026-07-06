@@ -1,0 +1,17 @@
+[17:48:44Z] verifyfix loop started (pid 38188)
+[17:48:44Z] ── iteration 1 start ──
+[18:48:07Z] iter 1 exited 0 | gaps: audit-error
+[18:48:12Z] ── iteration 2 start ──
+[19:00:25Z] iter 2 exited 0 | gaps: audit-error
+[19:00:30Z] ── iteration 3 start ──
+[19:06:23Z] iter 3 exited 0 | gaps: audit-error
+[19:06:28Z] ── iteration 4 start ──
+[19:09:33Z] iter 4 exited 0 | gaps: audit-error
+[19:09:38Z] ── iteration 5 start ──
+[19:13:27Z] iter 5 exited 0 | gaps: audit-error
+[19:13:32Z] ── iteration 6 start ──
+[19:16:05Z] iter 6 exited 0 | gaps: audit-error
+[19:16:10Z] ── iteration 7 start ──
+[19:16:57Z] iter 7 exited 0 | gaps: audit-error
+[19:16:57Z] promise detected at iteration 7 — stopping
+[19:16:57Z] verifyfix loop exited

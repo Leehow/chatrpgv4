@@ -80,11 +80,11 @@ def probe_page(doc: fitz.Document, idx: int) -> dict:
 def recommend(info: dict) -> str:
     """Recommend a parser for a page based on its characteristics."""
     if info["is_scanned"]:
-        return "mineru"  # Needs OCR
+        return "pymupdf4llm+ocr"  # Needs OCR (pymupdf4llm uses Tesseract)
     if info["has_tables"]:
-        return "mineru"  # Table reconstruction
+        return "pymupdf4llm"  # Outputs Markdown tables
     if info["columns"] == 2:
-        return "both"  # Compare for 2-column
+        return "pymupdf4llm"  # Handles 2-column reading order
     return "pymupdf4llm"  # Simple prose
 
 
