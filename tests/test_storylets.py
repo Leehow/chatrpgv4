@@ -141,6 +141,79 @@ def test_scene_can_exclude_storylet_tropes():
     assert moves[0]["storylet_id"] == "good-echo"
 
 
+def test_unanchored_generic_storylet_is_not_selected():
+    """A storylet with no current-scene anchor should not be forced onto play."""
+    library = {"storylets": [{
+        "storylet_id": "generic-anywhere",
+        "family_id": "generic_pressure",
+        "trope_id": "generic_delay",
+        "conflict_level": "low",
+        "base_weight": 100,
+        "scene_actions": ["DEEPEN"],
+        "eligible_scene_types": ["any"],
+        "horror_stage": ["wrongness"],
+        "requires": {"npc_id": False, "unrevealed_clue": False, "active_front": False},
+        "serves": {"theme": True},
+        "cue": "某处出现一点泛用异样。",
+    }]}
+
+    moves = storylets.select_storylet_moves(
+        _plan("DEEPEN"),
+        _ctx("low"),
+        library=library,
+        seed="generic-mismatch",
+    )
+
+    assert moves == []
+
+
+def test_scene_pressure_requirement_anchors_storylet_to_current_scene():
+    library = {"storylets": [{
+        "storylet_id": "scene-pressure",
+        "family_id": "local_pressure",
+        "trope_id": "local_pressure",
+        "conflict_level": "low",
+        "base_weight": 1,
+        "scene_actions": ["DEEPEN"],
+        "eligible_scene_types": ["investigation"],
+        "horror_stage": ["wrongness"],
+        "requires": {"scene_pressure": True},
+        "serves": {"mainline": True, "can_surface_choice": True},
+        "cue": "当前场景的压力从既有危险里冒出来。",
+    }]}
+    ctx = _ctx("low")
+    ctx["active_scene"]["pressure_moves"] = ["档案室门外有人突然停步。"]
+
+    moves = storylets.select_storylet_moves(
+        _plan("DEEPEN"),
+        ctx,
+        library=library,
+        seed="scene-pressure",
+    )
+
+    assert moves[0]["storylet_id"] == "scene-pressure"
+
+
+def test_default_storylet_library_has_current_scene_anchors():
+    """Packaged storylets must declare at least one concrete binding contract."""
+    library = storylets.load_storylet_library()
+    offenders = []
+    for item in library.get("storylets", []):
+        req = item.get("requires") or {}
+        anchored = (
+            req.get("npc_id") is True
+            or req.get("unrevealed_clue") is True
+            or req.get("active_front") is True
+            or req.get("scene_pressure") is True
+            or bool(item.get("scene_tags"))
+            or bool(item.get("anchor_contract"))
+        )
+        if not anchored:
+            offenders.append(item.get("storylet_id"))
+
+    assert offenders == []
+
+
 def test_selected_storylet_binds_to_existing_scenario_nodes_and_updates_ledger():
     library = {"storylets": [{
         "storylet_id": "bind-clue",

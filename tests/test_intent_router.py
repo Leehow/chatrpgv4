@@ -309,8 +309,24 @@ def test_primary_intent_enum_includes_director_classes():
     """The enum must include ambiguous/montage/cast so the director's
     _base_score branches that check those classes are reachable when the
     router feeds the director."""
-    for cls in ("ambiguous", "montage", "cast"):
+    for cls in ("move", "ambiguous", "montage", "cast"):
         assert cls in router._PRIMARY_INTENT_ENUM, f"{cls} missing from enum"
+
+
+def test_llm_evaluator_accepts_movement_intent(tmp_path):
+    """Ordinary movement is its own intent, not flee/stuck/idle."""
+    evaluator = router.LLMIntentEvaluator(artifacts_dir=tmp_path)
+    request = evaluator._build_request("我继续跟着队伍往前走", {"scene_id": "ravine"})
+    evaluator._write_request(request)
+    _write_result(tmp_path, request, result_overrides={
+        "primary_intent": "move",
+        "secondary_intents": ["low_agency_continue", "follow_group"],
+        "reasons": {"primary_intent": "The player keeps moving with the group without choosing a new goal."},
+    })
+
+    result = evaluator.classify("我继续跟着队伍往前走", {"scene_id": "ravine"})
+
+    assert result["primary_intent"] == "move"
 
 
 def test_fixture_can_return_director_specific_classes():

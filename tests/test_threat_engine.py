@@ -81,6 +81,60 @@ def test_apply_pressure_tick_fires_clock_full_event(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Task 3: scene on_enter hook (clock ticks on scene entry)
+# ---------------------------------------------------------------------------
+
+def _campaign_with_on_enter(tmp_path: Path) -> Path:
+    """A campaign where scene-2 has on_enter.clock_ticks."""
+    camp = tmp_path / "campaign"
+    (camp / "scenario").mkdir(parents=True)
+    (camp / "save").mkdir(parents=True)
+    (camp / "logs").mkdir(parents=True)
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps({"scenes": [
+        {"scene_id": "s1", "dramatic_question": "q1", "available_clues": ["c1"],
+         "exit_conditions": [], "npc_ids": [], "pressure_moves": [], "tone": [],
+         "entry_conditions": [], "allowed_improvisation": []},
+        {"scene_id": "s2", "dramatic_question": "q2", "available_clues": [],
+         "exit_conditions": [], "npc_ids": [], "pressure_moves": [], "tone": [],
+         "entry_conditions": [], "allowed_improvisation": [],
+         "on_enter": {"clock_ticks": [{"clock_id": "door", "reason": "entering siege"}]}},
+    ]}))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"front_id": "siege", "scope": "scenario",
+                     "clocks": [{"clock_id": "door", "segments": 3,
+                                 "on_tick_visible": ["creak"], "on_full": "breached"}],
+                     "dangers": []}]}))
+    (camp / "save" / "world-state.json").write_text(json.dumps(
+        {"active_scene_id": "s1", "discovered_clue_ids": ["c1"]}))
+    (camp / "save" / "pacing-state.json").write_text(json.dumps({"tension_level": "low", "turn_number": 0}))
+    return camp
+
+
+def test_scene_enter_ticks_clock(tmp_path):
+    """Advancing into a scene with on_enter.clock_ticks should tick the clock."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_director_apply2", SCRIPTS_DIR / "coc_director_apply.py")
+    apply_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(apply_mod)
+
+    camp = _campaign_with_on_enter(tmp_path)
+    # s1's only clue c1 is already discovered → scene should advance to s2
+    plan = {"decision_id": "t1", "scene_action": "REVEAL", "clue_policy": {},
+            "rules_requests": [], "pressure_moves": []}
+    events = apply_mod.apply_plan(camp, plan, "inv1")
+
+    # scene advanced to s2
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world["active_scene_id"] == "s2"
+    # a scene_enter event fired
+    enter_events = [e for e in events if e.get("event_type") == "scene_enter"]
+    assert len(enter_events) == 1
+    assert enter_events[0]["to_scene"] == "s2"
+    # the door clock was ticked by on_enter
+    assert coc_threat_state.get_clock_segments(camp / "save", "door") == 1
+
+
+# ---------------------------------------------------------------------------
 # Task 1: threat-state.json persistence layer
 # ---------------------------------------------------------------------------
 

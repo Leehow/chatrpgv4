@@ -77,6 +77,65 @@ def _lookup_clock_def(campaign_dir: Path, clock_id: str) -> dict[str, Any] | Non
     return None
 
 
+def _apply_scene_on_enter(
+    campaign_dir: Path, scene: dict[str, Any],
+    decision_id: str, investigator_id: str, ts: str,
+    events: list[dict[str, Any]], logs: Path,
+) -> None:
+    """Fire a scene's on_enter hooks when it is entered.
+
+    Currently handles ``on_enter.clock_ticks`` — ticking threat clocks and
+    emitting clock_full when a clock fills.  SAN triggers are emitted by the
+    director as rules_requests (see _build_rules_requests), not here, because
+    the director owns the request layer and this layer owns persistence.
+    """
+    on_enter = scene.get("on_enter") or {}
+    clock_ticks = on_enter.get("clock_ticks") or []
+    save = campaign_dir / "save"
+
+    # Emit a scene_enter event so downstream consumers know on_enter fired.
+    enter_ev = {
+        "event_type": "scene_enter", "decision_id": decision_id,
+        "to_scene": scene.get("scene_id"),
+        "investigator_id": investigator_id, "ts": ts,
+    }
+    events.append(enter_ev)
+    _append_jsonl(logs / "events.jsonl", enter_ev)
+
+    for tick_spec in clock_ticks:
+        if not isinstance(tick_spec, dict):
+            continue
+        clock_id = tick_spec.get("clock_id")
+        if not clock_id:
+            continue
+        clock_def = _lookup_clock_def(campaign_dir, clock_id)
+        segments = int(clock_def.get("segments", 6)) if clock_def else 6
+        symptom = ""
+        if clock_def:
+            ticks_visible = clock_def.get("on_tick_visible", [])
+            current = coc_threat_state.get_clock_segments(save, clock_id) if coc_threat_state else 0
+            if ticks_visible and isinstance(ticks_visible, list):
+                symptom = ticks_visible[min(current, len(ticks_visible) - 1)]
+        tick_ev = {
+            "event_type": "pressure_tick", "decision_id": decision_id,
+            "clock_id": clock_id, "visible_symptom": symptom,
+            "reason": tick_spec.get("reason", "scene on_enter"),
+            "investigator_id": investigator_id, "ts": ts,
+        }
+        events.append(tick_ev)
+        _append_jsonl(logs / "events.jsonl", tick_ev)
+        if coc_threat_state is not None:
+            became_full = coc_threat_state.tick_clock(save, clock_id, segments)
+            if became_full and clock_def:
+                full_ev = {
+                    "event_type": "clock_full", "decision_id": decision_id,
+                    "clock_id": clock_id, "on_full": clock_def.get("on_full", ""),
+                    "investigator_id": investigator_id, "ts": ts,
+                }
+                events.append(full_ev)
+                _append_jsonl(logs / "events.jsonl", full_ev)
+
+
 def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
@@ -531,6 +590,9 @@ def apply_plan(
                               "investigator_id": investigator_id, "ts": ts}
                         events.append(ev)
                         _append_jsonl(logs / "events.jsonl", ev)
+                        # on_enter hook: tick clocks + emit scene_enter event.
+                        _apply_scene_on_enter(campaign_dir, next_scene, decision_id,
+                                              investigator_id, ts, events, logs)
                         break
 
     # 7. always emit a turn event if nothing else did

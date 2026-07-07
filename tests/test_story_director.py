@@ -474,6 +474,56 @@ def test_rule_override_fumble_forces_pressure(tmp_path):
     assert overrides["scene_action"] == "PRESSURE"
 
 
+def test_low_agency_continuation_forces_authored_scene_pressure(tmp_path):
+    """Repeated passive continuation yields initiative to the current scene.
+
+    This is the live-play failure mode where "continue/follow the group" kept
+    producing scenery instead of an actionable beat. The director should fire
+    an authored pressure move only when the active scene actually provides one.
+    """
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story_graph = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story_graph["scenes"][0]["available_clues"] = []
+    story_graph["scenes"][0]["pressure_moves"] = [
+        {"id": "shell-hole-rattle", "cue": "前方弹坑里传来一声短促的金属碰响。"}
+    ]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story_graph))
+
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["move"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    rich = {
+        "primary_intent": "move",
+        "secondary_intents": ["low_agency_continue", "follow_group"],
+        "target_entities": ["patrol"],
+        "risk_posture": "neutral",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "action_atoms": [],
+    }
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我继续跟着队伍走",
+        player_intent_class="investigate",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+
+    assert ctx["rule_signals"]["low_agency_continue_count"] == 2
+    overrides = coc_story_director.apply_rule_signal_overrides(ctx)
+    assert overrides["scene_action"] == "PRESSURE"
+
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="low-agency-pressure")
+
+    assert plan["scene_action"] == "PRESSURE"
+    assert plan["pressure_moves"]
+    assert plan["pressure_moves"][0]["source"] == "active_scene.pressure_moves"
+    assert "金属碰响" in plan["pressure_moves"][0]["visible_symptom"]
+
+
 def test_rule_override_bout_forces_subsystem_sanity(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     ctx = coc_story_director.build_director_context(
