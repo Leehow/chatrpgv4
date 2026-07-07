@@ -20,6 +20,13 @@ Stay immersive by default. Do not expose implementation details, JSON paths, or 
 
 Use `[meta]` only when the user asks table-level or system-level questions.
 
+For Chinese play (`zh-Hans`), write player-visible prose as natural modern
+Chinese tabletop narration. Keep sentences shorter than log summaries, prefer
+concrete scene detail and NPC voice, and avoid translationese or AI-summary
+phrases such as "基于以上信息", "当前目标转向", "二人推断", or "这表明".
+Structured summaries belong in save files and logs, not in the scene text the
+player reads.
+
 ## Action Prompt Shape
 
 Ordinary play is not a CRPG menu. Do not list numbered or bulleted player

@@ -50,8 +50,10 @@ def create_scenario_skeleton(
 ) -> dict[str, Any]:
     scenario_dir = campaign_dir / "scenario"
     index_dir = campaign_dir / "index"
+    handout_asset_dir = campaign_dir / "assets" / "handouts"
     scenario_dir.mkdir(parents=True, exist_ok=True)
     index_dir.mkdir(parents=True, exist_ok=True)
+    handout_asset_dir.mkdir(parents=True, exist_ok=True)
 
     scenario = {
         "schema_version": 1,
@@ -74,6 +76,19 @@ def create_scenario_skeleton(
             "scenario_id": scenario_id,
             "sources": [source],
             "entries": [],
+        },
+    )
+    _write_json(
+        index_dir / "handout-assets.json",
+        {
+            "schema_version": 1,
+            "scenario_id": scenario_id,
+            "asset_root": "assets/handouts",
+            "assets": [],
+            "display": {
+                "codex": "render absolute Markdown image paths when player_visible is true",
+                "zcode": "show title, summary, and source page when inline image display is unavailable",
+            },
         },
     )
     return scenario

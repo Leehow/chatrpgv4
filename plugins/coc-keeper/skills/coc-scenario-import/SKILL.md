@@ -21,6 +21,9 @@ Use `../../scripts/coc_scenario.py` for:
 - page counts and metadata
 - scenario skeleton files
 - `index/source-map.json`
+- `index/handout-assets.json` plus `assets/handouts/` for future PDF
+  illustrations, maps, newspaper clippings, portraits, and player-safe
+  handout images
 
 After a PDF module or parsed scenario is bound to a campaign, generate a
 player-safe character creation briefing with
@@ -33,6 +36,16 @@ structure type, but it must not read or summarize `keeper-secrets.json`.
 ## Spoiler Split
 
 Keep player-safe summaries separate from Keeper-only material. Never reveal `keeper-secrets.json` content without `[spoiler_warning]` and confirmation.
+
+## Handout Media
+
+When a PDF page contains a player-safe image or handout, copy/extract the asset
+under `.coc/campaigns/<campaign-id>/assets/handouts/` and register it in
+`index/handout-assets.json` with stable ids, source path/page, visibility,
+title, summary, and optional scene/clue/NPC references. In Codex, render a
+player-visible image with an absolute Markdown image path only when the asset is
+marked `player_visible`. In ZCode or text-only surfaces, show the title,
+summary, and source page instead.
 
 ## 剧情图编译（Story-Graph Compilation）
 

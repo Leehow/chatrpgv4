@@ -59,6 +59,22 @@ def test_install_starter_writes_campaign_fields(tmp_path):
     assert campaign["era"] == "ww1"
 
 
+def test_install_starter_resets_time_state_when_scenario_era_changes(tmp_path):
+    root = tmp_path / ".coc"
+    sys.path.insert(0, str(SCRIPTS_DIR))
+    import coc_state  # noqa: E402
+    coc_state.ensure_workspace(root)
+    coc_state.create_campaign(root, "test-camp", "Test")
+
+    before = json.loads((root / "campaigns" / "test-camp" / "save" / "time-state.json").read_text("utf-8"))
+    coc_starter.install_starter(root, "test-camp", "the-white-war")
+    after = json.loads((root / "campaigns" / "test-camp" / "save" / "time-state.json").read_text("utf-8"))
+
+    assert before["clock"]["local_datetime"].startswith("1925-01-15")
+    assert after["clock"]["local_datetime"].startswith("1916-12-12")
+    assert after["clock"]["timezone"] == "Europe/Rome"
+
+
 def test_install_starter_is_idempotent_error(tmp_path):
     """重复 install 同 scenario 应报错而非覆盖。"""
     root = tmp_path / ".coc"

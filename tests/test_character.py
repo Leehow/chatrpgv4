@@ -253,3 +253,84 @@ def test_validate_character_sheet_reports_missing_required_fields():
     errors = coc_character.validate_character_sheet({"name": "Ada"})
     assert "missing id" in errors
     assert "missing characteristics" in errors
+
+
+def test_characteristic_generation_methods_include_point_buy_and_quick_fire():
+    methods = coc_character.characteristic_generation_methods()
+
+    assert "rolled_in_order" in methods
+    assert "rolled_pool_assignment" in methods
+    assert methods["point_buy_460"]["total_budget"] == 460
+    assert methods["point_buy_460"]["increment"] == 5
+    assert methods["quick_fire_array"]["array"] == [80, 70, 60, 60, 50, 50, 50, 40]
+
+
+def test_validate_point_buy_characteristics_accepts_valid_460_budget():
+    errors = coc_character.validate_characteristic_generation(
+        "point_buy_460",
+        {
+            "STR": 60,
+            "CON": 50,
+            "SIZ": 60,
+            "DEX": 55,
+            "APP": 60,
+            "INT": 65,
+            "POW": 55,
+            "EDU": 55,
+        },
+    )
+
+    assert errors == []
+
+
+def test_validate_point_buy_characteristics_rejects_budget_range_and_increment_errors():
+    errors = coc_character.validate_characteristic_generation(
+        "point_buy_460",
+        {
+            "STR": 61,
+            "CON": 50,
+            "SIZ": 60,
+            "DEX": 55,
+            "APP": 60,
+            "INT": 65,
+            "POW": 55,
+            "EDU": 55,
+        },
+    )
+
+    assert "STR must be a multiple of 5" in errors
+    assert "total characteristic budget 461 does not match required 460" in errors
+
+    range_errors = coc_character.validate_characteristic_generation(
+        "point_buy_460",
+        {
+            "STR": 95,
+            "CON": 50,
+            "SIZ": 60,
+            "DEX": 55,
+            "APP": 60,
+            "INT": 65,
+            "POW": 55,
+            "EDU": 20,
+        },
+    )
+
+    assert "STR must be between 15 and 90" in range_errors
+
+
+def test_validate_quick_fire_array_accepts_same_values_in_any_assignment():
+    errors = coc_character.validate_characteristic_generation(
+        "quick_fire_array",
+        {
+            "STR": 40,
+            "CON": 50,
+            "SIZ": 50,
+            "DEX": 50,
+            "APP": 60,
+            "INT": 60,
+            "POW": 70,
+            "EDU": 80,
+        },
+    )
+
+    assert errors == []

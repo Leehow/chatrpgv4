@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -37,6 +38,33 @@ CAMPAIGN_DIRS = (
 
 SNAPSHOT_DIRS = ("save", "scenario", "index", "memory", "logs")
 
+ERA_CLOCKS = {
+    "ww1": {
+        "calendar_mode": "gregorian",
+        "local_datetime": "1916-12-12T06:30:00",
+        "timezone": "Europe/Rome",
+        "display": "1916-12-12 06:30",
+    },
+    "1920s": {
+        "calendar_mode": "gregorian",
+        "local_datetime": "1925-01-15T20:00:00",
+        "timezone": "America/New_York",
+        "display": "1925-01-15 20:00",
+    },
+    "modern": {
+        "calendar_mode": "gregorian",
+        "local_datetime": "2025-01-15T20:00:00",
+        "timezone": "America/New_York",
+        "display": "2025-01-15 20:00",
+    },
+    "roman": {
+        "calendar_mode": "relative",
+        "local_datetime": None,
+        "timezone": None,
+        "display": "",
+    },
+}
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -68,6 +96,60 @@ def write_json_atomic(path: Path, payload: dict[str, Any] | list[Any]) -> None:
     temp_path.replace(path)
 
 
+def initial_clock_for_era(era: str = "1920s", start_clock: dict[str, Any] | None = None) -> dict[str, Any]:
+    era_clock = ERA_CLOCKS.get(era, ERA_CLOCKS["1920s"])
+    if start_clock:
+        return {
+            "elapsed_minutes": 0,
+            "scale": start_clock.get("scale", "scene"),
+            "calendar_mode": start_clock.get("calendar_mode", era_clock["calendar_mode"]),
+            "local_datetime": start_clock.get("local_datetime", era_clock["local_datetime"]),
+            "timezone": start_clock.get("timezone", era_clock["timezone"]),
+            "location_id": start_clock.get("location_id"),
+            "display": start_clock.get("display", era_clock["display"]),
+        }
+    return {
+        "elapsed_minutes": 0,
+        "scale": "scene",
+        "calendar_mode": era_clock["calendar_mode"],
+        "local_datetime": era_clock["local_datetime"],
+        "timezone": era_clock["timezone"],
+        "location_id": None,
+        "display": era_clock["display"],
+    }
+
+
+def reset_campaign_time_state(
+    campaign_dir: Path,
+    campaign_id: str,
+    *,
+    era: str = "1920s",
+    start_clock: dict[str, Any] | None = None,
+) -> Path:
+    time_state_path = campaign_dir / "save" / "time-state.json"
+    write_json_atomic(
+        time_state_path,
+        {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "timeline_id": "tl-main",
+            "branch_id": "main",
+            "forked_from": None,
+            "sequence": 0,
+            "clock": initial_clock_for_era(era, start_clock),
+            "anchors": {
+                "campaign_start_elapsed": 0,
+                "last_rest_elapsed": 0,
+                "last_safe_place_elapsed": 0,
+                "last_scene_change_elapsed": 0,
+            },
+            "sanity_periods": {},
+            "safe_place": False,
+        },
+    )
+    return time_state_path
+
+
 def _write_json_if_missing(path: Path, payload: dict[str, Any] | list[Any]) -> None:
     if not path.exists():
         write_json_atomic(path, payload)
@@ -89,6 +171,29 @@ def _read_json_object(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return fallback
     return payload
+
+
+def _safe_file_stem(value: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")
+    return stem or "draft"
+
+
+def _archive_existing_character_creation_draft(active_path: Path, investigator_id: str) -> Path | None:
+    if not active_path.exists():
+        return None
+    existing = _read_json_object(active_path, {})
+    existing_id = str(existing.get("investigator_id") or "")
+    if existing_id in ("", investigator_id):
+        return None
+    archive_dir = active_path.parent / "character-creation-drafts"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = archive_dir / f"{_safe_file_stem(existing_id)}.json"
+    counter = 2
+    while archive_path.exists():
+        archive_path = archive_dir / f"{_safe_file_stem(existing_id)}-{counter}.json"
+        counter += 1
+    shutil.move(str(active_path), str(archive_path))
+    return archive_path
 
 
 def _upsert_index_entry(
@@ -246,6 +351,47 @@ def create_campaign(
     return campaign_path
 
 
+def prepare_character_creation_draft(
+    root: Path,
+    campaign_id: str,
+    investigator_id: str,
+    *,
+    generation_method: str | None = None,
+) -> Path:
+    """Create a fresh active creation draft, archiving stale drafts first."""
+    campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    if not campaign_dir.is_dir():
+        raise FileNotFoundError(f"unknown campaign: {campaign_id}")
+    active_path = campaign_dir / "save" / "character-creation-draft.json"
+    archived = _archive_existing_character_creation_draft(active_path, investigator_id)
+    created_at = now_iso()
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "status": "drafting",
+        "generation_method": generation_method,
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    if archived is not None:
+        payload["archived_previous_draft_path"] = _relative_to_root(root, archived)
+    write_json_atomic(active_path, payload)
+
+    campaign_path = campaign_dir / "campaign.json"
+    campaign = _read_json_object(campaign_path, {"campaign_id": campaign_id})
+    campaign["character_creation"] = {
+        **(campaign.get("character_creation") if isinstance(campaign.get("character_creation"), dict) else {}),
+        "active_draft_path": _relative_to_root(root, active_path),
+        "active_investigator_id": investigator_id,
+        "generation_method": generation_method,
+    }
+    campaign["updated_at"] = created_at
+    write_json_atomic(campaign_path, campaign)
+    _upsert_campaign_index(root, campaign_id)
+    return active_path
+
+
 def _initialize_campaign_runtime_files(
     campaign_dir: Path,
     campaign_id: str,
@@ -311,55 +457,6 @@ def _initialize_campaign_runtime_files(
             "luck_spent_last": 0,
         },
     )
-    # Time-state: derive initial clock from era or explicit start_clock
-    _ERA_CLOCKS = {
-        "ww1": {
-            "calendar_mode": "gregorian",
-            "local_datetime": "1916-12-12T06:30:00",
-            "timezone": "Europe/Rome",
-            "display": "1916-12-12 06:30",
-        },
-        "1920s": {
-            "calendar_mode": "gregorian",
-            "local_datetime": "1925-01-15T20:00:00",
-            "timezone": "America/New_York",
-            "display": "1925-01-15 20:00",
-        },
-        "modern": {
-            "calendar_mode": "gregorian",
-            "local_datetime": "2025-01-15T20:00:00",
-            "timezone": "America/New_York",
-            "display": "2025-01-15 20:00",
-        },
-        "roman": {
-            "calendar_mode": "relative",
-            "local_datetime": None,
-            "timezone": None,
-            "display": "",
-        },
-    }
-    era_clock = _ERA_CLOCKS.get(era, _ERA_CLOCKS["1920s"])
-    if start_clock:
-        # Explicit start_clock from scenario binding overrides era defaults
-        clock = {
-            "elapsed_minutes": 0,
-            "scale": start_clock.get("scale", "scene"),
-            "calendar_mode": start_clock.get("calendar_mode", era_clock["calendar_mode"]),
-            "local_datetime": start_clock.get("local_datetime", era_clock["local_datetime"]),
-            "timezone": start_clock.get("timezone", era_clock["timezone"]),
-            "location_id": start_clock.get("location_id"),
-            "display": start_clock.get("display", era_clock["display"]),
-        }
-    else:
-        clock = {
-            "elapsed_minutes": 0,
-            "scale": "scene",
-            "calendar_mode": era_clock["calendar_mode"],
-            "local_datetime": era_clock["local_datetime"],
-            "timezone": era_clock["timezone"],
-            "location_id": None,
-            "display": era_clock["display"],
-        }
     _write_json_if_missing(
         campaign_dir / "save" / "time-state.json",
         {
@@ -369,7 +466,7 @@ def _initialize_campaign_runtime_files(
             "branch_id": "main",
             "forked_from": None,
             "sequence": 0,
-            "clock": clock,
+            "clock": initial_clock_for_era(era, start_clock),
             "anchors": {
                 "campaign_start_elapsed": 0,
                 "last_rest_elapsed": 0,

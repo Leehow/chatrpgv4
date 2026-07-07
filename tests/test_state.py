@@ -242,3 +242,32 @@ def test_restore_snapshot_recovers_campaign_state(tmp_path):
     assert "bad-branch" not in (campaign_dir / "logs" / "events.jsonl").read_text()
     assert json.loads((campaign_dir / "save" / "world-state.json").read_text())["active_scene_id"] == "intro"
     assert json.loads((campaign_dir / "memory" / "session-summaries.jsonl").read_text())["summary"] == "Original memory."
+
+
+def test_prepare_character_creation_draft_archives_stale_active_draft(tmp_path):
+    coc_state.create_campaign(tmp_path, "case-1", "Case 1")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+    stale_path = campaign_dir / "save" / "character-creation-draft.json"
+    stale_path.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "investigator_id": "old-investigator",
+            "status": "drafting",
+        }),
+        encoding="utf-8",
+    )
+
+    draft_path = coc_state.prepare_character_creation_draft(
+        tmp_path,
+        "case-1",
+        "new-investigator",
+        generation_method="point_buy_460",
+    )
+
+    active = json.loads(draft_path.read_text(encoding="utf-8"))
+    archive_path = campaign_dir / "save" / "character-creation-drafts" / "old-investigator.json"
+
+    assert active["investigator_id"] == "new-investigator"
+    assert active["generation_method"] == "point_buy_460"
+    assert archive_path.exists()
+    assert json.loads(archive_path.read_text(encoding="utf-8"))["investigator_id"] == "old-investigator"

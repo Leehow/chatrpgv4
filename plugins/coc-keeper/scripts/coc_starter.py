@@ -26,6 +26,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 PLUGIN_ROOT = SCRIPT_DIR.parent
 STARTER_DIR = PLUGIN_ROOT / "references" / "starter-scenarios"
+import coc_state
 
 # The seven story-graph JSON files the Story Director reads (see
 # coc_story_director.py:95-183). Pregen-investigators.json is copied
@@ -123,10 +124,18 @@ def _update_campaign_json(campaign_dir: Path, scenario_id: str) -> None:
     if meta_path.is_file():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         campaign["era"] = meta.get("era", campaign.get("era", "1920s"))
+    else:
+        meta = {}
     campaign["updated_at"] = _now_iso()
     campaign_path.write_text(
         json.dumps(campaign, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
+    )
+    coc_state.reset_campaign_time_state(
+        campaign_dir,
+        str(campaign.get("campaign_id") or campaign_dir.name),
+        era=str(campaign.get("era") or "1920s"),
+        start_clock=meta.get("start_clock") if isinstance(meta.get("start_clock"), dict) else None,
     )
 
 

@@ -214,6 +214,22 @@ def _load_structure_weights() -> dict[str, Any]:
 ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]
 
 
+def _player_facing_style(language: str = "zh-Hans") -> dict[str, Any]:
+    if language == "zh-Hans":
+        return {
+            "language": "zh-Hans",
+            "register": "natural_tabletop_narration",
+            "avoid": ["translationese", "ai_summary_voice", "log_style_summary"],
+            "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
+        }
+    return {
+        "language": language,
+        "register": "natural_tabletop_narration",
+        "avoid": ["ai_summary_voice", "log_style_summary"],
+        "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
+    }
+
+
 def _clock_segments(clock: dict, key: str, default: int = 0) -> int:
     """Read a clock segment count, tolerating null/missing/non-int values.
     Director consumes LLM-compiled JSON which may have type inconsistencies."""
@@ -821,6 +837,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "improvisation_allowed": ctx.get("improvisation_boundaries", {}).get("invent_allowed", []),
         "horror_escalation_stage": horror_stage,
         "content_constraints": ctx.get("module_meta", {}).get("content_flags", []),
+        "player_facing_style": _player_facing_style(),
     }
 
     # v2: populate memory_reads from the memory layer. PAYOFF actions mark the

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,56 @@ def _single_die_range(expression: str) -> tuple[int, int]:
     if match is None:
         raise ValueError(f"unsupported single-die expression: {expression}")
     return 1, int(match.group("sides"))
+
+
+def characteristic_generation_methods() -> dict[str, dict[str, Any]]:
+    """Return configured characteristic generation methods from rules JSON."""
+    rules = coc_rules.load_rule_table("characteristic-dice")
+    methods = rules.get("generation_methods", {})
+    if not isinstance(methods, dict):
+        return {}
+    return json.loads(json.dumps(methods))
+
+
+def validate_characteristic_generation(method_id: str, characteristics: dict[str, int]) -> list[str]:
+    """Validate generated characteristic values for the chosen creation method."""
+    errors = validate_character_sheet({"id": "draft", "name": "Draft", "characteristics": characteristics})
+    if errors:
+        return errors
+
+    methods = characteristic_generation_methods()
+    if method_id not in methods:
+        return [f"unknown characteristic generation method: {method_id}"]
+    method = methods[method_id]
+
+    if method_id == "point_buy_460":
+        required = set(method.get("applies_to") or REQUIRED_CHARACTERISTICS)
+        total = 0
+        minimum = int(method.get("minimum", 0))
+        maximum = int(method.get("maximum", 100))
+        increment = int(method.get("increment", 5))
+        for key in REQUIRED_CHARACTERISTICS:
+            value = int(characteristics[key])
+            if key not in required:
+                continue
+            total += value
+            if value < minimum or value > maximum:
+                errors.append(f"{key} must be between {minimum} and {maximum}")
+            if increment and value % increment != 0:
+                errors.append(f"{key} must be a multiple of {increment}")
+        expected_total = int(method["total_budget"])
+        if total != expected_total:
+            errors.append(f"total characteristic budget {total} does not match required {expected_total}")
+        return errors
+
+    if method_id == "quick_fire_array":
+        expected = sorted(int(value) for value in method.get("array", []))
+        actual = sorted(int(characteristics[key]) for key in REQUIRED_CHARACTERISTICS)
+        if actual != expected:
+            errors.append(f"quick_fire_array values must be {expected}")
+        return errors
+
+    return errors
 
 
 def derive_values(

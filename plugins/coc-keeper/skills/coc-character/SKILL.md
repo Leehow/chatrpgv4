@@ -21,6 +21,12 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   present; otherwise generate it with
   `../../scripts/coc_character_creation_briefing.py`. The briefing gives module
   mood and investigator-fit guidance without Keeper-only spoilers.
+- Before rolling or assigning characteristics, ask the player to choose the
+  characteristic generation method. Supported methods are the rules JSON
+  entries in `references/rules-json/characteristic-dice.json`: roll in fixed
+  order, roll a pool then assign results, point-buy 460, or Quick Fire array.
+  Record the selected method in the creation draft and validate fixed/point-buy
+  values with `../../scripts/coc_character.py`.
 - After the player confirms the final parameters, generate a reusable machine
   sheet plus player-facing character cards. Use `../../scripts/coc_character_card.py`
   to render the confirmed `player_facing_sheet_<language>` data into Markdown,
@@ -47,6 +53,11 @@ beside or beneath the display label only when a debugging or audit view needs it
 When a language specialization is known, render it in the visible label, e.g.
 `母语（芬兰语）` for canonical `Language (Own)` or `外语（拉丁语）` for canonical
 `Language (Other: Latin)`.
+
+Do not let raw `backstory` fields leak into Chinese character cards. Put all
+player-visible background prose and detail blocks in `player_facing_sheet_zh`
+(`backstory_summary` and optional `backstory_details`) before rendering. Raw
+English/canonical backstory is audit data unless explicitly localized.
 
 <!-- CODEX_ONLY_IMAGEGEN_START -->
 ## Codex-Only Portrait Generation
