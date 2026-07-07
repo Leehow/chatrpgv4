@@ -30,7 +30,7 @@ Per the source PDF's OGL declaration:
 
 - **OPEN GAME CONTENT** (free to redistribute under OGL): all numeric game
   data and the creature descriptions on source PDF pages 8–10. This package
-  reproduces that OGC faithfully in `../../../../rules-json/the-white-war.json`
+  reproduces that OGC faithfully in `../../rules-json/the-white-war.json`
   (Polyp Horror stat block, cold-exposure rules, weapon data).
 - **PRODUCT IDENTITY** (NOT redistributed from the source): the source's
   trademarks, trade dress, maps, artwork, dialogue, plots, storylines,
