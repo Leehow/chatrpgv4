@@ -1,6 +1,6 @@
 ---
 name: coc-keeper-play
-description: Run immersive Call of Cthulhu play after COC mode is active. Use for scene narration, NPC portrayal, player action handling, clue reveal, pacing, subsystem transitions, and campaign memory updates.
+description: Run immersive Call of Cthulhu play after COC mode is active. Use for scene narration, NPC portrayal, player action handling, clue reveal, pacing, subsystem transitions, storylet enrichment, and campaign memory updates.
 ---
 
 # COC Keeper Play
@@ -8,11 +8,43 @@ description: Run immersive Call of Cthulhu play after COC mode is active. Use fo
 ## Loop
 
 1. Read player input + campaign state + scenario story-graph.
-2. Call `coc-story-director` (scripts/coc_story_director.py) to generate a DirectorPlan.
-3. If DirectorPlan.handoff == "rules": resolve mechanics via coc-roll/combat/chase/sanity.
-4. Backfill rule results into the plan.
-5. Narrate consequences per DirectorPlan.narrative_directives (immersive, in play_language).
-6. Update save, logs, and pacing-state.
+2. Call `coc-story-director` (`scripts/coc_story_director.py`) to generate a DirectorPlan.
+3. Enrich the DirectorPlan with `scripts/coc_storylets.py`:
+   - call `select_storylet(...)` or `enrich_director_plan(...)` using the same DirectorContext, selected `scene_action`, `clue_policy`, RNG seed, and `save/storylet-ledger.json`;
+   - attach the result as `DirectorPlan.storylet`;
+   - mirror `storylet.narrative_contract`, `conflict_level`, and `rolled_variants` into `narrative_directives` before prose.
+4. If DirectorPlan.handoff == "rules": resolve mechanics via coc-roll/combat/chase/sanity.
+5. Backfill rule results into the plan.
+6. Narrate consequences per DirectorPlan.narrative_directives (immersive, in play_language).
+7. Update save, logs, pacing-state, and storylet-ledger:
+   - after the storylet is used in narration, call `record_storylet_use(...)` then `write_storylet_ledger(...)`;
+   - if the storylet was not used because rules redirected the scene, do not record it.
+
+## Storylet Engine
+
+Storylets are modular plot fragments that add "meat" to the module skeleton. They may add color, pressure, side hooks, NPC reactions, clue-routing complications, and payoff beats, but they do not create new scenario truth.
+
+Conflict levels are ordered:
+
+`color → low → medium → high → climax`
+
+Use the current horror stage and pacing target as a ceiling:
+
+- `ordinary` should stay at `color/low`;
+- `wrongness` may reach `medium`;
+- `pattern` may reach `high`;
+- `revelation` may reach `climax`.
+
+Anti-repeat is structural, not just textual. Avoid repeating the same `storylet_id`, `family_id`, `trope_id`, motif, target NPC, or target location too soon. The ledger is the source of truth for this.
+
+A selected storylet must serve at least one of:
+
+- an existing clue route;
+- an existing NPC agenda;
+- an existing threat front / pressure clock;
+- a player payoff or memory callback;
+- the scenario's active dramatic question or theme;
+- recovery from a stalled investigation.
 
 ## Style
 
