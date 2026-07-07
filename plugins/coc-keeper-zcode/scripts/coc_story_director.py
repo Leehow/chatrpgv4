@@ -26,6 +26,7 @@ def _load_sibling(name: str, filename: str):
     return module
 
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
+coc_mythos = _load_sibling("coc_mythos", "coc_mythos.py")
 
 coc_time = None
 try:
@@ -97,7 +98,9 @@ def build_director_context(
     current_hp = inv_state.get("current_hp", char_derived.get("HP", 10))
     max_hp = char_derived.get("HP", 10)
     current_san = inv_state.get("current_san", char_derived.get("SAN", 50))
-    max_san = 99  # simplified; spec's believer-bomb is v2
+    # Max SAN = 99 - Cthulhu Mythos (p.167 F9); see coc_mythos.max_san_for.
+    cthulhu_mythos = int(char_skills.get("Cthulhu Mythos", 0))
+    max_san = coc_mythos.max_san_for(cthulhu_mythos)
     credit_rating = char_skills.get("Credit Rating", 0)
     app = char_chars.get("APP", 50)
     luck = char_derived.get("Luck") or char_chars.get("LUCK", 50)

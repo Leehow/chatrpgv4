@@ -90,6 +90,59 @@ def test_build_director_context_reads_state(tmp_path):
     assert ctx["rule_signals"]["tension_clock"]["death_allowed"] is False
 
 
+def test_director_uses_mythos_based_max_san(tmp_path, monkeypatch):
+    """Max SAN = 99 - Cthulhu Mythos (p.167 F9), not a hardcoded 99.
+
+    The director must read the investigator's Cthulhu Mythos skill and route
+    it through coc_mythos.max_san_for. We stub max_san_for to capture the cm
+    value the director passes, proving the wiring (regression guard for the
+    former `max_san = 99` literal).
+    """
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # Add Cthulhu Mythos to the investigator's skills.
+    char = json.loads(char_path.read_text())
+    char["skills"]["Cthulhu Mythos"] = 10
+    char_path.write_text(json.dumps(char))
+
+    captured = {}
+
+    def fake_max_san_for(cm_value):
+        captured["cm_value"] = cm_value
+        return 99 - int(cm_value)
+
+    monkeypatch.setattr(coc_story_director.coc_mythos, "max_san_for", fake_max_san_for)
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我翻阅禁忌典籍", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    # The director read Cthulhu Mythos from the skill list and passed it on.
+    assert captured == {"cm_value": 10}
+    # And the derived max_san (89) flows into the sanity signal call path
+    # without crashing — i.e. the hardcoded-99 path is gone.
+    assert ctx["rule_signals"]["sanity_state"] == "stable"
+
+
+def test_director_defaults_max_san_to_99_without_mythos(tmp_path, monkeypatch):
+    """An investigator with no Cthulhu Mythos skill keeps max_san = 99."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    captured = {}
+
+    def fake_max_san_for(cm_value):
+        captured["cm_value"] = cm_value
+        return 99 - int(cm_value)
+
+    monkeypatch.setattr(coc_story_director.coc_mythos, "max_san_for", fake_max_san_for)
+
+    coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我检查门框", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert captured == {"cm_value": 0}
+
+
 def test_build_director_context_fallen_back_on_missing_pacing(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     (camp / "save" / "pacing-state.json").unlink()

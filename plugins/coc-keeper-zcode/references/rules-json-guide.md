@@ -64,3 +64,4 @@ When explaining a rule in `[meta]`, show target value, effective difficulty, dic
 - `artifacts.json`
 - `luck.json`
 - `development.json`
+- `treatment.json`

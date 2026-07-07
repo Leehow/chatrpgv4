@@ -720,3 +720,14 @@ def sanity_reward_rule() -> dict[str, Any]:
         "reward": reward.get("reward", "2D6"),
         "constraint": reward.get("constraint", "cannot_exceed_max_san"),
     }
+
+
+def treatment_rule() -> dict[str, Any]:
+    """Return the sanity treatment rule block (Keeper Rulebook p.164).
+
+    Recovery paths for indefinite insanity: weekly Psychoanalysis, asylum
+    confinement (1D6 months, resolved by a Psychoanalysis roll at release),
+    and self-help via a SAN roll. Mirrors the PsychotherapySession
+    implementation in coc_healing.py.
+    """
+    return load_rule_table("treatment")

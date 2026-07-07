@@ -764,6 +764,16 @@
       "numeric": {
         "category_count": 15
       }
+    },
+    {
+      "id": "core.healing.treatment",
+      "category": "healing",
+      "source_table": "treatment.json",
+      "source_note": "Keeper Rulebook p.164: sanity treatment and recovery paths for indefinite insanity (weekly Psychoanalysis, asylum confinement, self-help).",
+      "numeric": {
+        "paths": ["psychoanalysis", "asylum_confinement", "self_help"],
+        "skill": "Psychoanalysis"
+      }
     }
   ]
 }
