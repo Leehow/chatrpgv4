@@ -731,6 +731,16 @@
       }
     },
     {
+      "id": "director.storylet_library",
+      "category": "narrative_engine",
+      "source_table": "storylet-library.json",
+      "source_note": "Deterministic storylet/event library for enriching active scenario nodes without changing core module truths.",
+      "numeric": {
+        "storylet_count": 64,
+        "conflict_levels": 4
+      }
+    },
+    {
       "id": "core.combat.special_damage_effects",
       "category": "combat",
       "source_table": "combat.json",

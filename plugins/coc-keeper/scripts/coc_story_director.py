@@ -65,6 +65,173 @@ def _read_last_roll_outcome(campaign_dir: Path) -> str | None:
         return None
 
 
+def _text_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _short_text(value: Any, limit: int = 96) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "..."
+
+
+def _choice_affordance(choice: Any, index: int) -> dict[str, Any] | None:
+    if isinstance(choice, dict):
+        cue = _text_or_none(
+            choice.get("cue")
+            or choice.get("label")
+            or choice.get("text")
+            or choice.get("summary")
+            or choice.get("action")
+        )
+        if not cue:
+            return None
+        route_id = _text_or_none(choice.get("id") or choice.get("route_id")) or f"live-choice-{index}"
+        return {
+            "id": route_id,
+            "route_type": choice.get("route_type", "live_resume_affordance"),
+            "cue": _short_text(cue, 80),
+            "promise": choice.get("promise") or choice.get("visible_benefit"),
+            "cost": choice.get("cost") or choice.get("visible_cost"),
+            "risk": choice.get("risk") or choice.get("visible_risk"),
+            "source": "save.active-scene.pending_choices",
+        }
+    cue = _text_or_none(choice)
+    if not cue:
+        return None
+    return {
+        "id": f"live-choice-{index}",
+        "route_type": "live_resume_affordance",
+        "cue": _short_text(cue, 80),
+        "promise": "推进当前场景",
+        "source": "save.active-scene.pending_choices",
+    }
+
+
+def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: dict[str, Any]) -> list[dict[str, Any]]:
+    affordances: list[dict[str, Any]] = []
+    pending = active_scene_state.get("pending_choices")
+    if isinstance(pending, list):
+        for index, choice in enumerate(pending, start=1):
+            route = _choice_affordance(choice, index)
+            if route is not None:
+                affordances.append(route)
+            if len(affordances) >= 3:
+                break
+
+    if len(affordances) < 2:
+        summary = (
+            active_scene_state.get("summary")
+            or scenario_doc.get("opening_scene")
+            or scenario_doc.get("player_safe_summary")
+            or scenario_doc.get("summary")
+            or scenario_doc.get("current_phase")
+            or "当前场景"
+        )
+        affordances.append({
+            "id": "live-scene-thread",
+            "route_type": "live_resume_affordance",
+            "cue": "当前场景的核心问题仍未解决。",
+            "promise": "沿着当前场景继续推进",
+            "visible_benefit": _short_text(summary, 80),
+            "source": "save.active-scene.summary",
+        })
+    if len(affordances) < 2:
+        affordances.append({
+            "id": "live-investigator-angle",
+            "route_type": "live_resume_affordance",
+            "cue": "调查员仍可从随身记录、装备、现场人物或既有判断重新切入。",
+            "promise": "换一个角度寻找行动入口",
+            "risk": "拖延会让局势继续变化",
+            "source": "live-story-bridge.default",
+        })
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for affordance in affordances:
+        cue = str(affordance.get("cue", ""))
+        if cue in seen:
+            continue
+        seen.add(cue)
+        deduped.append(affordance)
+    return deduped[:3]
+
+
+def _runtime_scene_from_live_state(
+    active_scene_state: dict[str, Any],
+    world: dict[str, Any],
+    scenario_doc: dict[str, Any],
+) -> dict[str, Any] | None:
+    scene_id = _text_or_none(active_scene_state.get("scene_id")) or _text_or_none(world.get("active_scene_id"))
+    if not scene_id:
+        scene_id = _text_or_none(scenario_doc.get("current_phase")) or "live-current-scene"
+    summary = (
+        active_scene_state.get("summary")
+        or scenario_doc.get("opening_scene")
+        or scenario_doc.get("player_safe_summary")
+        or scenario_doc.get("summary")
+        or scene_id
+    )
+    return {
+        "scene_id": scene_id,
+        "scene_type": active_scene_state.get("scene_type", "investigation"),
+        "dramatic_question": (
+            active_scene_state.get("dramatic_question")
+            or f"调查员如何推进当前场景：{_short_text(summary)}"
+        ),
+        "entry_conditions": active_scene_state.get("entry_conditions", []),
+        "exit_conditions": active_scene_state.get("exit_conditions", []),
+        "available_clues": active_scene_state.get("available_clues", []),
+        "npc_ids": active_scene_state.get("npc_ids", []),
+        "pressure_moves": active_scene_state.get("pressure_moves", []),
+        "tone": active_scene_state.get("tone", ["tense"]),
+        "allowed_improvisation": active_scene_state.get("allowed_improvisation", []),
+        "affordances": _live_scene_affordances(active_scene_state, scenario_doc),
+        "excluded_storylet_tropes": active_scene_state.get("excluded_storylet_tropes", ["animal_instinct"]),
+        "source": "live-story-bridge.active-scene",
+    }
+
+
+def _story_graph_with_live_fallback(
+    story_graph: dict[str, Any],
+    active_scene_state: dict[str, Any],
+    world: dict[str, Any],
+    scenario_doc: dict[str, Any],
+) -> tuple[dict[str, Any], str | None, dict[str, Any] | None]:
+    story_graph = dict(story_graph or {"scenes": []})
+    scenes = [s for s in story_graph.get("scenes", []) if isinstance(s, dict)]
+    world_scene_id = _text_or_none(world.get("active_scene_id"))
+    if world_scene_id:
+        active_scene = next((s for s in scenes if s.get("scene_id") == world_scene_id), None)
+        if active_scene is not None:
+            story_graph["scenes"] = scenes
+            return story_graph, world_scene_id, active_scene
+
+    live_scene_id = _text_or_none(active_scene_state.get("scene_id"))
+    if live_scene_id:
+        active_scene = next((s for s in scenes if s.get("scene_id") == live_scene_id), None)
+        if active_scene is not None:
+            story_graph["scenes"] = scenes
+            return story_graph, live_scene_id, active_scene
+
+    runtime_scene = _runtime_scene_from_live_state(active_scene_state, world, scenario_doc)
+    if runtime_scene is None:
+        story_graph["scenes"] = scenes
+        return story_graph, world_scene_id, None
+
+    runtime_id = runtime_scene.get("scene_id")
+    scenes = [s for s in scenes if s.get("scene_id") != runtime_id]
+    scenes.insert(0, runtime_scene)
+    story_graph["schema_version"] = story_graph.get("schema_version", 1)
+    story_graph["source"] = story_graph.get("source", "live-story-bridge")
+    story_graph["scenes"] = scenes
+    return story_graph, str(runtime_id), runtime_scene
+
+
 def build_director_context(
     campaign_dir: Path,
     character_path: Path,
@@ -100,7 +267,17 @@ def build_director_context(
     pacing = _read_json(save / "pacing-state.json", {})
     _last_outcome = _read_last_roll_outcome(campaign_dir)
     module_meta = _read_json(scenario / "module-meta.json", {})
-    story_graph = _read_json(scenario / "story-graph.json", {"scenes": []})
+    scenario_doc = _read_json(scenario / "scenario.json", {})
+    active_scene_state = _read_json(save / "active-scene.json", {})
+    story_graph, active_scene_id, active_scene = _story_graph_with_live_fallback(
+        _read_json(scenario / "story-graph.json", {"scenes": []}),
+        active_scene_state if isinstance(active_scene_state, dict) else {},
+        world if isinstance(world, dict) else {},
+        scenario_doc if isinstance(scenario_doc, dict) else {},
+    )
+    if active_scene_id:
+        world = dict(world)
+        world["active_scene_id"] = active_scene_id
 
     # --- rule signals ---
     char_derived = character.get("derived", {})
@@ -141,11 +318,6 @@ def build_director_context(
         ),
         "bout_active": "bout_active" in conditions,
     }
-
-    # --- active scene ---
-    active_scene_id = world.get("active_scene_id")
-    scenes = story_graph.get("scenes", [])
-    active_scene = next((s for s in scenes if s["scene_id"] == active_scene_id), None)
 
     # --- time signals (deterministic world-clock layer) ---
     time_signals: dict[str, Any] = {}

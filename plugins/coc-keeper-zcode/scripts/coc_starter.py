@@ -5,11 +5,11 @@ Starter scenarios are pre-packaged, play-ready scenarios shipped with the
 plugin under `references/starter-scenarios/<id>/`. They let new players
 start a game with zero PDF preparation.
 
-`install_starter` copies the seven story-graph JSON files (plus
-pregen-investigators.json) into a campaign's `scenario/` directory, which is
-the only location the runtime Story Director reads
-(`coc_story_director.py:95`). The campaign.json is updated with
-active_scenario_id/era.
+`install_starter` copies the seven story-graph JSON files into a campaign's
+`scenario/` directory, which is the only location the runtime Story Director
+reads (`coc_story_director.py:95`). It also writes a player-safe character
+creation briefing so the player can create their own investigator before play.
+The campaign.json is updated with active_scenario_id/era.
 """
 from __future__ import annotations
 
@@ -27,10 +27,10 @@ if str(SCRIPT_DIR) not in sys.path:
 PLUGIN_ROOT = SCRIPT_DIR.parent
 STARTER_DIR = PLUGIN_ROOT / "references" / "starter-scenarios"
 import coc_state
+import coc_character_creation_briefing
 
 # The seven story-graph JSON files the Story Director reads (see
-# coc_story_director.py:95-183). Pregen-investigators.json is copied
-# alongside but is not a director-read file.
+# coc_story_director.py:95-183).
 STARTER_SCENARIO_FILES = (
     "module-meta.json",
     "story-graph.json",
@@ -97,12 +97,13 @@ def install_starter(root: Path, campaign_id: str, scenario_id: str) -> Path:
 
     for fname in STARTER_SCENARIO_FILES:
         shutil.copy2(src_dir / fname, scenario_dir / fname)
-    # Pregen investigators (optional, not director-read).
-    pregen_src = src_dir / "pregen-investigators.json"
-    if pregen_src.is_file():
-        shutil.copy2(pregen_src, scenario_dir / "pregen-investigators.json")
 
     _update_campaign_json(campaign_dir, scenario_id)
+    coc_character_creation_briefing.render_briefing_from_campaign(
+        campaign_dir,
+        repo_root=_repo_root_for_output(root),
+        write_back=True,
+    )
     return scenario_dir
 
 
@@ -113,6 +114,13 @@ def _coc_root(root: Path) -> Path:
     if root.name == ".coc":
         return root
     return root / ".coc"
+
+
+def _repo_root_for_output(root: Path) -> Path:
+    root = Path(root)
+    if root.name == ".coc":
+        return root.parent
+    return root
 
 
 def _update_campaign_json(campaign_dir: Path, scenario_id: str) -> None:

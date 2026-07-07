@@ -1,0 +1,23 @@
+{
+  "npcs": [
+    {
+      "npc_id": "npc-archivist",
+      "name": "档案员",
+      "agenda": "保住档案馆职位，同时避免警察注意",
+      "desire": "让调查员快点查完离开",
+      "fear": "警卫发现她帮忙",
+      "reaction_triggers": [
+        {
+          "when": "target_entity:guard",
+          "move": "warn_about_guard",
+          "line_seed": "别看他的手，看登记簿；他不是来巡逻的。"
+        },
+        {
+          "when": "risk_posture:cautious",
+          "move": "quiet_assistance",
+          "line_seed": "我只能替你挡一分钟。"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "campaign_id": "narrative-storylet-driver-playtest",
+  "title": "利马档案馆：叙事引擎实测",
+  "scenario_id": "lima-archive-storylet-test",
+  "era": "1920s",
+  "dice_mode": "codex",
+  "spoiler_policy": "warn_before_reveal",
+  "play_language": "zh-Hans"
+}

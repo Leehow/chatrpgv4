@@ -340,6 +340,33 @@ def test_play_protocol_prohibits_player_visible_action_menus():
     assert "`pending_choices` is Keeper-facing" in state_schema
 
 
+def test_keeper_play_documents_live_story_bridge_for_manual_campaigns():
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+
+    assert "live-story bridge" in keeper_skill
+    assert "`save/active-scene.json`" in keeper_skill
+    assert "missing `story-graph.json`" in keeper_skill
+    assert "must still run through `build_director_context`" in keeper_skill
+
+
+def test_keeper_play_lists_reusable_investigators_before_character_creation():
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+
+    assert "Reusable Investigator Selection" in keeper_skill
+    assert "`/.coc/investigators/`" in keeper_skill
+    assert "before starting characteristic generation" in keeper_skill
+    assert "name, occupation, era" in keeper_skill
+
+
+def test_keeper_play_requires_player_created_investigators_for_starter_scenarios():
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+
+    assert "Starter Scenario Character Gate" in keeper_skill
+    assert "built-in starter scenarios must not auto-select pre-generated investigators" in keeper_skill
+    assert "AI may draft a complete investigator only after the player asks for auto-creation" in keeper_skill
+    assert "player-safe background briefing" in keeper_skill
+
+
 def test_design_blueprint_documents_play_language_and_localized_terms():
     text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()
     required_terms = [

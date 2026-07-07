@@ -166,3 +166,29 @@ def test_safety_content_boundary_director_plan_carries_field(tmp_path):
     assert "content_constraints" in plan["narrative_directives"]
     findings = coc_story_harness.assert_plan(plan)
     assert findings["safety_content_boundary"]["passed"] is True
+
+
+def test_run_profile_writes_enriched_director_plan(tmp_path):
+    camp, char = _make_campaign_with_fumble(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text())
+    story["scenes"][0]["affordances"] = [
+        {"id": "desk-ledger", "cue": "桌上的账册夹着一张新纸", "promise": "可能指出下一条线索"},
+        {"id": "cold-window", "cue": "窗缝里吹进不合季节的冷风", "risk": "靠窗会暴露位置"},
+    ]
+    story_path.write_text(json.dumps(story))
+    profile = tmp_path / "profile.json"
+    profile.write_text(json.dumps({
+        "player_intent": "检查桌上的账册",
+        "player_intent_class": "investigate",
+        "rng_seed": 3,
+    }))
+    artifacts = tmp_path / "artifacts"
+
+    result = coc_story_harness.run_profile(profile, camp, char, "inv1", artifacts)
+    plan = json.loads((artifacts / "profile.json").read_text())
+
+    assert result["passed"] is True
+    assert plan["choice_frame"]["route_count"] == 2
+    assert plan["narrative_enrichment"]["choice_frame"] is True
+    assert "storylet_moves" in plan["narrative_directives"]

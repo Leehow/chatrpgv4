@@ -451,8 +451,11 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         },
         "outcome_labels": {
             "critical": "大成功",
+            "extreme": "极难成功",
             "extreme_success": "极难成功",
+            "hard": "困难成功",
             "hard_success": "困难成功",
+            "regular": "普通成功",
             "regular_success": "普通成功",
             "success": "成功",
             "failure": "失败",

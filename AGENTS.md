@@ -32,3 +32,24 @@ Before finishing plugin work, run at minimum:
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py -q -p no:cacheprovider
 python3 scripts/sync_coc_plugin_copy.py --check
 ```
+
+## Playtest Battle Report Evidence Standard
+
+When the user asks to see a COC playtest battle report, "战报" means an actual
+playtest artifact with gameplay evidence, not a formatter smoke test or a
+synthetic unit-test fixture.
+
+- Do not present scripted regression baselines, formatter-only fixtures, or
+  synthetic smoke-test reports as "the battle report" unless explicitly labeled
+  as such.
+- Before summarizing or quoting a battle report, read the generated
+  `battle-report.md` end to end.
+- A battle report used as gameplay evidence should include, at minimum,
+  investigator context, player/KP transcript or actual-play turns, rules/rolls
+  when relevant, discovered clues, scene progression, and any narrative
+  enrichment/storylet effects being evaluated.
+- If no live LLM-vs-KP runner or real playtest artifact is available, state that
+  limitation directly and do not substitute a smoke-test artifact as if it were
+  gameplay evidence.
+- Formatter smoke tests may be used to verify rendering bugs, but call them
+  "formatter verification samples", not battle reports.

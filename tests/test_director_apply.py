@@ -57,6 +57,40 @@ def test_apply_pressure_updates_pacing_turn(tmp_path):
     assert pacing["tension_level"] == "medium"  # low + 1 pressure tick -> medium
 
 
+def test_apply_persists_storylet_narrative_fields_to_event_log(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-storylet",
+        "scene_action": "REVEAL",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "storylet_moves": [{
+            "storylet_id": "low-paper-wrong-date",
+            "title": "错误日期的纸张",
+            "family_id": "ambient_anomaly",
+            "trope_id": "impossible_admin_detail",
+            "conflict_level": "low",
+            "target_conflict_level": "low",
+            "cue": "一张文件的日期与玩家刚刚确认的时间差了一天。",
+            "beat": "把一个可调查的细节轻轻推到台前。",
+            "bound_entities": {"scene_id": "archive-room", "clue_id": "ledger-mark"},
+            "rolled_variants": {"sensory_detail_1d6": "空气里有一丝金属味。"},
+            "serves": ["mainline", "can_reveal_clue"],
+            "ledger_update": {"last_storylet_id": "low-paper-wrong-date"},
+        }],
+    }
+
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    storylet_event = next(event for event in events if event.get("event_type") == "storylet_move")
+    assert storylet_event["cue"] == "一张文件的日期与玩家刚刚确认的时间差了一天。"
+    assert storylet_event["beat"] == "把一个可调查的细节轻轻推到台前。"
+    assert storylet_event["title"] == "错误日期的纸张"
+    assert storylet_event["rolled_variants"]["sensory_detail_1d6"] == "空气里有一丝金属味。"
+
+
 def test_apply_records_recent_intent_classes(tmp_path):
     """apply_plan must append the plan's turn_input.player_intent_class to
     pacing['recent_intent_classes'] so read_stalled_turns can detect stalls.
@@ -184,6 +218,36 @@ def test_apply_obscured_reveal_commits_on_success(tmp_path):
     events = coc_director_apply.apply_plan(
         camp, plan, investigator_id="inv1",
         rules_results=[{"skill": "Spot Hidden", "outcome": "regular_success", "success": True}],
+    )
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert "clue-A" in world["discovered_clue_ids"]
+    assert any(e.get("event_type") == "clue_reveal" for e in events)
+
+
+def test_apply_obscured_reveal_uses_later_matching_success(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {"decision_id": "d-rule", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"], "clue_type": "obscured", "skill": "Spot Hidden"},
+            "rules_requests": [
+                {"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular",
+                 "reason": "obscured clue in scene"},
+                {"kind": "skill_check", "skill": "Stealth", "difficulty": "regular",
+                 "reason": "悄悄靠近"},
+                {"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular",
+                 "reason": "瞥读电报纸", "source": "player_intent_rich.action_atoms"},
+            ],
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+            "narrative_directives": {}}
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1",
+        rules_results=[
+            {"skill": "Spot Hidden", "outcome": "failure", "success": False,
+             "reason": "obscured clue in scene"},
+            {"skill": "Stealth", "outcome": "regular", "success": True,
+             "reason": "悄悄靠近"},
+            {"skill": "Spot Hidden", "outcome": "regular", "success": True,
+             "reason": "瞥读电报纸"},
+        ],
     )
     world = json.loads((camp / "save" / "world-state.json").read_text())
     assert "clue-A" in world["discovered_clue_ids"]

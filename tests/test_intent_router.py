@@ -56,6 +56,7 @@ class FixtureIntentEvaluator:
             "risk_posture": "cautious",
             "explicit_roll_request": False,
             "player_hypothesis": None,
+            "action_atoms": [],
         }
 
     def classify(self, player_text: str, active_scene: dict | None) -> dict:
@@ -76,6 +77,7 @@ def test_injected_evaluator_judgment_is_returned():
         "risk_posture": "neutral",
         "explicit_roll_request": False,
         "player_hypothesis": "邻居可能知道些什么",
+        "action_atoms": [],
     })
     router.set_intent_evaluator(fixture)
 
@@ -110,6 +112,7 @@ def test_empty_text_defaults_to_idle_without_evaluator():
     assert r["primary_intent"] == "idle"
     assert r["secondary_intents"] == []
     assert r["risk_posture"] == "neutral"
+    assert r["action_atoms"] == []
     # The fixture was NOT consulted for empty text.
     assert fixture.calls == []
 
@@ -156,6 +159,7 @@ def _write_result(artifacts_dir: Path, request: dict, *, result_overrides: dict 
         "risk_posture": "neutral",
         "explicit_roll_request": False,
         "player_hypothesis": None,
+        "action_atoms": [],
         "reasons": {"primary_intent": "Player described a searching action."},
     }
     if result_overrides:
@@ -183,6 +187,29 @@ def test_llm_evaluator_writes_request_and_reads_result(tmp_path):
     assert written_request["kind"] == "coc_player_intent_request"
     assert "constitution" in written_request
     assert "keyword_hits" in written_request["constitution"]["forbidden_methods"]
+    assert "action_atoms" in written_request["expected_output_schema"]["required"]
+
+
+def test_action_atoms_are_preserved_from_semantic_evaluator():
+    """Multi-step risky actions must survive the intent router into enrichment."""
+    atoms = [
+        {"id": "a1", "verb": "冲过枪口", "skill": "Dodge", "stakes": "失败则警卫先手"},
+        {"id": "a2", "verb": "拖走队友", "skill": "STR", "depends_on": "a1"},
+    ]
+    fixture = FixtureIntentEvaluator(result={
+        "primary_intent": "flee",
+        "secondary_intents": ["protect_ally"],
+        "target_entities": ["guard"],
+        "risk_posture": "reckless",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "action_atoms": atoms,
+    })
+    router.set_intent_evaluator(fixture)
+
+    result = router.parse_intent("我冲过枪口，把队友拖出去")
+
+    assert result["action_atoms"] == atoms
 
 
 def test_llm_evaluator_missing_result_raises(tmp_path):
@@ -294,6 +321,7 @@ def test_fixture_can_return_director_specific_classes():
             "secondary_intents": [], "target_entities": [],
             "risk_posture": "neutral", "explicit_roll_request": False,
             "player_hypothesis": None,
+            "action_atoms": [],
         })
         router.set_intent_evaluator(fixture)
         assert router.parse_intent("anything")["primary_intent"] == cls

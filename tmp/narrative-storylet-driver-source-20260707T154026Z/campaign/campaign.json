@@ -1,0 +1,9 @@
+{
+  "campaign_id": "narrative-storylet-driver-campaign",
+  "title": "剧情片段调度实测",
+  "scenario_id": "archive-night-probe",
+  "era": "1920s",
+  "dice_mode": "codex",
+  "spoiler_policy": "warn_before_reveal",
+  "play_language": "zh-Hans"
+}

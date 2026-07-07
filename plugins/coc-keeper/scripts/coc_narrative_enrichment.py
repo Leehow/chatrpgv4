@@ -14,10 +14,40 @@ fields such as ``action_atoms``, ``secondary_intents`` or ``target_entities``.
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_optional_sibling(name: str, filename: str):
+    import importlib.util
+    path = SCRIPT_DIR / filename
+    if not path.exists():
+        return None
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_storylets = _load_optional_sibling("coc_storylets", "coc_storylets.py")
 
 _SCHEMA_VERSION = 1
 _CHARACTERISTICS = {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"}
+_CRITICAL_OUTCOMES = {"critical", "critical_success"}
+_FUMBLE_OUTCOMES = {"fumble", "fumbled", "critical_failure"}
+_FAILURE_OUTCOMES = {"failure", "fail", "failed"}
+_NO_TRIGGER = {
+    "schema_version": _SCHEMA_VERSION,
+    "triggered": False,
+    "reason": "none",
+    "polarity": None,
+    "conflict_level": None,
+    "source": "storylet_trigger_gate",
+}
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -206,12 +236,17 @@ def _intent_tags(player_intent_rich: dict[str, Any] | None) -> set[str]:
         if value:
             tags.add(value)
             tags.add(f"{key}:{value}")
-    for key in ("secondary_intents", "target_entities"):
+    plural_tag_keys = {
+        "secondary_intents": "secondary_intent",
+        "target_entities": "target_entity",
+    }
+    for key, singular in plural_tag_keys.items():
         for value in _as_list(rich.get(key)):
             text = _non_empty_str(value)
             if text:
                 tags.add(text)
-                tags.add(f"{key[:-1]}:{text}")
+                tags.add(f"{singular}:{text}")
+                tags.add(f"{key}:{text}")
     for atom in _as_list(rich.get("action_atoms")):
         if not isinstance(atom, dict):
             continue
@@ -317,6 +352,260 @@ def build_incident_moves(
     return moves
 
 
+def _base_storylet_conflict_level(plan: dict[str, Any], ctx: dict[str, Any]) -> str:
+    if coc_storylets is not None and hasattr(coc_storylets, "infer_conflict_level"):
+        try:
+            return coc_storylets.infer_conflict_level(plan, ctx)
+        except Exception:
+            return "low"
+    return "low"
+
+
+def _normalized_outcome(value: Any) -> str:
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "regular_success": "regular",
+        "success": "regular",
+        "hard_success": "hard",
+        "extreme_success": "extreme",
+        "critical_success": "critical",
+        "critical_failure": "fumble",
+    }
+    return aliases.get(text, text)
+
+
+def _rule_results_for_trigger(plan: dict[str, Any], ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = plan.get("rules_results")
+    if candidates is None:
+        candidates = plan.get("rule_results")
+    if candidates is None:
+        candidates = ctx.get("rules_results")
+    return [r for r in _as_list(candidates) if isinstance(r, dict)]
+
+
+def _rule_signals(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    if isinstance(ctx.get("rule_signals"), dict):
+        merged.update(ctx["rule_signals"])
+    if isinstance(plan.get("rule_signals"), dict):
+        merged.update(plan["rule_signals"])
+    return merged
+
+
+def _has_active_npc_reaction(plan: dict[str, Any]) -> bool:
+    for move in _as_list(plan.get("npc_moves")):
+        if isinstance(move, dict) and move.get("active_reactions"):
+            return True
+    return False
+
+
+def _pressure_tick_level(plan: dict[str, Any], ctx: dict[str, Any]) -> str:
+    signals = _rule_signals(plan, ctx)
+    tension = (
+        signals.get("tension_level")
+        or (signals.get("tension_clock") or {}).get("tension_level")
+        or (ctx.get("world_state") or {}).get("tension_level")
+        or "low"
+    )
+    return "high" if tension in {"high", "climax"} else "medium"
+
+
+def infer_storylet_trigger(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    """Return why the current turn is allowed to draw a storylet event card.
+
+    Storylets are not per-turn ambient rolls. They are drawn only when rules or
+    fiction open an event window: a true critical/fumble, a visible pressure
+    tick, a scene cut, a stall recovery need, an NPC reaction, or an explicit
+    Keeper/debug policy.
+    """
+    policy = ctx.get("storylet_policy") or {}
+    if policy.get("disabled") or policy.get("disable_storylets"):
+        return dict(_NO_TRIGGER)
+
+    forced_reason = _non_empty_str(
+        policy.get("storylet_trigger")
+        or policy.get("trigger")
+        or ("forced" if policy.get("force_storylet") or policy.get("force") else None)
+    )
+    if forced_reason and forced_reason not in {"auto", "none"}:
+        return {
+            "schema_version": _SCHEMA_VERSION,
+            "triggered": True,
+            "reason": forced_reason,
+            "polarity": policy.get("polarity") or "neutral",
+            "conflict_level": policy.get("conflict_level") or _base_storylet_conflict_level(plan, ctx),
+            "source": "storylet_policy",
+        }
+
+    for result in _rule_results_for_trigger(plan, ctx):
+        outcome = _normalized_outcome(result.get("outcome"))
+        if outcome in _FUMBLE_OUTCOMES or outcome == "fumble":
+            return {
+                "schema_version": _SCHEMA_VERSION,
+                "triggered": True,
+                "reason": "fumble",
+                "polarity": "negative",
+                "conflict_level": "high",
+                "source": "rules_results",
+                "roll": result.get("roll"),
+                "skill": result.get("skill"),
+            }
+
+    for result in _rule_results_for_trigger(plan, ctx):
+        outcome = _normalized_outcome(result.get("outcome"))
+        if outcome in _CRITICAL_OUTCOMES or outcome == "critical":
+            return {
+                "schema_version": _SCHEMA_VERSION,
+                "triggered": True,
+                "reason": "critical_success",
+                "polarity": "positive",
+                "conflict_level": "high",
+                "source": "rules_results",
+                "roll": result.get("roll"),
+                "skill": result.get("skill"),
+            }
+
+    for result in _rule_results_for_trigger(plan, ctx):
+        outcome = _normalized_outcome(result.get("outcome"))
+        risky_failure = (
+            result.get("storylet_on_failure")
+            or result.get("risk_level") in {"high", "lethal", "severe"}
+            or result.get("failure_severity") in {"high", "severe"}
+        )
+        if outcome in _FAILURE_OUTCOMES and risky_failure:
+            return {
+                "schema_version": _SCHEMA_VERSION,
+                "triggered": True,
+                "reason": "risky_failure",
+                "polarity": "negative",
+                "conflict_level": "medium",
+                "source": "rules_results",
+                "roll": result.get("roll"),
+                "skill": result.get("skill"),
+            }
+
+    pressure_moves = [m for m in _as_list(plan.get("pressure_moves")) if isinstance(m, dict)]
+    if any(int(m.get("tick", 0) or 0) > 0 for m in pressure_moves):
+        return {
+            "schema_version": _SCHEMA_VERSION,
+            "triggered": True,
+            "reason": "pressure_clock",
+            "polarity": "negative",
+            "conflict_level": _pressure_tick_level(plan, ctx),
+            "source": "pressure_moves",
+        }
+
+    signals = _rule_signals(plan, ctx)
+    if signals.get("player_stalled") or int(signals.get("stalled_turns", 0) or 0) >= 3:
+        return {
+            "schema_version": _SCHEMA_VERSION,
+            "triggered": True,
+            "reason": "player_stall",
+            "polarity": "neutral",
+            "conflict_level": "low",
+            "source": "rule_signals",
+        }
+
+    if _has_active_npc_reaction(plan):
+        return {
+            "schema_version": _SCHEMA_VERSION,
+            "triggered": True,
+            "reason": "npc_reaction",
+            "polarity": "neutral",
+            "conflict_level": "medium",
+            "source": "npc_moves",
+        }
+
+    if plan.get("scene_action") == "CUT" or plan.get("scene_transition"):
+        return {
+            "schema_version": _SCHEMA_VERSION,
+            "triggered": True,
+            "reason": "scene_transition",
+            "polarity": "neutral",
+            "conflict_level": "medium",
+            "source": "director_plan",
+        }
+
+    return dict(_NO_TRIGGER)
+
+
+def _storylet_selection_context(ctx: dict[str, Any], trigger: dict[str, Any]) -> dict[str, Any]:
+    selection_ctx = deepcopy(ctx)
+    policy = dict(selection_ctx.get("storylet_policy") or {})
+    if trigger.get("conflict_level"):
+        policy["conflict_level"] = trigger["conflict_level"]
+    policy["storylet_trigger_reason"] = trigger.get("reason")
+    policy["polarity"] = trigger.get("polarity")
+    selection_ctx["storylet_policy"] = policy
+    selection_ctx["storylet_trigger"] = trigger
+    return selection_ctx
+
+
+def _apply_storylet_state(enriched: dict[str, Any], storylet_moves: list[dict[str, Any]], trigger: dict[str, Any]) -> None:
+    enriched["storylet_moves"] = storylet_moves
+    nd = enriched.setdefault("narrative_directives", {})
+    nd["storylet_moves"] = storylet_moves
+    nd["storylet_trigger"] = trigger
+    if storylet_moves:
+        nd.setdefault("must_include", [])
+        for move in storylet_moves:
+            cue = move.get("cue")
+            if cue and cue not in nd["must_include"]:
+                nd["must_include"].append(cue)
+
+
+def _update_enrichment_summary(
+    enriched: dict[str, Any],
+    *,
+    choice_frame: dict[str, Any] | None = None,
+    chain_requests: list[dict[str, Any]] | None = None,
+    npc_reactions: list[dict[str, Any]] | None = None,
+    storylet_trigger: dict[str, Any] | None = None,
+    incident_moves: list[dict[str, Any]] | None = None,
+) -> None:
+    summary = enriched.setdefault("narrative_enrichment", {})
+    if choice_frame is not None:
+        summary["choice_frame"] = bool(choice_frame.get("routes"))
+    if chain_requests is not None:
+        summary["action_chain_requests"] = len(chain_requests)
+    if npc_reactions is not None:
+        summary["npc_reactions"] = sum(len(m.get("active_reactions", []) or []) for m in npc_reactions)
+    if storylet_trigger is not None:
+        summary["storylet_trigger"] = storylet_trigger
+    storylet_moves = [m for m in _as_list(enriched.get("storylet_moves")) if isinstance(m, dict)]
+    summary["storylet_moves"] = len(storylet_moves)
+    summary["conflict_level"] = storylet_moves[0]["target_conflict_level"] if storylet_moves else None
+    if incident_moves is not None:
+        summary["incident_moves"] = len(incident_moves)
+
+
+def enrich_storylets_after_rules(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    """Add storylets after rule results are known.
+
+    The pre-rules enrichment pass builds action-chain roll requests. This pass
+    runs after those rolls are backfilled so true critical successes and fumbles
+    can trigger storylets without making every ordinary turn draw an event card.
+    """
+    enriched = deepcopy(plan)
+    existing_moves = [m for m in _as_list(enriched.get("storylet_moves")) if isinstance(m, dict)]
+    trigger = infer_storylet_trigger(enriched, ctx)
+    if existing_moves or not trigger.get("triggered") or coc_storylets is None:
+        _apply_storylet_state(enriched, existing_moves, trigger)
+        _update_enrichment_summary(enriched, storylet_trigger=trigger)
+        return enriched
+
+    selection_ctx = _storylet_selection_context(ctx, trigger)
+    storylet_moves = coc_storylets.select_storylet_moves(
+        enriched,
+        selection_ctx,
+        seed=(selection_ctx.get("storylet_policy") or {}).get("seed", selection_ctx.get("session_seed", "storylet")),
+        max_storylets=int((selection_ctx.get("storylet_policy") or {}).get("max_storylets", 1) or 1),
+    )
+    _apply_storylet_state(enriched, storylet_moves, trigger)
+    _update_enrichment_summary(enriched, storylet_trigger=trigger)
+    return enriched
+
+
 def _merge_npc_moves(existing: list[dict[str, Any]], extra: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged = [dict(m) for m in existing]
     by_id = {m.get("npc_id"): m for m in merged if m.get("npc_id")}
@@ -356,17 +645,31 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
     npc_reactions = build_npc_reaction_moves(scene, ctx.get("npc_agendas"), rich)
     enriched["npc_moves"] = _merge_npc_moves(enriched.get("npc_moves", []), npc_reactions)
 
+    storylet_trigger = infer_storylet_trigger(enriched, ctx)
+    storylet_moves: list[dict[str, Any]] = []
+    if coc_storylets is not None and storylet_trigger.get("triggered"):
+        selection_ctx = _storylet_selection_context(ctx, storylet_trigger)
+        storylet_moves = coc_storylets.select_storylet_moves(
+            enriched,
+            selection_ctx,
+            seed=(selection_ctx.get("storylet_policy") or {}).get("seed", selection_ctx.get("session_seed", "storylet")),
+            max_storylets=int((selection_ctx.get("storylet_policy") or {}).get("max_storylets", 1) or 1),
+        )
+    _apply_storylet_state(enriched, storylet_moves, storylet_trigger)
+
     incident_moves = build_incident_moves(
         ctx.get("incident_deck"),
         turn_number=int(ctx.get("turn_number", 0) or 0),
         scene_tags=list(scene.get("tags", []) or scene.get("tone", []) or []),
     )
     enriched["incident_moves"] = incident_moves
-    enriched["narrative_enrichment"] = {
-        "schema_version": _SCHEMA_VERSION,
-        "choice_frame": bool(choice_frame.get("routes")),
-        "action_chain_requests": len(chain_requests),
-        "npc_reactions": sum(len(m.get("active_reactions", []) or []) for m in npc_reactions),
-        "incident_moves": len(incident_moves),
-    }
+    enriched["narrative_enrichment"] = {"schema_version": _SCHEMA_VERSION}
+    _update_enrichment_summary(
+        enriched,
+        choice_frame=choice_frame,
+        chain_requests=chain_requests,
+        npc_reactions=npc_reactions,
+        storylet_trigger=storylet_trigger,
+        incident_moves=incident_moves,
+    )
     return enriched

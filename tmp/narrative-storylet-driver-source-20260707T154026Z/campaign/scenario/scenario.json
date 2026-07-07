@@ -1,0 +1,6 @@
+{
+  "scenario_id": "archive-night-probe",
+  "title": "档案馆夜查",
+  "module_source": "driver-generated narrative/storylet playtest fixture, not live LLM",
+  "opening_scene": "公开档案里是否能找到金器与旧教团的联系？"
+}

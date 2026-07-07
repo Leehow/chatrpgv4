@@ -57,6 +57,22 @@ def test_npc_reaction_triggers_from_structured_tags():
     assert moves[0]["active_reactions"][0]["move"] == "whisper_warning"
 
 
+def test_npc_reaction_trigger_matches_singular_target_entity_tag():
+    scene = {"npc_ids": ["ally-1"]}
+    agendas = {"npcs": [{
+        "npc_id": "ally-1",
+        "agenda": "keep watch",
+        "reaction_triggers": [
+            {"when": "target_entity:guard", "move": "warn_about_guard"}
+        ],
+    }]}
+    rich = {"target_entities": ["guard"], "action_atoms": []}
+
+    moves = narr.build_npc_reaction_moves(scene, agendas, rich)
+
+    assert moves[0]["active_reactions"][0]["move"] == "warn_about_guard"
+
+
 def test_enrich_director_plan_adds_rules_npc_choice_and_handoff():
     plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
     ctx = {
@@ -73,3 +89,144 @@ def test_enrich_director_plan_adds_rules_npc_choice_and_handoff():
     assert enriched["choice_frame"]["routes"][0]["route_id"] == "door"
     assert enriched["rules_requests"][0]["skill"] == "Dodge"
     assert enriched["npc_moves"][0]["active_reactions"][0]["move"] == "warn"
+
+
+def test_enrich_director_plan_adds_storylet_moves_with_conflict_control():
+    plan = {
+        "decision_id": "d-storylet",
+        "scene_action": "REVEAL",
+        "pacing_mode": "investigation",
+        "clue_policy": {"reveal": ["clue-doorframe"]},
+        "rules_requests": [],
+        "npc_moves": [],
+        "narrative_directives": {"horror_escalation_stage": "wrongness"},
+        "handoff": "narration",
+        "rule_signals": {"tension_clock": {"tension_level": "low"}},
+    }
+    ctx = {
+        "active_scene": {
+            "scene_id": "archive",
+            "scene_type": "investigation",
+            "npc_ids": ["npc-archivist"],
+            "available_clues": ["clue-doorframe"],
+            "tone": ["dust"],
+        },
+        "player_intent_rich": {"action_atoms": []},
+        "world_state": {"discovered_clue_ids": []},
+        "threat_fronts": {"fronts": [{"front_id": "cult-watch", "clocks": [{"clock_id": "cult-alert"}]}]},
+        "structure_type": "branching_investigation",
+        "module_meta": {"content_flags": []},
+        "storylet_policy": {"conflict_level": "low", "seed": "test", "force_storylet": True},
+        "turn_number": 4,
+    }
+    enriched = narr.enrich_director_plan(plan, ctx)
+    assert enriched["storylet_moves"]
+    assert enriched["storylet_moves"][0]["conflict_level"] == "low"
+    assert enriched["narrative_enrichment"]["storylet_moves"] == 1
+    assert enriched["narrative_enrichment"]["conflict_level"] == "low"
+    assert enriched["narrative_directives"]["storylet_moves"][0]["source"] == "storylet-library.json"
+
+
+def _storylet_gate_plan(action="DEEPEN"):
+    return {
+        "decision_id": "d-storylet-gate",
+        "scene_action": action,
+        "pacing_mode": "investigation",
+        "clue_policy": {"reveal": [], "leads": []},
+        "rules_requests": [],
+        "npc_moves": [],
+        "narrative_directives": {"horror_escalation_stage": "wrongness"},
+        "handoff": "narration",
+        "rule_signals": {"tension_clock": {"tension_level": "low"}},
+    }
+
+
+def _storylet_gate_library():
+    return {"storylets": [
+        {
+            "storylet_id": "low-reflection-noise",
+            "family_id": "sensory_pressure",
+            "trope_id": "quiet_wrongness",
+            "conflict_level": "low",
+            "base_weight": 1,
+            "scene_actions": ["DEEPEN", "REVEAL", "SUBSYSTEM"],
+            "eligible_scene_types": ["investigation"],
+            "horror_stage": ["wrongness"],
+            "requires": {"npc_id": False, "unrevealed_clue": False, "active_front": False},
+            "serves": {"mainline": True, "theme": True},
+            "cue": "房间里的小异常被推到台前。",
+        },
+        {
+            "storylet_id": "high-fumble-complication",
+            "family_id": "fumble_complication",
+            "trope_id": "fumble_exposes_investigator",
+            "conflict_level": "high",
+            "base_weight": 10,
+            "scene_actions": ["SUBSYSTEM", "PRESSURE", "DEEPEN"],
+            "eligible_scene_types": ["investigation"],
+            "horror_stage": ["wrongness", "pattern"],
+            "requires": {"npc_id": False, "unrevealed_clue": False, "active_front": False},
+            "serves": {"mainline": True, "theme": True, "can_surface_choice": True},
+            "cue": "失误立刻把调查员暴露在新的麻烦里。",
+        },
+    ]}
+
+
+def _storylet_gate_ctx(primary_intent="reflect"):
+    return {
+        "active_scene": {
+            "scene_id": "hotel-room",
+            "scene_type": "investigation",
+            "tone": ["quiet", "wrongness"],
+        },
+        "player_intent_rich": {"primary_intent": primary_intent, "action_atoms": []},
+        "world_state": {"discovered_clue_ids": []},
+        "threat_fronts": {"fronts": []},
+        "structure_type": "branching_investigation",
+        "module_meta": {"content_flags": []},
+        "storylet_library": _storylet_gate_library(),
+        "storylet_policy": {"seed": "gate-test", "max_storylets": 1},
+        "turn_number": 3,
+    }
+
+
+def test_enrichment_does_not_draw_storylet_without_event_trigger():
+    enriched = narr.enrich_director_plan(_storylet_gate_plan("DEEPEN"), _storylet_gate_ctx("reflect"))
+
+    assert enriched["storylet_moves"] == []
+    assert enriched["narrative_enrichment"]["storylet_moves"] == 0
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "none"
+
+
+def test_fumble_after_rules_triggers_high_conflict_storylet():
+    plan = narr.enrich_director_plan(_storylet_gate_plan("SUBSYSTEM"), _storylet_gate_ctx("organize_notes"))
+    plan["rules_results"] = [{
+        "skill": "Library Use",
+        "roll": 100,
+        "target": 75,
+        "outcome": "fumble",
+        "stakes": "材料顺序被打乱并惊动旁人",
+    }]
+
+    enriched = narr.enrich_storylets_after_rules(plan, _storylet_gate_ctx("organize_notes"))
+
+    assert enriched["storylet_moves"]
+    assert enriched["storylet_moves"][0]["target_conflict_level"] == "high"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "fumble"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["polarity"] == "negative"
+
+
+def test_extreme_success_does_not_trigger_special_storylet_by_itself():
+    plan = narr.enrich_director_plan(_storylet_gate_plan("SUBSYSTEM"), _storylet_gate_ctx("investigate"))
+    plan["rules_results"] = [{
+        "skill": "Spot Hidden",
+        "roll": 10,
+        "target": 60,
+        "outcome": "extreme",
+        "stakes": "看清房间细节",
+    }]
+
+    enriched = narr.enrich_storylets_after_rules(plan, _storylet_gate_ctx("investigate"))
+
+    assert enriched["storylet_moves"] == []
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "none"

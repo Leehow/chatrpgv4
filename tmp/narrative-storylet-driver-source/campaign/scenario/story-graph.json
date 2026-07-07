@@ -1,0 +1,46 @@
+{
+  "scenes": [
+    {
+      "scene_id": "archive-room",
+      "scene_type": "investigation",
+      "available_clues": [
+        "ledger-mark"
+      ],
+      "dramatic_question": "埃里希能否在警卫靠近前确认登记簿异常？",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "tone": [
+        "tense",
+        "dusty"
+      ],
+      "npc_ids": [
+        "npc-archivist"
+      ],
+      "affordances": [
+        {
+          "id": "dusty-ledger",
+          "cue": "登记簿边缘有一截新鲜灰尘断痕",
+          "promise": "可能找到线索"
+        },
+        {
+          "id": "side-door",
+          "cue": "侧门缝里有不合季节的冷风",
+          "risk": "可能暴露行踪"
+        }
+      ],
+      "allowed_improvisation": []
+    },
+    {
+      "scene_id": "street-exit",
+      "scene_type": "transition",
+      "available_clues": [],
+      "dramatic_question": "埃里希是否能带着登记簿异常离开档案馆？",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "tone": [
+        "uneasy"
+      ],
+      "allowed_improvisation": []
+    }
+  ]
+}

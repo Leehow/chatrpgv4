@@ -8,16 +8,61 @@ description: Run immersive Call of Cthulhu play after COC mode is active. Use fo
 ## Loop
 
 1. Read player input + campaign state + scenario story-graph.
+   - For manual/live campaigns with missing `story-graph.json`, the live-story
+     bridge in `build_director_context` must derive a runtime scene from
+     `save/active-scene.json`; the turn must still run through `build_director_context`
+     before narration.
 2. Call `coc-story-director` (scripts/coc_story_director.py) to generate a DirectorPlan.
 3. Apply the narrative enrichment pass (scripts/coc_narrative_enrichment.py) when available:
    - turn scene affordances / clue leads into a hidden `choice_frame`;
    - turn semantically parsed `player_intent_rich.action_atoms` into chained `rules_requests`;
    - activate NPC `reaction_triggers`, relationship clocks, voice seeds, desire/fear/leverage;
-   - surface optional `incident_moves` only as side beats that reinforce the main tension.
+   - select `storylet_moves` from the deterministic storylet engine with conflict-level pacing;
+   - surface optional `incident_moves` only as legacy side beats that reinforce the main tension.
 4. If the enriched DirectorPlan.handoff == "rules": resolve mechanics via coc-roll/combat/chase/sanity.
 5. Backfill rule results into the plan.
 6. Narrate consequences per DirectorPlan.narrative_directives (immersive, in play_language).
 7. Update save, logs, and pacing-state.
+
+## Live-Story Bridge
+
+Protocol name: live-story bridge.
+
+Live human play must not bypass the Story Director just because a campaign was
+started before compiled story-graph files existed. When a manual campaign has a
+current `save/active-scene.json` but missing `story-graph.json`, call
+`build_director_context` anyway. The context builder creates a runtime
+`active_scene` with diegetic affordances from the saved scene summary or
+Keeper-facing pending choices, so narrative enrichment can still produce
+`choice_frame`, `storylet_moves`, and NPC/rules hooks.
+
+This runtime bridge is a play aid, not module rewriting. It may surface current
+scene pressure, resumable routes, and player-safe table context, but it must not
+invent new core clues, culprit facts, Mythos truths, or final answers. If the
+campaign later gains compiled `story-graph.json` data, that structured module
+data takes precedence.
+
+## Reusable Investigator Selection
+
+When starting a new campaign, restarting a live playtest, or entering
+character creation/setup, check the workspace `/.coc/investigators/` library
+before starting characteristic generation. If reusable investigators exist,
+summarize them in player-facing language with name, occupation, era, and useful
+resume context such as last campaign, last modified time, or a one-line
+backstory. Let the player choose an existing investigator or explicitly create
+a new one. Do not rebuild a character sheet when the player chooses an
+existing investigator; load that investigator's `character.json` and create
+fresh campaign-local `save/investigator-state/<id>.json` instead.
+
+## Starter Scenario Character Gate
+
+built-in starter scenarios must not auto-select pre-generated investigators or
+move straight into the opening scene. They provide a player-safe background briefing
+for character creation, not default player characters. After a starter
+scenario is installed, present the scenario premise and ask the player to create
+an investigator or choose an existing reusable investigator that fits the era.
+AI may draft a complete investigator only after the player asks for auto-creation,
+and the player must confirm the final sheet before play begins.
 
 ## Style
 
@@ -68,9 +113,23 @@ pass prevents that single action from feeling like a single-track plot.
   a line, interruption, hesitation, assist, objection, or tell. Use desire/fear/
   leverage/voice seeds to make the reaction feel like that person, not a hint
   dispenser.
-- **Side beats must be thematic.** `incident_moves` should complicate the
-  scene, reveal character, or echo the scenario theme. They must not replace
-  the player's chosen goal or force a new main route.
+- **Storylets are controlled meat, not new bones.** `storylet_moves` may add
+  NPC pressure, clue delivery texture, threat-front symptoms, and short side
+  beats, but they must bind to the active scene, clue, NPC, front, choice, or
+  theme. They must not create a new culprit, god, cult fact, final truth, or
+  mandatory route.
+- **Respect conflict level.** Low beats are texture and soft leads; medium beats
+  introduce social/procedural friction; high beats put evidence, allies, or
+  escape routes at risk; climax beats cash in clocks and force thematic
+  choices. Never escalate above `storylet_policy.conflict_level` unless the
+  policy explicitly allows a higher window.
+- **Do not repeat the same trick.** Treat `storylet_id`, `family_id`, `trope_id`,
+  and bound target as separate anti-repeat signatures. If a family was used
+  recently, choose a different family even if the literal event text differs.
+- **Side beats must be thematic.** `incident_moves` and `storylet_moves` should
+  complicate the scene, reveal character, echo the scenario theme, or return a
+  side thread to the mainline. They must not replace the player's chosen goal
+  or force a new main route.
 
 Do not split raw player prose with keyword matching. If action atoms or reaction
 tags are missing, use the normal semantic intent evaluator or ask a clarifying

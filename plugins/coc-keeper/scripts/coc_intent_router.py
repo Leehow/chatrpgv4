@@ -161,6 +161,7 @@ class LLMIntentEvaluator:
                     "risk_posture",
                     "explicit_roll_request",
                     "player_hypothesis",
+                    "action_atoms",
                     "reasons",
                 ],
                 "primary_intent_enum": list(_PRIMARY_INTENT_ENUM),
@@ -235,8 +236,8 @@ class LLMIntentEvaluator:
         return errors
 
     def _parse_result(self, result: dict[str, Any]) -> dict[str, Any]:
-        # The result already passed schema validation; surface the six
-        # contract fields the original parse_intent returned.
+        # The result already passed schema validation; surface the rich
+        # contract fields consumed by the director and enrichment layers.
         return {
             "primary_intent": result["primary_intent"],
             "secondary_intents": list(result.get("secondary_intents") or []),
@@ -244,6 +245,7 @@ class LLMIntentEvaluator:
             "risk_posture": result.get("risk_posture", "neutral"),
             "explicit_roll_request": bool(result.get("explicit_roll_request", False)),
             "player_hypothesis": result.get("player_hypothesis"),
+            "action_atoms": [a for a in (result.get("action_atoms") or []) if isinstance(a, dict)],
         }
 
 
@@ -281,6 +283,7 @@ def parse_intent(player_text: str | None, active_scene: dict | None = None) -> d
             "risk_posture": "cautious|neutral|reckless",
             "explicit_roll_request": bool,
             "player_hypothesis": str | None,
+            "action_atoms": list[dict],
         }
 
     Machine-controlled signals (no semantic judgment, Constitution carve-out):
@@ -313,6 +316,7 @@ def _idle_result() -> dict[str, Any]:
         "risk_posture": "neutral",
         "explicit_roll_request": False,
         "player_hypothesis": None,
+        "action_atoms": [],
     }
 
 
@@ -324,4 +328,5 @@ def _meta_result() -> dict[str, Any]:
         "risk_posture": "neutral",
         "explicit_roll_request": False,
         "player_hypothesis": None,
+        "action_atoms": [],
     }

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "campaign_id": "narrative-storylet-driver-campaign",
+  "active_scene_id": "basement-index",
+  "discovered_clue_ids": [
+    "clue-ledger-date",
+    "clue-telegram",
+    "clue-basement-symbol"
+  ],
+  "major_decisions": []
+}

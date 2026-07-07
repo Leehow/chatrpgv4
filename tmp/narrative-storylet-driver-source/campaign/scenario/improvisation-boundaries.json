@@ -1,0 +1,10 @@
+{
+  "invent_allowed": [],
+  "never_invent": [
+    "new culprit",
+    "new mythos truth"
+  ],
+  "keeper_secrets": [
+    "本实测夹具没有隐藏神话真相，不能新造幕后黑手。"
+  ]
+}

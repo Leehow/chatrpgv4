@@ -19,6 +19,9 @@ from coc_roll import format_percentile_result
 SCENE_REPLAY_EVENT_TYPES = {
     "scene",
     "clue",
+    "clue_reveal",
+    "storylet_move",
+    "scene_transition",
     "damage",
     "sanity",
     "bout_of_madness",
@@ -459,14 +462,165 @@ def _display_actor(actor: str) -> str:
     return actor
 
 
+def _event_type(event: dict[str, Any]) -> str:
+    return str(event.get("type") or event.get("event_type") or "event")
+
+
+def _event_value(event: dict[str, Any], key: str, default: Any = None) -> Any:
+    payload = event.get("payload")
+    if isinstance(payload, dict) and payload.get(key) not in (None, "", [], {}):
+        return payload[key]
+    return event.get(key, default)
+
+
+def _storylet_event_value(event: dict[str, Any], key: str, default: Any = None) -> Any:
+    return _event_value(event, key, default)
+
+
+def _sentence(text: Any, play_language: str = "en-US") -> str:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    if value.endswith(("。", "！", "？", ".", "!", "?")):
+        return value
+    return f"{value}。" if play_language == "zh-Hans" else f"{value}."
+
+
+def _inline_anchors(*pairs: tuple[str, Any]) -> str:
+    anchors = [
+        _html_anchor(key, value)
+        for key, value in pairs
+        if value not in (None, "", [], {})
+    ]
+    return (" " + " ".join(anchors)) if anchors else ""
+
+
+def _format_storylet_event(event: dict[str, Any], play_language: str = "en-US") -> str:
+    storylet_id = _storylet_event_value(event, "storylet_id", "unknown-storylet")
+    bound = _storylet_event_value(event, "bound_entities", {})
+    if not isinstance(bound, dict):
+        bound = {}
+    variants = _storylet_event_value(event, "rolled_variants", {})
+    if not isinstance(variants, dict):
+        variants = {}
+
+    cue = _storylet_event_value(event, "cue") or _storylet_event_value(event, "title") or "一个轻微异常被推到台前"
+    details = [
+        value
+        for key in ("sensory_detail_1d6", "complication_1d6")
+        for value in [variants.get(key)]
+        if value and str(value) not in str(cue)
+    ]
+    anchors = _inline_anchors(
+        ("storylet-id", storylet_id),
+        ("scene-id", bound.get("scene_id") or bound.get("location_id")),
+        ("clue-id", bound.get("clue_id")),
+        ("front-id", bound.get("front_id")),
+        ("clock-id", bound.get("clock_id")),
+    )
+
+    if play_language == "zh-Hans":
+        prose = "".join(_sentence(part, play_language) for part in [cue, *details] if part)
+        return f"- 剧情片段：{prose}{anchors}"
+
+    prose = " ".join(_sentence(part, play_language) for part in [cue, *details] if part)
+    return f"- Story beat: {prose}{anchors}"
+
+
+def _load_clue_lookup(
+    campaign_dir: Path | None,
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> dict[str, str]:
+    if campaign_dir is None:
+        return {}
+    graph = _read_json(campaign_dir / "scenario" / "clue-graph.json", {"conclusions": []})
+    lookup: dict[str, str] = {}
+    for conclusion in graph.get("conclusions", []):
+        if not isinstance(conclusion, dict):
+            continue
+        for clue in conclusion.get("clues", []):
+            if not isinstance(clue, dict):
+                continue
+            clue_id = clue.get("clue_id") or clue.get("id")
+            if not clue_id:
+                continue
+            text = (
+                _localized_visible_field(clue, "summary", localized_terms, play_language)
+                or _localized_visible_field(clue, "delivery", localized_terms, play_language)
+                or _localized_visible_field(clue, "title", localized_terms, play_language)
+                or str(clue_id)
+            )
+            lookup[str(clue_id)] = text
+    return lookup
+
+
+def _clue_event_id(event: dict[str, Any]) -> str:
+    return str(_event_value(event, "clue_id", "") or "")
+
+
+def _machine_clue_summary(summary: str, clue_id: str) -> bool:
+    normalized = summary.strip().lower()
+    return bool(clue_id) and normalized in {
+        f"clue revealed: {clue_id}".lower(),
+        f"clue recorded: {clue_id}".lower(),
+        clue_id.lower(),
+    }
+
+
+def _clue_event_text(
+    event: dict[str, Any],
+    localized_terms: dict[str, str],
+    play_language: str,
+    clue_lookup: dict[str, str] | None = None,
+) -> str:
+    clue_id = _clue_event_id(event)
+    lookup = clue_lookup or {}
+    if clue_id and clue_id in lookup:
+        return lookup[clue_id]
+    summary = _event_summary(event, "", localized_terms, play_language)
+    if summary and not _machine_clue_summary(summary, clue_id):
+        return summary
+    return "一个线索" if play_language == "zh-Hans" else "a clue"
+
+
+def _format_clue_reveal_event(
+    event: dict[str, Any],
+    localized_terms: dict[str, str],
+    play_language: str,
+    clue_lookup: dict[str, str] | None,
+    *,
+    label: str,
+) -> str:
+    clue_id = _clue_event_id(event)
+    text = _sentence(_clue_event_text(event, localized_terms, play_language, clue_lookup), play_language)
+    if play_language == "zh-Hans":
+        return f"- {label}：{text}{_inline_anchors(('clue-id', clue_id))}"
+    return f"- {label}: {text}{_inline_anchors(('clue-id', clue_id))}"
+
+
+def _format_scene_transition_event(event: dict[str, Any], play_language: str = "en-US") -> str:
+    label = "场景推进" if play_language == "zh-Hans" else "Scene advanced"
+    return f"- {_sentence(label, play_language)}{_inline_anchors(('from-scene', _event_value(event, 'from_scene')), ('to-scene', _event_value(event, 'to_scene')))}"
+
+
 def _format_state_event(
     event: dict[str, Any],
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
     actor_names: dict[str, str] | None = None,
+    clue_lookup: dict[str, str] | None = None,
 ) -> str:
     terms = localized_terms or {}
-    event_type = event.get("type", "event")
+    event_type = _event_type(event)
+    if event_type == "storylet_move":
+        return _format_storylet_event(event, play_language)
+    if event_type == "clue_reveal":
+        label = "线索已记录" if play_language == "zh-Hans" else "Clue recorded"
+        return _format_clue_reveal_event(event, terms, play_language, clue_lookup, label=label)
+    if event_type == "scene_transition":
+        return _format_scene_transition_event(event, play_language)
+    event_type = event.get("type") or event_type
     event_label = event_type.replace("_", " ")
     payload = event.get("payload", {})
     if play_language not in {"", "unknown", "en-US"}:
@@ -484,6 +638,8 @@ def _format_state_event(
         return f"- clue: {clue_id} - {summary or 'clue recorded'}"
     if summary:
         return f"- {event_label}: {actor} - {summary}"
+    if event.get("event_type") and not event.get("type"):
+        return f"- {event_label} recorded"
     return f"- {event_label}: {actor}"
 
 
@@ -535,7 +691,11 @@ def _format_clue(
     event: dict[str, Any],
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
+    clue_lookup: dict[str, str] | None = None,
 ) -> str:
+    if _event_type(event) == "clue_reveal":
+        label = "线索" if play_language == "zh-Hans" else "Clue"
+        return _format_clue_reveal_event(event, localized_terms or {}, play_language, clue_lookup, label=label)
     summary = _event_summary(event, "clue recorded", localized_terms, play_language)
     return f"- {summary}"
 
@@ -610,16 +770,24 @@ def _format_scene_replay_event(
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
     actor_names: dict[str, str] | None = None,
+    clue_lookup: dict[str, str] | None = None,
 ) -> str:
     terms = localized_terms or {}
     names = actor_names or {}
-    event_type = event.get("type", "event")
+    event_type = _event_type(event)
     if event_type == "scene":
         summary = _event_summary(event, "scene recorded", terms, play_language)
         return f"- {summary}"
     if event_type == "clue":
         summary = _event_summary(event, "clue recorded", terms, play_language)
         return f"- {summary}"
+    if event_type == "clue_reveal":
+        label = "调查员确认了线索" if play_language == "zh-Hans" else "Investigators confirmed a clue"
+        return _format_clue_reveal_event(event, terms, play_language, clue_lookup, label=label)
+    if event_type == "storylet_move":
+        return _format_storylet_event(event, play_language)
+    if event_type == "scene_transition":
+        return _format_scene_transition_event(event, play_language)
     event_label = event_type.replace("_", " ")
     actor = _display_roll_actor(event.get("actor", "unknown"), names)
     summary = _event_summary(event, f"{event_label} recorded", terms, play_language)
@@ -632,9 +800,10 @@ def _format_scene_replay_event_lines(
     localized_terms: dict[str, str] | None = None,
     play_language: str = "en-US",
     actor_names: dict[str, str] | None = None,
+    clue_lookup: dict[str, str] | None = None,
 ) -> list[str]:
-    lines = [_format_scene_replay_event(event, localized_terms, play_language, actor_names)]
-    if event.get("type") != "bout_of_madness":
+    lines = [_format_scene_replay_event(event, localized_terms, play_language, actor_names, clue_lookup)]
+    if _event_type(event) != "bout_of_madness":
         return lines
 
     lines.extend(_format_bout_of_madness_round_lines(event, localized_terms, play_language))
@@ -668,7 +837,11 @@ def _format_handout(
 
 
 def _scene_replay_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [event for event in events if event.get("type") in SCENE_REPLAY_EVENT_TYPES]
+    return [
+        event
+        for event in events
+        if _event_type(event) in SCENE_REPLAY_EVENT_TYPES
+    ]
 
 
 def _list_lines(items: list[str], empty: str) -> list[str]:
@@ -2048,6 +2221,11 @@ def generate_battle_report(run_dir: Path) -> Path:
     profile_labels = _localized_profile_labels(metadata)
 
     actor_names = _localized_actor_names(characters, localized_terms)
+    clue_lookup = _load_clue_lookup(
+        context["campaign_dir"],
+        localized_terms,
+        str(play_language),
+    )
     handout_lines = [
         _format_handout(handout, localized_terms, str(play_language))
         for handout in handouts
@@ -2088,7 +2266,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         for event in rolls
     ]
     state_lines = [
-        _format_state_event(event, localized_terms, str(play_language), actor_names)
+        _format_state_event(event, localized_terms, str(play_language), actor_names, clue_lookup)
         for event in state_events
     ]
     decision_lines = [
@@ -2097,9 +2275,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         if event.get("type") == "decision"
     ]
     clue_lines = [
-        _format_clue(event, localized_terms, str(play_language))
+        _format_clue(event, localized_terms, str(play_language), clue_lookup)
         for event in state_events
-        if event.get("type") == "clue"
+        if _event_type(event) in {"clue", "clue_reveal"}
     ]
     scene_replay_lines = [
         line
@@ -2109,6 +2287,7 @@ def generate_battle_report(run_dir: Path) -> Path:
             localized_terms,
             str(play_language),
             actor_names,
+            clue_lookup,
         )
     ]
     combat_lines = [

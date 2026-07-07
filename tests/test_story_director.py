@@ -13,6 +13,10 @@ def _load(name, rel):
     return m
 
 coc_story_director = _load("coc_story_director", "plugins/coc-keeper/scripts/coc_story_director.py")
+coc_narrative_enrichment = _load(
+    "coc_narrative_enrichment",
+    "plugins/coc-keeper/scripts/coc_narrative_enrichment.py",
+)
 
 
 def _make_minimal_campaign(tmp_path):
@@ -76,6 +80,104 @@ def _make_minimal_campaign(tmp_path):
     return camp, char_dir / "character.json"
 
 
+def _make_legacy_live_campaign(tmp_path):
+    """Build a manual/live campaign that predates compiled story-graph files."""
+    camp = tmp_path / "campaigns" / "legacy-live"
+    (camp / "save" / "investigator-state").mkdir(parents=True)
+    (camp / "scenario").mkdir(parents=True)
+    (camp / "save" / "investigator-state" / "inv1.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "legacy-live",
+        "investigator_id": "inv1",
+        "current_hp": 12,
+        "current_san": 55,
+        "current_mp": 11,
+        "conditions": [],
+        "skill_checks_earned": [],
+    }))
+    (camp / "save" / "world-state.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "legacy-live",
+        "scenario_id": "legacy-mod",
+        "status": "active",
+        "active_scene_id": "stale-opening",
+        "active_subsystem": "play",
+        "current_phase": "manual_live",
+        "discovered_clue_ids": [],
+        "major_decisions": [],
+    }))
+    (camp / "save" / "active-scene.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "legacy-live",
+        "scenario_id": "legacy-mod",
+        "scene_id": "hospital-short-visit",
+        "summary": (
+            "调查员抵达医院，医生只允许短暂询问。桑切斯教授清醒但虚弱，"
+            "走廊里有警员看守。"
+        ),
+        "pending_choices": [
+            "询问桑切斯教授还能记起什么",
+            "观察走廊警员和医护人员的反应",
+        ],
+    }))
+    (camp / "save" / "flags.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "legacy-live",
+        "clues_found": {},
+        "decisions": [],
+    }))
+    (camp / "save" / "pacing-state.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "legacy-live",
+        "tension_level": "low",
+        "lethal_chances_used": 0,
+        "recent_intent_classes": [],
+        "turn_number": 0,
+    }))
+    (camp / "scenario" / "module-meta.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scenario_id": "legacy-mod",
+        "structure_type": "linear_acts",
+        "era": "1920s",
+        "content_flags": [],
+        "win_condition": "continue live play",
+    }))
+    (camp / "scenario" / "scenario.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scenario_id": "legacy-mod",
+        "title": "Legacy Live Module",
+        "current_phase": "manual_live",
+    }))
+    # Legacy importer files may exist but contain no compiled story graph data.
+    (camp / "scenario" / "clues.json").write_text("[]")
+    (camp / "scenario" / "npcs.json").write_text("[]")
+    (camp / "scenario" / "locations.json").write_text("[]")
+
+    char_dir = tmp_path / "investigators" / "inv1"
+    char_dir.mkdir(parents=True)
+    (char_dir / "character.json").write_text(json.dumps({
+        "schema_version": 1,
+        "id": "inv1",
+        "occupation": "Professor",
+        "era": "1920s",
+        "characteristics": {
+            "STR": 50,
+            "CON": 55,
+            "SIZ": 65,
+            "DEX": 60,
+            "APP": 70,
+            "INT": 80,
+            "POW": 55,
+            "EDU": 80,
+            "LUCK": 55,
+        },
+        "derived": {"HP": 12, "MP": 11, "SAN": 55, "MOV": 7},
+        "skills": {"Credit Rating": 60, "Spot Hidden": 60, "Psychology": 45},
+        "backstory": {},
+    }))
+    return camp, char_dir / "character.json"
+
+
 def test_build_director_context_reads_state(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     ctx = coc_story_director.build_director_context(
@@ -88,6 +190,53 @@ def test_build_director_context_reads_state(tmp_path):
     assert ctx["rule_signals"]["hp_state"] == "healthy"
     assert ctx["rule_signals"]["credit_tier"] == "wealthy"
     assert ctx["rule_signals"]["tension_clock"]["death_allowed"] is False
+
+
+def test_build_context_bridges_legacy_live_active_scene_without_story_graph(tmp_path):
+    camp, char_path = _make_legacy_live_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我先观察走廊，再短暂询问教授",
+        player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+
+    assert ctx["active_scene_id"] == "hospital-short-visit"
+    assert ctx["active_scene"]["scene_id"] == "hospital-short-visit"
+    assert ctx["active_scene"]["scene_type"] == "investigation"
+    assert ctx["active_scene"]["dramatic_question"]
+    assert len(ctx["active_scene"]["affordances"]) >= 2
+    assert max(len(route["cue"]) for route in ctx["active_scene"]["affordances"]) <= 90
+    assert "animal_instinct" in ctx["active_scene"]["excluded_storylet_tropes"]
+    assert ctx["story_graph"]["scenes"][0]["scene_id"] == "hospital-short-visit"
+
+
+def test_legacy_live_scene_reaches_narrative_enrichment(tmp_path):
+    camp, char_path = _make_legacy_live_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我先观察走廊，再短暂询问教授",
+        player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    ctx["storylet_policy"] = {
+        "conflict_level": "low",
+        "seed": "legacy-live-test",
+        "max_storylets": 1,
+        "force_storylet": True,
+    }
+
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="legacy-live-turn")
+    enriched = coc_narrative_enrichment.enrich_director_plan(plan, ctx)
+
+    assert enriched["choice_frame"]["route_count"] >= 2
+    assert enriched["narrative_enrichment"]["choice_frame"] is True
+    assert enriched["storylet_moves"]
+    assert enriched["storylet_moves"][0]["bound_entities"]["scene_id"] == "hospital-short-visit"
 
 
 def test_director_uses_mythos_based_max_san(tmp_path, monkeypatch):
@@ -727,4 +876,3 @@ def test_choice_returns_two_leads(tmp_path):
     assert len(leads) == 2
     assert leads[0] == "clue-1b"  # highest priority 0.9
     assert leads[1] == "clue-1c"  # second highest 0.7
-

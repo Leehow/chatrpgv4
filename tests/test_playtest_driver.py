@@ -139,3 +139,175 @@ def test_driver_stalled_recover_surfaces_fallback_route(tmp_path):
     assert "fail_forward_recovery" in turn["event_types"]
     assert turn["resolved_clue_policy"]["fallback_recovered"]
     assert turn["failure_consequence"]["narration_mode"] == "recover_with_cost"
+
+
+def test_driver_applies_narrative_enrichment_and_persists_storylet_ledger(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    # Make the active scene rich enough for choice_frame, NPC reactions, and
+    # storylet binding to show up in the actual driver result.
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "scene_type": "investigation",
+        "npc_ids": ["npc-archivist"],
+        "affordances": [
+            {"id": "dusty-ledger", "cue": "登记簿边缘有新鲜灰尘断痕", "promise": "可能找到线索"},
+            {"id": "side-door", "cue": "侧门缝里有冷风", "risk": "可能暴露行踪"},
+        ],
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({"npcs": [{
+        "npc_id": "npc-archivist",
+        "agenda": "keep the archives safe",
+        "desire": "avoid trouble",
+        "reaction_triggers": [{"when": "target_entity:guard", "move": "warn_about_guard"}],
+    }]}))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"front_id": "cult-watch", "clocks": [{"clock_id": "cult-alert"}]}]
+    }))
+    choices = [{
+        "intent": "我翻登记簿，同时让档案员盯着警卫",
+        "intent_class": "investigate",
+        "player_intent_rich": {
+            "primary_intent": "investigate",
+            "secondary_intents": ["coordinate_ally"],
+            "target_entities": ["guard"],
+            "risk_posture": "cautious",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+            "action_atoms": [
+                {"id": "read-ledger", "verb": "翻登记簿", "skill": "Library Use", "stakes": "失败则耗费时间"},
+                {"id": "block-guard", "verb": "挡住警卫", "skill": "Fighting (Brawl)", "opposed_by": "guard", "depends_on": "read-ledger"},
+            ],
+        },
+        "storylet_policy": {"conflict_level": "low", "seed": "driver-test", "max_storylets": 1, "force_storylet": True},
+    }]
+
+    result = driver.run_full_session(camp, char_path, "inv1", player_choices=choices, max_turns=1)
+
+    turn = result["turns"][0]
+    assert turn["choice_frame"]["route_count"] == 2
+    assert turn["storylet_moves"]
+    assert turn["narrative_enrichment"]["storylet_moves"] == 1
+    assert any(req.get("source") == "player_intent_rich.action_atoms" for req in turn["rules_requests"])
+    assert any(r.get("reason") == "翻登记簿" for r in turn["rule_results"])
+    assert any(r.get("kind") == "opposed_check" and r.get("reason") == "挡住警卫" for r in turn["rule_results"])
+    assert turn["npc_moves"][0]["active_reactions"][0]["move"] == "warn_about_guard"
+
+    ledger = json.loads((camp / "save" / "storylet-ledger.json").read_text())
+    assert ledger["last_storylet_id"] == turn["storylet_moves"][0]["storylet_id"]
+    assert ledger["used_storylets"]
+
+
+def test_driver_continues_decision_ids_across_repeated_live_invocations(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    choices = [{
+        "intent": "我先整理一下思绪。",
+        "intent_class": "reflect",
+        "player_intent_rich": {"primary_intent": "reflect", "action_atoms": []},
+    }]
+
+    driver.run_full_session(camp, char_path, "inv1", player_choices=choices, max_turns=1)
+    driver.run_full_session(camp, char_path, "inv1", player_choices=choices, max_turns=1)
+
+    rows = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    decision_ids = [row.get("decision_id") for row in rows if row.get("decision_id")]
+
+    assert "turn-001" in decision_ids
+    assert "turn-002" in decision_ids
+    assert decision_ids[-1] == "turn-002"
+
+
+def test_driver_writes_battle_report_with_gameplay_evidence(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    (camp / "campaign.json").write_text(json.dumps({
+        "campaign_id": "driver-report-campaign",
+        "title": "Driver Report Campaign",
+        "scenario_id": "driver-report-scenario",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "play_language": "zh-Hans",
+    }))
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "scene_type": "investigation",
+        "npc_ids": ["npc-archivist"],
+        "affordances": [
+            {"id": "dusty-ledger", "cue": "登记簿边缘有新鲜灰尘断痕", "promise": "可能找到线索"},
+            {"id": "side-door", "cue": "侧门缝里有冷风", "risk": "可能暴露行踪"},
+        ],
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({"npcs": [{
+        "npc_id": "npc-archivist",
+        "name": "档案员",
+        "agenda": "keep the archives safe",
+        "desire": "avoid trouble",
+        "fear": "guard attention",
+        "reaction_triggers": [{
+            "when": "target_entity:guard",
+            "move": "warn_about_guard",
+            "line_seed": "别看他的手，看登记簿。",
+        }],
+    }]}))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"front_id": "cult-watch", "clocks": [{"clock_id": "cult-alert"}]}]
+    }))
+    choices = [{
+        "intent": "我翻登记簿，同时让档案员盯着警卫",
+        "intent_class": "investigate",
+        "player_intent_rich": {
+            "primary_intent": "investigate",
+            "secondary_intents": ["coordinate_ally"],
+            "target_entities": ["guard"],
+            "risk_posture": "cautious",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+            "action_atoms": [
+                {"id": "read-ledger", "verb": "翻登记簿", "skill": "Library Use", "stakes": "失败则耗费时间"},
+                {"id": "block-guard", "verb": "挡住警卫", "skill": "Fighting (Brawl)", "opposed_by": "guard", "depends_on": "read-ledger"},
+            ],
+        },
+        "storylet_policy": {"conflict_level": "low", "seed": "driver-report-test", "max_storylets": 1, "force_storylet": True},
+    }]
+    result = driver.run_full_session(camp, char_path, "inv1", player_choices=choices, max_turns=1)
+
+    battle_path = driver.write_playtest_artifacts(
+        tmp_path / ".coc" / "playtests" / "driver-report",
+        camp,
+        char_path,
+        "inv1",
+        choices,
+        result,
+        metadata={"play_language": "zh-Hans", "audit_profile": "narrative_storylet_driver"},
+    )
+    battle_text = battle_path.read_text()
+
+    assert "## 实际跑团回放" in battle_text
+    assert "战役 ID: driver-report-campaign" in battle_text
+    assert "我翻登记簿，同时让档案员盯着警卫" in battle_text
+    assert "KP:" in battle_text
+    assert "裁定: 揭示线索" in battle_text
+    assert "裁定: REVEAL" not in battle_text
+    assert "档案员低声提醒" in battle_text
+    assert "别看他的手，看登记簿。" in battle_text
+    assert "剧情片段：" in battle_text
+    assert "线索：" in battle_text
+    assert "Library Use" in battle_text
+    assert "结果regular" not in battle_text
+    assert "结果hard" not in battle_text
+    assert "npc-archivist" not in battle_text
+    assert "No actual play events recorded" not in battle_text
+    assert "No transcript events recorded" not in battle_text
+    assert "No character sheets recorded" not in battle_text
+    assert "No major decisions recorded" not in battle_text
+    assert "No clues recorded" not in battle_text
+    assert "Session ending not recorded" not in battle_text
+    assert "event: unknown" not in battle_text
+    assert "Driver playtest executed" not in battle_text
+    assert "场景路径 archive-room" not in battle_text
+    assert "本次驱动实测收束" in battle_text

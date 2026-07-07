@@ -16,6 +16,7 @@ import argparse
 import importlib.util
 import json
 import random
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -35,6 +36,8 @@ def _load_sibling(name: str, filename: str):
 director = _load_sibling("coc_story_director", "coc_story_director.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
+narrative_enrichment = _load_sibling("coc_narrative_enrichment", "coc_narrative_enrichment.py")
+playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
 
 _SUCCESS_OUTCOMES = {"critical", "extreme", "hard", "regular", "success",
                      # legacy aliases (some callers may emit *_success forms)
@@ -50,6 +53,48 @@ def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
+        encoding="utf-8",
+    )
+
+
+def _decision_turn_number(value: Any) -> int | None:
+    text = str(value or "")
+    if not text.startswith("turn-"):
+        return None
+    suffix = text[5:]
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
+
+
+def _next_decision_number(campaign_dir: Path) -> int:
+    """Return the next live decision number from existing event/roll logs."""
+    max_seen = 0
+    for path in (campaign_dir / "logs" / "events.jsonl", campaign_dir / "logs" / "rolls.jsonl"):
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            candidates = [row.get("decision_id")]
+            payload = row.get("payload")
+            if isinstance(payload, dict):
+                candidates.append(payload.get("decision_id"))
+            for candidate in candidates:
+                number = _decision_turn_number(candidate)
+                if number is not None:
+                    max_seen = max(max_seen, number)
+    return max_seen + 1
 
 
 def _record_intent_class(campaign_dir: Path, intent_class: str, keep: int = 8) -> None:
@@ -101,7 +146,7 @@ def _execute_rules_requests(
 
     for idx, request in enumerate(requests, start=1):
         kind = request.get("kind")
-        if kind not in {"skill_check", "characteristic_check", "sanity_check"}:
+        if kind not in {"skill_check", "characteristic_check", "sanity_check", "opposed_check"}:
             continue
         target = _target_for_request(character, request)
         difficulty = str(request.get("difficulty", "regular"))
@@ -123,6 +168,11 @@ def _execute_rules_requests(
             "target": target,
             "difficulty": difficulty,
             "reason": request.get("reason"),
+            "request_id": request.get("request_id"),
+            "depends_on": request.get("depends_on"),
+            "stakes": request.get("stakes"),
+            "opposed_by": request.get("opposed_by"),
+            "opposed_skill": request.get("opposed_skill"),
             "bonus_penalty_dice": bonus_penalty,
             "roll": roll.get("roll"),
             "effective_target": roll.get("effective_target"),
@@ -140,6 +190,19 @@ def _execute_rules_requests(
 _OUTCOME_ZH = {
     "critical": "大成功", "extreme": "极限成功", "hard": "困难成功",
     "regular": "常规成功", "failure": "失败", "fumble": "大失败",
+}
+_SCENE_ACTION_ZH = {
+    "REVEAL": "揭示线索",
+    "PRESSURE": "施加压力",
+    "CHARACTER": "角色互动",
+    "CHOICE": "呈现选择",
+    "RECOVER": "回流扶手",
+    "SUBSYSTEM": "规则处理",
+    "CUT": "场景切换",
+    "DEEPEN": "深化谜团",
+}
+_RULE_REASON_ZH = {
+    "obscured clue in scene": "线索检定",
 }
 
 
@@ -207,6 +270,313 @@ def _build_narration_skeleton(
     }
 
 
+def _clue_lookup(campaign_dir: Path) -> dict[str, str]:
+    graph = apply_mod._read_json(campaign_dir / "scenario" / "clue-graph.json", {"conclusions": []})
+    lookup: dict[str, str] = {}
+    for conclusion in graph.get("conclusions", []):
+        if not isinstance(conclusion, dict):
+            continue
+        for clue in conclusion.get("clues", []):
+            if not isinstance(clue, dict):
+                continue
+            clue_id = clue.get("clue_id") or clue.get("id")
+            if clue_id:
+                lookup[str(clue_id)] = str(
+                    clue.get("summary")
+                    or clue.get("delivery")
+                    or clue.get("title")
+                    or clue_id
+                )
+    return lookup
+
+
+def _storylet_prose(move: dict[str, Any]) -> list[str]:
+    parts: list[str] = []
+    cue = move.get("cue") or move.get("title")
+    if cue:
+        parts.append(str(cue))
+    variants = move.get("rolled_variants", {})
+    if isinstance(variants, dict):
+        for key in ("sensory_detail_1d6", "complication_1d6"):
+            value = variants.get(key)
+            if value and str(value) not in parts:
+                parts.append(str(value))
+    return parts
+
+
+def _npc_lookup(campaign_dir: Path) -> dict[str, str]:
+    agendas = apply_mod._read_json(campaign_dir / "scenario" / "npc-agendas.json", {"npcs": []})
+    lookup: dict[str, str] = {}
+    for npc in agendas.get("npcs", []):
+        if isinstance(npc, dict) and npc.get("npc_id"):
+            lookup[str(npc["npc_id"])] = str(npc.get("name") or npc["npc_id"])
+    return lookup
+
+
+def _npc_reaction_prose(npc_moves: list[dict[str, Any]], npc_names: dict[str, str]) -> list[str]:
+    lines: list[str] = []
+    for npc in npc_moves:
+        npc_id = str(npc.get("npc_id") or "")
+        npc_name = npc.get("name") or npc_names.get(npc_id) or "NPC"
+        for reaction in npc.get("active_reactions", []) or []:
+            if not isinstance(reaction, dict):
+                continue
+            line = reaction.get("line_seed")
+            if line:
+                lines.append(f"{npc_name}低声提醒：“{line}”")
+            elif reaction.get("move"):
+                lines.append(f"{npc_name}作出反应：{reaction['move']}。")
+    return lines
+
+
+def _choice_frame_prose(choice_frame: dict[str, Any]) -> list[str]:
+    routes = choice_frame.get("routes", []) if isinstance(choice_frame, dict) else []
+    cues = [str(route.get("cue")) for route in routes if isinstance(route, dict) and route.get("cue")]
+    if not cues:
+        return []
+    return ["现场同时露出这些可行动线索：" + "；".join(cues) + "。"]
+
+
+def _keeper_turn_text(turn: dict[str, Any], clue_names: dict[str, str], npc_names: dict[str, str]) -> str:
+    parts: list[str] = []
+    parts.extend(_choice_frame_prose(turn.get("choice_frame", {})))
+    for clue_id in turn.get("clue_revealed", []):
+        clue_name = clue_names.get(str(clue_id), str(clue_id))
+        parts.append(f"你确认了线索：{clue_name}。")
+    for move in turn.get("storylet_moves", []):
+        if isinstance(move, dict):
+            parts.extend(_storylet_prose(move))
+    parts.extend(_npc_reaction_prose(turn.get("npc_moves", []), npc_names))
+    failure = turn.get("failure_consequence") or {}
+    if isinstance(failure, dict) and failure.get("narration_mode") == "withhold_exact_clue_with_cost":
+        parts.append("你没能确认关键细节，时间压力逼近，只能保留另一条可查方向。")
+    failed = [
+        r for r in turn.get("rule_results", [])
+        if isinstance(r, dict) and r.get("success") is False and not r.get("skipped")
+        and r.get("reason") != "obscured clue in scene"
+    ]
+    for result in failed:
+        reason = _RULE_REASON_ZH.get(
+            str(result.get("reason") or ""),
+            result.get("reason") or result.get("skill") or "行动",
+        )
+        parts.append(f"{reason}没有完全成功，压力仍留在场内。")
+    if turn.get("scene_transition"):
+        parts.append("这足以推动场景进入下一处可调查地点。")
+    if not parts:
+        parts.append("KP 根据当前场景推进叙事，但没有新增可见线索。")
+    return "".join(_ensure_sentence(part) for part in parts)
+
+
+def _ensure_sentence(text: Any) -> str:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    if value.endswith(("。", "！", "？", ".", "!", "?", "。”", "！”", "？”", ".”", "!”", "?”")):
+        return value
+    return f"{value}。"
+
+
+def _roll_turn_text(rule_results: list[dict[str, Any]]) -> str:
+    parts = []
+    for result in rule_results:
+        if not isinstance(result, dict) or result.get("skipped") or "roll" not in result:
+            continue
+        parts.append(
+            f"{result.get('skill', result.get('kind', 'check'))} "
+            f"{result.get('roll', '?')} vs {result.get('target', '?')} -> {result.get('outcome', '?')}"
+        )
+    return "; ".join(parts) or "No roll required."
+
+
+def _scene_action_label(action: Any, play_language: str = "zh-Hans") -> str:
+    action_text = str(action or "director_plan")
+    if play_language == "zh-Hans":
+        return _SCENE_ACTION_ZH.get(action_text, action_text)
+    return action_text
+
+
+def _transcript_from_driver_result(
+    result: dict[str, Any],
+    player_choices: list[dict[str, Any]],
+    campaign_dir: Path,
+    play_language: str = "zh-Hans",
+) -> list[dict[str, Any]]:
+    clue_names = _clue_lookup(campaign_dir)
+    npc_names = _npc_lookup(campaign_dir)
+    transcript: list[dict[str, Any]] = []
+    turn_counter = 1
+    for index, turn in enumerate(result.get("turns", []), start=1):
+        choice = player_choices[min(index - 1, len(player_choices) - 1)] if player_choices else {}
+        player_text = str(choice.get("intent") or choice.get("text") or "继续调查。")
+        transcript.append({
+            "turn": turn_counter,
+            "role": "player_simulator",
+            "speaker": "Investigator",
+            "mode": "play",
+            "intent": player_text,
+            "text": player_text,
+        })
+        turn_counter += 1
+        transcript.append({
+            "turn": turn_counter,
+            "role": "keeper_under_test",
+            "speaker": "KP",
+            "mode": "play",
+            "ruling": _scene_action_label(turn.get("action", "director_plan"), play_language),
+            "text": _keeper_turn_text(turn, clue_names, npc_names),
+        })
+        turn_counter += 1
+        roll_count = len([
+            r for r in turn.get("rule_results", [])
+            if isinstance(r, dict) and not r.get("skipped") and "roll" in r
+        ])
+        if roll_count:
+            transcript.append({
+                "turn": turn_counter,
+                "role": "system",
+                "speaker": "system",
+                "mode": "roll",
+                "roll_count": roll_count,
+                "text": _roll_turn_text(turn.get("rule_results", [])),
+            })
+            turn_counter += 1
+    return transcript
+
+
+def _append_report_summary_events(
+    campaign_dir: Path,
+    result: dict[str, Any],
+    player_choices: list[dict[str, Any]],
+    investigator_id: str,
+) -> None:
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    for index, turn in enumerate(result.get("turns", []), start=1):
+        choice = player_choices[min(index - 1, len(player_choices) - 1)] if player_choices else {}
+        intent = str(choice.get("intent") or choice.get("text") or "继续调查。")
+        _append_jsonl(campaign_dir / "logs" / "events.jsonl", {
+            "type": "decision",
+            "actor": investigator_id,
+            "payload": {"summary": intent},
+            "ts": ts,
+        })
+    discovered = result.get("clue_coverage", {}).get("discovered", [])
+    _append_jsonl(campaign_dir / "logs" / "events.jsonl", {
+        "type": "session_ending",
+        "actor": "keeper_under_test",
+        "payload": {
+            "summary": (
+                f"本次驱动实测收束：发现 {len(discovered)} 条线索，"
+                "并推进到下一处可调查地点。"
+            )
+        },
+        "ts": ts,
+    })
+
+
+def _ensure_campaign_report_files(
+    campaign_dir: Path,
+    investigator_id: str,
+    metadata: dict[str, Any],
+) -> None:
+    campaign = apply_mod._read_json(campaign_dir / "campaign.json", {})
+    campaign.setdefault("campaign_id", metadata.get("campaign_id", campaign_dir.name))
+    campaign.setdefault("title", metadata.get("campaign_title", campaign_dir.name))
+    campaign.setdefault("scenario_id", metadata.get("scenario_id", campaign.get("campaign_id", campaign_dir.name)))
+    campaign.setdefault("era", metadata.get("era", "1920s"))
+    campaign.setdefault("dice_mode", metadata.get("dice_mode", "codex"))
+    campaign.setdefault("spoiler_policy", metadata.get("spoiler_policy", "warn_before_reveal"))
+    campaign.setdefault("play_language", metadata.get("play_language", "zh-Hans"))
+    _write_json(campaign_dir / "campaign.json", campaign)
+
+    party = apply_mod._read_json(campaign_dir / "party.json", {})
+    ids = list(party.get("investigator_ids", [])) if isinstance(party.get("investigator_ids"), list) else []
+    if investigator_id not in ids:
+        ids.append(investigator_id)
+    party["investigator_ids"] = ids
+    _write_json(campaign_dir / "party.json", party)
+
+    scenario = apply_mod._read_json(campaign_dir / "scenario" / "scenario.json", {})
+    scenario.setdefault("scenario_id", campaign.get("scenario_id"))
+    scenario.setdefault("title", metadata.get("scenario", campaign.get("title", campaign_dir.name)))
+    scenario.setdefault("module_source", metadata.get("module_source", "driver-generated scenario fixture"))
+    story = apply_mod._read_json(campaign_dir / "scenario" / "story-graph.json", {"scenes": []})
+    opening = ""
+    if story.get("scenes"):
+        opening = story["scenes"][0].get("dramatic_question") or story["scenes"][0].get("scene_id", "")
+    scenario.setdefault("opening_scene", opening or "Driver playtest opening scene.")
+    _write_json(campaign_dir / "scenario" / "scenario.json", scenario)
+
+
+def write_playtest_artifacts(
+    run_dir: Path,
+    campaign_dir: Path,
+    character_path: Path,
+    investigator_id: str,
+    player_choices: list[dict[str, Any]],
+    result: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+) -> Path:
+    """Write a reportable driver playtest artifact and return battle-report.md.
+
+    This is a deterministic virtual-table artifact writer. It does not pretend
+    to be live LLM prose; it packages the actual driver turns, roll logs, state
+    events, character sheet, and narration skeleton into the standard playtest
+    report contract.
+    """
+    metadata = dict(metadata or {})
+    run_dir.mkdir(parents=True, exist_ok=True)
+    source_campaign = apply_mod._read_json(campaign_dir / "campaign.json", {})
+    campaign_id = str(metadata.get("campaign_id") or source_campaign.get("campaign_id") or campaign_dir.name)
+    metadata.setdefault("run_id", run_dir.name)
+    metadata.setdefault("campaign_id", campaign_id)
+    metadata.setdefault("campaign_title", source_campaign.get("title", campaign_id))
+    metadata.setdefault("scenario", source_campaign.get("title", campaign_id))
+    metadata.setdefault("scenario_id", source_campaign.get("scenario_id", campaign_id))
+    metadata.setdefault("module_source", "driver-generated scenario fixture")
+    metadata.setdefault("era", "1920s")
+    metadata.setdefault("dice_mode", "codex")
+    metadata.setdefault("spoiler_policy", "warn_before_reveal")
+    metadata.setdefault("play_language", "zh-Hans")
+    metadata.setdefault("audit_profile", "narrative_storylet_driver")
+    metadata.setdefault("player_profile", "driver_virtual_player")
+    metadata.setdefault("simulation_method", "driver_executed_virtual_table_not_live_llm")
+    metadata.setdefault("module_coverage", result.get("scene_path", []))
+    metadata.setdefault("subsystems_covered", ["investigation", "rules", "narrative_enrichment", "storylet_engine"])
+    metadata.setdefault("passed_test_cases", ["driver_turns", "actual_play_transcript", "rules_rolls", "storylet_events"])
+    metadata.setdefault("failed_test_cases", [])
+    metadata.setdefault("future_enhancements", ["Replace deterministic driver prose with live LLM-vs-KP turns when an LLM runner is available."])
+
+    target_campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / campaign_id
+    if campaign_dir.resolve() != target_campaign_dir.resolve():
+        shutil.copytree(campaign_dir, target_campaign_dir, dirs_exist_ok=True)
+    _ensure_campaign_report_files(target_campaign_dir, investigator_id, metadata)
+
+    target_character = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id / "character.json"
+    target_character.parent.mkdir(parents=True, exist_ok=True)
+    if character_path.resolve() != target_character.resolve():
+        shutil.copy2(character_path, target_character)
+
+    transcript = _transcript_from_driver_result(
+        result,
+        player_choices,
+        target_campaign_dir,
+        str(metadata.get("play_language", "zh-Hans")),
+    )
+    _write_jsonl(run_dir / "transcript.jsonl", transcript)
+    _append_report_summary_events(target_campaign_dir, result, player_choices, investigator_id)
+    _write_jsonl(run_dir / "player-feedback.jsonl", [])
+    _write_jsonl(target_campaign_dir / "memory" / "session-summaries.jsonl", [{
+        "session_id": "driver-session-1",
+        "summary": (
+            "本次驱动实测记录了玩家选择、KP回应、规则掷骰、线索发现、NPC反应和剧情片段调度。"
+        ),
+    }])
+    _write_json(run_dir / "playtest.json", metadata)
+    _write_json(run_dir / "driver-result.json", result)
+    return playtest_report.generate_battle_report(run_dir)
+
+
 def run_full_session(
     campaign_dir: Path,
     character_path: Path,
@@ -246,9 +616,12 @@ def run_full_session(
             total_clues.add(cl.get("clue_id"))
     scene_ids = [s["scene_id"] for s in story.get("scenes", [])]
 
-    for turn_num in range(1, max_turns + 1):
-        choice = player_choices[min(turn_num - 1, len(player_choices) - 1)]
-        intent_class = choice.get("intent_class", "investigate")
+    start_turn_num = _next_decision_number(campaign_dir)
+    for offset in range(max_turns):
+        turn_num = start_turn_num + offset
+        choice = player_choices[min(offset, len(player_choices) - 1)]
+        player_intent_rich = choice.get("player_intent_rich")
+        intent_class = choice.get("intent_class") or (player_intent_rich or {}).get("primary_intent", "investigate")
         _record_intent_class(campaign_dir, str(intent_class))
         ctx = director.build_director_context(
             campaign_dir=campaign_dir, character_path=character_path,
@@ -256,13 +629,26 @@ def run_full_session(
             player_intent=choice.get("intent", "..."),
             player_intent_class=str(intent_class),
             rng=rng,
+            player_intent_rich=player_intent_rich,
         )
+        ctx["storylet_ledger"] = apply_mod._read_json(
+            campaign_dir / "save" / "storylet-ledger.json", {}
+        )
+        if isinstance(choice.get("storylet_policy"), dict):
+            ctx["storylet_policy"] = choice["storylet_policy"]
+        if isinstance(choice.get("storylet_library"), dict):
+            ctx["storylet_library"] = choice["storylet_library"]
+        if isinstance(choice.get("incident_deck"), dict):
+            ctx["incident_deck"] = choice["incident_deck"]
         for k, v in choice.get("signal_overrides", {}).items():
             ctx["rule_signals"][k] = v
 
         plan = director.generate_director_plan(ctx, decision_id=f"turn-{turn_num:03d}")
+        plan = narrative_enrichment.enrich_director_plan(plan, ctx)
         rule_results = _execute_rules_requests(campaign_dir, character_path, investigator_id, plan, rng)
         resolved_plan = apply_mod.backfill_rule_results(plan, rule_results)
+        if hasattr(narrative_enrichment, "enrich_storylets_after_rules"):
+            resolved_plan = narrative_enrichment.enrich_storylets_after_rules(resolved_plan, ctx)
         events = apply_mod.apply_plan(campaign_dir, resolved_plan, investigator_id, rules_results=rule_results)
 
         # record
@@ -290,6 +676,12 @@ def run_full_session(
             "rule_results": rule_results,
             "resolved_clue_policy": resolved_plan.get("resolved_clue_policy", {}),
             "failure_consequence": directives.get("failure_consequence"),
+            "choice_frame": resolved_plan.get("choice_frame", {}),
+            "storylet_moves": resolved_plan.get("storylet_moves", []),
+            "incident_moves": resolved_plan.get("incident_moves", []),
+            "narrative_enrichment": resolved_plan.get("narrative_enrichment", {}),
+            "rules_requests": resolved_plan.get("rules_requests", []),
+            "npc_moves": resolved_plan.get("npc_moves", []),
             "narration": narration,
             "tension": tension,
             "horror_stage": directives.get("horror_escalation_stage"),

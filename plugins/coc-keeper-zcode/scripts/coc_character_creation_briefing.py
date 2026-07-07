@@ -105,6 +105,9 @@ def _safe_summary(scenario: dict[str, Any], module_meta: dict[str, Any], title: 
     player_safe_summary = scenario.get("player_safe_summary")
     if isinstance(player_safe_summary, str) and player_safe_summary.strip():
         return player_safe_summary.strip()
+    player_safe_summary = module_meta.get("player_safe_summary")
+    if isinstance(player_safe_summary, str) and player_safe_summary.strip():
+        return player_safe_summary.strip()
     era = _era_label(module_meta.get("era") or "1920s", language)
     structure_type = str(module_meta.get("structure_type") or "")
     if language == "zh-Hans":
@@ -222,11 +225,13 @@ def render_briefing(
                 "",
                 *skill_lines,
                 "",
-            "## Before You Roll",
+                "## Before You Roll",
             "",
             "Choose the characteristic generation method before rolling or assigning values:",
             "",
             *_generation_method_lines(language),
+            "",
+            "You create the investigator yourself. The AI may draft a complete investigator only if you ask for auto-creation, and you must confirm the final sheet before play begins.",
             "",
             "- Why would this investigator follow a disturbing lead?",
                 "- What person, institution, or belief makes them stay involved?",
@@ -270,6 +275,8 @@ def render_briefing(
             "先定属性生成方式，再投骰或分配数值：",
             "",
             *_generation_method_lines(language),
+            "",
+            "玩家可以自己创建调查员；也可以要求 AI 按上述背景自动起草一名调查员，但必须由玩家确认最终角色卡后才能进入剧情。不要使用内置预设调查员作为默认角色。",
             "",
             "- 这个调查员为什么会愿意相信一件“不该是真的”的事？",
             "- 当证据和安全冲突时，TA 通常保护什么：名誉、朋友、真相、学生、家族，还是自己的理论？",

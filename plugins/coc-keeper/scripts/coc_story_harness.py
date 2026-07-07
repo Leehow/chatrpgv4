@@ -113,6 +113,8 @@ def run_profile(profile_path: Path, campaign_dir: Path, character_path: Path,
     import importlib.util
     spec = importlib.util.spec_from_file_location("coc_story_director", P(__file__).parent / "coc_story_director.py")
     coc_story_director = importlib.util.module_from_spec(spec); spec.loader.exec_module(coc_story_director)
+    spec_enrich = importlib.util.spec_from_file_location("coc_narrative_enrichment", P(__file__).parent / "coc_narrative_enrichment.py")
+    coc_narrative_enrichment = importlib.util.module_from_spec(spec_enrich); spec_enrich.loader.exec_module(coc_narrative_enrichment)
 
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
     rng = random.Random(profile.get("rng_seed", 42))
@@ -141,8 +143,13 @@ def run_profile(profile_path: Path, campaign_dir: Path, character_path: Path,
     # apply profile signal overrides (e.g. simulate fumble)
     for k, v in profile.get("signal_overrides", {}).items():
         ctx["rule_signals"][k] = v
+    if isinstance(profile.get("storylet_policy"), dict):
+        ctx["storylet_policy"] = profile["storylet_policy"]
+    if isinstance(profile.get("storylet_library"), dict):
+        ctx["storylet_library"] = profile["storylet_library"]
     decision_id = profile_path.stem
     plan = coc_story_director.generate_director_plan(ctx, decision_id=decision_id)
+    plan = coc_narrative_enrichment.enrich_director_plan(plan, ctx)
     coc_story_director.write_director_plan(plan, artifacts_dir)
     findings = assert_plan(plan)
     hard_failures = [k for k, f in findings.items() if not f["passed"]]

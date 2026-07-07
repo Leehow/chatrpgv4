@@ -89,6 +89,53 @@ def _first_rule_result(rules_results: list[dict[str, Any]] | None) -> dict[str, 
     return None
 
 
+def _clue_gate_skill(plan: dict[str, Any]) -> str | None:
+    policy = plan.get("clue_policy", {})
+    if policy.get("skill"):
+        return str(policy["skill"])
+    for request in plan.get("rules_requests", []) or []:
+        if not isinstance(request, dict):
+            continue
+        if request.get("reason") == "obscured clue in scene" and request.get("skill"):
+            return str(request["skill"])
+    return None
+
+
+def _rule_result_matches_clue_gate(plan: dict[str, Any], result: dict[str, Any]) -> bool:
+    skill = _clue_gate_skill(plan)
+    if skill is None:
+        return True
+    return str(result.get("skill") or "") == skill
+
+
+def _clue_gate_rule_result(
+    plan: dict[str, Any],
+    rules_results: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Pick the roll result that should gate an obscured clue reveal.
+
+    Narrative enrichment may add player action checks after the director's
+    automatic obscured-clue check. If the player later succeeds with the same
+    clue skill, that success should satisfy the clue gate instead of being
+    masked by an earlier duplicate failure.
+    """
+    if not rules_results:
+        return None
+    candidates = [
+        result for result in rules_results
+        if isinstance(result, dict) and _rule_result_matches_clue_gate(plan, result)
+    ]
+    if not candidates:
+        return _first_rule_result(rules_results)
+    for result in candidates:
+        if _rule_result_success(result) is True:
+            return result
+    for result in candidates:
+        if _rule_result_success(result) is False:
+            return result
+    return candidates[0]
+
+
 def _rule_result_success(result: dict[str, Any] | None) -> bool | None:
     """Return True/False for resolved rolls; None when no usable result exists."""
     if result is None:
@@ -167,7 +214,7 @@ def _resolve_committed_clues(
     if not _obscured_reveal_requires_result(plan):
         return reveal_ids, events, pressure
 
-    result = _first_rule_result(rules_results)
+    result = _clue_gate_rule_result(plan, rules_results)
     success = _rule_result_success(result)
     if success is True:
         return reveal_ids, events, pressure
@@ -359,7 +406,37 @@ def apply_plan(
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)
 
-    # 3. time advance -> world clock + triggers (coc_time layer)
+    # 3. storylet ledger/events -> anti-repeat state for future enrichment.
+    storylet_moves = [m for m in plan.get("storylet_moves", []) if isinstance(m, dict)]
+    if storylet_moves:
+        ledger_path = save / "storylet-ledger.json"
+        ledger = _read_json(ledger_path, {})
+        for move in storylet_moves:
+            update = move.get("ledger_update")
+            if isinstance(update, dict):
+                ledger = update
+            ev = {
+                "event_type": "storylet_move",
+                "decision_id": decision_id,
+                "storylet_id": move.get("storylet_id"),
+                "family_id": move.get("family_id"),
+                "trope_id": move.get("trope_id"),
+                "title": move.get("title"),
+                "cue": move.get("cue"),
+                "beat": move.get("beat"),
+                "conflict_level": move.get("conflict_level"),
+                "target_conflict_level": move.get("target_conflict_level"),
+                "bound_entities": move.get("bound_entities", {}),
+                "rolled_variants": move.get("rolled_variants", {}),
+                "serves": move.get("serves", []),
+                "investigator_id": investigator_id,
+                "ts": ts,
+            }
+            events.append(ev)
+            _append_jsonl(logs / "events.jsonl", ev)
+        _write_json(ledger_path, ledger)
+
+    # 4. time advance -> world clock + triggers (coc_time layer)
     if coc_time is not None:
         time_events = coc_time.apply_time_advance_from_plan(
             campaign_dir, plan, investigator_id
@@ -368,7 +445,7 @@ def apply_plan(
         for ev in time_events:
             _append_jsonl(logs / "events.jsonl", ev)
 
-    # 4. memory writes -> cards
+    # 5. memory writes -> cards
     if coc_memory is not None:
         for i, mw in enumerate(plan.get("memory_writes", [])):
             mid = f"mem-{decision_id}-{i}"
@@ -383,7 +460,7 @@ def apply_plan(
                 source_events=[decision_id],
             )
 
-    # 5. scene transition — advance when current scene is exhausted or plan CUTs.
+    # 6. scene transition — advance when current scene is exhausted or plan CUTs.
     # The Haunting's exit_conditions are natural-language sentences that can't be
     # machine-evaluated, so we use a structural proxy: a scene is "exhausted"
     # when all its available_clues are in discovered_clue_ids. A CUT action forces
@@ -421,7 +498,7 @@ def apply_plan(
                         _append_jsonl(logs / "events.jsonl", ev)
                         break
 
-    # 6. always emit a turn event if nothing else did
+    # 7. always emit a turn event if nothing else did
     if not events:
         ev = {"event_type": "turn", "decision_id": decision_id, "action": action,
               "investigator_id": investigator_id, "ts": ts}

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "erich-von-koskinen",
+  "investigator_id": "erich-von-koskinen",
+  "name": "埃里希·冯·科斯基宁",
+  "occupation": "神秘学教授",
+  "era": "1920s",
+  "characteristics": {
+    "STR": 35,
+    "DEX": 60,
+    "INT": 80,
+    "APP": 70,
+    "POW": 62,
+    "EDU": 85,
+    "LUCK": 55
+  },
+  "derived": {
+    "HP": 10,
+    "SAN": 62,
+    "MP": 12
+  },
+  "skills": {
+    "Credit Rating": 70,
+    "Library Use": 75,
+    "Occult": 80,
+    "Spot Hidden": 60,
+    "Stealth": 50,
+    "Dodge": 55,
+    "Firearms (Handgun)": 65,
+    "Psychology": 45
+  },
+  "backstory": {
+    "summary": "出身德意志贵族家庭的年轻神秘学教授，习惯把线索记进随身小册子。"
+  }
+}

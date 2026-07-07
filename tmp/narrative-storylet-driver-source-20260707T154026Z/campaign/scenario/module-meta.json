@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "scenario_id": "archive-night-probe",
+  "structure_type": "linear_acts",
+  "era": "1920s",
+  "content_flags": [],
+  "win_condition": "确认金器、警卫和旧教团线索属于同一条主线。"
+}

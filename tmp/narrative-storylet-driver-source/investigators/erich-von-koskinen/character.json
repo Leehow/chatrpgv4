@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "erich-von-koskinen",
+  "name": "埃里希·冯·科斯基宁",
+  "occupation": "神秘学讲师",
+  "era": "1920s",
+  "characteristics": {
+    "STR": 45,
+    "DEX": 55,
+    "APP": 75,
+    "INT": 80,
+    "POW": 60,
+    "EDU": 82,
+    "LUCK": 55
+  },
+  "derived": {
+    "HP": 11,
+    "SAN": 60,
+    "MP": 12,
+    "MOV": 8
+  },
+  "skills": {
+    "Library Use": 65,
+    "Occult": 75,
+    "Spot Hidden": 55,
+    "Psychology": 45,
+    "Fighting (Brawl)": 35,
+    "Firearms (Handgun)": 60
+  },
+  "backstory": {
+    "description": "洪堡大学年轻神秘学讲师，受邀在利马档案馆核对一份异常登记。",
+    "traits": [
+      "谨慎",
+      "会把异常先记进随身小册子",
+      "不喜欢把后背交给陌生警卫"
+    ]
+  }
+}

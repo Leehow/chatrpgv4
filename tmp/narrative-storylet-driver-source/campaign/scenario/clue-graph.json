@@ -1,0 +1,20 @@
+{
+  "conclusions": [
+    {
+      "conclusion_id": "archive-thread",
+      "importance": "critical",
+      "minimum_routes": 1,
+      "clues": [
+        {
+          "clue_id": "ledger-mark",
+          "delivery": "登记簿边缘的灰尘断痕",
+          "delivery_kind": "skill_check",
+          "skill": "Library Use",
+          "difficulty": "regular",
+          "visibility": "player-safe"
+        }
+      ],
+      "fallback_policy": ""
+    }
+  ]
+}

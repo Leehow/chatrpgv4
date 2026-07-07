@@ -390,6 +390,121 @@ def test_scene_replay_expands_bout_of_madness_rounds_as_separate_entries(tmp_pat
     assert "- 疯狂发作第 2 回合：控制权回到玩家。" in scene_replay
 
 
+def test_battle_report_renders_storylet_moves_as_readable_scene_beats(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "storylet-run"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "storylet-run"
+
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "storylet-run",
+        "title": "Masks Probe",
+        "scenario_id": "peru-prologue",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "play_language": "zh-Hans",
+    })
+    write_json(campaign_dir / "party.json", {"investigator_ids": []})
+    write_json(campaign_dir / "scenario" / "scenario.json", {
+        "scenario_id": "peru-prologue",
+        "title": "Masks Probe",
+        "module_source": "pdf/masks.pdf",
+        "opening_scene": "利马的档案馆气味潮湿。",
+    })
+    write_json(campaign_dir / "scenario" / "clue-graph.json", {
+        "conclusions": [{
+            "conclusion_id": "archive-thread",
+            "clues": [{
+                "clue_id": "ledger-mark",
+                "delivery": "登记簿边缘的灰尘断痕",
+                "visibility": "player-safe",
+            }],
+        }],
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {
+            "event_type": "clue_reveal",
+            "actor": "keeper_under_test",
+            "decision_id": "turn-001",
+            "clue_id": "ledger-mark",
+            "summary": "clue revealed: ledger-mark",
+        },
+        {
+            "event_type": "storylet_move",
+            "actor": "keeper_under_test",
+            "storylet_id": "low-paper-wrong-date",
+            "title": "错误日期的纸张",
+            "family_id": "ambient_anomaly",
+            "trope_id": "impossible_admin_detail",
+            "conflict_level": "low",
+            "target_conflict_level": "low",
+            "cue": "一张文件、票据或收据的日期与玩家刚刚确认的时间差了一天。",
+            "beat": "把一个可调查的细节轻轻推到台前，让玩家主动追问它为什么不对。",
+            "rolled_variants": {
+                "sensory_detail_1d6": "空气里有一丝金属、海盐或冷灰的味道。",
+                "complication_1d6": "档案员看见警卫后停顿了一瞬。",
+            },
+            "bound_entities": {
+                "scene_id": "archive-room",
+                "clue_id": "ledger-mark",
+                "front_id": "cult-watch",
+                "clock_id": "cult-alert",
+            },
+            "serves": ["mainline", "can_reveal_clue", "can_surface_choice"],
+        },
+        {
+            "event_type": "scene_transition",
+            "actor": "keeper_under_test",
+            "decision_id": "turn-001",
+            "from_scene": "archive-room",
+            "to_scene": "street-exit",
+        },
+    ])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+    write_json(run_dir / "playtest.json", {
+        "run_id": "storylet-run",
+        "campaign_id": "storylet-run",
+        "scenario": "Masks Probe",
+        "play_language": "zh-Hans",
+    })
+
+    battle_path = coc_playtest_report.generate_battle_report(run_dir)
+    battle_text = battle_path.read_text()
+    scene_replay = section_text(battle_text, "Scene-by-Scene Replay")
+    state_changes = section_text(battle_text, "State Changes")
+    clues_found = section_text(battle_text, "Clues Found")
+    visible_scene = visible_markdown_text(scene_replay)
+    visible_state = visible_markdown_text(state_changes)
+    visible_clues = visible_markdown_text(clues_found)
+
+    assert "调查员确认了线索：登记簿边缘的灰尘断痕。" in scene_replay
+    assert "剧情片段：一张文件、票据或收据的日期与玩家刚刚确认的时间差了一天。" in scene_replay
+    assert "空气里有一丝金属、海盐或冷灰的味道。" in scene_replay
+    assert "档案员看见警卫后停顿了一瞬。" in scene_replay
+    assert "场景推进。" in scene_replay
+    assert "线索已记录：登记簿边缘的灰尘断痕。" in state_changes
+    assert "场景推进。" in state_changes
+    assert "线索：登记簿边缘的灰尘断痕。" in clues_found
+    assert "No clues recorded" not in clues_found
+    assert "storylet-id: low-paper-wrong-date" in scene_replay
+    assert "clue-id: ledger-mark" in clues_found
+    for leaked in (
+        "low-paper-wrong-date",
+        "archive-room",
+        "street-exit",
+        "cult-watch",
+        "cult-alert",
+        "ledger-mark",
+        "storylet move",
+        "event: unknown",
+    ):
+        assert leaked not in visible_scene
+        assert leaked not in visible_state
+    assert "ledger-mark" not in visible_clues
+
+
 def test_evaluation_report_overall_result_passes_without_failed_cases_or_serious_notes(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "run-pass"
     write_json(run_dir / "playtest.json", {

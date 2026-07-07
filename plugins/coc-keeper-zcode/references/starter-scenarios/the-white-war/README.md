@@ -53,3 +53,8 @@ python3 plugins/coc-keeper/scripts/coc_starter.py install \
 ```
 
 Then continue play in COC mode. No PDF required.
+
+The starter installs module structure and a player-safe character creation
+briefing. It does not ship default player characters; create an investigator
+for the 1916 Italian Alpine front, or ask the AI to draft one for your approval
+before play begins.

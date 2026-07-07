@@ -1,0 +1,6 @@
+{
+  "scenario_id": "lima-archive-storylet-test",
+  "title": "利马档案馆：叙事引擎实测",
+  "module_source": "driver-generated narrative/storylet playtest fixture, not live LLM",
+  "opening_scene": "埃里希在利马档案馆的阅览室里翻看潮湿的登记簿，警卫正在远处巡回。"
+}

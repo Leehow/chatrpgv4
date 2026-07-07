@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "tension_level": "low",
+  "lethal_chances_used": 0,
+  "recent_intent_classes": [
+    "investigate",
+    "investigate",
+    "investigate",
+    "investigate",
+    "investigate"
+  ],
+  "turn_number": 3,
+  "luck_spent_last": 0,
+  "horror_stage": "revelation"
+}

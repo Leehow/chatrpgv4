@@ -1,0 +1,14 @@
+{
+  "pacing_curve": [
+    {
+      "scene_id": "archive-room",
+      "tension_target": "low",
+      "horror_stage": "ordinary"
+    },
+    {
+      "scene_id": "street-exit",
+      "tension_target": "medium",
+      "horror_stage": "wrongness"
+    }
+  ]
+}

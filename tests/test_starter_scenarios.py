@@ -26,7 +26,7 @@ def test_list_starter_scenarios_returns_white_war():
     assert "one_liner" in ww and ww["one_liner"]
 
 
-def test_install_starter_copies_seven_files(tmp_path):
+def test_install_starter_copies_scenario_files_and_character_creation_briefing(tmp_path):
     root = tmp_path / ".coc"
     # 用 coc_state 建一个真 campaign
     sys.path.insert(0, str(SCRIPTS_DIR))
@@ -39,8 +39,19 @@ def test_install_starter_copies_seven_files(tmp_path):
 
     for fname in coc_starter.STARTER_SCENARIO_FILES:
         assert (scenario_dir / fname).exists(), f"{fname} 未拷贝"
-    # pregen 也拷贝
-    assert (scenario_dir / "pregen-investigators.json").exists()
+    assert not (scenario_dir / "pregen-investigators.json").exists()
+
+    campaign = json.loads((campaign_dir / "campaign.json").read_text("utf-8"))
+    briefing_path = campaign["character_creation"]["briefing_path"]
+    briefing = (root.parent / briefing_path).read_text("utf-8")
+    assert "开卡序章" in briefing
+    assert "意大利阿尔卑斯" in briefing
+    assert "玩家可以自己创建调查员" in briefing
+    assert "不要使用内置预设调查员" in briefing
+
+
+def test_white_war_starter_does_not_ship_pregen_investigators():
+    assert not (PLUGIN_ROOT / "references" / "starter-scenarios" / "the-white-war" / "pregen-investigators.json").exists()
 
 
 def test_install_starter_writes_campaign_fields(tmp_path):
