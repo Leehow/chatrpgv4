@@ -43,6 +43,14 @@ def now_iso() -> str:
 
 
 def coc_root(root: Path) -> Path:
+    # Idempotent: if `root` already points at the `.coc` directory, use it
+    # directly; otherwise treat it as the workspace root containing `.coc/`.
+    # This keeps coc_state.coc_root consistent with coc_starter._coc_root so
+    # callers may pass either a workspace root or an already-resolved `.coc`
+    # directory.
+    root = Path(root)
+    if root.name == ".coc":
+        return root
     return root / ".coc"
 
 
