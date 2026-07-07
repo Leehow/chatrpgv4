@@ -1077,6 +1077,52 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
             "san_trigger_id": tid,
         })
 
+    # Danger attack profiles: in combat scenes (or when the player fights/flees),
+    # resolve danger attacks as opposed checks so the engine drives combat
+    # mechanically (Dodge vs tentacle slash, Athletics vs wind blast).
+    intent = ctx.get("player_intent_class", "")
+    is_combat = (scene.get("scene_type") == "combat") or intent in ("combat", "flee")
+    if is_combat:
+        fronts = ctx.get("threat_fronts", {}).get("fronts", [])
+        danger_map: dict[str, dict[str, Any]] = {}
+        for f in fronts:
+            for d in (f.get("dangers") or []):
+                if d.get("id"):
+                    danger_map[d["id"]] = d
+        danger_specs = (scene.get("on_enter") or {}).get("danger_attacks", []) or []
+        # If scene doesn't list specific dangers, use all dangers with profiles.
+        if not danger_specs:
+            danger_specs = [{"danger_id": did, "attack_name": None}
+                            for did, d in danger_map.items() if d.get("attack_profiles")]
+        for spec in danger_specs:
+            if not isinstance(spec, dict):
+                continue
+            did = spec.get("danger_id", "")
+            danger = danger_map.get(did, {})
+            profiles = danger.get("attack_profiles") or []
+            attack_name = spec.get("attack_name")
+            profile = None
+            if attack_name:
+                profile = next((p for p in profiles if p.get("name") == attack_name), None)
+            if profile is None and profiles:
+                profile = profiles[0]
+            if not profile:
+                continue
+            requests.append({
+                "kind": "opposed_check",
+                "skill": profile.get("resist_skill", "Dodge"),
+                "reason": f"{danger.get('id', did)} uses {profile.get('name', 'attack')}",
+                "difficulty": "regular", "bonus_penalty_dice": 0,
+                "resist_skill": profile.get("resist_skill", "Dodge"),
+                "opposed_skill": profile.get("attack_skill", "Fighting"),
+                "opposed_target_percent": int(profile.get("attack_target_percent", 50)),
+                "damage": profile.get("damage", "1D6"),
+                "lethality": profile.get("lethality"),
+                "ignores_armor": bool(profile.get("ignores_armor", False)),
+                "attack_name": profile.get("name", "attack"),
+                "danger_id": did,
+            })
+
     if action == "SUBSYSTEM":
         sig = ctx["rule_signals"]
         if sig["bout_active"] or sig["sanity_state"] == "temp_insane":

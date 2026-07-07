@@ -256,6 +256,44 @@ def test_director_skips_san_request_already_fired(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Task 6: danger attack_profiles → opposed_check requests
+# ---------------------------------------------------------------------------
+
+def test_director_emits_opposed_check_for_combat_danger(tmp_path):
+    """In a combat scene with danger attack_profiles, director should emit
+    opposed_check requests (e.g. Dodge vs tentacle slash)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_story_director_atk", SCRIPTS_DIR / "coc_story_director.py")
+    director = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(director)
+
+    scene = {"scene_id": "dawn-counterstroke", "scene_type": "combat",
+             "on_enter": {"danger_attacks": [{"danger_id": "the-whistler",
+                "attack_name": "tentacle slash"}]}}
+    threat_fronts = {"fronts": [{"front_id": "polyp-horror-pursuit", "dangers": [
+        {"id": "the-whistler", "attack_profiles": [
+            {"name": "tentacle slash", "attack_skill": "Fighting", "attack_target_percent": 60,
+             "resist_skill": "Dodge", "damage": "1D6+DB", "lethality": 50}]}]}]}
+    ctx = {
+        "active_scene": scene, "active_scene_id": "dawn-counterstroke",
+        "rule_signals": {"bout_active": False, "sanity_state": "stable",
+                         "hp_state": "healthy", "stalled_turns": 0},
+        "player_intent_class": "fight",
+        "world_state": {"discovered_clue_ids": [], "san_triggers_fired": []},
+        "threat_fronts": threat_fronts, "clue_graph": {"conclusions": []},
+        "module_meta": {}, "story_graph": {"scenes": [scene]},
+        "npc_agendas": {"npcs": []}, "pacing_state": {},
+        "player_intent_rich": None, "investigator_id": "inv1",
+        "time_signals": {}, "sanity_engine_state": None, "chase_state": None,
+    }
+    requests = director._build_rules_requests(ctx, "SUBSYSTEM")
+    opposed = [r for r in requests if r.get("kind") == "opposed_check"]
+    assert len(opposed) >= 1
+    assert opposed[0]["resist_skill"] == "Dodge"
+    assert "tentacle" in opposed[0]["reason"].lower() or "tentacle" in opposed[0].get("attack_name","").lower()
+
+
+# ---------------------------------------------------------------------------
 # Task 1: threat-state.json persistence layer
 # ---------------------------------------------------------------------------
 
