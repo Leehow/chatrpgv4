@@ -59,6 +59,35 @@ def test_install_starter_writes_campaign_fields(tmp_path):
     assert campaign["era"] == "ww1"
 
 
+def test_install_starter_activates_world_state(tmp_path):
+    """install_starter must activate the scenario in world-state.json, not just
+    copy files. Otherwise the Story Director finds active_scene_id=null and
+    spins on empty turns (verified bug). Activated state: scenario_id set,
+    status=active, active_scene_id=first scene, active_subsystem=play."""
+    root = tmp_path / ".coc"
+    sys.path.insert(0, str(SCRIPTS_DIR))
+    import coc_state  # noqa: E402
+    coc_state.ensure_workspace(root)
+    coc_state.create_campaign(root, "test-camp", "Test", era="ww1")
+
+    coc_starter.install_starter(root, "test-camp", "the-white-war")
+
+    world = json.loads(
+        (root / "campaigns" / "test-camp" / "save" / "world-state.json").read_text("utf-8")
+    )
+    assert world["scenario_id"] == "the-white-war", f"scenario_id not set: {world.get('scenario_id')}"
+    assert world["status"] == "active", f"status not active: {world.get('status')}"
+    assert world["active_subsystem"] == "play", f"subsystem not play: {world.get('active_subsystem')}"
+    # active_scene_id must be the first scene in story-graph.json
+    sg = json.loads(
+        (root / "campaigns" / "test-camp" / "scenario" / "story-graph.json").read_text("utf-8")
+    )
+    first_scene = sg["scenes"][0]["scene_id"]
+    assert world["active_scene_id"] == first_scene, (
+        f"active_scene_id {world.get('active_scene_id')!r} != first scene {first_scene!r}"
+    )
+
+
 def test_install_starter_resets_time_state_when_scenario_era_changes(tmp_path):
     root = tmp_path / ".coc"
     sys.path.insert(0, str(SCRIPTS_DIR))

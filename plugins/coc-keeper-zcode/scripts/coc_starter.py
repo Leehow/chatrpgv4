@@ -103,7 +103,35 @@ def install_starter(root: Path, campaign_id: str, scenario_id: str) -> Path:
         shutil.copy2(pregen_src, scenario_dir / "pregen-investigators.json")
 
     _update_campaign_json(campaign_dir, scenario_id)
+    _activate_scenario(campaign_dir, scenario_dir, scenario_id)
     return scenario_dir
+
+
+def _activate_scenario(campaign_dir: Path, scenario_dir: Path, scenario_id: str) -> None:
+    """Flip world-state.json from setup to active so the Story Director can run.
+
+    install_starter copies scenario files and updates campaign.json, but the
+    Director reads active_scene_id from save/world-state.json. Without
+    activation, world-state stays at status=setup / active_scene_id=null and
+    the Director spins on empty turns (it cannot resolve a scene). This sets
+    scenario_id, status=active, active_subsystem=play, and active_scene_id to
+    the first scene in story-graph.json — matching how a bound scenario is
+    expected to look at the start of play.
+    """
+    world_path = campaign_dir / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8")) if world_path.is_file() else {}
+    story_graph = json.loads((scenario_dir / "story-graph.json").read_text(encoding="utf-8"))
+    scenes = story_graph.get("scenes", [])
+    first_scene = scenes[0]["scene_id"] if scenes else None
+    world["scenario_id"] = scenario_id
+    world["status"] = "active"
+    world["active_subsystem"] = "play"
+    if first_scene:
+        world["active_scene_id"] = first_scene
+    world["updated_at"] = _now_iso()
+    world_path.write_text(
+        json.dumps(world, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
 
 def _coc_root(root: Path) -> Path:
