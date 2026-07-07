@@ -39,7 +39,7 @@ ZCODE_MANIFEST = {
         "persistent campaign state, and playtest reporting."
     ),
     "author": {
-        "name": "Local developer",
+        "name": "Leehow",
     },
     "license": "Apache-2.0",
     "skills": "skills",
