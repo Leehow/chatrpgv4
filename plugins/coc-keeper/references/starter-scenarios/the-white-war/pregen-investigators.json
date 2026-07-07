@@ -14,11 +14,11 @@
         "射击(Rifle)": 60, "格斗(Brawl)": 70, "攀爬": 70, "跳跃": 50, "侦查": 60,
         "急救": 50, "潜行": 40, "自然学": 30, "导航": 50, "匿踪": 40,
         "生存(高山)": 50, "重型武器": 40, "炮兵": 40, "手艺(厨艺)": 20,
-        "外语(德语)": 20, "闪避": 50
+        "外语(德语)": 20, "闪避": 50, "投掷": 50
       },
       "weapons": [
         {"name": "Mannlicher-Carcano 6.5mm rifle", "skill": "射击(Rifle)", "damage": "1D12+2", "ammo": 6, "condition": "heavily worn"},
-        {"name": "Bessozzi pineapple grenade", "skill": "Athletics(Throw)", "damage": "3D6"}
+        {"name": "Bessozzi pineapple grenade", "skill": "投掷", "damage": "3D6"}
       ],
       "resources_checks": 2,
       "background": "原创作家背景：一名来自多洛米蒂山谷的年轻猎人，战前靠打猎养家。"
@@ -76,11 +76,12 @@
       "skills": {
         "射击(Rifle)": 60, "格斗(Melee)": 70, "攀爬": 70, "侦查": 60, "急救": 50,
         "潜行": 50, "导航": 50, "话术": 50, "爆破": 40, "重型机械": 50,
-        "重型武器": 40, "生存(高山)": 50, "格斗(Brawl)": 70, "手艺(机械)": 60, "机械维修": 50
+        "重型武器": 40, "生存(高山)": 50, "格斗(Brawl)": 70, "手艺(机械)": 60, "机械维修": 50,
+        "投掷": 40
       },
       "weapons": [
         {"name": "Mannlicher-Carcano 6.5mm rifle", "skill": "射击(Rifle)", "damage": "1D12+2", "ammo": 6, "condition": "heavily worn"},
-        {"name": "Bessozzi pineapple grenade", "skill": "Athletics(Throw)", "damage": "3D6"},
+        {"name": "Bessozzi pineapple grenade", "skill": "投掷", "damage": "3D6"},
         {"name": "Entrenching tool", "skill": "格斗(Melee)", "damage": "1D8+1"}
       ],
       "resources_checks": 2,
