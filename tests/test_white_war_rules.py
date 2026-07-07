@@ -39,7 +39,7 @@ def test_polyp_horror_stat_block_is_ogc_faithful(white_war_table):
 
 
 def test_rule_ids_all_lowercase_dotted(white_war_table):
-    """所有 source_rule_id 符合 rule-index 正则 ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"""
+    r"""所有 source_rule_id 符合 rule-index 正则 ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"""
     import re
     pattern = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
     for key, rule in white_war_table["rules"].items():
