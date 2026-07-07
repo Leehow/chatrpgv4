@@ -1,0 +1,111 @@
+{
+  "scenario_id": "the-white-war",
+  "investigators": [
+    {
+      "investigator_id": "pregen-alpini-rifleman-1",
+      "name": "Luca Benedetti",
+      "age": 23,
+      "occupation": "Italian Alpini Rifleman",
+      "str": 15, "con": 12, "dex": 13, "int": 14, "pow": 14, "cha": 8, "siz": 13,
+      "hp": 14, "db": "+1D4", "build": 1, "movement": 8,
+      "san": 70, "san_bp": 56,
+      "armor": "1 point (heavy padded winter survival gear)",
+      "skills": {
+        "射击(Rifle)": 60, "格斗(Brawl)": 70, "攀爬": 70, "跳跃": 50, "侦查": 60,
+        "急救": 50, "潜行": 40, "自然学": 30, "导航": 50, "匿踪": 40,
+        "生存(高山)": 50, "重型武器": 40, "炮兵": 40, "手艺(厨艺)": 20,
+        "外语(德语)": 20, "闪避": 50
+      },
+      "weapons": [
+        {"name": "Mannlicher-Carcano 6.5mm rifle", "skill": "射击(Rifle)", "damage": "1D12+2", "ammo": 6, "condition": "heavily worn"},
+        {"name": "Bessozzi pineapple grenade", "skill": "Athletics(Throw)", "damage": "3D6"}
+      ],
+      "resources_checks": 2,
+      "background": "原创作家背景：一名来自多洛米蒂山谷的年轻猎人，战前靠打猎养家。"
+    },
+    {
+      "investigator_id": "pregen-alpini-lieutenant",
+      "name": "Federico Marchetti",
+      "age": 30,
+      "occupation": "Italian Alpini Lieutenant",
+      "str": 10, "con": 14, "dex": 14, "int": 15, "pow": 16, "cha": 11, "siz": 12,
+      "hp": 12, "db": "0", "build": 0, "movement": 8,
+      "san": 80, "san_bp": 64,
+      "armor": "1 point (heavy padded winter survival gear)",
+      "skills": {
+        "射击(Handgun)": 70, "格斗(Melee)": 50, "攀爬": 50, "跳跃": 50, "侦查": 40,
+        "话术": 60, "说服": 70, "骑术": 60, "导航": 60, "军事科学": 50,
+        "生存(高山)": 40, "社交礼仪": 60, "闪避": 50, "格斗(Brawl)": 90
+      },
+      "weapons": [
+        {"name": "Beretta Brevetta 9mm pistol", "skill": "射击(Handgun)", "damage": "1D10", "ammo": 8, "condition": "heavily worn"},
+        {"name": "Trench knife", "skill": "格斗(Brawl)", "damage": "1D6"}
+      ],
+      "resources_checks": 3,
+      "background": "原创作家背景：皮埃蒙特贵族出身的职业军官，对部下有强烈责任感。"
+    },
+    {
+      "investigator_id": "pregen-alpini-rifleman-2",
+      "name": "Pietro Rosso",
+      "age": 22,
+      "occupation": "Italian Alpini Rifleman",
+      "str": 10, "con": 10, "dex": 15, "int": 13, "pow": 12, "cha": 13, "siz": 11,
+      "hp": 10, "db": "0", "build": 0, "movement": 9,
+      "san": 60, "san_bp": 48,
+      "armor": "1 point (heavy padded winter survival gear)",
+      "skills": {
+        "射击(Rifle)": 80, "格斗(Melee)": 70, "攀爬": 70, "侦查": 60, "急救": 50,
+        "潜行": 80, "自然学": 70, "导航": 50, "说服": 60, "精神分析": 50,
+        "生存(高山)": 50, "重型武器": 40, "炮兵": 40, "手艺(屠体处理)": 60
+      },
+      "weapons": [
+        {"name": "Mannlicher-Carcano 6.5mm rifle", "skill": "射击(Rifle)", "damage": "1D12+2", "ammo": 6, "condition": "heavily worn"}
+      ],
+      "resources_checks": 2,
+      "background": "原创作家背景：战前是山地猎人的学徒，对高山野兽的解剖了如指掌。"
+    },
+    {
+      "investigator_id": "pregen-alpini-sergeant",
+      "name": "Stefano Albertini",
+      "age": 23,
+      "occupation": "Italian Alpini Sergeant",
+      "str": 15, "con": 12, "dex": 13, "int": 14, "pow": 14, "cha": 8, "siz": 13,
+      "hp": 14, "db": "+1D4", "build": 1, "movement": 8,
+      "san": 70, "san_bp": 56,
+      "armor": "1 point (heavy padded winter survival gear)",
+      "skills": {
+        "射击(Rifle)": 60, "格斗(Melee)": 70, "攀爬": 70, "侦查": 60, "急救": 50,
+        "潜行": 50, "导航": 50, "话术": 50, "爆破": 40, "重型机械": 50,
+        "重型武器": 40, "生存(高山)": 50, "格斗(Brawl)": 70, "手艺(机械)": 60, "机械维修": 50
+      },
+      "weapons": [
+        {"name": "Mannlicher-Carcano 6.5mm rifle", "skill": "射击(Rifle)", "damage": "1D12+2", "ammo": 6, "condition": "heavily worn"},
+        {"name": "Bessozzi pineapple grenade", "skill": "Athletics(Throw)", "damage": "3D6"},
+        {"name": "Entrenching tool", "skill": "格斗(Melee)", "damage": "1D8+1"}
+      ],
+      "resources_checks": 2,
+      "background": "原创作家背景：战前是机车技工，能把任何机械修好，也能把它们拆散。"
+    },
+    {
+      "investigator_id": "pregen-alpini-rifleman-3",
+      "name": "Matteo Conti",
+      "age": 21,
+      "occupation": "Italian Alpini Rifleman",
+      "str": 10, "con": 10, "dex": 15, "int": 13, "pow": 12, "cha": 13, "siz": 11,
+      "hp": 10, "db": "0", "build": 0, "movement": 9,
+      "san": 60, "san_bp": 48,
+      "armor": "1 point (heavy padded winter survival gear)",
+      "skills": {
+        "射击(Rifle)": 60, "格斗(Brawl)": 70, "攀爬": 70, "侦查": 60, "急救": 50,
+        "潜行": 40, "导航": 50, "爆破": 40, "重型武器": 40, "洞察": 50,
+        "生存(高山)": 50, "机械维修": 40
+      },
+      "weapons": [
+        {"name": "Mannlicher-Carcano 6.5mm rifle", "skill": "射击(Rifle)", "damage": "1D12+2", "ammo": 6, "condition": "heavily worn"},
+        {"name": "Trench knife", "skill": "格斗(Brawl)", "damage": "1D6"}
+      ],
+      "resources_checks": 2,
+      "background": "原创作家背景：刚从军校毕业的年轻士兵，第一次上真正的山地前线。"
+    }
+  ]
+}
