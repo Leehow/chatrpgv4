@@ -18,6 +18,69 @@ import coc_threat_state  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
+# Task 2: clock tick wired into apply layer
+# ---------------------------------------------------------------------------
+
+def _mini_campaign(tmp_path: Path) -> Path:
+    """Build a minimal campaign dir with scenario threat-fronts + save state."""
+    camp = tmp_path / "campaign"
+    (camp / "scenario").mkdir(parents=True)
+    (camp / "save").mkdir(parents=True)
+    (camp / "logs").mkdir(parents=True)
+    # threat-fronts with a 3-segment clock
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"front_id": "siege", "scope": "scenario",
+                     "clocks": [{"clock_id": "door", "segments": 3,
+                                 "on_tick_visible": ["creak", "crack", "gap"],
+                                 "on_full": "door breached"}]}],
+                     "dangers": []}))
+    # minimal world-state + pacing-state
+    (camp / "save" / "world-state.json").write_text(json.dumps({"active_scene_id": "s1", "discovered_clue_ids": []}))
+    (camp / "save" / "pacing-state.json").write_text(json.dumps({"tension_level": "low", "turn_number": 0}))
+    return camp
+
+
+def test_apply_pressure_tick_persists_clock(tmp_path):
+    """apply_plan with a pressure_move should tick the clock in threat-state.json."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_director_apply", SCRIPTS_DIR / "coc_director_apply.py")
+    apply_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(apply_mod)
+
+    camp = _mini_campaign(tmp_path)
+    plan = {"decision_id": "t1", "scene_action": "PRESSURE",
+            "pressure_moves": [{"clock_id": "door", "tick": 1, "visible_symptom": "creak", "reason": "test"}]}
+    apply_mod.apply_plan(camp, plan, "inv1")
+    state = coc_threat_state.load_threat_state(camp / "save")
+    assert state["clocks"]["door"]["current_segments"] == 1
+    assert state["clocks"]["door"]["full"] is False
+
+
+def test_apply_pressure_tick_fires_clock_full_event(tmp_path):
+    """When a tick fills a clock, apply emits a clock_full event with on_full text."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_director_apply", SCRIPTS_DIR / "coc_director_apply.py")
+    apply_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(apply_mod)
+
+    camp = _mini_campaign(tmp_path)
+    # Pre-fill to 2/3 so one tick fills it
+    coc_threat_state.tick_clock(camp / "save", "door", segments=3)
+    coc_threat_state.tick_clock(camp / "save", "door", segments=3)
+    assert coc_threat_state.get_clock_segments(camp / "save", "door") == 2
+
+    plan = {"decision_id": "t2", "scene_action": "PRESSURE",
+            "pressure_moves": [{"clock_id": "door", "tick": 1, "visible_symptom": "gap", "reason": "test"}]}
+    events = apply_mod.apply_plan(camp, plan, "inv1")
+    # clock now full
+    assert coc_threat_state.is_clock_full(camp / "save", "door")
+    # a clock_full event was emitted
+    full_events = [e for e in events if e.get("event_type") == "clock_full"]
+    assert len(full_events) == 1
+    assert "door breached" in full_events[0].get("on_full", "")
+
+
+# ---------------------------------------------------------------------------
 # Task 1: threat-state.json persistence layer
 # ---------------------------------------------------------------------------
 

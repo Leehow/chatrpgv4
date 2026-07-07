@@ -46,6 +46,12 @@ try:
 except Exception:
     coc_time = None
 
+coc_threat_state = None
+try:
+    coc_threat_state = _load_sibling("coc_threat_state", "coc_threat_state.py")
+except Exception:
+    coc_threat_state = None
+
 
 def _read_json(path: Path, fallback: Any) -> Any:
     if not path.exists():
@@ -56,6 +62,19 @@ def _read_json(path: Path, fallback: Any) -> Any:
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _lookup_clock_def(campaign_dir: Path, clock_id: str) -> dict[str, Any] | None:
+    """Find a clock definition in scenario/threat-fronts.json by clock_id."""
+    tf_path = campaign_dir / "scenario" / "threat-fronts.json"
+    if not tf_path.is_file():
+        return None
+    tf = _read_json(tf_path, {"fronts": []})
+    for front in tf.get("fronts", []):
+        for clock in front.get("clocks", []):
+            if clock.get("clock_id") == clock_id:
+                return clock
+    return None
 
 
 def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
@@ -405,6 +424,22 @@ def apply_plan(
               "investigator_id": investigator_id, "ts": ts}
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)
+        # Persist clock progress + detect on_full (closes the gap where
+        # current_segments was read but never written).
+        clock_id = move.get("clock_id")
+        if clock_id and int(move.get("tick", 0) or 0) > 0 and coc_threat_state is not None:
+            clock_def = _lookup_clock_def(campaign_dir, clock_id)
+            segments = int(clock_def.get("segments", 6)) if clock_def else 6
+            became_full = coc_threat_state.tick_clock(save, clock_id, segments)
+            if became_full and clock_def:
+                full_ev = {
+                    "event_type": "clock_full", "decision_id": decision_id,
+                    "clock_id": clock_id,
+                    "on_full": clock_def.get("on_full", ""),
+                    "investigator_id": investigator_id, "ts": ts,
+                }
+                events.append(full_ev)
+                _append_jsonl(logs / "events.jsonl", full_ev)
 
     # 3. storylet ledger/events -> anti-repeat state for future enrichment.
     storylet_moves = [m for m in plan.get("storylet_moves", []) if isinstance(m, dict)]
