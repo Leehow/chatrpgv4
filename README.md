@@ -215,6 +215,12 @@ This project is an unofficial fan/developer tool. It is not affiliated with, end
 
 The repository contains code, plugin instructions, tests, structured helper data, and development tooling. It does not include copyrighted rulebook PDFs or adventure PDFs.
 
+### Built-in Starter Scenarios (OGL)
+
+This repository ships one built-in, play-ready starter scenario — **The White War** — adapted under the Open Gaming License v1.0a from the OGC game data of "The White War" by Paul StJohn Mackintosh (Cthulhu Reborn Publishing, 2023). The numeric game data and creature statistics (Open Game Content per the source's OGL declaration) are reproduced faithfully in `plugins/coc-keeper/references/rules-json/the-white-war.json`; the scenario's narrative, scene names, NPC names, and dialogue are an original derivative work (the source's Product Identity — plots, locations, characters — is NOT reproduced).
+
+A full copy of the OGL and the complete Section 15 COPYRIGHT NOTICE are included with the scenario at `plugins/coc-keeper/references/starter-scenarios/the-white-war/`. This built-in scenario does not include any copyrighted rulebook or adventure PDF; it lets new players start playing with zero PDF preparation.
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).

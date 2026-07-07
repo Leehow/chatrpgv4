@@ -46,6 +46,12 @@ def _good_plan(secrets=None):
             "must_not_reveal": list(secrets),
             "improvisation_allowed": [],
             "horror_escalation_stage": "wrongness",
+            "player_facing_style": {
+                "language": "zh-Hans",
+                "register": "natural_tabletop_narration",
+                "avoid": ["translationese", "ai_summary_voice", "log_style_summary"],
+                "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
+            },
         },
         "clue_policy": {"reveal": ["clue-public-1"], "withhold": list(secrets),
                         "fallback_routes": [], "clue_type": "obscured"},
@@ -68,7 +74,7 @@ def test_well_formed_plan_passes_all_checks(tmp_path):
         "tone_present", "must_not_reveal_populated", "dramatic_question_present",
         "horror_stage_valid", "handoff_consistency", "clue_policy_no_secret_leak",
         "scene_action_narratable", "rationale_present",
-        "content_constraints_passed_through",
+        "content_constraints_passed_through", "player_facing_style_present",
     }
     failed = {k: v for k, v in findings.items() if not v["passed"]}
     assert failed == {}, f"unexpected failures: {failed}"
@@ -157,6 +163,17 @@ def test_missing_rationale_fails_check_8(tmp_path):
     plan["rationale"] = ""
     findings = cnc.assert_narration_ready(plan, scenario_dir)
     assert findings["rationale_present"]["passed"] is False
+
+
+def test_missing_player_facing_style_fails_check(tmp_path):
+    scenario_dir = _make_scenario(tmp_path)
+    plan = _good_plan()
+    del plan["narrative_directives"]["player_facing_style"]
+
+    findings = cnc.assert_narration_ready(plan, scenario_dir)
+
+    assert findings["player_facing_style_present"]["passed"] is False
+    assert "player_facing_style" in findings["player_facing_style_present"]["detail"]
 
 
 def test_secret_id_extraction_handles_id_description_format(tmp_path):

@@ -1,0 +1,77 @@
+{
+  "fronts": [
+    {
+      "front_id": "polyp-horror-pursuit",
+      "scope": "scenario",
+      "description": "The released Polyp Horror, curious and lethal, pursues the patrol through the glacier and besieges their refuge.",
+      "dangers": [
+        {
+          "id": "the-whistler",
+          "impulse": "to examine each human individually by seizing, probing, and discarding them",
+          "moves": [
+            "wind blast to whirl a target into the air (Athletics to resist, environmental damage on impact)",
+            "tentacle slash (Fighting 60%, Lethality 50%, knock down, ignores armor)",
+            "tear apart any human caught in the glacier tunnels",
+            "retreat to the shaft when reduced to 20 HP or below"
+          ]
+        },
+        {
+          "id": "the-gale",
+          "impulse": "to cut off escape across the open saddle",
+          "moves": [
+            "raise a shrieking gale across the col: 10 min to cross, Athletics -40% per 5 min, 1D8 Fatigue per 5 min",
+            "reactivate the wind in daylight after 1 round of preparation"
+          ]
+        }
+      ],
+      "clocks": [
+        {
+          "clock_id": "siege-door-breach",
+          "segments": 4,
+          "on_tick_visible": ["the door groans and shifts", "frost cracks around the frame", "a gap widens at the lintel"],
+          "on_full": "the door is wrenched open; a targeted investigator is snatched out unless they Dodge"
+        },
+        {
+          "clock_id": "entity-curiosity-exhausted",
+          "segments": 6,
+          "on_tick_visible": ["the whistling circles the shelter", "vibrations pass through the walls", "a window shutter splinters"],
+          "on_full": "dawn breaks; the entity withdraws to shadow, ending the siege and opening the dawn-counterstroke scene"
+        }
+      ]
+    },
+    {
+      "front_id": "avalanche-risk",
+      "scope": "scenario",
+      "description": "The unprecedented snowfall has built a deadly overhang above the patrol's only refuge; the uneven thaw of sunset makes it increasingly unstable.",
+      "dangers": [
+        {
+          "id": "the-overhang",
+          "impulse": "to release the mountainside under the right trigger",
+          "moves": [
+            "at sunset, each 30-min block: avalanche on percentile 00",
+            "any shot or explosion: avalanche on 96-00",
+            "if unleashed: 10D6 damage to all in its path; STR x5 to avoid being swept"
+          ]
+        }
+      ],
+      "clocks": []
+    },
+    {
+      "front_id": "cold-and-exposure",
+      "scope": "scenario",
+      "description": "The -30C mountain and the patrol's finite stamina are a constant adversary independent of the entity.",
+      "dangers": [
+        {
+          "id": "the-cold",
+          "impulse": "to grind down anyone caught in the open",
+          "moves": [
+            "outdoor exposure: 1D8 HP per 5 min, CON x5 vs Exhaustion on extreme effort, frostbite on fumble",
+            "every 5 min of outdoor effort costs a Fatigue point",
+            "shelter failure (failed Survival roll) reverts the patrol to partially-prepared cold rules"
+          ]
+        }
+      ],
+      "clocks": []
+    }
+  ]
+}

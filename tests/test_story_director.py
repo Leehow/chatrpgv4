@@ -90,6 +90,129 @@ def test_build_director_context_reads_state(tmp_path):
     assert ctx["rule_signals"]["tension_clock"]["death_allowed"] is False
 
 
+def test_director_uses_mythos_based_max_san(tmp_path, monkeypatch):
+    """Max SAN = 99 - Cthulhu Mythos (p.167 F9), not a hardcoded 99.
+
+    The director must read the investigator's Cthulhu Mythos skill and route
+    it through coc_mythos.max_san_for. We stub max_san_for to capture the cm
+    value the director passes, proving the wiring (regression guard for the
+    former `max_san = 99` literal).
+    """
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # Add Cthulhu Mythos to the investigator's skills.
+    char = json.loads(char_path.read_text())
+    char["skills"]["Cthulhu Mythos"] = 10
+    char_path.write_text(json.dumps(char))
+
+    captured = {}
+
+    def fake_max_san_for(cm_value):
+        captured["cm_value"] = cm_value
+        return 99 - int(cm_value)
+
+    monkeypatch.setattr(coc_story_director.coc_mythos, "max_san_for", fake_max_san_for)
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我翻阅禁忌典籍", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    # The director read Cthulhu Mythos from the skill list and passed it on.
+    assert captured == {"cm_value": 10}
+    # And the derived max_san (89) flows into the sanity signal call path
+    # without crashing — i.e. the hardcoded-99 path is gone.
+    assert ctx["rule_signals"]["sanity_state"] == "stable"
+
+
+def test_director_defaults_max_san_to_99_without_mythos(tmp_path, monkeypatch):
+    """An investigator with no Cthulhu Mythos skill keeps max_san = 99."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    captured = {}
+
+    def fake_max_san_for(cm_value):
+        captured["cm_value"] = cm_value
+        return 99 - int(cm_value)
+
+    monkeypatch.setattr(coc_story_director.coc_mythos, "max_san_for", fake_max_san_for)
+
+    coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我检查门框", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert captured == {"cm_value": 0}
+
+
+def test_rich_intent_backward_compatible(tmp_path):
+    """Omitting player_intent_rich behaves identically to the legacy path."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx_legacy = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我检查门", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert ctx_legacy["player_intent_rich"] is None
+    assert ctx_legacy["player_intent_class"] == "investigate"
+
+
+def test_rich_intent_derives_class_from_primary(tmp_path):
+    """When rich intent is supplied, player_intent_class is derived from it."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    rich = {
+        "primary_intent": "social", "secondary_intents": [],
+        "target_entities": ["neighbor"], "risk_posture": "neutral",
+        "explicit_roll_request": False, "player_hypothesis": None,
+    }
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我问邻居", player_intent_class="investigate",  # overridden by rich
+        rng=random.Random(42), player_intent_rich=rich,
+    )
+    assert ctx["player_intent_class"] == "social"  # derived from rich
+    assert ctx["player_intent_rich"] == rich
+
+
+def test_rich_intent_risk_posture_adjusts_pressure(tmp_path):
+    """A reckless player's PRESSURE score is higher than a cautious one's."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    base_ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    # Same context, but inject different risk postures via rich intent.
+    reckless_ctx = dict(base_ctx)
+    reckless_ctx["player_intent_rich"] = {"risk_posture": "reckless"}
+    cautious_ctx = dict(base_ctx)
+    cautious_ctx["player_intent_rich"] = {"risk_posture": "cautious"}
+    neutral_ctx = dict(base_ctx)
+    neutral_ctx["player_intent_rich"] = {"risk_posture": "neutral"}
+
+    p_reckless = coc_story_director._base_score("PRESSURE", reckless_ctx)
+    p_cautious = coc_story_director._base_score("PRESSURE", cautious_ctx)
+    p_neutral = coc_story_director._base_score("PRESSURE", neutral_ctx)
+    p_legacy = coc_story_director._base_score("PRESSURE", base_ctx)  # no rich
+
+    assert p_reckless > p_neutral > p_cautious
+    assert p_neutral == p_legacy  # neutral rich == no rich (backward compat)
+
+
+def test_rich_intent_indefinite_insane_signal_read(tmp_path):
+    """The director surfaces indefinite_insane from investigator-state."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv["indefinite_insane"] = True
+    inv_path.write_text(json.dumps(inv))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["indefinite_insane"] is True
+
+
 def test_build_director_context_fallen_back_on_missing_pacing(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     (camp / "save" / "pacing-state.json").unlink()

@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import stat
 from pathlib import Path
 
 
@@ -178,3 +179,56 @@ def test_render_cards_can_force_html_even_without_playwright(tmp_path):
     )
 
     assert "html_path" in result
+
+
+def test_render_cards_does_not_fallback_to_raw_backstory_for_chinese_sheet(tmp_path):
+    card_script = _load_card_script()
+    campaign_path = tmp_path / "campaign.json"
+    character_path = tmp_path / "character.json"
+    campaign_path.write_text(json.dumps({"title": "Masks of Nyarlathotep"}), encoding="utf-8")
+    character_path.write_text(
+        json.dumps(
+            {
+                "identity": {"name": "Aino Rautio"},
+                "player_facing_sheet_zh": {
+                    "display_name": "艾诺·劳蒂奥",
+                    "era": "1925",
+                    "nationality": "芬兰",
+                    "age": 44,
+                    "occupation": "神秘学学者",
+                    "characteristics": {"力量": {"key": "STR", "value": 35}},
+                    "derived": {"生命值": 11},
+                    "skills": [],
+                    "weapons": [],
+                    "backstory_summary": "芬兰北方出身的神秘学讲师。",
+                },
+                "backstory": {
+                    "traits": ["calm under pressure"],
+                    "significant_people": ["mentor in Stockholm"],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = card_script.render_cards(
+        character_path,
+        campaign_path,
+        tmp_path / "cards",
+        repo_root=tmp_path,
+        language="zh-Hans",
+        html_mode="never",
+    )
+
+    markdown = (tmp_path / result["markdown_path"]).read_text(encoding="utf-8")
+
+    assert "芬兰北方出身" in markdown
+    assert "calm under pressure" not in markdown
+    assert "mentor in Stockholm" not in markdown
+
+
+def test_character_card_script_is_directly_executable():
+    mode = SCRIPT_PATH.stat().st_mode
+
+    assert mode & stat.S_IXUSR

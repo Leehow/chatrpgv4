@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Call of Cthulhu Keeper mode plugin for ZCode with structured rules, persistent campaign state, and playtest reporting.",
   "author": {
-    "name": "Local developer"
+    "name": "Leehow"
   },
   "license": "Apache-2.0",
   "skills": "skills"

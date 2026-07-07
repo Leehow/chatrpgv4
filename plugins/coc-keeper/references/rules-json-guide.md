@@ -32,6 +32,7 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 - `sanity.json`
 - `success-levels.json`
 - `the-haunting.json`
+- `the-white-war.json`
 - `time-costs.json`
 - `weapons.json`
 - `structure-weights.json`
@@ -64,3 +65,4 @@ When explaining a rule in `[meta]`, show target value, effective difficulty, dic
 - `artifacts.json`
 - `luck.json`
 - `development.json`
+- `treatment.json`

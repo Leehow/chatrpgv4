@@ -518,6 +518,7 @@ def test_rule_index_exposes_stable_ids_for_playtest_traceability():
         "core.sanity.phobia",
         "core.sanity.mania",
         "core.equipment.price_list",
+        "core.healing.treatment",
         "core.combat.poisons",
         "core.combat.special_damage_effects",
         "core.combat.special_damage_effects.stun",
@@ -677,6 +678,22 @@ def test_equipment_and_poisons_and_artifacts():
     assert len(po) >= 5
     ar = coc_rules.artifacts_table()
     assert len(ar) >= 3
+
+
+def test_treatment_rule_exposes_p164_recovery_paths():
+    """core.healing.treatment surfaces the p.164 indefinite-insanity paths."""
+    tr = coc_rules.treatment_rule()
+    # All four recovery paths are present and cite the rulebook page.
+    for path in ("psychoanalysis", "asylum_confinement", "asylum_release", "self_help"):
+        assert path in tr, f"missing treatment path: {path}"
+        assert "p.164" in tr[path]["source_note"]
+    # Psychoanalysis recovery scales with success level.
+    psy = tr["psychoanalysis"]
+    assert psy["skill"] == "Psychoanalysis"
+    assert psy["success_recovery"] == {"regular": "1D3", "hard": "2D3", "extreme": "3D3"}
+    # Asylum confinement lasts 1D6 months, resolved by a Psychoanalysis roll.
+    assert tr["asylum_confinement"]["duration_months"] == "1D6"
+    assert tr["asylum_release"]["skill"] == "Psychoanalysis"
 
 
 def test_damage_bonus_build_extrapolation_above_524():

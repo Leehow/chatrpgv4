@@ -76,6 +76,36 @@
         "item": "Automobile (Ford Model T)",
         "category": "vehicle",
         "price": "$260"
+      },
+      {
+        "item": "Compass",
+        "category": "tool",
+        "price": "$3"
+      },
+      {
+        "item": "Grappling Hook",
+        "category": "tool",
+        "price": "$4"
+      },
+      {
+        "item": "Whiskey Flask",
+        "category": "personal",
+        "price": "$2"
+      },
+      {
+        "item": "Hatchet",
+        "category": "tool",
+        "price": "$2"
+      },
+      {
+        "item": "Map Case",
+        "category": "office",
+        "price": "$3"
+      },
+      {
+        "item": "Trench Knife",
+        "category": "weapon",
+        "price": "$5"
       }
     ],
     "modern": [
@@ -153,6 +183,36 @@
         "item": "Smartwatch",
         "category": "electronics",
         "price": "$300"
+      },
+      {
+        "item": "Power Bank",
+        "category": "electronics",
+        "price": "$40"
+      },
+      {
+        "item": "Binoculars (compact)",
+        "category": "tool",
+        "price": "$120"
+      },
+      {
+        "item": "Multitool",
+        "category": "tool",
+        "price": "$50"
+      },
+      {
+        "item": "Burner Phone",
+        "category": "electronics",
+        "price": "$30"
+      },
+      {
+        "item": "Dashcam",
+        "category": "electronics",
+        "price": "$80"
+      },
+      {
+        "item": "Flashlight (USB rechargeable)",
+        "category": "tool",
+        "price": "$15"
       }
     ]
   }

@@ -27,6 +27,39 @@ def test_localized_text_uses_cjk_sentence_punctuation_after_glossary_replacement
     assert localized == "本模组不包含必需追逐场景。"
 
 
+def test_format_roll_recap_displays_bonus_die_components():
+    event = {
+        "type": "roll",
+        "actor": "ada-king",
+        "payload": {
+            "skill": "Spot Hidden",
+            "target": 37,
+            "effective_target": 37,
+            "roll": 11,
+            "outcome": "hard_success",
+            "bonus": 1,
+            "penalty": 0,
+            "tens_values": [4, 1],
+            "units": 1,
+        },
+    }
+
+    recap = coc_playtest_report._format_roll_recap(
+        event,
+        {"ada-king": "艾达·金"},
+        {"Spot Hidden": "侦查"},
+        "zh-Hans",
+        {
+            "report_labels": {
+                "roll_sentence": "- {skill}：{actor}掷出 {roll} / {target}，结果{outcome}。",
+            },
+            "outcome_labels": {"hard_success": "困难成功"},
+        },
+    )
+
+    assert "奖励骰：个位 1，十位 4/1，取 1 -> 11/37，困难成功" in recap
+
+
 def write_jsonl(path: Path, events: list[dict]):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(json.dumps(event) for event in events) + "\n")

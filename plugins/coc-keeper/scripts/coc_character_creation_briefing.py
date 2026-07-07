@@ -25,6 +25,9 @@ CONTENT_FLAG_LABELS_ZH = {
     "colonial-era themes": "殖民时代主题",
 }
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+CHARACTERISTIC_RULES_PATH = SCRIPT_DIR.parent / "references" / "rules-json" / "characteristic-dice.json"
+
 DEFAULT_RECOMMENDED_SKILLS = [
     ("图书馆使用", "查档、旧报、书信和机构记录。"),
     ("侦查", "在现场和旅途中捕捉不对劲的细节。"),
@@ -155,6 +158,34 @@ def _recommended_skills(language: str) -> list[tuple[str, str]]:
     ]
 
 
+def _generation_method_lines(language: str) -> list[str]:
+    rules = _load_json(CHARACTERISTIC_RULES_PATH, {})
+    methods = rules.get("generation_methods", {}) if isinstance(rules, dict) else {}
+    if not isinstance(methods, dict):
+        methods = {}
+    point_buy = methods.get("point_buy_460", {}) if isinstance(methods.get("point_buy_460"), dict) else {}
+    quick_fire = methods.get("quick_fire_array", {}) if isinstance(methods.get("quick_fire_array"), dict) else {}
+    total_budget = int(point_buy.get("total_budget", 460))
+    increment = int(point_buy.get("increment", 5))
+    quick_array = quick_fire.get("array", [80, 70, 60, 60, 50, 50, 50, 40])
+    quick_text_zh = "、".join(str(value) for value in quick_array)
+    quick_text_en = ", ".join(str(value) for value in quick_array)
+
+    if language == "zh-Hans":
+        return [
+            "- **按顺序投骰**：照规则逐项投出属性，适合接受命运给角色留下的锋利边角。",
+            "- **投骰后分配**：先投出一组属性值，再按角色概念分配到力量、体质、体型、敏捷、外貌、智力、意志、教育。",
+            f"- **点购：{total_budget} 点**：不投属性骰，按 {increment} 的倍数分配到八项属性，适合已有明确概念的调查员。",
+            f"- **快速数组：{quick_text_zh}**：把这组数分配到八项属性，速度快，也比较稳。",
+        ]
+    return [
+        "- **Roll in order**: roll each characteristic in its fixed order.",
+        "- **Rolled pool assignment**: roll the pool first, then assign values to fit the concept.",
+        f"- **Point-buy: {total_budget} points**: allocate the budget across the eight characteristics in steps of {increment}.",
+        f"- **Quick Fire array: {quick_text_en}**: assign the preset values across the eight characteristics.",
+    ]
+
+
 def render_briefing(
     campaign: dict[str, Any],
     scenario: dict[str, Any],
@@ -191,9 +222,13 @@ def render_briefing(
                 "",
                 *skill_lines,
                 "",
-                "## Before You Roll",
-                "",
-                "- Why would this investigator follow a disturbing lead?",
+            "## Before You Roll",
+            "",
+            "Choose the characteristic generation method before rolling or assigning values:",
+            "",
+            *_generation_method_lines(language),
+            "",
+            "- Why would this investigator follow a disturbing lead?",
                 "- What person, institution, or belief makes them stay involved?",
                 "- What is one strength they trust, and one weakness they know?",
                 "",
@@ -231,6 +266,10 @@ def render_briefing(
             *skill_lines,
             "",
             "## 开始掷点前想一想",
+            "",
+            "先定属性生成方式，再投骰或分配数值：",
+            "",
+            *_generation_method_lines(language),
             "",
             "- 这个调查员为什么会愿意相信一件“不该是真的”的事？",
             "- 当证据和安全冲突时，TA 通常保护什么：名誉、朋友、真相、学生、家族，还是自己的理论？",

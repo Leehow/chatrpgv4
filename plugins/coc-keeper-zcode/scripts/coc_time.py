@@ -268,6 +268,11 @@ def process_due_triggers(campaign_dir: Path) -> list[dict[str, Any]]:
 
     For triggers with policy 'auto_apply_if_safe', checks the safe_place
     flag in time-state. If not safe, the trigger is deferred (stays pending).
+
+    When a fired trigger carries a ``handler`` string, the handler is
+    dispatched (see ``_dispatch_handler``). Handler failures are isolated:
+    the trigger still fires, and the exception is recorded on the trigger's
+    ``dispatch_error`` field + the time log, never blocking time advance.
     """
     state = read_time_state(campaign_dir)
     safe_place = bool(state.get("safe_place", False))
@@ -292,20 +297,146 @@ def process_due_triggers(campaign_dir: Path) -> list[dict[str, Any]]:
         # Fire
         t["status"] = "fired"
         t["fired_at_elapsed"] = now
+        # Dispatch the handler, if any. Isolated: a handler bug must not
+        # block time advance or leave the trigger stuck pending.
+        handler = t.get("handler")
+        if handler:
+            try:
+                outcome = _dispatch_handler(
+                    campaign_dir,
+                    t.get("target_id", ""),
+                    handler,
+                    t.get("payload", {}),
+                )
+                if outcome:
+                    t["dispatch_outcome"] = outcome
+            except Exception as exc:  # noqa: BLE001 — isolation boundary
+                t["dispatch_error"] = f"{type(exc).__name__}: {exc}"
         fired.append(t)
         # Log
         _append_jsonl(_time_log_path(campaign_dir), {
             "event_type": "trigger_fired",
             "trigger_id": t.get("trigger_id", ""),
             "kind": t.get("kind", ""),
-            "handler": t.get("handler", ""),
+            "handler": handler or "",
             "fired_at_elapsed": now,
             "payload": t.get("payload", {}),
+            "dispatch_error": t.get("dispatch_error"),
         })
 
     data["triggers"] = triggers
     _write_json(path, data)
     return fired
+
+
+def _dispatch_handler(campaign_dir: Path, investigator_id: str,
+                      handler: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Dispatch a fired trigger's handler. Returns an outcome summary dict.
+
+    Handlers are loaded lazily (sibling scripts via importlib) to avoid a
+    circular import at module load. Each handler rebuilds the relevant
+    session from disk, runs the rulebook action, and persists the result.
+
+    Known handlers:
+      - ``recover_temporary_insanity``: p.176 temp insanity recovery. Rebuilds
+        a SanitySession, runs ``recover_temporary()``, saves.
+      - ``apply_psychoanalysis_treatment``: p.164 weekly Psychoanalysis. Builds
+        a PsychotherapySession from investigator-state, runs
+        ``psychoanalysis()``, writes the recovered SAN back, and clears
+        ``indefinite_insane`` if the investigator is fully restored.
+    """
+    if not investigator_id:
+        return None
+
+    if handler == "recover_temporary_insanity":
+        return _handler_recover_temporary(campaign_dir, investigator_id, payload)
+    if handler == "apply_psychoanalysis_treatment":
+        return _handler_apply_treatment(campaign_dir, investigator_id, payload)
+    return None
+
+
+def _load_sibling_script(name: str, filename: str):
+    """Lazily load a sibling script module (avoids circular import at load)."""
+    import importlib.util
+    script_dir = Path(__file__).resolve().parent
+    spec = importlib.util.spec_from_file_location(name, script_dir / filename)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _read_inv_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
+    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_inv_state(campaign_dir: Path, investigator_id: str, data: dict[str, Any]) -> None:
+    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _handler_recover_temporary(campaign_dir: Path, investigator_id: str,
+                               payload: dict[str, Any]) -> dict[str, Any]:
+    """p.176: clear temporary insanity when its time trigger fires."""
+    coc_sanity = _load_sibling_script("coc_sanity", "coc_sanity.py")
+    sess = coc_sanity.SanitySession.load(campaign_dir, investigator_id)
+    recovered = sess.recover_temporary()
+    sess.save(campaign_dir)
+    return {"recovered": recovered}
+
+
+def _handler_apply_treatment(campaign_dir: Path, investigator_id: str,
+                             payload: dict[str, Any]) -> dict[str, Any]:
+    """p.164: weekly Psychoanalysis treatment for indefinite insanity.
+
+    Rebuilds a PsychotherapySession from investigator-state, runs a weekly
+    Psychoanalysis roll, writes the recovered SAN back, and clears
+    ``indefinite_insane`` once the investigator reaches max SAN.
+    """
+    coc_healing = _load_sibling_script("coc_healing", "coc_healing.py")
+    inv = _read_inv_state(campaign_dir, investigator_id)
+    current_san = int(inv.get("current_san", 0))
+    max_san = int(inv.get("max_san", 99))
+    # The investigator's Psychoanalysis skill — read from the linked character
+    # sheet if available, else treat as untrained (0 → always fails).
+    skill_value = int(inv.get("psychoanalysis_skill", 0))
+    sess = coc_healing.PsychotherapySession(investigator_id, {
+        "current_san": current_san,
+        "max_san": max_san,
+    })
+    event = sess.psychoanalysis(skill_value)
+    recovered = int(event.get("san_recovered", 0))
+    new_san = int(event.get("san_after", current_san))
+    # Persist the recovered SAN back to investigator-state.
+    inv["current_san"] = new_san
+    if new_san >= max_san:
+        # Fully restored — clear indefinite insanity.
+        inv["indefinite_insane"] = False
+        # Also clear on the authoritative sanity snapshot if it exists.
+        sanity_path = campaign_dir / "save" / "sanity.json"
+        if sanity_path.exists():
+            try:
+                snap = json.loads(sanity_path.read_text(encoding="utf-8"))
+                snap["san_current"] = new_san
+                snap["indefinite_insane"] = False
+                sanity_path.write_text(
+                    json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
+            except (OSError, ValueError):
+                pass
+    _write_inv_state(campaign_dir, investigator_id, inv)
+    return {
+        "san_before": current_san,
+        "san_after": new_san,
+        "san_recovered": recovered,
+        "fully_restored": new_san >= max_san,
+    }
 
 
 # --------------------------------------------------------------------------- #

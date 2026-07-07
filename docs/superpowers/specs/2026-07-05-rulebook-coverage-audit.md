@@ -1,5 +1,19 @@
 # Call of Cthulhu 7e (40th Anniversary, Sandy Petersen) — Rulebook Coverage Audit
 
+> **⚠ HISTORICAL — 2026-07-05 baseline. Superseded by
+> `2026-07-07-rulebook-coverage-audit.md`.**
+>
+> This document was written against a **32 rule-id / 19-table** baseline (see
+> line 14). The registry has since grown to **75 rule-ids / 37 data tables**,
+> and at least 13 tables that this audit marks MISSING/PARTIAL now exist and
+> are COVERED (weapons, spells, monsters, bout-tables, phobias, manias,
+> equipment, tomes, poisons, artifacts, occupations, skills,
+> characteristic-dice). Its MISSING/PARTIAL verdicts and per-chapter counts
+> are **not reliable for coverage decisions** — use the 2026-07-07 audit
+> instead. Retained for traceability of what the v1 baseline looked like.
+
+
+
 Chapter-by-chapter coverage audit of the `coc-keeper` / `coc-keeper-zcode` plugins against
 the authoritative Keeper Rulebook PDF (`pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary
 (Sandy Petersen).pdf`, 465 pages). Fast-grep source: `tmp/rulebook/keeper-rulebook.txt`.

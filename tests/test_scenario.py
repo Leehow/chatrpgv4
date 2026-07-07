@@ -52,3 +52,27 @@ def test_create_scenario_skeleton_writes_required_files(tmp_path):
     assert (campaign_dir / "scenario" / "scenario.json").exists()
     assert json.loads((campaign_dir / "scenario" / "locations.json").read_text()) == []
     assert json.loads((campaign_dir / "index" / "source-map.json").read_text())["sources"][0]["path"] == "pdf/module.pdf"
+
+
+def test_create_scenario_skeleton_initializes_handout_asset_index(tmp_path):
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+    coc_scenario.create_scenario_skeleton(
+        campaign_dir,
+        "case-1-scenario",
+        "Case 1 Scenario",
+        {"type": "pdf", "path": "pdf/module.pdf", "page_start": 1, "page_end": 3},
+    )
+
+    index = json.loads((campaign_dir / "index" / "handout-assets.json").read_text())
+
+    assert (campaign_dir / "assets" / "handouts").is_dir()
+    assert index == {
+        "schema_version": 1,
+        "scenario_id": "case-1-scenario",
+        "asset_root": "assets/handouts",
+        "assets": [],
+        "display": {
+            "codex": "render absolute Markdown image paths when player_visible is true",
+            "zcode": "show title, summary, and source page when inline image display is unavailable",
+        },
+    }

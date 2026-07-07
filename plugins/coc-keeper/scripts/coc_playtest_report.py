@@ -13,6 +13,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from coc_language import BASE_REPORT_LABELS
 from coc_language import language_profile as build_language_profile
+from coc_roll import format_percentile_result
 
 
 SCENE_REPLAY_EVENT_TYPES = {
@@ -328,6 +329,8 @@ def _format_roll_recap(
                 outcome=outcome,
             )
         ]
+        if (payload.get("bonus") or payload.get("penalty")) and payload.get("tens_values") and payload.get("units") is not None:
+            lines.append(f"  - {format_percentile_result(payload, language=play_language)}")
     for key, label, labels in [("difficulty", report_labels.get("difficulty", "Difficulty"), difficulty_labels)]:
         if payload.get(key) in (None, "", [], {}):
             continue
@@ -399,8 +402,14 @@ def _format_roll_mechanical(
 
 
 def _roll_recap_summary(recap: str) -> str:
-    first_line = recap.splitlines()[0] if recap.splitlines() else ""
-    return first_line.removeprefix("- ").strip()
+    lines = recap.splitlines()
+    first_line = lines[0] if lines else ""
+    summary = first_line.removeprefix("- ").strip()
+    for line in lines[1:]:
+        detail = line.strip().removeprefix("- ").strip()
+        if detail.startswith(("奖励骰：", "惩罚骰：", "bonus die:", "penalty die:")):
+            return f"{summary}（{detail}）"
+    return summary
 
 
 def _join_roll_recap_summaries(recaps: list[str]) -> str:

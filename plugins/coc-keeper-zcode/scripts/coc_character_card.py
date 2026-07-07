@@ -146,7 +146,7 @@ def _skills(sheet: dict[str, Any]) -> list[dict[str, Any]]:
     return [entry for entry in values if isinstance(entry, dict)]
 
 
-def _backstory_detail_blocks(character: dict[str, Any], sheet: dict[str, Any]) -> list[tuple[str, list[Any]]]:
+def _backstory_detail_blocks(character: dict[str, Any], sheet: dict[str, Any], language: str) -> list[tuple[str, list[Any]]]:
     localized = sheet.get("backstory_details")
     if isinstance(localized, list):
         blocks: list[tuple[str, list[Any]]] = []
@@ -159,6 +159,9 @@ def _backstory_detail_blocks(character: dict[str, Any], sheet: dict[str, Any]) -
                 blocks.append((label, items))
         if blocks:
             return blocks
+
+    if language == "zh-Hans":
+        return []
 
     backstory = character.get("backstory", {})
     if not isinstance(backstory, dict):
@@ -284,7 +287,7 @@ def render_markdown(
     if summary:
         lines.extend(["## 背景", "", str(summary), ""])
 
-    for label, values in _backstory_detail_blocks(character, sheet):
+    for label, values in _backstory_detail_blocks(character, sheet, language):
         lines.append(f"### {label}")
         for value in values:
             lines.append(f"- {value}")
@@ -383,7 +386,7 @@ def render_html(
 
     detail_html = ""
     blocks = []
-    for label, values in _backstory_detail_blocks(character, sheet):
+    for label, values in _backstory_detail_blocks(character, sheet, language):
         items = "".join(f"<li>{_html(value)}</li>" for value in values)
         blocks.append(f"<div><h3>{_html(label)}</h3><ul>{items}</ul></div>")
     detail_html = "\n".join(blocks)

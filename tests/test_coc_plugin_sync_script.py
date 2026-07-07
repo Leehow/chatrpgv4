@@ -67,6 +67,28 @@ def test_sync_script_repairs_zcode_copy_without_codex_only_artifacts(tmp_path):
     assert sync_script.compare_plugin_copies(codex_copy, zcode_copy).clean
 
 
+def test_sync_script_preserves_executable_modes(tmp_path):
+    sync_script = _load_sync_script()
+    codex_copy = tmp_path / "coc-keeper"
+    zcode_copy = tmp_path / "coc-keeper-zcode"
+    shutil.copytree(CODEX_ROOT, codex_copy)
+    shutil.copytree(ZCODE_ROOT, zcode_copy)
+
+    codex_script = codex_copy / "scripts" / "coc_character_card.py"
+    zcode_script = zcode_copy / "scripts" / "coc_character_card.py"
+    codex_script.chmod(0o755)
+    zcode_script.chmod(0o644)
+
+    drift = sync_script.compare_plugin_copies(codex_copy, zcode_copy)
+    assert drift.clean is False
+    assert "scripts/coc_character_card.py" in drift.mode_changed
+
+    sync_script.sync_zcode_copy(codex_copy, zcode_copy)
+
+    assert zcode_script.stat().st_mode & 0o111
+    assert sync_script.compare_plugin_copies(codex_copy, zcode_copy).clean
+
+
 def test_sync_script_strips_codex_only_imagegen_sections_from_zcode_text():
     sync_script = _load_sync_script()
     codex_text = """Shared intro.

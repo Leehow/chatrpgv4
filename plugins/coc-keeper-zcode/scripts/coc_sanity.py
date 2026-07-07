@@ -330,13 +330,54 @@ class SanitySession:
         self._schedule_recovery_trigger(duration_hours)
 
     def _trigger_indefinite_insanity(self) -> None:
-        """p.168: 1/5+ SAN lost in one day → indefinite insanity."""
+        """p.168: 1/5+ SAN lost in one day → indefinite insanity.
+
+        When the time layer is attached, also schedules a weekly
+        ``apply_psychoanalysis_treatment`` trigger (p.164) so the time-trigger
+        dispatch can attempt SAN recovery via PsychotherapySession.
+        """
         self.indefinite_insane = True
         self._event("indefinite_insanity", {
             "summary": f"{self.investigator_id} lost >=1/5 SAN in one day → indefinite insanity.",
             "daily_san_lost": self.daily_san_lost,
             "threshold": self.san_max // 5,
         })
+        self._schedule_weekly_treatment_trigger()
+
+    def _schedule_weekly_treatment_trigger(self) -> str | None:
+        """Schedule a weekly Psychoanalysis treatment trigger (p.164).
+
+        Due at current_elapsed + 7 days, handler
+        ``apply_psychoanalysis_treatment``, policy ``auto_apply_if_safe`` so
+        treatment only fires once the investigator reaches a safe place. The
+        handler dispatch in ``coc_time.process_due_triggers`` rebuilds a
+        PsychotherapySession and runs ``psychoanalysis()``. Returns trigger_id,
+        or None if the time layer is not attached.
+        """
+        if not self._time_layer_ready():
+            return None
+        state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
+        if not state:
+            coc_time.initialize_time_state(self.campaign_dir)  # type: ignore[union-attr]
+            state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
+        now = int(state.get("clock", {}).get("elapsed_minutes", 0))
+        due = now + 7 * 24 * 60  # one week
+        trig_id = coc_time.schedule_trigger(self.campaign_dir, {  # type: ignore[union-attr]
+            "kind": "treatment",
+            "scope": "investigator",
+            "target_id": self.investigator_id,
+            "due_elapsed_minutes": due,
+            "policy": "auto_apply_if_safe",
+            "handler": "apply_psychoanalysis_treatment",
+            "payload": {"condition": "indefinite_insane"},
+        })
+        self._event("treatment_trigger_scheduled", {
+            "trigger_id": trig_id,
+            "due_elapsed_minutes": due,
+            "summary": (f"{self.investigator_id} weekly Psychoanalysis treatment "
+                        f"scheduled for elapsed>{due} (auto_apply_if_safe)."),
+        })
+        return trig_id
 
     def _trigger_permanent_insanity(self) -> None:
         """p.168: SAN = 0 → permanent insanity (character retired)."""
@@ -594,7 +635,68 @@ class SanitySession:
         path = save_dir / "sanity.json"
         path.write_text(json.dumps(self.snapshot(), ensure_ascii=False, indent=2),
                         encoding="utf-8")
+        # Mirror the player-facing fields the Story Director reads into
+        # investigator-state, so build_director_context can see the live SAN
+        # and indefinite-insanity flag without parsing the sanity snapshot.
+        self._sync_to_investigator_state(campaign_dir)
         return path
+
+    def _sync_to_investigator_state(self, campaign_dir: Path) -> None:
+        """Merge ``current_san`` + ``indefinite_insane`` into investigator-state.
+
+        The director reads these top-level fields from
+        ``save/investigator-state/<id>.json``; this keeps them in sync with the
+        authoritative sanity snapshot. Failures are non-fatal (the sanity.json
+        snapshot remains the source of truth).
+        """
+        inv_path = campaign_dir / "save" / "investigator-state" / f"{self.investigator_id}.json"
+        try:
+            data = json.loads(inv_path.read_text(encoding="utf-8")) if inv_path.exists() else {}
+            data["current_san"] = int(self.san_current)
+            data["indefinite_insane"] = bool(self.indefinite_insane)
+            inv_path.parent.mkdir(parents=True, exist_ok=True)
+            inv_path.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                                encoding="utf-8")
+        except (OSError, ValueError):
+            pass
+
+    @classmethod
+    def load(cls, campaign_dir: Path, investigator_id: str,
+             int_value: int = 50, rng: random.Random | None = None,
+             cm_value: int = 0) -> "SanitySession":
+        """Reconstruct a SanitySession from the saved ``save/sanity.json`` snapshot.
+
+        Mirrors ``HealingSession.load``. If no snapshot exists, a fresh session
+        is returned. Used by the time-trigger handler dispatch (see
+        ``coc_time.process_due_triggers``) so the ``recover_temporary_insanity``
+        handler can rebuild the session, run ``recover_temporary()``, and save.
+        """
+        save_path = campaign_dir / "save" / "sanity.json"
+        if not save_path.exists():
+            sess = cls(investigator_id, san_max=99, int_value=int_value,
+                       rng=rng or random.Random(), cm_value=cm_value,
+                       campaign_dir=campaign_dir)
+            return sess
+        snap = json.loads(save_path.read_text(encoding="utf-8"))
+        sess = cls(
+            investigator_id,
+            san_max=int(snap.get("san_max", 99)),
+            int_value=int_value,
+            rng=rng or random.Random(),
+            cm_value=int(snap.get("cm_value", cm_value)),
+            campaign_dir=campaign_dir,
+        )
+        sess.san_current = int(snap.get("san_current", sess.san_max))
+        sess.temporary_insane = bool(snap.get("temporary_insane", False))
+        sess.temporary_insane_remaining_hours = int(
+            snap.get("temporary_insane_remaining_hours", 0))
+        sess.indefinite_insane = bool(snap.get("indefinite_insane", False))
+        sess.permanently_insane = bool(snap.get("permanently_insane", False))
+        sess.daily_san_lost = int(snap.get("daily_san_lost", 0))
+        saved_events = snap.get("events") or []
+        sess.events = list(saved_events)
+        sess._event_counter = len(saved_events)
+        return sess
 
     def drain_pending(self) -> list[dict]:
         rolls = self.pending_rolls

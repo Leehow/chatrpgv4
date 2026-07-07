@@ -160,3 +160,39 @@ def test_percentile_bonus_dice_selection_uses_rules_json_roll_modifiers(monkeypa
     result = coc_roll.percentile_check(100, bonus=1, rng=SequenceRandom([5, 1, 9]))
 
     assert result["roll"] == 95
+
+
+def test_format_percentile_result_shows_bonus_die_components():
+    result = coc_roll.percentile_check(37, bonus=1, rng=SequenceRandom([1, 4, 1]))
+
+    assert result["roll"] == 11
+    assert coc_roll.format_percentile_result(result, language="zh-Hans") == (
+        "奖励骰：个位 1，十位 4/1，取 1 -> 11/37，困难成功"
+    )
+
+
+def test_format_percentile_result_shows_penalty_die_components():
+    result = coc_roll.percentile_check(70, penalty=1, rng=SequenceRandom([8, 2, 9]))
+
+    assert result["roll"] == 98
+    assert coc_roll.format_percentile_result(result, language="zh-Hans") == (
+        "惩罚骰：个位 8，十位 2/9，取 9 -> 98/70，失败"
+    )
+
+
+def test_roll_percentile_alias_matches_percentile_check():
+    rng = SequenceRandom([1, 4, 1])
+
+    result = coc_roll.roll_percentile(37, bonus=1, rng=rng)
+
+    assert result["roll"] == 11
+    assert result["bonus"] == 1
+
+
+def test_public_api_index_lists_aliases_and_formatters():
+    api = coc_roll.public_api_index()
+
+    assert "percentile_check" in api
+    assert "roll_percentile" in api["percentile_check"]["aliases"]
+    assert "format_percentile_result" in api
+    assert api["format_percentile_result"]["returns"] == "player-facing roll summary"

@@ -23,6 +23,23 @@ ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT",
 HORROR_STAGES = {"ordinary", "wrongness", "pattern", "revelation"}
 
 
+def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
+    """Return narrator-facing style constraints for player-visible prose."""
+    if language == "zh-Hans":
+        return {
+            "language": "zh-Hans",
+            "register": "natural_tabletop_narration",
+            "avoid": ["translationese", "ai_summary_voice", "log_style_summary"],
+            "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
+        }
+    return {
+        "language": language,
+        "register": "natural_tabletop_narration",
+        "avoid": ["ai_summary_voice", "log_style_summary"],
+        "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
+    }
+
+
 def _read_json(path: Path, fallback: Any = None) -> Any:
     if not path.exists():
         return fallback
@@ -92,6 +109,31 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
         findings["content_constraints_passed_through"] = {
             "passed": True, "detail": "no module-meta (cannot verify)",
         }
+
+    # 2c. player_facing_style_present ---------------------------------------
+    style = directives.get("player_facing_style")
+    if isinstance(style, dict):
+        avoid = set(style.get("avoid", []) or [])
+        prefer = set(style.get("prefer", []) or [])
+        required_avoid = {"ai_summary_voice", "log_style_summary"}
+        if style.get("language") == "zh-Hans":
+            required_avoid.add("translationese")
+        required_prefer = {"short_sentences", "open_ended_prompt"}
+        missing_avoid = sorted(required_avoid - avoid)
+        missing_prefer = sorted(required_prefer - prefer)
+        style_ok = bool(style.get("register")) and not missing_avoid and not missing_prefer
+        detail = (
+            f"player_facing_style language={style.get('language')!r} "
+            f"register={style.get('register')!r} missing_avoid={missing_avoid} "
+            f"missing_prefer={missing_prefer}"
+        )
+    else:
+        style_ok = False
+        detail = "player_facing_style missing or not an object"
+    findings["player_facing_style_present"] = {
+        "passed": bool(style_ok),
+        "detail": detail,
+    }
 
     # 3. dramatic_question_present -----------------------------------------
     dq = plan.get("dramatic_question", "")

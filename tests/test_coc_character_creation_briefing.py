@@ -69,6 +69,9 @@ def test_render_briefing_writes_player_safe_markdown_and_campaign_pointer(tmp_pa
     assert "公开前提：一封旧友来信" in markdown
     assert "大型混合战役" in markdown
     assert "图书馆使用" in markdown
+    assert "属性生成方式" in markdown
+    assert "点购：460 点" in markdown
+    assert "快速数组：80、70、60、60、50、50、50、40" in markdown
     assert "The secret solution" not in markdown
     assert campaign["character_creation"]["briefing_path"] == result["briefing_path"]
 

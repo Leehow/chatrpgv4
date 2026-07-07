@@ -39,7 +39,7 @@ ZCODE_MANIFEST = {
         "persistent campaign state, and playtest reporting."
     ),
     "author": {
-        "name": "Local developer",
+        "name": "Leehow",
     },
     "license": "Apache-2.0",
     "skills": "skills",
@@ -59,17 +59,19 @@ class SyncReport:
     def __init__(self) -> None:
         self.missing: list[str] = []
         self.changed: list[str] = []
+        self.mode_changed: list[str] = []
         self.extra: list[str] = []
 
     @property
     def clean(self) -> bool:
-        return not (self.missing or self.changed or self.extra)
+        return not (self.missing or self.changed or self.mode_changed or self.extra)
 
     def lines(self) -> list[str]:
         lines: list[str] = []
         for label, paths in (
             ("missing", self.missing),
             ("changed", self.changed),
+            ("mode_changed", self.mode_changed),
             ("extra", self.extra),
         ):
             for path in paths:
@@ -87,6 +89,10 @@ def _is_codex_only_path(rel: Path) -> bool:
 
 def _json_bytes(data: dict) -> bytes:
     return (json.dumps(data, indent=2) + "\n").encode("utf-8")
+
+
+def _default_file_mode() -> int:
+    return 0o644
 
 
 def _zcode_text_from_codex(text: str) -> str:
@@ -128,8 +134,24 @@ def _expected_files(codex_root: Path) -> dict[str, bytes]:
     return expected
 
 
+def _expected_modes(codex_root: Path) -> dict[str, int]:
+    expected: dict[str, int] = {
+        ".zcode-plugin/plugin.json": _default_file_mode(),
+        "package.json": _default_file_mode(),
+    }
+    for path in sorted(codex_root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(codex_root)
+        if _is_ignored_path(rel) or _is_codex_only_path(rel):
+            continue
+        expected[rel.as_posix()] = path.stat().st_mode & 0o777
+    return expected
+
+
 def compare_plugin_copies(codex_root: Path = DEFAULT_CODEX_ROOT, zcode_root: Path = DEFAULT_ZCODE_ROOT) -> SyncReport:
     expected = _expected_files(codex_root)
+    expected_modes = _expected_modes(codex_root)
     report = SyncReport()
 
     for rel_name, content in sorted(expected.items()):
@@ -138,6 +160,8 @@ def compare_plugin_copies(codex_root: Path = DEFAULT_CODEX_ROOT, zcode_root: Pat
             report.missing.append(rel_name)
         elif target.read_bytes() != content:
             report.changed.append(rel_name)
+        elif (target.stat().st_mode & 0o777) != expected_modes[rel_name]:
+            report.mode_changed.append(rel_name)
 
     for path in sorted(zcode_root.rglob("*")):
         if not path.is_file():
@@ -164,6 +188,7 @@ def _remove_empty_dirs(root: Path) -> None:
 
 def sync_zcode_copy(codex_root: Path = DEFAULT_CODEX_ROOT, zcode_root: Path = DEFAULT_ZCODE_ROOT) -> None:
     expected = _expected_files(codex_root)
+    expected_modes = _expected_modes(codex_root)
     zcode_root.mkdir(parents=True, exist_ok=True)
 
     for path in sorted(zcode_root.rglob("*")):
@@ -178,9 +203,9 @@ def sync_zcode_copy(codex_root: Path = DEFAULT_CODEX_ROOT, zcode_root: Path = DE
     for rel_name, content in sorted(expected.items()):
         target = zcode_root / rel_name
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists() and target.read_bytes() == content:
-            continue
-        target.write_bytes(content)
+        if not (target.exists() and target.read_bytes() == content):
+            target.write_bytes(content)
+        target.chmod(expected_modes[rel_name])
 
     _remove_empty_dirs(zcode_root)
 

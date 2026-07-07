@@ -26,6 +26,7 @@ def _load_sibling(name: str, filename: str):
     return module
 
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
+coc_mythos = _load_sibling("coc_mythos", "coc_mythos.py")
 
 coc_time = None
 try:
@@ -71,14 +72,26 @@ def build_director_context(
     player_intent: str,
     player_intent_class: str,
     rng: random.Random | None = None,
+    player_intent_rich: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble DirectorContext: rule signals + active scene + scenario graph.
 
     Read-only. Pulls investigator-state, character, world-state, flags,
     pacing-state, and the 7 scenario story-graph files.
+
+    ``player_intent_rich`` is an optional enrichment dict (the 6-field
+    structure from coc_intent_router.parse_intent: primary_intent,
+    secondary_intents, target_entities, risk_posture,
+    explicit_roll_request, player_hypothesis). When provided, it augments
+    scoring (see ``_base_score``) and memory retrieval; when None, behavior
+    is identical to the legacy single-class path.
     """
     rng = rng or random.Random()
     save = campaign_dir / "save"
+    # When a rich intent is supplied, derive the legacy single class from it
+    # so _base_score's existing branches and turn_input stay consistent.
+    if player_intent_rich and "primary_intent" in player_intent_rich:
+        player_intent_class = player_intent_rich["primary_intent"]
     scenario = campaign_dir / "scenario"
 
     inv_state = _read_json(save / "investigator-state" / f"{investigator_id}.json", {})
@@ -97,7 +110,9 @@ def build_director_context(
     current_hp = inv_state.get("current_hp", char_derived.get("HP", 10))
     max_hp = char_derived.get("HP", 10)
     current_san = inv_state.get("current_san", char_derived.get("SAN", 50))
-    max_san = 99  # simplified; spec's believer-bomb is v2
+    # Max SAN = 99 - Cthulhu Mythos (p.167 F9); see coc_mythos.max_san_for.
+    cthulhu_mythos = int(char_skills.get("Cthulhu Mythos", 0))
+    max_san = coc_mythos.max_san_for(cthulhu_mythos)
     credit_rating = char_skills.get("Credit Rating", 0)
     app = char_chars.get("APP", 50)
     luck = char_derived.get("Luck") or char_chars.get("LUCK", 50)
@@ -110,6 +125,7 @@ def build_director_context(
             bout_active="bout_active" in conditions,
             lost_this_event=inv_state.get("san_lost_this_event", 0),
         ),
+        "indefinite_insane": bool(inv_state.get("indefinite_insane", False)),
         "credit_tier": coc_rule_signals.read_credit_tier(credit_rating),
         "credit_rating": credit_rating,  # raw value for roll_npc_reaction
         "app": app,  # raw value for roll_npc_reaction
@@ -154,6 +170,7 @@ def build_director_context(
         "investigator_id": investigator_id,
         "player_intent": player_intent,
         "player_intent_class": player_intent_class,
+        "player_intent_rich": player_intent_rich,
         "active_scene_id": active_scene_id,
         "active_scene": active_scene,
         "structure_type": module_meta.get("structure_type", "branching_investigation"),
@@ -195,6 +212,22 @@ def _load_structure_weights() -> dict[str, Any]:
 
 
 ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]
+
+
+def _player_facing_style(language: str = "zh-Hans") -> dict[str, Any]:
+    if language == "zh-Hans":
+        return {
+            "language": "zh-Hans",
+            "register": "natural_tabletop_narration",
+            "avoid": ["translationese", "ai_summary_voice", "log_style_summary"],
+            "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
+        }
+    return {
+        "language": language,
+        "register": "natural_tabletop_narration",
+        "avoid": ["ai_summary_voice", "log_style_summary"],
+        "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
+    }
 
 
 def _clock_segments(clock: dict, key: str, default: int = 0) -> int:
@@ -239,7 +272,18 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
                 for c in f.get("clocks", []))
             for f in fronts
         )
-        return 0.8 if (near_full or sig["stalled_turns"] >= 1) else 0.2
+        base = 0.8 if (near_full or sig["stalled_turns"] >= 1) else 0.2
+        # Rich-intent risk posture adjustment: a reckless player invites more
+        # pressure (clocks tick faster toward them); a cautious player tempers
+        # it. No-op when rich intent is absent (legacy single-class path).
+        rich = ctx.get("player_intent_rich")
+        if rich:
+            posture = rich.get("risk_posture", "neutral")
+            if posture == "reckless":
+                base = min(0.95, base + 0.1)
+            elif posture == "cautious":
+                base = max(0.05, base - 0.1)
+        return base
 
     if action == "CHARACTER":
         npcs_in_scene = scene.get("npc_ids", [])
@@ -627,6 +671,14 @@ def _retrieve_memory_for_ctx(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     entities = ctx.get("memory_query_entities") or _derive_memory_entities(ctx)
     cues = ctx.get("memory_query_cues") or [ctx.get("player_intent", "")]
     tags = ctx.get("memory_query_tags") or []
+    # Rich-intent enrichment: the player's explicit target entities sharpen
+    # memory recall (e.g. "the neighbor" surfaces neighbor-related cards).
+    # No-op when rich intent is absent.
+    rich = ctx.get("player_intent_rich")
+    if rich and not ctx.get("memory_query_entities"):
+        for ent in rich.get("target_entities") or []:
+            if ent and ent not in entities:
+                entities.append(ent)
     cards = coc_memory.retrieve_memory_cards(
         campaign_dir=Path(campaign_dir),
         query_entities=[e for e in entities if e],
@@ -785,6 +837,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "improvisation_allowed": ctx.get("improvisation_boundaries", {}).get("invent_allowed", []),
         "horror_escalation_stage": horror_stage,
         "content_constraints": ctx.get("module_meta", {}).get("content_flags", []),
+        "player_facing_style": _player_facing_style(),
     }
 
     # v2: populate memory_reads from the memory layer. PAYOFF actions mark the

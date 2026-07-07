@@ -1,0 +1,181 @@
+{
+  "scenes": [
+    {
+      "scene_id": "mission-briefing",
+      "scene_type": "social",
+      "dramatic_question": "Will the patrol accept a reconnaissance mission whose true nature is being kept from them?",
+      "entry_conditions": ["campaign_active", "no_prior_scene"],
+      "exit_conditions": ["orders_received", "patrol_armed_and_briefed"],
+      "available_clues": ["clue-briefing-mention-strange-sounds"],
+      "npc_ids": ["npc-company-commander"],
+      "pressure_moves": [
+        "commander强调上级只关心情报，不关心巡逻队的死活",
+        "军士提醒雪况恶劣，补给只能靠巡逻队自己背"
+      ],
+      "tone": ["cold", "bureaucratic", "ominous"],
+      "allowed_improvisation": ["invent other ranks present at briefing", "never_invent details beyond 'strange sounds and explosions'"]
+    },
+    {
+      "scene_id": "crossing-saddle",
+      "scene_type": "exploration",
+      "dramatic_question": "Can the patrol cross the killing ground without being shot, frozen, or worse?",
+      "entry_conditions": ["orders_received"],
+      "exit_conditions": ["reached_austrian_loopholes"],
+      "available_clues": ["clue-saddle-eerily-quiet"],
+      "npc_ids": [],
+      "pressure_moves": [
+        "any gunshot in the open is Terror-Inducing",
+        "every 5 min in the open costs a Fatigue point",
+        "风雪让能见度降到几米"
+      ],
+      "tone": ["whiteout", "wind", "tense"],
+      "allowed_improvisation": ["invent minor obstacles (snow bridges, ice crust)", "never_invent enemy contact on the saddle"]
+    },
+    {
+      "scene_id": "austrian-positions",
+      "scene_type": "investigation",
+      "dramatic_question": "What happened to the Austrians who held this position?",
+      "entry_conditions": ["reached_austrian_loopholes"],
+      "exit_conditions": ["entered_glacier_tunnel_mouth"],
+      "available_clues": ["clue-hasty-abandonment", "clue-guns-turned-inward"],
+      "npc_ids": ["npc-surprise-austrian-survivor"],
+      "pressure_moves": [
+        "a crazed survivor lunges with a bayonet from a hiding spot (DEX 12, 10 HP, bayonet 1D8)",
+        "Scavenge test uncovers supplies at Uncommon scarcity"
+      ],
+      "tone": ["abandoned", "blue-lit", "creaking-ice"],
+      "allowed_improvisation": ["invent discarded personal effects", "never_invent written Austrian orders in a readable language"]
+    },
+    {
+      "scene_id": "glacier-tunnels",
+      "scene_type": "exploration",
+      "dramatic_question": "How deep does this honeycomb go, and what drove the Austrians out?",
+      "entry_conditions": ["entered_glacier_tunnel_mouth"],
+      "exit_conditions": ["reached_blast_chamber"],
+      "available_clues": ["clue-drag-marks-deeper-in", "clue-supplies-dropped-in-retreat"],
+      "npc_ids": [],
+      "pressure_moves": [
+        "successive Stealth tests; loudest sound is meltwater drip",
+        "interior 0C, cold temporarily held at bay"
+      ],
+      "tone": ["claustrophobic", "echoing", "unnaturally-still"],
+      "allowed_improvisation": ["invent tunnel junctions and dead ends", "never_invent a second way out that bypasses the blast chamber"]
+    },
+    {
+      "scene_id": "blast-chamber",
+      "scene_type": "investigation",
+      "dramatic_question": "What did the Austrians' blasting unearth beneath the ice?",
+      "entry_conditions": ["reached_blast_chamber"],
+      "exit_conditions": ["noted_the_shaft", "heard_the_whistle"],
+      "available_clues": ["clue-massacred-austrians", "clue-superhuman-strength-wounds", "clue-basalt-shaft-no-echo", "clue-drag-marks-into-shaft"],
+      "npc_ids": [],
+      "pressure_moves": [
+        "SAN 0/1 [violence] at the carnage; 0/1 [unnatural] on realizing the wounds",
+        "Alertness test detects a faint ominous whistling from deeper in",
+        "ecrasite demolition cases still stacked by the far tunnels"
+      ],
+      "tone": ["slaughter", "ancient", "dread"],
+      "allowed_improvisation": ["invent specifics of the Austrian dead", "never_invent the shaft's full depth or what lies at the bottom"]
+    },
+    {
+      "scene_id": "whistle-approaches",
+      "scene_type": "exploration",
+      "dramatic_question": "Do the investigators obey orders and withdraw, or push deeper toward the sound?",
+      "entry_conditions": ["noted_the_shaft", "heard_the_whistle"],
+      "exit_conditions": ["began_withdrawal", "chose_to_push_deeper"],
+      "available_clues": ["clue-whistle-source-is-animate"],
+      "npc_ids": ["npc-tomasso-like-survivor"],
+      "pressure_moves": [
+        "the whistling grows louder and nearer, seemingly from everywhere",
+        "stumbling across a survivor curled in a side cul-de-sac, hands over ears"
+      ],
+      "tone": ["relentless", "closing-in", "panicked"],
+      "allowed_improvisation": ["invent the survivor's exact words (must be original dialogue)", "never_invent that the source is visible yet"]
+    },
+    {
+      "scene_id": "blizzard-withdrawal",
+      "scene_type": "combat",
+      "dramatic_question": "Can the patrol outrun an unnatural gale across the open saddle?",
+      "entry_conditions": ["began_withdrawal"],
+      "exit_conditions": ["reached_via_ferrata_base", "re-entered_glacier"],
+      "available_clues": ["clue-gale-coincides-with-pursuer"],
+      "npc_ids": [],
+      "pressure_moves": [
+        "crossing now takes 10 min, Athletics every 5 min at -40%, 1D8 Fatigue per 5 min",
+        "the pursuer picks off stragglers one by one",
+        "1D6/1D12 SAN for those who see it resolve into a monstrous form"
+      ],
+      "tone": ["shrieking-wind", "whiteout", "hunted"],
+      "allowed_improvisation": ["invent near-misses and falls into snow", "never_invent that the pursuer is harmed by the gale itself"]
+    },
+    {
+      "scene_id": "via-ferrata-climb",
+      "scene_type": "exploration",
+      "dramatic_question": "Can the exhausted patrol scale the rock chimney to safety before the snow overhang gives way?",
+      "entry_conditions": ["reached_via_ferrata_base"],
+      "exit_conditions": ["reached_shelter"],
+      "available_clues": [],
+      "npc_ids": [],
+      "pressure_moves": [
+        "three Athletics/Survival(Alpine) tests over 60m; failure strands for 5 min; fumble = fall (60% Lethality)",
+        "STR x5 to unstick a stranded climber",
+        "each 30 min of sunset: avalanche on roll 00 (or 96-00 if a shot/explosion occurs)"
+      ],
+      "tone": ["vertical", "exposed", "failing-light"],
+      "allowed_improvisation": ["invent handholds and loose rock", "never_invent an alternate route up that avoids the chimney"]
+    },
+    {
+      "scene_id": "shelter-night-siege",
+      "scene_type": "combat",
+      "dramatic_question": "Can the patrol hold the shelter through the night against something that wants to examine them?",
+      "entry_conditions": ["reached_shelter"],
+      "exit_conditions": ["dawn_breaks", "patrol_wiped_out"],
+      "available_clues": ["clue-entity-is-curious-not-hostile", "clue-entity-fears-daylight"],
+      "npc_ids": ["npc-tomasso-like-survivor"],
+      "pressure_moves": [
+        "Survival(Alpine) to make shelter storm-tight (else partially-prepared cold rules)",
+        "invisible echolocation vibrations through walls: 0/1D6 SAN [unnatural]",
+        "1D3 attempts per night to wrench the door/windows open: summed STR opposed vs entity STR 100",
+        "snatched victim is probed (1/1D8 SAN [unnatural]) then dropped onto the glacier"
+      ],
+      "tone": ["besieged", "queasy", "long-night"],
+      "allowed_improvisation": ["invent the survivor's folkloric explanation (original dialogue)", "never_invent a known weakness for the entity"]
+    },
+    {
+      "scene_id": "dawn-counterstroke",
+      "scene_type": "combat",
+      "dramatic_question": "At dawn, with the entity weakened by daylight, can the patrol seize a way out?",
+      "entry_conditions": ["dawn_breaks"],
+      "exit_conditions": ["escaped_to_italian_lines", "entity_destroyed_or_routed", "patrol_wiped_out"],
+      "available_clues": ["clue-daylight-weakens-entity", "clue-avalanche-lethal-to-entity"],
+      "npc_ids": [],
+      "pressure_moves": [
+        "option leap-into-snow: Athletics (min 6 dmg) else 6% Lethality, CON x5 vs stun",
+        "option avalanche: each shot 1%/grenade 5% to trigger, 10D6 dmg, STR x5 to avoid being swept; entity at <=20 HP retreats",
+        "option signal fire support: INT x5 to call + INT x5 to adjust, Heavy Weapons 40%+20% size; but Italian crews must make their own SAN roll",
+        "option rearm from Austrian positions: Stealth vs entity Alertness; assemble 80% Lethality charge, Demolitions to detonate",
+        "entity at daylight: -20% all skills, stays in shadow, wind needs 1 round to reactivate"
+      ],
+      "tone": ["dawn-light", "calculated-risk", "climactic"],
+      "allowed_improvisation": ["invent the specific moment of the breakout", "never_invent a fifth escape option"]
+    },
+    {
+      "scene_id": "aftermath-white-friday",
+      "scene_type": "resolution",
+      "dramatic_question": "Did the patrol's choices save them — or doom ten thousand men to the White Friday avalanches?",
+      "entry_conditions": ["escaped_to_italian_lines"],
+      "exit_conditions": ["campaign_concluded"],
+      "available_clues": ["clue-white-friday-causality"],
+      "npc_ids": ["npc-company-commander"],
+      "pressure_moves": [
+        "forced entity retreat: +1D6 SAN; mission complete: +1D3 SAN",
+        "if entity survived and was left on the glacier: White Friday buries it, 0/1D6 SAN [helplessness] for guilt",
+        "if the patrol triggered the avalanche themselves: blamed for the disaster, reduce 1D2 Bonds by 3",
+        "if the entity was killed: no personal blame, though the disaster still comes",
+        "telling the truth to high command: nobody believes them, they're separated and transferred; suppressing truth: +1D3 SAN"
+      ],
+      "tone": ["uneasy", "haunted", "historical"],
+      "allowed_improvisation": ["invent epilogue details for survivors", "never_invent that the disaster was averted"]
+    }
+  ]
+}

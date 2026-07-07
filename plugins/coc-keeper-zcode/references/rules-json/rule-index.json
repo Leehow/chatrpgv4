@@ -290,7 +290,7 @@
       "source_note": "Keeper Rulebook Table V (pp.145-146): common chase vehicles with MOV, Build, armor, and passenger capacity; looked up by name via get_vehicle_stats.",
       "numeric": {
         "table_v_page": "145-146",
-        "vehicle_count": 5
+        "vehicle_count": 3
       }
     },
     {
@@ -352,7 +352,7 @@
         "group_marker": "G",
         "modern_marker": "Omega",
         "uncommon_marker": "T",
-        "skill_count": 80
+        "skill_count": 79
       }
     },
     {
@@ -540,7 +540,7 @@
       "source_table": "spells.json",
       "source_note": "Keeper Rulebook Ch.12 Grimoire (pp.258-277). Each spell has cost_mp, cost_pow, cost_sanity, casting_time, source_page.",
       "numeric": {
-        "spell_count": 82
+        "spell_count": 66
       }
     },
     {
@@ -549,7 +549,7 @@
       "source_table": "tomes.json",
       "source_note": "Keeper Rulebook Ch.11 Tomes of Eldritch Lore (pp.226-235). Each tome has language, author, sanity_loss, cthulhu_mythos_gain, study_weeks, spells.",
       "numeric": {
-        "tome_count": 17
+        "tome_count": 98
       }
     },
     {
@@ -567,7 +567,7 @@
       "source_table": "monsters.json",
       "source_note": "Keeper Rulebook Ch.14 Monsters (pp.268-339). Each monster has STR/CON/SIZ/DEX/INT/POW, HP, armor, SAN loss, attacks.",
       "numeric": {
-        "monster_count": 9
+        "monster_count": 37
       }
     },
     {
@@ -586,7 +586,7 @@
       "source_table": "phobias.json",
       "source_note": "Keeper Rulebook Table IX Sample Phobias (p.160). Each phobia has a trigger.",
       "numeric": {
-        "phobia_count": 29
+        "phobia_count": 100
       }
     },
     {
@@ -595,7 +595,7 @@
       "source_table": "manias.json",
       "source_note": "Keeper Rulebook Table X Sample Manias (p.161). Each mania has a trigger.",
       "numeric": {
-        "mania_count": 23
+        "mania_count": 100
       }
     },
     {
@@ -616,7 +616,7 @@
       "source_table": "poisons.json",
       "source_note": "Keeper Rulebook Ch.6 Sample Poisons (pp.129-131). Each poison has delivery, damage/effect, onset.",
       "numeric": {
-        "poison_count": 8
+        "poison_count": 11
       }
     },
     {
@@ -763,6 +763,92 @@
       "source_note": "Time-cost categories for validating LLM time estimates in DirectorPlan.time_advance.",
       "numeric": {
         "category_count": 15
+      }
+    },
+    {
+      "id": "core.healing.treatment",
+      "category": "healing",
+      "source_table": "treatment.json",
+      "source_note": "Keeper Rulebook p.164: sanity treatment and recovery paths for indefinite insanity (weekly Psychoanalysis, asylum confinement, self-help).",
+      "numeric": {
+        "paths": [
+          "psychoanalysis",
+          "asylum_confinement",
+          "self_help"
+        ],
+        "skill": "Psychoanalysis"
+      }
+    },
+    {
+      "id": "module.white_war.polyp_horror",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Polyp Horror stat block (OGC, source PDF p8-10). Semi-material; tentacle slash Lethality 50% + knock down; wind blast; ignores armor; SAN 1D6/1D12; retreats at <=20 HP.",
+      "numeric": {
+        "str": 100,
+        "con": 100,
+        "dex": 15,
+        "int": 25,
+        "pow": 30,
+        "hp": 100,
+        "san_loss": "1D6/1D12",
+        "retreat_below_hp": 20
+      }
+    },
+    {
+      "id": "module.white_war.cold_exposure",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Cold exposure rules (OGC, source PDF p3-5). Outdoor -30C (-40C windchill); 1D8 HP per 5 min; tunnel interior 0C.",
+      "numeric": {
+        "outdoor_temp_celsius": -30,
+        "hp_damage_per_interval": "1D8",
+        "interval_minutes": 5
+      }
+    },
+    {
+      "id": "module.white_war.lethality_vs_semi_material",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Lethality vs semi-material entities (OGC). Lethality <15% no damage; >=15% even roll = HP damage equal to rating, odd = pass through.",
+      "numeric": {
+        "lethality_threshold": 15
+      }
+    },
+    {
+      "id": "module.white_war.daylight_penalty",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Polyp Horror daylight penalty (OGC). -20% all skills in daylight; wind reactivation needs 1 round prep.",
+      "numeric": {
+        "all_skills_penalty_percent": -20
+      }
+    },
+    {
+      "id": "module.white_war.conclusion_sanity_rewards",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Conclusion SAN rewards (OGC). Forced entity retreat +1D6; mission complete +1D3; truth suppressed +1D3; White Friday guilt 0/1D6.",
+      "numeric": {
+        "forced_retreat": "1D6",
+        "mission_complete": "1D3",
+        "truth_suppressed": "1D3"
+      }
+    },
+    {
+      "id": "module.white_war.avalanche_damage",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Avalanche damage vs Polyp Horror (OGC). 10D6 damage; entity not immune; STR x5 to avoid being swept.",
+      "numeric": {
+        "damage": "10D6",
+        "entity_not_immune": true
       }
     }
   ]
