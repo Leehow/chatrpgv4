@@ -131,6 +131,11 @@ def _scene_tags(ctx: dict[str, Any]) -> set[str]:
     return {str(t) for t in tags if t}
 
 
+def _has_scene_pressure(ctx: dict[str, Any]) -> bool:
+    scene = ctx.get("active_scene") or {}
+    return bool(scene.get("pressure_moves"))
+
+
 def _intent_tags(ctx: dict[str, Any]) -> set[str]:
     tags: set[str] = set()
     rich = ctx.get("player_intent_rich") or {}
@@ -185,7 +190,56 @@ def _requirements_met(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[
         return False
     if req.get("active_front") is True and not (ctx.get("threat_fronts") or {}).get("fronts"):
         return False
+    if req.get("scene_pressure") is True and not _has_scene_pressure(ctx):
+        return False
     return True
+
+
+def _anchor_kind_available(kind: str, storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[str, Any]) -> bool:
+    scene = ctx.get("active_scene") or {}
+    if kind in {"npc", "npc_id", "active_npc"}:
+        return bool(scene.get("npc_ids"))
+    if kind in {"clue", "unrevealed_clue", "available_clue"}:
+        return bool(_available_clues(plan, ctx))
+    if kind in {"front", "active_front", "threat_front"}:
+        return bool((ctx.get("threat_fronts") or {}).get("fronts"))
+    if kind in {"scene_pressure", "pressure_move"}:
+        return _has_scene_pressure(ctx)
+    if kind in {"scene_tag", "scene_tags"}:
+        required_tags = set(_as_list(storylet.get("scene_tags")))
+        return bool(required_tags and (required_tags & _scene_tags(ctx)))
+    return False
+
+
+def _anchor_contract_met(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[str, Any]) -> bool:
+    contract = storylet.get("anchor_contract") or {}
+    if not isinstance(contract, dict):
+        return bool(contract)
+    one_of = _as_list(contract.get("requires_one_of") or contract.get("one_of"))
+    if one_of:
+        return any(_anchor_kind_available(str(kind), storylet, plan, ctx) for kind in one_of)
+    all_of = _as_list(contract.get("requires_all_of") or contract.get("all_of"))
+    if all_of:
+        return all(_anchor_kind_available(str(kind), storylet, plan, ctx) for kind in all_of)
+    return bool(contract)
+
+
+def _has_current_scene_anchor(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[str, Any]) -> bool:
+    req = storylet.get("requires") or {}
+    if req.get("npc_id") is True and _anchor_kind_available("npc_id", storylet, plan, ctx):
+        return True
+    if req.get("unrevealed_clue") is True and _anchor_kind_available("unrevealed_clue", storylet, plan, ctx):
+        return True
+    if req.get("active_front") is True and _anchor_kind_available("active_front", storylet, plan, ctx):
+        return True
+    if req.get("scene_pressure") is True and _anchor_kind_available("scene_pressure", storylet, plan, ctx):
+        return True
+
+    required_tags = set(_as_list(storylet.get("scene_tags")))
+    if required_tags and (required_tags & _scene_tags(ctx)):
+        return True
+
+    return _anchor_contract_met(storylet, plan, ctx)
 
 
 def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[str, Any], target_level: str) -> bool:
@@ -244,6 +298,9 @@ def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[s
     polarity = _non_empty_str(trigger.get("polarity") or policy.get("polarity"))
     allowed_polarity = set(_as_list(storylet.get("trigger_polarity") or storylet.get("polarity")))
     if polarity and allowed_polarity and polarity not in allowed_polarity and "mixed" not in allowed_polarity:
+        return False
+
+    if not policy.get("allow_unanchored_storylets") and not _has_current_scene_anchor(storylet, plan, ctx):
         return False
 
     return _requirements_met(storylet, plan, ctx)

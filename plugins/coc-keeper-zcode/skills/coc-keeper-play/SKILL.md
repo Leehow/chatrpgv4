@@ -91,6 +91,13 @@ not player-visible menus. Surface them only when the player asks for options,
 when the table is in `[meta]`, during character creation/setup, or inside a
 rules subsystem that requires explicit enumerated choices.
 
+If the player repeatedly gives low-agency continuation such as following the
+group, waiting for the next scene beat, or otherwise yielding initiative in a
+tense scene, do not answer with another neutral travel or scenery paragraph.
+Let the active scene's authored `pressure_moves` fire first. If no such pressure
+exists, surface concrete diegetic affordances rather than inventing a random
+event.
+
 ## Narrative Enrichment Rules
 
 The Director deliberately chooses one primary `scene_action`; the enrichment
@@ -118,6 +125,11 @@ pass prevents that single action from feeling like a single-track plot.
   beats, but they must bind to the active scene, clue, NPC, front, choice, or
   theme. They must not create a new culprit, god, cult fact, final truth, or
   mandatory route.
+- **Storylets must have a current-scene anchor before rolling.** A beat with no
+  satisfiable NPC, clue, front, scene-pressure, scene-tag, or explicit anchor
+  contract is not eligible this turn. Do not select first and then stretch the
+  fiction to fit it; skip it and let the director continue with the current
+  scene action.
 - **Respect conflict level.** Low beats are texture and soft leads; medium beats
   introduce social/procedural friction; high beats put evidence, allies, or
   escape routes at risk; climax beats cash in clocks and force thematic

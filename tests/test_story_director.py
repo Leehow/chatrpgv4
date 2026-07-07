@@ -119,6 +119,9 @@ def _make_legacy_live_campaign(tmp_path):
             "询问桑切斯教授还能记起什么",
             "观察走廊警员和医护人员的反应",
         ],
+        "pressure_moves": [
+            "走廊尽头的警员压低声音催促，医生也开始看表。"
+        ],
     }))
     (camp / "save" / "flags.json").write_text(json.dumps({
         "schema_version": 1,

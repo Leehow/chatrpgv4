@@ -122,6 +122,7 @@ def test_scene_can_exclude_storylet_tropes():
             "scene_actions": ["DEEPEN"],
             "structure_affinity": ["branching_investigation"],
             "eligible_scene_types": ["investigation"],
+            "scene_tags": ["bureaucracy"],
             "horror_stage": ["wrongness"],
             "requires": {"npc_id": False, "unrevealed_clue": False, "active_front": False},
             "serves": {"mainline": True, "theme": True},

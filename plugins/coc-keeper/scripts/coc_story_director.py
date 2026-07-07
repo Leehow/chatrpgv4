@@ -1053,6 +1053,30 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
 def _build_rules_requests(ctx: dict[str, Any], action: str,
                           clue_policy: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Request skill checks only when justified."""
+    # Scene-level SAN triggers: when the active scene defines on_enter.san_triggers
+    # that haven't fired yet, emit a sanity_check so the driver can settle SAN
+    # loss via SanitySession. This makes horror scenes (seeing carnage, witnessing
+    # the entity) auto-trigger SAN checks without requiring a stalled player.
+    requests: list[dict[str, Any]] = []
+    scene = ctx.get("active_scene") or {}
+    fired = set(ctx.get("world_state", {}).get("san_triggers_fired", []))
+    for trig in (scene.get("on_enter") or {}).get("san_triggers", []) or []:
+        if not isinstance(trig, dict):
+            continue
+        tid = trig.get("trigger_id") or trig.get("source", "")
+        if tid and tid in fired:
+            continue
+        requests.append({
+            "kind": "sanity_check", "skill": "SAN",
+            "reason": trig.get("source", "scene horror"),
+            "difficulty": "regular", "bonus_penalty_dice": 0,
+            "san_loss_success": int(trig.get("san_loss_success", 0)),
+            "san_loss_fail_expr": str(trig.get("san_loss_fail_expr", "1")),
+            "source": trig.get("source", "scene horror"),
+            "creature_type": trig.get("creature_type"),
+            "san_trigger_id": tid,
+        })
+
     if action == "SUBSYSTEM":
         sig = ctx["rule_signals"]
         if sig["bout_active"] or sig["sanity_state"] == "temp_insane":
@@ -1069,13 +1093,12 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
         # delivery_kind resolution (falling back to Spot Hidden / regular when
         # the legacy heuristic was used).
         clue_type = (clue_policy or {}).get("clue_type", "obscured")
-        if clue_type == "obvious":
-            return []
-        skill = (clue_policy or {}).get("skill") or "Spot Hidden"
-        difficulty = (clue_policy or {}).get("difficulty") or "regular"
-        return [{"kind": "skill_check", "skill": skill, "reason": "obscured clue in scene",
-                 "difficulty": difficulty, "bonus_penalty_dice": 0}]
-    return []
+        if clue_type != "obvious":
+            skill = (clue_policy or {}).get("skill") or "Spot Hidden"
+            difficulty = (clue_policy or {}).get("difficulty") or "regular"
+            requests.append({"kind": "skill_check", "skill": skill, "reason": "obscured clue in scene",
+                     "difficulty": difficulty, "bonus_penalty_dice": 0})
+    return requests
 
 
 def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, Any]:

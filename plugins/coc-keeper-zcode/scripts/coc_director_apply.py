@@ -453,6 +453,19 @@ def apply_plan(
             events.append(ev)
             _append_jsonl(logs / "events.jsonl", ev)
     world["discovered_clue_ids"] = discovered
+    # Mark scene-level SAN triggers as fired (dedup: director won't re-request).
+    fired = list(world.get("san_triggers_fired", []))
+    for rr in (rules_results or []):
+        tid = rr.get("san_trigger_id") if isinstance(rr, dict) else None
+        if tid and tid not in fired:
+            fired.append(tid)
+            ev = {"event_type": "san_trigger_fired", "decision_id": decision_id,
+                  "trigger_id": tid, "san_loss": rr.get("san_loss"),
+                  "investigator_id": investigator_id, "ts": ts}
+            events.append(ev)
+            _append_jsonl(logs / "events.jsonl", ev)
+    if fired:
+        world["san_triggers_fired"] = fired
     _write_json(world_path, world)
 
     # 2. pressure moves -> pacing state + events

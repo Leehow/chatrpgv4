@@ -59,7 +59,7 @@ _DEFAULT_ARTIFACTS_DIR = Path(__file__).resolve().parent / ".intent-eval"
 # router can feed the director's _base_score without making any action
 # branch unreachable.
 _PRIMARY_INTENT_ENUM = (
-    "investigate", "social", "combat", "flee", "meta", "stuck", "idle",
+    "investigate", "social", "move", "combat", "flee", "meta", "stuck", "idle",
     "ambiguous", "montage", "cast",
 )
 
@@ -277,7 +277,7 @@ def parse_intent(player_text: str | None, active_scene: dict | None = None) -> d
 
     Returns:
         {
-            "primary_intent": "investigate|social|combat|flee|meta|stuck|idle",
+            "primary_intent": "investigate|social|move|combat|flee|meta|stuck|idle",
             "secondary_intents": list[str],   # e.g. ["avoid_risk", "social_followup"]
             "target_entities": list[str],     # e.g. ["backyard", "window", "neighbor"]
             "risk_posture": "cautious|neutral|reckless",

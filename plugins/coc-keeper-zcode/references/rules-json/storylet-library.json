@@ -317,7 +317,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -405,7 +406,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -666,7 +668,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -840,7 +843,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -927,7 +931,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -1362,7 +1367,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -1549,7 +1555,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -1994,7 +2001,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -2083,7 +2091,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -2350,7 +2359,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -2617,7 +2627,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -2707,7 +2718,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -2974,7 +2986,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -3424,7 +3437,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -3513,7 +3527,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -3602,7 +3617,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -3875,7 +3891,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -3965,7 +3982,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -4237,7 +4255,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -4417,7 +4436,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -4508,7 +4528,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -4598,7 +4619,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -4688,7 +4710,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -4959,7 +4982,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -5139,7 +5163,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -5230,7 +5255,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -5590,7 +5616,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,
@@ -5680,7 +5707,8 @@
       "requires": {
         "npc_id": false,
         "unrevealed_clue": false,
-        "active_front": false
+        "active_front": false,
+        "scene_pressure": true
       },
       "serves": {
         "mainline": true,

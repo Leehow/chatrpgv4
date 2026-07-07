@@ -194,6 +194,68 @@ def test_sanity_check_settles_san_loss(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Task 5: director emits scene-level SAN request from on_enter.san_triggers
+# ---------------------------------------------------------------------------
+
+def test_director_emits_san_request_for_scene_with_san_triggers(tmp_path):
+    """_build_rules_requests should emit a sanity_check when the active scene
+    has on_enter.san_triggers that haven't been fired yet."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_story_director_san", SCRIPTS_DIR / "coc_story_director.py")
+    director = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(director)
+
+    scene = {"scene_id": "blast-chamber", "on_enter": {"san_triggers": [
+        {"trigger_id": "carnage", "source": "the blast chamber carnage",
+         "san_loss_success": 0, "san_loss_fail_expr": "1", "tag": "violence"}]}}
+    ctx = {
+        "active_scene": scene, "active_scene_id": "blast-chamber",
+        "rule_signals": {"bout_active": False, "sanity_state": "stable",
+                         "hp_state": "healthy", "stalled_turns": 0},
+        "player_intent_class": "investigate",
+        "world_state": {"discovered_clue_ids": [], "san_triggers_fired": []},
+        "threat_fronts": {"fronts": []}, "clue_graph": {"conclusions": []},
+        "module_meta": {}, "story_graph": {"scenes": [scene]},
+        "npc_agendas": {"npcs": []}, "pacing_state": {},
+        "player_intent_rich": None, "investigator_id": "inv1",
+        "time_signals": {}, "sanity_engine_state": None, "chase_state": None,
+    }
+    requests = director._build_rules_requests(ctx, "REVEAL", {"clue_type": "obvious"})
+    san_reqs = [r for r in requests if r.get("kind") == "sanity_check"]
+    assert len(san_reqs) == 1
+    assert san_reqs[0]["san_loss_success"] == 0
+    assert san_reqs[0]["san_loss_fail_expr"] == "1"
+    assert "carnage" in san_reqs[0]["source"]
+
+
+def test_director_skips_san_request_already_fired(tmp_path):
+    """Once a san_trigger is in san_triggers_fired, it should not re-fire."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_story_director_san2", SCRIPTS_DIR / "coc_story_director.py")
+    director = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(director)
+
+    scene = {"scene_id": "blast-chamber", "on_enter": {"san_triggers": [
+        {"trigger_id": "carnage", "source": "carnage",
+         "san_loss_success": 0, "san_loss_fail_expr": "1"}]}}
+    ctx = {
+        "active_scene": scene, "active_scene_id": "blast-chamber",
+        "rule_signals": {"bout_active": False, "sanity_state": "stable",
+                         "hp_state": "healthy", "stalled_turns": 0},
+        "player_intent_class": "investigate",
+        "world_state": {"discovered_clue_ids": [], "san_triggers_fired": ["carnage"]},
+        "threat_fronts": {"fronts": []}, "clue_graph": {"conclusions": []},
+        "module_meta": {}, "story_graph": {"scenes": [scene]},
+        "npc_agendas": {"npcs": []}, "pacing_state": {},
+        "player_intent_rich": None, "investigator_id": "inv1",
+        "time_signals": {}, "sanity_engine_state": None, "chase_state": None,
+    }
+    requests = director._build_rules_requests(ctx, "REVEAL", {"clue_type": "obvious"})
+    san_reqs = [r for r in requests if r.get("kind") == "sanity_check"]
+    assert len(san_reqs) == 0  # already fired, skip
+
+
+# ---------------------------------------------------------------------------
 # Task 1: threat-state.json persistence layer
 # ---------------------------------------------------------------------------
 

@@ -318,6 +318,15 @@ def build_director_context(
         ),
         "bout_active": "bout_active" in conditions,
     }
+    signal_ctx = {
+        "player_intent_class": player_intent_class,
+        "player_intent_rich": player_intent_rich,
+        "active_scene": active_scene,
+    }
+    rule_signals["low_agency_continue_count"] = _low_agency_continue_count(
+        recent_intents, signal_ctx
+    )
+    rule_signals["scene_pressure_available"] = _scene_pressure_available(signal_ctx)
 
     # --- time signals (deterministic world-clock layer) ---
     time_signals: dict[str, Any] = {}
@@ -385,6 +394,66 @@ def _load_structure_weights() -> dict[str, Any]:
 
 ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]
 
+_LOW_AGENCY_RECENT_CLASSES = {
+    "move",
+    "continue",
+    "follow",
+    "follow_group",
+    "low_agency_continue",
+    "passive_follow",
+}
+_LOW_AGENCY_CONTINUE_TAGS = {
+    "low_agency_continue",
+    "continue_without_new_goal",
+    "follow_group",
+    "keep_following",
+    "yield_initiative",
+    "move_with_group",
+    "passive_follow",
+}
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
+def _rich_intent_tags(ctx: dict[str, Any]) -> set[str]:
+    rich = ctx.get("player_intent_rich") or {}
+    tags = {str(ctx.get("player_intent_class") or "")}
+    tags.add(str(rich.get("primary_intent") or ""))
+    for key in ("secondary_intents", "target_entities"):
+        for value in _as_list(rich.get(key)):
+            if value:
+                tags.add(str(value))
+    return {tag for tag in tags if tag}
+
+
+def _is_low_agency_continue(ctx: dict[str, Any]) -> bool:
+    tags = _rich_intent_tags(ctx)
+    if tags & _LOW_AGENCY_CONTINUE_TAGS:
+        return True
+    return str(ctx.get("player_intent_class") or "") in _LOW_AGENCY_RECENT_CLASSES
+
+
+def _low_agency_continue_count(recent_intents: list[Any], ctx: dict[str, Any]) -> int:
+    count = 1 if _is_low_agency_continue(ctx) else 0
+    for item in reversed(recent_intents or []):
+        if str(item) not in _LOW_AGENCY_RECENT_CLASSES:
+            break
+        count += 1
+    return count
+
+
+def _scene_pressure_available(ctx: dict[str, Any]) -> bool:
+    scene = ctx.get("active_scene") or {}
+    return bool(scene.get("pressure_moves"))
+
 
 def _player_facing_style(language: str = "zh-Hans") -> dict[str, Any]:
     if language == "zh-Hans":
@@ -444,7 +513,11 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
                 for c in f.get("clocks", []))
             for f in fronts
         )
-        base = 0.8 if (near_full or sig["stalled_turns"] >= 1) else 0.2
+        yielded_scene = (
+            sig.get("low_agency_continue_count", 0) >= 2
+            and sig.get("scene_pressure_available", False)
+        )
+        base = 0.85 if yielded_scene else (0.8 if (near_full or sig["stalled_turns"] >= 1) else 0.2)
         # Rich-intent risk posture adjustment: a reckless player invites more
         # pressure (clocks tick faster toward them); a cautious player tempers
         # it. No-op when rich intent is absent (legacy single-class path).
@@ -544,6 +617,9 @@ def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
     if sig["last_roll_fumble"]:
         return {"scene_action": "PRESSURE", "handoff": "narration",
                 "rationale": "fumble forces immediate misfortune, cannot be pushed off"}
+    if sig.get("low_agency_continue_count", 0) >= 2 and sig.get("scene_pressure_available", False):
+        return {"scene_action": "PRESSURE", "handoff": "narration",
+                "rationale": "repeated low-agency continuation yields initiative to authored scene pressure"}
     if sig["stalled_turns"] >= 3:
         return {"scene_action": "RECOVER", "handoff": "narration",
                 "rationale": "3 stalled turns forces Idea Roll recovery valve"}
@@ -906,11 +982,57 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
     return moves
 
 
+def _build_scene_pressure_move(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    scene = ctx.get("active_scene") or {}
+    pressure_moves = [move for move in _as_list(scene.get("pressure_moves")) if move]
+    if not pressure_moves:
+        return None
+    count = max(1, int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 1) or 1))
+    raw = pressure_moves[min(count - 1, len(pressure_moves) - 1)]
+    if isinstance(raw, dict):
+        symptom = (
+            raw.get("visible_symptom")
+            or raw.get("cue")
+            or raw.get("text")
+            or raw.get("summary")
+            or raw.get("move")
+            or "the scene's pressure comes due"
+        )
+        tick = raw.get("tick", 0)
+        try:
+            tick = int(tick or 0)
+        except (TypeError, ValueError):
+            tick = 0
+        return {
+            "clock_id": raw.get("clock_id"),
+            "tick": tick,
+            "visible_symptom": _short_text(symptom, 140),
+            "reason": "low_agency_scene_pressure",
+            "source": "active_scene.pressure_moves",
+            "pressure_move_id": raw.get("id"),
+        }
+    return {
+        "clock_id": None,
+        "tick": 0,
+        "visible_symptom": _short_text(raw, 140),
+        "reason": "low_agency_scene_pressure",
+        "source": "active_scene.pressure_moves",
+    }
+
+
 def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
     """Tick clocks when PRESSURE or stalled."""
     moves = []
     if action not in ("PRESSURE", "RECOVER") and ctx["rule_signals"]["stalled_turns"] < 1:
         return moves
+    if (
+        action == "PRESSURE"
+        and ctx["rule_signals"].get("low_agency_continue_count", 0) >= 2
+        and _scene_pressure_available(ctx)
+    ):
+        scene_move = _build_scene_pressure_move(ctx)
+        if scene_move is not None:
+            return [scene_move]
     for front in ctx.get("threat_fronts", {}).get("fronts", []):
         for clock in front.get("clocks", []):
             current = _clock_segments(clock, "current_segments", 0)
@@ -931,6 +1053,30 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
 def _build_rules_requests(ctx: dict[str, Any], action: str,
                           clue_policy: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Request skill checks only when justified."""
+    # Scene-level SAN triggers: when the active scene defines on_enter.san_triggers
+    # that haven't fired yet, emit a sanity_check so the driver can settle SAN
+    # loss via SanitySession. This makes horror scenes (seeing carnage, witnessing
+    # the entity) auto-trigger SAN checks without requiring a stalled player.
+    requests: list[dict[str, Any]] = []
+    scene = ctx.get("active_scene") or {}
+    fired = set(ctx.get("world_state", {}).get("san_triggers_fired", []))
+    for trig in (scene.get("on_enter") or {}).get("san_triggers", []) or []:
+        if not isinstance(trig, dict):
+            continue
+        tid = trig.get("trigger_id") or trig.get("source", "")
+        if tid and tid in fired:
+            continue
+        requests.append({
+            "kind": "sanity_check", "skill": "SAN",
+            "reason": trig.get("source", "scene horror"),
+            "difficulty": "regular", "bonus_penalty_dice": 0,
+            "san_loss_success": int(trig.get("san_loss_success", 0)),
+            "san_loss_fail_expr": str(trig.get("san_loss_fail_expr", "1")),
+            "source": trig.get("source", "scene horror"),
+            "creature_type": trig.get("creature_type"),
+            "san_trigger_id": tid,
+        })
+
     if action == "SUBSYSTEM":
         sig = ctx["rule_signals"]
         if sig["bout_active"] or sig["sanity_state"] == "temp_insane":
@@ -947,13 +1093,12 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
         # delivery_kind resolution (falling back to Spot Hidden / regular when
         # the legacy heuristic was used).
         clue_type = (clue_policy or {}).get("clue_type", "obscured")
-        if clue_type == "obvious":
-            return []
-        skill = (clue_policy or {}).get("skill") or "Spot Hidden"
-        difficulty = (clue_policy or {}).get("difficulty") or "regular"
-        return [{"kind": "skill_check", "skill": skill, "reason": "obscured clue in scene",
-                 "difficulty": difficulty, "bonus_penalty_dice": 0}]
-    return []
+        if clue_type != "obvious":
+            skill = (clue_policy or {}).get("skill") or "Spot Hidden"
+            difficulty = (clue_policy or {}).get("difficulty") or "regular"
+            requests.append({"kind": "skill_check", "skill": skill, "reason": "obscured clue in scene",
+                     "difficulty": difficulty, "bonus_penalty_dice": 0})
+    return requests
 
 
 def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, Any]:

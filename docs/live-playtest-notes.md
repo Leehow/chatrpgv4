@@ -127,10 +127,25 @@ workflow friction that does not belong in automated battle-report fixtures.
 - Found during live White War test on 2026-07-08: an ordinary `REVEAL` / observe-surroundings action in an outdoor extreme-cold scene inherited the generic `single_room_search` 20-minute time advance.
 - In White War style cold-exposure scenes, generic room-search time can multiply fatigue unfairly or require manual correction.
 - Expected fix: time advancement should consider scene tags/environment pressure, especially `cold_exposure.interval_minutes`, and should allow short scans distinct from full searches.
-## Open - Director Should Escalate Repeated Continue / Follow Inputs
+## Fixed - Director Should Escalate Repeated Continue / Follow Inputs
 
 - Found during live White War test on 2026-07-08: if the player repeatedly says variants of “继续 / 跟着大部队 / keep following” and the Keeper only advances descriptive scenery, the player becomes a passenger with no meaningful action point.
 - Expected behavior: repeated low-agency continuation inputs should count as player yielding initiative to the scene. On the next beat, the Story Director should trigger a scene pressure move, NPC interruption, visible danger, forced reaction, or concrete choice point.
 - This should use authored scene pressure first, not random storylet draws. For `austrian-positions`, the obvious candidate is the module pressure move: a hidden/crazed Austrian survivor or another immediate sign that makes the patrol stop and react.
 - Guardrail: do not punish a single “continue” used to move through safe connective tissue; escalate after repeated continue/follow in an uncertain or tense scene, or when the scene already contains unresolved pressure moves.
+- Resolution: `coc_intent_router.py` now accepts `move` as a first-class intent.
+  `coc_story_director.py` records `low_agency_continue_count` and forces
+  authored `active_scene.pressure_moves` when repeated low-agency continuation
+  yields initiative to the scene.
 
+## Fixed - Storylet Current-Scene Anchor Contract
+
+- Found during live White War test on 2026-07-08: event cards could be drawn
+  that had no satisfying current-scene binding, leaving the Keeper to stretch
+  the fiction around a generic beat.
+- Expected behavior: storylets are eligible only when they can bind to a
+  current NPC, clue, threat front, authored scene pressure, matching scene tag,
+  or explicit anchor contract. If no event fits, draw no event.
+- Resolution: `coc_storylets.py` now rejects unanchored storylets by default,
+  supports `requires.scene_pressure`, and the packaged storylet library marks
+  formerly generic beats as scene-pressure anchored.
