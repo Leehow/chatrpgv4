@@ -9,10 +9,15 @@ description: Run immersive Call of Cthulhu play after COC mode is active. Use fo
 
 1. Read player input + campaign state + scenario story-graph.
 2. Call `coc-story-director` (scripts/coc_story_director.py) to generate a DirectorPlan.
-3. If DirectorPlan.handoff == "rules": resolve mechanics via coc-roll/combat/chase/sanity.
-4. Backfill rule results into the plan.
-5. Narrate consequences per DirectorPlan.narrative_directives (immersive, in play_language).
-6. Update save, logs, and pacing-state.
+3. Apply the narrative enrichment pass (scripts/coc_narrative_enrichment.py) when available:
+   - turn scene affordances / clue leads into a hidden `choice_frame`;
+   - turn semantically parsed `player_intent_rich.action_atoms` into chained `rules_requests`;
+   - activate NPC `reaction_triggers`, relationship clocks, voice seeds, desire/fear/leverage;
+   - surface optional `incident_moves` only as side beats that reinforce the main tension.
+4. If the enriched DirectorPlan.handoff == "rules": resolve mechanics via coc-roll/combat/chase/sanity.
+5. Backfill rule results into the plan.
+6. Narrate consequences per DirectorPlan.narrative_directives (immersive, in play_language).
+7. Update save, logs, and pacing-state.
 
 ## Style
 
@@ -40,6 +45,36 @@ Treat `pending_choices` and similar state fields as Keeper-facing resume aids,
 not player-visible menus. Surface them only when the player asks for options,
 when the table is in `[meta]`, during character creation/setup, or inside a
 rules subsystem that requires explicit enumerated choices.
+
+## Narrative Enrichment Rules
+
+The Director deliberately chooses one primary `scene_action`; the enrichment
+pass prevents that single action from feeling like a single-track plot.
+
+- **Surface at least two routes when the scene supports it.** If `choice_frame.routes`
+  has two or more entries, weave at least two routes into the prose as visible
+  affordances, costs, risks, rewards, sounds, NPC behavior, or time pressure.
+  Never render them as a numbered list unless the player explicitly asks.
+- **Use visible tradeoffs, not hidden spoilers.** You may hint that a tunnel has
+  cold air, that the police whistle is closer, or that a shaft is icy and high;
+  do not reveal that a route is certainly safe, certainly blocked, or contains a
+  specific secret reward unless the investigators can already perceive that.
+- **Break action chains into roll chains only when stakes differ.** When
+  `player_intent_rich.action_atoms` supplies multiple risky actions, resolve
+  each atom whose failure would change the fiction. Keep low-stakes connective
+  actions in narration. Prefer no more than three critical checks; beyond that,
+  use montage or an extended task.
+- **NPCs are not fixtures.** If a present NPC has `active_reactions`, give them
+  a line, interruption, hesitation, assist, objection, or tell. Use desire/fear/
+  leverage/voice seeds to make the reaction feel like that person, not a hint
+  dispenser.
+- **Side beats must be thematic.** `incident_moves` should complicate the
+  scene, reveal character, or echo the scenario theme. They must not replace
+  the player's chosen goal or force a new main route.
+
+Do not split raw player prose with keyword matching. If action atoms or reaction
+tags are missing, use the normal semantic intent evaluator or ask a clarifying
+question in `[meta]`; never treat exact words as proof of intent.
 
 ## Content Boundaries
 
