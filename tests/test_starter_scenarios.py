@@ -81,3 +81,22 @@ def test_install_staller_unknown_scenario_errors(tmp_path):
 
     with pytest.raises((FileNotFoundError, ValueError)):
         coc_starter.install_starter(root, "test-camp", "nonexistent-scenario")
+
+
+def test_ww1_era_registered_in_state_clocks():
+    """coc_state 的 _ERA_CLOCKS 必须含 ww1，否则 install 后 campaign era 不匹配。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "coc_state", PLUGIN_ROOT / "scripts" / "coc_state.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    # _ERA_CLOCKS 是 _initialize_campaign_runtime_files 内的局部字典；
+    # 通过创建一个 ww1 campaign 检查 time-state 来间接验证。
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / ".coc"
+        mod.ensure_workspace(root)
+        mod.create_campaign(root, "era-test", "Test", era="ww1")
+        ts = json.loads((root / "campaigns" / "era-test" / "save" / "time-state.json").read_text("utf-8"))
+        assert ts["clock"]["local_datetime"].startswith("1916-12"), f"ww1 era 时钟未指向 1916-12: {ts['clock']['local_datetime']}"

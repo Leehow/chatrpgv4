@@ -313,6 +313,12 @@ def _initialize_campaign_runtime_files(
     )
     # Time-state: derive initial clock from era or explicit start_clock
     _ERA_CLOCKS = {
+        "ww1": {
+            "calendar_mode": "gregorian",
+            "local_datetime": "1916-12-12T06:30:00",
+            "timezone": "Europe/Rome",
+            "display": "1916-12-12 06:30",
+        },
         "1920s": {
             "calendar_mode": "gregorian",
             "local_datetime": "1925-01-15T20:00:00",
