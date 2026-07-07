@@ -46,6 +46,19 @@ def campaign(tmp_path):
     return camp
 
 
+@pytest.fixture
+def campaign_with_inv(campaign):
+    """A campaign with a seeded investigator-state for inv1."""
+    inv_dir = campaign / "save" / "investigator-state"
+    inv_dir.mkdir(parents=True, exist_ok=True)
+    (inv_dir / "inv1.json").write_text(json.dumps({
+        "schema_version": 1, "investigator_id": "inv1",
+        "current_hp": 12, "current_san": 55, "current_mp": 11,
+        "conditions": [], "indefinite_insane": False,
+    }), encoding="utf-8")
+    return campaign
+
+
 def _seed_for_bout_duration(target_hours: int) -> int:
     """Find a seed whose _trigger_temporary_insanity duration == target_hours.
 
@@ -188,8 +201,10 @@ def test_end_day_resets_counter_without_time_layer(tmp_path):
 # --------------------------------------------------------------------------- #
 # Full flow: bout -> time passes -> safe rest -> trigger fires -> recover
 # --------------------------------------------------------------------------- #
-def test_full_flow_trigger_fires_after_safe_rest(campaign):
-    """End-to-end: bout schedules trigger; after due time + safe rest it fires."""
+def test_full_flow_trigger_fires_after_safe_rest(campaign_with_inv):
+    """End-to-end: bout schedules trigger; after due time + safe rest the
+    handler actually runs recover_temporary() and clears the condition."""
+    campaign = campaign_with_inv
     coc_time.advance_time(campaign, 0, decision_id="d0", reason="start")  # baseline 0
     hours = 2
     seed = _seed_for_bout_duration(hours)
@@ -198,6 +213,7 @@ def test_full_flow_trigger_fires_after_safe_rest(campaign):
         campaign_dir=campaign)
     s._trigger_temporary_insanity("horror", alone=False, module_bout_override=None)
     assert s.temporary_insane is True
+    s.save(campaign)  # persist so the handler can rebuild the session
 
     # Advance past the due time (2h = 120 min) but stay unsafe -> deferred
     coc_time.set_unsafe(campaign)
@@ -205,9 +221,85 @@ def test_full_flow_trigger_fires_after_safe_rest(campaign):
     due = coc_time.peek_due_triggers(campaign)
     assert len(due) == 1  # still pending (unsafe)
 
-    # Now reach a safe place and rest -> trigger fires
+    # Now reach a safe place and rest -> trigger fires AND the handler runs
     coc_time.mark_safe_rest(campaign, "inv1")
     fired = coc_time.process_due_triggers(campaign)
     assert len(fired) == 1
     assert fired[0]["status"] == "fired"
     assert fired[0]["handler"] == "recover_temporary_insanity"
+    # The handler actually executed recover_temporary() and reported it.
+    assert fired[0].get("dispatch_outcome", {}).get("recovered") is True
+    # And the persisted snapshot reflects the cleared condition.
+    snap = json.loads((campaign / "save" / "sanity.json").read_text(encoding="utf-8"))
+    assert snap["temporary_insane"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Handler dispatch: treatment trigger + indefinite insanity recovery
+# --------------------------------------------------------------------------- #
+def test_indefinite_insanity_schedules_weekly_treatment(campaign):
+    """Triggering indefinite insanity schedules a weekly treatment trigger."""
+    s = coc_sanity.SanitySession(
+        "inv1", san_max=60, int_value=50, rng=random.Random(1),
+        campaign_dir=campaign)
+    s._trigger_indefinite_insanity()
+    triggers = coc_time._read_json(coc_time._triggers_path(campaign))["triggers"]
+    treatment = [t for t in triggers if t.get("handler") == "apply_psychoanalysis_treatment"]
+    assert len(treatment) == 1
+    assert treatment[0]["policy"] == "auto_apply_if_safe"
+    assert treatment[0]["payload"]["condition"] == "indefinite_insane"
+    # Due ~1 week (7*24*60 = 10080 min) from now (elapsed 0).
+    assert treatment[0]["due_elapsed_minutes"] == 7 * 24 * 60
+
+
+def test_treatment_handler_dispatch_recovers_san(campaign_with_inv):
+    """When the weekly treatment trigger fires, PsychotherapySession runs and
+    the recovered SAN is written back to investigator-state."""
+    campaign = campaign_with_inv
+    # Seed an investigator in indefinite insanity with a Psychoanalysis skill.
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv["current_san"] = 40
+    inv["max_san"] = 60
+    inv["indefinite_insane"] = True
+    inv["psychoanalysis_skill"] = 70  # high skill → likely success
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+
+    # Schedule a treatment trigger due now.
+    coc_time.schedule_trigger(campaign, {
+        "kind": "treatment", "scope": "investigator", "target_id": "inv1",
+        "due_elapsed_minutes": 0, "policy": "auto_apply",
+        "handler": "apply_psychoanalysis_treatment",
+        "payload": {"condition": "indefinite_insane"},
+    })
+    coc_time.mark_safe_rest(campaign, "inv1")
+    fired = coc_time.process_due_triggers(campaign)
+    assert len(fired) == 1
+    outcome = fired[0].get("dispatch_outcome", {})
+    # SAN moved (recovered >= 0; with skill 70 it should usually gain).
+    assert "san_after" in outcome
+    inv_after = json.loads(inv_path.read_text(encoding="utf-8"))
+    assert inv_after["current_san"] == outcome["san_after"]
+    assert inv_after["current_san"] >= 40  # never lost SAN from treatment success
+
+
+def test_handler_dispatch_failure_does_not_block_time(campaign_with_inv, monkeypatch):
+    """A handler that raises must not block time advance; the error is recorded."""
+    campaign = campaign_with_inv
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated handler crash")
+    # Sabotage the lazy loader so _dispatch_handler blows up.
+    monkeypatch.setattr(coc_time, "_load_sibling_script", boom)
+
+    coc_time.schedule_trigger(campaign, {
+        "kind": "treatment", "scope": "investigator", "target_id": "inv1",
+        "due_elapsed_minutes": 0, "policy": "auto_apply",
+        "handler": "apply_psychoanalysis_treatment", "payload": {},
+    })
+    # Time advance must still complete despite the handler crash.
+    result = coc_time.advance_time(campaign, 10, decision_id="d1", reason="move on")
+    fired = result["fired_triggers"]
+    assert len(fired) == 1
+    assert fired[0]["status"] == "fired"
+    assert "RuntimeError" in fired[0].get("dispatch_error", "")
