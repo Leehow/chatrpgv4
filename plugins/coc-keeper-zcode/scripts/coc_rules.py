@@ -242,12 +242,17 @@ def _json_copy(value: Any) -> Any:
     return value
 
 
-def the_haunting_rules() -> dict[str, Any]:
-    table = load_rule_table("the-haunting")
+def module_rules(scenario_id: str) -> dict[str, Any]:
+    table = load_rule_table(scenario_id)
     return {
         "scenario_id": str(table["scenario_id"]),
         "rules": _json_copy(table["rules"]),
     }
+
+
+def the_haunting_rules() -> dict[str, Any]:
+    """Backward-compatible wrapper; prefer module_rules('the-haunting')."""
+    return module_rules("the-haunting")
 
 
 def _threshold_value(value: int, key: str) -> int:

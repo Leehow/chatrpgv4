@@ -43,6 +43,14 @@ def now_iso() -> str:
 
 
 def coc_root(root: Path) -> Path:
+    # Idempotent: if `root` already points at the `.coc` directory, use it
+    # directly; otherwise treat it as the workspace root containing `.coc/`.
+    # This keeps coc_state.coc_root consistent with coc_starter._coc_root so
+    # callers may pass either a workspace root or an already-resolved `.coc`
+    # directory.
+    root = Path(root)
+    if root.name == ".coc":
+        return root
     return root / ".coc"
 
 
@@ -305,6 +313,12 @@ def _initialize_campaign_runtime_files(
     )
     # Time-state: derive initial clock from era or explicit start_clock
     _ERA_CLOCKS = {
+        "ww1": {
+            "calendar_mode": "gregorian",
+            "local_datetime": "1916-12-12T06:30:00",
+            "timezone": "Europe/Rome",
+            "display": "1916-12-12 06:30",
+        },
         "1920s": {
             "calendar_mode": "gregorian",
             "local_datetime": "1925-01-15T20:00:00",

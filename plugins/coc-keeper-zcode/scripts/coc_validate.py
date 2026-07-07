@@ -32,6 +32,7 @@ REQUIRED_RULE_FILES = [
     "success-levels.json",
     "sanity.json",
     "the-haunting.json",
+    "the-white-war.json",
     "time-costs.json",
     "weapons.json",
     "monsters.json",

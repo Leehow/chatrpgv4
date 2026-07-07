@@ -1,0 +1,15 @@
+{
+  "pacing_curve": [
+    {"scene_id": "mission-briefing", "tension_target": "low", "horror_stage": "ordinary", "note": "Routine orders; the wrongness is only a rumor the patrol hasn't met."},
+    {"scene_id": "crossing-saddle", "tension_target": "low", "horror_stage": "ordinary", "note": "Standard wartime peril; nothing unnatural yet."},
+    {"scene_id": "austrian-positions", "tension_target": "medium", "horror_stage": "wrongness", "note": "The abandonment is wrong; guns turned inward signal something is off."},
+    {"scene_id": "glacier-tunnels", "tension_target": "medium", "horror_stage": "wrongness", "note": "Signs of panicked retreat deepen the unease."},
+    {"scene_id": "blast-chamber", "tension_target": "high", "horror_stage": "pattern", "note": "The massacre and the shaft crystallize the threat."},
+    {"scene_id": "whistle-approaches", "tension_target": "high", "horror_stage": "pattern", "note": "The sound closing in confirms the threat is animate."},
+    {"scene_id": "blizzard-withdrawal", "tension_target": "climax", "horror_stage": "revelation", "note": "Full flight under unnatural pursuit."},
+    {"scene_id": "via-ferrata-climb", "tension_target": "high", "horror_stage": "revelation", "note": "Desperate physical escape; tension held below the pursuit climax."},
+    {"scene_id": "shelter-night-siege", "tension_target": "climax", "horror_stage": "revelation", "note": "Sustained siege; the entity's nature is laid bare."},
+    {"scene_id": "dawn-counterstroke", "tension_target": "climax", "horror_stage": "revelation", "note": "Decisive action; survival hinges on the chosen option."},
+    {"scene_id": "aftermath-white-friday", "tension_target": "low", "horror_stage": "revelation", "note": "Tension releases but the horror stage holds — the disaster is revealed, not resolved."}
+  ]
+}
