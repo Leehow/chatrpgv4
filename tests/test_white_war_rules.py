@@ -65,3 +65,39 @@ def test_weapons_have_7e_stats(white_war_table):
     ids = {w["weapon_id"] for w in white_war_table["weapons"]}
     assert "mannlicher_carcano_rifle" in ids
     assert "beretta_9mm_pistol" in ids
+
+
+def test_rule_index_contains_white_war_entries():
+    """所有 module.white_war.* 规则登记进 rule-index.json。"""
+    index = json.loads((RULES_DIR / "rule-index.json").read_text(encoding="utf-8"))
+    ids = {r["id"] for r in index["rules"]}
+    expected = {
+        "module.white_war.polyp_horror",
+        "module.white_war.cold_exposure",
+        "module.white_war.lethality_vs_semi_material",
+        "module.white_war.daylight_penalty",
+        "module.white_war.conclusion_sanity_rewards",
+        "module.white_war.avalanche_damage",
+    }
+    missing = expected - ids
+    assert not missing, f"rule-index 缺少: {missing}"
+
+
+def test_rule_index_white_war_entries_have_correct_source_table():
+    index = json.loads((RULES_DIR / "rule-index.json").read_text(encoding="utf-8"))
+    for r in index["rules"]:
+        if r["id"].startswith("module.white_war."):
+            assert r["source_table"] == "the-white-war.json", f"{r['id']} source_table 错误"
+            assert r["category"] == "module_rule", f"{r['id']} category 错误"
+            assert r["module"] == "The White War", f"{r['id']} module 字段错误"
+
+
+def test_required_rule_files_includes_white_war():
+    """coc_validate.py 的 REQUIRED_RULE_FILES 必须含 the-white-war.json，否则校验报 missing。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "coc_validate", PLUGIN_ROOT / "scripts" / "coc_validate.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert "the-white-war.json" in mod.REQUIRED_RULE_FILES

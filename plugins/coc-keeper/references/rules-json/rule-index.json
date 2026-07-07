@@ -778,6 +778,78 @@
         ],
         "skill": "Psychoanalysis"
       }
+    },
+    {
+      "id": "module.white_war.polyp_horror",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Polyp Horror stat block (OGC, source PDF p8-10). Semi-material; tentacle slash Lethality 50% + knock down; wind blast; ignores armor; SAN 1D6/1D12; retreats at <=20 HP.",
+      "numeric": {
+        "str": 100,
+        "con": 100,
+        "dex": 15,
+        "int": 25,
+        "pow": 30,
+        "hp": 100,
+        "san_loss": "1D6/1D12",
+        "retreat_below_hp": 20
+      }
+    },
+    {
+      "id": "module.white_war.cold_exposure",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Cold exposure rules (OGC, source PDF p3-5). Outdoor -30C (-40C windchill); 1D8 HP per 5 min; tunnel interior 0C.",
+      "numeric": {
+        "outdoor_temp_celsius": -30,
+        "hp_damage_per_interval": "1D8",
+        "interval_minutes": 5
+      }
+    },
+    {
+      "id": "module.white_war.lethality_vs_semi_material",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Lethality vs semi-material entities (OGC). Lethality <15% no damage; >=15% even roll = HP damage equal to rating, odd = pass through.",
+      "numeric": {
+        "lethality_threshold": 15
+      }
+    },
+    {
+      "id": "module.white_war.daylight_penalty",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Polyp Horror daylight penalty (OGC). -20% all skills in daylight; wind reactivation needs 1 round prep.",
+      "numeric": {
+        "all_skills_penalty_percent": -20
+      }
+    },
+    {
+      "id": "module.white_war.conclusion_sanity_rewards",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Conclusion SAN rewards (OGC). Forced entity retreat +1D6; mission complete +1D3; truth suppressed +1D3; White Friday guilt 0/1D6.",
+      "numeric": {
+        "forced_retreat": "1D6",
+        "mission_complete": "1D3",
+        "truth_suppressed": "1D3"
+      }
+    },
+    {
+      "id": "module.white_war.avalanche_damage",
+      "category": "module_rule",
+      "module": "The White War",
+      "source_table": "the-white-war.json",
+      "source_note": "Avalanche damage vs Polyp Horror (OGC). 10D6 damage; entity not immune; STR x5 to avoid being swept.",
+      "numeric": {
+        "damage": "10D6",
+        "entity_not_immune": true
+      }
     }
   ]
 }
