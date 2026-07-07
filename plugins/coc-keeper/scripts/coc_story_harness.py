@@ -116,12 +116,27 @@ def run_profile(profile_path: Path, campaign_dir: Path, character_path: Path,
 
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
     rng = random.Random(profile.get("rng_seed", 42))
+    # Optional intent-router enrichment: when a profile opts in with
+    # ``use_intent_router: true``, parse the raw player_intent into the 6-field
+    # rich structure and pass it to the director. Offline tests install a
+    # fixture evaluator (Constitution-permitted); without one the default
+    # LLMIntentEvaluator runs (and would need an external LLM to fill the
+    # result file). Default: off, preserving the legacy single-class path.
+    player_intent_rich = None
+    if profile.get("use_intent_router"):
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location(
+            "coc_intent_router", P(__file__).parent / "coc_intent_router.py")
+        coc_intent_router = _ilu.module_from_spec(_spec); _spec.loader.exec_module(coc_intent_router)
+        player_intent_rich = coc_intent_router.parse_intent(
+            profile["player_intent"], active_scene=None)
     ctx = coc_story_director.build_director_context(
         campaign_dir=campaign_dir, character_path=character_path,
         investigator_id=investigator_id,
         player_intent=profile["player_intent"],
         player_intent_class=profile.get("player_intent_class", "investigate"),
         rng=rng,
+        player_intent_rich=player_intent_rich,
     )
     # apply profile signal overrides (e.g. simulate fumble)
     for k, v in profile.get("signal_overrides", {}).items():

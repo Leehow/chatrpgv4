@@ -55,8 +55,12 @@ INTENT_EVAL_RESULT = "intent-eval-result.json"
 _DEFAULT_ARTIFACTS_DIR = Path(__file__).resolve().parent / ".intent-eval"
 
 # The canonical primary_intent enum (machine-controlled vocabulary).
+# Includes the director-specific classes (ambiguous/montage/cast) so the
+# router can feed the director's _base_score without making any action
+# branch unreachable.
 _PRIMARY_INTENT_ENUM = (
     "investigate", "social", "combat", "flee", "meta", "stuck", "idle",
+    "ambiguous", "montage", "cast",
 )
 
 

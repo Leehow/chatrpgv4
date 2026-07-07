@@ -72,14 +72,26 @@ def build_director_context(
     player_intent: str,
     player_intent_class: str,
     rng: random.Random | None = None,
+    player_intent_rich: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble DirectorContext: rule signals + active scene + scenario graph.
 
     Read-only. Pulls investigator-state, character, world-state, flags,
     pacing-state, and the 7 scenario story-graph files.
+
+    ``player_intent_rich`` is an optional enrichment dict (the 6-field
+    structure from coc_intent_router.parse_intent: primary_intent,
+    secondary_intents, target_entities, risk_posture,
+    explicit_roll_request, player_hypothesis). When provided, it augments
+    scoring (see ``_base_score``) and memory retrieval; when None, behavior
+    is identical to the legacy single-class path.
     """
     rng = rng or random.Random()
     save = campaign_dir / "save"
+    # When a rich intent is supplied, derive the legacy single class from it
+    # so _base_score's existing branches and turn_input stay consistent.
+    if player_intent_rich and "primary_intent" in player_intent_rich:
+        player_intent_class = player_intent_rich["primary_intent"]
     scenario = campaign_dir / "scenario"
 
     inv_state = _read_json(save / "investigator-state" / f"{investigator_id}.json", {})
@@ -113,6 +125,7 @@ def build_director_context(
             bout_active="bout_active" in conditions,
             lost_this_event=inv_state.get("san_lost_this_event", 0),
         ),
+        "indefinite_insane": bool(inv_state.get("indefinite_insane", False)),
         "credit_tier": coc_rule_signals.read_credit_tier(credit_rating),
         "credit_rating": credit_rating,  # raw value for roll_npc_reaction
         "app": app,  # raw value for roll_npc_reaction
@@ -157,6 +170,7 @@ def build_director_context(
         "investigator_id": investigator_id,
         "player_intent": player_intent,
         "player_intent_class": player_intent_class,
+        "player_intent_rich": player_intent_rich,
         "active_scene_id": active_scene_id,
         "active_scene": active_scene,
         "structure_type": module_meta.get("structure_type", "branching_investigation"),
@@ -242,7 +256,18 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
                 for c in f.get("clocks", []))
             for f in fronts
         )
-        return 0.8 if (near_full or sig["stalled_turns"] >= 1) else 0.2
+        base = 0.8 if (near_full or sig["stalled_turns"] >= 1) else 0.2
+        # Rich-intent risk posture adjustment: a reckless player invites more
+        # pressure (clocks tick faster toward them); a cautious player tempers
+        # it. No-op when rich intent is absent (legacy single-class path).
+        rich = ctx.get("player_intent_rich")
+        if rich:
+            posture = rich.get("risk_posture", "neutral")
+            if posture == "reckless":
+                base = min(0.95, base + 0.1)
+            elif posture == "cautious":
+                base = max(0.05, base - 0.1)
+        return base
 
     if action == "CHARACTER":
         npcs_in_scene = scene.get("npc_ids", [])
@@ -630,6 +655,14 @@ def _retrieve_memory_for_ctx(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     entities = ctx.get("memory_query_entities") or _derive_memory_entities(ctx)
     cues = ctx.get("memory_query_cues") or [ctx.get("player_intent", "")]
     tags = ctx.get("memory_query_tags") or []
+    # Rich-intent enrichment: the player's explicit target entities sharpen
+    # memory recall (e.g. "the neighbor" surfaces neighbor-related cards).
+    # No-op when rich intent is absent.
+    rich = ctx.get("player_intent_rich")
+    if rich and not ctx.get("memory_query_entities"):
+        for ent in rich.get("target_entities") or []:
+            if ent and ent not in entities:
+                entities.append(ent)
     cards = coc_memory.retrieve_memory_cards(
         campaign_dir=Path(campaign_dir),
         query_entities=[e for e in entities if e],

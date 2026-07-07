@@ -272,3 +272,28 @@ def test_llm_evaluator_rejects_invalid_primary_intent(tmp_path):
 
     with pytest.raises(router.IntentEvalError, match="not in allowed enum"):
         evaluator.classify("text", None)
+
+
+# ---------------------------------------------------------------------------
+# Enum completeness (director-specific classes must be reachable)
+# ---------------------------------------------------------------------------
+
+def test_primary_intent_enum_includes_director_classes():
+    """The enum must include ambiguous/montage/cast so the director's
+    _base_score branches that check those classes are reachable when the
+    router feeds the director."""
+    for cls in ("ambiguous", "montage", "cast"):
+        assert cls in router._PRIMARY_INTENT_ENUM, f"{cls} missing from enum"
+
+
+def test_fixture_can_return_director_specific_classes():
+    """A fixture evaluator can return the director-specific intent classes."""
+    for cls in ("ambiguous", "montage", "cast"):
+        fixture = FixtureIntentEvaluator(result={
+            "primary_intent": cls,
+            "secondary_intents": [], "target_entities": [],
+            "risk_posture": "neutral", "explicit_roll_request": False,
+            "player_hypothesis": None,
+        })
+        router.set_intent_evaluator(fixture)
+        assert router.parse_intent("anything")["primary_intent"] == cls
