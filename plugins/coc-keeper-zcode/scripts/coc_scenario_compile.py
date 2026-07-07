@@ -49,6 +49,15 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             errors.append(f"scene '{scene.get('scene_id')}' missing dramatic_question")
         if not scene.get("scene_id"):
             errors.append("scene missing scene_id")
+        # on_enter warnings: validate structure when present (soft, backward-compat).
+        on_enter = scene.get("on_enter")
+        if isinstance(on_enter, dict):
+            for trig in (on_enter.get("san_triggers") or []):
+                if isinstance(trig, dict) and not trig.get("san_loss_fail_expr"):
+                    warnings.append(f"scene '{scene.get('scene_id')}' san_trigger missing san_loss_fail_expr")
+            for ct in (on_enter.get("clock_ticks") or []):
+                if isinstance(ct, dict) and not ct.get("clock_id"):
+                    warnings.append(f"scene '{scene.get('scene_id')}' clock_tick missing clock_id")
 
     clue_graph = _read(scenario_dir / "clue-graph.json")
     for concl in clue_graph.get("conclusions", []):
