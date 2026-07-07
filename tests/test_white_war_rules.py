@@ -101,3 +101,28 @@ def test_required_rule_files_includes_white_war():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert "the-white-war.json" in mod.REQUIRED_RULE_FILES
+
+
+def test_module_rules_loads_by_scenario_id():
+    """module_rules('the-white-war') 应返回该模组的 rules dict。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "coc_rules", PLUGIN_ROOT / "scripts" / "coc_rules.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    result = mod.module_rules("the-white-war")
+    assert result["scenario_id"] == "the-white-war"
+    assert "polyp_horror" in result["rules"]
+
+
+def test_the_haunting_rules_backward_compat():
+    """the_haunting_rules() 薄包装仍可用。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "coc_rules", PLUGIN_ROOT / "scripts" / "coc_rules.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    result = mod.the_haunting_rules()
+    assert result["scenario_id"] == "the-haunting"
