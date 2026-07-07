@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
-"""Tests for coc_intent_router: keyword-based intent parsing."""
+"""Tests for coc_intent_router: Semantic Matcher Constitution compliant.
+
+The router no longer does keyword matching for intent classification — that
+would violate the Constitution (docs/superpowers/specs/2026-07-03-coc-keeper-
+design.md:541). Semantic judgments are delegated to an ``IntentEvaluator``
+(Protocol). These tests inject a fixture evaluator (as the Constitution
+permits) and verify:
+
+  - the Protocol wiring (an injected evaluator's judgment is returned),
+  - the machine-controlled carve-outs (empty → idle, '[' → meta) that do not
+    depend on text meaning,
+  - the LLM file-mediated path's compliance checks (missing result raises,
+    provenance sha256 mismatch raises, schema violations raise).
+"""
 import importlib.util
+import json
+from pathlib import Path
 
 import pytest
 
@@ -15,83 +30,245 @@ def _load(name, rel):
 router = _load("coc_intent_router", "plugins/coc-keeper/scripts/coc_intent_router.py")
 
 
-def test_investigate_primary():
-    r = router.parse_intent("我检查一下门框有没有痕迹")
-    assert r["primary_intent"] == "investigate"
+@pytest.fixture(autouse=True)
+def _clear_evaluator():
+    """Ensure each test starts with the default evaluator (no leakage)."""
+    router.set_intent_evaluator(None)
+    yield
+    router.set_intent_evaluator(None)
 
 
-def test_social_primary():
+# ---------------------------------------------------------------------------
+# Fixture evaluator (mirrors coc_playtest_suite's FixtureSemanticEvaluator)
+# ---------------------------------------------------------------------------
+
+class FixtureIntentEvaluator:
+    """A deterministic stand-in for the LLM, recording what it was asked."""
+
+    evaluator_id = router.LLM_INTENT_EVALUATOR_ID
+
+    def __init__(self, result: dict | None = None) -> None:
+        self.calls: list[tuple[str, dict | None]] = []
+        self._result = result or {
+            "primary_intent": "investigate",
+            "secondary_intents": ["avoid_risk"],
+            "target_entities": ["backyard"],
+            "risk_posture": "cautious",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+        }
+
+    def classify(self, player_text: str, active_scene: dict | None) -> dict:
+        self.calls.append((player_text, active_scene))
+        return dict(self._result)
+
+
+# ---------------------------------------------------------------------------
+# Protocol wiring
+# ---------------------------------------------------------------------------
+
+def test_injected_evaluator_judgment_is_returned():
+    """parse_intent delegates to the injected evaluator (Protocol wiring)."""
+    fixture = FixtureIntentEvaluator(result={
+        "primary_intent": "social",
+        "secondary_intents": ["social_followup"],
+        "target_entities": ["neighbor"],
+        "risk_posture": "neutral",
+        "explicit_roll_request": False,
+        "player_hypothesis": "邻居可能知道些什么",
+    })
+    router.set_intent_evaluator(fixture)
+
     r = router.parse_intent("我去问问邻居昨晚听到了什么")
     assert r["primary_intent"] == "social"
     assert "neighbor" in r["target_entities"]
+    assert r["player_hypothesis"] == "邻居可能知道些什么"
+    # The fixture received the raw text + scene.
+    assert fixture.calls == [("我去问问邻居昨晚听到了什么", None)]
 
 
-def test_combat_primary():
-    r = router.parse_intent("我攻击那个邪教徒")
-    assert r["primary_intent"] == "combat"
+def test_active_scene_is_passed_to_evaluator():
+    """The scene dict flows through to the evaluator for target anchoring."""
+    fixture = FixtureIntentEvaluator()
+    router.set_intent_evaluator(fixture)
+    scene = {"available_clues": ["clue-1"], "npc_ids": ["npc-a"]}
+
+    router.parse_intent("some text", active_scene=scene)
+    assert fixture.calls[-1] == ("some text", scene)
 
 
-def test_meta_detected():
-    r = router.parse_intent("[meta] 这个检定用什么技能？")
-    assert r["primary_intent"] == "meta"
+# ---------------------------------------------------------------------------
+# Machine-controlled carve-outs (allowed exact matches, no semantic judgment)
+# ---------------------------------------------------------------------------
 
+def test_empty_text_defaults_to_idle_without_evaluator():
+    """Empty text is an enum-level machine signal; no evaluator is consulted."""
+    fixture = FixtureIntentEvaluator()
+    router.set_intent_evaluator(fixture)
 
-def test_stuck_detected():
-    r = router.parse_intent("我不知道该去哪里")
-    assert r["primary_intent"] == "stuck"
-
-
-def test_compound_intent_with_avoid_risk():
-    r = router.parse_intent("我不进去，先绕到后院看看窗户，小心点")
-    assert r["primary_intent"] == "investigate"
-    assert "avoid_risk" in r["secondary_intents"]
-    assert r["risk_posture"] == "cautious"
-    assert "backyard" in r["target_entities"]
-    assert "window" in r["target_entities"]
-
-
-def test_compound_with_social_followup():
-    r = router.parse_intent("我先检查门，然后再问邻居")
-    assert "social_followup" in r["secondary_intents"]
-
-
-def test_reckless_posture():
-    r = router.parse_intent("我直接冲进地下室")
-    assert r["risk_posture"] == "reckless"
-    assert "basement" in r["target_entities"]
-
-
-def test_explicit_roll_request():
-    r = router.parse_intent("我骰一个 Spot Hidden")
-    assert r["explicit_roll_request"] is True
-
-
-def test_player_hypothesis_extracted():
-    r = router.parse_intent("我觉得这房子里有什么东西在看着我们")
-    assert r["player_hypothesis"] is not None
-    assert "看着" in r["player_hypothesis"] or "东西" in r["player_hypothesis"]
-
-
-def test_no_hypothesis_returns_none():
-    r = router.parse_intent("我检查门")
-    assert r["player_hypothesis"] is None
-
-
-def test_empty_text_defaults_to_idle():
     r = router.parse_intent("")
     assert r["primary_intent"] == "idle"
     assert r["secondary_intents"] == []
     assert r["risk_posture"] == "neutral"
+    # The fixture was NOT consulted for empty text.
+    assert fixture.calls == []
 
 
-def test_target_entities_from_active_scene():
-    scene = {"available_clues": ["clue-door-scratch"], "npc_ids": ["npc-archivist"]}
-    r = router.parse_intent("我想看看 clue-door-scratch 和 npc-archivist", active_scene=scene)
-    assert "clue-door-scratch" in r["target_entities"]
-    assert "npc-archivist" in r["target_entities"]
+def test_none_text_defaults_to_idle():
+    r = router.parse_intent(None)
+    assert r["primary_intent"] == "idle"
 
 
-def test_english_keywords():
-    r = router.parse_intent("I want to search the library for old records")
+def test_whitespace_only_text_defaults_to_idle():
+    fixture = FixtureIntentEvaluator()
+    router.set_intent_evaluator(fixture)
+    assert router.parse_intent("   \n  ")["primary_intent"] == "idle"
+    assert fixture.calls == []
+
+
+def test_leading_bracket_is_meta_machine_marker():
+    """A leading '[' is the out-of-fiction command bracket — a system marker,
+    not a natural-language judgment, so it is an allowed exact match."""
+    fixture = FixtureIntentEvaluator()
+    router.set_intent_evaluator(fixture)
+
+    r = router.parse_intent("[meta] 这个检定用什么技能？")
+    assert r["primary_intent"] == "meta"
+    assert fixture.calls == []  # no semantic consultation needed
+
+
+# ---------------------------------------------------------------------------
+# LLM file-mediated path compliance (the default evaluator)
+# ---------------------------------------------------------------------------
+
+def _write_result(artifacts_dir: Path, request: dict, *, result_overrides: dict | None = None) -> dict:
+    """Write a well-formed result for the given request and return it."""
+    result = {
+        "evaluator_id": router.LLM_INTENT_EVALUATOR_ID,
+        "evaluation_provenance": {
+            "kind": "llm",
+            "request_sha256": router._json_sha256(request),
+            "reviewed_artifact": router.INTENT_EVAL_REQUEST,
+        },
+        "primary_intent": "investigate",
+        "secondary_intents": [],
+        "target_entities": [],
+        "risk_posture": "neutral",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "reasons": {"primary_intent": "Player described a searching action."},
+    }
+    if result_overrides:
+        result.update(result_overrides)
+    (artifacts_dir / router.INTENT_EVAL_RESULT).write_text(
+        json.dumps(result, ensure_ascii=False), encoding="utf-8"
+    )
+    return result
+
+
+def test_llm_evaluator_writes_request_and_reads_result(tmp_path):
+    """The default LLM path writes a request, reads the LLM's result."""
+    evaluator = router.LLMIntentEvaluator(artifacts_dir=tmp_path)
+
+    # Pre-place the result the external LLM would write. First, let the
+    # evaluator build+write its request so we can hash it for provenance.
+    request = evaluator._build_request("我检查门框", None)
+    evaluator._write_request(request)
+    _write_result(tmp_path, request)
+
+    r = evaluator.classify("我检查门框", None)
     assert r["primary_intent"] == "investigate"
-    assert "archive" in r["target_entities"]
+    # The request artifact was written with the Constitution embedded.
+    written_request = json.loads((tmp_path / router.INTENT_EVAL_REQUEST).read_text(encoding="utf-8"))
+    assert written_request["kind"] == "coc_player_intent_request"
+    assert "constitution" in written_request
+    assert "keyword_hits" in written_request["constitution"]["forbidden_methods"]
+
+
+def test_llm_evaluator_missing_result_raises(tmp_path):
+    """A missing result is missing semantic evidence — never a keyword fallback."""
+    evaluator = router.LLMIntentEvaluator(artifacts_dir=tmp_path)
+    with pytest.raises(router.IntentEvalError, match="missing_intent_eval_result"):
+        evaluator.classify("我检查门框", None)
+
+
+def test_llm_evaluator_provenance_sha_mismatch_raises(tmp_path):
+    """A result whose request_sha256 does not match the request is rejected."""
+    evaluator = router.LLMIntentEvaluator(artifacts_dir=tmp_path)
+    request = evaluator._build_request("我检查门框", None)
+    evaluator._write_request(request)
+    bogus = {
+        "evaluator_id": router.LLM_INTENT_EVALUATOR_ID,
+        "evaluation_provenance": {
+            "kind": "llm",
+            "request_sha256": "0" * 64,  # wrong hash
+            "reviewed_artifact": router.INTENT_EVAL_REQUEST,
+        },
+        "primary_intent": "investigate",
+        "reasons": {"primary_intent": "x"},
+    }
+    (tmp_path / router.INTENT_EVAL_RESULT).write_text(json.dumps(bogus), encoding="utf-8")
+
+    with pytest.raises(router.IntentEvalError, match="request_sha256 mismatch"):
+        evaluator.classify("我检查门框", None)
+
+
+def test_llm_evaluator_rejects_wrong_evaluator_id(tmp_path):
+    evaluator = router.LLMIntentEvaluator(artifacts_dir=tmp_path)
+    request = evaluator._build_request("text", None)
+    evaluator._write_request(request)
+    result = {
+        "evaluator_id": "some-other-evaluator",
+        "evaluation_provenance": {
+            "kind": "llm",
+            "request_sha256": router._json_sha256(request),
+            "reviewed_artifact": router.INTENT_EVAL_REQUEST,
+        },
+        "primary_intent": "investigate",
+        "reasons": {"primary_intent": "x"},
+    }
+    (tmp_path / router.INTENT_EVAL_RESULT).write_text(json.dumps(result), encoding="utf-8")
+
+    with pytest.raises(router.IntentEvalError, match="evaluator_id mismatch"):
+        evaluator.classify("text", None)
+
+
+def test_llm_evaluator_rejects_missing_reasons(tmp_path):
+    """Constitution requires recording reasons; a result without them is invalid."""
+    evaluator = router.LLMIntentEvaluator(artifacts_dir=tmp_path)
+    request = evaluator._build_request("text", None)
+    evaluator._write_request(request)
+    result = {
+        "evaluator_id": router.LLM_INTENT_EVALUATOR_ID,
+        "evaluation_provenance": {
+            "kind": "llm",
+            "request_sha256": router._json_sha256(request),
+            "reviewed_artifact": router.INTENT_EVAL_REQUEST,
+        },
+        "primary_intent": "investigate",
+        "reasons": {},  # empty — violates the "record reasons" requirement
+    }
+    (tmp_path / router.INTENT_EVAL_RESULT).write_text(json.dumps(result), encoding="utf-8")
+
+    with pytest.raises(router.IntentEvalError, match="reasons.primary_intent"):
+        evaluator.classify("text", None)
+
+
+def test_llm_evaluator_rejects_invalid_primary_intent(tmp_path):
+    evaluator = router.LLMIntentEvaluator(artifacts_dir=tmp_path)
+    request = evaluator._build_request("text", None)
+    evaluator._write_request(request)
+    result = {
+        "evaluator_id": router.LLM_INTENT_EVALUATOR_ID,
+        "evaluation_provenance": {
+            "kind": "llm",
+            "request_sha256": router._json_sha256(request),
+            "reviewed_artifact": router.INTENT_EVAL_REQUEST,
+        },
+        "primary_intent": "flirting",  # not in the enum
+        "reasons": {"primary_intent": "x"},
+    }
+    (tmp_path / router.INTENT_EVAL_RESULT).write_text(json.dumps(result), encoding="utf-8")
+
+    with pytest.raises(router.IntentEvalError, match="not in allowed enum"):
+        evaluator.classify("text", None)
