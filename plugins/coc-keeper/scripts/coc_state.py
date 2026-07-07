@@ -412,6 +412,7 @@ def _initialize_campaign_runtime_files(
             "discovered_clue_ids": [],
             "major_decisions": [],
             "current_status": None,
+            "san_triggers_fired": [],
             "memory_refs": ["memory/session-summaries.jsonl"],
             "log_refs": ["logs/events.jsonl", "logs/rolls.jsonl"],
             "investigator_state_refs": [],
@@ -421,6 +422,10 @@ def _initialize_campaign_runtime_files(
                 "memory": 0,
             },
         },
+    )
+    _write_json_if_missing(
+        campaign_dir / "save" / "threat-state.json",
+        {"schema_version": 1, "clocks": {}},
     )
     _write_json_if_missing(
         campaign_dir / "save" / "active-scene.json",

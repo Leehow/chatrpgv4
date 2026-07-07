@@ -172,6 +172,7 @@ def _settle_sanity_check(
         "roll": roll_value,
         "bout_triggered": bool(event.get("bout_triggered") or sess.temporary_insane),
         "source": source,
+        "san_trigger_id": request.get("san_trigger_id"),
     }
 
 
@@ -247,6 +248,7 @@ def _execute_rules_requests(
                     "san_after": san_result["san_after"],
                     "bout_triggered": san_result.get("bout_triggered", False),
                     "source": san_result.get("source", ""),
+                    "san_trigger_id": san_result.get("san_trigger_id"),
                 }
                 results.append(payload)
                 _append_jsonl(rolls_path, {"type": "roll", "actor": investigator_id,
