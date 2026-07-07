@@ -135,6 +135,65 @@ def test_scene_enter_ticks_clock(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Task 4: SAN auto-settlement (SanitySession integration in driver)
+# ---------------------------------------------------------------------------
+
+def _campaign_and_char_for_san(tmp_path: Path):
+    """Build a campaign + character for SAN execution tests."""
+    camp = tmp_path / "campaign"
+    (camp / "scenario").mkdir(parents=True)
+    (camp / "save" / "investigator-state").mkdir(parents=True)
+    (camp / "logs").mkdir(parents=True)
+    char_dir = tmp_path / "inv"
+    char_dir.mkdir()
+    char = {
+        "schema_version": 1, "id": "inv1", "name": "Test", "era": "1920s",
+        "characteristics": {"STR": 50, "CON": 50, "SIZ": 50, "DEX": 50, "APP": 50,
+                            "INT": 50, "POW": 80, "EDU": 50},
+        "derived": {"HP": 10, "MP": 16, "SAN": 80, "MOV": 8, "damage_bonus": 0, "build": 0, "Luck": 50},
+        "skills": {"Spot Hidden": 50},
+    }
+    char_path = char_dir / "character.json"
+    char_path.write_text(json.dumps(char), encoding="utf-8")
+    (camp / "save" / "world-state.json").write_text(json.dumps(
+        {"active_scene_id": "s1", "discovered_clue_ids": [], "san_triggers_fired": []}))
+    (camp / "save" / "pacing-state.json").write_text(json.dumps({"tension_level": "low", "turn_number": 0}))
+    # investigator-state for SanitySession sync target
+    (camp / "save" / "investigator-state" / "inv1.json").write_text(json.dumps(
+        {"current_san": 80, "indefinite_insane": False}))
+    return camp, char_path
+
+
+def test_sanity_check_settles_san_loss(tmp_path):
+    """A sanity_check request with san_loss params should deduct SAN via SanitySession."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coc_playtest_driver_san", SCRIPTS_DIR / "coc_playtest_driver.py")
+    drv = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(drv)
+
+    camp, char_path = _campaign_and_char_for_san(tmp_path)
+    import random
+    rng = random.Random(99)  # deterministic
+    plan = {"decision_id": "san1", "rules_requests": [
+        {"kind": "sanity_check", "skill": "SAN", "reason": "seeing the carnage",
+         "difficulty": "regular", "bonus_penalty_dice": 0,
+         "san_loss_success": 0, "san_loss_fail_expr": "1",
+         "source": "the blast chamber carnage", "creature_type": None}]}
+    results = drv._execute_rules_requests(camp, char_path, "inv1", plan, rng)
+
+    assert len(results) == 1
+    r = results[0]
+    assert r["kind"] == "sanity_check"
+    # SAN loss field present
+    assert "san_loss" in r
+    assert "san_after" in r
+    # investigator-state was synced with new SAN
+    inv = json.loads((camp / "save" / "investigator-state" / "inv1.json").read_text())
+    assert inv["current_san"] == r["san_after"]
+    assert inv["current_san"] <= 80  # lost some (or 0 on success, but <=80 always)
+
+
+# ---------------------------------------------------------------------------
 # Task 1: threat-state.json persistence layer
 # ---------------------------------------------------------------------------
 

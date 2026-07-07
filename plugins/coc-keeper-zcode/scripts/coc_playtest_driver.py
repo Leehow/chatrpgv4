@@ -109,6 +109,72 @@ def _record_intent_class(campaign_dir: Path, intent_class: str, keep: int = 8) -
     _write_json(pacing_path, pacing)
 
 
+def _settle_sanity_check(
+    campaign_dir: Path,
+    character: dict[str, Any],
+    investigator_id: str,
+    request: dict[str, Any],
+    rng: random.Random,
+) -> dict[str, Any] | None:
+    """Resolve a sanity_check through SanitySession — deduct SAN, trigger bout.
+
+    Returns a result dict with san_before/san_loss/san_after/outcome/roll,
+    or None if SanitySession is unavailable (caller falls back to plain roll).
+    """
+    try:
+        from coc_sanity import SanitySession
+    except Exception:
+        return None
+    chars = character.get("characteristics", {})
+    int_value = int(chars.get("INT", 50))
+    derived = character.get("derived", {})
+    cm = int(character.get("skills", {}).get("Cthulhu Mythos", 0))
+    # If a sanity snapshot exists, san_max comes from it; otherwise derive from POW.
+    sess = SanitySession.load(campaign_dir, investigator_id,
+                              int_value=int_value, rng=rng, cm_value=cm)
+    # If no prior snapshot, set san_max from the character sheet's derived SAN.
+    sanity_json = campaign_dir / "save" / "sanity.json"
+    if not sanity_json.exists():
+        sheet_san = int(derived.get("SAN", chars.get("POW", 50)))
+        sess.san_max = sheet_san
+        sess.san_current = sheet_san
+
+    san_before = sess.san_current
+    source = str(request.get("source") or request.get("reason") or "encountering the unnatural")
+    san_loss_success = int(request.get("san_loss_success", 0))
+    san_loss_fail_expr = str(request.get("san_loss_fail_expr", "1"))
+    creature_type = request.get("creature_type")
+
+    event = sess.sanity_check(
+        source=source,
+        san_loss_success=san_loss_success,
+        san_loss_fail_expr=san_loss_fail_expr,
+        creature_type=creature_type if isinstance(creature_type, str) else None,
+    )
+    sess.save(campaign_dir)
+
+    san_loss = int(event.get("san_loss", 0))
+    san_after = sess.san_current
+    outcome = "regular" if event.get("san_loss", san_loss) == san_loss_success and san_loss == san_loss_success else (
+        "failure" if san_loss > san_loss_success else "regular"
+    )
+    # The SanitySession event has the roll outcome — use it if available.
+    roll_outcome = event.get("roll_outcome") or event.get("outcome", "")
+    roll_value = event.get("roll", 0)
+    if isinstance(roll_outcome, str) and roll_outcome:
+        outcome = roll_outcome
+
+    return {
+        "san_before": san_before,
+        "san_loss": san_loss,
+        "san_after": san_after,
+        "outcome": outcome,
+        "roll": roll_value,
+        "bout_triggered": bool(event.get("bout_triggered") or sess.temporary_insane),
+        "source": source,
+    }
+
+
 def _target_for_request(character: dict[str, Any], request: dict[str, Any]) -> int:
     skill = str(request.get("skill", ""))
     skills = character.get("skills", {}) if isinstance(character.get("skills"), dict) else {}
@@ -153,6 +219,40 @@ def _execute_rules_requests(
         bonus_penalty = int(request.get("bonus_penalty_dice", 0) or 0)
         bonus = max(0, bonus_penalty)
         penalty = max(0, -bonus_penalty)
+
+        # SAN auto-settlement: when a sanity_check carries structured loss
+        # params, resolve it through SanitySession (deducts SAN, triggers
+        # bout/temp insanity, persists to save/sanity.json). Falls back to a
+        # plain percentile roll when params are absent (backward compat).
+        if kind == "sanity_check" and "san_loss_fail_expr" in request:
+            san_result = _settle_sanity_check(
+                campaign_dir, character, investigator_id, request, rng
+            )
+            if san_result is not None:
+                payload = {
+                    "roll_id": f"{plan.get('decision_id', 'turn')}-rule-{idx}",
+                    "decision_id": plan.get("decision_id"),
+                    "kind": "sanity_check",
+                    "skill": "SAN",
+                    "target": san_result["san_before"],
+                    "difficulty": "regular",
+                    "reason": request.get("reason"),
+                    "bonus_penalty_dice": 0,
+                    "roll": san_result["roll"],
+                    "effective_target": san_result["san_before"],
+                    "outcome": san_result["outcome"],
+                    "success": san_result["outcome"] in _SUCCESS_OUTCOMES,
+                    "san_loss": san_result["san_loss"],
+                    "san_before": san_result["san_before"],
+                    "san_after": san_result["san_after"],
+                    "bout_triggered": san_result.get("bout_triggered", False),
+                    "source": san_result.get("source", ""),
+                }
+                results.append(payload)
+                _append_jsonl(rolls_path, {"type": "roll", "actor": investigator_id,
+                                           "payload": payload, "ts": ts})
+                continue
+
         roll = coc_roll.percentile_check(
             target,
             difficulty=difficulty,
