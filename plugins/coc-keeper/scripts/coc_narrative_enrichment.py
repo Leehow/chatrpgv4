@@ -353,20 +353,34 @@ def build_stop_actionability_contract(
                 "source": "rule_results.roll_contract",
             })
 
+    # P0-3a: 把 storylet cue 作为 narration 抓手暴露，使 live 前台能看到 storylet 内容。
+    storylet_cues: list[str] = []
+    for move in _as_list(turn.get("storylet_moves")):
+        if isinstance(move, dict):
+            cue = _non_empty_str(move.get("cue") or move.get("title"))
+            if cue and cue not in storylet_cues:
+                storylet_cues.append(cue)
+    must_include = (turn.get("narrative_directives") or {}).get("must_include") or []
+    for cue in _as_list(must_include):
+        cue_text = _non_empty_str(cue)
+        if cue_text and cue_text not in storylet_cues:
+            storylet_cues.append(cue_text)
+
     return {
         "schema_version": _SCHEMA_VERSION,
         "why_stopped": why_stopped,
         "immediate_handles": handles,
         "handle_count": len(handles),
-        "must_surface_handles": bool(handles),
+        "storylet_cues": storylet_cues,
+        "must_surface_handles": bool(handles) or bool(storylet_cues),
         "pressure_if_ignored": _first_pressure_text(active_scene_state, contract),
         "npc_position": _npc_position_from_moves(turn),
         "forbidden_menu_rendering": True,
-        "requires_keeper_rewrite": not bool(handles),
+        "requires_keeper_rewrite": not bool(handles) and not bool(storylet_cues),
         "narration_rule": (
             "Before returning control to the player, surface the immediate_handles "
-            "as concrete diegetic objects, routes, NPC posture, or visible pressure. "
-            "Do not render a numbered menu unless the player asks."
+            "and storylet_cues as concrete diegetic objects, routes, NPC posture, "
+            "or visible pressure. Do not render a numbered menu unless the player asks."
         ),
         "source": "stop_actionability_contract",
     }

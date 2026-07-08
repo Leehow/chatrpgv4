@@ -541,3 +541,20 @@ def test_choice_frame_open_status_defaults_to_open_when_absent():
     frame = narr.build_choice_frame(scene)
     assert frame["is_real_fork"] is True
     assert frame["open_route_count"] == 2
+
+
+def test_stop_actionability_surfaces_storylet_cues_when_present():
+    turn = {
+        "storylet_moves": [{"cue": "气味不属于这里", "title": "wrong_smell"}],
+        "choice_frame": {"routes": [], "is_real_fork": False, "open_route_count": 0},
+        "narrative_directives": {"must_include": ["气味不属于这里"]},
+    }
+    contract = narr.build_stop_actionability_contract(turn, {}, stop_reason="awaiting_player_input")
+    assert "气味不属于这里" in contract["storylet_cues"]
+    assert contract["must_surface_handles"] is True
+
+
+def test_stop_actionability_empty_storylet_cues_when_absent():
+    turn = {"choice_frame": {"routes": [], "is_real_fork": False, "open_route_count": 0}}
+    contract = narr.build_stop_actionability_contract(turn, {}, stop_reason="awaiting_player_input")
+    assert contract["storylet_cues"] == []
