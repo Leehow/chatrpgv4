@@ -303,6 +303,7 @@ def build_stop_actionability_contract(
     *,
     stop_reason: str | None = None,
     max_handles: int = 3,
+    turn_focus: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the structured player-facing handhold required at a stop point.
 
@@ -327,6 +328,33 @@ def build_stop_actionability_contract(
             return
         seen.add(key)
         handles.append(handle)
+
+    # P0-4b: turn_focus 命中 visible_affordances 里的某条时，把它升为首个 handle
+    # (freshness: turn_focus)，优先于静态 visible_affordances / choice_frame.routes
+    # （那些可能是过时的开场老选项）。
+    if isinstance(turn_focus, dict):
+        focus_target_id = _non_empty_str(turn_focus.get("focus_target_id"))
+        if focus_target_id:
+            for affordance in _as_list(active_scene_state.get("visible_affordances")):
+                if not isinstance(affordance, dict):
+                    continue
+                aff_id = (
+                    _non_empty_str(affordance.get("route"))
+                    or _non_empty_str(affordance.get("route_id"))
+                    or _non_empty_str(affordance.get("id"))
+                )
+                if aff_id == focus_target_id:
+                    add_handle({
+                        "route_id": focus_target_id,
+                        "anchor": _non_empty_str(affordance.get("cue")) or focus_target_id,
+                        "affordance": _non_empty_str(affordance.get("cue")) or focus_target_id,
+                        "visible_benefit": affordance.get("visible_benefit"),
+                        "visible_cost": affordance.get("visible_cost"),
+                        "visible_risk": affordance.get("visible_risk"),
+                        "freshness": "turn_focus",
+                        "source": "turn_focus_contract",
+                    })
+                    break
 
     for index, affordance in enumerate(_as_list(active_scene_state.get("visible_affordances")), start=1):
         if isinstance(affordance, dict):
@@ -414,6 +442,9 @@ def build_turn_focus_contract(ctx: dict[str, Any]) -> dict[str, Any] | None:
     scene = ctx.get("active_scene") or {}
     affordances = [a for a in _as_list(scene.get("affordances")) if isinstance(a, dict)]
     if not affordances:
+        # P0-4b: live active-scene.json stores these under 'visible_affordances'.
+        affordances = [a for a in _as_list(scene.get("visible_affordances")) if isinstance(a, dict)]
+    if not affordances:
         return None
 
     # 优先从 action_atoms 的 topic 映射到一个 focus_axis
@@ -444,7 +475,14 @@ def build_turn_focus_contract(ctx: dict[str, Any]) -> dict[str, Any] | None:
     focus_target_id: str | None = None
     for affordance in affordances:
         if str(affordance.get("route_type") or "") == focus_axis:
-            focus_target_id = _non_empty_str(affordance.get("id")) or _non_empty_str(affordance.get("route_id"))
+            # P0-4b: affordance 的 id 字段在不同 fixture 里可能是 id / route / route_id。
+            # 取值顺序与 _actionability_handle_from_affordance 一致，确保
+            # focus_target_id 与最终 handle 的 route_id 相同。
+            focus_target_id = (
+                _non_empty_str(affordance.get("route"))
+                or _non_empty_str(affordance.get("route_id"))
+                or _non_empty_str(affordance.get("id"))
+            )
             if focus_target_id:
                 break
 

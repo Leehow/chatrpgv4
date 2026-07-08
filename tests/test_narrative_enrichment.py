@@ -669,3 +669,57 @@ def test_turn_focus_never_uses_player_text_substring():
     assert focus["focus_axis"] in narr._FOCUS_AXES
     # and must NOT be a substring of the free player text
     assert focus["focus_axis"] not in ctx["player_text"]
+
+
+def test_stop_actionability_turn_focus_promotes_fresh_handle():
+    turn = {
+        "choice_frame": {"routes": [], "is_real_fork": False, "open_route_count": 0},
+    }
+    active_scene = {
+        "visible_affordances": [
+            {"route": "ask-tenants", "cue": "问前租客", "route_type": "tenant_history"},
+            {"route": "enter-house", "cue": "进屋", "route_type": "direct_entry"},
+        ],
+    }
+    turn_focus = {
+        "focus_axis": "tenant_history",
+        "focus_target_id": "ask-tenants",
+        "focus_reason": "intent_router_structured_match:tenant_history",
+    }
+    contract = narr.build_stop_actionability_contract(
+        turn, active_scene, stop_reason="awaiting_player_input", turn_focus=turn_focus,
+    )
+    assert contract["immediate_handles"]
+    assert contract["immediate_handles"][0]["route_id"] == "ask-tenants"
+    assert contract["immediate_handles"][0]["freshness"] == "turn_focus"
+
+
+def test_stop_actionability_no_focus_falls_back_to_static():
+    turn = {"choice_frame": {"routes": []}}
+    active_scene = {
+        "visible_affordances": [{"route": "old-1", "cue": "老选项"}],
+    }
+    contract = narr.build_stop_actionability_contract(
+        turn, active_scene, stop_reason="awaiting_player_input", turn_focus=None,
+    )
+    # No focus → static fallback (old option still there)
+    assert contract["immediate_handles"][0]["route_id"] == "old-1"
+
+
+def test_turn_focus_reads_visible_affordances_fallback():
+    """build_turn_focus_contract must also read visible_affordances (the field
+    name used in active-scene.json), not only 'affordances'."""
+    ctx = {
+        "player_intent_rich": {
+            "primary_intent": "investigate",
+            "action_atoms": [{"id": "a1", "topic": "history"}],
+        },
+        "active_scene": {
+            "visible_affordances": [  # NOTE: visible_affordances, not affordances
+                {"id": "ask-tenants", "cue": "问前租客", "route_type": "tenant_history"},
+            ],
+        },
+    }
+    focus = narr.build_turn_focus_contract(ctx)
+    assert focus is not None
+    assert focus["focus_target_id"] == "ask-tenants"

@@ -515,11 +515,24 @@ def run_live_turn(
 
     active_scene_state = _read_json(campaign / "save" / "active-scene.json", {})
     final_turn = turns[-1] if turns else {}
+    # P0-4b: 用玩家本轮结构化意图算 turn_focus，让 stop_actionability 的首条
+    # handle 反映当前轮的 focus（而非过时的开场 visible_affordances）。
+    turn_focus = None
+    if hasattr(narrative_enrichment, "build_turn_focus_contract"):
+        focus_ctx = {
+            "player_intent_rich": choice.get("player_intent_rich"),
+            "active_scene": active_scene_state if isinstance(active_scene_state, dict) else {},
+        }
+        try:
+            turn_focus = narrative_enrichment.build_turn_focus_contract(focus_ctx)
+        except Exception:
+            turn_focus = None
     if hasattr(narrative_enrichment, "build_stop_actionability_contract"):
         stop_actionability = narrative_enrichment.build_stop_actionability_contract(
             final_turn,
             active_scene_state if isinstance(active_scene_state, dict) else {},
             stop_reason=stop_reason,
+            turn_focus=turn_focus,
         )
     else:
         stop_actionability = {"schema_version": 1, "immediate_handles": [], "must_surface_handles": False}
