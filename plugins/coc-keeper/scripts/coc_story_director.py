@@ -886,6 +886,27 @@ def _idea_roll_plan(ctx: dict[str, Any], action: str) -> dict[str, Any] | None:
     }
 
 
+def _low_agency_budget_exceeded(ctx: dict[str, Any]) -> bool:
+    """P1-1: True when the scene's low-agency beat count has reached its cap.
+
+    Cap resolution prefers ``compression_budget.max_beats`` (as written by
+    ``_compression_budget``), then falls back to ``progress_contract.
+    max_low_agency_turns`` (used by the bridge-exhausted rule), then defaults
+    to 4. Scene-agnostic: does not inspect scene_type / bridge kind.
+    """
+    scene = ctx.get("active_scene") or {}
+    max_beats = _compression_budget(scene).get("max_beats", 4)
+    contract = _progress_contract(scene)
+    fallback_turns = contract.get("max_low_agency_turns")
+    if fallback_turns:
+        try:
+            max_beats = max(max_beats, int(fallback_turns))
+        except (TypeError, ValueError):
+            pass
+    count = int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 0) or 0)
+    return count >= max_beats
+
+
 def _scene_exit_pressure_directive(
     ctx: dict[str, Any],
     action: str,
@@ -895,9 +916,12 @@ def _scene_exit_pressure_directive(
     if _blocking_rule_requests(rules_requests):
         return None
     scene = ctx.get("active_scene") or {}
+    continue_count = int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 0) or 0)
     reasons: list[str] = []
-    if _is_low_agency_continue(ctx) and int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 0) or 0) >= 2:
+    if _is_low_agency_continue(ctx) and continue_count >= 2:
         reasons.append("low_agency_repetition")
+    if _low_agency_budget_exceeded(ctx):
+        reasons.append("budget_exceeded")
     tags = _rich_intent_tags(ctx)
     if tags & _ROUTINE_PROGRESS_TAGS and not _available_reveal_clues(ctx):
         reasons.append("no_new_axis")
@@ -909,6 +933,7 @@ def _scene_exit_pressure_directive(
         "low_agency_repetition": "repetition_detected",
         "bridge_exhausted": "routine_exhausted",
         "no_new_axis": "no_new_axis",
+        "budget_exceeded": "budget_exceeded",
     }
     public_reasons = _ordered_unique(reason_map.get(reason, reason) for reason in reasons)
     state = "compress"
@@ -922,6 +947,8 @@ def _scene_exit_pressure_directive(
         "scene_goal_status": "exhausted" if "no_new_axis" in reasons else "open",
         "advance_until": list(_DRAMATIC_PROGRESS_ADVANCE_UNTIL),
         "must_change_state": True,
+        "low_agency_continue_count": continue_count,
+        "max_beats": _compression_budget(scene).get("max_beats", 4),
         "must_not": [
             "do not ask for another equivalent low-agency action",
             "do not repeat the same scene state with cosmetic wording",

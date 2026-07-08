@@ -929,6 +929,96 @@ def test_low_agency_continue_uses_scene_exit_pressure_v2_reason(tmp_path):
     assert "low_agency_repetition" not in reasons
 
 
+def test_low_agency_continue_exceeding_max_beats_forces_budget_exceeded(tmp_path):
+    """P1-1: when low_agency_continue_count >= compression_budget.max_beats,
+    the scene_exit_pressure directive emits a budget_exceeded reason and
+    must_change_state (forcing an exit from the indefinite routine loop)."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    # No new clues axis, no pressure, no bridge kind -> isolate the budget cap.
+    story["scenes"][0]["available_clues"] = []
+    story["scenes"][0].pop("pressure_moves", None)
+    story["scenes"][0]["progress_contract"] = {
+        "kind": "active_scene",
+        "compression_budget": {"min_beats": 1, "max_beats": 2, "max_minutes": 8},
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["follow", "follow"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+    rich = {
+        "primary_intent": "follow",
+        "secondary_intents": ["continue_existing_strategy"],
+        "target_entities": ["group"],
+        "action_atoms": [],
+    }
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我继续跟着",
+        player_intent_class="follow",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+    # count (3) >= max_beats (2) -> budget cap fires.
+    ctx["rule_signals"]["low_agency_continue_count"] = 3
+
+    plan = coc_story_director.generate_director_plan(
+        ctx, decision_id="budget-cap-exceeded"
+    )
+
+    pressure = plan["narrative_directives"]["scene_exit_pressure"]
+    assert "budget_exceeded" in pressure["internal_reasons"]
+    assert pressure["must_change_state"] is True
+
+
+def test_low_agency_continue_below_max_beats_does_not_emit_budget_exceeded(tmp_path):
+    """P1-1: below the cap, no budget_exceeded reason is added (no behavior change)."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["available_clues"] = []
+    story["scenes"][0].pop("pressure_moves", None)
+    story["scenes"][0]["progress_contract"] = {
+        "kind": "active_scene",
+        "compression_budget": {"min_beats": 1, "max_beats": 4, "max_minutes": 8},
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["follow"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+    rich = {
+        "primary_intent": "follow",
+        "secondary_intents": ["continue_existing_strategy"],
+        "target_entities": ["group"],
+        "action_atoms": [],
+    }
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我继续跟着",
+        player_intent_class="follow",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+    # count (2) < max_beats (4) -> cap does not fire.
+    ctx["rule_signals"]["low_agency_continue_count"] = 2
+
+    plan = coc_story_director.generate_director_plan(
+        ctx, decision_id="budget-cap-not-reached"
+    )
+
+    # Repetition reason may still fire (count>=2) but budget_exceeded must not.
+    pressure = plan["narrative_directives"].get("scene_exit_pressure")
+    if pressure:
+        assert "budget_exceeded" not in pressure["internal_reasons"]
+
+
 def test_dramatic_pacing_does_not_compress_when_roll_is_required(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     rich = {
