@@ -25,6 +25,11 @@ def test_style_guard_contract_requires_observable_behavior_before_interpretation
     assert "observable_before_interpretation" in guard["required_rules"]
     assert "rewrite_abstract_explanation_to_action" in guard["required_rules"]
     assert "crisis_scene_clarity" in guard["required_rules"]
+    assert "final_prose_guard_before_output" in guard["required_rules"]
+    final_pass = guard["final_output_pass"]
+    assert final_pass["required"] is True
+    assert final_pass["function"] == "guard_player_visible_text"
+    assert final_pass["applies_to"] == "player_visible_narration_only"
     assert guard["not_for"] == ["scene_routing", "storylet_selection", "rules_adjudication"]
 
 
@@ -117,6 +122,45 @@ def test_audit_flags_expository_choice_summary_in_player_visible_crisis_text():
     assert findings
     assert findings[0]["rule_id"] == "expository_choice_summary"
     assert findings[0]["severity"] == "rewrite"
+
+
+def test_audit_flags_cameraish_darkness_staging():
+    findings = coc_narration_style.audit_player_visible_text(
+        "布鲁诺没有回头，眼睛盯着通信壕里那段暗处。"
+    )
+
+    rule_ids = {finding["rule_id"] for finding in findings}
+    assert "camera_direction_staging" in rule_ids
+    assert "unnatural_spatial_phrase" in rule_ids
+
+
+def test_guard_rewrites_cameraish_darkness_before_player_output():
+    text = (
+        "布鲁诺没有回头，眼睛盯着通信壕里那段暗处。\n"
+        "“电话掩体。”他说，“最近的那个。先找个能看押俘虏的人，"
+        "再问问这根线到底通到谁手里。”"
+    )
+
+    guarded = coc_narration_style.guard_player_visible_text(text)
+
+    rule_ids = {finding["rule_id"] for finding in guarded["findings"]}
+    final = guarded["final_text"]
+    assert guarded["changed"] is True
+    assert "camera_direction_staging" in rule_ids
+    assert "unnatural_spatial_phrase" in rule_ids
+    assert "眼睛盯着通信壕里那段暗处" not in final
+    assert "那段暗处" not in final
+    assert "布鲁诺没看你" in final
+    assert "电话掩体" in final
+
+
+def test_guard_preserves_foreign_source_dialogue_when_rewriting_summary_voice():
+    text = "他断断续续地喊：“Nein... nicht hinunter... der Schrecken...” 这表明他还在害怕。"
+
+    guarded = coc_narration_style.guard_player_visible_text(text)
+
+    assert "Nein... nicht hinunter... der Schrecken..." in guarded["final_text"]
+    assert "这表明" not in guarded["final_text"]
 
 
 def test_audit_allows_natural_crisis_blocking_prose():

@@ -41,6 +41,26 @@ _AI_SUMMARY_PHRASES = (
     "这说明",
     "因此可以看出",
 )
+_CAMERA_DIRECTION_RE = re.compile(r"眼睛[^。！？\n]{0,12}盯着")
+_UNNATURAL_SPATIAL_PHRASES = (
+    "那段暗处",
+    "通信壕里那段暗处",
+)
+_ZH_FINAL_REWRITE_REPLACEMENTS = (
+    ("布鲁诺没有回头，眼睛盯着通信壕里那段暗处。", "布鲁诺没看你，仍盯着壕沟前面的暗弯。"),
+    ("没有回头，眼睛盯着通信壕里那段暗处", "没看你，仍盯着壕沟前面的暗弯"),
+    ("眼睛盯着通信壕里那段暗处", "盯着壕沟前面的暗弯"),
+    ("通信壕里那段暗处", "壕沟前面的暗弯"),
+    ("那段暗处", "那片阴影"),
+    ("眼睛盯着", "盯着"),
+    ("基于以上信息，", ""),
+    ("基于以上信息", ""),
+    ("当前目标转向", "眼下要做的事变成"),
+    ("二人推断", "你们判断"),
+    ("这表明", "看得出来，"),
+    ("这说明", "看得出来，"),
+    ("因此可以看出", "看得出来，"),
+)
 _CRISIS_RENDER_REQUIRED_SLOTS = [
     "viewpoint_anchor",
     "spatial_anchor",
@@ -156,6 +176,18 @@ def validate_crisis_scene_render_frame(frame: dict[str, Any]) -> list[dict[str, 
 
 def player_visible_style_guard_contract(language: str = "zh-Hans") -> dict[str, Any]:
     """Return explicit rules for guarding player-visible narration style."""
+    final_output_pass = {
+        "required": True,
+        "module": "coc_narration_style",
+        "function": "guard_player_visible_text",
+        "applies_to": "player_visible_narration_only",
+        "not_for": ["scene_routing", "storylet_selection", "rules_adjudication"],
+        "instruction": (
+            "Run this pass after director/enrichment/rules text has been drafted "
+            "and before any player-visible narration is sent. Rewrite findings "
+            "instead of exposing raw director, log, or blocking prose."
+        ),
+    }
     return {
         "language": language,
         "required_rules": [
@@ -163,7 +195,9 @@ def player_visible_style_guard_contract(language: str = "zh-Hans") -> dict[str, 
             "rewrite_abstract_explanation_to_action",
             "skill_interpretation_after_visible_evidence",
             "crisis_scene_clarity",
+            "final_prose_guard_before_output",
         ],
+        "final_output_pass": final_output_pass,
         "not_for": ["scene_routing", "storylet_selection", "rules_adjudication"],
         "instruction": (
             "Show observable behavior before interpretation. Replace abstract "
@@ -273,6 +307,31 @@ def audit_player_visible_text(text: str, language: str = "zh-Hans") -> list[dict
             })
             break
 
+    camera_match = _CAMERA_DIRECTION_RE.search(text)
+    if camera_match:
+        findings.append({
+            "rule_id": "camera_direction_staging",
+            "severity": "rewrite",
+            "match": camera_match.group(0),
+            "rewrite_directive": (
+                "Avoid camera-like body-part staging. Name the person and the "
+                "visible focus in one natural sentence."
+            ),
+        })
+
+    for phrase in _UNNATURAL_SPATIAL_PHRASES:
+        if phrase in text:
+            findings.append({
+                "rule_id": "unnatural_spatial_phrase",
+                "severity": "rewrite",
+                "match": phrase,
+                "rewrite_directive": (
+                    "Replace vague translated spatial phrasing with a concrete "
+                    "tabletop location the player can picture."
+                ),
+            })
+            break
+
     abstract_match = _ABSTRACT_METAPHOR_RE.search(text) or _RHETORICAL_EXPLANATION_RE.search(text)
     if abstract_match:
         findings.append({
@@ -287,3 +346,35 @@ def audit_player_visible_text(text: str, language: str = "zh-Hans") -> list[dict
         })
 
     return findings
+
+
+def guard_player_visible_text(text: str, language: str = "zh-Hans") -> dict[str, Any]:
+    """Audit and lightly rewrite drafted player-visible narration.
+
+    This is a final prose guard. It never routes story, chooses storylets,
+    adjudicates rules, or infers hidden facts; it only catches known surface
+    writing failures before narration leaves the Keeper.
+    """
+    original = "" if text is None else str(text)
+    findings = audit_player_visible_text(original, language)
+    final_text = original
+
+    if language == "zh-Hans" and findings:
+        for old, new in _ZH_FINAL_REWRITE_REPLACEMENTS:
+            final_text = final_text.replace(old, new)
+        final_text = re.sub(r"[ \t]{2,}", " ", final_text)
+        final_text = re.sub(r"，([。！？])", r"\1", final_text)
+        final_text = final_text.strip()
+
+    remaining_findings = audit_player_visible_text(final_text, language)
+    return {
+        "schema_version": 1,
+        "language": language,
+        "original_text": original,
+        "final_text": final_text,
+        "findings": findings,
+        "remaining_findings": remaining_findings,
+        "changed": final_text != original,
+        "passed": len(remaining_findings) == 0,
+        "not_for": ["scene_routing", "storylet_selection", "rules_adjudication"],
+    }

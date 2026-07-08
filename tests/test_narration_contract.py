@@ -171,6 +171,24 @@ def test_missing_player_facing_style_fails_check(tmp_path):
     assert "player_facing_style" in findings["player_facing_style_present"]["detail"]
 
 
+def test_player_facing_style_missing_final_output_pass_fails_check(tmp_path):
+    scenario_dir = _make_scenario(tmp_path)
+    plan = _good_plan()
+    guard = plan["narrative_directives"]["player_facing_style"]["style_guard"]
+    guard["required_rules"] = [
+        rule for rule in guard["required_rules"]
+        if rule != "final_prose_guard_before_output"
+    ]
+    del guard["final_output_pass"]
+
+    findings = cnc.assert_narration_ready(plan, scenario_dir)
+
+    assert findings["player_facing_style_present"]["passed"] is False
+    detail = findings["player_facing_style_present"]["detail"]
+    assert "final_prose_guard_before_output" in detail
+    assert "final_output_pass_ok=False" in detail
+
+
 def test_player_facing_style_contract_includes_repetition_compression_policy():
     style = cnc.player_facing_style_contract("zh-Hans")
 
@@ -182,6 +200,8 @@ def test_player_facing_style_contract_includes_repetition_compression_policy():
     assert "observable_behavior" in style["prefer"]
     assert "observable_before_interpretation" in style["style_guard"]["required_rules"]
     assert "crisis_scene_clarity" in style["style_guard"]["required_rules"]
+    assert "final_prose_guard_before_output" in style["style_guard"]["required_rules"]
+    assert style["style_guard"]["final_output_pass"]["function"] == "guard_player_visible_text"
     assert style["render_contract"]["frame_type"] == "crisis_scene_render"
     assert "connection_or_force" in style["render_contract"]["required_slots"]
 

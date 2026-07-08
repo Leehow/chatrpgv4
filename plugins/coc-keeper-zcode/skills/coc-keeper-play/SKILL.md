@@ -127,6 +127,8 @@ Show observable behavior before interpretation. Do not explain NPC mental state 
 
 Crisis scene clarity. Use blocking as an internal drafting frame, not as player-visible prose. For urgent physical scenes, draft the viewpoint, spatial anchor, active motion, connection or force, risk progression, visible affordance, and player entry before writing the final paragraph. The player-facing text should feel like natural scene narration: space first, motion second, force and worsening risk third, usable objects folded into the scene, then an open action prompt. Do not render crisis beats as "that means...", "you see two things...", "the current problem is...", or if/then option dumps.
 
+Final prose guard. Treat director, enrichment, rules, NPC agency, and storylet output as drafting material, not final player text. Before any player-visible narration is sent, run or mentally apply `coc_narration_style.guard_player_visible_text(...)` to the drafted prose. If it flags AI-summary voice, translationese, camera-like body-part staging, vague spatial phrasing, abstract psychological explanation, exposed blocking, or option-dump structure, rewrite the paragraph and send the guarded `final_text` equivalent. This guard is only for player-visible prose quality; never use its surface phrase checks for scene routing, storylet selection, clue logic, NPC decisions, or rules adjudication.
+
 ## Foreign-Language Dialogue
 
 When an NPC or handout speaks/writes in a language that is not the

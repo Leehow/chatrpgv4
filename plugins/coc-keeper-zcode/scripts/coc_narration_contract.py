@@ -125,6 +125,7 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
             "observable_before_interpretation",
             "rewrite_abstract_explanation_to_action",
             "crisis_scene_clarity",
+            "final_prose_guard_before_output",
         }
         required_render_slots = {
             "viewpoint_anchor",
@@ -146,9 +147,22 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
             and policy.get("established_fact_mode") == "compress"
             and policy.get("repeat_foreign_dialogue") == "summarize_unless_new_information"
         )
+        final_output_pass = guard.get("final_output_pass") if isinstance(guard, dict) else {}
+        final_output_pass_ok = (
+            isinstance(final_output_pass, dict)
+            and final_output_pass.get("required") is True
+            and final_output_pass.get("function") == "guard_player_visible_text"
+            and final_output_pass.get("applies_to") == "player_visible_narration_only"
+            and final_output_pass.get("not_for") == [
+                "scene_routing",
+                "storylet_selection",
+                "rules_adjudication",
+            ]
+        )
         guard_ok = (
             isinstance(guard, dict)
             and not missing_guard_rules
+            and final_output_pass_ok
             and guard.get("not_for") == ["scene_routing", "storylet_selection", "rules_adjudication"]
         )
         render_contract_ok = (
@@ -174,6 +188,7 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
             f"register={style.get('register')!r} missing_avoid={missing_avoid} "
             f"missing_prefer={missing_prefer} repetition_policy_ok={policy_ok} "
             f"missing_guard_rules={missing_guard_rules} style_guard_ok={guard_ok} "
+            f"final_output_pass_ok={final_output_pass_ok} "
             f"missing_render_slots={missing_render_slots} render_contract_ok={render_contract_ok}"
         )
     else:
