@@ -22,6 +22,29 @@
         "commander强调上级只关心情报，不关心巡逻队的死活",
         "军士提醒雪况恶劣，补给只能靠巡逻队自己背"
       ],
+      "storylet_tags": [
+        "opening_briefing"
+      ],
+      "affordances": [
+        {
+          "id": "question-mission-truth",
+          "cue": "追问指挥官这次侦察的真实目的——上级只关心情报、不关心巡逻队死活，话里有话。",
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "inspect-gear-supplies",
+          "cue": "检查巡逻队的装备与补给——军士提醒雪况恶劣，补给只能自己背。",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "size-up-squad",
+          "cue": "打量同行的战友，看谁可靠、谁可能在压力下崩溃。",
+          "route_type": "npc_question",
+          "status": "open"
+        }
+      ],
       "tone": [
         "cold",
         "bureaucratic",
@@ -81,6 +104,20 @@
       "pressure_moves": [
         "a crazed survivor lunges with a bayonet from a hiding spot (DEX 12, 10 HP, bayonet 1D8)",
         "Scavenge test uncovers supplies at Uncommon scarcity"
+      ],
+      "affordances": [
+        {
+          "id": "observe-positions-through-glass",
+          "cue": "用望远镜从掩体后观察阵地部署与仓促撤离的痕迹。",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "approach-listen-for-sounds",
+          "cue": "贴近阵地残骸，听冰下是否还有刚才那种怪声与爆炸节奏。",
+          "route_type": "environment",
+          "status": "open"
+        }
       ],
       "tone": [
         "abandoned",
@@ -143,6 +180,20 @@
         "SAN 0/1 [violence] at the carnage; 0/1 [unnatural] on realizing the wounds",
         "Alertness test detects a faint ominous whistling from deeper in",
         "ecrasite demolition cases still stacked by the far tunnels"
+      ],
+      "affordances": [
+        {
+          "id": "examine-blast-carnage",
+          "cue": "检查爆炸现场的奥军遗体与伤口，判断这是常规炸药还是别的什么力量所为。",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "map-tunnel-and-shaft",
+          "cue": "把坑道分支与那口无回音的玄武岩竖井走向记下来，标出拖痕通向哪里。",
+          "route_type": "environment",
+          "status": "open"
+        }
       ],
       "tone": [
         "slaughter",
