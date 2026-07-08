@@ -60,6 +60,7 @@
   - `entry_conditions` (string[])：进入场景的条件。
   - `exit_conditions` (string[])：退出场景的条件。
   - `available_clues` (string[])：该场景可交付的 clue_id 列表（引用 clue-graph.json）。
+  - `affordances` (object[], optional)：该场景自然露出的可行动线（diegetic routes，非玩家菜单）。开场与多分叉场景应至少 2 条，让玩家有选择权、不被线性推向单一出口。每条含 `id`（route 标识）、`cue`（可行动的感官/叙事提示）、可选 `route_type`（语义类别，如 `tenant_history`/`reward_scope`/`direct_entry`/`npc_question`）、可选 `status`（`open`/`suggested`/`exhausted`/`locked`，缺省视为 `open`）。引擎据此结构化计算 `is_real_fork`（≥2 条 open route），仅在真分叉时才把选择交给玩家。
   - `npc_ids` (string[])：该场景出现的 NPC（引用 npc-agendas.json）。
   - `pressure_moves` (string[])：导演可用的压力动作（如关闭时间、陌生人监视）。
   - `tone` (string[])：调性关键词（感官/氛围词）。

@@ -75,6 +75,10 @@ ordinary player-facing narration must translate those entries into diegetic
 cues and an open-ended prompt instead of rendering them as numbered or bulleted
 actions. Visible action lists belong only to meta discussion, setup/character
 creation, explicit rules subsystems, or player-requested option summaries.
+**禁止**将 `pending_choices` 存为玩家可见的选项字符串数组（如 `["问租客","查记录","进屋"]`）；
+玩家可见的行动暗示必须来自编译后场景的 `affordances`（见 story-graph-schema），由 narrator 转成
+diegetic cue，并由 `choice_frame.is_real_fork` 决定是否在真分叉时停下交选择。`pending_choices`
+只承载 Keeper 续跑所需的状态连续性，绝不承载玩家菜单。
 
 ## Logs And Memory
 
