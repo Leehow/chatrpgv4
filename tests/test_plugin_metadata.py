@@ -366,6 +366,9 @@ def test_keeper_play_documents_live_turn_runner_hard_entrypoint():
     assert "`scripts/coc_live_turn_runner.py`" in keeper_skill
     assert "`run_live_turn(...)`" in keeper_skill
     assert "`logs/live-turn-runtime.jsonl`" in keeper_skill
+    assert "`state_patch`" in keeper_skill
+    assert "`stop_actionability`" in keeper_skill
+    assert "`logs/scene-state-patches.jsonl`" in keeper_skill
     assert "Do not manually stitch" in keeper_skill
     assert "Foreground narration must not wait for background audit flushing" in keeper_skill
     assert "Do not poll" in keeper_skill

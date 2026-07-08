@@ -60,6 +60,30 @@ recording mode, pending batch count, and whether background flushing was
 requested. Use this receipt to verify that live play really used the runner
 rather than ad hoc chat-side logging.
 
+Use `state_patch` on `run_live_turn(...)` when the foreground Keeper has a
+minimal visible scene update that the next turn must read, such as the current
+`scene_id`, player-safe `summary`, `visible_affordances`, `pressure_moves`, or
+present `npc_ids`. The runner writes that small next-turn contract
+synchronously to `save/active-scene.json` and, when a scene id is supplied,
+keeps `save/world-state.json.active_scene_id` aligned. Longer recap, debug, and
+audit detail belongs in the same `state_patch` payload but is queued to
+`logs/scene-state-patches.jsonl` through the fast/background recorder. Do not
+block player-facing narration while waiting for that detailed patch log to
+flush.
+
+Every live turn that stops for player input must carry `stop_actionability`.
+This is the stop-point handhold contract: `why_stopped`, `immediate_handles`,
+`pressure_if_ignored`, `npc_position`, and `forbidden_menu_rendering`. The
+contract must be built from structured fields such as `choice_frame.routes`,
+`save/active-scene.json.visible_affordances`, `pressure_moves`,
+`rule_results.roll_contract`, and NPC moves, never from raw prose keywords.
+Before rendering the final player-visible text, surface at least one
+`immediate_handles` entry as a concrete diegetic object, route, NPC posture, or
+visible pressure. Do not render it as a numbered menu unless the player asks.
+If `stop_actionability.requires_keeper_rewrite` is true, rewrite the stop
+paragraph before sending it; do not leave the player at a vague "what now?"
+prompt.
+
 Foreground narration must not wait for background audit flushing. In live play,
 once `run_live_turn(...)` returns with synchronous save-state writes complete,
 render the player-facing scene text immediately. Do not poll

@@ -53,11 +53,35 @@ _INTERRUPT_EVENT_TYPES = {
     "storylet_move",
 }
 
+_NON_BLOCKING_RULE_REQUEST_KINDS = {
+    "npc_assist",
+}
+
+_ACTIVE_SCENE_STATE_PATCH_KEYS = {
+    "scene_id",
+    "scene_type",
+    "scene_tags",
+    "dramatic_question",
+    "summary",
+    "visible_affordances",
+    "pressure_moves",
+    "npc_ids",
+    "authority_demands",
+    "responsibility_threats",
+    "pending_choices",
+    "source_event_type",
+}
+
 
 def _read_json(path: Path, fallback: Any) -> Any:
     if not path.exists():
         return fallback
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _append_jsonl_sync(path: Path, record: dict[str, Any]) -> None:
@@ -107,6 +131,119 @@ def _commit_rules_recorder(recorder: Any | None) -> Path | None:
     return recorder.commit()
 
 
+def _blocking_rule_requests(turn: dict[str, Any]) -> list[dict[str, Any]]:
+    requests = turn.get("rules_requests") or []
+    if not isinstance(requests, list):
+        return []
+    blocking: list[dict[str, Any]] = []
+    for request in requests:
+        if not isinstance(request, dict):
+            continue
+        if str(request.get("kind") or "") in _NON_BLOCKING_RULE_REQUEST_KINDS:
+            continue
+        blocking.append(request)
+    return blocking
+
+
+def _apply_state_patch_sync(
+    campaign_dir: Path,
+    state_patch: dict[str, Any] | None,
+    *,
+    investigator_id: str,
+    decision_ids: list[str],
+) -> dict[str, Any]:
+    """Synchronously persist only the next-turn visible scene contract."""
+    if not isinstance(state_patch, dict) or not state_patch:
+        return {"applied": False}
+
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    active_path = campaign_dir / "save" / "active-scene.json"
+    active_scene = _read_json(active_path, {})
+    if not isinstance(active_scene, dict):
+        active_scene = {}
+
+    active_scene.setdefault("schema_version", 1)
+    world = _read_json(campaign_dir / "save" / "world-state.json", {})
+    if isinstance(world, dict):
+        if world.get("campaign_id"):
+            active_scene.setdefault("campaign_id", world.get("campaign_id"))
+        if world.get("scenario_id"):
+            active_scene.setdefault("scenario_id", world.get("scenario_id"))
+
+    minimal_keys: list[str] = []
+    for key in sorted(_ACTIVE_SCENE_STATE_PATCH_KEYS):
+        if key not in state_patch:
+            continue
+        active_scene[key] = _copy_jsonable(state_patch[key])
+        minimal_keys.append(key)
+
+    active_scene.setdefault("source_event_type", "live_turn_state_patch")
+    active_scene["updated_at"] = now
+    active_scene["updated_by"] = "coc_live_turn_runner.state_patch"
+    active_scene["last_decision_ids"] = list(decision_ids)
+    active_scene["investigator_id"] = investigator_id
+    _write_json(active_path, active_scene)
+
+    scene_id = state_patch.get("scene_id")
+    world_updated = False
+    if isinstance(world, dict) and isinstance(scene_id, str) and scene_id.strip():
+        world["active_scene_id"] = scene_id.strip()
+        world["updated_at"] = now
+        _write_json(campaign_dir / "save" / "world-state.json", world)
+        world_updated = True
+
+    return {
+        "applied": True,
+        "active_scene_path": str(active_path),
+        "world_active_scene_updated": world_updated,
+        "minimal_keys": minimal_keys,
+        "detail_record_deferred": False,
+        "detail_pending_batch": None,
+    }
+
+
+def _queue_state_patch_detail(
+    campaign_dir: Path,
+    state_patch: dict[str, Any] | None,
+    *,
+    investigator_id: str,
+    decision_ids: list[str],
+    recording_mode: str,
+) -> dict[str, Any]:
+    if not isinstance(state_patch, dict) or not state_patch:
+        return {"queued": False, "deferred": False, "pending_batch": None}
+
+    record = {
+        "schema_version": 1,
+        "event_type": "scene_state_patch",
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "investigator_id": investigator_id,
+        "decision_ids": list(decision_ids),
+        "scene_id": state_patch.get("scene_id"),
+        "minimal_keys": [
+            key for key in sorted(_ACTIVE_SCENE_STATE_PATCH_KEYS)
+            if key in state_patch
+        ],
+        "state_patch": _copy_jsonable(state_patch),
+    }
+    if recording_mode == "sync":
+        _append_jsonl_sync(campaign_dir / "logs" / "scene-state-patches.jsonl", record)
+        return {"queued": True, "deferred": False, "pending_batch": None}
+
+    recorder = coc_async_recorder.JsonlRecorder(
+        campaign_dir,
+        mode=recording_mode,
+        decision_id=f"{decision_ids[-1] if decision_ids else 'turn'}-state-patch",
+    )
+    recorder.append_jsonl(campaign_dir / "logs" / "scene-state-patches.jsonl", record)
+    pending = recorder.commit()
+    return {
+        "queued": pending is not None,
+        "deferred": pending is not None,
+        "pending_batch": str(pending) if pending is not None else None,
+    }
+
+
 def _semantic_low_agency_choice(choice: dict[str, Any]) -> dict[str, Any]:
     """Build the next automatic continuation from structured intent tags.
 
@@ -119,7 +256,10 @@ def _semantic_low_agency_choice(choice: dict[str, Any]) -> dict[str, Any]:
         "继续执行玩家刚才的低主动姿态，直到出现新的威胁、信息、检定或选择点。"
     )
     next_choice["auto_advanced"] = True
-    rich = next_choice.setdefault("player_intent_rich", {})
+    rich = next_choice.get("player_intent_rich")
+    if not isinstance(rich, dict):
+        rich = {}
+        next_choice["player_intent_rich"] = rich
     rich.setdefault("primary_intent", next_choice.get("intent_class") or "continue")
     secondary = list(rich.get("secondary_intents") or [])
     for tag in ("low_agency_continue", "continue_existing_strategy", "yield_initiative"):
@@ -141,7 +281,7 @@ def _turn_interrupt_reason(turn: dict[str, Any]) -> str | None:
         if "scene_transition" in event_types:
             return "scene_arrival_or_transition"
         return "meaningful_interrupt"
-    if turn.get("rules_requests"):
+    if _blocking_rule_requests(turn):
         return "risk_requires_roll"
     if turn.get("clue_revealed"):
         return "new_clue_or_obvious_information"
@@ -284,6 +424,7 @@ def run_live_turn(
     rng_seed: int | str | None = None,
     storylet_policy: dict[str, Any] | None = None,
     signal_overrides: dict[str, Any] | None = None,
+    state_patch: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one live player input through the full Keeper stack.
 
@@ -335,6 +476,36 @@ def run_live_turn(
             break
         choice = _semantic_low_agency_choice(choice)
 
+    decision_ids = [turn["decision_id"] for turn in turns]
+    state_patch_status = _apply_state_patch_sync(
+        campaign,
+        state_patch,
+        investigator_id=investigator_id,
+        decision_ids=decision_ids,
+    )
+    state_patch_detail = _queue_state_patch_detail(
+        campaign,
+        state_patch,
+        investigator_id=investigator_id,
+        decision_ids=decision_ids,
+        recording_mode=mode,
+    )
+    if state_patch_status.get("applied"):
+        state_patch_status["detail_record_deferred"] = bool(state_patch_detail.get("deferred"))
+        state_patch_status["detail_pending_batch"] = state_patch_detail.get("pending_batch")
+        state_patch_status["detail_record_queued"] = bool(state_patch_detail.get("queued"))
+
+    active_scene_state = _read_json(campaign / "save" / "active-scene.json", {})
+    final_turn = turns[-1] if turns else {}
+    if hasattr(narrative_enrichment, "build_stop_actionability_contract"):
+        stop_actionability = narrative_enrichment.build_stop_actionability_contract(
+            final_turn,
+            active_scene_state if isinstance(active_scene_state, dict) else {},
+            stop_reason=stop_reason,
+        )
+    else:
+        stop_actionability = {"schema_version": 1, "immediate_handles": [], "must_surface_handles": False}
+
     pending_before_flush = _pending_record_count(campaign)
     background_result = None
     background_started = False
@@ -385,6 +556,8 @@ def run_live_turn(
             "background_work": background_work,
         },
         "foreground": foreground,
+        "state_patch": state_patch_status,
+        "stop_actionability": stop_actionability,
         "final_state": {
             "active_scene": world.get("active_scene_id"),
             "tension": pacing.get("tension_level"),
@@ -399,7 +572,7 @@ def run_live_turn(
         "investigator_id": investigator_id,
         "player_text": player_text,
         "turn_count": len(turns),
-        "decision_ids": [turn["decision_id"] for turn in turns],
+        "decision_ids": decision_ids,
         "auto_advance": result["auto_advance"],
         "recording_mode": mode,
         "recording_flush": flush_policy,
@@ -408,6 +581,8 @@ def run_live_turn(
         "background_flush_started": background_started,
         "foreground": foreground,
         "background_work": background_work,
+        "state_patch": state_patch_status,
+        "stop_actionability": stop_actionability,
         "final_state": result["final_state"],
     })
     return result

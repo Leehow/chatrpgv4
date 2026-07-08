@@ -28,6 +28,56 @@ def test_choice_frame_surfaces_affordance_tradeoffs_without_menu():
     assert frame["must_surface_tradeoffs"] is True
 
 
+def test_stop_actionability_contract_uses_structured_handles_after_costly_failure():
+    turn = {
+        "rule_results": [{
+            "success": False,
+            "roll_contract": {
+                "goal": "判断电话线为何移动以及通向哪里",
+                "failure_effect": "得到一个不完整方向，但线另一端先有反应。",
+                "failure_outcome_mode": "clue_with_cost",
+            },
+        }],
+        "choice_frame": {
+            "routes": [
+                {"route_id": "old-route", "cue": "旧的现场入口。"}
+            ],
+        },
+        "npc_moves": [{
+            "npc_id": "bruno",
+            "agency_moves": [{"move_id": "take_command"}],
+        }],
+    }
+    active_scene = {
+        "visible_affordances": [
+            {"route": "follow_rear_line", "cue": "电话线从箱体后方小孔穿出，通向掩体后壁。"},
+            {"route": "tamper_with_box", "cue": "箱盖半开，想拆或切线必须把手伸进去。"},
+            {"route": "inspect_empty_boot", "cue": "箱子下面倒着一只空军靴，靴底沾着新泥。"},
+        ],
+        "pressure_moves": [
+            {"id": "line-end-answered", "visible_symptom": "线另一端已经被惊动。"}
+        ],
+    }
+
+    contract = narr.build_stop_actionability_contract(
+        turn,
+        active_scene,
+        stop_reason="risk_requires_roll",
+    )
+
+    assert contract["why_stopped"] == "clue_with_cost"
+    assert contract["forbidden_menu_rendering"] is True
+    assert contract["must_surface_handles"] is True
+    assert contract["pressure_if_ignored"] == "线另一端已经被惊动。"
+    assert [handle["route_id"] for handle in contract["immediate_handles"]] == [
+        "follow_rear_line",
+        "tamper_with_box",
+        "inspect_empty_boot",
+    ]
+    assert contract["npc_position"][0]["npc_id"] == "bruno"
+    assert contract["npc_position"][0]["move_ids"] == ["take_command"]
+
+
 def test_action_atoms_become_chained_rule_requests():
     rich = {"action_atoms": [
         {"id": "a1", "verb": "贴近警卫", "skill": "Dodge", "stakes": "失败则警卫先手"},

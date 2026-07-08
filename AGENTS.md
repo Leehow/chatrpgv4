@@ -53,3 +53,20 @@ synthetic unit-test fixture.
   gameplay evidence.
 - Formatter smoke tests may be used to verify rendering bugs, but call them
   "formatter verification samples", not battle reports.
+
+## Semantic Matcher Constitution
+
+Do not classify player intent, NPC hostility, clue relevance, report coverage,
+storylet fit, or other meaning-bearing behavior by hardcoded keyword hits or
+fixed prose fragments.
+
+- Runtime logic may consume structured fields, explicit enums, boolean flags,
+  IDs, tags, rules data, and LLM/semantic-router outputs with recorded reasons.
+- Runtime logic must not infer meaning by scanning free text such as player
+  prose, NPC agenda prose, scene summaries, battle reports, or translated
+  module text for fixed phrases.
+- If a semantic distinction is needed but only free text is available, add or
+  call a semantic compilation/router step that emits structured evidence; do
+  not add another local keyword list.
+- Legacy compatibility fallbacks that still use string heuristics should be
+  treated as technical debt and not copied into new behavior.

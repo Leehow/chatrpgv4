@@ -213,6 +213,109 @@ def test_live_turn_foreground_can_return_before_background_flush_finishes(tmp_pa
     assert receipts[-1]["foreground"]["waited_for_background_flush"] is False
 
 
+def test_live_turn_npc_assist_rule_requests_do_not_interrupt_auto_advance():
+    assert live_runner._turn_interrupt_reason({
+        "scene_transition": False,
+        "event_types": [],
+        "rules_requests": [{"kind": "npc_assist", "npc_id": "bruno"}],
+        "clue_revealed": [],
+        "choice_frame": {},
+        "npc_moves": [],
+        "narrative_directives": {"dramatic_progress": {"current_interrupts": []}},
+    }) is None
+
+    assert live_runner._turn_interrupt_reason({
+        "scene_transition": False,
+        "event_types": [],
+        "rules_requests": [{"kind": "skill_check", "skill": "Spot Hidden"}],
+        "clue_revealed": [],
+        "choice_frame": {},
+        "npc_moves": [],
+        "narrative_directives": {"dramatic_progress": {"current_interrupts": []}},
+    }) == "risk_requires_roll"
+
+
+def test_live_turn_low_agency_choice_handles_missing_rich_intent():
+    next_choice = live_runner._semantic_low_agency_choice({
+        "player_text": "我继续跟着走。",
+        "intent_class": "move",
+        "player_intent_rich": None,
+    })
+
+    assert next_choice["auto_advanced"] is True
+    assert next_choice["player_intent_rich"]["primary_intent"] == "move"
+    assert "low_agency_continue" in next_choice["player_intent_rich"]["secondary_intents"]
+
+
+def test_live_turn_state_patch_syncs_minimal_scene_and_defers_detail_log(tmp_path, monkeypatch):
+    camp, char_path = _build_live_campaign(tmp_path)
+    spawned = []
+
+    def fake_spawn_background_flush(campaign_dir, *, limit=None):
+        spawned.append({"campaign_dir": Path(campaign_dir), "limit": limit})
+        return {"started": True, "pid": 4444}
+
+    monkeypatch.setattr(
+        live_runner.coc_async_recorder,
+        "spawn_background_flush",
+        fake_spawn_background_flush,
+    )
+    monkeypatch.setattr(
+        live_runner.coc_async_recorder,
+        "flush_pending_records",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("state patch detail must not flush synchronously")),
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我跟着电话线走。",
+        intent_class="move",
+        max_auto_advance=1,
+        rng_seed=23,
+        state_patch={
+            "scene_id": "relay-dugout",
+            "summary": "队伍抵达第二个电话掩体门口。",
+            "scene_type": "investigation",
+            "scene_tags": ["wire", "dugout"],
+            "visible_affordances": [
+                {"cue": "电话线从门缝下方继续伸进去。", "route": "inspect_wire"}
+            ],
+            "pressure_moves": [
+                {"id": "wire-click", "visible_symptom": "掩体里传来短促的咔哒声。"}
+            ],
+            "npc_ids": ["bruno", "matteo"],
+            "details": {
+                "draft_summary": "Long-form recap for replay and debugging, not needed before narration.",
+            },
+        },
+    )
+
+    active_scene = json.loads((camp / "save" / "active-scene.json").read_text())
+    assert active_scene["scene_id"] == "relay-dugout"
+    assert active_scene["summary"] == "队伍抵达第二个电话掩体门口。"
+    assert active_scene["visible_affordances"][0]["route"] == "inspect_wire"
+    assert active_scene["pressure_moves"][0]["id"] == "wire-click"
+    assert result["state_patch"]["applied"] is True
+    assert result["state_patch"]["detail_record_deferred"] is True
+    assert result["stop_actionability"]["must_surface_handles"] is True
+    assert result["stop_actionability"]["immediate_handles"][0]["route_id"] == "inspect_wire"
+    assert result["stop_actionability"]["forbidden_menu_rendering"] is True
+    assert result["foreground"]["sync_state_writes_completed"] is True
+    assert spawned
+
+    pending_payloads = [
+        json.loads(path.read_text())
+        for path in sorted((camp / "logs" / "pending-turns").glob("*.json"))
+    ]
+    assert any(
+        entry["relative_path"] == "logs/scene-state-patches.jsonl"
+        for payload in pending_payloads
+        for entry in payload["entries"]
+    )
+
+
 def test_live_turn_auto_advances_low_agency_posture_until_interrupt(tmp_path, monkeypatch):
     camp, char_path = _build_live_campaign(tmp_path)
     story = json.loads((camp / "scenario" / "story-graph.json").read_text())

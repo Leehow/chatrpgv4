@@ -164,6 +164,201 @@ def build_consequence_cues(choice_frame: dict[str, Any] | None) -> list[dict[str
     return cues
 
 
+def _actionability_handle_from_affordance(
+    affordance: dict[str, Any],
+    index: int,
+    *,
+    source: str,
+) -> dict[str, Any] | None:
+    cue = _non_empty_str(
+        affordance.get("cue")
+        or affordance.get("player_visible_cue")
+        or affordance.get("summary")
+        or affordance.get("text")
+        or affordance.get("action")
+    )
+    if cue is None:
+        return None
+    route_id = _non_empty_str(
+        affordance.get("route")
+        or affordance.get("route_id")
+        or affordance.get("id")
+    ) or f"{source}-{index}"
+    anchor = _non_empty_str(
+        affordance.get("anchor")
+        or affordance.get("target")
+        or affordance.get("object")
+        or route_id
+    )
+    return {
+        "route_id": route_id,
+        "anchor": anchor,
+        "affordance": cue,
+        "visible_benefit": affordance.get("visible_benefit") or affordance.get("promise"),
+        "visible_cost": affordance.get("visible_cost") or affordance.get("cost"),
+        "visible_risk": affordance.get("visible_risk") or affordance.get("risk"),
+        "source": source,
+    }
+
+
+def _actionability_handle_from_route(
+    route: dict[str, Any],
+    index: int,
+    *,
+    source: str,
+) -> dict[str, Any] | None:
+    cue = _non_empty_str(route.get("cue"))
+    if cue is None:
+        return None
+    route_id = _non_empty_str(route.get("route_id") or route.get("id")) or f"{source}-{index}"
+    return {
+        "route_id": route_id,
+        "anchor": _non_empty_str(route.get("anchor") or route_id),
+        "affordance": cue,
+        "visible_benefit": route.get("visible_benefit"),
+        "visible_cost": route.get("visible_cost"),
+        "visible_risk": route.get("visible_risk"),
+        "source": source,
+    }
+
+
+def _actionability_roll_contract(turn: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    for result in _as_list(turn.get("rule_results")):
+        if not isinstance(result, dict) or result.get("success") is not False:
+            continue
+        contract = result.get("roll_contract")
+        if isinstance(contract, dict):
+            return contract, result
+    for request in _as_list(turn.get("rules_requests")):
+        if not isinstance(request, dict):
+            continue
+        contract = request.get("roll_contract")
+        if isinstance(contract, dict):
+            return contract, request
+    return None, None
+
+
+def _first_pressure_text(active_scene_state: dict[str, Any] | None, contract: dict[str, Any] | None) -> str | None:
+    active_scene_state = active_scene_state or {}
+    for pressure in _as_list(active_scene_state.get("pressure_moves")):
+        if not isinstance(pressure, dict):
+            continue
+        text = _non_empty_str(
+            pressure.get("visible_symptom")
+            or pressure.get("cue")
+            or pressure.get("summary")
+            or pressure.get("effect")
+        )
+        if text:
+            return text
+    if isinstance(contract, dict):
+        return _non_empty_str(contract.get("failure_effect"))
+    return None
+
+
+def _npc_position_from_moves(turn: dict[str, Any]) -> list[dict[str, Any]]:
+    positions: list[dict[str, Any]] = []
+    for move in _as_list(turn.get("npc_moves")):
+        if not isinstance(move, dict):
+            continue
+        move_ids = [
+            _non_empty_str(agency_move.get("move_id"))
+            for agency_move in _as_list(move.get("agency_moves"))
+            if isinstance(agency_move, dict)
+        ]
+        move_ids = [move_id for move_id in move_ids if move_id]
+        active_reactions = [
+            _non_empty_str(reaction.get("move"))
+            for reaction in _as_list(move.get("active_reactions"))
+            if isinstance(reaction, dict)
+        ]
+        active_reactions = [reaction for reaction in active_reactions if reaction]
+        if not move_ids and not active_reactions:
+            continue
+        positions.append({
+            "npc_id": move.get("npc_id"),
+            "move_ids": move_ids,
+            "active_reactions": active_reactions,
+            "source": "npc_moves",
+        })
+    return positions
+
+
+def build_stop_actionability_contract(
+    turn: dict[str, Any] | None,
+    active_scene_state: dict[str, Any] | None = None,
+    *,
+    stop_reason: str | None = None,
+    max_handles: int = 3,
+) -> dict[str, Any]:
+    """Build the structured player-facing handhold required at a stop point.
+
+    This consumes only structured scene and rules data. It does not classify
+    raw player prose or infer routes from keywords.
+    """
+    turn = turn or {}
+    active_scene_state = active_scene_state or {}
+    contract, roll_source = _actionability_roll_contract(turn)
+    why_stopped = _non_empty_str(stop_reason) or "awaiting_player_input"
+    if roll_source and roll_source.get("success") is False and isinstance(contract, dict):
+        why_stopped = _non_empty_str(contract.get("failure_outcome_mode")) or "rule_failure"
+
+    handles: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add_handle(handle: dict[str, Any] | None) -> None:
+        if handle is None or len(handles) >= max_handles:
+            return
+        key = _non_empty_str(handle.get("route_id") or handle.get("affordance") or handle.get("anchor"))
+        if key is None or key in seen:
+            return
+        seen.add(key)
+        handles.append(handle)
+
+    for index, affordance in enumerate(_as_list(active_scene_state.get("visible_affordances")), start=1):
+        if isinstance(affordance, dict):
+            add_handle(_actionability_handle_from_affordance(
+                affordance,
+                index,
+                source="save.active-scene.visible_affordances",
+            ))
+
+    for index, route in enumerate(((turn.get("choice_frame") or {}).get("routes") or []), start=1):
+        if isinstance(route, dict):
+            add_handle(_actionability_handle_from_route(route, index, source="choice_frame.routes"))
+
+    if len(handles) < max_handles and isinstance(contract, dict):
+        goal = _non_empty_str(contract.get("goal"))
+        if goal:
+            add_handle({
+                "route_id": f"roll-contract:{goal}",
+                "anchor": goal,
+                "affordance": _non_empty_str(contract.get("failure_effect") or contract.get("success_effect")) or goal,
+                "visible_benefit": contract.get("success_effect"),
+                "visible_cost": contract.get("failure_effect"),
+                "visible_risk": None,
+                "source": "rule_results.roll_contract",
+            })
+
+    return {
+        "schema_version": _SCHEMA_VERSION,
+        "why_stopped": why_stopped,
+        "immediate_handles": handles,
+        "handle_count": len(handles),
+        "must_surface_handles": bool(handles),
+        "pressure_if_ignored": _first_pressure_text(active_scene_state, contract),
+        "npc_position": _npc_position_from_moves(turn),
+        "forbidden_menu_rendering": True,
+        "requires_keeper_rewrite": not bool(handles),
+        "narration_rule": (
+            "Before returning control to the player, surface the immediate_handles "
+            "as concrete diegetic objects, routes, NPC posture, or visible pressure. "
+            "Do not render a numbered menu unless the player asks."
+        ),
+        "source": "stop_actionability_contract",
+    }
+
+
 def build_proposal_transform(player_intent_rich: dict[str, Any] | None) -> dict[str, Any] | None:
     rich = player_intent_rich or {}
     raw = rich.get("proposal")
