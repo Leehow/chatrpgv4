@@ -510,3 +510,34 @@ def test_extreme_success_does_not_trigger_special_storylet_by_itself():
 
     assert enriched["storylet_moves"] == []
     assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "none"
+
+
+def test_choice_frame_is_real_fork_when_two_open_routes():
+    scene = {"affordances": [
+        {"id": "ask-tenants", "cue": "前租客", "status": "open"},
+        {"id": "check-records", "cue": "公共记录", "status": "open"},
+    ]}
+    frame = narr.build_choice_frame(scene)
+    assert frame["is_real_fork"] is True
+    assert frame["open_route_count"] == 2
+    assert frame["open_route_ids"] == ["ask-tenants", "check-records"]
+
+
+def test_choice_frame_not_real_fork_when_one_open_one_locked():
+    scene = {"affordances": [
+        {"id": "ask-tenants", "cue": "前租客", "status": "open"},
+        {"id": "check-records", "cue": "公共记录", "status": "locked"},
+    ]}
+    frame = narr.build_choice_frame(scene)
+    assert frame["is_real_fork"] is False
+    assert frame["open_route_count"] == 1
+
+
+def test_choice_frame_open_status_defaults_to_open_when_absent():
+    scene = {"affordances": [
+        {"id": "a", "cue": "a"},
+        {"id": "b", "cue": "b"},
+    ]}
+    frame = narr.build_choice_frame(scene)
+    assert frame["is_real_fork"] is True
+    assert frame["open_route_count"] == 2

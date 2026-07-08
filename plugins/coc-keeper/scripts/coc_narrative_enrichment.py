@@ -108,6 +108,7 @@ def build_choice_frame(
             "clock_tick_on_choose": affordance.get("clock_tick_on_choose"),
             "reward_hint": affordance.get("reward_hint"),
             "forbidden_reveal": affordance.get("forbidden") or affordance.get("must_not_reveal"),
+            "status": str(affordance.get("status") or "open"),
             "source": "scene.affordances",
         })
 
@@ -128,6 +129,7 @@ def build_choice_frame(
                 "clock_tick_on_choose": None,
                 "reward_hint": None,
                 "forbidden_reveal": None,
+                "status": "open",
                 "source": "clue_policy.leads",
             })
 
@@ -135,11 +137,22 @@ def build_choice_frame(
         route.get("visible_benefit") or route.get("visible_cost") or route.get("visible_risk")
         for route in routes
     )
+    # P0-1: 真分叉判定基于结构化 route.status，不扫自由文本。缺省 status 视为 open。
+    open_route_ids = [
+        str(route["route_id"])
+        for route in routes
+        if str(route.get("status") or "open") == "open"
+    ]
+    open_route_count = len(open_route_ids)
+    is_real_fork = open_route_count >= 2
     return {
         "schema_version": _SCHEMA_VERSION,
         "mode": "diegetic_cues",
         "routes": routes,
         "route_count": len(routes),
+        "open_route_count": open_route_count,
+        "open_route_ids": open_route_ids,
+        "is_real_fork": is_real_fork,
         "must_surface_tradeoffs": bool(must_surface_tradeoffs),
         "do_not_render_as_menu": True,
         "narration_rule": (
