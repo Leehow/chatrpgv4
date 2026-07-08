@@ -601,6 +601,28 @@ def test_select_action_recover_when_stalled(tmp_path):
     assert action == "RECOVER"
 
 
+def test_recover_plan_includes_idea_roll_contract(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["idle", "idle", "idle"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="不知道该干嘛",
+        player_intent_class="idle",
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="idea-roll")
+
+    idea = plan["narrative_directives"]["idea_roll_plan"]
+    assert idea["target_characteristic"] == "INT"
+    assert idea["missed_conclusion_id"] == "concl-1"
+    assert "do not present this as table-level advice" in idea["must_not"]
+
+
 def test_reveal_social_intent_surfaces_structured_npc_dialogue_clue(tmp_path):
     """A social intent may surface clues when structured data says the NPC is the source."""
     camp, char_path = _make_minimal_campaign(tmp_path)
@@ -820,6 +842,40 @@ def test_routine_connective_action_adds_compressed_progress_directive(tmp_path):
     ]
     assert progress["compression_budget"]["min_beats"] == 2
     assert "new_clue_or_obvious_information" in progress["advance_until"]
+
+
+def test_routine_repetition_emits_scene_exit_pressure(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["available_clues"] = []
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["investigate", "investigate"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+    rich = {
+        "primary_intent": "investigate",
+        "secondary_intents": ["routine_action", "routine_search"],
+        "target_entities": ["same_room"],
+        "action_atoms": [],
+        "explicit_roll_request": False,
+    }
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我继续搜这个房间",
+        player_intent_class="investigate",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="scene-exit-pressure")
+
+    pressure = plan["narrative_directives"]["scene_exit_pressure"]
+    assert pressure["state"] in {"compress", "cut", "montage"}
+    assert "no_new_axis" in pressure["reasons"]
+    assert pressure["must_change_state"] is True
 
 
 def test_dramatic_pacing_does_not_compress_when_roll_is_required(tmp_path):

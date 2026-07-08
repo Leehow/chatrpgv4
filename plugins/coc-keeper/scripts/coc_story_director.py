@@ -818,6 +818,69 @@ def _dramatic_progress_directive(
     }
 
 
+def _first_unresolved_conclusion(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    discovered = set((ctx.get("world_state") or {}).get("discovered_clue_ids", []))
+    for conclusion in (ctx.get("clue_graph") or {}).get("conclusions", []):
+        clue_ids = [clue.get("clue_id") for clue in conclusion.get("clues", []) if clue.get("clue_id")]
+        if clue_ids and not any(clue_id in discovered for clue_id in clue_ids):
+            return conclusion
+    return None
+
+
+def _idea_roll_plan(ctx: dict[str, Any], action: str) -> dict[str, Any] | None:
+    if action != "RECOVER":
+        return None
+    conclusion = _first_unresolved_conclusion(ctx)
+    return {
+        "schema_version": 1,
+        "missed_conclusion_id": (conclusion or {}).get("conclusion_id"),
+        "target_characteristic": "INT",
+        "success_delivery": "surface a clean in-world inference or overlooked lead",
+        "failure_delivery": "surface the lead in a worse position",
+        "failure_costs": ["time_pressure"],
+        "must_not": [
+            "do not present this as table-level advice",
+            "do not ask the player to guess the same missing route again",
+        ],
+    }
+
+
+def _scene_exit_pressure_directive(
+    ctx: dict[str, Any],
+    action: str,
+    clue_policy: dict[str, Any],
+    rules_requests: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if _blocking_rule_requests(rules_requests):
+        return None
+    scene = ctx.get("active_scene") or {}
+    reasons: list[str] = []
+    if _is_low_agency_continue(ctx) and int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 0) or 0) >= 2:
+        reasons.append("low_agency_repetition")
+    tags = _rich_intent_tags(ctx)
+    if tags & _ROUTINE_PROGRESS_TAGS and not _available_reveal_clues(ctx):
+        reasons.append("no_new_axis")
+    if _is_bridge_scene(scene) and _bridge_low_agency_exhausted(ctx):
+        reasons.append("bridge_exhausted")
+    if not reasons:
+        return None
+    state = "compress"
+    if "bridge_exhausted" in reasons:
+        state = str((_progress_contract(scene).get("fallback_action") or "montage")).lower()
+    return {
+        "schema_version": 1,
+        "state": state if state in {"compress", "cut", "montage"} else "compress",
+        "reasons": _ordered_unique(reasons),
+        "scene_goal_status": "exhausted" if "no_new_axis" in reasons else "open",
+        "advance_until": list(_DRAMATIC_PROGRESS_ADVANCE_UNTIL),
+        "must_change_state": True,
+        "must_not": [
+            "do not ask for another equivalent low-agency action",
+            "do not repeat the same scene state with cosmetic wording",
+        ],
+    }
+
+
 def _clue_supports_social_reveal(clue_id: str, clue_graph: dict[str, Any]) -> bool:
     clue = _find_clue(clue_id, clue_graph)
     if clue is None:
@@ -1703,6 +1766,12 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     )
     if dramatic_progress is not None:
         narrative_directives["dramatic_progress"] = dramatic_progress
+    idea_plan = _idea_roll_plan(ctx, action)
+    if idea_plan is not None:
+        narrative_directives["idea_roll_plan"] = idea_plan
+    exit_pressure = _scene_exit_pressure_directive(ctx, action, clue_policy, rules_requests)
+    if exit_pressure is not None:
+        narrative_directives["scene_exit_pressure"] = exit_pressure
 
     # v2: populate memory_reads from the memory layer. PAYOFF actions mark the
     # card use as PAYOFF (recalled payoff); everything else is TONE color.
