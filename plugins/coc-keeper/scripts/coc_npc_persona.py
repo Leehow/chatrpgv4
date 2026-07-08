@@ -343,6 +343,26 @@ def _intent_tags(player_intent_rich: dict[str, Any] | None) -> set[str]:
     return tags
 
 
+def _agency_move(
+    *,
+    persona_card: dict[str, Any],
+    move_id: str,
+    reason: str,
+    visibility: str = "player_visible",
+    rules_effect: dict[str, Any] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "npc_id": persona_card.get("npc_id"),
+        "move_id": move_id,
+        "visibility": visibility,
+        "reason": reason,
+        "persona_tags": list((persona_card.get("persona") or {}).get("tags") or []),
+        "rules_effect": rules_effect or {"kind": "none", "actor_role": "npc"},
+        **extra,
+    }
+
+
 def build_agency_moves(
     persona_card: dict[str, Any],
     scene_context: dict[str, Any],
@@ -365,6 +385,16 @@ def build_agency_moves(
         or scene_tags & ACTIVE_SCENE_TAGS
         or intent_tags & INTENT_TAGS_THAT_INVITE_ACTION
     )
+    persona_tags = set(str(item) for item in ((persona_card.get("persona") or {}).get("tags") or []))
+    moves: list[dict[str, Any]] = []
+    if "stress_response.panic" in persona_tags and scene_is_active:
+        moves.append(_agency_move(
+            persona_card=persona_card,
+            move_id="panic",
+            reason="persona_stress_response_matches_active_scene",
+        ))
+        return moves
+
     should_act = bool(matched_scope and scene_is_active and initiative != "avoidant")
     if initiative not in INITIATIVE_STYLES_THAT_ACT and not matched_threat:
         should_act = False
@@ -372,27 +402,32 @@ def build_agency_moves(
         return []
 
     scope = matched_scope[0]
-    return [{
-        "npc_id": persona_card.get("npc_id"),
-        "move_id": "assert_responsibility",
-        "visibility": "player_visible",
-        "reason": "authority_scope_matches_scene",
-        "matched_authority_scope": matched_scope,
-        "matched_responsibility": matched_threat,
-        "delegation_policy": role.get("delegation_policy") or {},
-        "persona_tags": list((persona_card.get("persona") or {}).get("tags") or []),
-        "agency_directive": (
-            "NPC takes visible responsibility within their abstract authority "
-            "before handing specialist action to the investigator."
-        ),
-        "rules_effect": {
+    moves.append(_agency_move(
+        persona_card=persona_card,
+        move_id="take_command",
+        reason="authority_scope_matches_scene",
+        matched_authority_scope=matched_scope,
+        matched_responsibility=matched_threat,
+        delegation_policy=role.get("delegation_policy") or {},
+        agency_directive="NPC visibly takes responsibility within abstract authority before specialist handoff.",
+        rules_effect={
             "kind": "npc_assist",
             "actor_role": "npc",
             "bonus_dice": 1,
             "scope": scope,
             "reason": "visible responsibility within authority",
         },
-    }]
+    ))
+    delegates = set(str(item) for item in _as_list((role.get("delegation_policy") or {}).get("delegates")) if str(item))
+    if delegates & intent_tags:
+        moves.append(_agency_move(
+            persona_card=persona_card,
+            move_id="delegate_specialist",
+            reason="delegation_policy_matches_structured_intent",
+            matched_delegation=sorted(delegates & intent_tags),
+            delegation_policy=role.get("delegation_policy") or {},
+        ))
+    return moves
 
 
 def rules_requests_from_agency_moves(agency_moves: list[dict[str, Any]]) -> list[dict[str, Any]]:

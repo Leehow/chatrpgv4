@@ -220,6 +220,11 @@ pass prevents that single action from feeling like a single-track plot.
   how they act, speak, hesitate, assist, object, or fail under pressure. Persist
   generated persona cards in `save/npc-state.json` and preserve decision traces
   in `logs/npc-agency.jsonl`.
+  NPC agency moves should use abstract move ids such as `take_command`,
+  `delegate_specialist`, `assist`, `object`, `protect`, `rush`, `panic`,
+  `withhold`, and `withdraw`. These ids are not job titles. They are behavior
+  contracts derived from duty, responsibility, initiative, persona, and scene
+  pressure.
 - **NPC Genesis Pipeline.** When a present NPC has no saved card, instantiate a
   lightweight silhouette from generic persona tables, abstract social-duty
   fields, scene context, and module-supplied `name_context`. Persist the card in

@@ -173,7 +173,7 @@ def test_agency_move_asserts_responsibility_when_authority_matches_scene():
     moves = coc_npc_persona.build_agency_moves(card, scene_context, player_intent_rich={})
 
     assert moves
-    assert moves[0]["move_id"] == "assert_responsibility"
+    assert moves[0]["move_id"] == "take_command"
     assert moves[0]["npc_id"] == "npc-alpha"
     assert moves[0]["reason"] == "authority_scope_matches_scene"
     assert moves[0]["rules_effect"]["kind"] == "npc_assist"
@@ -205,10 +205,10 @@ def test_agency_move_uses_matched_responsibility_threat_as_active_pressure():
     moves = coc_npc_persona.build_agency_moves(card, scene_context, player_intent_rich={})
 
     assert moves
-    assert moves[0]["move_id"] == "assert_responsibility"
+    assert moves[0]["move_id"] == "take_command"
     assert moves[0]["matched_authority_scope"] == ["group_movement"]
     assert moves[0]["matched_responsibility"] == ["group_survival"]
-    assert "NPC takes visible responsibility" in moves[0]["agency_directive"]
+    assert "NPC visibly takes responsibility" in moves[0]["agency_directive"]
 
 
 def test_agency_does_not_fire_without_matching_authority():
@@ -233,7 +233,7 @@ def test_agency_does_not_fire_without_matching_authority():
 def test_agency_moves_can_emit_npc_rule_requests():
     agency_moves = [{
         "npc_id": "npc-alpha",
-        "move_id": "assert_responsibility",
+        "move_id": "take_command",
         "rules_effect": {
             "kind": "npc_assist",
             "actor_role": "npc",
@@ -254,6 +254,58 @@ def test_agency_moves_can_emit_npc_rule_requests():
         "reason": "keeps bystanders back",
         "source": "npc_agency_move",
     }]
+
+
+def test_agency_move_delegates_specialist_when_policy_delegates_matching_need():
+    card = {
+        "npc_id": "npc-alpha",
+        "social_role": {
+            "authority_scope": ["scene_safety"],
+            "responsibility_domains": ["group_survival"],
+            "initiative_style": "commanding",
+            "delegation_policy": {"keeps": ["scene_safety"], "delegates": ["specialist_care"]},
+        },
+        "persona": {"tags": ["temperament.impatient", "voice.short_orders"]},
+    }
+    scene_context = {
+        "scene_tags": ["crisis"],
+        "authority_demands": ["scene_safety"],
+        "responsibility_threats": ["group_survival"],
+    }
+
+    moves = coc_npc_persona.build_agency_moves(
+        card,
+        scene_context,
+        player_intent_rich={"intent_tags": ["yield_initiative"], "secondary_intents": ["specialist_care"]},
+    )
+
+    move_ids = [move["move_id"] for move in moves]
+    assert "take_command" in move_ids
+    assert "delegate_specialist" in move_ids
+    assert all("reason" in move for move in moves)
+
+
+def test_agency_move_panic_from_stress_response_without_concrete_role():
+    card = {
+        "npc_id": "npc-beta",
+        "social_role": {
+            "authority_scope": ["self_preservation"],
+            "responsibility_domains": ["own_safety"],
+            "initiative_style": "avoidant",
+        },
+        "persona": {"tags": ["stress_response.panic", "temperament.nervous"]},
+    }
+    scene_context = {
+        "scene_tags": ["crisis"],
+        "authority_demands": ["self_preservation"],
+        "responsibility_threats": ["own_safety"],
+    }
+
+    moves = coc_npc_persona.build_agency_moves(card, scene_context, player_intent_rich={})
+
+    assert [move["move_id"] for move in moves] == ["panic"]
+    assert moves[0]["rules_effect"]["kind"] == "none"
+    assert coc_npc_persona.rules_requests_from_agency_moves(moves) == []
 
 
 def test_upgrade_npc_stats_promotes_lifecycle_and_logs_generated_parameters():
