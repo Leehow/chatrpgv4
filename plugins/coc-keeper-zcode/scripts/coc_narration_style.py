@@ -40,11 +40,39 @@ _AI_SUMMARY_PHRASES = (
     "这表明",
     "这说明",
     "因此可以看出",
+    # Summary-ese openers that read like report/log voice rather than
+    # tabletop narration.
+    "综上所述",
+    "由此可见",
+    "不难看出",
+    "显然",
+    "毋庸置疑",
+)
+# Explanation-ese: clauses that spell out meaning/implication, which reads
+# like narrator-as-lecturer rather than scene prose. Folded into the same
+# finding category as expository_choice_summary (both expose logic as
+# explanation). 也就是说 is already matched by _EXPOSITORY_CHOICE_SUMMARY_RES
+# when followed by a colon; listing the bare phrase here also catches the
+# comma/period forms.
+_EXPLANATION_PHRASES = (
+    "这意味着",
+    "换句话说",
+    "也就是说",
+    "简而言之",
 )
 _CAMERA_DIRECTION_RE = re.compile(r"眼睛[^。！？\n]{0,12}盯着")
 _UNNATURAL_SPATIAL_PHRASES = (
     "那段暗处",
     "通信壕里那段暗处",
+)
+# Passive-voice translationese: 被...所 / 为...所 literary passives read as
+# translated prose, not natural spoken narration. Match a short inner span
+# (capped to avoid swallowing whole sentences) and a fixed set of verbs that
+# commonly appear in this construction. Short natural 被 clauses ("门被推开")
+# are NOT matched because they lack the 所 marker.
+_PASSIVE_TRANSLATION_RE = re.compile(
+    r"(?:被|为)[^，。！？\n]{1,12}?所"
+    r"(?:侵蚀|支配|吞没|影响|左右|笼罩|震动|惊叹|震撼|吸引|困扰|束缚|驱使|淹没)"
 )
 _ZH_FINAL_REWRITE_REPLACEMENTS = (
     ("布鲁诺没有回头，眼睛盯着通信壕里那段暗处。", "布鲁诺没看你，仍盯着壕沟前面的暗弯。"),
@@ -307,6 +335,20 @@ def audit_player_visible_text(text: str, language: str = "zh-Hans") -> list[dict
             })
             break
 
+    for phrase in _EXPLANATION_PHRASES:
+        if phrase in text:
+            findings.append({
+                "rule_id": "expository_choice_summary",
+                "severity": "rewrite",
+                "match": phrase,
+                "rewrite_directive": (
+                    "Do not narrate meaning or implication as explanation. "
+                    "Show the consequence through scene detail, speech, or "
+                    "observable behavior instead."
+                ),
+            })
+            break
+
     camera_match = _CAMERA_DIRECTION_RE.search(text)
     if camera_match:
         findings.append({
@@ -331,6 +373,18 @@ def audit_player_visible_text(text: str, language: str = "zh-Hans") -> list[dict
                 ),
             })
             break
+
+    passive_match = _PASSIVE_TRANSLATION_RE.search(text)
+    if passive_match:
+        findings.append({
+            "rule_id": "passive_translation_ese",
+            "severity": "rewrite",
+            "match": passive_match.group(0),
+            "rewrite_directive": (
+                "Rewrite the literary passive (被…所/为…所) into active voice "
+                "with a clear subject and concrete action."
+            ),
+        })
 
     abstract_match = _ABSTRACT_METAPHOR_RE.search(text) or _RHETORICAL_EXPLANATION_RE.search(text)
     if abstract_match:

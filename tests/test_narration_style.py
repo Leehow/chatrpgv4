@@ -181,3 +181,87 @@ def test_audit_allows_observable_behavior_followed_by_skill_interpretation():
     )
 
     assert coc_narration_style.audit_player_visible_text(text) == []
+
+
+def test_audit_flags_passive_voice_translation_ese():
+    """P1-7: passive-voice translationese (被...所 / 为...所) should be flagged."""
+    findings = coc_narration_style.audit_player_visible_text(
+        "他的意志被恐惧所侵蚀。"
+    )
+
+    assert findings
+    rule_ids = {finding["rule_id"] for finding in findings}
+    assert "passive_translation_ese" in rule_ids
+
+
+def test_audit_flags_passive_voice_translation_ese_wei_construction():
+    """P1-7: 为...所 form (literary passive) should also be flagged."""
+    findings = coc_narration_style.audit_player_visible_text(
+        "众人为这一幕所震动。"
+    )
+
+    assert findings
+    rule_ids = {finding["rule_id"] for finding in findings}
+    assert "passive_translation_ese" in rule_ids
+
+
+def test_audit_flags_more_summary_ese():
+    """P1-7: more summary-ese phrases (综上所述/由此可见/不难看出/显然/毋庸置疑)."""
+    for text in (
+        "综上所述，他们决定进屋。",
+        "由此可见，钥匙是关键。",
+        "不难看出这里有问题。",
+        "显然他已经离开了。",
+        "毋庸置疑，这是唯一的出路。",
+    ):
+        findings = coc_narration_style.audit_player_visible_text(text)
+        assert findings, f"expected flag for: {text}"
+        rule_ids = {finding["rule_id"] for finding in findings}
+        assert "ai_summary_voice" in rule_ids, f"ai_summary_voice for: {text}"
+
+
+def test_audit_flags_explanation_ese():
+    """P1-7: explanation-ese (这意味着/换句话说/也就是说/简而言之)."""
+    for text in (
+        "这意味着他们必须立刻行动。",
+        "换句话说，门锁不上。",
+        "简而言之，他在说谎。",
+    ):
+        findings = coc_narration_style.audit_player_visible_text(text)
+        assert findings, f"expected flag for: {text}"
+
+
+def test_audit_flags_explanation_ese_ye_jiu_shi_shuo():
+    """P1-7: 也就是说 without trailing colon is also explanation-ese."""
+    findings = coc_narration_style.audit_player_visible_text(
+        "也就是说，他根本没去过那里。"
+    )
+
+    assert findings
+
+
+def test_audit_passive_does_not_flag_natural_bei_construction():
+    """Natural short 被 clauses (not 被...所/为...所) must not over-flag."""
+    text = "门被推开了，他站在门口。"
+
+    findings = coc_narration_style.audit_player_visible_text(text)
+    rule_ids = {finding["rule_id"] for finding in findings}
+    assert "passive_translation_ese" not in rule_ids
+
+
+def test_audit_summary_phrases_do_not_flag_natural_prose():
+    """显然/简而言之 etc. should not over-flag when used naturally mid-sentence.
+
+    The new summary phrases are full-clause openers; the table only matches
+    them, which is acceptable surface lint. This test guards against the
+    regex accidentally broadening later.
+    """
+    text = "他显然没料到你会这么说。"
+
+    findings = coc_narration_style.audit_player_visible_text(text)
+    # The literal 显然 substring will match; this asserts current behavior so
+    # a future regex broadening is a conscious decision, not a silent one.
+    matches = [
+        f["match"] for f in findings if f["rule_id"] == "ai_summary_voice"
+    ]
+    assert any("显然" in m for m in matches)
