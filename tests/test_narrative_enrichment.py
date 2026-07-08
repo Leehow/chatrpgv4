@@ -168,6 +168,151 @@ def test_action_atom_density_group_keeps_distinct_failure_modes_separate():
     assert all("density_decision" not in request for request in requests)
 
 
+# =============================================================================
+# P1-3: cross-turn roll density marker for repeated player actions
+# =============================================================================
+
+def test_cross_turn_density_marker_when_same_skill_kind_repeats_across_turns():
+    """When the same (skill, kind) action appears ≥3 times in the recent window
+    (including the current turn), the resulting request must carry a
+    cross_turn_density marker with coalesce_hint == "montage". This is a marker
+    only: it never changes rules adjudication or skips rolls."""
+    rich = {"action_atoms": [{
+        "id": "search-shelf",
+        "verb": "再搜一次书架",
+        "skill": "Library Use",
+        "kind": "skill_check",
+    }]}
+    # Two prior turns each emitted a Library Use / skill_check atom (plus the
+    # current turn's own atom) → repeated_count == 3 → marker fires.
+    recent = [("Library Use", "skill_check"), ("Library Use", "skill_check")]
+
+    requests = narr.build_action_chain_requests(rich, recent_atom_signatures=recent)
+
+    assert len(requests) == 1
+    marker = requests[0]["cross_turn_density"]
+    assert marker["repeated_count"] == 3
+    assert marker["coalesce_hint"] == "montage"
+    assert marker["window"] == "cross_turn"
+    # marker is informational only — the roll contract is still present so the
+    # runner can still roll per request (rules adjudication untouched).
+    assert "roll_contract" in requests[0]
+
+
+def test_cross_turn_density_marker_absent_below_threshold():
+    """A repeat that does not reach the ≥3 threshold must NOT emit the marker."""
+    rich = {"action_atoms": [{
+        "id": "search-shelf",
+        "verb": "搜书架",
+        "skill": "Library Use",
+        "kind": "skill_check",
+    }]}
+    # Only one prior turn + current = 2 → below threshold.
+    recent = [("Library Use", "skill_check")]
+
+    requests = narr.build_action_chain_requests(rich, recent_atom_signatures=recent)
+
+    assert len(requests) == 1
+    assert "cross_turn_density" not in requests[0]
+
+
+def test_cross_turn_density_marker_absent_when_no_recent_signatures():
+    """Backward-compat: omitting recent_atom_signatures must not crash and must
+    not emit the marker (no history → no repetition)."""
+    rich = {"action_atoms": [{
+        "id": "search-shelf",
+        "verb": "搜书架",
+        "skill": "Library Use",
+        "kind": "skill_check",
+    }]}
+
+    requests_default = narr.build_action_chain_requests(rich)
+    requests_empty = narr.build_action_chain_requests(rich, recent_atom_signatures=[])
+
+    assert "cross_turn_density" not in requests_default[0]
+    assert "cross_turn_density" not in requests_empty[0]
+
+
+def test_cross_turn_density_marker_scoped_to_player_atoms_only():
+    """The marker is keyed on (skill, kind). Two different skills must each
+    accumulate their own counts; a different skill/kind must not trigger the
+    other atom's marker."""
+    rich = {"action_atoms": [
+        {"id": "search", "verb": "搜", "skill": "Library Use", "kind": "skill_check"},
+        {"id": "listen", "verb": "听", "skill": "Listen", "kind": "skill_check"},
+    ]}
+    # Library Use seen twice before; Listen never → only the search atom marks.
+    recent = [("Library Use", "skill_check"), ("Library Use", "skill_check")]
+
+    requests = narr.build_action_chain_requests(rich, recent_atom_signatures=recent)
+
+    by_id = {r["atom_id"]: r for r in requests}
+    assert by_id["search"]["cross_turn_density"]["repeated_count"] == 3
+    assert "cross_turn_density" not in by_id["listen"]
+
+
+def test_cross_turn_density_marker_respects_explicit_kind():
+    """The (skill, kind) signature uses the inferred kind when the atom omits
+    an explicit kind, mirroring the request's resolved kind."""
+    rich = {"action_atoms": [{
+        "id": "str-check",
+        "verb": "用力推",
+        "skill": "STR",  # characteristic → inferred kind characteristic_check
+    }]}
+    recent = [
+        ("STR", "characteristic_check"),
+        ("STR", "characteristic_check"),
+    ]
+
+    requests = narr.build_action_chain_requests(rich, recent_atom_signatures=recent)
+
+    assert requests[0]["cross_turn_density"]["repeated_count"] == 3
+
+
+def test_enrich_director_plan_emits_montage_hint_on_repeated_player_action():
+    """When build_action_chain_requests produces a request carrying the
+    cross_turn_density marker, enrich_director_plan must surface a montage_hint
+    in narrative_directives so narration can compress the repetition."""
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    ctx = {
+        "active_scene": {},
+        "player_intent_rich": {
+            "action_atoms": [{"id": "search", "skill": "Library Use", "kind": "skill_check"}],
+        },
+        "npc_agendas": {"npcs": []},
+        "recent_atom_signatures": [
+            ("Library Use", "skill_check"),
+            ("Library Use", "skill_check"),
+        ],
+    }
+
+    enriched = narr.enrich_director_plan(plan, ctx)
+
+    hint = enriched["narrative_directives"]["montage_hint"]
+    assert hint["coalesce_hint"] == "montage"
+    assert hint["repeated_count"] >= 3
+    assert hint["window"] == "cross_turn"
+    # The marked request itself is present in rules_requests.
+    roll_req = [r for r in enriched["rules_requests"] if r.get("source", "").startswith("player_intent_rich")][0]
+    assert roll_req["cross_turn_density"]["coalesce_hint"] == "montage"
+
+
+def test_enrich_director_plan_omits_montage_hint_without_repetition():
+    """Without recent_atom_signatures, no montage_hint is emitted."""
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    ctx = {
+        "active_scene": {},
+        "player_intent_rich": {
+            "action_atoms": [{"id": "search", "skill": "Library Use", "kind": "skill_check"}],
+        },
+        "npc_agendas": {"npcs": []},
+    }
+
+    enriched = narr.enrich_director_plan(plan, ctx)
+
+    assert "montage_hint" not in enriched["narrative_directives"]
+
+
 def test_npc_reaction_triggers_from_structured_tags():
     scene = {"npc_ids": ["ally-1"]}
     agendas = {"npcs": [{

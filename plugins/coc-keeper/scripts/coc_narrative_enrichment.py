@@ -641,10 +641,30 @@ def _apply_roll_density_guard(requests: list[dict[str, Any]]) -> list[dict[str, 
     return merged
 
 
+def _atom_signature(skill: str | None, kind: str) -> tuple[str, str] | None:
+    """P1-3: stable (skill, kind) signature for cross-turn roll-density tracking.
+
+    Returns None when neither skill nor kind resolves to a non-empty value, so a
+    narration-only/non-rollable atom never seeds a signature into the window.
+    """
+    skill_text = _non_empty_str(skill)
+    kind_text = _non_empty_str(kind)
+    if not skill_text and not kind_text:
+        return None
+    return (skill_text or "", kind_text or "")
+
+
+# P1-3: a player action repeats across enough turns that narration should montage
+# it rather than roll-then-narrate each instance. Threshold is intentionally low
+# (3) because the marker is advisory only; rules adjudication is untouched.
+_CROSS_TURN_DENSITY_THRESHOLD = 3
+
+
 def build_action_chain_requests(
     player_intent_rich: dict[str, Any] | None,
     *,
     max_requests: int = 3,
+    recent_atom_signatures: list[tuple[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     """Convert semantic ``action_atoms`` into a bounded chain of roll requests.
 
@@ -652,9 +672,29 @@ def build_action_chain_requests(
     evaluator; it does not split or classify free-text itself. Each atom should
     represent an action with distinct risk and stakes. Atoms without a skill (or
     explicit ``requires_roll`` false) remain narration-only.
+
+    P1-3: ``recent_atom_signatures`` carries ``(skill, kind)`` tuples collected
+    from prior turns (within a single auto-advance loop, by the runner). When a
+    request's signature repeats ≥ ``_CROSS_TURN_DENSITY_THRESHOLD`` times in the
+    window (prior turns + the current turn's own atom), the request is annotated
+    with a ``cross_turn_density`` marker telling narration to compress. The
+    marker is informational only — the runner still rolls per request and rules
+    adjudication is untouched. Backward-compat: the kwarg defaults to empty so
+    callers that omit it see no marker and no behavior change.
     """
     rich = player_intent_rich or {}
     atoms = [a for a in _as_list(rich.get("action_atoms")) if isinstance(a, dict)]
+    # Normalize the recent window once; tolerate None / non-list / malformed
+    # entries so a bad caller can never crash enrichment.
+    recent_window: list[tuple[str, str]] = []
+    if recent_atom_signatures:
+        for sig in recent_atom_signatures:
+            if isinstance(sig, (tuple, list)) and len(sig) == 2:
+                recent_window.append((_non_empty_str(sig[0]) or "", _non_empty_str(sig[1]) or ""))
+    recent_counts: dict[tuple[str, str], int] = {}
+    for skill_text, kind_text in recent_window:
+        recent_counts[(skill_text, kind_text)] = recent_counts.get((skill_text, kind_text), 0) + 1
+
     requests: list[dict[str, Any]] = []
     atom_to_request: dict[str, str] = {}
     rollable_atoms = 0
@@ -673,8 +713,9 @@ def build_action_chain_requests(
         if isinstance(depends_on, str) and depends_on in atom_to_request:
             depends_on = atom_to_request[depends_on]
 
+        resolved_kind = _infer_request_kind(atom, skill)
         req: dict[str, Any] = {
-            "kind": _infer_request_kind(atom, skill),
+            "kind": resolved_kind,
             "request_id": request_id,
             "skill": skill,
             "reason": atom.get("reason") or atom.get("verb") or atom.get("intent") or "player action atom",
@@ -687,6 +728,24 @@ def build_action_chain_requests(
             "roll_contract": _atom_roll_contract(atom, atom_id),
             "atom_id": atom_id,
         }
+        # P1-3: cross-turn roll-density marker (advisory only).
+        sig = _atom_signature(skill, resolved_kind)
+        if sig is not None:
+            repeated_count = recent_counts.get(sig, 0) + 1  # +1 for this turn's own atom
+            if repeated_count >= _CROSS_TURN_DENSITY_THRESHOLD:
+                req["cross_turn_density"] = {
+                    "schema_version": _SCHEMA_VERSION,
+                    "repeated_count": repeated_count,
+                    "coalesce_hint": "montage",
+                    "window": "cross_turn",
+                    "skill": sig[0],
+                    "kind": sig[1],
+                    "rule": (
+                        "同一 (skill, kind) 玩家动作在本轮+前序轮次中重复出现；叙事应压缩/蒙太奇处理，"
+                        "但 runner 仍按每条 request 正常掷骰，规则判定不受影响。"
+                    ),
+                    "source": "build_action_chain_requests.cross_turn_density",
+                }
         if atom.get("opposed_skill"):
             req["opposed_skill"] = atom.get("opposed_skill")
         if atom.get("opposed_by"):
@@ -1305,7 +1364,10 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
         if proposal_transform["next_contract"] == "request_roll":
             enriched["handoff"] = "rules" if enriched.get("rules_requests") else enriched.get("handoff", "narration")
 
-    chain_requests = build_action_chain_requests(rich)
+    chain_requests = build_action_chain_requests(
+        rich,
+        recent_atom_signatures=ctx.get("recent_atom_signatures"),
+    )
     roll_density_decisions = [
         req["density_decision"]
         for req in chain_requests
@@ -1318,6 +1380,26 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
         existing = enriched.setdefault("rules_requests", [])
         existing.extend(chain_requests)
         enriched["handoff"] = "rules"
+    # P1-3: surface cross-turn roll density as a narration-facing montage_hint so
+    # the narrator/director can compress repeated player actions. Advisory only —
+    # the runner still rolls per request and rules adjudication is untouched.
+    cross_turn_markers = [
+        req["cross_turn_density"]
+        for req in chain_requests
+        if isinstance(req.get("cross_turn_density"), dict)
+    ]
+    if cross_turn_markers:
+        # Pick the strongest marker (highest repeated_count) for the hint.
+        strongest = max(cross_turn_markers, key=lambda m: int(m.get("repeated_count", 0) or 0))
+        nd["montage_hint"] = {
+            "schema_version": _SCHEMA_VERSION,
+            "coalesce_hint": strongest.get("coalesce_hint", "montage"),
+            "repeated_count": strongest.get("repeated_count"),
+            "window": strongest.get("window", "cross_turn"),
+            "marked_request_ids": [req.get("request_id") for req in chain_requests if isinstance(req.get("cross_turn_density"), dict)],
+            "rule": strongest.get("rule"),
+            "source": "enrich_director_plan.montage_hint",
+        }
 
     npc_reactions = build_npc_reaction_moves(scene, ctx.get("npc_agendas"), rich)
     enriched["npc_moves"] = _merge_npc_moves(enriched.get("npc_moves", []), npc_reactions)

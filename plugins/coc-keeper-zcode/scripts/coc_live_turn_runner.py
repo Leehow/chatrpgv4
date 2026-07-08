@@ -271,6 +271,40 @@ def _semantic_low_agency_choice(choice: dict[str, Any]) -> dict[str, Any]:
     return next_choice
 
 
+def _action_atom_signatures(rich: dict[str, Any] | None) -> list[tuple[str, str]]:
+    """P1-3: extract ``(skill, kind)`` signatures from a turn's action_atoms.
+
+    Used to track which PLAYER actions repeat across turns within a single
+    auto-advance loop. The signature mirrors ``build_action_chain_requests``:
+    only rollable atoms (those that would become a rule request) seed a
+    signature, so narration-only atoms never pollute the cross-turn window.
+
+    Cross-invocation persistence is intentionally out of scope: callers reset
+    the window per player input.
+    """
+    if not isinstance(rich, dict):
+        return []
+    signatures: list[tuple[str, str]] = []
+    helper = getattr(narrative_enrichment, "_atom_signature", None)
+    infer_kind = getattr(narrative_enrichment, "_infer_request_kind", None)
+    if helper is None or infer_kind is None:
+        return signatures
+    for atom in (rich.get("action_atoms") or []):
+        if not isinstance(atom, dict):
+            continue
+        if atom.get("requires_roll") is False:
+            continue
+        skill = atom.get("skill") or atom.get("roll_skill")
+        skill_text = narrative_enrichment._non_empty_str(skill) if skill else None
+        if not skill_text and not atom.get("kind"):
+            continue
+        kind = infer_kind(atom, skill_text)
+        sig = helper(skill_text, kind)
+        if sig is not None:
+            signatures.append(sig)
+    return signatures
+
+
 def _npc_move_requires_player_decision(npc_moves: list[dict[str, Any]] | None) -> bool:
     """P0-2c: only an NPC move explicitly marked requires_player_decision
     interrupts. npc_assist/react and other non-decisional moves do not."""
@@ -394,6 +428,12 @@ def _run_one_turn(
         campaign_dir / "save" / "storylet-ledger.json",
         {},
     )
+    # P1-3: forward prior turns' player-action signatures so enrichment can mark
+    # cross-turn roll density. Only populated within a run_live_turn auto-advance
+    # loop; absent on single-turn calls (backward-compat → no marker).
+    recent_signatures = choice.get("recent_atom_signatures")
+    if isinstance(recent_signatures, list):
+        ctx["recent_atom_signatures"] = recent_signatures
     for key in ("storylet_policy", "storylet_library", "incident_deck"):
         if isinstance(choice.get(key), dict):
             ctx[key] = choice[key]
@@ -513,9 +553,20 @@ def run_live_turn(
     max_turns = max(1, int(max_auto_advance or 1))
     turns: list[dict[str, Any]] = []
     stop_reason = "max_auto_advance_reached"
+    # P1-3: collect player action_atom (skill, kind) signatures from prior turns
+    # WITHIN this one auto-advance loop so enrichment can mark cross-turn roll
+    # density. Cross-invocation persistence (across separate player inputs) is
+    # intentionally out of scope — the window resets per run_live_turn call.
+    recent_atom_signatures: list[tuple[str, str]] = []
 
     for index in range(max_turns):
         decision_id = f"turn-{start_number + index:03d}"
+        # P1-3: hand the accumulating window to this turn's enrichment. Copied
+        # defensively so _semantic_low_agency_choice's deepcopy cannot mutate it.
+        if recent_atom_signatures:
+            choice["recent_atom_signatures"] = list(recent_atom_signatures)
+        elif "recent_atom_signatures" in choice:
+            choice.pop("recent_atom_signatures", None)
         turn = _run_one_turn(
             campaign_dir=campaign,
             character_path=character,
@@ -526,6 +577,11 @@ def run_live_turn(
             recording_mode=mode,
             recording_flush=flush_policy,
         )
+        # P1-3: append this turn's player-action signatures BEFORE deciding
+        # whether to advance, so the next loop iteration sees the cumulative
+        # window. Only real (non-synthesized) atoms contribute; low-agency
+        # continuations carry empty action_atoms, so they add nothing.
+        recent_atom_signatures.extend(_action_atom_signatures(choice.get("player_intent_rich")))
         turns.append(turn)
         interrupt = _turn_interrupt_reason(turn)
         if interrupt is not None:
