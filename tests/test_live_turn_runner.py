@@ -391,3 +391,53 @@ def test_live_turn_auto_advances_low_agency_posture_until_interrupt(tmp_path, mo
     }
     assert result["final_state"]["active_scene"] == "wire-shelter"
     assert any(turn["auto_advanced"] for turn in result["turns"][1:])
+
+
+def test_no_interrupt_when_two_routes_but_not_real_fork():
+    # Scene has 2 routes but player already committed (is_real_fork=False) -> no stop
+    assert live_runner._turn_interrupt_reason({
+        "scene_transition": False,
+        "event_types": [],
+        "rules_requests": [],
+        "clue_revealed": [],
+        "choice_frame": {"route_count": 2, "is_real_fork": False, "open_route_count": 2},
+        "npc_moves": [],
+        "narrative_directives": {"dramatic_progress": {"current_interrupts": []}},
+    }) is None
+
+
+def test_interrupt_when_real_fork():
+    assert live_runner._turn_interrupt_reason({
+        "scene_transition": False,
+        "event_types": [],
+        "rules_requests": [],
+        "clue_revealed": [],
+        "choice_frame": {"route_count": 2, "is_real_fork": True, "open_route_count": 2},
+        "npc_moves": [],
+        "narrative_directives": {"dramatic_progress": {"current_interrupts": []}},
+    }) == "meaningful_choice"
+
+
+def test_no_interrupt_for_npc_assist_move():
+    # npc_moves with only npc_assist (non-decisional) -> no stop
+    assert live_runner._turn_interrupt_reason({
+        "scene_transition": False,
+        "event_types": [],
+        "rules_requests": [],
+        "clue_revealed": [],
+        "choice_frame": {"route_count": 0, "is_real_fork": False, "open_route_count": 0},
+        "npc_moves": [{"npc_id": "bruno", "kind": "npc_assist"}],
+        "narrative_directives": {"dramatic_progress": {"current_interrupts": []}},
+    }) is None
+
+
+def test_interrupt_for_npc_requires_player_decision():
+    assert live_runner._turn_interrupt_reason({
+        "scene_transition": False,
+        "event_types": [],
+        "rules_requests": [],
+        "clue_revealed": [],
+        "choice_frame": {"route_count": 0, "is_real_fork": False, "open_route_count": 0},
+        "npc_moves": [{"npc_id": "bruno", "requires_player_decision": True}],
+        "narrative_directives": {"dramatic_progress": {"current_interrupts": []}},
+    }) == "npc_requests_specialist_judgment"

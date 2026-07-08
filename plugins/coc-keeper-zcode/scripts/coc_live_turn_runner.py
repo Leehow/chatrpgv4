@@ -271,6 +271,20 @@ def _semantic_low_agency_choice(choice: dict[str, Any]) -> dict[str, Any]:
     return next_choice
 
 
+def _npc_move_requires_player_decision(npc_moves: list[dict[str, Any]] | None) -> bool:
+    """P0-2c: only an NPC move explicitly marked requires_player_decision
+    interrupts. npc_assist/react and other non-decisional moves do not."""
+    for move in (npc_moves or []):
+        if not isinstance(move, dict):
+            continue
+        if move.get("requires_player_decision"):
+            return True
+        for sub in (move.get("agency_moves") or []):
+            if isinstance(sub, dict) and sub.get("requires_player_decision"):
+                return True
+    return False
+
+
 def _turn_interrupt_reason(turn: dict[str, Any]) -> str | None:
     if turn.get("scene_transition"):
         return "scene_arrival_or_transition"
@@ -286,9 +300,13 @@ def _turn_interrupt_reason(turn: dict[str, Any]) -> str | None:
     if turn.get("clue_revealed"):
         return "new_clue_or_obvious_information"
     choice_frame = turn.get("choice_frame") or {}
-    if int(choice_frame.get("route_count", 0) or 0) >= 2:
+    # P0-2c: 只在真分叉（director 基于 route.status 结构化判定）时停交选择，
+    # 不再用 route_count>=2 的结构数量硬判停——那与玩家是否真面临抉择无关。
+    if bool(choice_frame.get("is_real_fork")):
         return "meaningful_choice"
-    if turn.get("npc_moves"):
+    # P0-2c: npc_moves 只对带 requires_player_decision 标记的 move 判停；
+    # npc_assist/react 等非决策性 move 不应让"跟着班长"类低主动输入停。
+    if _npc_move_requires_player_decision(turn.get("npc_moves")):
         return "npc_requests_specialist_judgment"
 
     progress = (turn.get("narrative_directives") or {}).get("dramatic_progress") or {}
