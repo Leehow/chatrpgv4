@@ -435,3 +435,66 @@ def test_scene_tags_includes_storylet_tags_field():
     tags = storylets._scene_tags(ctx)
     assert "opening_briefing" in tags
     assert "social" in tags
+
+
+def test_opening_briefing_storylet_selected_on_scene_entry():
+    """S7: a storylet with scene_tags matching the scene's storylet_tags must
+    be selectable when the scene is entered. Verifies S1 (matcher) + S6 (tags)
+    + this task (library data) compose end-to-end."""
+    library = {
+        "schema_version": 1, "description": "test", "conflict_levels": ["low","medium","high","climax"],
+        "selection_contract": [], "storylets": [
+            {
+                "storylet_id": "opening-briefing-tell-not-ask",
+                "title": "简报里的沉默", "family_id": "opening_tension", "trope_id": "withheld_mission_truth",
+                "conflict_level": "low", "conflict_score": 1, "base_weight": 1.0,
+                "dramatic_function": ["CHARACTER","DEEPEN"], "scene_actions": ["CHARACTER","DEEPEN"],
+                "scope": "scene",
+                "structure_affinity": ["linear_acts","branching_investigation","hub_sandbox","hybrid_mega"],
+                "eligible_scene_types": ["social"],
+                "horror_stage": ["ordinary","wrongness"],
+                "scene_tags": ["opening_briefing"],
+                "requires": {"npc_id": True, "unrevealed_clue": False, "active_front": False},
+                "serves": {"mainline": True, "can_deepen_npc": True, "can_surface_choice": True},
+                "anti_repeat": {"cooldown_turns": 12, "max_per_session": 1, "exclude_if_family_used_recently": True, "exclude_if_trope_used_recently": False},
+                "cue": "下达命令的人把真相咽回去半句，眼神在地图上多停了一拍。",
+                "beat": "在简报里埋下'这次任务没说全'的张力，给玩家追问的抓手。",
+                "effects": {"narrative_move": "在简报里埋下张力。", "clue_handling": "May foreshadow a withheld clue; never reveals it.", "pressure": "No automatic clock tick.", "choice": "Surface as a visible doubt or dilemma."},
+                "variants": {"sensory_detail_1d6": ["指挥官的指节在桌沿泛白。","地图边角的批注被刻意压在茶杯下。","传令兵在门口多站了一拍才退下。","炉火里的松枝爆出一声脆响。","窗外风雪忽然盖住后半句话。","副官与军士交换了一个极短的眼神。"], "complication_1d6": ["一名老兵忽然沉默。","补给清单上少了一项关键物资。","任务的返回时间被说得含糊。","有人在简报结束后欲言又止。","地图上有个不该出现的标记。","上级的命令落款时间对不上。"]},
+                "narration_directive": "把疑点绑定到简报现场的具体人或物；只埋张力，不揭示被隐瞒的真相。",
+                "story_functions": ["character_beat","theme_echo"],
+                "deck_tags": ["character_beat","npc","relationship","theme_echo","social","opening"],
+            },
+        ],
+    }
+    ctx = {
+        "turn_number": 0,
+        "structure_type": "linear_acts",
+        "storylet_policy": {"conflict_level": "low", "seed": "s7"},
+        "active_scene": {"scene_id": "mission-briefing", "scene_type": "social",
+                         "storylet_tags": ["opening_briefing"], "npc_ids": ["npc-company-commander"],
+                         "available_clues": [], "tone": ["cold"]},
+        "world_state": {"discovered_clue_ids": []},
+        "threat_fronts": {"fronts": []},
+        "module_meta": {"content_flags": []},
+        "storylet_ledger": {},
+    }
+    plan = {"decision_id":"d-s7","scene_action":"CHARACTER","pacing_mode":"social",
+            "clue_policy": {"reveal": [], "leads": []},
+            "narrative_directives": {"horror_escalation_stage": "ordinary"},
+            "rule_signals": {"tension_clock": {"tension_level": "low"}}}
+    moves = storylets.select_storylet_moves(plan, ctx, library=library, seed="s7")
+    assert moves, "expected the opening-briefing storylet to be selected"
+    assert moves[0]["storylet_id"] == "opening-briefing-tell-not-ask"
+
+
+def test_shipped_library_has_opening_briefing_storylet():
+    """S7: the shipped storylet-library.json must contain at least one storylet
+    with scene_tags including 'opening_briefing', so white-war's mission-briefing
+    scene can trigger a beat on entry."""
+    import json
+    from pathlib import Path
+    lib_path = Path("plugins/coc-keeper/references/rules-json/storylet-library.json")
+    lib = json.loads(lib_path.read_text())
+    opening = [s for s in lib["storylets"] if "opening_briefing" in (s.get("scene_tags") or [])]
+    assert opening, "shipped library lacks any opening_briefing storylet"

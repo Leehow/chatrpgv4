@@ -6617,6 +6617,186 @@
         "theme_echo",
         "ambience"
       ]
+    },
+    {
+      "storylet_id": "opening-briefing-tell-not-ask",
+      "title": "简报里的沉默",
+      "family_id": "opening_tension",
+      "trope_id": "withheld_mission_truth",
+      "conflict_level": "low",
+      "conflict_score": 1,
+      "base_weight": 1.0,
+      "dramatic_function": [
+        "CHARACTER",
+        "DEEPEN"
+      ],
+      "scene_actions": [
+        "CHARACTER",
+        "DEEPEN"
+      ],
+      "scope": "scene",
+      "structure_affinity": [
+        "linear_acts",
+        "branching_investigation",
+        "hub_sandbox",
+        "hybrid_mega"
+      ],
+      "eligible_scene_types": [
+        "social"
+      ],
+      "horror_stage": [
+        "ordinary",
+        "wrongness"
+      ],
+      "scene_tags": [
+        "opening_briefing"
+      ],
+      "requires": {
+        "npc_id": true,
+        "unrevealed_clue": false,
+        "active_front": false
+      },
+      "serves": {
+        "mainline": true,
+        "can_reveal_clue": false,
+        "can_tick_front": false,
+        "can_deepen_npc": true,
+        "can_surface_choice": true
+      },
+      "anti_repeat": {
+        "cooldown_turns": 12,
+        "max_per_session": 1,
+        "exclude_if_family_used_recently": true,
+        "exclude_if_trope_used_recently": false
+      },
+      "cue": "下达命令的人把真相咽回去半句，眼神在地图上多停了一拍。",
+      "beat": "在简报里埋下'这次任务没说全'的张力，给玩家追问的抓手。",
+      "effects": {
+        "narrative_move": "在简报里埋下张力。",
+        "clue_handling": "May foreshadow a withheld clue; never reveals it.",
+        "pressure": "No automatic clock tick.",
+        "choice": "Surface as a visible doubt or dilemma."
+      },
+      "variants": {
+        "sensory_detail_1d6": [
+          "指挥官的指节在桌沿泛白。",
+          "地图边角的批注被刻意压在茶杯下。",
+          "传令兵在门口多站了一拍才退下。",
+          "炉火里的松枝爆出一声脆响。",
+          "窗外风雪忽然盖住后半句话。",
+          "副官与军士交换了一个极短的眼神。"
+        ],
+        "complication_1d6": [
+          "一名老兵忽然沉默。",
+          "补给清单上少了一项关键物资。",
+          "任务的返回时间被说得含糊。",
+          "有人在简报结束后欲言又止。",
+          "地图上有个不该出现的标记。",
+          "上级的命令落款时间对不上。"
+        ]
+      },
+      "narration_directive": "把疑点绑定到简报现场的具体人或物；只埋张力，不揭示被隐瞒的真相。",
+      "story_functions": [
+        "character_beat",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "theme_echo",
+        "social",
+        "opening"
+      ]
+    },
+    {
+      "storylet_id": "opening-briefing-comrade-glance",
+      "title": "战友的侧目",
+      "family_id": "opening_tension",
+      "trope_id": "squad_doubt",
+      "conflict_level": "low",
+      "conflict_score": 1,
+      "base_weight": 1.0,
+      "dramatic_function": [
+        "CHARACTER",
+        "DEEPEN"
+      ],
+      "scene_actions": [
+        "CHARACTER",
+        "DEEPEN"
+      ],
+      "scope": "scene",
+      "structure_affinity": [
+        "linear_acts",
+        "branching_investigation",
+        "hub_sandbox",
+        "hybrid_mega"
+      ],
+      "eligible_scene_types": [
+        "social"
+      ],
+      "horror_stage": [
+        "ordinary",
+        "wrongness"
+      ],
+      "scene_tags": [
+        "opening_briefing"
+      ],
+      "requires": {
+        "npc_id": false,
+        "unrevealed_clue": false,
+        "active_front": false
+      },
+      "serves": {
+        "mainline": true,
+        "can_reveal_clue": false,
+        "can_tick_front": false,
+        "can_deepen_npc": true,
+        "can_surface_choice": false
+      },
+      "anti_repeat": {
+        "cooldown_turns": 12,
+        "max_per_session": 1,
+        "exclude_if_family_used_recently": true,
+        "exclude_if_trope_used_recently": false
+      },
+      "cue": "旁边一名老兵和你对上眼神，又飞快地移开——他知道的比说的多。",
+      "beat": "用一个不会主动开口的战友，暗示简报之外还有隐情。",
+      "effects": {
+        "narrative_move": "用一个旁观的战友制造'知道得更多'的暗示。",
+        "clue_handling": "May foreshadow a withheld clue; never reveals it.",
+        "pressure": "No automatic clock tick.",
+        "choice": "Surface as a visible doubt or a conversational hook."
+      },
+      "variants": {
+        "sensory_detail_1d6": [
+          "老兵低头去擦根本不脏的枪栓。",
+          "他把水壶递过来时手指微微一抖。",
+          "简报没念完，他已悄悄把护身符攥进掌心。",
+          "他朝你点头的角度比平时多了半寸。",
+          "火光在他眼底停了一瞬，随即避开。",
+          "他重新系紧了本来已经系好的绑腿。"
+        ],
+        "complication_1d6": [
+          "另一位新兵没察觉这眼神，正问出不该问的问题。",
+          "老兵忽然提议'要不要再确认一次路线'。",
+          "他的视线在某个不在简报上的地名上停过。",
+          "简报结束，他刻意落在最后才离场。",
+          "他把一句口头禅咽了回去，改口成了官话。",
+          "他从口袋里摸出一张没见过的纸条，又塞了回去。"
+        ]
+      },
+      "narration_directive": "把暗示绑定到简报现场一个沉默的战友身上；只埋张力与可追问的细节，不揭示被隐瞒的真相。",
+      "story_functions": [
+        "character_beat",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "theme_echo",
+        "social",
+        "opening",
+        "npc_depth"
+      ]
     }
   ]
 }
