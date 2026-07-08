@@ -386,6 +386,80 @@ def build_stop_actionability_contract(
     }
 
 
+# P0-4a: focus_axis 固定枚举。新增合法值时在此声明。
+_FOCUS_AXES = frozenset({
+    "tenant_history", "reward_scope", "npc_question", "environment",
+    "direct_entry", "investigate", "social", "move",
+})
+
+# P0-4a: intent_router 结构化 topic → focus_axis 映射（非关键词扫描；
+# key 是 intent_router 已产出的结构化 topic 值，value 是 focus 枚举）。
+_TOPIC_TO_FOCUS_AXIS = {
+    "history": "tenant_history",
+    "tenant": "tenant_history",
+    "reward": "reward_scope",
+    "payment": "reward_scope",
+    "scope": "reward_scope",
+}
+
+
+def build_turn_focus_contract(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    """P0-4a: 把玩家本轮的结构化意图映射到一个 focus_axis + 目标 affordance。
+
+    Constitution 合规：只消费 intent_router 已产出的结构化字段
+    (action_atoms[].topic / target_entities) 与 scene.affordances.route_type，
+    绝不扫描 player_text 取子串。无结构化匹配时返回 None（不强猜）。
+    """
+    rich = ctx.get("player_intent_rich") or {}
+    scene = ctx.get("active_scene") or {}
+    affordances = [a for a in _as_list(scene.get("affordances")) if isinstance(a, dict)]
+    if not affordances:
+        return None
+
+    # 优先从 action_atoms 的 topic 映射到一个 focus_axis
+    focus_axis: str | None = None
+    for atom in _as_list(rich.get("action_atoms")):
+        if not isinstance(atom, dict):
+            continue
+        topic = str(atom.get("topic") or "").strip()
+        if topic in _TOPIC_TO_FOCUS_AXIS:
+            focus_axis = _TOPIC_TO_FOCUS_AXIS[topic]
+            break
+
+    # 退而用 target_entities 里的命名匹配 focus_axis（如 "tenants" → tenant_history）
+    if focus_axis is None:
+        for entity in _as_list(rich.get("target_entities")):
+            entity_text = str(entity or "").strip()
+            if entity_text in ("tenants", "tenant", "former_tenants"):
+                focus_axis = "tenant_history"
+                break
+            if entity_text in ("reward", "payment", "fee"):
+                focus_axis = "reward_scope"
+                break
+
+    if focus_axis is None:
+        return None
+
+    # 找到与该 focus_axis 匹配的 affordance（按 route_type）
+    focus_target_id: str | None = None
+    for affordance in affordances:
+        if str(affordance.get("route_type") or "") == focus_axis:
+            focus_target_id = _non_empty_str(affordance.get("id")) or _non_empty_str(affordance.get("route_id"))
+            if focus_target_id:
+                break
+
+    if focus_target_id is None:
+        return None  # 有 focus_axis 但场景无对应 affordance → 不强造 handle
+
+    return {
+        "focus_axis": focus_axis,
+        "focus_target_id": focus_target_id,
+        "focus_reason": f"intent_router_structured_match:{focus_axis}",
+        "source_route_ids": [focus_target_id],
+        "source": "build_turn_focus_contract",
+    }
+
+
 def build_proposal_transform(player_intent_rich: dict[str, Any] | None) -> dict[str, Any] | None:
     rich = player_intent_rich or {}
     raw = rich.get("proposal")

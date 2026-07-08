@@ -602,3 +602,62 @@ def test_storylet_triggers_on_scene_enter_event_type():
     trigger = narr.infer_storylet_trigger(plan, ctx)
     assert trigger["triggered"] is True
     assert trigger["reason"] == "scene_tag_beat"
+
+
+def test_turn_focus_maps_intent_topic_to_affordance_route_type():
+    ctx = {
+        "player_intent_rich": {
+            "primary_intent": "investigate",
+            "action_atoms": [{"id": "a1", "verb": "ask", "object": "tenants", "topic": "history"}],
+        },
+        "active_scene": {
+            "affordances": [
+                {"id": "ask-tenants", "cue": "问前租客", "route_type": "tenant_history"},
+                {"id": "enter-house", "cue": "进屋", "route_type": "direct_entry"},
+            ],
+        },
+    }
+    focus = narr.build_turn_focus_contract(ctx)
+    assert focus is not None
+    assert focus["focus_axis"] == "tenant_history"
+    assert focus["focus_target_id"] == "ask-tenants"
+    assert focus["focus_reason"]  # non-empty recorded reason
+
+
+def test_turn_focus_returns_none_when_no_structured_match():
+    ctx = {
+        "player_intent_rich": {"primary_intent": "move"},  # no topic/target → no match
+        "active_scene": {
+            "affordances": [{"id": "x", "cue": "x", "route_type": "direct_entry"}],
+        },
+    }
+    focus = narr.build_turn_focus_contract(ctx)
+    assert focus is None  # no structured match → do not guess
+
+
+def test_turn_focus_returns_none_when_no_affordances():
+    ctx = {
+        "player_intent_rich": {
+            "primary_intent": "investigate",
+            "action_atoms": [{"id": "a1", "topic": "history"}],
+        },
+        "active_scene": {"affordances": []},
+    }
+    focus = narr.build_turn_focus_contract(ctx)
+    assert focus is None
+
+
+def test_turn_focus_never_uses_player_text_substring():
+    """Constitution guardian: focus_axis must be a fixed enum value,
+    never a substring of free player prose."""
+    ctx = {
+        "player_intent_rich": {"primary_intent": "social"},
+        "active_scene": {"affordances": [{"id": "r", "cue": "x", "route_type": "npc_question"}]},
+        "player_text": "some arbitrary prose that should never become a focus_axis blabla",
+    }
+    focus = narr.build_turn_focus_contract(ctx)
+    if focus is not None:
+        # focus_axis must be a member of the declared enum, not a prose substring
+        assert focus["focus_axis"] in narr._FOCUS_AXES
+        # and must not equal any substring of player_text
+        assert focus["focus_axis"] not in ctx["player_text"]
