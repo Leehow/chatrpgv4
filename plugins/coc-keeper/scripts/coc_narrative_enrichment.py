@@ -217,6 +217,95 @@ def _atom_roll_contract(atom: dict[str, Any], atom_id: str) -> dict[str, Any]:
     }
 
 
+def _request_atom_id(request: dict[str, Any]) -> str:
+    atom_id = _non_empty_str(request.get("atom_id"))
+    if atom_id:
+        return atom_id
+    request_id = _non_empty_str(request.get("request_id")) or "atom"
+    return request_id[5:] if request_id.startswith("roll-") else request_id
+
+
+def _merge_phrase(existing: Any, incoming: Any, *, separator: str = "；") -> str:
+    parts: list[str] = []
+    for value in [existing, incoming]:
+        for piece in str(value or "").split(separator):
+            piece = piece.strip()
+            if piece and piece not in parts:
+                parts.append(piece)
+    return separator.join(parts)
+
+
+def _density_merge_key(request: dict[str, Any]) -> tuple[str, str, str, str, str] | None:
+    contract = request.get("roll_contract") if isinstance(request.get("roll_contract"), dict) else {}
+    group = _non_empty_str(contract.get("roll_density_group"))
+    if not group:
+        return None
+    if request.get("depends_on"):
+        return None
+    return (
+        group,
+        str(request.get("kind") or ""),
+        str(request.get("skill") or ""),
+        str(request.get("difficulty") or "regular"),
+        str(contract.get("failure_outcome_mode") or "goal_with_cost"),
+    )
+
+
+def _merge_density_request(target: dict[str, Any], incoming: dict[str, Any]) -> None:
+    target_atom_ids = list(target.get("merged_atoms") or [_request_atom_id(target)])
+    incoming_atom_id = _request_atom_id(incoming)
+    if incoming_atom_id not in target_atom_ids:
+        target_atom_ids.append(incoming_atom_id)
+    target["merged_atoms"] = target_atom_ids
+    target["reason"] = _merge_phrase(target.get("reason"), incoming.get("reason"))
+    target["stakes"] = _merge_phrase(target.get("stakes"), incoming.get("stakes"))
+    target["density_decision"] = {
+        "schema_version": _SCHEMA_VERSION,
+        "mode": "merged_roll",
+        "roll_density_group": (target.get("roll_contract") or {}).get("roll_density_group"),
+        "merged_atom_ids": target_atom_ids,
+        "merged_request_ids": [
+            request_id for request_id in _as_list(target.get("merged_request_ids") or target.get("request_id"))
+            if request_id
+        ] + [incoming.get("request_id")],
+        "reason": "same roll_density_group and same roll axis",
+        "montage_after_success": True,
+    }
+    target["merged_request_ids"] = target["density_decision"]["merged_request_ids"]
+    contract = target.get("roll_contract") or {}
+    incoming_contract = incoming.get("roll_contract") or {}
+    contract["goal"] = _merge_phrase(contract.get("goal"), incoming_contract.get("goal"))
+    contract["failure_effect"] = _merge_phrase(
+        contract.get("failure_effect"),
+        incoming_contract.get("failure_effect"),
+    )
+    contract["success_effect"] = _merge_phrase(
+        contract.get("success_effect"),
+        incoming_contract.get("success_effect"),
+    )
+    must_not = []
+    for item in _as_list(contract.get("must_not")) + _as_list(incoming_contract.get("must_not")):
+        text = _non_empty_str(item)
+        if text and text not in must_not:
+            must_not.append(text)
+    contract["must_not"] = must_not
+    target["roll_contract"] = contract
+
+
+def _apply_roll_density_guard(requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    by_key: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    for request in requests:
+        key = _density_merge_key(request)
+        if key is None or key not in by_key:
+            merged.append(request)
+            if key is not None:
+                by_key[key] = request
+            continue
+        _merge_density_request(by_key[key], request)
+    return merged
+
+
 def build_action_chain_requests(
     player_intent_rich: dict[str, Any] | None,
     *,
@@ -233,6 +322,7 @@ def build_action_chain_requests(
     atoms = [a for a in _as_list(rich.get("action_atoms")) if isinstance(a, dict)]
     requests: list[dict[str, Any]] = []
     atom_to_request: dict[str, str] = {}
+    rollable_atoms = 0
 
     for idx, atom in enumerate(atoms, start=1):
         if atom.get("requires_roll") is False:
@@ -240,6 +330,7 @@ def build_action_chain_requests(
         skill = _non_empty_str(atom.get("skill") or atom.get("roll_skill"))
         if not skill and not atom.get("kind"):
             continue
+        rollable_atoms += 1
         atom_id = _non_empty_str(atom.get("id")) or f"atom-{idx}"
         request_id = _non_empty_str(atom.get("request_id")) or f"roll-{atom_id}"
         atom_to_request[atom_id] = request_id
@@ -259,16 +350,18 @@ def build_action_chain_requests(
             "stakes": atom.get("stakes"),
             "source": "player_intent_rich.action_atoms",
             "roll_contract": _atom_roll_contract(atom, atom_id),
+            "atom_id": atom_id,
         }
         if atom.get("opposed_skill"):
             req["opposed_skill"] = atom.get("opposed_skill")
         if atom.get("opposed_by"):
             req["opposed_by"] = atom.get("opposed_by")
         requests.append(req)
-        if len(requests) >= max_requests:
-            break
 
-    if len([a for a in atoms if isinstance(a, dict) and a.get("requires_roll") is not False]) > len(requests) and requests:
+    requests = _apply_roll_density_guard(requests)
+    if len(requests) > max_requests:
+        requests = requests[:max_requests]
+    if rollable_atoms > len(requests) and requests and not any("density_decision" in req for req in requests):
         requests[-1]["chain_truncated"] = True
         requests[-1]["chain_policy"] = "resolve remaining low-stakes atoms by narration or montage"
     return requests
@@ -633,6 +726,7 @@ def _update_enrichment_summary(
     choice_frame: dict[str, Any] | None = None,
     proposal_transform: dict[str, Any] | None = None,
     chain_requests: list[dict[str, Any]] | None = None,
+    roll_density_decisions: list[dict[str, Any]] | None = None,
     npc_reactions: list[dict[str, Any]] | None = None,
     storylet_trigger: dict[str, Any] | None = None,
     storylet_scheduler: dict[str, Any] | None = None,
@@ -645,6 +739,8 @@ def _update_enrichment_summary(
         summary["proposal_transform"] = bool(proposal_transform)
     if chain_requests is not None:
         summary["action_chain_requests"] = len(chain_requests)
+    if roll_density_decisions is not None:
+        summary["roll_density_decisions"] = len(roll_density_decisions)
     if npc_reactions is not None:
         summary["npc_reactions"] = sum(len(m.get("active_reactions", []) or []) for m in npc_reactions)
     if storylet_trigger is not None:
@@ -726,6 +822,14 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
             enriched["handoff"] = "rules" if enriched.get("rules_requests") else enriched.get("handoff", "narration")
 
     chain_requests = build_action_chain_requests(rich)
+    roll_density_decisions = [
+        req["density_decision"]
+        for req in chain_requests
+        if isinstance(req.get("density_decision"), dict)
+    ]
+    if roll_density_decisions:
+        enriched["roll_density_decisions"] = roll_density_decisions
+        nd["roll_density_decisions"] = roll_density_decisions
     if chain_requests:
         existing = enriched.setdefault("rules_requests", [])
         existing.extend(chain_requests)
@@ -762,6 +866,7 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
         choice_frame=choice_frame,
         proposal_transform=proposal_transform,
         chain_requests=chain_requests,
+        roll_density_decisions=roll_density_decisions,
         npc_reactions=npc_reactions,
         storylet_trigger=storylet_trigger,
         storylet_scheduler=storylet_scheduler,

@@ -618,8 +618,12 @@ def test_recover_plan_includes_idea_roll_contract(tmp_path):
     plan = coc_story_director.generate_director_plan(ctx, decision_id="idea-roll")
 
     idea = plan["narrative_directives"]["idea_roll_plan"]
-    assert idea["target_characteristic"] == "INT"
-    assert idea["missed_conclusion_id"] == "concl-1"
+    assert idea["roll_target"] == "INT"
+    assert idea["missed_clue_id"] == "clue-1"
+    assert idea["failure_delivery_with_cost"] == "surface the lead in a worse position"
+    assert "target_characteristic" not in idea
+    assert "missed_conclusion_id" not in idea
+    assert "failure_delivery" not in idea
     assert "do not present this as table-level advice" in idea["must_not"]
 
 
@@ -875,7 +879,41 @@ def test_routine_repetition_emits_scene_exit_pressure(tmp_path):
     pressure = plan["narrative_directives"]["scene_exit_pressure"]
     assert pressure["state"] in {"compress", "cut", "montage"}
     assert "no_new_axis" in pressure["reasons"]
+    assert "low_agency_repetition" not in pressure["reasons"]
+    assert "bridge_exhausted" not in pressure["reasons"]
     assert pressure["must_change_state"] is True
+
+
+def test_low_agency_continue_uses_scene_exit_pressure_v2_reason(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["available_clues"] = []
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["follow", "follow"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+    rich = {
+        "primary_intent": "follow",
+        "secondary_intents": ["continue_existing_strategy"],
+        "target_entities": ["group"],
+        "action_atoms": [],
+    }
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我继续跟着",
+        player_intent_class="follow",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+    ctx["rule_signals"]["low_agency_continue_count"] = 2
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="scene-exit-repetition")
+
+    reasons = plan["narrative_directives"]["scene_exit_pressure"]["reasons"]
+    assert "repetition_detected" in reasons
+    assert "low_agency_repetition" not in reasons
 
 
 def test_dramatic_pacing_does_not_compress_when_roll_is_required(tmp_path):

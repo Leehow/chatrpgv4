@@ -60,6 +60,64 @@ def test_action_atom_requests_include_roll_contract():
     assert contract["roll_density_group"] == "crossing_fire"
 
 
+def test_action_atom_density_group_merges_same_axis_requests():
+    rich = {"action_atoms": [
+        {
+            "id": "search-desk",
+            "verb": "先搜桌面",
+            "skill": "Spot Hidden",
+            "stakes": "耗费时间",
+            "roll_density_group": "same-room-search",
+        },
+        {
+            "id": "search-drawer",
+            "verb": "再搜抽屉",
+            "skill": "Spot Hidden",
+            "stakes": "弄出声响",
+            "roll_density_group": "same-room-search",
+        },
+    ]}
+
+    requests = narr.build_action_chain_requests(rich)
+
+    assert len(requests) == 1
+    request = requests[0]
+    assert request["request_id"] == "roll-search-desk"
+    assert request["density_decision"]["mode"] == "merged_roll"
+    assert request["density_decision"]["roll_density_group"] == "same-room-search"
+    assert request["density_decision"]["merged_atom_ids"] == ["search-desk", "search-drawer"]
+    assert request["merged_atoms"] == ["search-desk", "search-drawer"]
+    assert request["roll_contract"]["roll_density_group"] == "same-room-search"
+    assert "先搜桌面" in request["roll_contract"]["goal"]
+    assert "再搜抽屉" in request["roll_contract"]["goal"]
+    assert "耗费时间" in request["roll_contract"]["failure_effect"]
+    assert "弄出声响" in request["roll_contract"]["failure_effect"]
+
+
+def test_action_atom_density_group_keeps_distinct_failure_modes_separate():
+    rich = {"action_atoms": [
+        {
+            "id": "cross-yard",
+            "verb": "冲过空地",
+            "skill": "Dodge",
+            "failure_outcome_mode": "goal_with_cost",
+            "roll_density_group": "yard-crossing",
+        },
+        {
+            "id": "cover-ally",
+            "verb": "掩护同伴",
+            "skill": "Firearms (Handgun)",
+            "failure_outcome_mode": "pressure_cost",
+            "roll_density_group": "yard-crossing",
+        },
+    ]}
+
+    requests = narr.build_action_chain_requests(rich)
+
+    assert len(requests) == 2
+    assert all("density_decision" not in request for request in requests)
+
+
 def test_npc_reaction_triggers_from_structured_tags():
     scene = {"npc_ids": ["ally-1"]}
     agendas = {"npcs": [{
@@ -133,6 +191,27 @@ def test_proposal_transform_yes_but_from_structured_intent():
     assert transform["mode"] == "yes_but"
     assert transform["accepted_goal"] == "ask the police to guard the artifact"
     assert enriched["narrative_directives"]["proposal_transform"] == transform
+
+
+def test_enrich_records_roll_density_decisions_for_debugging():
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    ctx = {
+        "active_scene": {},
+        "player_intent_rich": {
+            "action_atoms": [
+                {"id": "search-desk", "verb": "搜桌面", "skill": "Spot Hidden", "roll_density_group": "same-room"},
+                {"id": "search-drawer", "verb": "搜抽屉", "skill": "Spot Hidden", "roll_density_group": "same-room"},
+            ],
+        },
+        "npc_agendas": {"npcs": []},
+    }
+
+    enriched = narr.enrich_director_plan(plan, ctx)
+
+    assert len(enriched["rules_requests"]) == 1
+    assert enriched["roll_density_decisions"][0]["mode"] == "merged_roll"
+    assert enriched["narrative_directives"]["roll_density_decisions"] == enriched["roll_density_decisions"]
+    assert enriched["narrative_enrichment"]["roll_density_decisions"] == 1
 
 
 def test_proposal_transform_rejects_unknown_mode_as_yes_but():

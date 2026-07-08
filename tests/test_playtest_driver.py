@@ -198,6 +198,12 @@ def test_driver_applies_narrative_enrichment_and_persists_storylet_ledger(tmp_pa
             "risk_posture": "cautious",
             "explicit_roll_request": False,
             "player_hypothesis": None,
+            "proposal": {
+                "mode": "yes_but",
+                "accepted_goal": "coordinate with the archivist while checking the ledger",
+                "visible_cost_or_risk": "the guard may notice the delay",
+                "next_contract": "request_roll",
+            },
             "action_atoms": [
                 {"id": "read-ledger", "verb": "翻登记簿", "skill": "Library Use", "stakes": "失败则耗费时间"},
                 {"id": "block-guard", "verb": "挡住警卫", "skill": "Fighting (Brawl)", "opposed_by": "guard", "depends_on": "read-ledger"},
@@ -212,6 +218,12 @@ def test_driver_applies_narrative_enrichment_and_persists_storylet_ledger(tmp_pa
     assert turn["choice_frame"]["route_count"] == 2
     assert turn["storylet_moves"]
     assert turn["narrative_enrichment"]["storylet_moves"] == 1
+    assert turn["proposal_transform"]["mode"] == "yes_but"
+    assert turn["proposal_transform"]["accepted_goal"] == "coordinate with the archivist while checking the ledger"
+    assert turn["narrative_directives"]["proposal_transform"] == turn["proposal_transform"]
+    assert "scene_exit_pressure" in turn
+    assert "idea_roll_plan" in turn
+    assert "roll_density_decisions" in turn
     assert any(req.get("source") == "player_intent_rich.action_atoms" for req in turn["rules_requests"])
     assert any(r.get("reason") == "翻登记簿" for r in turn["rule_results"])
     assert any(r.get("kind") == "opposed_check" and r.get("reason") == "挡住警卫" for r in turn["rule_results"])
@@ -220,6 +232,29 @@ def test_driver_applies_narrative_enrichment_and_persists_storylet_ledger(tmp_pa
     ledger = json.loads((camp / "save" / "storylet-ledger.json").read_text())
     assert ledger["last_storylet_id"] == turn["storylet_moves"][0]["storylet_id"]
     assert ledger["used_storylets"]
+
+
+def test_driver_records_roll_density_decisions_for_debugging(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    choices = [{
+        "intent": "我把桌面和抽屉都搜一遍",
+        "intent_class": "investigate",
+        "player_intent_rich": {
+            "primary_intent": "investigate",
+            "action_atoms": [
+                {"id": "search-desk", "verb": "搜桌面", "skill": "Spot Hidden", "roll_density_group": "same-room"},
+                {"id": "search-drawer", "verb": "搜抽屉", "skill": "Spot Hidden", "roll_density_group": "same-room"},
+            ],
+        },
+    }]
+
+    result = driver.run_full_session(camp, char_path, "inv1", player_choices=choices, max_turns=1)
+
+    turn = result["turns"][0]
+    assert len(turn["rules_requests"]) == 1
+    assert turn["roll_density_decisions"][0]["mode"] == "merged_roll"
+    assert turn["roll_density_decisions"][0]["merged_atom_ids"] == ["search-desk", "search-drawer"]
+    assert turn["narrative_directives"]["roll_density_decisions"] == turn["roll_density_decisions"]
 
 
 def test_driver_continues_decision_ids_across_repeated_live_invocations(tmp_path):

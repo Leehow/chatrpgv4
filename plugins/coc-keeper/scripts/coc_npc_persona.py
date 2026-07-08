@@ -402,6 +402,14 @@ def build_agency_moves(
         return []
 
     scope = matched_scope[0]
+    if initiative == "protective" and matched_threat:
+        moves.append(_agency_move(
+            persona_card=persona_card,
+            move_id="protect",
+            reason="protective_initiative_matches_responsibility_threat",
+            matched_responsibility=matched_threat,
+            agency_directive="NPC protects a responsibility domain before asking for specialist input.",
+        ))
     moves.append(_agency_move(
         persona_card=persona_card,
         move_id="take_command",
@@ -418,6 +426,46 @@ def build_agency_moves(
             "reason": "visible responsibility within authority",
         },
     ))
+    if {"reckless_plan", "dangerous_plan", "unsafe_action"} & intent_tags and (
+        "temperament.cautious" in persona_tags or matched_scope
+    ):
+        moves.append(_agency_move(
+            persona_card=persona_card,
+            move_id="object",
+            reason="structured_intent_risk_conflicts_with_duty_or_cautious_persona",
+            matched_authority_scope=matched_scope,
+            agency_directive="NPC objects to the visible risk without blocking every viable version of the plan.",
+        ))
+    if {"requests_help", "asks_for_assist", "specialist_care"} & intent_tags:
+        moves.append(_agency_move(
+            persona_card=persona_card,
+            move_id="assist",
+            reason="structured_intent_requests_help_within_scene_pressure",
+            matched_authority_scope=matched_scope,
+            rules_effect={
+                "kind": "npc_assist",
+                "actor_role": "npc",
+                "bonus_dice": 1,
+                "scope": scope,
+                "reason": "direct assistance within abstract duty",
+            },
+        ))
+    if "temperament.secretive" in persona_tags and (
+        "evidence_at_risk" in scene_tags or "public_pressure" in scene_tags or matched_threat
+    ):
+        moves.append(_agency_move(
+            persona_card=persona_card,
+            move_id="withhold",
+            reason="secretive_persona_under_active_pressure",
+            agency_directive="NPC visibly holds back information or cooperation until trust, leverage, or safety changes.",
+        ))
+    if "stress_response.rush" in persona_tags and scene_is_active:
+        moves.append(_agency_move(
+            persona_card=persona_card,
+            move_id="rush",
+            reason="persona_stress_response_pushes_too_fast",
+            agency_directive="NPC acts too quickly under pressure, creating opportunity or complication.",
+        ))
     delegates = set(str(item) for item in _as_list((role.get("delegation_policy") or {}).get("delegates")) if str(item))
     if delegates & intent_tags:
         moves.append(_agency_move(

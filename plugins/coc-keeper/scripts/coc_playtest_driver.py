@@ -781,9 +781,18 @@ def run_full_session(
             "resolved_clue_policy": resolved_plan.get("resolved_clue_policy", {}),
             "failure_consequence": directives.get("failure_consequence"),
             "choice_frame": resolved_plan.get("choice_frame", {}),
+            "proposal_transform": resolved_plan.get("proposal_transform") or directives.get("proposal_transform"),
+            "scene_exit_pressure": directives.get("scene_exit_pressure"),
+            "idea_roll_plan": directives.get("idea_roll_plan"),
+            "roll_density_decisions": (
+                resolved_plan.get("roll_density_decisions")
+                or directives.get("roll_density_decisions")
+                or []
+            ),
             "storylet_moves": resolved_plan.get("storylet_moves", []),
             "incident_moves": resolved_plan.get("incident_moves", []),
             "narrative_enrichment": resolved_plan.get("narrative_enrichment", {}),
+            "narrative_directives": directives,
             "rules_requests": resolved_plan.get("rules_requests", []),
             "npc_moves": resolved_plan.get("npc_moves", []),
             "narration": narration,

@@ -308,6 +308,42 @@ def test_agency_move_panic_from_stress_response_without_concrete_role():
     assert coc_npc_persona.rules_requests_from_agency_moves(moves) == []
 
 
+def test_agency_move_taxonomy_uses_abstract_duty_and_persona_tags():
+    card = {
+        "npc_id": "npc-gamma",
+        "social_role": {
+            "authority_scope": ["scene_safety"],
+            "responsibility_domains": ["group_survival", "evidence_security"],
+            "initiative_style": "protective",
+            "delegation_policy": {"keeps": ["scene_safety"], "delegates": ["specialist_care"]},
+        },
+        "persona": {
+            "tags": [
+                "temperament.cautious",
+                "temperament.secretive",
+                "stress_response.rush",
+            ]
+        },
+    }
+    scene_context = {
+        "scene_tags": ["crisis", "evidence_at_risk"],
+        "authority_demands": ["scene_safety"],
+        "responsibility_threats": ["group_survival", "evidence_security"],
+    }
+    rich = {
+        "intent_tags": ["yield_initiative"],
+        "secondary_intents": ["specialist_care", "reckless_plan", "requests_help"],
+    }
+
+    moves = coc_npc_persona.build_agency_moves(card, scene_context, player_intent_rich=rich)
+
+    move_ids = [move["move_id"] for move in moves]
+    for expected in ["protect", "take_command", "delegate_specialist", "object", "assist", "withhold", "rush"]:
+        assert expected in move_ids
+    assert all("reason" in move for move in moves)
+    assert all("scene_safety" not in move.get("move_id", "") for move in moves)
+
+
 def test_upgrade_npc_stats_promotes_lifecycle_and_logs_generated_parameters():
     card = coc_npc_persona.instantiate_npc(
         {"npc_id": "npc-auto-005", "lifecycle": "silhouette"},

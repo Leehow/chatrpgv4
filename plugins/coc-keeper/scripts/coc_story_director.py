@@ -831,13 +831,22 @@ def _idea_roll_plan(ctx: dict[str, Any], action: str) -> dict[str, Any] | None:
     if action != "RECOVER":
         return None
     conclusion = _first_unresolved_conclusion(ctx)
+    discovered = set((ctx.get("world_state") or {}).get("discovered_clue_ids", []))
+    missed_clue_id = None
+    for clue in (conclusion or {}).get("clues", []) or []:
+        if not isinstance(clue, dict):
+            continue
+        clue_id = clue.get("clue_id")
+        if clue_id and clue_id not in discovered:
+            missed_clue_id = clue_id
+            break
     return {
         "schema_version": 1,
-        "missed_conclusion_id": (conclusion or {}).get("conclusion_id"),
-        "target_characteristic": "INT",
+        "missed_clue_id": missed_clue_id,
+        "roll_target": "INT",
         "success_delivery": "surface a clean in-world inference or overlooked lead",
-        "failure_delivery": "surface the lead in a worse position",
-        "failure_costs": ["time_pressure"],
+        "failure_delivery_with_cost": "surface the lead in a worse position",
+        "costs": ["time_pressure"],
         "must_not": [
             "do not present this as table-level advice",
             "do not ask the player to guess the same missing route again",
@@ -864,13 +873,20 @@ def _scene_exit_pressure_directive(
         reasons.append("bridge_exhausted")
     if not reasons:
         return None
+    reason_map = {
+        "low_agency_repetition": "repetition_detected",
+        "bridge_exhausted": "routine_exhausted",
+        "no_new_axis": "no_new_axis",
+    }
+    public_reasons = _ordered_unique(reason_map.get(reason, reason) for reason in reasons)
     state = "compress"
     if "bridge_exhausted" in reasons:
         state = str((_progress_contract(scene).get("fallback_action") or "montage")).lower()
     return {
         "schema_version": 1,
         "state": state if state in {"compress", "cut", "montage"} else "compress",
-        "reasons": _ordered_unique(reasons),
+        "reasons": public_reasons,
+        "internal_reasons": _ordered_unique(reasons),
         "scene_goal_status": "exhausted" if "no_new_axis" in reasons else "open",
         "advance_until": list(_DRAMATIC_PROGRESS_ADVANCE_UNTIL),
         "must_change_state": True,
