@@ -338,12 +338,31 @@ def run_live_turn(
     pending_before_flush = _pending_record_count(campaign)
     background_result = None
     background_started = False
+    background_work = {
+        "status": "not_needed",
+        "worker": "local_recorder_process",
+        "pending_batches": pending_before_flush,
+        "completion_required_before_narration": False,
+    }
     if mode != "sync" and flush_policy == "background" and pending_before_flush:
         background_result = coc_async_recorder.spawn_background_flush(campaign)
         background_started = bool(background_result.get("started"))
+        background_work = {
+            "status": "scheduled" if background_started else "schedule_failed",
+            "worker": "local_recorder_process",
+            "pending_batches": pending_before_flush,
+            "completion_required_before_narration": False,
+            "result": background_result,
+        }
 
     world = apply_mod._read_json(campaign / "save" / "world-state.json", {})
     pacing = apply_mod._read_json(campaign / "save" / "pacing-state.json", {})
+    foreground = {
+        "narration_can_return_before_flush": True,
+        "waited_for_background_flush": False,
+        "sync_state_writes_completed": True,
+        "deferred_pending_batches": pending_before_flush if mode != "sync" else 0,
+    }
     result = {
         "schema_version": 1,
         "campaign_dir": str(campaign),
@@ -362,7 +381,10 @@ def run_live_turn(
             "pending_batches_before_flush": pending_before_flush,
             "background_flush_started": background_started,
             "background_flush_result": background_result,
+            "completion_required_before_narration": False,
+            "background_work": background_work,
         },
+        "foreground": foreground,
         "final_state": {
             "active_scene": world.get("active_scene_id"),
             "tension": pacing.get("tension_level"),
@@ -384,6 +406,8 @@ def run_live_turn(
         "pending_batches_before_flush": pending_before_flush,
         "background_flush_requested": mode != "sync" and flush_policy == "background",
         "background_flush_started": background_started,
+        "foreground": foreground,
+        "background_work": background_work,
         "final_state": result["final_state"],
     })
     return result

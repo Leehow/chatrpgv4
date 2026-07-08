@@ -171,6 +171,48 @@ def test_live_turn_defaults_to_fast_background_recording_and_receipt(tmp_path, m
     assert receipts[-1]["background_flush_requested"] is True
 
 
+def test_live_turn_foreground_can_return_before_background_flush_finishes(tmp_path, monkeypatch):
+    camp, char_path = _build_live_campaign(tmp_path)
+    spawned = []
+
+    def fake_spawn_background_flush(campaign_dir, *, limit=None):
+        spawned.append({"campaign_dir": Path(campaign_dir), "limit": limit})
+        return {"started": True, "pid": 4343}
+
+    monkeypatch.setattr(
+        live_runner.coc_async_recorder,
+        "spawn_background_flush",
+        fake_spawn_background_flush,
+    )
+    monkeypatch.setattr(
+        live_runner.coc_async_recorder,
+        "flush_pending_records",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("live turn must not flush synchronously")),
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我检查桌上的文件。",
+        intent_class="investigate",
+        rng_seed=17,
+    )
+
+    assert result["foreground"]["narration_can_return_before_flush"] is True
+    assert result["foreground"]["waited_for_background_flush"] is False
+    assert result["recording"]["background_work"]["status"] == "scheduled"
+    assert sorted((camp / "logs" / "pending-turns").glob("*.json"))
+    assert spawned
+
+    receipts = [
+        json.loads(line)
+        for line in (camp / "logs" / "live-turn-runtime.jsonl").read_text().splitlines()
+    ]
+    assert receipts[-1]["foreground"]["narration_can_return_before_flush"] is True
+    assert receipts[-1]["foreground"]["waited_for_background_flush"] is False
+
+
 def test_live_turn_auto_advances_low_agency_posture_until_interrupt(tmp_path, monkeypatch):
     camp, char_path = _build_live_campaign(tmp_path)
     story = json.loads((camp / "scenario" / "story-graph.json").read_text())

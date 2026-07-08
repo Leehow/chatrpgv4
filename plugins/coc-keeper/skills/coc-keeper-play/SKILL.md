@@ -60,6 +60,14 @@ recording mode, pending batch count, and whether background flushing was
 requested. Use this receipt to verify that live play really used the runner
 rather than ad hoc chat-side logging.
 
+Foreground narration must not wait for background audit flushing. In live play,
+once `run_live_turn(...)` returns with synchronous save-state writes complete,
+render the player-facing scene text immediately. Do not poll
+`logs/pending-turns/`, sleep waiting for the recorder, or call
+`flush_pending_records(...)` before narration just to make audit logs tidy.
+Flush pending batches only during maintenance, formal report generation,
+explicit debugging, or before final archival.
+
 Use `recording_mode: sync` for bug hunts, replay-sensitive tests, and final
 verification. Sync mode is the default and preserves the legacy behavior of
 writing each JSONL audit record immediately.

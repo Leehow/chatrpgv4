@@ -367,6 +367,8 @@ def test_keeper_play_documents_live_turn_runner_hard_entrypoint():
     assert "`run_live_turn(...)`" in keeper_skill
     assert "`logs/live-turn-runtime.jsonl`" in keeper_skill
     assert "Do not manually stitch" in keeper_skill
+    assert "Foreground narration must not wait for background audit flushing" in keeper_skill
+    assert "Do not poll" in keeper_skill
 
 
 def test_keeper_play_lists_reusable_investigators_before_character_creation():
