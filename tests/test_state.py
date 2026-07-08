@@ -74,6 +74,69 @@ def test_workspace_indexes_campaigns_and_reusable_investigators(tmp_path):
     }
 
 
+def test_list_investigators_enumerates_existing_investigators(tmp_path):
+    coc_state.create_investigator(
+        tmp_path,
+        "ada-king",
+        {"schema_version": 1, "id": "ada-king", "name": "Ada King", "occupation": "Antiquarian", "era": "1920s", "characteristics": {}},
+    )
+    coc_state.create_investigator(
+        tmp_path,
+        "bryn-jones",
+        {"schema_version": 1, "id": "bryn-jones", "name": "Bryn Jones", "occupation": "Private Investigator", "era": "modern", "characteristics": {}},
+    )
+
+    investigators = coc_state.list_investigators(tmp_path)
+
+    assert len(investigators) == 2
+    assert [entry["investigator_id"] for entry in investigators] == ["ada-king", "bryn-jones"]
+    by_id = {entry["investigator_id"]: entry for entry in investigators}
+    assert by_id["ada-king"]["name"] == "Ada King"
+    assert by_id["ada-king"]["occupation"] == "Antiquarian"
+    assert by_id["ada-king"]["era"] == "1920s"
+    assert by_id["bryn-jones"]["name"] == "Bryn Jones"
+    assert by_id["bryn-jones"]["occupation"] == "Private Investigator"
+    assert by_id["bryn-jones"]["era"] == "modern"
+
+
+def test_list_investigators_skips_dirs_without_character_json_and_tolerates_missing_fields(tmp_path):
+    coc_state.ensure_workspace(tmp_path)
+    # Investigator with full fields.
+    coc_state.create_investigator(
+        tmp_path,
+        "ada-king",
+        {"schema_version": 1, "id": "ada-king", "name": "Ada King", "occupation": "Antiquarian", "era": "1920s", "characteristics": {}},
+    )
+    # Investigator with minimal fields (no occupation/era).
+    coc_state.create_investigator(
+        tmp_path,
+        "minimal-investigator",
+        {"schema_version": 1, "id": "minimal-investigator", "name": "Minimal", "characteristics": {}},
+    )
+    # An empty directory under investigators/ that has no character.json must be skipped.
+    (tmp_path / ".coc" / "investigators" / "stub-dir").mkdir(parents=True, exist_ok=True)
+    # A directory whose character.json is malformed JSON must be skipped, not crash.
+    malformed_dir = tmp_path / ".coc" / "investigators" / "malformed"
+    malformed_dir.mkdir(parents=True, exist_ok=True)
+    (malformed_dir / "character.json").write_text("{not valid json", encoding="utf-8")
+
+    investigators = coc_state.list_investigators(tmp_path)
+
+    ids = {entry["investigator_id"] for entry in investigators}
+    assert ids == {"ada-king", "minimal-investigator"}
+    by_id = {entry["investigator_id"]: entry for entry in investigators}
+    # Missing fields are tolerated (default to None) rather than raising.
+    assert by_id["minimal-investigator"]["name"] == "Minimal"
+    assert by_id["minimal-investigator"]["occupation"] is None
+    assert by_id["minimal-investigator"]["era"] is None
+
+
+def test_list_investigators_returns_empty_list_when_none_exist(tmp_path):
+    coc_state.ensure_workspace(tmp_path)
+
+    assert coc_state.list_investigators(tmp_path) == []
+
+
 def test_create_investigator_persists_supplied_creation_record(tmp_path):
     investigator_path = coc_state.create_investigator(
         tmp_path,

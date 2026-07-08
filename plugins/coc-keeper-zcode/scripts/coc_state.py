@@ -313,6 +313,50 @@ def create_investigator(
     return character_path
 
 
+def list_investigators(root: Path) -> list[dict[str, Any]]:
+    """Enumerate existing reusable investigators.
+
+    Scans ``coc_root(root)/investigators/*/character.json`` and returns one
+    summary dict per investigator, sorted by ``investigator_id``. Directories
+    without a ``character.json`` (or with a malformed one) are skipped so the
+    registry degrades gracefully instead of crashing. Missing fields default to
+    ``None``.
+
+    The on-disk ``character.json`` is the authoritative source; the
+    ``investigators.json`` index is not consulted here because it can drift out
+    of sync with the filesystem.
+    """
+    investigators_dir = coc_root(root) / "investigators"
+    if not investigators_dir.is_dir():
+        return []
+    entries: list[dict[str, Any]] = []
+    for candidate in sorted(investigators_dir.iterdir(), key=lambda p: p.name):
+        if not candidate.is_dir():
+            continue
+        character_path = candidate / "character.json"
+        if not character_path.exists():
+            continue
+        try:
+            sheet = json.loads(character_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(sheet, dict):
+            continue
+        investigator_id = str(
+            sheet.get("investigator_id") or sheet.get("id") or candidate.name
+        )
+        entries.append(
+            {
+                "investigator_id": investigator_id,
+                "name": sheet.get("name"),
+                "occupation": sheet.get("occupation"),
+                "era": sheet.get("era"),
+                "path": _relative_to_root(root, character_path),
+            }
+        )
+    return entries
+
+
 def create_campaign(
     root: Path,
     campaign_id: str,
