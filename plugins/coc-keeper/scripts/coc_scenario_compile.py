@@ -22,10 +22,42 @@ REQUIRED_FILES = [
     "npc-agendas.json", "threat-fronts.json", "pacing-map.json",
     "improvisation-boundaries.json",
 ]
+NON_FRAGILE_DELIVERY_KINDS = {
+    "obvious",
+    "handout",
+    "environmental",
+    "npc_dialogue",
+    "social",
+    "direct",
+}
 
 
 def _read(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _is_non_fragile_clue_route(clue: dict[str, Any]) -> bool:
+    kind = clue.get("delivery_kind")
+    if kind in NON_FRAGILE_DELIVERY_KINDS:
+        return True
+    if kind == "skill_check":
+        return False
+    if clue.get("fallback_route") or clue.get("recoverable") is True:
+        return True
+    return False
+
+
+def _has_recoverable_fallback(conclusion: dict[str, Any]) -> bool:
+    if conclusion.get("fallback_policy"):
+        return True
+    for key in ("fallback_routes", "recover_routes"):
+        if conclusion.get(key):
+            return True
+    return any(
+        clue.get("fallback_route") or clue.get("recoverable") is True
+        for clue in conclusion.get("clues", [])
+        if isinstance(clue, dict)
+    )
 
 
 def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
@@ -66,6 +98,16 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             actual = len(concl.get("clues", []))
             if actual < min_routes:
                 errors.append(f"conclusion '{concl.get('conclusion_id')}' critical but only {actual} routes (need >={min_routes})")
+            non_fragile = [clue for clue in concl.get("clues", []) if _is_non_fragile_clue_route(clue)]
+            if not non_fragile and not _has_recoverable_fallback(concl):
+                errors.append(
+                    f"conclusion '{concl.get('conclusion_id')}' critical but has no non-fragile route or RECOVER fallback"
+                )
+            for clue in concl.get("clues", []):
+                if not clue.get("delivery_kind"):
+                    warnings.append(
+                        f"clue '{clue.get('clue_id')}' in critical conclusion '{concl.get('conclusion_id')}' uses legacy delivery without delivery_kind"
+                    )
 
     npcs = _read(scenario_dir / "npc-agendas.json")
     for npc in npcs.get("npcs", []):

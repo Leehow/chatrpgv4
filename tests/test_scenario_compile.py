@@ -32,7 +32,7 @@ def _make_valid_scenario(tmp_path):
          "clues": [{"clue_id":"a","delivery":"","visibility":"player-safe"},
                    {"clue_id":"b","delivery":"","visibility":"player-safe"},
                    {"clue_id":"c","delivery":"","visibility":"player-safe"}],
-         "fallback_policy": ""},
+         "fallback_policy": "RECOVER can surface a public alternate route"},
     ]}))
     (sc / "npc-agendas.json").write_text(json.dumps({"npcs": [
         {"npc_id": "n1", "agenda": "spy on investigators"},
@@ -204,6 +204,42 @@ def test_validate_warns_front_source_ref_malformed(tmp_path):
     assert any("front 'f1'" in w and "source_ref" in w for w in result["warnings"])
 
 
+def test_validate_errors_when_critical_conclusion_all_routes_are_fragile(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    graph = json.loads((sc / "clue-graph.json").read_text())
+    for clue in graph["conclusions"][0]["clues"]:
+        clue["delivery_kind"] = "skill_check"
+        clue["skill"] = "Spot Hidden"
+    graph["conclusions"][0]["fallback_policy"] = ""
+    (sc / "clue-graph.json").write_text(json.dumps(graph))
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any("non-fragile route" in error for error in result["errors"])
+
+
+def test_validate_all_skill_gated_critical_conclusion_passes_with_fallback_policy(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    graph = json.loads((sc / "clue-graph.json").read_text())
+    for clue in graph["conclusions"][0]["clues"]:
+        clue["delivery_kind"] = "skill_check"
+        clue["skill"] = "Spot Hidden"
+    graph["conclusions"][0]["fallback_policy"] = "RECOVER can surface a public alternate route"
+    (sc / "clue-graph.json").write_text(json.dumps(graph))
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert result["errors"] == []
+
+
+def test_validate_warns_critical_clue_uses_legacy_delivery_without_kind(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any("legacy delivery" in warning for warning in result["warnings"])
+
+
 def test_validate_no_warnings_for_well_formed_source_refs(tmp_path):
     """Well-formed source_refs (path + int page) produce no source_ref warnings."""
     sc = _make_valid_scenario(tmp_path)
@@ -216,13 +252,13 @@ def test_validate_no_warnings_for_well_formed_source_refs(tmp_path):
     (sc/"clue-graph.json").write_text(json.dumps(g))
     result = coc_scenario_compile.validate_scenario(sc)
     assert result["errors"] == []
-    # delivery_kind+skill is fine; source_ref is well-formed -> no warnings at all
-    assert result["warnings"] == []
+    assert not any("source_ref" in warning for warning in result["warnings"])
+    assert any("legacy delivery" in warning for warning in result["warnings"])
 
 
 def test_validate_no_warnings_without_structured_fields(tmp_path):
-    """Old clue-graph without any structured fields -> no warnings (backward compat)."""
+    """Old clue-graph without structured delivery fields now warns on critical legacy delivery."""
     sc = _make_valid_scenario(tmp_path)
     result = coc_scenario_compile.validate_scenario(sc)
     assert result["errors"] == []
-    assert result["warnings"] == []
+    assert any("legacy delivery" in warning for warning in result["warnings"])
