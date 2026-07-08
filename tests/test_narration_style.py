@@ -249,18 +249,15 @@ def test_audit_passive_does_not_flag_natural_bei_construction():
     assert "passive_translation_ese" not in rule_ids
 
 
-def test_audit_summary_phrases_do_not_flag_natural_prose():
-    """显然/简而言之 etc. should not over-flag when used naturally mid-sentence.
-
-    The new summary phrases are full-clause openers; the table only matches
-    them, which is acceptable surface lint. This test guards against the
-    regex accidentally broadening later.
+def test_audit_summary_phrases_pin_xianran_substring_overmatch():
+    """PIN: 显然 is matched as a literal substring, so it fires mid-sentence
+    (e.g. "他显然没料到..."). This is an accepted surface-lint trade-off, NOT
+    over-flagging we intend to silently change. This test pins the current
+    behavior so any future tightening is a conscious decision.
     """
     text = "他显然没料到你会这么说。"
 
     findings = coc_narration_style.audit_player_visible_text(text)
-    # The literal 显然 substring will match; this asserts current behavior so
-    # a future regex broadening is a conscious decision, not a silent one.
     matches = [
         f["match"] for f in findings if f["rule_id"] == "ai_summary_voice"
     ]
