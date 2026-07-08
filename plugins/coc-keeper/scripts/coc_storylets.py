@@ -308,6 +308,25 @@ def _has_scene_pressure(ctx: dict[str, Any]) -> bool:
     return bool(scene.get("pressure_moves"))
 
 
+def _is_scene_tag_summoned(storylet: dict[str, Any], ctx: dict[str, Any]) -> bool:
+    """A storylet is "scene-tag summoned" when the current turn was triggered by
+    a `scene_tag_beat` (P0-3b: the scene's `storylet_tags` matched on entry) AND
+    the storylet's own `scene_tags` intersect the active scene's tags.
+
+    Such a storylet was specifically summoned because the scene asked for it on
+    entry. It should NOT be gated by the generic story_need deck filter (which
+    keys off scene pressure / clue state and so rejects scene-entry beats), and
+    it SHOULD win selection over generic ambient storylets. This keeps authors
+    focused on `scene_tags` matching rather than deck engineering for beats that
+    only fire on scene entry. Structured fields only — no free-text scanning.
+    """
+    trigger = ctx.get("storylet_trigger") or {}
+    if _non_empty_str(trigger.get("reason")) != "scene_tag_beat":
+        return False
+    required_tags = set(_as_list(storylet.get("scene_tags")))
+    return bool(required_tags and (required_tags & _scene_tags(ctx)))
+
+
 def _intent_tags(ctx: dict[str, Any]) -> set[str]:
     tags: set[str] = set()
     rich = ctx.get("player_intent_rich") or {}
@@ -475,6 +494,13 @@ def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[s
 
     if not policy.get("allow_unanchored_storylets") and not _has_current_scene_anchor(storylet, plan, ctx):
         return False
+    # C1: a scene-tag-summoned storylet (scene_tag_beat + matching scene_tags)
+    # was specifically summoned by the scene's entry trigger, so it bypasses the
+    # generic story_need deck filter. The deck filter keys off scene
+    # pressure/clue state and would otherwise reject scene-entry beats whose
+    # deck_tags don't intersect the pressure-driven candidate_decks.
+    if _is_scene_tag_summoned(storylet, ctx):
+        return _requirements_met(storylet, plan, ctx)
     if not policy.get("ignore_story_need") and _matching_deck_id(storylet, story_need) is None:
         return False
 
@@ -523,6 +549,21 @@ def _score_storylet(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[st
     allowed_polarity = set(_as_list(storylet.get("trigger_polarity") or storylet.get("polarity")))
     if polarity and allowed_polarity and (polarity in allowed_polarity or "mixed" in allowed_polarity):
         score *= 1.35
+    # C2: priority for scene-tag-summoned beats. A `scene_tag_beat` trigger means
+    # the scene's `storylet_tags` matched on entry and explicitly asked for a
+    # tagged beat — so a summoned storylet must reliably win selection over the
+    # many generic ambient storylets in the library. A flat multiplier alone
+    # cannot do this: the generic pool's aggregate weight grows with its size
+    # (~15 generics vs ~2 summoned here), so even a large per-storylet boost
+    # leaves a leak. We therefore BOTH boost summoned storylets AND suppress
+    # generic (non-summoned) storylets while the summon trigger is active. The
+    # suppression is a fraction, not a hard zero, so a generic can still be
+    # picked as a fallback if no summoned candidate passes the other gates.
+    if _non_empty_str(trigger.get("reason")) == "scene_tag_beat":
+        if _is_scene_tag_summoned(storylet, ctx):
+            score *= 5.0
+        else:
+            score *= 0.01
     return max(0.0, score)
 
 
@@ -663,7 +704,9 @@ def select_storylet_moves(
         if not _matches_context(storylet, plan, context_ctx, target_level):
             continue
         trace["candidate_counts"]["after_context_filter"] += 1
-        if _matching_deck_id(storylet, story_need) is None:
+        # C1: skip the story_need deck gate for scene-tag-summoned storylets;
+        # they were specifically requested by the scene's entry trigger.
+        if not _is_scene_tag_summoned(storylet, context_ctx) and _matching_deck_id(storylet, story_need) is None:
             if len(trace["rejected_examples"]) < 5:
                 trace["rejected_examples"].append(_trace_storylet_ref(storylet, "deck_mismatch"))
             continue

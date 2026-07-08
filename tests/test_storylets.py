@@ -498,3 +498,82 @@ def test_shipped_library_has_opening_briefing_storylet():
     lib = json.loads(lib_path.read_text())
     opening = [s for s in lib["storylets"] if "opening_briefing" in (s.get("scene_tags") or [])]
     assert opening, "shipped library lacks any opening_briefing storylet"
+
+
+def test_e2e_mission_briefing_summons_opening_briefing_storylet_real_data():
+    """C3 real-data e2e: on white-war's mission-briefing scene (which carries
+    real `pressure_moves` AND `storylet_tags: ["opening_briefing"]`), entering
+    the scene fires a `scene_tag_beat` trigger (P0-3b). Against the SHIPPED
+    storylet-library.json, an opening_briefing storylet must be reliably
+    selected across seeds — not a generic pressure/scene storylet.
+
+    This reproduces the field defect: because mission-briefing has
+    `pressure_moves`, infer_story_need resolves to `scene_pressure`, whose
+    candidate_decks have zero intersection with the opening storylets' deck_tags
+    (character_beat/theme_echo/social). Without the scene_tag_beat bypass, the
+    opening storylets are filtered out and generics win selection.
+    """
+    import json
+    from pathlib import Path
+
+    scene = json.loads(Path(
+        "plugins/coc-keeper/references/starter-scenarios/the-white-war/story-graph.json"
+    ).read_text())["scenes"][0]
+    library = storylets.load_storylet_library()
+
+    # Sanity: we are actually testing the real mission-briefing scene, and it
+    # really carries pressure_moves + storylet_tags (the defect preconditions).
+    assert scene["scene_id"] == "mission-briefing"
+    assert scene.get("pressure_moves"), "mission-briefing must carry pressure_moves"
+    assert "opening_briefing" in (scene.get("storylet_tags") or [])
+
+    opening_ids = {
+        s["storylet_id"] for s in library["storylets"]
+        if "opening_briefing" in (s.get("scene_tags") or [])
+    }
+    assert opening_ids, "shipped library must contain opening_briefing storylets"
+
+    selected_ids: list[str] = []
+    for seed in ("ww-1", "ww-2", "ww-3", "ww-4", "ww-5"):
+        ctx = {
+            "turn_number": 0,
+            "source_event_type": "scene_transition",  # fires scene_tag_beat (P0-3b)
+            "structure_type": "linear_acts",
+            "storylet_policy": {"conflict_level": "low", "seed": seed},
+            "active_scene": scene,
+            "world_state": {"discovered_clue_ids": []},
+            "threat_fronts": {"fronts": []},
+            "module_meta": {"content_flags": []},
+            "storylet_ledger": {},
+            # The real trigger object produced by infer_storylet_trigger for a
+            # storylet_tags-bearing scene entered via scene_transition.
+            "storylet_trigger": {
+                "triggered": True,
+                "reason": "scene_tag_beat",
+                "polarity": "neutral",
+                "conflict_level": "low",
+                "storylet_tags": ["opening_briefing"],
+                "source": "storylet_trigger_gate",
+            },
+        }
+        plan = {
+            "decision_id": "ww-entry",
+            "scene_action": "CHARACTER",
+            "pacing_mode": "social",
+            "clue_policy": {"reveal": scene.get("available_clues", []), "leads": []},
+            "narrative_directives": {"horror_escalation_stage": "ordinary"},
+            "rule_signals": {"tension_clock": {"tension_level": "low"}},
+        }
+        moves = storylets.select_storylet_moves(plan, ctx, library=library, seed=seed)
+        assert moves, f"seed {seed}: expected a storylet to be selected"
+        selected_ids.append(moves[0]["storylet_id"])
+
+    opening_hits = sum(1 for sid in selected_ids if sid in opening_ids)
+    # A summoned scene-tag beat should win selection on (almost) every seed.
+    # Requiring >=4/5 keeps the test robust to one unlucky weighted-random draw
+    # while still proving the opening storylets are genuinely selectable and
+    # favored — which is impossible without the scene_tag_beat bypass.
+    assert opening_hits >= 4, (
+        f"expected an opening_briefing storylet in >=4 of 5 seeds; "
+        f"got {opening_hits}/5. selected={selected_ids}, opening_ids={sorted(opening_ids)}"
+    )
