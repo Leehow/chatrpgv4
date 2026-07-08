@@ -441,3 +441,62 @@ def test_interrupt_for_npc_requires_player_decision():
         "npc_moves": [{"npc_id": "bruno", "requires_player_decision": True}],
         "narrative_directives": {"dramatic_progress": {"current_interrupts": []}},
     }) == "npc_requests_specialist_judgment"
+
+
+def test_live_turn_low_agency_stops_at_real_fork(tmp_path, monkeypatch):
+    """P0-2d reverse: even low-agency input must stop when the scene is a real
+    fork (two open routes), handing the choice to the player. Verifies the
+    is_real_fork gate from Task 4 actually stops (not just route_count)."""
+    camp, char_path = _build_live_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"] = [
+        {
+            "scene_id": "crossroads",
+            "scene_type": "investigation",
+            "dramatic_question": "Which lead does the investigator pursue?",
+            "entry_conditions": [],
+            "exit_conditions": [],
+            "available_clues": [],
+            "npc_ids": [],
+            "pressure_moves": [],
+            "tone": ["tense"],
+            "allowed_improvisation": [],
+            "affordances": [
+                {"id": "ask-tenants", "cue": "可以去问前租客。", "status": "open", "route_priority": 0.5},
+                {"id": "check-records", "cue": "可以去查公共记录。", "status": "open", "route_priority": 0.5},
+            ],
+        },
+    ]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "crossroads"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+
+    monkeypatch.setattr(
+        live_runner.coc_async_recorder,
+        "spawn_background_flush",
+        lambda campaign_dir, *, limit=None: {"started": True, "pid": 4244},
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "继续吧。",
+        intent_class="move",
+        player_intent_rich={
+            "primary_intent": "move",
+            "secondary_intents": ["low_agency_continue", "yield_initiative"],
+            "target_entities": [],
+            "risk_posture": "neutral",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+            "action_atoms": [],
+        },
+        max_auto_advance=3,
+        rng_seed=5,
+    )
+
+    # Two open affordances -> is_real_fork True -> must stop after the first turn.
+    assert result["auto_advance"]["turns_run"] == 1
+    assert result["auto_advance"]["stop_reason"] == "meaningful_choice"
