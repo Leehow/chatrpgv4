@@ -40,6 +40,8 @@ _CHARACTERISTICS = {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUC
 _CRITICAL_OUTCOMES = {"critical", "critical_success"}
 _FUMBLE_OUTCOMES = {"fumble", "fumbled", "critical_failure"}
 _FAILURE_OUTCOMES = {"failure", "fail", "failed"}
+_PROPOSAL_MODES = {"yes", "yes_but", "yes_and", "no_boundary"}
+_NEXT_CONTRACTS = {"narrate", "request_roll", "offer_choice", "cut"}
 _NO_TRIGGER = {
     "schema_version": _SCHEMA_VERSION,
     "triggered": False,
@@ -160,6 +162,28 @@ def build_consequence_cues(choice_frame: dict[str, Any] | None) -> list[dict[str
             "forbidden_reveal": route.get("forbidden_reveal"),
         })
     return cues
+
+
+def build_proposal_transform(player_intent_rich: dict[str, Any] | None) -> dict[str, Any] | None:
+    rich = player_intent_rich or {}
+    raw = rich.get("proposal")
+    if not isinstance(raw, dict):
+        return None
+    mode = _non_empty_str(raw.get("mode")) or "yes_but"
+    if mode not in _PROPOSAL_MODES:
+        mode = "yes_but"
+    next_contract = _non_empty_str(raw.get("next_contract")) or "narrate"
+    if next_contract not in _NEXT_CONTRACTS:
+        next_contract = "narrate"
+    return {
+        "schema_version": _SCHEMA_VERSION,
+        "mode": mode,
+        "accepted_goal": _non_empty_str(raw.get("accepted_goal")) or "the viable part of the player's plan",
+        "visible_cost_or_risk": _non_empty_str(raw.get("visible_cost_or_risk")),
+        "boundary_reason": _non_empty_str(raw.get("boundary_reason")),
+        "next_contract": next_contract,
+        "source": "player_intent_rich.proposal",
+    }
 
 
 def _infer_request_kind(atom: dict[str, Any], skill: str | None) -> str:
@@ -607,6 +631,7 @@ def _update_enrichment_summary(
     enriched: dict[str, Any],
     *,
     choice_frame: dict[str, Any] | None = None,
+    proposal_transform: dict[str, Any] | None = None,
     chain_requests: list[dict[str, Any]] | None = None,
     npc_reactions: list[dict[str, Any]] | None = None,
     storylet_trigger: dict[str, Any] | None = None,
@@ -616,6 +641,8 @@ def _update_enrichment_summary(
     summary = enriched.setdefault("narrative_enrichment", {})
     if choice_frame is not None:
         summary["choice_frame"] = bool(choice_frame.get("routes"))
+    if proposal_transform is not None:
+        summary["proposal_transform"] = bool(proposal_transform)
     if chain_requests is not None:
         summary["action_chain_requests"] = len(chain_requests)
     if npc_reactions is not None:
@@ -691,6 +718,13 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
     nd["choice_frame"] = choice_frame
     nd["consequence_cues"] = build_consequence_cues(choice_frame)
 
+    proposal_transform = build_proposal_transform(rich)
+    if proposal_transform is not None:
+        enriched["proposal_transform"] = proposal_transform
+        nd["proposal_transform"] = proposal_transform
+        if proposal_transform["next_contract"] == "request_roll":
+            enriched["handoff"] = "rules" if enriched.get("rules_requests") else enriched.get("handoff", "narration")
+
     chain_requests = build_action_chain_requests(rich)
     if chain_requests:
         existing = enriched.setdefault("rules_requests", [])
@@ -726,6 +760,7 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
     _update_enrichment_summary(
         enriched,
         choice_frame=choice_frame,
+        proposal_transform=proposal_transform,
         chain_requests=chain_requests,
         npc_reactions=npc_reactions,
         storylet_trigger=storylet_trigger,

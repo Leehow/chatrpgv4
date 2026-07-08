@@ -110,6 +110,44 @@ def test_enrich_director_plan_adds_rules_npc_choice_and_handoff():
     assert enriched["npc_moves"][0]["active_reactions"][0]["move"] == "warn"
 
 
+def test_proposal_transform_yes_but_from_structured_intent():
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    ctx = {
+        "active_scene": {"scene_id": "archive", "affordances": []},
+        "player_intent_rich": {
+            "proposal": {
+                "mode": "yes_but",
+                "accepted_goal": "ask the police to guard the artifact",
+                "visible_cost_or_risk": "the officer will demand a clear statement",
+                "next_contract": "request_roll",
+            },
+            "action_atoms": [],
+        },
+        "npc_agendas": {"npcs": []},
+        "turn_number": 5,
+    }
+
+    enriched = narr.enrich_director_plan(plan, ctx)
+
+    transform = enriched["proposal_transform"]
+    assert transform["mode"] == "yes_but"
+    assert transform["accepted_goal"] == "ask the police to guard the artifact"
+    assert enriched["narrative_directives"]["proposal_transform"] == transform
+
+
+def test_proposal_transform_rejects_unknown_mode_as_yes_but():
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    ctx = {
+        "active_scene": {},
+        "player_intent_rich": {"proposal": {"mode": "maybe", "accepted_goal": "try a plan"}, "action_atoms": []},
+        "npc_agendas": {"npcs": []},
+    }
+
+    enriched = narr.enrich_director_plan(plan, ctx)
+
+    assert enriched["proposal_transform"]["mode"] == "yes_but"
+
+
 def test_enrich_director_plan_adds_storylet_moves_with_conflict_control():
     plan = {
         "decision_id": "d-storylet",
