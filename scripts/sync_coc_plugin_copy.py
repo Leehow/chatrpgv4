@@ -33,7 +33,7 @@ CODEX_ONLY_SECTION_END = "<!-- CODEX_ONLY_IMAGEGEN_END -->"
 
 ZCODE_MANIFEST = {
     "name": "coc-keeper",
-    "version": "0.1.0",
+    "version": "0.15.0-alpha",
     "description": (
         "Call of Cthulhu Keeper mode plugin for ZCode with structured rules, "
         "persistent campaign state, and playtest reporting."
@@ -48,7 +48,7 @@ ZCODE_MANIFEST = {
 ZCODE_PACKAGE = {
     "$schema": "https://json.schemastore.org/package.json",
     "name": "@zcode/coc-keeper-plugin",
-    "version": "0.1.0",
+    "version": "0.15.0-alpha",
     "private": True,
     "license": "Apache-2.0",
     "description": "Call of Cthulhu Keeper mode plugin published as a ZCode plugin.",
