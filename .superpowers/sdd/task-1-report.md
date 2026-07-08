@@ -127,3 +127,80 @@ implement only in the Codex track now and do not edit the ZCode copy during this
 - Driver propagation is pass-through only; no extra rule behavior was introduced.
 - `AGENTS.md` remained untouched and unstaged.
 - Residual concern: repository-level dual-track sync checks remain red until the controller performs the later Codex→ZCode sync step.
+
+## Critical Finding Fix
+
+### Finding
+
+Review found that runtime director still fell back to legacy clue delivery inference without emitting any warning when a revealed critical clue lacked structured `delivery_kind`.
+
+### Root Cause
+
+- `_resolve_clue_delivery(...)` already supported compatibility fallback from missing `delivery_kind` to legacy `delivery` string inference.
+- `_select_clue_policy(...)` consumed that fallback result but dropped the fact that compatibility inference had been used.
+- Result: runtime plans had no structured audit trail for critical clues that relied on legacy delivery inference.
+
+### RED test added
+
+- `tests/test_story_director.py::test_critical_legacy_delivery_fallback_emits_warning`
+
+This test asserts that a `REVEAL` plan built from the minimal critical clue graph includes:
+
+- `plan["clue_policy"]["delivery_warnings"]`
+- warning reason text containing `legacy delivery`
+- warning reason text containing the selected clue id `clue-1`
+
+### RED command
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest \
+  tests/test_story_director.py::test_obscured_clue_rules_request_includes_roll_contract \
+  tests/test_story_director.py::test_critical_legacy_delivery_fallback_emits_warning \
+  tests/test_narrative_enrichment.py::test_action_atom_requests_include_roll_contract \
+  tests/test_playtest_driver.py::test_driver_roll_payload_preserves_roll_contract \
+  -q -p no:cacheprovider
+```
+
+Observed failure:
+
+- `test_critical_legacy_delivery_fallback_emits_warning` failed with `KeyError: 'delivery_warnings'`
+- Other focused Task 1 tests still passed
+
+### Fix implemented
+
+Scoped changes:
+
+- Added `_find_clue_conclusion(...)` in `plugins/coc-keeper/scripts/coc_story_director.py`
+- Extended `_select_clue_policy(...)` to emit `delivery_warnings` when:
+  - a clue is selected for `REVEAL`
+  - its clue record lacks structured `delivery_kind`
+  - its parent conclusion has `importance == "critical"`
+
+Warning payload is audit-only and structured:
+
+- `clue_id`
+- `reason`
+- `fallback_mode`
+
+No gameplay branching or new keyword-based decision logic was added.
+
+### GREEN command
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest \
+  tests/test_story_director.py::test_obscured_clue_rules_request_includes_roll_contract \
+  tests/test_story_director.py::test_critical_legacy_delivery_fallback_emits_warning \
+  tests/test_narrative_enrichment.py::test_action_atom_requests_include_roll_contract \
+  tests/test_playtest_driver.py::test_driver_roll_payload_preserves_roll_contract \
+  -q -p no:cacheprovider
+```
+
+Observed result:
+
+- `4 passed`
+
+### Files changed for this fix
+
+- `plugins/coc-keeper/scripts/coc_story_director.py`
+- `tests/test_story_director.py`
+- `.superpowers/sdd/task-1-report.md`

@@ -1312,6 +1312,25 @@ def test_resolve_delivery_fallback_when_no_delivery_kind(tmp_path):
     assert plan["clue_policy"]["clue_type"] == "obscured"
 
 
+def test_critical_legacy_delivery_fallback_emits_warning(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="search",
+        player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "legacy-delivery-warning")
+
+    warnings = plan["clue_policy"]["delivery_warnings"]
+    assert warnings
+    assert any("legacy delivery" in warning["reason"] for warning in warnings)
+    assert any("clue-1" in warning["reason"] for warning in warnings)
+
+
 def test_resolve_delivery_skill_check_missing_skill_defaults_spot_hidden(tmp_path):
     """delivery_kind=skill_check without skill -> obscured, skill None -> rules request
     falls back to Spot Hidden / regular (validator separately warns)."""

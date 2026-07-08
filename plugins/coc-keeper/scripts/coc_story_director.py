@@ -1157,6 +1157,14 @@ def _find_clue(clue_id: str, clue_graph: dict[str, Any]) -> dict[str, Any] | Non
     return None
 
 
+def _find_clue_conclusion(clue_id: str, clue_graph: dict[str, Any]) -> dict[str, Any] | None:
+    for concl in clue_graph.get("conclusions", []):
+        for clue in concl.get("clues", []):
+            if clue.get("clue_id") == clue_id:
+                return concl
+    return None
+
+
 def _clue_route_priority(clue_id: str | None, clue_graph: dict[str, Any]) -> float:
     """Read a clue's route_priority (default 0.5 if absent). Higher = more direct route."""
     if not clue_id:
@@ -1219,12 +1227,29 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     else:
         reveal = []
 
+    delivery_warnings: list[dict[str, Any]] = []
+
     # Resolve obvious vs obscured (+ skill/difficulty) from the first revealed
     # clue's structured delivery_kind, falling back to the delivery string
     # heuristic for old clue-graphs. This gates whether _build_rules_requests
     # emits a skill check (and which skill/difficulty it requests).
     _clue_type, _clue_skill, _clue_diff = _resolve_clue_delivery(
         reveal[0] if reveal else None, clue_graph)
+    selected_clue_id = reveal[0] if reveal else None
+    if selected_clue_id:
+        selected_clue = _find_clue(selected_clue_id, clue_graph)
+        selected_conclusion = _find_clue_conclusion(selected_clue_id, clue_graph)
+        if (
+            selected_clue is not None
+            and not selected_clue.get("delivery_kind")
+            and isinstance(selected_conclusion, dict)
+            and str(selected_conclusion.get("importance") or "").lower() == "critical"
+        ):
+            delivery_warnings.append({
+                "clue_id": selected_clue_id,
+                "reason": f"legacy delivery fallback used for critical clue {selected_clue_id}",
+                "fallback_mode": "delivery_string_inference",
+            })
 
     # fallback: if stalled (RECOVER), pull the highest-priority not-yet-found route.
     fallback = []
@@ -1245,7 +1270,7 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
 
     return {"reveal": reveal, "withhold": list(secrets), "fallback_routes": fallback,
             "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff,
-            "leads": leads}
+            "leads": leads, "delivery_warnings": delivery_warnings}
 
 
 def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[str]:
