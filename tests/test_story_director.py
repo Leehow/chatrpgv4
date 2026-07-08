@@ -690,6 +690,156 @@ def test_low_agency_continuation_forces_authored_scene_pressure(tmp_path):
     assert "金属碰响" in plan["pressure_moves"][0]["visible_symptom"]
 
 
+def test_low_agency_follow_adds_compressed_progress_directive(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "available_clues": [],
+        "npc_ids": ["npc-authority"],
+        "scene_tags": ["patrol", "under_command"],
+        "authority_demands": ["scene_safety"],
+        "responsibility_threats": ["group_survival"],
+        "progress_contract": {
+            "kind": "active_scene",
+            "compression_budget": {"min_beats": 2, "max_beats": 5, "max_minutes": 8},
+            "interrupts": ["threat_approaches", "npc_requests_specialist_judgment"],
+        },
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [{
+            "npc_id": "npc-authority",
+            "agenda": "keep the patrol moving while watching for danger",
+            "social_role": {
+                "authority_scope": ["scene_safety"],
+                "responsibility_domains": ["group_survival"],
+                "initiative_style": "decisive",
+                "delegation_policy": {"keeps": ["scene_safety"], "delegates": ["specialist_care"]},
+            },
+        }]
+    }))
+    rich = {
+        "primary_intent": "move",
+        "secondary_intents": ["low_agency_continue", "follow_group", "yield_initiative"],
+        "target_entities": ["patrol", "npc-authority"],
+        "risk_posture": "neutral",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "action_atoms": [],
+    }
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我跟着班长",
+        player_intent_class="move",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="compressed-low-agency")
+
+    progress = plan["narrative_directives"]["dramatic_progress"]
+    assert progress["mode"] == "compressed_progress"
+    assert progress["reason"] == "low_agency_or_routine_posture"
+    assert progress["compression_budget"]["max_beats"] == 5
+    assert "npc_requests_specialist_judgment" in progress["advance_until"]
+    assert "risk_requires_roll" in progress["advance_until"]
+    assert "do not ask for another equivalent low-agency action" in progress["must_not"]
+    assert progress["must_change_state"] is True
+
+
+def test_routine_connective_action_adds_compressed_progress_directive(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "available_clues": [],
+        "scene_type": "investigation",
+        "dramatic_question": "能否整理完这一段资料？",
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    rich = {
+        "primary_intent": "investigate",
+        "secondary_intents": ["routine_action", "connective_action", "continue_existing_strategy"],
+        "target_entities": ["notes"],
+        "risk_posture": "neutral",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "action_atoms": [],
+    }
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我继续整理这些资料",
+        player_intent_class="investigate",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="compressed-routine")
+
+    progress = plan["narrative_directives"]["dramatic_progress"]
+    assert progress["mode"] == "compressed_progress"
+    assert progress["trigger_tags"] == [
+        "connective_action",
+        "continue_existing_strategy",
+        "investigate",
+        "notes",
+        "routine_action",
+    ]
+    assert progress["compression_budget"]["min_beats"] == 2
+    assert "new_clue_or_obvious_information" in progress["advance_until"]
+
+
+def test_dramatic_pacing_does_not_compress_when_roll_is_required(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    rich = {
+        "primary_intent": "investigate",
+        "secondary_intents": ["routine_action"],
+        "target_entities": ["room"],
+        "risk_posture": "neutral",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "action_atoms": [],
+    }
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我继续搜房间",
+        player_intent_class="investigate",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="no-compress-roll")
+
+    assert plan["scene_action"] == "REVEAL"
+    assert any(req["kind"] == "skill_check" for req in plan["rules_requests"])
+    assert "dramatic_progress" not in plan["narrative_directives"]
+
+
+def test_dramatic_pacing_does_not_compress_meaningful_choice(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["available_clues"] = ["clue-1", "clue-1b"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我不知道该做什么",
+        player_intent_class="idle",
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="no-compress-choice")
+
+    assert plan["scene_action"] == "CHOICE"
+    assert "dramatic_progress" not in plan["narrative_directives"]
+
+
 def test_live_active_scene_preserves_structured_director_fields(tmp_path):
     camp, char_path = _make_legacy_live_campaign(tmp_path)
     active = json.loads((camp / "save" / "active-scene.json").read_text())

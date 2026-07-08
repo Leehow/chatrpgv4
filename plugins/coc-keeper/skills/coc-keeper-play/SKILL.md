@@ -181,6 +181,17 @@ or current-scene storylet with a valid anchor, obey
 or cut to the next meaningful decision point. Do not stack another same-axis
 environment check merely to keep the scene alive.
 
+When `narrative_directives.dramatic_progress.mode == "compressed_progress"`,
+increase the density of the next narration. Treat the player's action as a
+continuing posture or routine process rather than one tiny beat. Summarize
+repeated low-risk or connective actions and advance until one of the directive's
+`advance_until` interrupts appears: threat approach, new obvious information,
+NPC request for specialist judgment, meaningful choice, risk that requires a
+roll, or arrival/transition to a new scene. The narration must change the game
+state; do not answer with another equivalent "you keep following / they keep
+walking" beat. Stop compression immediately before irreversible player choices,
+new danger that needs a roll, or any action the player has not already implied.
+
 ## Narrative Enrichment Rules
 
 The Director deliberately chooses one primary `scene_action`; the enrichment

@@ -536,6 +536,25 @@ _LOW_AGENCY_CONTINUE_TAGS = {
     "move_with_group",
     "passive_follow",
 }
+_ROUTINE_PROGRESS_TAGS = {
+    "routine_action",
+    "routine_search",
+    "routine_travel",
+    "routine_professional_action",
+    "connective_action",
+    "continue_existing_strategy",
+    "maintain_posture",
+    "low_risk_action",
+}
+_DRAMATIC_PROGRESS_ADVANCE_UNTIL = [
+    "threat_approaches",
+    "new_clue_or_obvious_information",
+    "npc_requests_specialist_judgment",
+    "meaningful_choice",
+    "risk_requires_roll",
+    "scene_arrival_or_transition",
+]
+_NON_BLOCKING_RULE_REQUEST_KINDS = {"npc_assist"}
 _SOCIAL_REVEAL_DELIVERY_KINDS = {"npc_dialogue", "social"}
 
 
@@ -641,6 +660,134 @@ def _bridge_transition_override(ctx: dict[str, Any]) -> dict[str, Any] | None:
                 or "Resolve this bridge briefly and cut to the next meaningful decision point.",
             "fallback_action": action,
         },
+    }
+
+
+def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def _compression_budget(scene: dict[str, Any]) -> dict[str, int]:
+    contract = _progress_contract(scene)
+    raw = contract.get("compression_budget") or contract.get("progress_budget") or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    max_beats = _bounded_int(raw.get("max_beats"), 4, 2, 8)
+    min_beats = _bounded_int(raw.get("min_beats"), 2, 1, max_beats)
+    return {
+        "min_beats": min_beats,
+        "max_beats": max_beats,
+        "max_minutes": _bounded_int(raw.get("max_minutes"), 10, 1, 30),
+    }
+
+
+def _ordered_unique(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if not value:
+            continue
+        item = str(value)
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
+
+
+def _has_roll_facing_action_atoms(ctx: dict[str, Any]) -> bool:
+    rich = ctx.get("player_intent_rich") or {}
+    for atom in _as_list(rich.get("action_atoms")):
+        if not isinstance(atom, dict):
+            continue
+        if atom.get("skill") or atom.get("characteristic") or atom.get("difficulty"):
+            return True
+        if atom.get("stakes") or atom.get("opposed_by") or atom.get("rules_kind"):
+            return True
+    return False
+
+
+def _blocking_rule_requests(rules_requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    blocking: list[dict[str, Any]] = []
+    for request in rules_requests:
+        if not isinstance(request, dict):
+            continue
+        if str(request.get("kind") or "") in _NON_BLOCKING_RULE_REQUEST_KINDS:
+            continue
+        blocking.append(request)
+    return blocking
+
+
+def _dramatic_progress_interrupts(
+    action: str,
+    pressure_moves: list[dict[str, Any]],
+    clue_policy: dict[str, Any],
+) -> list[str]:
+    interrupts: list[str] = []
+    if pressure_moves:
+        interrupts.append("threat_approaches")
+    if action == "REVEAL" and clue_policy.get("reveal"):
+        interrupts.append("new_clue_or_obvious_information")
+    if action == "CHOICE":
+        interrupts.append("meaningful_choice")
+    return interrupts
+
+
+def _dramatic_progress_directive(
+    ctx: dict[str, Any],
+    action: str,
+    clue_policy: dict[str, Any],
+    rules_requests: list[dict[str, Any]],
+    pressure_moves: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Tell narration to compress routine beats until a real interrupt appears.
+
+    This controller does not infer intent from prose. It consumes semantic tags
+    emitted by the intent layer plus scene contracts and rule requests.
+    """
+    scene = ctx.get("active_scene") or {}
+    rich = ctx.get("player_intent_rich") or {}
+    tags = sorted(_rich_intent_tags(ctx))
+    low_agency = _is_low_agency_continue(ctx)
+    routine_or_connective = bool(set(tags) & _ROUTINE_PROGRESS_TAGS)
+    if not low_agency and not routine_or_connective:
+        return None
+    if bool(rich.get("explicit_roll_request")):
+        return None
+    if _has_roll_facing_action_atoms(ctx):
+        return None
+    if action in {"CHOICE", "SUBSYSTEM", "RECOVER"}:
+        return None
+    if _blocking_rule_requests(rules_requests):
+        return None
+    if action == "REVEAL" and clue_policy.get("clue_type", "obscured") != "obvious":
+        return None
+
+    contract = _progress_contract(scene)
+    advance_until = _ordered_unique(
+        list(_DRAMATIC_PROGRESS_ADVANCE_UNTIL)
+        + _as_list(contract.get("interrupts"))
+        + _as_list(contract.get("advance_until"))
+    )
+    return {
+        "schema_version": 1,
+        "mode": "compressed_progress",
+        "reason": "low_agency_or_routine_posture",
+        "trigger_tags": tags,
+        "compression_budget": _compression_budget(scene),
+        "advance_until": advance_until,
+        "current_interrupts": _dramatic_progress_interrupts(action, pressure_moves, clue_policy),
+        "must_change_state": True,
+        "must_not": [
+            "do not ask for another equivalent low-agency action",
+            "do not repeat the same scene state with only cosmetic wording",
+            "do not make irreversible player choices during compression",
+            "do not skip a risk that requires a roll",
+        ],
     }
 
 
@@ -1455,6 +1602,11 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     }
     if overrides and isinstance(overrides.get("scene_progress"), dict):
         narrative_directives["scene_progress"] = overrides["scene_progress"]
+    dramatic_progress = _dramatic_progress_directive(
+        ctx, action, clue_policy, rules_requests, pressure_moves
+    )
+    if dramatic_progress is not None:
+        narrative_directives["dramatic_progress"] = dramatic_progress
 
     # v2: populate memory_reads from the memory layer. PAYOFF actions mark the
     # card use as PAYOFF (recalled payoff); everything else is TONE color.
