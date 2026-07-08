@@ -39,6 +39,18 @@ ACTIVE_SCENE_TAGS = {
 INITIATIVE_STYLES_THAT_ACT = {"decisive", "protective", "procedural", "commanding"}
 INTENT_TAGS_THAT_INVITE_ACTION = {"low_agency_continue", "asks_npc_to_decide", "yield_initiative"}
 
+# P1-6: voice.* 标签 → 行动 delivery 提示（已有的 tag 名，不新增字段）
+_VOICE_DELIVERY_HINTS = {
+    "voice.short_orders": "简短、下令式，不解释",
+    "voice.formal": "正式、克制",
+    "voice.nervous_ramble": "紧张、啰嗦",
+    "voice.low_volume": "低声、含糊",
+    "voice.soft_deflection": "软化、回避",
+    "voice.too_loud": "高声、过激",
+    "voice.repeats_key_word": "重复关键词",
+    "voice.plain_spoken": "直白、平实",
+}
+
 # P1-5: 当前 action → 优先 scope（结构化映射，非扫 prose）
 _INTENT_TO_PREFERRED_SCOPE = {
     "combat": "scene_safety",
@@ -371,6 +383,16 @@ def _agency_move(
     }
 
 
+def _apply_voice(moves: list[dict[str, Any]], voice_tag: str | None) -> list[dict[str, Any]]:
+    """P1-6: stamp voice.* tag + delivery hint onto every emitted move (in place)."""
+    if not voice_tag:
+        return moves
+    for move in moves:
+        move["voice_tag"] = voice_tag
+        move["delivery_hint"] = _VOICE_DELIVERY_HINTS.get(voice_tag, voice_tag)
+    return moves
+
+
 def build_agency_moves(
     persona_card: dict[str, Any],
     scene_context: dict[str, Any],
@@ -394,6 +416,8 @@ def build_agency_moves(
         or intent_tags & INTENT_TAGS_THAT_INVITE_ACTION
     )
     persona_tags = set(str(item) for item in ((persona_card.get("persona") or {}).get("tags") or []))
+    # P1-6: voice.* 提取（用已有 tag 名，不新增字段），用于 flavor 所有发出动作的 delivery
+    voice_tag = next((t for t in persona_tags if str(t).startswith("voice.")), None)
     moves: list[dict[str, Any]] = []
     if "stress_response.panic" in persona_tags and scene_is_active:
         moves.append(_agency_move(
@@ -401,7 +425,20 @@ def build_agency_moves(
             move_id="panic",
             reason="persona_stress_response_matches_active_scene",
         ))
-        return moves
+        return _apply_voice(moves, voice_tag)
+
+    # P1-6: stress_response.freeze 在受到威胁时冻结（与 panic 同样的早返回模式）
+    if "stress_response.freeze" in persona_tags and scene_is_active and matched_threat:
+        moves.append(_agency_move(
+            persona_card=persona_card,
+            move_id="freeze",
+            reason="persona_stress_response_freeze_under_threat",
+            matched_authority_scope=matched_scope,
+            matched_responsibility=matched_threat,
+            agency_directive="NPC freezes under threat, unable to act.",
+            rules_effect=None,
+        ))
+        return _apply_voice(moves, voice_tag)
 
     should_act = bool(matched_scope and scene_is_active and initiative != "avoidant")
     if initiative not in INITIATIVE_STYLES_THAT_ACT and not matched_threat:
@@ -490,7 +527,7 @@ def build_agency_moves(
             matched_delegation=sorted(delegates & intent_tags),
             delegation_policy=role.get("delegation_policy") or {},
         ))
-    return moves
+    return _apply_voice(moves, voice_tag)
 
 
 def rules_requests_from_agency_moves(agency_moves: list[dict[str, Any]]) -> list[dict[str, Any]]:

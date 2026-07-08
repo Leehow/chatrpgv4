@@ -457,3 +457,57 @@ def test_agency_scope_falls_back_when_no_action_match():
         if (m.get("rules_effect") or {}).get("kind") == "npc_assist"
     ]
     assert scopes and scopes[0] == "specialist_care"  # fallback to static
+
+
+def test_agency_voice_tag_adds_delivery_hint_to_moves():
+    """P1-6: a persona voice tag flavors emitted moves' delivery."""
+    card = {
+        "npc_id": "x",
+        "persona": {"tags": ["voice.short_orders"]},
+        "social_role": {
+            "authority_scope": ["scene_safety"],
+            "initiative_style": "decisive",
+            "delegation_policy": {"keeps": [], "delegates": []},
+            "responsibility_domains": [],
+            "chain_of_command": {},
+            "duty_pressure": [],
+        },
+    }
+    scene_context = {
+        "is_active": True,
+        "scene_tags": ["crisis"],
+        "authority_demands": ["scene_safety"],
+        "npc_ids": ["x"],
+    }
+    moves = coc_npc_persona.build_agency_moves(card, scene_context, {})
+    assert moves, "expected moves to be emitted"
+    assert any(
+        m.get("voice_tag") == "voice.short_orders"
+        or "short_orders" in str(m.get("delivery_hint", ""))
+        for m in moves
+    ), "expected at least one move to carry the voice tag / delivery hint"
+
+
+def test_agency_stress_freeze_emits_freeze_move_under_threat():
+    """P1-6: stress_response.freeze under a matched threat emits a freeze move."""
+    card = {
+        "npc_id": "x",
+        "persona": {"tags": ["stress_response.freeze"]},
+        "social_role": {
+            "authority_scope": [],
+            "initiative_style": "avoidant",
+            "delegation_policy": {"keeps": [], "delegates": []},
+            "responsibility_domains": ["own_safety"],
+            "chain_of_command": {},
+            "duty_pressure": [],
+        },
+    }
+    scene_context = {
+        "is_active": True,
+        "scene_tags": ["crisis"],
+        "authority_demands": [],
+        "npc_ids": ["x"],
+        "responsibility_threats": ["own_safety"],
+    }
+    moves = coc_npc_persona.build_agency_moves(card, scene_context, {})
+    assert any(m.get("move_id") == "freeze" for m in moves), "expected a freeze move"
