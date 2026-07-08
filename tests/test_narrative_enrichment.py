@@ -558,3 +558,47 @@ def test_stop_actionability_empty_storylet_cues_when_absent():
     turn = {"choice_frame": {"routes": [], "is_real_fork": False, "open_route_count": 0}}
     contract = narr.build_stop_actionability_contract(turn, {}, stop_reason="awaiting_player_input")
     assert contract["storylet_cues"] == []
+
+
+def test_storylet_triggers_on_scene_entry_with_storylet_tags():
+    plan = {"scene_action": "CHARACTER"}
+    ctx = {
+        "active_scene": {"storylet_tags": ["opening_briefing"]},
+        "source_event_type": "scene_transition",
+    }
+    trigger = narr.infer_storylet_trigger(plan, ctx)
+    assert trigger["triggered"] is True
+    assert trigger["reason"] == "scene_tag_beat"
+    assert trigger["source"] == "storylet_trigger_gate"
+    assert trigger["storylet_tags"] == ["opening_briefing"]
+
+
+def test_storylet_does_not_trigger_without_scene_entry():
+    plan = {"scene_action": "CHARACTER"}
+    ctx = {
+        "active_scene": {"storylet_tags": ["opening_briefing"]},
+        # no source_event_type → not a scene entry
+    }
+    trigger = narr.infer_storylet_trigger(plan, ctx)
+    assert trigger.get("triggered") is False
+
+
+def test_storylet_does_not_trigger_without_storylet_tags():
+    plan = {"scene_action": "CHARACTER"}
+    ctx = {
+        "active_scene": {},  # no storylet_tags
+        "source_event_type": "scene_transition",
+    }
+    trigger = narr.infer_storylet_trigger(plan, ctx)
+    assert trigger.get("triggered") is False
+
+
+def test_storylet_triggers_on_scene_enter_event_type():
+    plan = {"scene_action": "CHARACTER"}
+    ctx = {
+        "active_scene": {"storylet_tags": ["arrival"]},
+        "source_event_type": "scene_enter",
+    }
+    trigger = narr.infer_storylet_trigger(plan, ctx)
+    assert trigger["triggered"] is True
+    assert trigger["reason"] == "scene_tag_beat"

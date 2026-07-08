@@ -899,6 +899,22 @@ def infer_storylet_trigger(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[st
             "source": "director_plan",
         }
 
+    # P0-3b: 场景进入 + storylet_tags 触发（结构化，不扫文本）。
+    # 让带 storylet_tags 的场景（如开场简报）在场景进入时能触发匹配的 beat。
+    scene = ctx.get("active_scene") or {}
+    storylet_tags = [str(t) for t in _as_list(scene.get("storylet_tags")) if str(t)]
+    source_event = str(ctx.get("source_event_type") or "")
+    if storylet_tags and source_event in ("scene_transition", "scene_enter"):
+        return {
+            "schema_version": _SCHEMA_VERSION,
+            "triggered": True,
+            "reason": "scene_tag_beat",
+            "polarity": "neutral",
+            "conflict_level": _base_storylet_conflict_level(plan, ctx),
+            "storylet_tags": storylet_tags,
+            "source": "storylet_trigger_gate",
+        }
+
     return dict(_NO_TRIGGER)
 
 
