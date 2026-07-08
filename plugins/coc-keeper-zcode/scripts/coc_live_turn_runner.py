@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+"""Live Keeper turn runner.
+
+This is the live-play entrypoint that keeps human table play on the same rails
+as the tested director stack:
+
+player input -> Story Director -> narrative enrichment -> rules -> backfill ->
+apply/save/logs.
+
+It also owns two live-only policies that should not depend on the main model's
+memory during chat:
+
+* default fast/background recording for JSONL audit logs;
+* compressed auto-advance for low-agency continuation until a real interrupt.
+"""
+from __future__ import annotations
+
+import json
+import random
+import time
+from pathlib import Path
+from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name: str, filename: str):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / filename)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+director = _load_sibling("coc_story_director", "coc_story_director.py")
+apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
+narrative_enrichment = _load_sibling("coc_narrative_enrichment", "coc_narrative_enrichment.py")
+playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
+coc_async_recorder = _load_sibling("coc_async_recorder", "coc_async_recorder.py")
+
+
+_INTERRUPT_EVENT_TYPES = {
+    "scene_transition",
+    "pressure_tick",
+    "clock_full",
+    "clue_reveal",
+    "fail_forward_recovery",
+    "clue_withheld",
+    "failure_consequence",
+    "san_trigger_fired",
+    "storylet_move",
+}
+
+
+def _read_json(path: Path, fallback: Any) -> Any:
+    if not path.exists():
+        return fallback
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _append_jsonl_sync(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _pending_record_count(campaign_dir: Path) -> int:
+    return coc_async_recorder.pending_record_count(campaign_dir)
+
+
+def _next_live_decision_number(campaign_dir: Path) -> int:
+    """Choose a turn number that remains monotonic even before fast logs flush."""
+    from_logs = int(playtest_driver._next_decision_number(campaign_dir))
+    pacing = _read_json(campaign_dir / "save" / "pacing-state.json", {})
+    try:
+        from_pacing = int(pacing.get("turn_number", 0)) + 1
+    except (TypeError, ValueError):
+        from_pacing = 1
+    return max(from_logs, from_pacing, 1)
+
+
+def _copy_jsonable(value: Any) -> Any:
+    return json.loads(json.dumps(value, ensure_ascii=False))
+
+
+def _recording_defaults(plan: dict[str, Any], mode: str, flush_policy: str) -> None:
+    directives = plan.setdefault("narrative_directives", {})
+    directives["recording_mode"] = mode
+    directives["recording_flush"] = flush_policy
+
+
+def _new_rules_recorder(campaign_dir: Path, mode: str, decision_id: str):
+    if mode == "sync":
+        return None
+    return coc_async_recorder.JsonlRecorder(
+        campaign_dir,
+        mode=mode,
+        decision_id=f"{decision_id}-rules",
+    )
+
+
+def _commit_rules_recorder(recorder: Any | None) -> Path | None:
+    if recorder is None:
+        return None
+    return recorder.commit()
+
+
+def _semantic_low_agency_choice(choice: dict[str, Any]) -> dict[str, Any]:
+    """Build the next automatic continuation from structured intent tags.
+
+    This does not classify prose. It preserves the semantic posture already
+    supplied by the caller/intent router and marks the next internal turn as an
+    automatic continuation of that posture.
+    """
+    next_choice = _copy_jsonable(choice)
+    next_choice["player_text"] = (
+        "继续执行玩家刚才的低主动姿态，直到出现新的威胁、信息、检定或选择点。"
+    )
+    next_choice["auto_advanced"] = True
+    rich = next_choice.setdefault("player_intent_rich", {})
+    rich.setdefault("primary_intent", next_choice.get("intent_class") or "continue")
+    secondary = list(rich.get("secondary_intents") or [])
+    for tag in ("low_agency_continue", "continue_existing_strategy", "yield_initiative"):
+        if tag not in secondary:
+            secondary.append(tag)
+    rich["secondary_intents"] = secondary
+    rich.setdefault("action_atoms", [])
+    rich["explicit_roll_request"] = bool(rich.get("explicit_roll_request", False))
+    return next_choice
+
+
+def _turn_interrupt_reason(turn: dict[str, Any]) -> str | None:
+    if turn.get("scene_transition"):
+        return "scene_arrival_or_transition"
+    event_types = set(turn.get("event_types") or [])
+    if event_types & _INTERRUPT_EVENT_TYPES:
+        if "pressure_tick" in event_types or "clock_full" in event_types:
+            return "threat_approaches"
+        if "scene_transition" in event_types:
+            return "scene_arrival_or_transition"
+        return "meaningful_interrupt"
+    if turn.get("rules_requests"):
+        return "risk_requires_roll"
+    if turn.get("clue_revealed"):
+        return "new_clue_or_obvious_information"
+    choice_frame = turn.get("choice_frame") or {}
+    if int(choice_frame.get("route_count", 0) or 0) >= 2:
+        return "meaningful_choice"
+    if turn.get("npc_moves"):
+        return "npc_requests_specialist_judgment"
+
+    progress = (turn.get("narrative_directives") or {}).get("dramatic_progress") or {}
+    current_interrupts = progress.get("current_interrupts") or []
+    if current_interrupts:
+        if "threat_approaches" in current_interrupts:
+            return "threat_approaches"
+        if "scene_arrival_or_transition" in current_interrupts:
+            return "scene_arrival_or_transition"
+        return "meaningful_interrupt"
+    return None
+
+
+def _should_auto_advance(turn: dict[str, Any], *, enabled: bool) -> bool:
+    if not enabled:
+        return False
+    directives = turn.get("narrative_directives") or {}
+    progress = directives.get("dramatic_progress") or {}
+    if progress.get("mode") == "compressed_progress" and progress.get("must_change_state"):
+        return _turn_interrupt_reason(turn) is None
+    exit_pressure = directives.get("scene_exit_pressure") or {}
+    if exit_pressure.get("must_change_state"):
+        return _turn_interrupt_reason(turn) is None
+    return False
+
+
+def _run_one_turn(
+    *,
+    campaign_dir: Path,
+    character_path: Path,
+    investigator_id: str,
+    choice: dict[str, Any],
+    decision_id: str,
+    rng: random.Random,
+    recording_mode: str,
+    recording_flush: str,
+) -> dict[str, Any]:
+    ctx = director.build_director_context(
+        campaign_dir=campaign_dir,
+        character_path=character_path,
+        investigator_id=investigator_id,
+        player_intent=str(choice.get("player_text") or ""),
+        player_intent_class=str(choice.get("intent_class") or "investigate"),
+        player_intent_rich=choice.get("player_intent_rich"),
+        rng=rng,
+    )
+    ctx["storylet_ledger"] = apply_mod._read_json(
+        campaign_dir / "save" / "storylet-ledger.json",
+        {},
+    )
+    for key in ("storylet_policy", "storylet_library", "incident_deck"):
+        if isinstance(choice.get(key), dict):
+            ctx[key] = choice[key]
+    for key, value in (choice.get("signal_overrides") or {}).items():
+        ctx["rule_signals"][key] = value
+
+    plan = director.generate_director_plan(ctx, decision_id=decision_id)
+    plan = narrative_enrichment.enrich_director_plan(plan, ctx)
+    _recording_defaults(plan, recording_mode, recording_flush)
+
+    rules_recorder = _new_rules_recorder(campaign_dir, recording_mode, decision_id)
+    append_jsonl = rules_recorder.append_jsonl if rules_recorder is not None else None
+    rule_results = playtest_driver._execute_rules_requests(
+        campaign_dir,
+        character_path,
+        investigator_id,
+        plan,
+        rng,
+        append_jsonl=append_jsonl,
+    )
+    rules_pending = _commit_rules_recorder(rules_recorder)
+
+    resolved_plan = apply_mod.backfill_rule_results(plan, rule_results)
+    if hasattr(narrative_enrichment, "enrich_storylets_after_rules"):
+        resolved_plan = narrative_enrichment.enrich_storylets_after_rules(resolved_plan, ctx)
+    _recording_defaults(resolved_plan, recording_mode, recording_flush)
+
+    before_pending = _pending_record_count(campaign_dir)
+    events = apply_mod.apply_plan(
+        campaign_dir,
+        resolved_plan,
+        investigator_id,
+        rules_results=rule_results,
+        recording_mode=recording_mode,
+        recording_flush="manual" if recording_flush == "background" else recording_flush,
+    )
+    after_pending = _pending_record_count(campaign_dir)
+
+    world = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {})
+    pacing = apply_mod._read_json(campaign_dir / "save" / "pacing-state.json", {})
+    directives = resolved_plan.get("narrative_directives") or {}
+    event_types = [event.get("event_type") for event in events if isinstance(event, dict)]
+    return {
+        "decision_id": decision_id,
+        "turn_number": (resolved_plan.get("turn_input") or {}).get("turn_number"),
+        "scene_id": ctx.get("active_scene_id"),
+        "action": resolved_plan.get("scene_action"),
+        "auto_advanced": bool(choice.get("auto_advanced")),
+        "apply_path": "coc_director_apply.apply_plan",
+        "recording_mode": recording_mode,
+        "recording_flush": recording_flush,
+        "rules_pending_batch": str(rules_pending) if rules_pending is not None else None,
+        "pending_batches_before_apply": before_pending,
+        "pending_batches_after_apply": after_pending,
+        "clue_revealed": [event.get("clue_id") for event in events if event.get("event_type") == "clue_reveal"],
+        "event_types": event_types,
+        "events_count": len(events),
+        "rule_results": rule_results,
+        "rules_requests": resolved_plan.get("rules_requests", []),
+        "choice_frame": resolved_plan.get("choice_frame", {}),
+        "npc_moves": resolved_plan.get("npc_moves", []),
+        "storylet_moves": resolved_plan.get("storylet_moves", []),
+        "narrative_enrichment": resolved_plan.get("narrative_enrichment", {}),
+        "narrative_directives": directives,
+        "scene_transition": any(event_type == "scene_transition" for event_type in event_types),
+        "active_scene_after": world.get("active_scene_id"),
+        "tension_after": pacing.get("tension_level"),
+    }
+
+
+def run_live_turn(
+    campaign_dir: Path | str,
+    character_path: Path | str,
+    investigator_id: str,
+    player_text: str,
+    *,
+    intent_class: str | None = None,
+    player_intent_rich: dict[str, Any] | None = None,
+    max_auto_advance: int = 3,
+    auto_advance_low_agency: bool = True,
+    recording_mode: str = "fast",
+    recording_flush: str = "background",
+    rng_seed: int | str | None = None,
+    storylet_policy: dict[str, Any] | None = None,
+    signal_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run one live player input through the full Keeper stack.
+
+    ``max_auto_advance`` is the maximum total number of internal director turns
+    consumed by this one player input. The first turn always represents the
+    player's text; later turns only occur when the director emitted a compressed
+    low-agency progress directive and no interrupt has appeared yet.
+    """
+    campaign = Path(campaign_dir)
+    character = Path(character_path)
+    mode = coc_async_recorder.normalize_recording_mode(recording_mode)
+    flush_policy = coc_async_recorder.normalize_flush_policy(recording_flush)
+    rng = random.Random(rng_seed if rng_seed is not None else f"{campaign}|{time.time_ns()}")
+
+    choice: dict[str, Any] = {
+        "player_text": player_text,
+        "intent_class": intent_class or (player_intent_rich or {}).get("primary_intent") or "investigate",
+        "player_intent_rich": _copy_jsonable(player_intent_rich) if player_intent_rich else None,
+    }
+    if storylet_policy is not None:
+        choice["storylet_policy"] = storylet_policy
+    if signal_overrides is not None:
+        choice["signal_overrides"] = signal_overrides
+
+    start_number = _next_live_decision_number(campaign)
+    max_turns = max(1, int(max_auto_advance or 1))
+    turns: list[dict[str, Any]] = []
+    stop_reason = "max_auto_advance_reached"
+
+    for index in range(max_turns):
+        decision_id = f"turn-{start_number + index:03d}"
+        turn = _run_one_turn(
+            campaign_dir=campaign,
+            character_path=character,
+            investigator_id=investigator_id,
+            choice=choice,
+            decision_id=decision_id,
+            rng=rng,
+            recording_mode=mode,
+            recording_flush=flush_policy,
+        )
+        turns.append(turn)
+        interrupt = _turn_interrupt_reason(turn)
+        if interrupt is not None:
+            stop_reason = interrupt
+            break
+        if not _should_auto_advance(turn, enabled=auto_advance_low_agency):
+            stop_reason = "awaiting_player_input"
+            break
+        choice = _semantic_low_agency_choice(choice)
+
+    pending_before_flush = _pending_record_count(campaign)
+    background_result = None
+    background_started = False
+    if mode != "sync" and flush_policy == "background" and pending_before_flush:
+        background_result = coc_async_recorder.spawn_background_flush(campaign)
+        background_started = bool(background_result.get("started"))
+
+    world = apply_mod._read_json(campaign / "save" / "world-state.json", {})
+    pacing = apply_mod._read_json(campaign / "save" / "pacing-state.json", {})
+    result = {
+        "schema_version": 1,
+        "campaign_dir": str(campaign),
+        "investigator_id": investigator_id,
+        "player_text": player_text,
+        "turns": turns,
+        "auto_advance": {
+            "enabled": bool(auto_advance_low_agency),
+            "turns_run": len(turns),
+            "stop_reason": stop_reason,
+            "max_turns": max_turns,
+        },
+        "recording": {
+            "mode": mode,
+            "flush_policy": flush_policy,
+            "pending_batches_before_flush": pending_before_flush,
+            "background_flush_started": background_started,
+            "background_flush_result": background_result,
+        },
+        "final_state": {
+            "active_scene": world.get("active_scene_id"),
+            "tension": pacing.get("tension_level"),
+            "turn_number": pacing.get("turn_number"),
+        },
+    }
+
+    _append_jsonl_sync(campaign / "logs" / "live-turn-runtime.jsonl", {
+        "schema_version": 1,
+        "event_type": "live_turn_runtime",
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "investigator_id": investigator_id,
+        "player_text": player_text,
+        "turn_count": len(turns),
+        "decision_ids": [turn["decision_id"] for turn in turns],
+        "auto_advance": result["auto_advance"],
+        "recording_mode": mode,
+        "recording_flush": flush_policy,
+        "pending_batches_before_flush": pending_before_flush,
+        "background_flush_requested": mode != "sync" and flush_policy == "background",
+        "background_flush_started": background_started,
+        "final_state": result["final_state"],
+    })
+    return result
+
+
+__all__ = ["run_live_turn"]

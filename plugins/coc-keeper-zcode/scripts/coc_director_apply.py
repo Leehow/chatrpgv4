@@ -868,7 +868,8 @@ def _apply_plan_impl(
                 source_events=[decision_id],
             )
 
-    # 7. scene transition — advance when current scene is exhausted or plan CUTs.
+    # 7. scene transition — advance when current scene is exhausted, plan CUTs,
+    # or scene-progress governance explicitly forces a transition/montage.
     # The Haunting's exit_conditions are natural-language sentences that can't be
     # machine-evaluated, so we use a structural proxy: a scene is "exhausted"
     # when all its available_clues are in discovered_clue_ids. A CUT action forces
@@ -883,6 +884,8 @@ def _apply_plan_impl(
             available = current_scene.get("available_clues", [])
             should_advance = False
             if action == "CUT":
+                should_advance = True
+            elif isinstance(scene_progress, dict) and scene_progress.get("action") == "force_transition":
                 should_advance = True
             elif available and all(c in discovered for c in available):
                 should_advance = True

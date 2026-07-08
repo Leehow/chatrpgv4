@@ -7,6 +7,13 @@ description: Run immersive Call of Cthulhu play after COC mode is active. Use fo
 
 ## Loop
 
+For ordinary live play, call `scripts/coc_live_turn_runner.py`
+(`run_live_turn(...)`) as the hard turn entrypoint. Do not manually stitch
+director, enrichment, rules, apply, and JSONL writes during normal table play;
+manual stitching is only for isolated bug hunts. The runner defaults to
+fast/background recording and handles compressed low-agency continuation before
+returning narration material.
+
 1. Read player input + campaign state + scenario story-graph.
    - For manual/live campaigns with missing `story-graph.json`, the live-story
      bridge in `build_director_context` must derive a runtime scene from
@@ -27,8 +34,11 @@ description: Run immersive Call of Cthulhu play after COC mode is active. Use fo
 
 ## Recording Modes
 
-Live play may use `recording_mode: fast` in `DirectorPlan.narrative_directives`
-or pass `recording_mode="fast"` to `coc_director_apply.apply_plan(...)`.
+Live play defaults to `recording_mode: fast` and
+`recording_flush: background` through `coc_live_turn_runner.run_live_turn(...)`.
+Plans may still set `recording_mode: fast` in
+`DirectorPlan.narrative_directives` or pass `recording_mode="fast"` to
+`coc_director_apply.apply_plan(...)` in lower-level tests.
 Fast mode keeps rules-facing save mutations synchronous, including world state,
 pacing, clue discovery, NPC state, storylet ledger, memory writes, time advance,
 and scene transitions. Verbose JSONL audit writes are batched into one durable
@@ -43,6 +53,12 @@ pending batches at the next convenient maintenance point.
 Set `narrative_directives.recording_flush: background` when live play should
 spawn a local recorder process immediately after queuing a fast-mode batch.
 Leave it unset or `manual` when preserving pending batches for debugging.
+
+The live runner writes a small synchronous receipt to
+`logs/live-turn-runtime.jsonl` with the decision ids, auto-advance count,
+recording mode, pending batch count, and whether background flushing was
+requested. Use this receipt to verify that live play really used the runner
+rather than ad hoc chat-side logging.
 
 Use `recording_mode: sync` for bug hunts, replay-sensitive tests, and final
 verification. Sync mode is the default and preserves the legacy behavior of
@@ -197,6 +213,11 @@ roll, or arrival/transition to a new scene. The narration must change the game
 state; do not answer with another equivalent "you keep following / they keep
 walking" beat. Stop compression immediately before irreversible player choices,
 new danger that needs a roll, or any action the player has not already implied.
+In live play this compression is enforced by `run_live_turn(...)`: if no
+interrupt appears after the first director pass, the runner consumes additional
+internal director turns for the same low-agency posture until a threat, clue,
+NPC handoff, risk check, meaningful choice, or scene transition appears, capped
+by `max_auto_advance`.
 
 ## Narrative Enrichment Rules
 

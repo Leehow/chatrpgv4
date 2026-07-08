@@ -359,6 +359,16 @@ def test_keeper_play_documents_scene_progress_governor():
     assert "environment check" in keeper_skill
 
 
+def test_keeper_play_documents_live_turn_runner_hard_entrypoint():
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+
+    assert (PLUGIN_ROOT / "scripts" / "coc_live_turn_runner.py").exists()
+    assert "`scripts/coc_live_turn_runner.py`" in keeper_skill
+    assert "`run_live_turn(...)`" in keeper_skill
+    assert "`logs/live-turn-runtime.jsonl`" in keeper_skill
+    assert "Do not manually stitch" in keeper_skill
+
+
 def test_keeper_play_lists_reusable_investigators_before_character_creation():
     keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
 

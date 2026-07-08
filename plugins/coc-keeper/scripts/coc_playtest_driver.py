@@ -196,6 +196,7 @@ def _execute_rules_requests(
     investigator_id: str,
     plan: dict[str, Any],
     rng: random.Random,
+    append_jsonl=None,
 ) -> list[dict[str, Any]]:
     """Execute DirectorPlan.rules_requests and append roll rows.
 
@@ -210,6 +211,7 @@ def _execute_rules_requests(
     results: list[dict[str, Any]] = []
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     rolls_path = campaign_dir / "logs" / "rolls.jsonl"
+    append = append_jsonl or _append_jsonl
 
     for idx, request in enumerate(requests, start=1):
         kind = request.get("kind")
@@ -252,8 +254,8 @@ def _execute_rules_requests(
                     "roll_contract": request.get("roll_contract"),
                 }
                 results.append(payload)
-                _append_jsonl(rolls_path, {"type": "roll", "actor": investigator_id,
-                                           "payload": payload, "ts": ts})
+                append(rolls_path, {"type": "roll", "actor": investigator_id,
+                                    "payload": payload, "ts": ts})
                 continue
 
         roll = coc_roll.percentile_check(
@@ -284,7 +286,7 @@ def _execute_rules_requests(
             "roll_contract": request.get("roll_contract"),
         }
         results.append(payload)
-        _append_jsonl(rolls_path, {
+        append(rolls_path, {
             "type": "roll",
             "actor": investigator_id,
             "payload": payload,

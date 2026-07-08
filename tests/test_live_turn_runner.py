@@ -1,0 +1,248 @@
+"""Tests for the live Keeper turn runner.
+
+These cover the production/live path rather than the offline playtest driver:
+one player input should run through the director/enrichment/rules/apply stack,
+default to fast background recording, and compress low-agency continuation until
+the next real interrupt.
+"""
+import importlib.util
+import json
+from pathlib import Path
+
+
+def _load(name, rel):
+    spec = importlib.util.spec_from_file_location(name, rel)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+live_runner = _load("coc_live_turn_runner", "plugins/coc-keeper/scripts/coc_live_turn_runner.py")
+
+
+def _build_live_campaign(tmp_path):
+    camp = tmp_path / "campaigns" / "live"
+    scn = camp / "scenario"
+    save = camp / "save"
+    logs = camp / "logs"
+    (save / "investigator-state").mkdir(parents=True)
+    scn.mkdir(parents=True)
+    logs.mkdir(parents=True)
+    (logs / "events.jsonl").write_text("")
+    (logs / "rolls.jsonl").write_text("")
+    (save / "world-state.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "live",
+        "scenario_id": "live-mod",
+        "active_scene_id": "scene-1",
+        "discovered_clue_ids": [],
+        "major_decisions": [],
+    }))
+    (save / "pacing-state.json").write_text(json.dumps({
+        "schema_version": 1,
+        "tension_level": "low",
+        "lethal_chances_used": 0,
+        "recent_intent_classes": [],
+        "turn_number": 0,
+        "luck_spent_last": 0,
+    }))
+    (save / "investigator-state" / "inv1.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "live",
+        "investigator_id": "inv1",
+        "current_hp": 12,
+        "current_san": 55,
+        "current_mp": 11,
+        "conditions": [],
+        "skill_checks_earned": [],
+    }))
+    char_dir = tmp_path / "investigators" / "inv1"
+    char_dir.mkdir(parents=True)
+    char_path = char_dir / "character.json"
+    char_path.write_text(json.dumps({
+        "schema_version": 1,
+        "id": "inv1",
+        "occupation": "Antiquarian",
+        "era": "1920s",
+        "characteristics": {
+            "STR": 60,
+            "CON": 55,
+            "SIZ": 65,
+            "DEX": 50,
+            "APP": 45,
+            "INT": 70,
+            "POW": 55,
+            "EDU": 75,
+            "LUCK": 55,
+        },
+        "derived": {"HP": 12, "MP": 11, "SAN": 55, "MOV": 7},
+        "skills": {"Spot Hidden": 60, "Library Use": 55, "Credit Rating": 50},
+        "backstory": {},
+    }))
+    (scn / "story-graph.json").write_text(json.dumps({"scenes": [
+        {
+            "scene_id": "scene-1",
+            "scene_type": "investigation",
+            "dramatic_question": "Can the investigator find the first lead?",
+            "entry_conditions": [],
+            "exit_conditions": ["c1 discovered"],
+            "available_clues": ["c1"],
+            "npc_ids": [],
+            "pressure_moves": [],
+            "tone": ["tense"],
+            "allowed_improvisation": [],
+        },
+        {
+            "scene_id": "scene-2",
+            "scene_type": "investigation",
+            "dramatic_question": "What happens after the first lead?",
+            "entry_conditions": [],
+            "exit_conditions": [],
+            "available_clues": [],
+            "npc_ids": [],
+            "pressure_moves": [],
+            "tone": ["tense"],
+            "allowed_improvisation": [],
+        },
+    ]}))
+    (scn / "clue-graph.json").write_text(json.dumps({"conclusions": [{
+        "conclusion_id": "conclusion-1",
+        "importance": "critical",
+        "minimum_routes": 1,
+        "clues": [{"clue_id": "c1", "delivery": "Handout", "delivery_kind": "handout", "visibility": "player-safe"}],
+        "fallback_policy": "",
+    }]}))
+    (scn / "npc-agendas.json").write_text(json.dumps({"npcs": []}))
+    (scn / "threat-fronts.json").write_text(json.dumps({"fronts": []}))
+    (scn / "pacing-map.json").write_text(json.dumps({"pacing_curve": []}))
+    (scn / "improvisation-boundaries.json").write_text(json.dumps({
+        "invent_allowed": [],
+        "never_invent": [],
+        "keeper_secrets": [],
+    }))
+    (scn / "module-meta.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scenario_id": "live-mod",
+        "structure_type": "linear_acts",
+        "era": "1920s",
+        "content_flags": [],
+        "win_condition": "continue live play",
+    }))
+    return camp, char_path
+
+
+def test_live_turn_defaults_to_fast_background_recording_and_receipt(tmp_path, monkeypatch):
+    camp, char_path = _build_live_campaign(tmp_path)
+    spawned = []
+
+    def fake_spawn_background_flush(campaign_dir, *, limit=None):
+        spawned.append({"campaign_dir": Path(campaign_dir), "limit": limit})
+        return {"started": True, "pid": 4242}
+
+    monkeypatch.setattr(
+        live_runner.coc_async_recorder,
+        "spawn_background_flush",
+        fake_spawn_background_flush,
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我检查桌上的文件。",
+        intent_class="investigate",
+        rng_seed=7,
+    )
+
+    assert result["recording"]["mode"] == "fast"
+    assert result["recording"]["flush_policy"] == "background"
+    assert result["recording"]["background_flush_started"] is True
+    assert spawned
+    assert any(turn["apply_path"] == "coc_director_apply.apply_plan" for turn in result["turns"])
+    assert sorted((camp / "logs" / "pending-turns").glob("*.json"))
+
+    receipts = [
+        json.loads(line)
+        for line in (camp / "logs" / "live-turn-runtime.jsonl").read_text().splitlines()
+    ]
+    assert receipts[-1]["event_type"] == "live_turn_runtime"
+    assert receipts[-1]["recording_mode"] == "fast"
+    assert receipts[-1]["recording_flush"] == "background"
+    assert receipts[-1]["background_flush_requested"] is True
+
+
+def test_live_turn_auto_advances_low_agency_posture_until_interrupt(tmp_path, monkeypatch):
+    camp, char_path = _build_live_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"] = [
+        {
+            "scene_id": "snow-bridge",
+            "scene_type": "travel",
+            "scene_kind": "bridge",
+            "dramatic_question": "Can the patrol reach the next actionable point?",
+            "entry_conditions": [],
+            "exit_conditions": [],
+            "available_clues": [],
+            "npc_ids": [],
+            "pressure_moves": [],
+            "tone": ["cold"],
+            "allowed_improvisation": [],
+            "progress_contract": {
+                "kind": "bridge",
+                "max_low_agency_turns": 1,
+                "fallback_action": "MONTAGE",
+                "exit_directive": "Montage the march and cut to the next actionable point.",
+            },
+        },
+        {
+            "scene_id": "wire-shelter",
+            "scene_type": "investigation",
+            "dramatic_question": "What is wrong with the wire shelter?",
+            "entry_conditions": [],
+            "exit_conditions": [],
+            "available_clues": [],
+            "npc_ids": [],
+            "pressure_moves": [{"id": "wire-rattle", "visible_symptom": "掩体里的电话线忽然绷紧。"}],
+            "tone": ["tense"],
+            "allowed_improvisation": [],
+        },
+    ]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "snow-bridge"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+
+    monkeypatch.setattr(
+        live_runner.coc_async_recorder,
+        "spawn_background_flush",
+        lambda campaign_dir, *, limit=None: {"started": True, "pid": 4243},
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我继续跟着班长走。",
+        intent_class="move",
+        player_intent_rich={
+            "primary_intent": "move",
+            "secondary_intents": ["low_agency_continue", "follow_group", "yield_initiative"],
+            "target_entities": ["patrol"],
+            "risk_posture": "neutral",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+            "action_atoms": [],
+        },
+        max_auto_advance=3,
+        rng_seed=11,
+    )
+
+    assert result["auto_advance"]["enabled"] is True
+    assert result["auto_advance"]["turns_run"] >= 2
+    assert result["auto_advance"]["stop_reason"] in {
+        "scene_arrival_or_transition",
+        "threat_approaches",
+        "meaningful_interrupt",
+    }
+    assert result["final_state"]["active_scene"] == "wire-shelter"
+    assert any(turn["auto_advanced"] for turn in result["turns"][1:])
