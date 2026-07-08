@@ -297,6 +297,7 @@ def _scene_tags(ctx: dict[str, Any]) -> set[str]:
     scene = ctx.get("active_scene") or {}
     tags = set(_as_list(scene.get("tags")))
     tags.update(_as_list(scene.get("tone")))
+    tags.update(_as_list(scene.get("storylet_tags")))  # P0-3 wiring
     if scene.get("scene_type"):
         tags.add(str(scene.get("scene_type")))
     return {str(t) for t in tags if t}

@@ -426,3 +426,12 @@ def test_seeded_storylet_selection_is_deterministic():
     first = storylets.select_storylet_moves(_plan("REVEAL"), _ctx("low"), seed="same")
     second = storylets.select_storylet_moves(_plan("REVEAL"), _ctx("low"), seed="same")
     assert first == second
+
+
+def test_scene_tags_includes_storylet_tags_field():
+    """P0-3 wiring: _scene_tags must read scene.storylet_tags so a storylet
+    whose scene_tags match can be selected after the scene_tag_beat trigger."""
+    ctx = {"active_scene": {"storylet_tags": ["opening_briefing"], "scene_type": "social"}}
+    tags = storylets._scene_tags(ctx)
+    assert "opening_briefing" in tags
+    assert "social" in tags
