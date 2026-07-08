@@ -549,6 +549,44 @@ def test_backfill_rule_results_recover_marks_fallback_as_in_world_recovery():
     assert "do not present this as a table-level hint" in failure["must_not_claim"]
 
 
+def test_backfill_failed_non_clue_roll_adds_failure_routing():
+    plan = {
+        "decision_id": "d-action-fail",
+        "scene_action": "SUBSYSTEM",
+        "clue_policy": {"reveal": []},
+        "rules_requests": [{
+            "kind": "skill_check",
+            "skill": "Dodge",
+            "reason": "cross the exposed yard",
+            "difficulty": "regular",
+            "roll_contract": {
+                "schema_version": 1,
+                "goal": "cross the exposed yard",
+                "success_effect": "reach cover",
+                "failure_effect": "reach cover but draw hostile attention",
+                "failure_outcome_mode": "goal_with_cost",
+                "push_policy": {"eligible": True, "requires_changed_method": True, "keeper_must_foreshadow_failure": True},
+                "roll_density_group": "exposed_yard",
+                "must_not": ["do not narrate no progress on ordinary failure"],
+            },
+        }],
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+
+    resolved = coc_director_apply.backfill_rule_results(
+        plan,
+        [{"skill": "Dodge", "outcome": "failure", "success": False, "roll_contract": plan["rules_requests"][0]["roll_contract"]}],
+    )
+
+    failure = resolved["narrative_directives"]["failure_consequence"]
+    assert failure["narration_mode"] == "goal_with_cost"
+    assert failure["goal"] == "cross the exposed yard"
+    assert "do not narrate no progress on ordinary failure" in failure["must_not_claim"]
+
+
 def test_apply_fast_recording_queues_audit_logs_without_blocking_save_state(tmp_path):
     camp = _campaign(tmp_path)
     plan = {

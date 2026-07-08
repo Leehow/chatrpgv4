@@ -196,11 +196,20 @@ def read_phobia_penalty(insane: bool, trigger_in_scene: bool) -> dict[str, Any]:
 
 
 def read_psychology_concealed(skill_value: int, roll: int, npc_lying: bool) -> dict[str, Any]:
-    """Concealed Psychology roll determines if player gets accurate NPC read.
-    Rulebook p.191. Failed roll → director feeds false info.
+    """Concealed Psychology roll determines read reliability.
+
+    Failed roll does not automatically invert truth. The narrator should render
+    uncertainty or surface behavior unless a scenario-specific deception effect
+    explicitly says otherwise.
     """
     feed_accurate = roll <= skill_value
-    return {"feed_accurate": feed_accurate, "npc_actually_lying": npc_lying}
+    return {
+        "feed_accurate": feed_accurate,
+        "npc_actually_lying": npc_lying,
+        "reliability": "accurate_read" if feed_accurate else "uncertain_read",
+        "player_truth_policy": "accurate_if_success_else_uncertain",
+        "must_not": [] if feed_accurate else ["do not invert truth on failed Psychology"],
+    }
 
 
 def read_pushed_fail_pending(is_pushed: bool, outcome: str) -> bool:

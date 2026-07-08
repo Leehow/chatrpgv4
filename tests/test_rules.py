@@ -14,6 +14,7 @@ def load_module(name: str, relative_path: str):
 
 
 coc_rules = load_module("coc_rules", "plugins/coc-keeper/scripts/coc_rules.py")
+coc_rule_signals = load_module("coc_rule_signals", "plugins/coc-keeper/scripts/coc_rule_signals.py")
 
 
 def test_percentile_check_rule_uses_structured_table():
@@ -250,6 +251,18 @@ def test_the_haunting_rules_use_structured_table():
             },
         },
     }
+
+
+def test_psychology_concealed_failure_returns_uncertain_read_not_false_truth():
+    result = coc_rule_signals.read_psychology_concealed(
+        skill_value=20,
+        roll=90,
+        npc_lying=True,
+    )
+
+    assert result["feed_accurate"] is False
+    assert result["reliability"] == "uncertain_read"
+    assert result["player_truth_policy"] == "accurate_if_success_else_uncertain"
 
 
 def test_success_level_uses_percentile_check_bounds(monkeypatch):
