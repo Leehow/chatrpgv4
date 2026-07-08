@@ -39,6 +39,14 @@ ACTIVE_SCENE_TAGS = {
 INITIATIVE_STYLES_THAT_ACT = {"decisive", "protective", "procedural", "commanding"}
 INTENT_TAGS_THAT_INVITE_ACTION = {"low_agency_continue", "asks_npc_to_decide", "yield_initiative"}
 
+# P1-5: 当前 action → 优先 scope（结构化映射，非扫 prose）
+_INTENT_TO_PREFERRED_SCOPE = {
+    "combat": "scene_safety",
+    "flee": "scene_safety",
+    "investigate": "specialist_interpretation",
+    "social": "specialist_interpretation",
+}
+
 
 def _as_list(value: Any) -> list[Any]:
     if value is None:
@@ -401,7 +409,14 @@ def build_agency_moves(
     if not should_act:
         return []
 
-    scope = matched_scope[0]
+    # P1-5: scope prefers an authority item matching the current action; falls
+    # back to the static sorted[0] when no action-matched scope is available.
+    preferred_scope = None
+    intent = str((player_intent_rich or {}).get("primary_intent") or "")
+    wanted = _INTENT_TO_PREFERRED_SCOPE.get(intent)
+    if wanted and wanted in matched_scope:
+        preferred_scope = wanted
+    scope = preferred_scope or (matched_scope[0] if matched_scope else None)
     if initiative == "protective" and matched_threat:
         moves.append(_agency_move(
             persona_card=persona_card,

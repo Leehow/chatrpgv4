@@ -385,3 +385,75 @@ def test_upgrade_npc_stats_promotes_lifecycle_and_logs_generated_parameters():
     assert log["to_lifecycle"] == "mechanical_actor"
     assert log["generated_stats"]["key_skills"]["Persuade"] >= 20
     assert log["rule_refs"] == ["core.npc.stat_archetypes"]
+
+
+def test_agency_scope_prefers_current_action_authority():
+    """P1-5: scope should reflect the current action. An NPC with both
+    scene_safety and specialist_interpretation authority, on an investigate
+    action, should report specialist_interpretation (not the sorted[0]
+    scene_safety). This is discriminating: sorted(['scene_safety',
+    'specialist_interpretation'])[0] == 'scene_safety' ('c' < 'p'), so the
+    action-preferred value differs from the static fallback."""
+    card = {
+        "npc_id": "x",
+        "persona": {"tags": ["temperament.cautious"]},
+        "social_role": {
+            "authority_scope": ["scene_safety", "specialist_interpretation"],
+            "initiative_style": "decisive",
+            "delegation_policy": {"keeps": [], "delegates": []},
+            "responsibility_domains": [],
+            "chain_of_command": {},
+            "duty_pressure": [],
+        },
+    }
+    scene_context = {
+        "is_active": True,
+        "scene_tags": ["crisis"],
+        "authority_demands": ["scene_safety", "specialist_interpretation"],
+        "npc_ids": ["x"],
+    }
+    # investigate -> prefer specialist_interpretation; sorted[0] would be
+    # "scene_safety" ('c' < 'p' at index 2) -> discriminating.
+    rich = {
+        "primary_intent": "investigate",
+        "action_atoms": [{"id": "a1", "verb": "research", "skill": "Library Use"}],
+    }
+    moves = coc_npc_persona.build_agency_moves(card, scene_context, rich)
+    scopes = [
+        m.get("rules_effect", {}).get("scope")
+        for m in moves
+        if (m.get("rules_effect") or {}).get("kind") == "npc_assist"
+    ]
+    assert scopes, "expected an assist move"
+    assert scopes[0] == "specialist_interpretation"  # action-preferred, NOT sorted[0] scene_safety
+
+
+def test_agency_scope_falls_back_when_no_action_match():
+    """When the current action maps to nothing in the NPC's authority, scope
+    falls back to the static sorted[0] (existing behavior)."""
+    card = {
+        "npc_id": "x",
+        "persona": {"tags": ["temperament.cautious"]},
+        "social_role": {
+            "authority_scope": ["specialist_care"],
+            "initiative_style": "decisive",
+            "delegation_policy": {"keeps": [], "delegates": []},
+            "responsibility_domains": [],
+            "chain_of_command": {},
+            "duty_pressure": [],
+        },
+    }
+    scene_context = {
+        "is_active": True,
+        "scene_tags": ["crisis"],
+        "authority_demands": ["specialist_care"],
+        "npc_ids": ["x"],
+    }
+    rich = {"primary_intent": "combat"}  # maps to scene_safety, which NPC lacks
+    moves = coc_npc_persona.build_agency_moves(card, scene_context, rich)
+    scopes = [
+        m.get("rules_effect", {}).get("scope")
+        for m in moves
+        if (m.get("rules_effect") or {}).get("kind") == "npc_assist"
+    ]
+    assert scopes and scopes[0] == "specialist_care"  # fallback to static
