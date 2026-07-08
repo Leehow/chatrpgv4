@@ -56,8 +56,9 @@ summary, and source page instead.
 3. 按顺序产出 7 个 JSON 到 campaigns/<id>/scenario/（schema 见 references/story-graph-schema.md）：
    module-meta / story-graph / clue-graph / npc-agendas / threat-fronts / pacing-map / improvisation-boundaries
    - **story-graph.json 的 social/investigation 场景必须带 ≥2 条 `affordances`（含语义 `route_type`）；开场场景带 `storylet_tags`。** 详见 references/compile-protocol.md「场景多路线与 storylet 标签」。这让玩家在每个调查/社交场景都有选择权、不被线性推向单一出口。
-4. 跑 `scripts/coc_scenario_compile.py --validate <dir>` 校验结构完整性。
-5. 校验报告的缺漏逐个补，直到 errors 为空。
-6. 写 player-safe recap + keeper-only recap。
+4. 对 npc-agendas.json 跑 `coc_npc_roles.expand_from_dir`（按 relationship_to_investigators 注入 social_role，详见 references/compile-protocol.md）。
+5. 跑 `scripts/coc_scenario_compile.py --validate <dir>` 校验结构完整性。
+6. 校验报告的缺漏逐个补，直到 errors 为空。
+7. 写 player-safe recap + keeper-only recap。
 
 关键约束：每个 critical conclusion 至少 3 条线索路径；keeper_secrets 与 player-safe 物理隔离。

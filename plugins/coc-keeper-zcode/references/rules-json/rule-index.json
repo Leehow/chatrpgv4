@@ -874,6 +874,12 @@
       "source_note": "Generic social duty templates for NPC authority, responsibility, initiative, and delegation behavior."
     },
     {
+      "id": "core.npc.role_keywords",
+      "category": "npc_agency",
+      "source_table": "npc-role-keywords.json",
+      "source_note": "Deterministic compile-time mapping from an NPC's structured relationship_to_investigators keyword to an npc-social-roles.json template_id (with optional initiative_style_override). Consumed by coc_npc_roles.expand_npc_social_roles at scenario-import compile time."
+    },
+    {
       "id": "core.npc.stat_archetypes",
       "category": "npc_agency",
       "source_table": "npc-stat-archetypes.json",
