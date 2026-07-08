@@ -180,6 +180,104 @@ def test_format_percentile_result_shows_penalty_die_components():
     )
 
 
+def test_format_percentile_result_shows_tens_units_breakdown_without_modifiers():
+    # A plain percentile roll (no bonus/penalty) has no tens_values/units in the
+    # result, so the breakdown must be derived from `roll` itself.
+    result = {
+        "target": 50,
+        "effective_target": 50,
+        "roll": 47,
+        "outcome": "regular",
+        "bonus": 0,
+        "penalty": 0,
+        "tens_values": [],
+        "units": None,
+    }
+
+    formatted = coc_roll.format_percentile_result(result, language="zh-Hans")
+
+    assert "十位" in formatted
+    assert "个位" in formatted
+    assert "4" in formatted
+    assert "7" in formatted
+    assert "47/50" in formatted
+    assert formatted.startswith("47/50 = ")
+
+
+def test_format_percentile_result_breakdown_derives_tens_digit_for_double_digit_roll():
+    # roll=100 (valid fumble band): tens digit is 10, units digit is 0.
+    result = {
+        "target": 80,
+        "effective_target": 80,
+        "roll": 100,
+        "outcome": "fumble",
+        "bonus": 0,
+        "penalty": 0,
+        "tens_values": [],
+        "units": None,
+    }
+
+    formatted = coc_roll.format_percentile_result(result, language="zh-Hans")
+
+    assert "十位 10" in formatted
+    assert "个位 0" in formatted
+
+
+def test_format_percentile_result_compact_opt_out_preserves_minimal_form():
+    result = {
+        "target": 50,
+        "effective_target": 50,
+        "roll": 47,
+        "outcome": "regular",
+        "bonus": 0,
+        "penalty": 0,
+        "tens_values": [],
+        "units": None,
+    }
+
+    formatted = coc_roll.format_percentile_result(result, language="zh-Hans", compact=True)
+
+    assert formatted == "47/50，成功"
+
+
+def test_format_percentile_result_compact_opt_out_english():
+    result = {
+        "target": 50,
+        "effective_target": 50,
+        "roll": 47,
+        "outcome": "regular",
+        "bonus": 0,
+        "penalty": 0,
+        "tens_values": [],
+        "units": None,
+    }
+
+    formatted = coc_roll.format_percentile_result(result, language="en-US", compact=True)
+
+    assert formatted == "47/50, regular"
+
+
+def test_format_percentile_result_breakdown_english():
+    result = {
+        "target": 50,
+        "effective_target": 50,
+        "roll": 47,
+        "outcome": "regular",
+        "bonus": 0,
+        "penalty": 0,
+        "tens_values": [],
+        "units": None,
+    }
+
+    formatted = coc_roll.format_percentile_result(result, language="en-US")
+
+    assert "tens" in formatted
+    assert "units" in formatted
+    assert "4" in formatted
+    assert "7" in formatted
+    assert formatted.startswith("47/50 = ")
+
+
 def test_roll_percentile_alias_matches_percentile_check():
     rng = SequenceRandom([1, 4, 1])
 

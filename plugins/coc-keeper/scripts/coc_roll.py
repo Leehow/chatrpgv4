@@ -166,8 +166,18 @@ def _outcome_label(outcome: str, language: str) -> str:
     return outcome
 
 
-def format_percentile_result(result: dict[str, Any], *, language: str = "zh-Hans") -> str:
-    """Format a percentile result for immediate player-facing narration."""
+def format_percentile_result(
+    result: dict[str, Any],
+    *,
+    language: str = "zh-Hans",
+    compact: bool = False,
+) -> str:
+    """Format a percentile result for immediate player-facing narration.
+
+    By default the tens/units breakdown is shown even for a plain roll (no
+    bonus/penalty dice), so the player can see how the roll composed. Pass
+    ``compact=True`` for the minimal ``{roll}/{target}, {outcome}`` form.
+    """
     roll = int(result["roll"])
     target = int(result.get("target", result.get("effective_target", 0)))
     outcome = _outcome_label(str(result.get("outcome", "")), language)
@@ -177,9 +187,17 @@ def format_percentile_result(result: dict[str, Any], *, language: str = "zh-Hans
     units = result.get("units")
 
     if not tens_values or units is None or (bonus == 0 and penalty == 0):
+        if compact:
+            if language == "zh-Hans":
+                return f"{roll}/{target}，{outcome}"
+            return f"{roll}/{target}, {outcome}"
+        # Derive the tens/units digits from the roll itself (a plain roll has
+        # no recorded tens_values/units). roll=100 -> tens 10, units 0.
+        tens_digit = roll // 10
+        units_digit = roll % 10
         if language == "zh-Hans":
-            return f"{roll}/{target}，{outcome}"
-        return f"{roll}/{target}, {outcome}"
+            return f"{roll}/{target} = 十位 {tens_digit} 个位 {units_digit}，{outcome}"
+        return f"{roll}/{target} = tens {tens_digit} units {units_digit}, {outcome}"
 
     selected_tens = min(tens_values) if bonus else max(tens_values)
     if language == "zh-Hans":
@@ -223,7 +241,7 @@ def public_api_index() -> dict[str, dict[str, Any]]:
         },
         "format_percentile_result": {
             "aliases": [],
-            "signature": "format_percentile_result(result, language='zh-Hans')",
+            "signature": "format_percentile_result(result, language='zh-Hans', compact=False)",
             "returns": "player-facing roll summary",
         },
     }
