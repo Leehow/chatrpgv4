@@ -260,6 +260,8 @@
 
 **耦合**：A 依赖 P0-1 的 `available_routes`（handle 新源）和 P0-2 的闸门收窄（空抓手时靠 P1-2 反压不停）。**P0-1、P0-2 先行，P0-4 收尾**。
 
+**范围边界（诚实声明）**：P0-4 的**机制已实现并通过测试**（`build_turn_focus_contract` + handle 增源 + 多步路径用原始意图算 focus），但其**生产 payoff 依赖 deferred 的 scenario 数据**——当前生产 affordances 的 `route_type` 是 `scene_affordance`/`investigative_lead` 等通用值，而 focus 匹配要 `tenant_history`/`reward_scope` 等语义类别。所以在 scenario-import 编译器给场景 affordances 填充语义 `route_type` 之前，P0-4 在生产里基本处于休眠（graceful 返回 None、回退静态 handle，不报错）。这与 P0-1（场景 `affordances` 数据填充）和 P0-3（库内开场 storylet 数据）同属"机制进、数据延后"的一类，统一由紧接其后的 scenario-import 编译器独立 plan 收口。无匹配 route 时走 P1-2 反压（不停在空抓手）。
+
 ---
 
 ### 4.5 P0 依赖与排序

@@ -462,6 +462,11 @@ def run_live_turn(
         "intent_class": intent_class or (player_intent_rich or {}).get("primary_intent") or "investigate",
         "player_intent_rich": _copy_jsonable(player_intent_rich) if player_intent_rich else None,
     }
+    # P0-4b: 在 auto-advance 循环替换 choice 之前，先捕获玩家本轮原始的结构化意图。
+    # 循环内 _semantic_low_agency_choice 会把 player_intent_rich 换成合成版
+    # (action_atoms:[])，而 turn_focus 依赖 action_atoms[].topic；用原始 rich 才能让
+    # focus 在多步低主动路径上也能触发，而不只在单步路径生效。
+    original_player_intent_rich = choice.get("player_intent_rich")
     if storylet_policy is not None:
         choice["storylet_policy"] = storylet_policy
     if signal_overrides is not None:
@@ -515,12 +520,14 @@ def run_live_turn(
 
     active_scene_state = _read_json(campaign / "save" / "active-scene.json", {})
     final_turn = turns[-1] if turns else {}
-    # P0-4b: 用玩家本轮结构化意图算 turn_focus，让 stop_actionability 的首条
-    # handle 反映当前轮的 focus（而非过时的开场 visible_affordances）。
+    # P0-4b: 用玩家本轮原始结构化意图（循环替换前的版本）算 turn_focus，
+    # 让 stop_actionability 的首条 handle 反映当前轮的 focus
+    # （而非过时的开场 visible_affordances）。用 original_player_intent_rich 是因为
+    # 多步低主动推进时 choice 已被合成版替换（action_atoms:[]）。
     turn_focus = None
     if hasattr(narrative_enrichment, "build_turn_focus_contract"):
         focus_ctx = {
-            "player_intent_rich": choice.get("player_intent_rich"),
+            "player_intent_rich": original_player_intent_rich,
             "active_scene": active_scene_state if isinstance(active_scene_state, dict) else {},
         }
         try:
