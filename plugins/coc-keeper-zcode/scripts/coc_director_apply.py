@@ -388,6 +388,28 @@ def _rule_result_success(result: dict[str, Any] | None) -> bool | None:
     return None
 
 
+def _first_failed_contract_result(
+    plan: dict[str, Any],
+    rules_results: list[dict[str, Any]] | None,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    for result in rules_results or []:
+        if not isinstance(result, dict):
+            continue
+        if _rule_result_success(result) is not False:
+            continue
+        contract = result.get("roll_contract")
+        if not isinstance(contract, dict):
+            for request in plan.get("rules_requests", []) or []:
+                if not isinstance(request, dict):
+                    continue
+                if request.get("skill") == result.get("skill") and isinstance(request.get("roll_contract"), dict):
+                    contract = request["roll_contract"]
+                    break
+        if isinstance(contract, dict):
+            return result, contract
+    return None
+
+
 def _obscured_reveal_requires_result(plan: dict[str, Any]) -> bool:
     policy = plan.get("clue_policy", {})
     return (
@@ -566,6 +588,20 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
             "fallback_routes": recovery_event.get("fallback_routes", []),
             "costs": ["time_pressure"],
             "must_not_claim": ["do not present this as a table-level hint"],
+        }
+    elif (failed_contract := _first_failed_contract_result(resolved_plan, resolved_results)) is not None:
+        result, contract = failed_contract
+        mode = contract.get("failure_outcome_mode", "goal_with_cost")
+        directives["failure_consequence"] = {
+            "narration_mode": mode,
+            "goal": contract.get("goal"),
+            "success_effect": contract.get("success_effect"),
+            "failure_effect": contract.get("failure_effect"),
+            "consequence_type": mode,
+            "severity": "hard" if str(result.get("outcome")) == "fumble" else "regular",
+            "costs": [mode],
+            "roll_density_group": contract.get("roll_density_group"),
+            "must_not_claim": list(contract.get("must_not") or ["do not narrate no progress on ordinary failure"]),
         }
     else:
         directives.pop("failure_consequence", None)

@@ -55,6 +55,33 @@ _SCENE_PROGRESS_KEYS = (
     "era",
 )
 _BRIDGE_SCENE_KINDS = {"bridge", "transition", "travel", "transit"}
+ROLL_REQUEST_KINDS = {"skill_check", "characteristic_check", "sanity_check", "opposed_check"}
+
+
+def _roll_contract(
+    *,
+    goal: str,
+    success_effect: str,
+    failure_effect: str,
+    failure_outcome_mode: str,
+    roll_density_group: str,
+    push_eligible: bool = True,
+    must_not: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "goal": goal,
+        "success_effect": success_effect,
+        "failure_effect": failure_effect,
+        "failure_outcome_mode": failure_outcome_mode,
+        "push_policy": {
+            "eligible": bool(push_eligible),
+            "requires_changed_method": bool(push_eligible),
+            "keeper_must_foreshadow_failure": bool(push_eligible),
+        },
+        "roll_density_group": roll_density_group,
+        "must_not": list(must_not or ["do not narrate no progress on ordinary failure"]),
+    }
 
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
@@ -791,6 +818,69 @@ def _dramatic_progress_directive(
     }
 
 
+def _first_unresolved_conclusion(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    discovered = set((ctx.get("world_state") or {}).get("discovered_clue_ids", []))
+    for conclusion in (ctx.get("clue_graph") or {}).get("conclusions", []):
+        clue_ids = [clue.get("clue_id") for clue in conclusion.get("clues", []) if clue.get("clue_id")]
+        if clue_ids and not any(clue_id in discovered for clue_id in clue_ids):
+            return conclusion
+    return None
+
+
+def _idea_roll_plan(ctx: dict[str, Any], action: str) -> dict[str, Any] | None:
+    if action != "RECOVER":
+        return None
+    conclusion = _first_unresolved_conclusion(ctx)
+    return {
+        "schema_version": 1,
+        "missed_conclusion_id": (conclusion or {}).get("conclusion_id"),
+        "target_characteristic": "INT",
+        "success_delivery": "surface a clean in-world inference or overlooked lead",
+        "failure_delivery": "surface the lead in a worse position",
+        "failure_costs": ["time_pressure"],
+        "must_not": [
+            "do not present this as table-level advice",
+            "do not ask the player to guess the same missing route again",
+        ],
+    }
+
+
+def _scene_exit_pressure_directive(
+    ctx: dict[str, Any],
+    action: str,
+    clue_policy: dict[str, Any],
+    rules_requests: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if _blocking_rule_requests(rules_requests):
+        return None
+    scene = ctx.get("active_scene") or {}
+    reasons: list[str] = []
+    if _is_low_agency_continue(ctx) and int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 0) or 0) >= 2:
+        reasons.append("low_agency_repetition")
+    tags = _rich_intent_tags(ctx)
+    if tags & _ROUTINE_PROGRESS_TAGS and not _available_reveal_clues(ctx):
+        reasons.append("no_new_axis")
+    if _is_bridge_scene(scene) and _bridge_low_agency_exhausted(ctx):
+        reasons.append("bridge_exhausted")
+    if not reasons:
+        return None
+    state = "compress"
+    if "bridge_exhausted" in reasons:
+        state = str((_progress_contract(scene).get("fallback_action") or "montage")).lower()
+    return {
+        "schema_version": 1,
+        "state": state if state in {"compress", "cut", "montage"} else "compress",
+        "reasons": _ordered_unique(reasons),
+        "scene_goal_status": "exhausted" if "no_new_axis" in reasons else "open",
+        "advance_until": list(_DRAMATIC_PROGRESS_ADVANCE_UNTIL),
+        "must_change_state": True,
+        "must_not": [
+            "do not ask for another equivalent low-agency action",
+            "do not repeat the same scene state with cosmetic wording",
+        ],
+    }
+
+
 def _clue_supports_social_reveal(clue_id: str, clue_graph: dict[str, Any]) -> bool:
     clue = _find_clue(clue_id, clue_graph)
     if clue is None:
@@ -1130,6 +1220,14 @@ def _find_clue(clue_id: str, clue_graph: dict[str, Any]) -> dict[str, Any] | Non
     return None
 
 
+def _find_clue_conclusion(clue_id: str, clue_graph: dict[str, Any]) -> dict[str, Any] | None:
+    for concl in clue_graph.get("conclusions", []):
+        for clue in concl.get("clues", []):
+            if clue.get("clue_id") == clue_id:
+                return concl
+    return None
+
+
 def _clue_route_priority(clue_id: str | None, clue_graph: dict[str, Any]) -> float:
     """Read a clue's route_priority (default 0.5 if absent). Higher = more direct route."""
     if not clue_id:
@@ -1192,12 +1290,29 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     else:
         reveal = []
 
+    delivery_warnings: list[dict[str, Any]] = []
+
     # Resolve obvious vs obscured (+ skill/difficulty) from the first revealed
     # clue's structured delivery_kind, falling back to the delivery string
     # heuristic for old clue-graphs. This gates whether _build_rules_requests
     # emits a skill check (and which skill/difficulty it requests).
     _clue_type, _clue_skill, _clue_diff = _resolve_clue_delivery(
         reveal[0] if reveal else None, clue_graph)
+    selected_clue_id = reveal[0] if reveal else None
+    if selected_clue_id:
+        selected_clue = _find_clue(selected_clue_id, clue_graph)
+        selected_conclusion = _find_clue_conclusion(selected_clue_id, clue_graph)
+        if (
+            selected_clue is not None
+            and not selected_clue.get("delivery_kind")
+            and isinstance(selected_conclusion, dict)
+            and str(selected_conclusion.get("importance") or "").lower() == "critical"
+        ):
+            delivery_warnings.append({
+                "clue_id": selected_clue_id,
+                "reason": f"legacy delivery fallback used for critical clue {selected_clue_id}",
+                "fallback_mode": "delivery_string_inference",
+            })
 
     # fallback: if stalled (RECOVER), pull the highest-priority not-yet-found route.
     fallback = []
@@ -1218,7 +1333,7 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
 
     return {"reveal": reveal, "withhold": list(secrets), "fallback_routes": fallback,
             "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff,
-            "leads": leads}
+            "leads": leads, "delivery_warnings": delivery_warnings}
 
 
 def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[str]:
@@ -1465,6 +1580,14 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
             "source": trig.get("source", "scene horror"),
             "creature_type": trig.get("creature_type"),
             "san_trigger_id": tid,
+            "roll_contract": _roll_contract(
+                goal=trig.get("source", "withstand the immediate horror"),
+                success_effect="contain the shock and keep moving",
+                failure_effect="lose SAN and let the horror leave a lasting mark",
+                failure_outcome_mode="pressure_cost",
+                roll_density_group=f"san:{tid or scene.get('scene_id') or 'scene'}",
+                push_eligible=False,
+            ),
         })
 
     # Danger attack profiles: in combat scenes (or when the player fights/flees),
@@ -1511,16 +1634,40 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 "ignores_armor": bool(profile.get("ignores_armor", False)),
                 "attack_name": profile.get("name", "attack"),
                 "danger_id": did,
+                "roll_contract": _roll_contract(
+                    goal=f"avoid {profile.get('name', 'the incoming attack')}",
+                    success_effect="avoid the immediate hit or blunt its impact",
+                    failure_effect="the attack lands or forces a costly setback",
+                    failure_outcome_mode="goal_with_cost",
+                    roll_density_group=f"danger:{did}:{profile.get('name', 'attack')}",
+                    push_eligible=False,
+                ),
             })
 
     if action == "SUBSYSTEM":
         sig = ctx["rule_signals"]
         if sig["bout_active"] or sig["sanity_state"] == "temp_insane":
             return [{"kind": "sanity_check", "skill": "SAN", "reason": "bout procedure",
-                     "difficulty": "regular", "bonus_penalty_dice": 0}]
+                     "difficulty": "regular", "bonus_penalty_dice": 0,
+                     "roll_contract": _roll_contract(
+                         goal="regain control during the bout procedure",
+                         success_effect="steady yourself enough to proceed",
+                         failure_effect="the episode keeps pressure on the scene",
+                         failure_outcome_mode="pressure_cost",
+                         roll_density_group="subsystem:bout_procedure",
+                         push_eligible=False,
+                     )}]
         if sig["hp_state"] == "dying":
             return [{"kind": "characteristic_check", "skill": "CON", "reason": "death-clock CON roll",
-                     "difficulty": "regular", "bonus_penalty_dice": 0}]
+                     "difficulty": "regular", "bonus_penalty_dice": 0,
+                     "roll_contract": _roll_contract(
+                         goal="survive the death clock",
+                         success_effect="hold on a little longer",
+                         failure_effect="your condition worsens with immediate cost",
+                         failure_outcome_mode="goal_with_cost",
+                         roll_density_group="subsystem:death_clock",
+                         push_eligible=False,
+                     )}]
     if action == "REVEAL":
         # Only request a skill check when the revealed clue is obscured (its
         # delivery requires a die roll). Obvious clues — Handouts, direct gives,
@@ -1532,8 +1679,20 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
         if clue_type != "obvious":
             skill = (clue_policy or {}).get("skill") or "Spot Hidden"
             difficulty = (clue_policy or {}).get("difficulty") or "regular"
+            clue_id = ((clue_policy or {}).get("reveal") or ["clue"])[0]
             requests.append({"kind": "skill_check", "skill": skill, "reason": "obscured clue in scene",
-                     "difficulty": difficulty, "bonus_penalty_dice": 0})
+                     "difficulty": difficulty, "bonus_penalty_dice": 0,
+                     "roll_contract": _roll_contract(
+                         goal="surface the current obscured clue",
+                         success_effect="commit the exact planned clue",
+                         failure_effect="withhold the exact clue while keeping a fallback route or cost in motion",
+                         failure_outcome_mode="clue_with_cost",
+                         roll_density_group=f"clue:{clue_id}",
+                         must_not=[
+                             "do not narrate no progress on ordinary failure",
+                             "do not reveal exact withheld clue on failure",
+                         ],
+                     )})
     return requests
 
 
@@ -1607,6 +1766,12 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     )
     if dramatic_progress is not None:
         narrative_directives["dramatic_progress"] = dramatic_progress
+    idea_plan = _idea_roll_plan(ctx, action)
+    if idea_plan is not None:
+        narrative_directives["idea_roll_plan"] = idea_plan
+    exit_pressure = _scene_exit_pressure_directive(ctx, action, clue_policy, rules_requests)
+    if exit_pressure is not None:
+        narrative_directives["scene_exit_pressure"] = exit_pressure
 
     # v2: populate memory_reads from the memory layer. PAYOFF actions mark the
     # card use as PAYOFF (recalled payoff); everything else is TONE color.

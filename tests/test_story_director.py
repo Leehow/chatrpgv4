@@ -383,7 +383,7 @@ def test_director_builds_npc_agency_from_abstract_social_role(tmp_path):
     moves = coc_story_director._build_npc_moves(ctx, "CHARACTER")
 
     authority_move = moves[0]["agency_moves"][0]
-    assert authority_move["move_id"] == "assert_responsibility"
+    assert authority_move["move_id"] == "take_command"
     assert authority_move["reason"] == "authority_scope_matches_scene"
     assert authority_move["rules_effect"]["actor_role"] == "npc"
     assert moves[0]["persona"]["tags"]
