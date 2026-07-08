@@ -249,6 +249,7 @@ def _execute_rules_requests(
                     "bout_triggered": san_result.get("bout_triggered", False),
                     "source": san_result.get("source", ""),
                     "san_trigger_id": san_result.get("san_trigger_id"),
+                    "roll_contract": request.get("roll_contract"),
                 }
                 results.append(payload)
                 _append_jsonl(rolls_path, {"type": "roll", "actor": investigator_id,
@@ -280,6 +281,7 @@ def _execute_rules_requests(
             "effective_target": roll.get("effective_target"),
             "outcome": roll.get("outcome"),
             "success": roll.get("outcome") in _SUCCESS_OUTCOMES,
+            "roll_contract": request.get("roll_contract"),
         }
         results.append(payload)
         _append_jsonl(rolls_path, {

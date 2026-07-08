@@ -55,6 +55,33 @@ _SCENE_PROGRESS_KEYS = (
     "era",
 )
 _BRIDGE_SCENE_KINDS = {"bridge", "transition", "travel", "transit"}
+ROLL_REQUEST_KINDS = {"skill_check", "characteristic_check", "sanity_check", "opposed_check"}
+
+
+def _roll_contract(
+    *,
+    goal: str,
+    success_effect: str,
+    failure_effect: str,
+    failure_outcome_mode: str,
+    roll_density_group: str,
+    push_eligible: bool = True,
+    must_not: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "goal": goal,
+        "success_effect": success_effect,
+        "failure_effect": failure_effect,
+        "failure_outcome_mode": failure_outcome_mode,
+        "push_policy": {
+            "eligible": bool(push_eligible),
+            "requires_changed_method": bool(push_eligible),
+            "keeper_must_foreshadow_failure": bool(push_eligible),
+        },
+        "roll_density_group": roll_density_group,
+        "must_not": list(must_not or ["do not narrate no progress on ordinary failure"]),
+    }
 
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
@@ -1465,6 +1492,14 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
             "source": trig.get("source", "scene horror"),
             "creature_type": trig.get("creature_type"),
             "san_trigger_id": tid,
+            "roll_contract": _roll_contract(
+                goal=trig.get("source", "withstand the immediate horror"),
+                success_effect="contain the shock and keep moving",
+                failure_effect="lose SAN and let the horror leave a lasting mark",
+                failure_outcome_mode="pressure_cost",
+                roll_density_group=f"san:{tid or scene.get('scene_id') or 'scene'}",
+                push_eligible=False,
+            ),
         })
 
     # Danger attack profiles: in combat scenes (or when the player fights/flees),
@@ -1511,16 +1546,40 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 "ignores_armor": bool(profile.get("ignores_armor", False)),
                 "attack_name": profile.get("name", "attack"),
                 "danger_id": did,
+                "roll_contract": _roll_contract(
+                    goal=f"avoid {profile.get('name', 'the incoming attack')}",
+                    success_effect="avoid the immediate hit or blunt its impact",
+                    failure_effect="the attack lands or forces a costly setback",
+                    failure_outcome_mode="goal_with_cost",
+                    roll_density_group=f"danger:{did}:{profile.get('name', 'attack')}",
+                    push_eligible=False,
+                ),
             })
 
     if action == "SUBSYSTEM":
         sig = ctx["rule_signals"]
         if sig["bout_active"] or sig["sanity_state"] == "temp_insane":
             return [{"kind": "sanity_check", "skill": "SAN", "reason": "bout procedure",
-                     "difficulty": "regular", "bonus_penalty_dice": 0}]
+                     "difficulty": "regular", "bonus_penalty_dice": 0,
+                     "roll_contract": _roll_contract(
+                         goal="regain control during the bout procedure",
+                         success_effect="steady yourself enough to proceed",
+                         failure_effect="the episode keeps pressure on the scene",
+                         failure_outcome_mode="pressure_cost",
+                         roll_density_group="subsystem:bout_procedure",
+                         push_eligible=False,
+                     )}]
         if sig["hp_state"] == "dying":
             return [{"kind": "characteristic_check", "skill": "CON", "reason": "death-clock CON roll",
-                     "difficulty": "regular", "bonus_penalty_dice": 0}]
+                     "difficulty": "regular", "bonus_penalty_dice": 0,
+                     "roll_contract": _roll_contract(
+                         goal="survive the death clock",
+                         success_effect="hold on a little longer",
+                         failure_effect="your condition worsens with immediate cost",
+                         failure_outcome_mode="goal_with_cost",
+                         roll_density_group="subsystem:death_clock",
+                         push_eligible=False,
+                     )}]
     if action == "REVEAL":
         # Only request a skill check when the revealed clue is obscured (its
         # delivery requires a die roll). Obvious clues — Handouts, direct gives,
@@ -1532,8 +1591,20 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
         if clue_type != "obvious":
             skill = (clue_policy or {}).get("skill") or "Spot Hidden"
             difficulty = (clue_policy or {}).get("difficulty") or "regular"
+            clue_id = ((clue_policy or {}).get("reveal") or ["clue"])[0]
             requests.append({"kind": "skill_check", "skill": skill, "reason": "obscured clue in scene",
-                     "difficulty": difficulty, "bonus_penalty_dice": 0})
+                     "difficulty": difficulty, "bonus_penalty_dice": 0,
+                     "roll_contract": _roll_contract(
+                         goal="surface the current obscured clue",
+                         success_effect="commit the exact planned clue",
+                         failure_effect="withhold the exact clue while keeping a fallback route or cost in motion",
+                         failure_outcome_mode="clue_with_cost",
+                         roll_density_group=f"clue:{clue_id}",
+                         must_not=[
+                             "do not narrate no progress on ordinary failure",
+                             "do not reveal exact withheld clue on failure",
+                         ],
+                     )})
     return requests
 
 

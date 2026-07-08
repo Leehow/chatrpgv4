@@ -41,6 +41,25 @@ def test_action_atoms_become_chained_rule_requests():
     assert requests[2]["kind"] == "characteristic_check"
 
 
+def test_action_atom_requests_include_roll_contract():
+    rich = {"action_atoms": [{
+        "id": "cross-fire",
+        "verb": "冲过火线",
+        "skill": "Dodge",
+        "stakes": "失败则被敌人抢先射击",
+        "failure_outcome_mode": "pressure_cost",
+        "roll_density_group": "crossing_fire",
+    }]}
+
+    requests = narr.build_action_chain_requests(rich)
+
+    contract = requests[0]["roll_contract"]
+    assert contract["goal"] == "冲过火线"
+    assert contract["failure_effect"] == "失败则被敌人抢先射击"
+    assert contract["failure_outcome_mode"] == "pressure_cost"
+    assert contract["roll_density_group"] == "crossing_fire"
+
+
 def test_npc_reaction_triggers_from_structured_tags():
     scene = {"npc_ids": ["ally-1"]}
     agendas = {"npcs": [{

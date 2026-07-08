@@ -127,6 +127,30 @@ def test_driver_failed_obscured_roll_does_not_reveal_exact_clue(tmp_path):
     assert turn["failure_consequence"]["narration_mode"] == "withhold_exact_clue_with_cost"
 
 
+def test_driver_roll_payload_preserves_roll_contract(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
+    clue_graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "skill_check",
+        "skill": "Spot Hidden",
+        "difficulty": "regular",
+    })
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "search", "intent_class": "investigate"}],
+        max_turns=1,
+        rng_seed=42,
+    )
+
+    payload = result["turns"][0]["rule_results"][0]
+    assert payload["roll_contract"]["failure_outcome_mode"] == "clue_with_cost"
+    assert payload["roll_contract"]["roll_density_group"] == "clue:c1"
+
+
 def test_driver_stalled_recover_surfaces_fallback_route(tmp_path):
     camp, char_path = _build_mini_campaign(tmp_path)
     result = driver.run_full_session(

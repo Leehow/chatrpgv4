@@ -273,6 +273,36 @@ def test_compiled_scene_merges_live_visible_affordances(tmp_path):
     assert ctx["active_scene"]["source"] == "live-story-bridge.merged-active-scene"
 
 
+def test_obscured_clue_rules_request_includes_roll_contract(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
+    clue_graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "skill_check",
+        "skill": "Spot Hidden",
+        "difficulty": "regular",
+        "player_safe_summary": "门框边缘有新鲜划痕",
+    })
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我搜查门框",
+        player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="contract-obscured")
+
+    request = next(req for req in plan["rules_requests"] if req["kind"] == "skill_check")
+    contract = request["roll_contract"]
+    assert contract["schema_version"] == 1
+    assert contract["failure_outcome_mode"] == "clue_with_cost"
+    assert contract["push_policy"]["keeper_must_foreshadow_failure"] is True
+    assert contract["roll_density_group"] == "clue:clue-1"
+    assert "do not reveal exact withheld clue on failure" in contract["must_not"]
+
+
 def test_adversary_npc_character_move_does_not_use_social_reaction_roll():
     ctx = {
         "active_scene": {"npc_ids": ["npc-survivor"]},

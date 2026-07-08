@@ -172,6 +172,27 @@ def _infer_request_kind(atom: dict[str, Any], skill: str | None) -> str:
     return "skill_check"
 
 
+def _atom_roll_contract(atom: dict[str, Any], atom_id: str) -> dict[str, Any]:
+    goal = _non_empty_str(atom.get("goal") or atom.get("verb") or atom.get("intent")) or "resolve player action"
+    failure = _non_empty_str(atom.get("failure_effect") or atom.get("stakes")) or "failure changes the fiction with a cost"
+    group = _non_empty_str(atom.get("roll_density_group") or atom.get("target") or atom_id) or atom_id
+    push_eligible = bool(atom.get("push_eligible", True))
+    return {
+        "schema_version": _SCHEMA_VERSION,
+        "goal": goal,
+        "success_effect": _non_empty_str(atom.get("success_effect")) or "the action succeeds cleanly",
+        "failure_effect": failure,
+        "failure_outcome_mode": _non_empty_str(atom.get("failure_outcome_mode")) or "goal_with_cost",
+        "push_policy": {
+            "eligible": push_eligible,
+            "requires_changed_method": push_eligible,
+            "keeper_must_foreshadow_failure": push_eligible,
+        },
+        "roll_density_group": group,
+        "must_not": ["do not narrate no progress on ordinary failure"],
+    }
+
+
 def build_action_chain_requests(
     player_intent_rich: dict[str, Any] | None,
     *,
@@ -213,6 +234,7 @@ def build_action_chain_requests(
             "depends_on": depends_on,
             "stakes": atom.get("stakes"),
             "source": "player_intent_rich.action_atoms",
+            "roll_contract": _atom_roll_contract(atom, atom_id),
         }
         if atom.get("opposed_skill"):
             req["opposed_skill"] = atom.get("opposed_skill")
