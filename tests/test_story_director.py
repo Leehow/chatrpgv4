@@ -1550,3 +1550,27 @@ def test_low_agency_tags_unified_is_single_source():
     for member in ("move", "continue", "follow", "low_agency_continue",
                    "continue_existing_strategy", "yield_initiative", "passive_follow"):
         assert member in coc_story_director._LOW_AGENCY_TAGS, f"missing {member}"
+
+
+def test_low_agency_count_accumulates_from_persisted_tags():
+    """P0-2b: cross-turn count must accumulate from recent_intent_tags, not just
+    recent_intent_classes. Past turns tagged low_agency_continue (even if their
+    intent_class was 'investigate') should extend the count."""
+    # Build ctx where current turn is low-agency via class 'move'
+    ctx = {"player_intent_class": "move"}
+    # recent_intents (classes) are non-low-agency 'investigate', but their tags are low-agency
+    recent_classes = ["investigate", "investigate"]
+    recent_tags = [["low_agency_continue"], ["yield_initiative"]]
+    count = coc_story_director._low_agency_continue_count(
+        recent_classes, ctx, recent_intent_tags=recent_tags)
+    # current (1) + 2 past low-agency-via-tag turns = 3
+    assert count == 3
+
+
+def test_low_agency_count_back_compat_without_tags_param():
+    """When recent_intent_tags is not passed (old caller), behavior is unchanged."""
+    ctx = {"player_intent_class": "move"}
+    count = coc_story_director._low_agency_continue_count(
+        ["investigate", "move"], ctx)
+    # current 'move' counts (1); walking back: 'move' counts (+1), 'investigate' stops
+    assert count == 2

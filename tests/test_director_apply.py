@@ -725,3 +725,35 @@ def test_fast_recording_can_auto_flush_in_background(tmp_path):
 
     assert "clue-background" in events_text
     assert pending_files == []
+
+
+def test_apply_records_recent_intent_tags_alongside_classes(tmp_path):
+    """P0-2b: apply_plan must persist rich secondary_intents tags in a parallel
+    recent_intent_tags field, keeping recent_intent_classes as list[str] (unchanged)."""
+    camp = _campaign(tmp_path)
+    plan = {"decision_id": "d-tags", "scene_action": "CHARACTER",
+            "clue_policy": {"reveal": []},
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+            "turn_input": {
+                "player_intent": "继续跟着走",
+                "player_intent_class": "investigate",
+                "player_intent_rich": {"secondary_intents": ["low_agency_continue", "yield_initiative"]},
+            }}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    # classes unchanged (still list[str])
+    assert pacing["recent_intent_classes"] == ["investigate"]
+    # new parallel field carries the rich tags
+    assert pacing["recent_intent_tags"] == [["low_agency_continue", "yield_initiative"]]
+
+
+def test_apply_recent_intent_tags_absent_when_no_rich(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {"decision_id": "d-notags", "scene_action": "CHARACTER",
+            "clue_policy": {"reveal": []},
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+            "turn_input": {"player_intent": "search", "player_intent_class": "investigate"}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    # no rich intent → empty tags list for that turn
+    assert pacing["recent_intent_tags"] == [[]]

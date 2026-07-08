@@ -758,12 +758,19 @@ def _apply_plan_impl(
     pacing["turn_number"] = int(pacing.get("turn_number", 0)) + 1
     # track recent intent classes for stall detection (capped at last 5)
     recent = list(pacing.get("recent_intent_classes", []))
-    intent_class = plan.get("turn_input", {}).get("player_intent_class", "")
+    recent_tags = list(pacing.get("recent_intent_tags", []))
+    turn_input = plan.get("turn_input", {}) or {}
+    intent_class = str(turn_input.get("player_intent_class", "") or "")
+    rich = turn_input.get("player_intent_rich") or {}
+    turn_tags = list(rich.get("secondary_intents") or []) if isinstance(rich, dict) else []
     if intent_class:
         recent.append(intent_class)
+        recent_tags.append([str(t) for t in turn_tags])
         if len(recent) > 5:
             recent = recent[-5:]
+            recent_tags = recent_tags[-5:]
     pacing["recent_intent_classes"] = recent
+    pacing["recent_intent_tags"] = recent_tags
     # carry horror stage from plan into pacing for next-turn director read
     horror = plan.get("narrative_directives", {}).get("horror_escalation_stage")
     if horror:

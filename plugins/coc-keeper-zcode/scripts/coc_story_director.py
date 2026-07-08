@@ -445,6 +445,7 @@ def build_director_context(
     luck = char_derived.get("Luck") or char_chars.get("LUCK", 50)
 
     recent_intents = pacing.get("recent_intent_classes", [])
+    recent_intent_tags = pacing.get("recent_intent_tags", [])
     rule_signals = {
         "hp_state": coc_rule_signals.read_hp_state(current_hp, max_hp, conditions),
         "sanity_state": coc_rule_signals.read_sanity_state(
@@ -474,7 +475,7 @@ def build_director_context(
         "active_scene": active_scene,
     }
     rule_signals["low_agency_continue_count"] = _low_agency_continue_count(
-        recent_intents, signal_ctx
+        recent_intents, signal_ctx, recent_intent_tags=recent_intent_tags
     )
     rule_signals["scene_pressure_available"] = _scene_pressure_available(signal_ctx)
 
@@ -612,12 +613,39 @@ def _is_low_agency_continue(ctx: dict[str, Any]) -> bool:
     return str(ctx.get("player_intent_class") or "") in _LOW_AGENCY_TAGS
 
 
-def _low_agency_continue_count(recent_intents: list[Any], ctx: dict[str, Any]) -> int:
+def _normalize_recent_intent_tags(recent_tags: list[Any]) -> list[list[str]]:
+    """P0-2b: normalize persisted recent_intent_tags to list[list[str]].
+
+    Tolerates missing/old save files (returns []).
+    """
+    normalized: list[list[str]] = []
+    for entry in (recent_tags or []):
+        if isinstance(entry, list):
+            normalized.append([str(t) for t in entry if str(t)])
+        else:
+            normalized.append([])
+    return normalized
+
+
+def _low_agency_continue_count(
+    recent_intents: list[Any],
+    ctx: dict[str, Any],
+    *,
+    recent_intent_tags: list[Any] | None = None,
+) -> int:
     count = 1 if _is_low_agency_continue(ctx) else 0
-    for item in reversed(recent_intents or []):
-        if str(item) not in _LOW_AGENCY_RECENT_CLASSES:
+    classes = list(recent_intents or [])
+    tags_history = _normalize_recent_intent_tags(recent_intent_tags)
+    n_tags = len(tags_history)
+    for i in range(len(classes) - 1, -1, -1):
+        cls = str(classes[i])
+        turn_tags = set(tags_history[i]) if i < n_tags else set()
+        cls_is_low = cls in _LOW_AGENCY_RECENT_CLASSES
+        tags_low = bool(turn_tags & _LOW_AGENCY_CONTINUE_TAGS)
+        if cls_is_low or tags_low:
+            count += 1
+        else:
             break
-        count += 1
     return count
 
 
