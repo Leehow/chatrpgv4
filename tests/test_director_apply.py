@@ -16,6 +16,18 @@ def _load(name, rel):
 coc_director_apply = _load("coc_director_apply", "plugins/coc-keeper/scripts/coc_director_apply.py")
 
 
+def _clue_roll_contract(clue_id="clue-A"):
+    return {
+        "schema_version": 1,
+        "goal": "surface the current obscured clue",
+        "success_effect": "commit the exact planned clue",
+        "failure_effect": "withhold the exact clue while keeping a fallback route or cost in motion",
+        "failure_outcome_mode": "clue_with_cost",
+        "roll_density_group": f"clue:{clue_id}",
+        "must_not": ["do not reveal exact withheld clue on failure"],
+    }
+
+
 def _campaign(tmp_path):
     camp = tmp_path / "campaigns" / "test"
     (camp / "save").mkdir(parents=True)
@@ -456,17 +468,19 @@ def test_apply_obscured_reveal_commits_on_success(tmp_path):
     assert any(e.get("event_type") == "clue_reveal" for e in events)
 
 
-def test_apply_obscured_reveal_uses_later_matching_success(tmp_path):
+def test_apply_obscured_reveal_uses_later_matching_clue_contract_success(tmp_path):
     camp = _campaign(tmp_path)
+    clue_contract = _clue_roll_contract()
     plan = {"decision_id": "d-rule", "scene_action": "REVEAL",
             "clue_policy": {"reveal": ["clue-A"], "clue_type": "obscured", "skill": "Spot Hidden"},
             "rules_requests": [
                 {"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular",
-                 "reason": "obscured clue in scene"},
+                 "reason": "obscured clue in scene", "roll_contract": clue_contract},
                 {"kind": "skill_check", "skill": "Stealth", "difficulty": "regular",
                  "reason": "悄悄靠近"},
                 {"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular",
-                 "reason": "瞥读电报纸", "source": "player_intent_rich.action_atoms"},
+                 "reason": "瞥读电报纸", "source": "player_intent_rich.action_atoms",
+                 "roll_contract": clue_contract},
             ],
             "pressure_moves": [], "memory_writes": [], "rule_signals": {},
             "narrative_directives": {}}
@@ -474,16 +488,45 @@ def test_apply_obscured_reveal_uses_later_matching_success(tmp_path):
         camp, plan, investigator_id="inv1",
         rules_results=[
             {"skill": "Spot Hidden", "outcome": "failure", "success": False,
-             "reason": "obscured clue in scene"},
+             "reason": "obscured clue in scene", "roll_contract": clue_contract},
             {"skill": "Stealth", "outcome": "regular", "success": True,
              "reason": "悄悄靠近"},
             {"skill": "Spot Hidden", "outcome": "regular", "success": True,
-             "reason": "瞥读电报纸"},
+             "reason": "瞥读电报纸", "roll_contract": clue_contract},
         ],
     )
     world = json.loads((camp / "save" / "world-state.json").read_text())
     assert "clue-A" in world["discovered_clue_ids"]
     assert any(e.get("event_type") == "clue_reveal" for e in events)
+
+
+def test_apply_obscured_reveal_ignores_later_same_skill_success_without_clue_contract(tmp_path):
+    camp = _campaign(tmp_path)
+    clue_contract = _clue_roll_contract()
+    plan = {"decision_id": "d-rule", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"], "clue_type": "obscured", "skill": "Spot Hidden"},
+            "rules_requests": [
+                {"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular",
+                 "reason": "obscured clue in scene", "roll_contract": clue_contract},
+                {"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular",
+                 "reason": "check the courtyard", "source": "player_intent_rich.action_atoms"},
+            ],
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+            "narrative_directives": {}}
+
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1",
+        rules_results=[
+            {"skill": "Spot Hidden", "outcome": "failure", "success": False,
+             "reason": "obscured clue in scene", "roll_contract": clue_contract},
+            {"skill": "Spot Hidden", "outcome": "regular", "success": True,
+             "reason": "check the courtyard"},
+        ],
+    )
+
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert "clue-A" not in world["discovered_clue_ids"]
+    assert any(e.get("event_type") == "clue_withheld" for e in events)
 
 
 def test_apply_obscured_reveal_withholds_on_failure_and_costs(tmp_path):

@@ -339,7 +339,36 @@ def _clue_gate_skill(plan: dict[str, Any]) -> str | None:
     return None
 
 
+def _clue_gate_contract(plan: dict[str, Any]) -> dict[str, Any] | None:
+    for request in plan.get("rules_requests", []) or []:
+        if not isinstance(request, dict):
+            continue
+        contract = request.get("roll_contract")
+        if not isinstance(contract, dict):
+            continue
+        if contract.get("failure_outcome_mode") == "clue_with_cost":
+            return contract
+        if request.get("reason") == "obscured clue in scene":
+            return contract
+    return None
+
+
+def _contracts_match_clue_gate(expected: dict[str, Any], actual: dict[str, Any] | None) -> bool:
+    if not isinstance(actual, dict):
+        return False
+    if actual.get("failure_outcome_mode") != "clue_with_cost":
+        return False
+    expected_group = expected.get("roll_density_group")
+    actual_group = actual.get("roll_density_group")
+    if expected_group or actual_group:
+        return bool(expected_group and expected_group == actual_group)
+    return True
+
+
 def _rule_result_matches_clue_gate(plan: dict[str, Any], result: dict[str, Any]) -> bool:
+    contract = _clue_gate_contract(plan)
+    if contract is not None:
+        return _contracts_match_clue_gate(contract, result.get("roll_contract"))
     skill = _clue_gate_skill(plan)
     if skill is None:
         return True
@@ -364,6 +393,8 @@ def _clue_gate_rule_result(
         if isinstance(result, dict) and _rule_result_matches_clue_gate(plan, result)
     ]
     if not candidates:
+        if _clue_gate_contract(plan) is not None:
+            return None
         return _first_rule_result(rules_results)
     for result in candidates:
         if _rule_result_success(result) is True:
