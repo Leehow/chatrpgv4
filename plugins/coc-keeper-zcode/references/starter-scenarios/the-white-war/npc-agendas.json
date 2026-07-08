@@ -41,7 +41,11 @@
       "secret": "He alone escaped the initial slaughter by hiding, and his mind broke watching his comrades torn apart.",
       "voice": "Animal, wordless except for a single terrified moaned phrase meaning 'the horror' in his own language.",
       "relationship_to_investigators": "adversary",
-      "keeper_note": "DEX 12, 10 HP, bayonet (Fighting 40%, 1D8). Attacks with Surprise. If subdued and calmed, can only repeat one phrase about 'the horror' — gives nothing actionable.",
+      "foreign_dialogue": {
+        "source_language": "German",
+        "sample_line": "Der Schrecken... unten."
+      },
+      "keeper_note": "DEX 12, 10 HP, bayonet (Fighting 40%, 1D8). Attacks with Surprise. If subdued and calmed, can only repeat one phrase about 'the horror' — gives nothing actionable. He speaks only broken German; Italian investigators without Language (Other: German) cannot parse his moaned phrase and should perceive only tone and body language.",
       "social_role": {
         "authority_scope": [
           "specialist_knowledge"

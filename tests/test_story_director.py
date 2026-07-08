@@ -195,6 +195,19 @@ def test_build_director_context_reads_state(tmp_path):
     assert ctx["rule_signals"]["tension_clock"]["death_allowed"] is False
 
 
+def test_build_director_context_exposes_investigator_skills_for_dialogue_gate(tmp_path):
+    """P1-8: the director context must expose the investigator's structured
+    skills so narrative enrichment can gate foreign-dialogue translation on
+    the actual Language skill value without re-reading the character sheet."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="ask the survivor", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert ctx["investigator_skills"] == {"Credit Rating": 50, "Spot Hidden": 60, "Psychology": 55}
+
+
 def test_build_context_bridges_legacy_live_active_scene_without_story_graph(tmp_path):
     camp, char_path = _make_legacy_live_campaign(tmp_path)
     ctx = coc_story_director.build_director_context(

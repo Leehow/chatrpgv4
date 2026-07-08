@@ -503,6 +503,11 @@ def build_director_context(
         "player_intent": player_intent,
         "player_intent_class": player_intent_class,
         "player_intent_rich": player_intent_rich,
+        # P1-8: expose the investigator's structured skills so downstream
+        # enrichment (dialogue_comprehension tier) can gate foreign-dialogue
+        # translation on the actual Language skill value without re-reading
+        # the character sheet. Slim dict only; the full sheet stays private.
+        "investigator_skills": char_skills,
         "active_scene_id": active_scene_id,
         "active_scene": active_scene,
         "structure_type": module_meta.get("structure_type", "branching_investigation"),

@@ -34,6 +34,7 @@ def _load_optional_sibling(name: str, filename: str):
 
 
 coc_storylets = _load_optional_sibling("coc_storylets", "coc_storylets.py")
+coc_language = _load_optional_sibling("coc_language", "coc_language.py")
 
 _SCHEMA_VERSION = 1
 _CHARACTERISTICS = {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"}
@@ -825,6 +826,123 @@ def build_incident_moves(
     return moves
 
 
+# P1-8: foreign-dialogue comprehension tier wiring.
+# Constitution: source_language and skill value are both structured fields.
+# This helper never scans prose; it reads the structured foreign_dialogue marker
+# on npc-agenda entries and the investigator's structured Language skill value.
+
+_DIALOGUE_COMPREHENSION_RULE_ZH = {
+    "none": "展示源语原文与语气/表情，不翻译；调查员听不懂具体意思。",
+    "gist": "展示源语原文或片段，仅给零碎词义，不默认完整翻译。",
+    "partial": "展示源语原文与粗略大意，细节仍不稳，不直接给完整翻译。",
+    "fluent": "调查员能听懂，可正常展示完整翻译。",
+}
+
+
+def _dialogue_rule_for_tier(tier: str | None) -> str:
+    if tier is None:
+        # Placeholder path: narrator/runner must gate on the investigator's
+        # structured Language skill value before revealing translation.
+        return (
+            "展示源语原文；翻译是否可见取决于调查员该语言的结构化技能值（<20 仅给片段，"
+            "20-49 给粗略大意，>=50 可给完整翻译）。runner/narrator 须按调查员技能值决定。"
+        )
+    return _DIALOGUE_COMPREHENSION_RULE_ZH.get(
+        tier,
+        _DIALOGUE_COMPREHENSION_RULE_ZH["gist"],
+    )
+
+
+def build_dialogue_comprehension_directive(
+    scene: dict[str, Any] | None,
+    npc_agendas: dict[str, Any] | None,
+    investigator: dict[str, Any] | None,
+    *,
+    investigator_skills: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Build the ``dialogue_comprehension`` directive list for a scene.
+
+    Scans ``scene.npc_ids`` and the matching npc-agenda entries for a structured
+    ``foreign_dialogue`` marker (``{"source_language": "German", "sample_line": ...}``).
+    For each marked NPC, computes the investigator's comprehension tier via
+    ``coc_language.language_skill_for_source`` + ``dialogue_comprehension_tier``
+    and emits a narrator-facing rule.
+
+    Constitution: ``source_language`` and the skill value are both structured;
+    this helper never scans free text. If ``coc_language`` is unavailable or
+    the investigator's skills are not supplied, it emits a placeholder entry
+    (``comprehension=None``, ``requires_investigator_skill=True``) so the
+    narrator/runner can fill the gate from the actual character sheet.
+
+    Returns an empty list when no NPC in the scene carries a foreign_dialogue
+    marker, so callers can omit the directive entirely.
+    """
+    if coc_language is None:
+        return []
+    scene = scene or {}
+    npc_agendas = npc_agendas or {}
+    scene_npc_ids = set(scene.get("npc_ids", []) or [])
+
+    # Resolve the investigator's structured skills. Accept either a full
+    # investigator object ({"skills": {...}}) or a slim skills dict passed
+    # directly. When neither is available, leave skills unresolved so the
+    # helper emits a placeholder entry.
+    skills: dict[str, Any] | None = None
+    if isinstance(investigator_skills, dict) and investigator_skills:
+        skills = investigator_skills
+    elif isinstance(investigator, dict) and isinstance(investigator.get("skills"), dict):
+        skills = investigator["skills"]
+
+    entries: list[dict[str, Any]] = []
+    for npc in npc_agendas.get("npcs", []) or []:
+        if not isinstance(npc, dict):
+            continue
+        npc_id = npc.get("npc_id")
+        if npc_id not in scene_npc_ids:
+            continue
+        foreign = npc.get("foreign_dialogue")
+        if not isinstance(foreign, dict):
+            continue
+        source_language = _non_empty_str(foreign.get("source_language"))
+        if not source_language:
+            continue
+
+        if skills is not None:
+            skill = coc_language.language_skill_for_source(
+                {"skills": skills}, source_language,
+            )
+            skill_value = int(skill.get("skill_value", 0) or 0)
+            tier = coc_language.dialogue_comprehension_tier(
+                skill_value, native=bool(skill.get("native")),
+            )
+            translation_visible = tier == "fluent"
+            requires_investigator_skill = False
+        else:
+            skill_value = None
+            tier = None
+            translation_visible = False
+            requires_investigator_skill = True
+
+        entry: dict[str, Any] = {
+            "npc_id": npc_id,
+            "source_language": source_language,
+            "sample_line": _non_empty_str(foreign.get("sample_line")),
+            "skill_value": skill_value,
+            "native": None if skills is None else bool(
+                coc_language.language_skill_for_source(
+                    {"skills": skills}, source_language,
+                ).get("native")
+            ),
+            "comprehension": tier,
+            "translation_visible": translation_visible,
+            "requires_investigator_skill": requires_investigator_skill,
+            "rule": _dialogue_rule_for_tier(tier),
+            "source": "npc-agendas.foreign_dialogue",
+        }
+        entries.append(entry)
+    return entries
+
+
 def _base_storylet_conflict_level(plan: dict[str, Any], ctx: dict[str, Any]) -> str:
     if coc_storylets is not None and hasattr(coc_storylets, "infer_conflict_level"):
         try:
@@ -1203,6 +1321,18 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
 
     npc_reactions = build_npc_reaction_moves(scene, ctx.get("npc_agendas"), rich)
     enriched["npc_moves"] = _merge_npc_moves(enriched.get("npc_moves", []), npc_reactions)
+
+    # P1-8: wire foreign-dialogue comprehension tier into the narration contract.
+    # Only emits entries when an NPC in the scene carries a structured
+    # foreign_dialogue marker; otherwise the directive key is omitted entirely.
+    dialogue_comprehension = build_dialogue_comprehension_directive(
+        scene,
+        ctx.get("npc_agendas"),
+        ctx.get("investigator"),
+        investigator_skills=ctx.get("investigator_skills"),
+    )
+    if dialogue_comprehension:
+        nd["dialogue_comprehension"] = dialogue_comprehension
 
     storylet_trigger = infer_storylet_trigger(enriched, ctx)
     storylet_moves: list[dict[str, Any]] = []

@@ -824,3 +824,183 @@ def test_turn_focus_reads_visible_affordances_fallback():
     focus = narr.build_turn_focus_contract(ctx)
     assert focus is not None
     assert focus["focus_target_id"] == "ask-tenants"
+
+
+# =============================================================================
+# P1-8: dialogue comprehension tier wiring (foreign dialogue)
+# =============================================================================
+
+def _foreign_dialogue_scene():
+    return {
+        "scene_id": "tunnel-meeting",
+        "npc_ids": ["npc-austrian-survivor"],
+    }
+
+
+def _foreign_dialogue_agendas():
+    return {"npcs": [
+        {
+            "npc_id": "npc-austrian-survivor",
+            "agenda": "lash out at anything that moves",
+            "foreign_dialogue": {
+                "source_language": "German",
+                "sample_line": "Der Schrecken ist unten.",
+            },
+        },
+    ]}
+
+
+def _investigator_with_german(skill_value: int) -> dict:
+    return {"skills": {
+        "Language (Own: Italian)": 64,
+        "Language (Other: German)": skill_value,
+    }}
+
+
+def test_dialogue_comprehension_directive_low_skill_yields_gist_or_none():
+    """When the investigator's source-language skill is low, the directive
+    must instruct the narrator to show source/fragments, NOT full translation."""
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    ctx = {
+        "active_scene": _foreign_dialogue_scene(),
+        "player_intent_rich": {"action_atoms": []},
+        "npc_agendas": _foreign_dialogue_agendas(),
+        "investigator": _investigator_with_german(5),  # tier 'gist' (1-19)
+    }
+    enriched = narr.enrich_director_plan(plan, ctx)
+    dc = enriched["narrative_directives"]["dialogue_comprehension"]
+    assert len(dc) == 1
+    entry = dc[0]
+    assert entry["npc_id"] == "npc-austrian-survivor"
+    assert entry["source_language"] == "German"
+    assert entry["comprehension"] in {"gist", "none"}
+    assert entry["skill_value"] == 5
+    # The rule must demand source-language display and forbid full translation.
+    assert entry["rule"]
+    assert "source" in entry["rule"].lower() or "源" in entry["rule"]
+    assert entry["translation_visible"] is False
+
+
+def test_dialogue_comprehension_directive_fluent_allows_full_translation():
+    """When the investigator is fluent, the directive must NOT force
+    source-only display."""
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    ctx = {
+        "active_scene": _foreign_dialogue_scene(),
+        "player_intent_rich": {"action_atoms": []},
+        "npc_agendas": _foreign_dialogue_agendas(),
+        "investigator": _investigator_with_german(60),  # tier 'fluent'
+    }
+    enriched = narr.enrich_director_plan(plan, ctx)
+    dc = enriched["narrative_directives"]["dialogue_comprehension"]
+    entry = dc[0]
+    assert entry["comprehension"] == "fluent"
+    assert entry["translation_visible"] is True
+
+
+def test_dialogue_comprehension_directive_absent_when_no_foreign_dialogue():
+    """NPCs without foreign_dialogue markers must NOT produce a directive."""
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    agendas = {"npcs": [{"npc_id": "npc-austrian-survivor", "agenda": "no marker"}]}
+    ctx = {
+        "active_scene": _foreign_dialogue_scene(),
+        "player_intent_rich": {"action_atoms": []},
+        "npc_agendas": agendas,
+        "investigator": _investigator_with_german(5),
+    }
+    enriched = narr.enrich_director_plan(plan, ctx)
+    # directive key should be absent (no foreign dialogue in scene)
+    assert "dialogue_comprehension" not in enriched["narrative_directives"]
+
+
+def test_dialogue_comprehension_directive_only_scenes_npcs_in_scene():
+    """Only NPCs listed in scene.npc_ids should be considered."""
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    agendas = {"npcs": [
+        {"npc_id": "npc-austrian-survivor", "agenda": "x", "foreign_dialogue": {"source_language": "German"}},
+        {"npc_id": "npc-not-here", "agenda": "y", "foreign_dialogue": {"source_language": "German"}},
+    ]}
+    ctx = {
+        "active_scene": {"scene_id": "s", "npc_ids": ["npc-austrian-survivor"]},
+        "player_intent_rich": {"action_atoms": []},
+        "npc_agendas": agendas,
+        "investigator": _investigator_with_german(5),
+    }
+    enriched = narr.enrich_director_plan(plan, ctx)
+    dc = enriched["narrative_directives"]["dialogue_comprehension"]
+    assert [e["npc_id"] for e in dc] == ["npc-austrian-survivor"]
+
+
+def test_dialogue_comprehension_directive_placeholder_when_no_investigator():
+    """When the investigator's skills are not available in ctx, the directive
+    must still be emitted with a structured placeholder so the narrator/runner
+    can fill the comprehension gate from the actual character sheet.
+
+    Constitution: source_language remains structured; the placeholder carries
+    comprehension=None and a rule instructing the narrator to gate on the
+    investigator's structured Language skill value (no prose scan)."""
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    ctx = {
+        "active_scene": _foreign_dialogue_scene(),
+        "player_intent_rich": {"action_atoms": []},
+        "npc_agendas": _foreign_dialogue_agendas(),
+        # NOTE: no "investigator" key — runner did not pre-populate it
+    }
+    enriched = narr.enrich_director_plan(plan, ctx)
+    dc = enriched["narrative_directives"]["dialogue_comprehension"]
+    entry = dc[0]
+    assert entry["source_language"] == "German"
+    assert entry["comprehension"] is None
+    assert entry["requires_investigator_skill"] is True
+    assert entry["rule"]  # narrator-facing rule still present
+
+
+def test_dialogue_comprehension_directive_uses_investigator_skills_dict():
+    """A caller may pass a slim investigator_skills dict directly instead of
+    the full investigator object. Both paths must resolve the skill value."""
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    ctx = {
+        "active_scene": _foreign_dialogue_scene(),
+        "player_intent_rich": {"action_atoms": []},
+        "npc_agendas": _foreign_dialogue_agendas(),
+        "investigator_skills": {"Language (Other: German)": 25},  # tier 'partial'
+    }
+    enriched = narr.enrich_director_plan(plan, ctx)
+    dc = enriched["narrative_directives"]["dialogue_comprehension"]
+    entry = dc[0]
+    assert entry["comprehension"] == "partial"
+    assert entry["skill_value"] == 25
+
+
+def test_dialogue_comprehension_directive_absent_when_coc_language_unavailable():
+    """If coc_language.py cannot be loaded (optional sibling missing),
+    enrichment must NOT crash and must NOT emit a malformed directive."""
+    plan = {"clue_policy": {}, "rules_requests": [], "npc_moves": [], "narrative_directives": {}, "handoff": "narration"}
+    ctx = {
+        "active_scene": _foreign_dialogue_scene(),
+        "player_intent_rich": {"action_atoms": []},
+        "npc_agendas": _foreign_dialogue_agendas(),
+        "investigator": _investigator_with_german(5),
+    }
+    # Simulate coc_language missing by patching the module attribute
+    original = narr.coc_language
+    narr.coc_language = None
+    try:
+        enriched = narr.enrich_director_plan(plan, ctx)
+        assert "dialogue_comprehension" not in enriched["narrative_directives"]
+    finally:
+        narr.coc_language = original
+
+
+def test_build_dialogue_comprehension_directive_helper_signature():
+    """The helper returns a structured list; each entry has the canonical keys."""
+    scene = _foreign_dialogue_scene()
+    agendas = _foreign_dialogue_agendas()
+    investigator = _investigator_with_german(10)
+    dc = narr.build_dialogue_comprehension_directive(scene, agendas, investigator)
+    assert isinstance(dc, list)
+    assert len(dc) == 1
+    entry = dc[0]
+    for key in ("npc_id", "source_language", "skill_value", "comprehension",
+                "translation_visible", "rule"):
+        assert key in entry
