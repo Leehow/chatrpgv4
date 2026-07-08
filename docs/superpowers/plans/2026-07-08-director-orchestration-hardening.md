@@ -348,6 +348,9 @@ def test_backfill_failed_non_clue_roll_adds_failure_routing():
 Append to `tests/test_rules.py`:
 
 ```python
+coc_rule_signals = load_module("coc_rule_signals", "plugins/coc-keeper/scripts/coc_rule_signals.py")
+
+
 def test_psychology_concealed_failure_returns_uncertain_read_not_false_truth():
     result = coc_rule_signals.read_psychology_concealed(
         skill_value=20,
@@ -357,7 +360,7 @@ def test_psychology_concealed_failure_returns_uncertain_read_not_false_truth():
 
     assert result["feed_accurate"] is False
     assert result["reliability"] == "uncertain_read"
-    assert result["player_truth_policy"] == "do_not_invert_truth"
+    assert result["player_truth_policy"] == "accurate_if_success_else_uncertain"
 ```
 
 - [ ] **Step 3: Run RED tests**
@@ -441,8 +444,6 @@ def read_psychology_concealed(skill_value: int, roll: int, npc_lying: bool) -> d
         "must_not": [] if feed_accurate else ["do not invert truth on failed Psychology"],
     }
 ```
-
-Adjust the test expectation to `player_truth_policy == "accurate_if_success_else_uncertain"` if the RED test used the shorter string.
 
 - [ ] **Step 6: Run GREEN tests**
 
@@ -574,12 +575,20 @@ Then inside the critical conclusion loop:
                     )
 ```
 
-- [ ] **Step 4: Update old no-warning test intentionally**
+- [ ] **Step 4: Update old no-warning tests intentionally**
 
 The existing `test_validate_no_warnings_without_structured_fields` should now expect legacy warnings for critical clues. Replace its final assertion with:
 
 ```python
     assert result["errors"] == []
+    assert any("legacy delivery" in warning for warning in result["warnings"])
+```
+
+The existing `test_validate_no_warnings_for_well_formed_source_refs` should also stop asserting a completely empty warning list, because only the first clue is made structured in that test and the other critical routes remain legacy. Replace its final assertion with:
+
+```python
+    assert result["errors"] == []
+    assert not any("source_ref" in warning for warning in result["warnings"])
     assert any("legacy delivery" in warning for warning in result["warnings"])
 ```
 
