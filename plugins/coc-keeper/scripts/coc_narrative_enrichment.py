@@ -875,6 +875,22 @@ def _result_polarity_for_outcome(result: dict[str, Any], default: str) -> str:
     return default
 
 
+def _crit_fumble_conflict_level(result: dict[str, Any]) -> str:
+    """Calibrate a crit/fumble storylet's conflict tier by the action's stakes.
+
+    A true critical or fumble is always a meaningful beat, so it never drops
+    below "medium". But it no longer unconditionally saturates the conflict
+    dial at "high": a fumble on a low-stakes Library Use roll should not play
+    at the same intensity as a fumbled shot in a firefight. The action's own
+    `risk_level` (already computed upstream and read for risky_failure) drives
+    the tier: high/lethal/severe stakes stay "high"; everything else is "medium".
+    """
+    risk_level = str(result.get("risk_level") or "").strip().lower()
+    if risk_level in {"high", "lethal", "severe"}:
+        return "high"
+    return "medium"
+
+
 def _has_active_npc_reaction(plan: dict[str, Any]) -> bool:
     for move in _as_list(plan.get("npc_moves")):
         if isinstance(move, dict) and move.get("active_reactions"):
@@ -929,7 +945,7 @@ def infer_storylet_trigger(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[st
                 "triggered": True,
                 "reason": "fumble",
                 "polarity": polarity,
-                "conflict_level": "high",
+                "conflict_level": _crit_fumble_conflict_level(result),
                 "source": "rules_results",
                 "roll": result.get("roll"),
                 "skill": result.get("skill"),
@@ -944,7 +960,7 @@ def infer_storylet_trigger(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[st
                 "triggered": True,
                 "reason": "critical_success",
                 "polarity": polarity,
-                "conflict_level": "high",
+                "conflict_level": _crit_fumble_conflict_level(result),
                 "source": "rules_results",
                 "roll": result.get("roll"),
                 "skill": result.get("skill"),

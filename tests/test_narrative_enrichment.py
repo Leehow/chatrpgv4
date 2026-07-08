@@ -428,6 +428,40 @@ def _storylet_gate_library():
             "deck_tags": ["opportunity", "critical_success"],
             "trigger_polarity": ["positive"],
         },
+        {
+            "storylet_id": "medium-fumble-complication",
+            "family_id": "fumble_complication",
+            "trope_id": "fumble_complicates_step",
+            "conflict_level": "medium",
+            "base_weight": 1,
+            "scene_actions": ["SUBSYSTEM", "PRESSURE", "DEEPEN"],
+            "eligible_scene_types": ["investigation"],
+            "scene_tags": ["wrongness"],
+            "horror_stage": ["wrongness", "pattern"],
+            "requires": {"npc_id": False, "unrevealed_clue": False, "active_front": False},
+            "serves": {"mainline": True, "theme": True, "can_surface_choice": True},
+            "cue": "一个不致命但让人难堪的失误拖延了节奏。",
+            "story_functions": ["complication"],
+            "deck_tags": ["complication", "failure_consequence"],
+            "trigger_polarity": ["negative"],
+        },
+        {
+            "storylet_id": "medium-critical-opportunity",
+            "family_id": "critical_opportunity",
+            "trope_id": "lucky_break",
+            "conflict_level": "medium",
+            "base_weight": 1,
+            "scene_actions": ["SUBSYSTEM", "PRESSURE", "DEEPEN"],
+            "eligible_scene_types": ["investigation"],
+            "scene_tags": ["wrongness"],
+            "horror_stage": ["wrongness", "pattern"],
+            "requires": {"npc_id": False, "unrevealed_clue": False, "active_front": False},
+            "serves": {"mainline": True, "theme": True, "can_surface_choice": True},
+            "cue": "一次漂亮的手气在小事上带来意外收获。",
+            "story_functions": ["opportunity"],
+            "deck_tags": ["opportunity", "critical_success"],
+            "trigger_polarity": ["positive"],
+        },
     ]}
 
 
@@ -464,6 +498,7 @@ def test_fumble_after_rules_triggers_high_conflict_storylet():
         "roll": 100,
         "target": 75,
         "outcome": "fumble",
+        "risk_level": "high",
         "stakes": "材料顺序被打乱并惊动旁人",
     }]
 
@@ -484,6 +519,7 @@ def test_npc_fumble_after_rules_triggers_positive_high_conflict_storylet():
         "roll": 97,
         "target": 40,
         "outcome": "fumble",
+        "risk_level": "high",
         "stakes": "敌人乱刺露出破绽",
     }]
 
@@ -494,6 +530,71 @@ def test_npc_fumble_after_rules_triggers_positive_high_conflict_storylet():
     assert enriched["storylet_moves"][0]["storylet_id"] == "high-enemy-fumble-opportunity"
     assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "fumble"
     assert enriched["narrative_enrichment"]["storylet_trigger"]["polarity"] == "positive"
+
+
+def test_low_risk_fumble_triggers_medium_conflict_storylet():
+    """A fumble on a low-stakes action should not be force-ranked 'high' conflict.
+
+    P2-2: crit/fumble conflict_level is calibrated by the action's risk_level
+    rather than unconditionally 'high'. Low-risk fumbles are still a meaningful
+    beat (>= medium) but no longer saturate the conflict dial.
+    """
+    plan = narr.enrich_director_plan(_storylet_gate_plan("SUBSYSTEM"), _storylet_gate_ctx("organize_notes"))
+    plan["rules_results"] = [{
+        "skill": "Library Use",
+        "roll": 100,
+        "target": 75,
+        "outcome": "fumble",
+        "risk_level": "low",
+        "stakes": "笔记卡片散落一地",
+    }]
+
+    enriched = narr.enrich_storylets_after_rules(plan, _storylet_gate_ctx("organize_notes"))
+
+    assert enriched["storylet_moves"]
+    assert enriched["storylet_moves"][0]["target_conflict_level"] == "medium"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "fumble"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["conflict_level"] == "medium"
+
+
+def test_low_risk_critical_triggers_medium_conflict_storylet():
+    """A critical success on a low-stakes action yields a medium, not high, beat."""
+    plan = narr.enrich_director_plan(_storylet_gate_plan("SUBSYSTEM"), _storylet_gate_ctx("investigate"))
+    plan["rules_results"] = [{
+        "skill": "Library Use",
+        "roll": 1,
+        "target": 75,
+        "outcome": "critical",
+        "risk_level": "low",
+        "stakes": "恰好翻到需要的页码",
+    }]
+
+    enriched = narr.enrich_storylets_after_rules(plan, _storylet_gate_ctx("investigate"))
+
+    assert enriched["storylet_moves"]
+    assert enriched["storylet_moves"][0]["target_conflict_level"] == "medium"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "critical_success"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["conflict_level"] == "medium"
+
+
+def test_high_risk_critical_triggers_high_conflict_storylet():
+    """A critical success on a high-stakes action still yields a high-conflict beat."""
+    plan = narr.enrich_director_plan(_storylet_gate_plan("SUBSYSTEM"), _storylet_gate_ctx("investigate"))
+    plan["rules_results"] = [{
+        "skill": "Fighting (Brawl)",
+        "roll": 1,
+        "target": 50,
+        "outcome": "critical",
+        "risk_level": "lethal",
+        "stakes": "一击制敌",
+    }]
+
+    enriched = narr.enrich_storylets_after_rules(plan, _storylet_gate_ctx("investigate"))
+
+    assert enriched["storylet_moves"]
+    assert enriched["storylet_moves"][0]["target_conflict_level"] == "high"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "critical_success"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["conflict_level"] == "high"
 
 
 def test_extreme_success_does_not_trigger_special_storylet_by_itself():
