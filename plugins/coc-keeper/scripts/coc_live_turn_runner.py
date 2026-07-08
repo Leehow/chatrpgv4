@@ -320,6 +320,43 @@ def _turn_interrupt_reason(turn: dict[str, Any]) -> str | None:
     return None
 
 
+def _turn_has_actionable_content(turn: dict[str, Any]) -> bool:
+    """P1-2: conservative check for whether a turn gives the player anything to act on.
+
+    True when the turn carries any structured handle the player could respond to:
+    a real fork, an exposed clue, at least one route in the choice frame, or an
+    NPC move that requires the player's decision. This mirrors the structured
+    fields already consulted by ``_turn_interrupt_reason`` (it does NOT re-scan
+    prose or rebuild ``stop_actionability``, which is assembled post-loop).
+
+    Conservative by design: when the structured fields are ambiguous or missing
+    it returns True (treat as content → stop) so the runner never over-advances
+    past a turn the player actually needed to act on. Only a turn that is
+    *demonstrably* empty (no fork, no routes, no clue, no npc decision) returns
+    False, signalling the loop to keep advancing and give the director another
+    chance to surface a handle.
+    """
+    if turn.get("clue_revealed"):
+        return True
+    choice_frame = turn.get("choice_frame")
+    if not isinstance(choice_frame, dict):
+        # No structured choice frame at all → ambiguous, treat as content.
+        return True
+    if bool(choice_frame.get("is_real_fork")):
+        return True
+    routes = choice_frame.get("routes")
+    # ``routes`` must be a real list to be trusted as "definitively empty". A
+    # missing/malformed routes key is ambiguous → treat as content (stop) so we
+    # never over-advance past a turn whose frame we could not parse.
+    if not isinstance(routes, list):
+        return True
+    if routes:
+        return True
+    if _npc_move_requires_player_decision(turn.get("npc_moves")):
+        return True
+    return False
+
+
 def _should_auto_advance(turn: dict[str, Any], *, enabled: bool) -> bool:
     if not enabled:
         return False
@@ -495,6 +532,19 @@ def run_live_turn(
             stop_reason = interrupt
             break
         if not _should_auto_advance(turn, enabled=auto_advance_low_agency):
+            # P1-2: if this turn surfaced nothing the player can act on (no real
+            # fork, no clue, no route, no npc decision) and we still have budget,
+            # do not strand the player on an empty "awaiting_player_input" stop —
+            # keep advancing as a low-agency beat so the director gets another
+            # chance to surface a handle/threat/NPC question. max_turns still caps
+            # the loop, so there is no infinite-loop risk. When the turn DOES have
+            # content (or fields are ambiguous → conservative True), stop normally.
+            if (
+                index < max_turns - 1
+                and not _turn_has_actionable_content(turn)
+            ):
+                choice = _semantic_low_agency_choice(choice)
+                continue
             stop_reason = "awaiting_player_input"
             break
         choice = _semantic_low_agency_choice(choice)

@@ -500,3 +500,115 @@ def test_live_turn_low_agency_stops_at_real_fork(tmp_path, monkeypatch):
     # Two open affordances -> is_real_fork True -> must stop after the first turn.
     assert result["auto_advance"]["turns_run"] == 1
     assert result["auto_advance"]["stop_reason"] == "meaningful_choice"
+
+
+# --- P1-2: don't stop on a turn with no actionable content ---
+
+
+def test_turn_has_actionable_content_true_for_fork_clue_routes_npc():
+    """The conservative helper must report actionable content whenever the turn
+    carries any structured handle (real fork, clue, routes, npc decision). When
+    ambiguous it returns True so the runner does not over-advance."""
+    # real fork
+    assert live_runner._turn_has_actionable_content({
+        "choice_frame": {"is_real_fork": True, "routes": [], "open_route_count": 0},
+        "clue_revealed": [],
+        "npc_moves": [],
+    }) is True
+    # non-empty routes (even if not a real fork) — a route is still a handle
+    assert live_runner._turn_has_actionable_content({
+        "choice_frame": {"is_real_fork": False, "routes": [{"route_id": "x"}], "open_route_count": 1},
+        "clue_revealed": [],
+        "npc_moves": [],
+    }) is True
+    # clue revealed
+    assert live_runner._turn_has_actionable_content({
+        "choice_frame": {"is_real_fork": False, "routes": [], "open_route_count": 0},
+        "clue_revealed": ["c1"],
+        "npc_moves": [],
+    }) is True
+    # npc requires player decision
+    assert live_runner._turn_has_actionable_content({
+        "choice_frame": {"is_real_fork": False, "routes": [], "open_route_count": 0},
+        "clue_revealed": [],
+        "npc_moves": [{"npc_id": "bruno", "requires_player_decision": True}],
+    }) is True
+
+
+def test_turn_has_actionable_content_false_when_truly_empty():
+    """A turn with no fork, no routes, no clue, no npc decision has nothing the
+    player can act on — the helper reports False so the runner keeps advancing."""
+    assert live_runner._turn_has_actionable_content({
+        "choice_frame": {"is_real_fork": False, "routes": [], "open_route_count": 0},
+        "clue_revealed": [],
+        "npc_moves": [],
+    }) is False
+
+
+def test_turn_has_actionable_content_conservative_on_missing_fields():
+    """When structured fields are absent/ambiguous the helper must default to
+    True (stop) rather than risk an over-advance into an infinite feeling loop."""
+    assert live_runner._turn_has_actionable_content({}) is True
+    # choice_frame present but missing routes list — ambiguous, treat as content
+    assert live_runner._turn_has_actionable_content({"choice_frame": {}}) is True
+
+
+def test_live_turn_keeps_advancing_when_no_actionable_content(tmp_path, monkeypatch):
+    """P1-2: a turn that surfaces no handle (no real fork, no clue, no routes,
+    no npc decision) and is not a low-agency compressed-progress turn must NOT
+    stop at awaiting_player_input — the runner should keep advancing (up to the
+    max_turns cap) so the director gets another chance to surface a handle."""
+    camp, char_path = _build_live_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"] = [
+        {
+            "scene_id": "empty-hall",
+            "scene_type": "investigation",
+            "dramatic_question": "What is in the empty hall?",
+            "entry_conditions": [],
+            "exit_conditions": [],
+            "available_clues": [],
+            "npc_ids": [],
+            "pressure_moves": [],
+            "tone": ["quiet"],
+            "allowed_improvisation": [],
+        },
+    ]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "empty-hall"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+
+    monkeypatch.setattr(
+        live_runner.coc_async_recorder,
+        "spawn_background_flush",
+        lambda campaign_dir, *, limit=None: {"started": True, "pid": 4255},
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我仔细搜寻这个房间。",
+        intent_class="investigate",
+        # A concrete (non-low-agency) investigative posture: the director will
+        # NOT emit a compressed_progress directive, so _should_auto_advance is
+        # False. Combined with an empty scene this is exactly the P1-2 trap.
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "secondary_intents": ["search"],
+            "action_atoms": [{"topic": "room", "verb": "search"}],
+        },
+        max_auto_advance=3,
+        rng_seed=5,
+    )
+
+    # Before the fix this stopped at turn 1 with "awaiting_player_input" leaving
+    # the player with nothing to act on. Now it must keep going.
+    assert result["auto_advance"]["turns_run"] >= 2
+    # It must NOT have given up with awaiting_player_input on an empty turn.
+    assert result["auto_advance"]["stop_reason"] != "awaiting_player_input"
+    # Continuation turns are marked as auto-advanced low-agency beats.
+    assert any(turn["auto_advanced"] for turn in result["turns"][1:])
+    # The max_turns cap still holds (no runaway).
+    assert result["auto_advance"]["turns_run"] <= result["auto_advance"]["max_turns"]
