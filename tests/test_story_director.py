@@ -1532,3 +1532,21 @@ def test_choice_returns_two_leads(tmp_path):
     assert len(leads) == 2
     assert leads[0] == "clue-1b"  # highest priority 0.9
     assert leads[1] == "clue-1c"  # second highest 0.7
+
+
+def test_low_agency_tags_unified_covers_continue_existing_strategy():
+    # continue_existing_strategy previously only in _ROUTINE_PROGRESS_TAGS; now low-agency too
+    ctx = {"player_intent_rich": {"secondary_intents": ["continue_existing_strategy"]}}
+    assert coc_story_director._is_low_agency_continue(ctx) is True
+
+
+def test_low_agency_tags_covers_yield_initiative_via_class():
+    ctx = {"player_intent_class": "yield_initiative"}
+    assert coc_story_director._is_low_agency_continue(ctx) is True
+
+
+def test_low_agency_tags_unified_is_single_source():
+    # _LOW_AGENCY_TAGS is the authority; key members present
+    for member in ("move", "continue", "follow", "low_agency_continue",
+                   "continue_existing_strategy", "yield_initiative", "passive_follow"):
+        assert member in coc_story_director._LOW_AGENCY_TAGS, f"missing {member}"

@@ -546,33 +546,32 @@ def _load_structure_weights() -> dict[str, Any]:
 
 ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]
 
-_LOW_AGENCY_RECENT_CLASSES = {
+# P0-2: 低主动身份单一来源。所有 tag/class 字符串统一在此定义，
+# 消除 _LOW_AGENCY_RECENT_CLASSES / _LOW_AGENCY_CONTINUE_TAGS / 部分 routine tag 的分裂。
+_LOW_AGENCY_TAGS = frozenset({
     "move",
     "continue",
     "follow",
     "follow_group",
     "low_agency_continue",
     "passive_follow",
-}
-_LOW_AGENCY_CONTINUE_TAGS = {
-    "low_agency_continue",
     "continue_without_new_goal",
-    "follow_group",
     "keep_following",
-    "yield_initiative",
     "move_with_group",
-    "passive_follow",
-}
-_ROUTINE_PROGRESS_TAGS = {
-    "routine_action",
-    "routine_search",
-    "routine_travel",
-    "routine_professional_action",
-    "connective_action",
+    "yield_initiative",
     "continue_existing_strategy",
-    "maintain_posture",
-    "low_risk_action",
-}
+})
+# 派生：用于 class 字符串匹配（保持向后兼容子集）
+_LOW_AGENCY_RECENT_CLASSES = frozenset({
+    "move", "continue", "follow", "follow_group", "low_agency_continue", "passive_follow",
+})
+# continue_existing_strategy 同时保留为 routine 标记（用于压缩进度），但不再是"非低主动"
+_ROUTINE_PROGRESS_TAGS = frozenset({
+    "routine_action", "routine_search", "routine_travel", "routine_professional_action",
+    "connective_action", "continue_existing_strategy", "maintain_posture", "low_risk_action",
+})
+# _LOW_AGENCY_CONTINUE_TAGS 由 _LOW_AGENCY_TAGS 派生（向后兼容）
+_LOW_AGENCY_CONTINUE_TAGS = _LOW_AGENCY_TAGS
 _DRAMATIC_PROGRESS_ADVANCE_UNTIL = [
     "threat_approaches",
     "new_clue_or_obvious_information",
@@ -610,7 +609,7 @@ def _is_low_agency_continue(ctx: dict[str, Any]) -> bool:
     tags = _rich_intent_tags(ctx)
     if tags & _LOW_AGENCY_CONTINUE_TAGS:
         return True
-    return str(ctx.get("player_intent_class") or "") in _LOW_AGENCY_RECENT_CLASSES
+    return str(ctx.get("player_intent_class") or "") in _LOW_AGENCY_TAGS
 
 
 def _low_agency_continue_count(recent_intents: list[Any], ctx: dict[str, Any]) -> int:
