@@ -262,3 +262,40 @@ def test_validate_no_warnings_without_structured_fields(tmp_path):
     result = coc_scenario_compile.validate_scenario(sc)
     assert result["errors"] == []
     assert any("legacy delivery" in warning for warning in result["warnings"])
+
+
+def test_validate_warns_when_social_scene_lacks_affordances(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0]["scene_id"] = "briefing"
+    story["scenes"][0]["scene_type"] = "social"
+    # no affordances field
+    (sc / "story-graph.json").write_text(json.dumps(story))
+    result = coc_scenario_compile.validate_scenario(sc)
+    warnings_text = " ".join(result["warnings"])
+    assert "briefing" in warnings_text
+    assert "affordances" in warnings_text
+
+
+def test_validate_no_warning_when_social_scene_has_two_affordances(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "scene_id": "briefing", "scene_type": "social",
+        "affordances": [
+            {"id": "ask-cmdr", "cue": "追问指挥官", "route_type": "npc_question", "status": "open"},
+            {"id": "check-gear", "cue": "检查装备", "route_type": "environment", "status": "open"},
+        ],
+    })
+    (sc / "story-graph.json").write_text(json.dumps(story))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert not any("briefing" in w and "affordances" in w for w in result["warnings"])
+
+
+def test_validate_no_warning_for_combat_scene_without_affordances(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0].update({"scene_id": "fight", "scene_type": "combat"})
+    (sc / "story-graph.json").write_text(json.dumps(story))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert not any("fight" in w and "affordances" in w for w in result["warnings"])

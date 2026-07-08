@@ -81,6 +81,15 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             errors.append(f"scene '{scene.get('scene_id')}' missing dramatic_question")
         if not scene.get("scene_id"):
             errors.append("scene missing scene_id")
+        # 软警告：social/investigation 场景宜有多路线 affordances（P0-1 数据引导）
+        scene_type = str(scene.get("scene_type") or "")
+        if scene_type in ("social", "investigation"):
+            affordances = scene.get("affordances") or []
+            if not isinstance(affordances, list) or len(affordances) < 2:
+                warnings.append(
+                    f"scene '{scene.get('scene_id')}' ({scene_type}) has fewer than 2 "
+                    f"affordances; multi-route fork hints recommended so players have choices"
+                )
         # on_enter warnings: validate structure when present (soft, backward-compat).
         on_enter = scene.get("on_enter")
         if isinstance(on_enter, dict):
