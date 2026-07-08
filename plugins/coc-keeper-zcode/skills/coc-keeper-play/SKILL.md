@@ -17,12 +17,45 @@ description: Run immersive Call of Cthulhu play after COC mode is active. Use fo
    - turn scene affordances / clue leads into a hidden `choice_frame`;
    - turn semantically parsed `player_intent_rich.action_atoms` into chained `rules_requests`;
    - activate NPC `reaction_triggers`, relationship clocks, voice seeds, desire/fear/leverage;
-   - select `storylet_moves` from the deterministic storylet engine with conflict-level pacing;
+   - infer the current story need, select matching storylet decks, then roll `storylet_moves`
+     from the deterministic storylet engine with conflict-level pacing;
    - surface optional `incident_moves` only as legacy side beats that reinforce the main tension.
 4. If the enriched DirectorPlan.handoff == "rules": resolve mechanics via coc-roll/combat/chase/sanity.
 5. Backfill rule results into the plan.
 6. Narrate consequences per DirectorPlan.narrative_directives (immersive, in play_language).
 7. Update save, logs, and pacing-state.
+
+## Recording Modes
+
+Live play may use `recording_mode: fast` in `DirectorPlan.narrative_directives`
+or pass `recording_mode="fast"` to `coc_director_apply.apply_plan(...)`.
+Fast mode keeps rules-facing save mutations synchronous, including world state,
+pacing, clue discovery, NPC state, storylet ledger, memory writes, time advance,
+and scene transitions. Verbose JSONL audit writes are batched into one durable
+file under `logs/pending-turns/` so narration can return before the recorder
+finishes.
+
+Use `coc_director_apply.flush_pending_records(campaign_dir)` from a background
+recorder, between turns, or before generating a formal battle report. If the
+background recorder is unavailable, do not block ordinary narration; flush the
+pending batches at the next convenient maintenance point.
+
+Use `recording_mode: sync` for bug hunts, replay-sensitive tests, and final
+verification. Sync mode is the default and preserves the legacy behavior of
+writing each JSONL audit record immediately.
+
+When storylet scheduling runs, preserve its audit trail. The apply layer writes
+one JSONL record per turn to `logs/storylet-scheduler.jsonl` when an enriched
+plan carries `storylet_trigger`, `storylet_scheduler`, or `storylet_moves`.
+Use this log for post-session tuning: it records the trigger reason, inferred
+story need, candidate decks, filter counts, selected storylet, rejected examples,
+and ledger update without exposing hidden scenario prose.
+
+When scene progress governance runs, preserve its audit trail. The apply layer
+writes one JSONL record to `logs/scene-progress.jsonl` when a plan carries
+`narrative_directives.scene_progress`. Use this log to inspect why a bridge,
+transition, travel, escort, waiting, or other low-agency connective scene was
+continued, pressured, montaged, or cut.
 
 ## Live-Story Bridge
 
@@ -77,6 +110,45 @@ phrases such as "基于以上信息", "当前目标转向", "二人推断", or "
 Structured summaries belong in save files and logs, not in the scene text the
 player reads.
 
+Compress repeated semantic facts. The first time a clue, quote, NPC fear,
+gesture, environmental symptom, or foreign-language phrase appears, it may be
+rendered with full sensory detail. On later turns, if it communicates the same
+meaning and adds no new information, summarize it in one short sentence such as
+"the survivor keeps muttering the same German warning" or "the smell still
+hangs in the room." Expand it again only when the player asks, comprehension
+changes, a new detail appears, or the situation escalates. Repetition is judged
+semantically, not by exact words.
+
+Show observable behavior before interpretation. Do not explain NPC mental state with abstract summary sentences such as "fear has overcome reason" or "terror blocks understanding." First render an observable action, voice, posture, gaze, hesitation, or physical evidence. If a relevant skill check or established investigator expertise supports interpretation, add the interpretation after the visible evidence in plain words.
+
+Crisis scene clarity. Use blocking as an internal drafting frame, not as player-visible prose. For urgent physical scenes, draft the viewpoint, spatial anchor, active motion, connection or force, risk progression, visible affordance, and player entry before writing the final paragraph. The player-facing text should feel like natural scene narration: space first, motion second, force and worsening risk third, usable objects folded into the scene, then an open action prompt. Do not render crisis beats as "that means...", "you see two things...", "the current problem is...", or if/then option dumps.
+
+## Foreign-Language Dialogue
+
+When an NPC or handout speaks/writes in a language that is not the
+investigator's obvious table language, preserve player knowledge separation.
+Do not automatically translate everything into the play language. Use
+structured fields such as `source_language`, the investigator's canonical
+`Language (Own: X)` / `Language (Other: X)` skills, and the helper
+`coc_language.render_foreign_dialogue_for_investigator(...)` when available.
+
+Comprehension tiers:
+
+- No matching language skill or 0: show the source-language words only, plus
+  visible tone/body-language cues. Do not show the translation.
+- 1-19: show the source-language words plus a vague gist supplied by the
+  Keeper/semantic layer.
+- 20-49: show the source-language words plus an incomplete or uncertain
+  translation.
+- 50+ or matching `Language (Own: X)`: the investigator understands it; a
+  fuller translation may be shown, ideally with the short source quote kept for
+  atmosphere.
+
+The helper must not infer meaning from foreign text by keyword hits. If the
+Keeper wants to reveal a gist, partial translation, or full translation, that
+understanding must be supplied as structured text and then filtered through the
+investigator's language skill.
+
 ## Action Prompt Shape
 
 Ordinary play is not a CRPG menu. Do not list numbered or bulleted player
@@ -97,6 +169,17 @@ tense scene, do not answer with another neutral travel or scenery paragraph.
 Let the active scene's authored `pressure_moves` fire first. If no such pressure
 exists, surface concrete diegetic affordances rather than inventing a random
 event.
+
+Bridge and transition scenes must have a progress contract. For connective
+scenes such as travel, return, escort, waiting, or relocation, consume structured
+fields such as `scene_kind`, `progress_contract`, `source_event_type`,
+`authority_demands`, `responsibility_threats`, and `scene_tags`; do not infer
+from raw prose keywords. If repeated low-agency play exhausts the scene's
+`max_low_agency_turns` and there is no authored pressure, clue, NPC agency beat,
+or current-scene storylet with a valid anchor, obey
+`narrative_directives.scene_progress`: resolve the bridge briefly with montage
+or cut to the next meaningful decision point. Do not stack another same-axis
+environment check merely to keep the scene alive.
 
 ## Narrative Enrichment Rules
 
@@ -120,6 +203,21 @@ pass prevents that single action from feeling like a single-track plot.
   a line, interruption, hesitation, assist, objection, or tell. Use desire/fear/
   leverage/voice seeds to make the reaction feel like that person, not a hint
   dispenser.
+- **NPC Social Role & Persona Layer.** NPC agency comes from abstract duty and
+  persona fields, not from concrete titles. Do not branch on concrete occupation, title, name, or keyword text. Consume `authority_scope, responsibility_domains, chain_of_command, duty_pressure, initiative_style, and delegation_policy` to decide whether an NPC should visibly take
+  responsibility before asking the investigator. Use persona tags only to color
+  how they act, speak, hesitate, assist, object, or fail under pressure. Persist
+  generated persona cards in `save/npc-state.json` and preserve decision traces
+  in `logs/npc-agency.jsonl`.
+- **NPC Genesis Pipeline.** When a present NPC has no saved card, instantiate a
+  lightweight silhouette from generic persona tables, abstract social-duty
+  fields, scene context, and module-supplied `name_context`. Persist the card in
+  `save/npc-state.json` and write the creation audit to
+  `logs/npc-generation.jsonl`. LLM-generated names are presentation data:
+  generate or preserve them from `name_context`, then store the result, but never
+  use the name as a rules condition. Do not generate full mechanical stats for every passerby. Only promote an NPC to a rules-facing stat profile when the
+  fiction enters opposed rolls, combat, chase, injury, or another mechanical
+  interaction, then write the upgrade audit to `logs/npc-stat-upgrade.jsonl`.
 - **Storylets are controlled meat, not new bones.** `storylet_moves` may add
   NPC pressure, clue delivery texture, threat-front symptoms, and short side
   beats, but they must bind to the active scene, clue, NPC, front, choice, or
@@ -130,6 +228,12 @@ pass prevents that single action from feeling like a single-track plot.
   contract is not eligible this turn. Do not select first and then stretch the
   fiction to fit it; skip it and let the director continue with the current
   scene action.
+- **Choose story function before rolling.** The storylet engine must first infer
+  the current `story_need` such as clue delivery, front pressure, scene pressure,
+  character beat, choice pressure, recovery redirection, complication, or
+  opportunity. Roll only from storylets whose `story_functions` or `deck_tags`
+  match that need. A high-weight card from the wrong deck must not beat a
+  lower-weight card from the right deck.
 - **Respect conflict level.** Low beats are texture and soft leads; medium beats
   introduce social/procedural friction; high beats put evidence, allies, or
   escape routes at risk; climax beats cash in clocks and force thematic
@@ -138,6 +242,10 @@ pass prevents that single action from feeling like a single-track plot.
 - **Do not repeat the same trick.** Treat `storylet_id`, `family_id`, `trope_id`,
   and bound target as separate anti-repeat signatures. If a family was used
   recently, choose a different family even if the literal event text differs.
+- **Keep scheduler decisions inspectable.** When a storylet is selected, its
+  move should carry `scheduler_trace`; after apply, `logs/storylet-scheduler.jsonl`
+  should show why the trigger opened, what story need/deck was chosen, how many
+  candidates survived each filter, and which examples were rejected.
 - **Side beats must be thematic.** `incident_moves` and `storylet_moves` should
   complicate the scene, reveal character, echo the scenario theme, or return a
   side thread to the mainline. They must not replace the player's chosen goal

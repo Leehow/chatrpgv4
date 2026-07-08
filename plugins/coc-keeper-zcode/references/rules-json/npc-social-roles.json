@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "description": "Generic social duty templates consumed by the NPC agency layer.",
+  "templates": [
+    {
+      "template_id": "scene_safety_authority",
+      "authority_scope": ["scene_safety"],
+      "responsibility_domains": ["group_survival"],
+      "initiative_style": "decisive",
+      "delegation_policy": {
+        "keeps": ["scene_safety"],
+        "delegates": ["specialist_care", "specialist_interpretation"]
+      }
+    },
+    {
+      "template_id": "evidence_control_authority",
+      "authority_scope": ["evidence_control"],
+      "responsibility_domains": ["case_integrity", "public_order"],
+      "initiative_style": "procedural",
+      "delegation_policy": {
+        "keeps": ["evidence_control"],
+        "delegates": ["specialist_interpretation"]
+      }
+    },
+    {
+      "template_id": "access_control_authority",
+      "authority_scope": ["property_access"],
+      "responsibility_domains": ["guest_safety", "public_scandal"],
+      "initiative_style": "consultative",
+      "delegation_policy": {
+        "keeps": ["property_access"],
+        "delegates": ["specialist_interpretation"]
+      }
+    },
+    {
+      "template_id": "specialist_authority",
+      "authority_scope": ["specialist_knowledge"],
+      "responsibility_domains": ["truth_claims", "specialist_advice"],
+      "initiative_style": "consultative",
+      "delegation_policy": {
+        "keeps": ["specialist_interpretation"],
+        "delegates": ["scene_safety"]
+      }
+    }
+  ]
+}

@@ -242,6 +242,124 @@ def test_legacy_live_scene_reaches_narrative_enrichment(tmp_path):
     assert enriched["storylet_moves"][0]["bound_entities"]["scene_id"] == "hospital-short-visit"
 
 
+def test_compiled_scene_merges_live_visible_affordances(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    (camp / "save" / "active-scene.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "test",
+        "scenario_id": "test-mod",
+        "scene_id": "scene-1",
+        "summary": "现场已经推进到门口，玩家能看到两个具体切入点。",
+        "visible_affordances": [
+            {"cue": "门缝里透出一线冷光。", "route": "inspect_cold_door"},
+            {"cue": "楼梯扶手上有新鲜泥点。", "route": "check_muddy_rail"},
+        ],
+    }))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="过去看看",
+        player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="merged-live-affordance")
+    enriched = coc_narrative_enrichment.enrich_director_plan(plan, ctx)
+
+    route_ids = {route["route_id"] for route in enriched["choice_frame"]["routes"]}
+    assert "inspect_cold_door" in route_ids
+    assert "check_muddy_rail" in route_ids
+    assert ctx["active_scene"]["source"] == "live-story-bridge.merged-active-scene"
+
+
+def test_adversary_npc_character_move_does_not_use_social_reaction_roll():
+    ctx = {
+        "active_scene": {"npc_ids": ["npc-survivor"]},
+        "npc_agendas": {"npcs": [{
+            "npc_id": "npc-survivor",
+            "agenda": "Lash out at anything that moves.",
+            "fear": "The thing in the tunnel.",
+            "relationship_to_investigators": "adversary",
+        }]},
+        "rule_signals": {"app": 80, "credit_rating": 80, "npc_reaction_roll": None},
+        "rng": random.Random(42),
+    }
+
+    moves = coc_story_director._build_npc_moves(ctx, "CHARACTER")
+
+    assert moves[0]["emotional_tone"] == "panicked and hostile"
+    assert moves[0]["disposition_source"] is None
+    assert ctx["rule_signals"]["npc_reaction_roll"] is None
+
+
+def test_npc_agenda_text_does_not_keyword_force_adversary():
+    ctx = {
+        "active_scene": {"npc_ids": ["npc-guard"]},
+        "npc_agendas": {"npcs": [{
+            "npc_id": "npc-guard",
+            "agenda": "Lash out at anything that moves.",
+            "fear": "Losing control of the checkpoint.",
+        }]},
+        "rule_signals": {"app": 80, "credit_rating": 80, "npc_reaction_roll": None},
+        "rng": random.Random(42),
+    }
+
+    moves = coc_story_director._build_npc_moves(ctx, "CHARACTER")
+
+    assert moves[0]["emotional_tone"] in {"warm and cooperative", "guarded but civil", "cold and suspicious"}
+    assert moves[0]["disposition_source"] == "rule_signal:npc_reaction_roll"
+    assert ctx["rule_signals"]["npc_reaction_roll"] is not None
+
+
+def test_director_builds_npc_agency_from_abstract_social_role(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["npc_ids"] = ["npc-authority"]
+    story["scenes"][0]["scene_tags"] = ["crisis"]
+    story["scenes"][0]["authority_demands"] = ["scene_safety"]
+    story["scenes"][0]["responsibility_threats"] = ["group_survival"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [{
+            "npc_id": "npc-authority",
+            "agenda": "keep everyone alive without surrendering the scene",
+            "social_role": {
+                "authority_scope": ["scene_safety"],
+                "responsibility_domains": ["group_survival"],
+                "chain_of_command": {"to_pc": "peer", "to_group": "commands"},
+                "initiative_style": "decisive",
+                "delegation_policy": {
+                    "keeps": ["scene_safety"],
+                    "delegates": ["specialist_care"],
+                },
+            },
+            "persona_tag_weights": {
+                "temperament.impatient": 3,
+                "voice.short_orders": 2,
+                "stress_response.command": 2,
+            },
+        }]
+    }))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="继续",
+        player_intent_class="continue",
+        rng=random.Random(7),
+    )
+    moves = coc_story_director._build_npc_moves(ctx, "CHARACTER")
+
+    authority_move = moves[0]["agency_moves"][0]
+    assert authority_move["move_id"] == "assert_responsibility"
+    assert authority_move["reason"] == "authority_scope_matches_scene"
+    assert authority_move["rules_effect"]["actor_role"] == "npc"
+    assert moves[0]["persona"]["tags"]
+    assert ctx["npc_state_writes"][0]["npc_id"] == "npc-authority"
+
+
 def test_director_uses_mythos_based_max_san(tmp_path, monkeypatch):
     """Max SAN = 99 - Cthulhu Mythos (p.167 F9), not a hardcoded 99.
 
@@ -391,6 +509,28 @@ def test_build_director_context_reads_last_roll_fumble(tmp_path):
     assert ctx["rule_signals"]["last_roll_critical"] is False
 
 
+def test_build_director_context_ignores_npc_fumble_for_player_fumble_signal(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    (camp / "logs").mkdir(parents=True, exist_ok=True)
+    (camp / "logs" / "rolls.jsonl").write_text(
+        json.dumps({"type": "roll", "payload": {"outcome": "failure"}}) + "\n"
+        + json.dumps({
+            "type": "roll",
+            "payload": {
+                "kind": "npc_attack",
+                "actor_role": "npc",
+                "outcome": "fumble",
+            },
+        }) + "\n"
+    )
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["last_roll_fumble"] is False
+    assert ctx["rule_signals"]["last_roll_critical"] is False
+
+
 def test_build_director_context_reads_last_roll_critical(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     (camp / "logs").mkdir(parents=True, exist_ok=True)
@@ -431,22 +571,45 @@ def test_select_action_recover_when_stalled(tmp_path):
     assert action == "RECOVER"
 
 
-def test_reveal_social_intent_surfaces_clue(tmp_path):
-    """A social intent in a scene with an undiscovered clue (e.g. the NPC IS the
-    clue source) must still surface clues at a lower base score (0.75). Previously
-    REVEAL was gated only on investigate, so talking to a clue-bearing NPC could
-    never reveal clues."""
+def test_reveal_social_intent_surfaces_structured_npc_dialogue_clue(tmp_path):
+    """A social intent may surface clues when structured data says the NPC is the source."""
     camp, char_path = _make_minimal_campaign(tmp_path)
+    clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
+    clue_graph["conclusions"][0]["clues"][0]["delivery_kind"] = "npc_dialogue"
+    clue_graph["conclusions"][0]["clues"][0]["route_priority"] = 0.9
+    clue_graph["conclusions"][0]["clues"][1]["delivery_kind"] = "environmental"
+    clue_graph["conclusions"][0]["clues"][1]["route_priority"] = 0.1
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=char_path, investigator_id="inv1",
         player_intent="我和那个NPC聊聊", player_intent_class="social",
         rng=random.Random(42),
     )
-    # _base_score is the structure-agnostic trigger layer; the fix lives here.
+
     assert coc_story_director._base_score("REVEAL", ctx) == 0.75
-    # and investigate still scores higher
+
     ctx["player_intent_class"] = "investigate"
     assert coc_story_director._base_score("REVEAL", ctx) == 0.9
+
+
+def test_social_intent_does_not_reveal_environmental_clue(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
+    for clue in clue_graph["conclusions"][0]["clues"]:
+        clue["delivery_kind"] = "environmental"
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我向旁边的人问发生了什么",
+        player_intent_class="social",
+        rng=random.Random(42),
+    )
+
+    assert coc_story_director._base_score("REVEAL", ctx) == 0.0
 
 
 
@@ -527,6 +690,137 @@ def test_low_agency_continuation_forces_authored_scene_pressure(tmp_path):
     assert "金属碰响" in plan["pressure_moves"][0]["visible_symptom"]
 
 
+def test_live_active_scene_preserves_structured_director_fields(tmp_path):
+    camp, char_path = _make_legacy_live_campaign(tmp_path)
+    active = json.loads((camp / "save" / "active-scene.json").read_text())
+    active.update({
+        "scene_type": "travel",
+        "scene_kind": "bridge",
+        "scene_tags": ["travel_under_pressure"],
+        "authority_demands": ["scene_safety"],
+        "responsibility_threats": ["group_survival"],
+        "progress_contract": {
+            "kind": "bridge",
+            "max_low_agency_turns": 1,
+            "fallback_action": "MONTAGE",
+            "exit_directive": "cut to the next meaningful decision point",
+        },
+    })
+    (camp / "save" / "active-scene.json").write_text(json.dumps(active))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我继续跟着走",
+        player_intent_class="move",
+        rng=random.Random(42),
+    )
+
+    scene = ctx["active_scene"]
+    assert scene["scene_kind"] == "bridge"
+    assert scene["scene_tags"] == ["travel_under_pressure"]
+    assert scene["authority_demands"] == ["scene_safety"]
+    assert scene["responsibility_threats"] == ["group_survival"]
+    assert scene["progress_contract"]["fallback_action"] == "MONTAGE"
+
+
+def test_low_agency_bridge_without_new_axis_forces_montage_cut(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story_graph = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story_graph["scenes"][0].update({
+        "scene_type": "travel",
+        "scene_kind": "bridge",
+        "available_clues": [],
+        "exit_conditions": [],
+        "pressure_moves": [],
+        "progress_contract": {
+            "kind": "bridge",
+            "max_low_agency_turns": 1,
+            "fallback_action": "MONTAGE",
+            "exit_directive": "leave the bridge and cut to the next actionable scene",
+        },
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story_graph))
+
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["move"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    rich = {
+        "primary_intent": "move",
+        "secondary_intents": ["low_agency_continue", "follow_group"],
+        "target_entities": ["group"],
+        "risk_posture": "neutral",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "action_atoms": [],
+    }
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我继续跟着队伍走",
+        player_intent_class="move",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+
+    assert ctx["rule_signals"]["low_agency_continue_count"] == 2
+    overrides = coc_story_director.apply_rule_signal_overrides(ctx)
+    assert overrides["scene_action"] == "MONTAGE"
+
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="bridge-governor")
+
+    assert plan["scene_action"] == "MONTAGE"
+    progress = plan["narrative_directives"]["scene_progress"]
+    assert progress["action"] == "force_transition"
+    assert progress["reason"] == "low_agency_bridge_exhausted"
+    assert progress["exit_directive"] == "leave the bridge and cut to the next actionable scene"
+
+
+def test_legacy_live_scene_transition_gets_default_bridge_governor(tmp_path):
+    camp, char_path = _make_legacy_live_campaign(tmp_path)
+    active = json.loads((camp / "save" / "active-scene.json").read_text())
+    active.update({
+        "source_event_type": "scene_transition",
+        "scene_type": "exploration",
+        "available_clues": [],
+        "pressure_moves": [],
+        "progress_contract": {},
+    })
+    (camp / "save" / "active-scene.json").write_text(json.dumps(active))
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["move"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    rich = {
+        "primary_intent": "move",
+        "secondary_intents": ["low_agency_continue"],
+        "target_entities": ["group"],
+        "risk_posture": "neutral",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "action_atoms": [],
+    }
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="继续",
+        player_intent_class="move",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="legacy-live-bridge")
+
+    assert plan["scene_action"] == "MONTAGE"
+    progress = plan["narrative_directives"]["scene_progress"]
+    assert progress["reason"] == "low_agency_bridge_exhausted"
+    assert progress["scene_kind"] == "live_transition"
+
+
 def test_rule_override_bout_forces_subsystem_sanity(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     ctx = coc_story_director.build_director_context(
@@ -564,6 +858,22 @@ def test_generate_plan_has_required_fields(tmp_path):
                 "handoff", "rationale"]
     for field in required:
         assert field in plan, f"missing {field}"
+
+
+def test_generate_plan_player_style_includes_repetition_compression_policy(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="style-policy")
+    style = plan["narrative_directives"]["player_facing_style"]
+
+    policy = style["repetition_policy"]
+    assert policy["established_fact_mode"] == "compress"
+    assert policy["repeat_foreign_dialogue"] == "summarize_unless_new_information"
+    assert "semantic_repetition" in style["avoid"]
 
 
 def test_generate_plan_fumble_handoff_narration(tmp_path):

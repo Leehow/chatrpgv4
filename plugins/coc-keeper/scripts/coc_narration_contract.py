@@ -18,6 +18,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from coc_narration_style import player_facing_style_contract as _player_facing_style_contract
+
 ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT",
            "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]
 HORROR_STAGES = {"ordinary", "wrongness", "pattern", "revelation"}
@@ -25,19 +31,7 @@ HORROR_STAGES = {"ordinary", "wrongness", "pattern", "revelation"}
 
 def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
     """Return narrator-facing style constraints for player-visible prose."""
-    if language == "zh-Hans":
-        return {
-            "language": "zh-Hans",
-            "register": "natural_tabletop_narration",
-            "avoid": ["translationese", "ai_summary_voice", "log_style_summary"],
-            "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
-        }
-    return {
-        "language": language,
-        "register": "natural_tabletop_narration",
-        "avoid": ["ai_summary_voice", "log_style_summary"],
-        "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
-    }
+    return _player_facing_style_contract(language)
 
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
@@ -115,17 +109,72 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
     if isinstance(style, dict):
         avoid = set(style.get("avoid", []) or [])
         prefer = set(style.get("prefer", []) or [])
-        required_avoid = {"ai_summary_voice", "log_style_summary"}
+        policy = style.get("repetition_policy") or {}
+        guard = style.get("style_guard") or {}
+        render_contract = style.get("render_contract") or {}
+        required_avoid = {
+            "ai_summary_voice",
+            "log_style_summary",
+            "semantic_repetition",
+            "abstract_psychological_explanation",
+        }
         if style.get("language") == "zh-Hans":
             required_avoid.add("translationese")
-        required_prefer = {"short_sentences", "open_ended_prompt"}
+        required_prefer = {"short_sentences", "observable_behavior", "open_ended_prompt"}
+        required_guard_rules = {
+            "observable_before_interpretation",
+            "rewrite_abstract_explanation_to_action",
+            "crisis_scene_clarity",
+        }
+        required_render_slots = {
+            "viewpoint_anchor",
+            "spatial_anchor",
+            "active_motion",
+            "connection_or_force",
+            "risk_progression",
+            "visible_affordance",
+            "player_entry",
+        }
         missing_avoid = sorted(required_avoid - avoid)
         missing_prefer = sorted(required_prefer - prefer)
-        style_ok = bool(style.get("register")) and not missing_avoid and not missing_prefer
+        missing_guard_rules = sorted(required_guard_rules - set(guard.get("required_rules", []) or []))
+        missing_render_slots = sorted(
+            required_render_slots - set(render_contract.get("required_slots", []) or [])
+        )
+        policy_ok = (
+            isinstance(policy, dict)
+            and policy.get("established_fact_mode") == "compress"
+            and policy.get("repeat_foreign_dialogue") == "summarize_unless_new_information"
+        )
+        guard_ok = (
+            isinstance(guard, dict)
+            and not missing_guard_rules
+            and guard.get("not_for") == ["scene_routing", "storylet_selection", "rules_adjudication"]
+        )
+        render_contract_ok = (
+            isinstance(render_contract, dict)
+            and render_contract.get("frame_type") == "crisis_scene_render"
+            and not missing_render_slots
+            and render_contract.get("player_visible_must_not") == [
+                "slot_labels",
+                "expository_choice_summary",
+                "if_then_option_dump",
+            ]
+        )
+        style_ok = (
+            bool(style.get("register"))
+            and not missing_avoid
+            and not missing_prefer
+            and policy_ok
+            and guard_ok
+            and render_contract_ok
+        )
         detail = (
             f"player_facing_style language={style.get('language')!r} "
             f"register={style.get('register')!r} missing_avoid={missing_avoid} "
-            f"missing_prefer={missing_prefer}"
+            f"missing_prefer={missing_prefer} repetition_policy_ok={policy_ok} "
+            f"missing_guard_rules={missing_guard_rules} style_guard_ok={guard_ok} "
+            f"missing_render_slots={missing_render_slots} render_contract_ok={render_contract_ok}"
         )
     else:
         style_ok = False

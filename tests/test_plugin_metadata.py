@@ -349,6 +349,16 @@ def test_keeper_play_documents_live_story_bridge_for_manual_campaigns():
     assert "must still run through `build_director_context`" in keeper_skill
 
 
+def test_keeper_play_documents_scene_progress_governor():
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+
+    assert "`logs/scene-progress.jsonl`" in keeper_skill
+    assert "`narrative_directives.scene_progress`" in keeper_skill
+    assert "Bridge and transition scenes must have a progress contract" in keeper_skill
+    assert "same-axis" in keeper_skill
+    assert "environment check" in keeper_skill
+
+
 def test_keeper_play_lists_reusable_investigators_before_character_creation():
     keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
 
@@ -365,6 +375,78 @@ def test_keeper_play_requires_player_created_investigators_for_starter_scenarios
     assert "built-in starter scenarios must not auto-select pre-generated investigators" in keeper_skill
     assert "AI may draft a complete investigator only after the player asks for auto-creation" in keeper_skill
     assert "player-safe background briefing" in keeper_skill
+
+
+def test_keeper_play_requires_semantic_repetition_compression():
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+
+    assert "Compress repeated semantic facts" in keeper_skill
+    assert "communicates the same" in keeper_skill
+    assert "adds no new information" in keeper_skill
+    assert "Repetition is judged" in keeper_skill
+    assert "semantically, not by exact words" in keeper_skill
+
+
+def test_keeper_play_requires_observable_behavior_before_inner_state_explanation():
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+
+    assert "Show observable behavior before interpretation" in keeper_skill
+    assert "Do not explain NPC mental state with abstract summary sentences" in keeper_skill
+    assert "observable action, voice, posture, gaze, hesitation, or physical evidence" in keeper_skill
+
+
+def test_keeper_play_requires_crisis_scene_clarity_rendering():
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+
+    assert "Crisis scene clarity" in keeper_skill
+    assert "Use blocking as an internal drafting frame, not as player-visible prose" in keeper_skill
+    assert "viewpoint, spatial anchor, active motion, connection or force, risk progression, visible affordance, and player entry" in keeper_skill
+    assert "Do not render crisis beats as" in keeper_skill
+
+
+def test_keeper_play_documents_npc_social_role_persona_layer():
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+
+    assert "NPC Social Role & Persona Layer" in keeper_skill
+    assert "Do not branch on concrete occupation, title, name, or keyword text" in keeper_skill
+    assert "`save/npc-state.json`" in keeper_skill
+    assert "`logs/npc-agency.jsonl`" in keeper_skill
+    assert "authority_scope, responsibility_domains, chain_of_command, duty_pressure, initiative_style, and delegation_policy" in keeper_skill
+
+
+def test_keeper_play_documents_npc_genesis_pipeline_and_debug_logs():
+    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+
+    assert "NPC Genesis Pipeline" in keeper_skill
+    assert "`logs/npc-generation.jsonl`" in keeper_skill
+    assert "`logs/npc-stat-upgrade.jsonl`" in keeper_skill
+    assert "LLM-generated names are presentation data" in keeper_skill
+    assert "Do not generate full mechanical stats for every passerby" in keeper_skill
+
+
+def test_npc_runtime_rule_files_are_indexed_and_generic():
+    rules_dir = PLUGIN_ROOT / "references" / "rules-json"
+    core_tags = json.loads((rules_dir / "npc-core-tags.json").read_text())
+    stat_archetypes = json.loads((rules_dir / "npc-stat-archetypes.json").read_text())
+    rule_index = json.loads((rules_dir / "rule-index.json").read_text())
+    indexed = {rule["source_table"] for rule in rule_index["rules"] if "source_table" in rule}
+
+    assert "npc-stat-archetypes.json" in indexed
+    for category in [
+        "demographic",
+        "body",
+        "voice",
+        "temperament",
+        "values",
+        "competence",
+        "stress_response",
+        "social_mask",
+        "habit",
+        "relationship_seed",
+        "secret_posture",
+    ]:
+        assert category in core_tags["categories"]
+    assert stat_archetypes["archetypes"]
 
 
 def test_design_blueprint_documents_play_language_and_localized_terms():

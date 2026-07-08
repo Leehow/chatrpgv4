@@ -127,6 +127,57 @@ def test_enrich_director_plan_adds_storylet_moves_with_conflict_control():
     assert enriched["narrative_directives"]["storylet_moves"][0]["source"] == "storylet-library.json"
 
 
+def test_enrichment_reports_story_need_and_candidate_deck():
+    plan = {
+        "decision_id": "d-storylet-scheduler",
+        "scene_action": "REVEAL",
+        "pacing_mode": "investigation",
+        "clue_policy": {"reveal": ["clue-doorframe"]},
+        "rules_requests": [],
+        "npc_moves": [],
+        "narrative_directives": {"horror_escalation_stage": "wrongness"},
+        "handoff": "narration",
+        "rule_signals": {"tension_clock": {"tension_level": "low"}},
+    }
+    ctx = {
+        "active_scene": {
+            "scene_id": "archive",
+            "scene_type": "investigation",
+            "available_clues": ["clue-doorframe"],
+            "tone": ["dust"],
+        },
+        "player_intent_rich": {"action_atoms": []},
+        "world_state": {"discovered_clue_ids": []},
+        "threat_fronts": {"fronts": []},
+        "structure_type": "branching_investigation",
+        "module_meta": {"content_flags": []},
+        "storylet_library": {"storylets": [{
+            "storylet_id": "right-clue",
+            "family_id": "clue_delivery",
+            "trope_id": "misfiled_record",
+            "conflict_level": "low",
+            "base_weight": 1,
+            "scene_actions": ["REVEAL"],
+            "eligible_scene_types": ["investigation"],
+            "horror_stage": ["wrongness"],
+            "story_functions": ["clue_delivery"],
+            "deck_tags": ["clue_delivery", "investigation"],
+            "requires": {"unrevealed_clue": True},
+            "serves": {"mainline": True, "can_reveal_clue": True},
+            "cue": "线索换一种方式出现。",
+        }]},
+        "storylet_policy": {"conflict_level": "low", "seed": "scheduler", "force_storylet": True},
+        "turn_number": 4,
+    }
+
+    enriched = narr.enrich_director_plan(plan, ctx)
+
+    scheduler = enriched["narrative_enrichment"]["storylet_scheduler"]
+    assert scheduler["story_need"]["need_id"] == "clue_delivery"
+    assert "clue_delivery" in scheduler["candidate_decks"]
+    assert enriched["storylet_moves"][0]["story_need"]["need_id"] == "clue_delivery"
+
+
 def _storylet_gate_plan(action="DEEPEN"):
     return {
         "decision_id": "d-storylet-gate",
@@ -170,6 +221,26 @@ def _storylet_gate_library():
             "requires": {"npc_id": False, "unrevealed_clue": False, "active_front": False},
             "serves": {"mainline": True, "theme": True, "can_surface_choice": True},
             "cue": "失误立刻把调查员暴露在新的麻烦里。",
+            "story_functions": ["complication"],
+            "deck_tags": ["complication", "failure_consequence"],
+            "trigger_polarity": ["negative"],
+        },
+        {
+            "storylet_id": "high-enemy-fumble-opportunity",
+            "family_id": "enemy_fumble_opportunity",
+            "trope_id": "enemy_overextends",
+            "conflict_level": "high",
+            "base_weight": 10,
+            "scene_actions": ["SUBSYSTEM", "PRESSURE", "DEEPEN"],
+            "eligible_scene_types": ["investigation"],
+            "scene_tags": ["wrongness"],
+            "horror_stage": ["wrongness", "pattern"],
+            "requires": {"npc_id": False, "unrevealed_clue": False, "active_front": False},
+            "serves": {"mainline": True, "theme": True, "can_surface_choice": True},
+            "cue": "敌人的失手暴露出一个短暂而危险的机会。",
+            "story_functions": ["opportunity"],
+            "deck_tags": ["opportunity", "critical_success"],
+            "trigger_polarity": ["positive"],
         },
     ]}
 
@@ -216,6 +287,27 @@ def test_fumble_after_rules_triggers_high_conflict_storylet():
     assert enriched["storylet_moves"][0]["target_conflict_level"] == "high"
     assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "fumble"
     assert enriched["narrative_enrichment"]["storylet_trigger"]["polarity"] == "negative"
+
+
+def test_npc_fumble_after_rules_triggers_positive_high_conflict_storylet():
+    plan = narr.enrich_director_plan(_storylet_gate_plan("SUBSYSTEM"), _storylet_gate_ctx("restrain"))
+    plan["rules_results"] = [{
+        "kind": "npc_attack",
+        "actor_role": "npc",
+        "skill": "Fighting (Bayonet)",
+        "roll": 97,
+        "target": 40,
+        "outcome": "fumble",
+        "stakes": "敌人乱刺露出破绽",
+    }]
+
+    enriched = narr.enrich_storylets_after_rules(plan, _storylet_gate_ctx("restrain"))
+
+    assert enriched["storylet_moves"]
+    assert enriched["storylet_moves"][0]["target_conflict_level"] == "high"
+    assert enriched["storylet_moves"][0]["storylet_id"] == "high-enemy-fumble-opportunity"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "fumble"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["polarity"] == "positive"
 
 
 def test_extreme_success_does_not_trigger_special_storylet_by_itself():

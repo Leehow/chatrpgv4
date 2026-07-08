@@ -392,6 +392,16 @@ def _rule_signals(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def _result_polarity_for_outcome(result: dict[str, Any], default: str) -> str:
+    explicit = _non_empty_str(result.get("polarity") or result.get("storylet_polarity"))
+    if explicit in {"positive", "negative", "neutral"}:
+        return explicit
+    actor_role = str(result.get("actor_role") or result.get("source_role") or "").strip().lower()
+    if actor_role in {"npc", "enemy", "opponent", "adversary", "monster"}:
+        return "positive" if default == "negative" else "negative"
+    return default
+
+
 def _has_active_npc_reaction(plan: dict[str, Any]) -> bool:
     for move in _as_list(plan.get("npc_moves")):
         if isinstance(move, dict) and move.get("active_reactions"):
@@ -440,11 +450,12 @@ def infer_storylet_trigger(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[st
     for result in _rule_results_for_trigger(plan, ctx):
         outcome = _normalized_outcome(result.get("outcome"))
         if outcome in _FUMBLE_OUTCOMES or outcome == "fumble":
+            polarity = _result_polarity_for_outcome(result, "negative")
             return {
                 "schema_version": _SCHEMA_VERSION,
                 "triggered": True,
                 "reason": "fumble",
-                "polarity": "negative",
+                "polarity": polarity,
                 "conflict_level": "high",
                 "source": "rules_results",
                 "roll": result.get("roll"),
@@ -454,11 +465,12 @@ def infer_storylet_trigger(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[st
     for result in _rule_results_for_trigger(plan, ctx):
         outcome = _normalized_outcome(result.get("outcome"))
         if outcome in _CRITICAL_OUTCOMES or outcome == "critical":
+            polarity = _result_polarity_for_outcome(result, "positive")
             return {
                 "schema_version": _SCHEMA_VERSION,
                 "triggered": True,
                 "reason": "critical_success",
-                "polarity": "positive",
+                "polarity": polarity,
                 "conflict_level": "high",
                 "source": "rules_results",
                 "roll": result.get("roll"),
@@ -541,6 +553,21 @@ def _storylet_selection_context(ctx: dict[str, Any], trigger: dict[str, Any]) ->
     return selection_ctx
 
 
+def _storylet_scheduler_state(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any] | None:
+    if coc_storylets is None or not hasattr(coc_storylets, "infer_story_need"):
+        return None
+    try:
+        story_need = coc_storylets.infer_story_need(plan, ctx)
+    except Exception:
+        return None
+    return {
+        "schema_version": _SCHEMA_VERSION,
+        "story_need": story_need,
+        "candidate_decks": story_need.get("candidate_decks", []),
+        "source": "coc_storylets.infer_story_need",
+    }
+
+
 def _apply_storylet_state(enriched: dict[str, Any], storylet_moves: list[dict[str, Any]], trigger: dict[str, Any]) -> None:
     enriched["storylet_moves"] = storylet_moves
     nd = enriched.setdefault("narrative_directives", {})
@@ -561,6 +588,7 @@ def _update_enrichment_summary(
     chain_requests: list[dict[str, Any]] | None = None,
     npc_reactions: list[dict[str, Any]] | None = None,
     storylet_trigger: dict[str, Any] | None = None,
+    storylet_scheduler: dict[str, Any] | None = None,
     incident_moves: list[dict[str, Any]] | None = None,
 ) -> None:
     summary = enriched.setdefault("narrative_enrichment", {})
@@ -572,6 +600,8 @@ def _update_enrichment_summary(
         summary["npc_reactions"] = sum(len(m.get("active_reactions", []) or []) for m in npc_reactions)
     if storylet_trigger is not None:
         summary["storylet_trigger"] = storylet_trigger
+    if storylet_scheduler is not None:
+        summary["storylet_scheduler"] = storylet_scheduler
     storylet_moves = [m for m in _as_list(enriched.get("storylet_moves")) if isinstance(m, dict)]
     summary["storylet_moves"] = len(storylet_moves)
     summary["conflict_level"] = storylet_moves[0]["target_conflict_level"] if storylet_moves else None
@@ -595,6 +625,9 @@ def enrich_storylets_after_rules(plan: dict[str, Any], ctx: dict[str, Any]) -> d
         return enriched
 
     selection_ctx = _storylet_selection_context(ctx, trigger)
+    scheduler = _storylet_scheduler_state(enriched, selection_ctx)
+    if scheduler is not None:
+        selection_ctx["story_need"] = scheduler["story_need"]
     storylet_moves = coc_storylets.select_storylet_moves(
         enriched,
         selection_ctx,
@@ -602,7 +635,7 @@ def enrich_storylets_after_rules(plan: dict[str, Any], ctx: dict[str, Any]) -> d
         max_storylets=int((selection_ctx.get("storylet_policy") or {}).get("max_storylets", 1) or 1),
     )
     _apply_storylet_state(enriched, storylet_moves, trigger)
-    _update_enrichment_summary(enriched, storylet_trigger=trigger)
+    _update_enrichment_summary(enriched, storylet_trigger=trigger, storylet_scheduler=scheduler)
     return enriched
 
 
@@ -647,8 +680,12 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
 
     storylet_trigger = infer_storylet_trigger(enriched, ctx)
     storylet_moves: list[dict[str, Any]] = []
+    storylet_scheduler: dict[str, Any] | None = None
     if coc_storylets is not None and storylet_trigger.get("triggered"):
         selection_ctx = _storylet_selection_context(ctx, storylet_trigger)
+        storylet_scheduler = _storylet_scheduler_state(enriched, selection_ctx)
+        if storylet_scheduler is not None:
+            selection_ctx["story_need"] = storylet_scheduler["story_need"]
         storylet_moves = coc_storylets.select_storylet_moves(
             enriched,
             selection_ctx,
@@ -670,6 +707,7 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
         chain_requests=chain_requests,
         npc_reactions=npc_reactions,
         storylet_trigger=storylet_trigger,
+        storylet_scheduler=storylet_scheduler,
         incident_moves=incident_moves,
     )
     return enriched

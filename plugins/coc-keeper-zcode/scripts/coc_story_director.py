@@ -27,6 +27,8 @@ def _load_sibling(name: str, filename: str):
 
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_mythos = _load_sibling("coc_mythos", "coc_mythos.py")
+coc_narration_style = _load_sibling("coc_narration_style", "coc_narration_style.py")
+coc_npc_persona = _load_sibling("coc_npc_persona", "coc_npc_persona.py")
 
 coc_time = None
 try:
@@ -40,6 +42,20 @@ try:
 except Exception:
     coc_memory = None  # memory layer optional; director degrades gracefully
 
+_NON_PLAYER_ROLL_ROLES = {"npc", "enemy", "opponent", "adversary", "monster"}
+_SCENE_PROGRESS_KEYS = (
+    "scene_kind",
+    "scene_tags",
+    "authority_demands",
+    "responsibility_threats",
+    "progress_contract",
+    "source_event_type",
+    "location_tags",
+    "module_id",
+    "era",
+)
+_BRIDGE_SCENE_KINDS = {"bridge", "transition", "travel", "transit"}
+
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
     if not path.exists():
@@ -47,22 +63,28 @@ def _read_json(path: Path, fallback: Any = None) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _roll_payload_is_player_side(payload: dict[str, Any]) -> bool:
+    role = str(payload.get("actor_role") or payload.get("source_role") or "").strip().lower()
+    if role in _NON_PLAYER_ROLL_ROLES:
+        return False
+    return True
+
+
 def _read_last_roll_outcome(campaign_dir: Path) -> str | None:
-    """Read the outcome of the last roll in logs/rolls.jsonl. Returns None if no rolls."""
+    """Read the last player-side roll outcome. Returns None if no rolls."""
     rolls_path = campaign_dir / "logs" / "rolls.jsonl"
     if not rolls_path.exists():
         return None
-    last_line = None
-    for line in rolls_path.read_text(encoding="utf-8").splitlines():
+    for line in reversed(rolls_path.read_text(encoding="utf-8").splitlines()):
         if line.strip():
-            last_line = line
-    if last_line is None:
-        return None
-    try:
-        record = json.loads(last_line)
-        return record.get("payload", {}).get("outcome")
-    except (json.JSONDecodeError, AttributeError):
-        return None
+            try:
+                record = json.loads(line)
+                payload = record.get("payload", {})
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            if isinstance(payload, dict) and _roll_payload_is_player_side(payload):
+                return payload.get("outcome")
+    return None
 
 
 def _text_or_none(value: Any) -> str | None:
@@ -112,12 +134,56 @@ def _choice_affordance(choice: Any, index: int) -> dict[str, Any] | None:
     }
 
 
+def _visible_affordance(affordance: Any, index: int) -> dict[str, Any] | None:
+    if isinstance(affordance, dict):
+        cue = _text_or_none(
+            affordance.get("cue")
+            or affordance.get("player_visible_cue")
+            or affordance.get("summary")
+            or affordance.get("text")
+            or affordance.get("action")
+        )
+        if not cue:
+            return None
+        route_id = _text_or_none(
+            affordance.get("id") or affordance.get("route_id") or affordance.get("route")
+        ) or f"live-visible-{index}"
+        return {
+            "id": route_id,
+            "route_type": affordance.get("route_type", "live_visible_affordance"),
+            "cue": _short_text(cue, 80),
+            "promise": affordance.get("promise") or affordance.get("visible_benefit"),
+            "cost": affordance.get("cost") or affordance.get("visible_cost"),
+            "risk": affordance.get("risk") or affordance.get("visible_risk"),
+            "source": "save.active-scene.visible_affordances",
+        }
+    cue = _text_or_none(affordance)
+    if not cue:
+        return None
+    return {
+        "id": f"live-visible-{index}",
+        "route_type": "live_visible_affordance",
+        "cue": _short_text(cue, 80),
+        "promise": "推进当前场景",
+        "source": "save.active-scene.visible_affordances",
+    }
+
+
 def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: dict[str, Any]) -> list[dict[str, Any]]:
     affordances: list[dict[str, Any]] = []
     pending = active_scene_state.get("pending_choices")
     if isinstance(pending, list):
         for index, choice in enumerate(pending, start=1):
             route = _choice_affordance(choice, index)
+            if route is not None:
+                affordances.append(route)
+            if len(affordances) >= 3:
+                break
+
+    visible = active_scene_state.get("visible_affordances")
+    if isinstance(visible, list):
+        for index, affordance in enumerate(visible, start=1):
+            route = _visible_affordance(affordance, index)
             if route is not None:
                 affordances.append(route)
             if len(affordances) >= 3:
@@ -161,6 +227,54 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
     return deduped[:3]
 
 
+def _merge_live_active_scene(
+    compiled_scene: dict[str, Any],
+    active_scene_state: dict[str, Any],
+    scenario_doc: dict[str, Any],
+) -> dict[str, Any]:
+    """Overlay live save affordances onto the compiled scene without changing plot data."""
+    if not active_scene_state:
+        return compiled_scene
+    merged = dict(compiled_scene)
+    if active_scene_state.get("summary"):
+        merged["live_summary"] = active_scene_state.get("summary")
+
+    live_affordances = _live_scene_affordances(active_scene_state, scenario_doc)
+    existing = [
+        affordance for affordance in (merged.get("affordances") or [])
+        if isinstance(affordance, dict)
+    ]
+    combined: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for affordance in existing + live_affordances:
+        key = str(affordance.get("id") or affordance.get("route_id") or affordance.get("cue") or "")
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        combined.append(affordance)
+    if combined:
+        merged["affordances"] = combined[:6]
+
+    for key in ("npc_ids", "pressure_moves"):
+        live_value = active_scene_state.get(key)
+        if not isinstance(live_value, list) or not live_value:
+            continue
+        current = list(merged.get(key) or [])
+        for item in live_value:
+            if item not in current:
+                current.append(item)
+        merged[key] = current
+
+    for key in _SCENE_PROGRESS_KEYS:
+        live_value = active_scene_state.get(key)
+        if live_value not in (None, [], {}):
+            merged[key] = live_value
+
+    merged["source"] = "live-story-bridge.merged-active-scene"
+    return merged
+
+
 def _runtime_scene_from_live_state(
     active_scene_state: dict[str, Any],
     world: dict[str, Any],
@@ -192,6 +306,11 @@ def _runtime_scene_from_live_state(
         "allowed_improvisation": active_scene_state.get("allowed_improvisation", []),
         "affordances": _live_scene_affordances(active_scene_state, scenario_doc),
         "excluded_storylet_tropes": active_scene_state.get("excluded_storylet_tropes", ["animal_instinct"]),
+        **{
+            key: active_scene_state[key]
+            for key in _SCENE_PROGRESS_KEYS
+            if active_scene_state.get(key) not in (None, [], {})
+        },
         "source": "live-story-bridge.active-scene",
     }
 
@@ -208,6 +327,8 @@ def _story_graph_with_live_fallback(
     if world_scene_id:
         active_scene = next((s for s in scenes if s.get("scene_id") == world_scene_id), None)
         if active_scene is not None:
+            active_scene = _merge_live_active_scene(active_scene, active_scene_state, scenario_doc)
+            scenes = [active_scene if s.get("scene_id") == world_scene_id else s for s in scenes]
             story_graph["scenes"] = scenes
             return story_graph, world_scene_id, active_scene
 
@@ -215,6 +336,8 @@ def _story_graph_with_live_fallback(
     if live_scene_id:
         active_scene = next((s for s in scenes if s.get("scene_id") == live_scene_id), None)
         if active_scene is not None:
+            active_scene = _merge_live_active_scene(active_scene, active_scene_state, scenario_doc)
+            scenes = [active_scene if s.get("scene_id") == live_scene_id else s for s in scenes]
             story_graph["scenes"] = scenes
             return story_graph, live_scene_id, active_scene
 
@@ -359,6 +482,8 @@ def build_director_context(
         "story_graph": story_graph,
         "clue_graph": _read_json(scenario / "clue-graph.json", {"conclusions": []}),
         "npc_agendas": _read_json(scenario / "npc-agendas.json", {"npcs": []}),
+        "npc_state": _read_json(save / "npc-state.json", {"schema_version": 1, "npcs": {}}),
+        "npc_state_writes": [],
         "threat_fronts": _read_json(scenario / "threat-fronts.json", {"fronts": []}),
         "pacing_map": _read_json(scenario / "pacing-map.json", {"pacing_curve": []}),
         "improvisation_boundaries": _read_json(scenario / "improvisation-boundaries.json", {}),
@@ -411,6 +536,7 @@ _LOW_AGENCY_CONTINUE_TAGS = {
     "move_with_group",
     "passive_follow",
 }
+_SOCIAL_REVEAL_DELIVERY_KINDS = {"npc_dialogue", "social"}
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -455,20 +581,90 @@ def _scene_pressure_available(ctx: dict[str, Any]) -> bool:
     return bool(scene.get("pressure_moves"))
 
 
-def _player_facing_style(language: str = "zh-Hans") -> dict[str, Any]:
-    if language == "zh-Hans":
-        return {
-            "language": "zh-Hans",
-            "register": "natural_tabletop_narration",
-            "avoid": ["translationese", "ai_summary_voice", "log_style_summary"],
-            "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
-        }
+def _progress_contract(scene: dict[str, Any]) -> dict[str, Any]:
+    contract = scene.get("progress_contract")
+    return dict(contract) if isinstance(contract, dict) else {}
+
+
+def _positive_int(value: Any, default: int = 1) -> int:
+    try:
+        return max(1, int(value or default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _is_bridge_scene(scene: dict[str, Any]) -> bool:
+    contract = _progress_contract(scene)
+    kind = str(contract.get("kind") or scene.get("scene_kind") or scene.get("scene_type") or "")
+    if kind in _BRIDGE_SCENE_KINDS:
+        return True
+    return scene.get("source_event_type") == "scene_transition"
+
+
+def _bridge_low_agency_exhausted(ctx: dict[str, Any]) -> bool:
+    scene = ctx.get("active_scene") or {}
+    if not _is_bridge_scene(scene):
+        return False
+    if _scene_pressure_available(ctx):
+        return False
+    if _available_reveal_clues(ctx):
+        return False
+    contract = _progress_contract(scene)
+    max_turns_int = _positive_int(contract.get("max_low_agency_turns"), 1)
+    return int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 0) or 0) > max_turns_int
+
+
+def _bridge_transition_override(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    if not _bridge_low_agency_exhausted(ctx):
+        return None
+    scene = ctx.get("active_scene") or {}
+    contract = _progress_contract(scene)
+    action = str(contract.get("fallback_action") or "MONTAGE").upper()
+    if action not in {"MONTAGE", "CUT"}:
+        action = "MONTAGE"
     return {
-        "language": language,
-        "register": "natural_tabletop_narration",
-        "avoid": ["ai_summary_voice", "log_style_summary"],
-        "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
+        "scene_action": action,
+        "handoff": "narration",
+        "rationale": "low-agency bridge scene exhausted; force transition to next actionable beat",
+        "scene_progress": {
+            "schema_version": 1,
+            "action": "force_transition",
+            "reason": "low_agency_bridge_exhausted",
+            "scene_kind": (
+                contract.get("kind")
+                or scene.get("scene_kind")
+                or ("live_transition" if scene.get("source_event_type") == "scene_transition" else scene.get("scene_type"))
+            ),
+            "low_agency_continue_count": int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 0) or 0),
+            "max_low_agency_turns": _positive_int(contract.get("max_low_agency_turns"), 1),
+            "exit_directive": contract.get("exit_directive")
+                or "Resolve this bridge briefly and cut to the next meaningful decision point.",
+            "fallback_action": action,
+        },
     }
+
+
+def _clue_supports_social_reveal(clue_id: str, clue_graph: dict[str, Any]) -> bool:
+    clue = _find_clue(clue_id, clue_graph)
+    if clue is None:
+        return False
+    delivery_kind = clue.get("delivery_kind")
+    return isinstance(delivery_kind, str) and delivery_kind in _SOCIAL_REVEAL_DELIVERY_KINDS
+
+
+def _available_reveal_clues(ctx: dict[str, Any], intent: str | None = None) -> list[str]:
+    scene = ctx.get("active_scene") or {}
+    discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
+    available = [c for c in scene.get("available_clues", []) if c not in discovered]
+    intent = intent or str(ctx.get("player_intent_class") or "")
+    if intent == "social":
+        clue_graph = ctx.get("clue_graph", {})
+        return [cid for cid in available if _clue_supports_social_reveal(cid, clue_graph)]
+    return available
+
+
+def _player_facing_style(language: str = "zh-Hans") -> dict[str, Any]:
+    return coc_narration_style.player_facing_style_contract(language)
 
 
 def _clock_segments(clock: dict, key: str, default: int = 0) -> int:
@@ -492,7 +688,7 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
     discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
 
     if action == "REVEAL":
-        avail = [c for c in scene.get("available_clues", []) if c not in discovered]
+        avail = _available_reveal_clues(ctx, intent)
         if not avail:
             return 0.0
         if intent == "investigate":
@@ -617,6 +813,9 @@ def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
     if sig["last_roll_fumble"]:
         return {"scene_action": "PRESSURE", "handoff": "narration",
                 "rationale": "fumble forces immediate misfortune, cannot be pushed off"}
+    bridge_override = _bridge_transition_override(ctx)
+    if bridge_override is not None:
+        return bridge_override
     if sig.get("low_agency_continue_count", 0) >= 2 and sig.get("scene_pressure_available", False):
         return {"scene_action": "PRESSURE", "handoff": "narration",
                 "rationale": "repeated low-agency continuation yields initiative to authored scene pressure"}
@@ -835,7 +1034,7 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     """
     scene = ctx.get("active_scene") or {}
     discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
-    available = [c for c in scene.get("available_clues", []) if c not in discovered]
+    available = _available_reveal_clues(ctx)
     secrets = ctx.get("improvisation_boundaries", {}).get("keeper_secrets", [])
     clue_graph = ctx.get("clue_graph", {})
 
@@ -953,10 +1152,50 @@ def _disposition_to_tone(disposition: str) -> str:
             "hostile": "cold and suspicious"}.get(disposition, "neutral")
 
 
+def _npc_is_forced_adversary(agenda: dict[str, Any]) -> bool:
+    # Only trust structured/semantic fields produced upstream. Do not infer
+    # hostility from free-text agenda wording here; that belongs in semantic
+    # compilation, not keyword scans inside the deterministic director.
+    relation = str(agenda.get("relationship_to_investigators") or "").lower()
+    if relation in {"adversary", "enemy", "hostile", "monster", "danger"}:
+        return True
+    if agenda.get("hostile_by_default") is True:
+        return True
+    return False
+
+
+def _npc_default_tone(agenda: dict[str, Any]) -> str:
+    if _npc_is_forced_adversary(agenda):
+        if agenda.get("fear"):
+            return "panicked and hostile"
+        return "hostile"
+    return "neutral"
+
+
+def _should_roll_npc_reaction(action: str, agenda: dict[str, Any]) -> bool:
+    if action != "CHARACTER":
+        return False
+    return not _npc_is_forced_adversary(agenda)
+
+
 def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
     """Activate NPCs in scene with agenda + disposition from rule signal."""
     scene = ctx.get("active_scene") or {}
     agendas = ctx.get("npc_agendas", {}).get("npcs", [])
+    seed_parts = [
+        (ctx.get("world_state") or {}).get("campaign_id", "campaign"),
+        ctx.get("active_scene_id") or scene.get("scene_id") or "scene",
+        ctx.get("turn_number", 0),
+    ]
+    agency_bundle = coc_npc_persona.build_scene_npc_agency(
+        scene,
+        {"npcs": agendas},
+        ctx.get("npc_state", {}),
+        seed_parts=seed_parts,
+        player_intent_rich=ctx.get("player_intent_rich"),
+    )
+    ctx["npc_state_writes"] = agency_bundle.get("npc_state_writes", [])
+    agency_by_npc = agency_bundle.get("by_npc", {})
     moves = []
     for npc_id in scene.get("npc_ids", []):
         agenda = next((n for n in agendas if n["npc_id"] == npc_id), None)
@@ -966,7 +1205,7 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
             app=ctx["rule_signals"].get("app", 50),
             credit_rating=ctx["rule_signals"].get("credit_rating", 50),
             rng=ctx["rng"],
-        ) if action == "CHARACTER" else None
+        ) if _should_roll_npc_reaction(action, agenda) else None
         if reaction is not None and ctx["rule_signals"].get("npc_reaction_roll") is None:
             # Hold the FIRST rolled NPC reaction on the shared rule_signal so the
             # emitted plan reflects at least one reaction (generate_director_plan
@@ -975,9 +1214,13 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
         moves.append({
             "npc_id": npc_id,
             "agenda": agenda.get("agenda", ""),
-            "emotional_tone": _disposition_to_tone(reaction["disposition"]) if reaction else "neutral",
+            "emotional_tone": _disposition_to_tone(reaction["disposition"]) if reaction else _npc_default_tone(agenda),
             "secret_limit": f"do not reveal: {', '.join(agenda.get('secret', '').split()[:3])}" if agenda.get("secret") else "",
             "disposition_source": "rule_signal:npc_reaction_roll" if reaction else None,
+            "relationship_to_investigators": agenda.get("relationship_to_investigators"),
+            "social_role": (agency_by_npc.get(npc_id) or {}).get("persona_card", {}).get("social_role"),
+            "persona": (agency_by_npc.get(npc_id) or {}).get("persona_card", {}).get("persona"),
+            "agency_moves": (agency_by_npc.get(npc_id) or {}).get("agency_moves", []),
         })
     return moves
 
@@ -1158,6 +1401,14 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     # emitted plan (Spec v1.1 gap #1: obvious clues should not roll Spot Hidden).
     clue_policy = _select_clue_policy(ctx, action)
     rules_requests = _build_rules_requests(ctx, action, clue_policy)
+    npc_moves = _build_npc_moves(ctx, action)
+    npc_agency_requests: list[dict[str, Any]] = []
+    for move in npc_moves:
+        npc_agency_requests.extend(
+            coc_npc_persona.rules_requests_from_agency_moves(move.get("agency_moves", []))
+        )
+    if npc_agency_requests:
+        rules_requests.extend(npc_agency_requests)
 
     handoff = "narration"
     subsystem = None
@@ -1202,6 +1453,8 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "content_constraints": ctx.get("module_meta", {}).get("content_flags", []),
         "player_facing_style": _player_facing_style(),
     }
+    if overrides and isinstance(overrides.get("scene_progress"), dict):
+        narrative_directives["scene_progress"] = overrides["scene_progress"]
 
     # v2: populate memory_reads from the memory layer. PAYOFF actions mark the
     # card use as PAYOFF (recalled payoff); everything else is TONE color.
@@ -1232,7 +1485,8 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "time_signals": ctx.get("time_signals", {}),
         "time_advance": time_advance,
         "clue_policy": clue_policy,
-        "npc_moves": _build_npc_moves(ctx, action),
+        "npc_moves": npc_moves,
+        "npc_state_writes": ctx.get("npc_state_writes", []),
         "pressure_moves": pressure_moves,
         "rules_requests": rules_requests,
         "memory_reads": memory_reads,

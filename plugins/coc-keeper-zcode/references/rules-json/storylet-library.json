@@ -98,7 +98,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation"
+      ]
     },
     {
       "storylet_id": "low-npc-small-lie",
@@ -184,7 +196,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "low-room-too-clean",
@@ -271,7 +295,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation"
+      ]
     },
     {
       "storylet_id": "low-repeated-phrase",
@@ -360,7 +396,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "low-animal-refuses",
@@ -449,7 +495,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "low-clerk-hesitates",
@@ -535,7 +591,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "low-missing-ordinary-object",
@@ -622,7 +690,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation"
+      ]
     },
     {
       "storylet_id": "low-wrong-smell",
@@ -711,7 +791,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "low-friendly-warning",
@@ -797,7 +887,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "low-schedule-pressure",
@@ -885,7 +987,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "low-echo-of-last-scene",
@@ -974,7 +1087,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "low-npc-wants-price",
@@ -1060,7 +1183,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "low-object-misfiled",
@@ -1147,7 +1282,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation"
+      ]
     },
     {
       "storylet_id": "low-distant-observer",
@@ -1234,7 +1381,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "low-unreliable-rumor",
@@ -1321,7 +1480,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation"
+      ]
     },
     {
       "storylet_id": "low-safe-place-hairline",
@@ -1410,7 +1581,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "medium-witness-loses-nerve",
@@ -1499,7 +1680,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "medium-authority-block",
@@ -1597,7 +1790,21 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "complication",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "complication",
+        "failure_consequence",
+        "pressure",
+        "scene_pressure"
+      ]
     },
     {
       "storylet_id": "medium-evidence-contaminated",
@@ -1686,7 +1893,23 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery",
+        "complication"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation",
+        "complication",
+        "failure_consequence",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "medium-local-argument",
@@ -1775,7 +1998,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "medium-shadowing-tightens",
@@ -1864,7 +2099,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "medium-false-lead-price",
@@ -1953,7 +2200,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation"
+      ]
     },
     {
       "storylet_id": "medium-rival-asks-first",
@@ -2043,7 +2302,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "medium-place-closes",
@@ -2133,7 +2403,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "medium-npc-asks-protection",
@@ -2222,7 +2503,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "medium-public-wrongness",
@@ -2311,7 +2604,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "medium-resource-drained",
@@ -2401,7 +2706,21 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "complication",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "complication",
+        "failure_consequence",
+        "pressure",
+        "scene_pressure"
+      ]
     },
     {
       "storylet_id": "medium-private-note",
@@ -2490,7 +2809,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation"
+      ]
     },
     {
       "storylet_id": "medium-npc-betrays-small",
@@ -2579,7 +2910,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "medium-memory-trigger",
@@ -2670,7 +3013,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "medium-suspect-arrives",
@@ -2760,7 +3113,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "medium-clock-visible",
@@ -2849,7 +3213,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "high-witness-in-danger",
@@ -2938,7 +3314,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "high-location-locked-down",
@@ -3028,7 +3416,21 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "complication",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "complication",
+        "failure_consequence",
+        "pressure",
+        "scene_pressure"
+      ]
     },
     {
       "storylet_id": "high-evidence-about-to-burn",
@@ -3122,7 +3524,23 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery",
+        "complication"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation",
+        "complication",
+        "failure_consequence",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "high-enemy-tests-boundary",
@@ -3211,7 +3629,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "high-ally-disappears",
@@ -3300,7 +3730,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "high-public-incident",
@@ -3389,7 +3831,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "high-chase-seed",
@@ -3479,7 +3933,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "high-moral-hostage",
@@ -3569,7 +4034,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "high-sanity-echo",
@@ -3660,7 +4136,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "high-front-hits-resource",
@@ -3754,7 +4240,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "high-npc-forced-choice",
@@ -3843,7 +4341,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "high-mythos-near-miss",
@@ -3934,7 +4444,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "high-police-or-mob",
@@ -4024,7 +4544,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "high-critical-clue-price",
@@ -4118,7 +4649,133 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery",
+        "opportunity"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation",
+        "opportunity",
+        "critical_success",
+        "payoff"
+      ]
+    },
+    {
+      "storylet_id": "high-enemy-overextends",
+      "title": "敌人过度伸展",
+      "family_id": "opponent_error_window",
+      "trope_id": "enemy_overextends",
+      "conflict_level": "high",
+      "conflict_score": 3,
+      "base_weight": 1.16,
+      "trigger_polarity": [
+        "positive",
+        "mixed"
+      ],
+      "dramatic_function": [
+        "SUBSYSTEM",
+        "PRESSURE",
+        "CHARACTER",
+        "CHOICE"
+      ],
+      "scene_actions": [
+        "SUBSYSTEM",
+        "PRESSURE",
+        "CHARACTER",
+        "CHOICE"
+      ],
+      "scope": "scene",
+      "structure_affinity": [
+        "linear_acts",
+        "time_loop",
+        "branching_investigation",
+        "hub_sandbox",
+        "multi_faction",
+        "campaign_sequel",
+        "hybrid_mega"
+      ],
+      "eligible_scene_types": [
+        "investigation",
+        "exploration",
+        "social",
+        "combat",
+        "chase",
+        "any"
+      ],
+      "horror_stage": [
+        "wrongness",
+        "pattern",
+        "revelation"
+      ],
+      "scene_tags": [],
+      "requires": {
+        "npc_id": true,
+        "unrevealed_clue": false,
+        "active_front": false
+      },
+      "serves": {
+        "mainline": true,
+        "can_reveal_clue": false,
+        "can_tick_front": false,
+        "can_deepen_npc": true,
+        "can_surface_choice": true
+      },
+      "anti_repeat": {
+        "cooldown_turns": 8,
+        "max_per_session": 1,
+        "exclude_if_family_used_recently": true,
+        "exclude_if_trope_used_recently": true
+      },
+      "cue": "对手的失误让一个短暂机会暴露出来。",
+      "beat": "把大成功或敌方大失败转成可立即利用的现场机会，而不是凭空新增线索。",
+      "effects": {
+        "narrative_move": "把大成功或敌方大失败转成可立即利用的现场机会，而不是凭空新增线索。",
+        "clue_handling": "No new clue; use as a tactical, social, or escape opportunity anchored to the bound NPC.",
+        "pressure": "No automatic clock tick.",
+        "choice": "Surface as a visible route, cost, or dilemma rather than a menu."
+      },
+      "variants": {
+        "opportunity_1d6": [
+          "武器、工具或手臂离开了最危险的位置。",
+          "对方重心短暂失衡，身边的人能趁机压上。",
+          "对方暴露出害怕、犹豫或疼痛的一瞬。",
+          "一条退路、遮蔽物或控制距离的办法突然变得可用。",
+          "附近 NPC 看见了这个破绽，等待调查员一句命令。",
+          "危险仍在，但主动权短暂回到调查员手里。"
+        ],
+        "cost_1d6": [
+          "机会只持续一息。",
+          "把握机会会让场面更吵。",
+          "把握机会会让某件证物或痕迹被踩乱。",
+          "有人必须承担近身风险。",
+          "若犹豫，敌人会重新站稳。",
+          "机会需要立刻选择是救人、夺械、追击还是撤离。"
+        ]
+      },
+      "narration_directive": "把事件绑定到当前 NPC、现场位置或玩家刚刚声明的目标；只改变机会和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure",
+        "opportunity"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "opportunity",
+        "critical_success",
+        "payoff"
+      ]
     },
     {
       "storylet_id": "high-countdown-accelerates",
@@ -4207,7 +4864,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "high-escape-route-compromised",
@@ -4297,7 +4966,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "climax-clock-breaks",
@@ -4387,7 +5067,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "climax-false-victory",
@@ -4479,7 +5171,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "climax-final-offer",
@@ -4570,7 +5272,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "climax-save-one-route",
@@ -4661,7 +5374,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "climax-truth-costs-safe-place",
@@ -4753,7 +5477,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "climax-ally-reveals-limit",
@@ -4843,7 +5577,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "climax-front-shows-hand",
@@ -4933,7 +5679,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "climax-route-collapse",
@@ -5024,7 +5782,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "climax-last-clue-under-fire",
@@ -5114,7 +5883,23 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery",
+        "complication"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation",
+        "complication",
+        "failure_consequence",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "climax-mythos-manifestation",
@@ -5206,7 +5991,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     },
     {
       "storylet_id": "climax-scapegoat-ready",
@@ -5297,7 +6092,21 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "complication",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "complication",
+        "failure_consequence",
+        "pressure",
+        "scene_pressure"
+      ]
     },
     {
       "storylet_id": "climax-bargain-with-evidence",
@@ -5387,7 +6196,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "clue_delivery"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "clue_delivery",
+        "clue_reinforcement",
+        "investigation"
+      ]
     },
     {
       "storylet_id": "climax-npc-breaks-script",
@@ -5477,7 +6298,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "character_beat",
+        "choice_pressure"
+      ],
+      "deck_tags": [
+        "character_beat",
+        "npc",
+        "relationship",
+        "choice_pressure",
+        "choice",
+        "route_cost"
+      ]
     },
     {
       "storylet_id": "climax-public-reality-crack",
@@ -5567,7 +6400,19 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "front_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "front_pressure",
+        "pressure",
+        "threat_front"
+      ]
     },
     {
       "storylet_id": "climax-final-exit-cost",
@@ -5658,7 +6503,18 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "choice_pressure",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "choice_pressure",
+        "choice",
+        "route_cost",
+        "scene_pressure",
+        "pressure"
+      ]
     },
     {
       "storylet_id": "climax-aftermath-mark",
@@ -5750,7 +6606,17 @@
           "威胁只露出症状，不解释来源。"
         ]
       },
-      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。"
+      "narration_directive": "把事件绑定到当前场景、NPC、线索或威胁前沿；只改变呈现和代价，不改写模组真相。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
     }
   ]
 }

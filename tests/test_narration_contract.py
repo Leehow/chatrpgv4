@@ -46,12 +46,7 @@ def _good_plan(secrets=None):
             "must_not_reveal": list(secrets),
             "improvisation_allowed": [],
             "horror_escalation_stage": "wrongness",
-            "player_facing_style": {
-                "language": "zh-Hans",
-                "register": "natural_tabletop_narration",
-                "avoid": ["translationese", "ai_summary_voice", "log_style_summary"],
-                "prefer": ["short_sentences", "concrete_sensory_detail", "open_ended_prompt"],
-            },
+            "player_facing_style": cnc.player_facing_style_contract("zh-Hans"),
         },
         "clue_policy": {"reveal": ["clue-public-1"], "withhold": list(secrets),
                         "fallback_routes": [], "clue_type": "obscured"},
@@ -174,6 +169,21 @@ def test_missing_player_facing_style_fails_check(tmp_path):
 
     assert findings["player_facing_style_present"]["passed"] is False
     assert "player_facing_style" in findings["player_facing_style_present"]["detail"]
+
+
+def test_player_facing_style_contract_includes_repetition_compression_policy():
+    style = cnc.player_facing_style_contract("zh-Hans")
+
+    policy = style["repetition_policy"]
+    assert policy["established_fact_mode"] == "compress"
+    assert policy["repeat_foreign_dialogue"] == "summarize_unless_new_information"
+    assert "semantic_repetition" in style["avoid"]
+    assert "abstract_psychological_explanation" in style["avoid"]
+    assert "observable_behavior" in style["prefer"]
+    assert "observable_before_interpretation" in style["style_guard"]["required_rules"]
+    assert "crisis_scene_clarity" in style["style_guard"]["required_rules"]
+    assert style["render_contract"]["frame_type"] == "crisis_scene_render"
+    assert "connection_or_force" in style["render_contract"]["required_slots"]
 
 
 def test_secret_id_extraction_handles_id_description_format(tmp_path):

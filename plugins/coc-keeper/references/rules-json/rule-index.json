@@ -860,6 +860,24 @@
         "damage": "10D6",
         "entity_not_immune": true
       }
+    },
+    {
+      "id": "core.npc.persona_tags",
+      "category": "npc_agency",
+      "source_table": "npc-core-tags.json",
+      "source_note": "Generic NPC persona tag categories for player-visible behavior. Scenario data may weight these tags; core code consumes only abstract tag ids."
+    },
+    {
+      "id": "core.npc.social_roles",
+      "category": "npc_agency",
+      "source_table": "npc-social-roles.json",
+      "source_note": "Generic social duty templates for NPC authority, responsibility, initiative, and delegation behavior."
+    },
+    {
+      "id": "core.npc.stat_archetypes",
+      "category": "npc_agency",
+      "source_table": "npc-stat-archetypes.json",
+      "source_note": "Generic mechanical stat archetypes used only when an NPC silhouette is promoted into a rules-facing actor."
     }
   ]
 }

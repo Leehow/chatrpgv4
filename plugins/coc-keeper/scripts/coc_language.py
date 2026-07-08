@@ -7,6 +7,200 @@ from typing import Any
 
 DEFAULT_PLAY_LANGUAGE = "zh-Hans"
 
+_LANGUAGE_ALIASES = {
+    "de": "german",
+    "de-de": "german",
+    "german": "german",
+    "德语": "german",
+    "it": "italian",
+    "it-it": "italian",
+    "italian": "italian",
+    "意大利语": "italian",
+    "la": "latin",
+    "latin": "latin",
+    "拉丁语": "latin",
+    "en": "english",
+    "en-us": "english",
+    "en-gb": "english",
+    "english": "english",
+    "英语": "english",
+    "fi": "finnish",
+    "finnish": "finnish",
+    "芬兰语": "finnish",
+    "sv": "swedish",
+    "swedish": "swedish",
+    "瑞典语": "swedish",
+}
+
+
+def _normalize_language_name(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return _LANGUAGE_ALIASES.get(text, text)
+
+
+def _language_name_from_skill_key(skill_key: str) -> tuple[str | None, bool]:
+    key = str(skill_key or "").strip()
+    if not key:
+        return None, False
+
+    prefixes = (
+        ("Language (Own:", True),
+        ("Language (Other:", False),
+        ("Other Language (", False),
+    )
+    for prefix, is_own in prefixes:
+        if key.startswith(prefix) and key.endswith(")"):
+            return key[len(prefix):-1].strip(), is_own
+
+    if key.startswith("Language (") and key.endswith(")"):
+        body = key[len("Language ("):-1].strip()
+        if body == "Own":
+            return None, True
+        if body == "Other":
+            return None, False
+        return body, False
+
+    return None, False
+
+
+def language_skill_for_source(
+    investigator: dict[str, Any] | None,
+    source_language: str | None,
+) -> dict[str, Any]:
+    """Read an investigator's structured language skill for a source language."""
+    target = _normalize_language_name(source_language)
+    skills = (investigator or {}).get("skills") or {}
+    best = {
+        "source_language": source_language,
+        "skill_key": None,
+        "skill_value": 0,
+        "native": False,
+    }
+    if not target:
+        return best
+
+    for skill_key, raw_value in skills.items():
+        language_name, is_own = _language_name_from_skill_key(skill_key)
+        if _normalize_language_name(language_name) != target:
+            continue
+        try:
+            value = int(raw_value or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value >= int(best["skill_value"]):
+            best = {
+                "source_language": source_language,
+                "skill_key": skill_key,
+                "skill_value": value,
+                "native": bool(is_own and value > 0),
+            }
+    return best
+
+
+def dialogue_comprehension_tier(skill_value: int, *, native: bool = False) -> str:
+    if native or skill_value >= 50:
+        return "fluent"
+    if skill_value >= 20:
+        return "partial"
+    if skill_value >= 1:
+        return "gist"
+    return "none"
+
+
+def _foreign_dialogue_visible_text_zh(
+    source_text: str,
+    tier: str,
+    *,
+    translation: str | None = None,
+    partial_translation: str | None = None,
+    gist: str | None = None,
+) -> tuple[str, str | None, bool]:
+    quoted = f"“{source_text}”"
+    if tier == "none":
+        return (
+            f"{quoted}\n你听不懂具体意思，只能从语气、表情和动作判断情绪。",
+            None,
+            False,
+        )
+    if tier == "gist":
+        if gist:
+            return f"{quoted}\n你只能抓到零碎意思：{gist}", gist, False
+        return f"{quoted}\n你只听出几个零碎词，意思仍很不稳。", None, False
+    if tier == "partial":
+        if partial_translation:
+            return f"{quoted}\n你大概听出：{partial_translation}", partial_translation, True
+        if gist:
+            return f"{quoted}\n你大概听出一部分：{gist}，但细节仍不稳。", gist, False
+        return f"{quoted}\n你大概听懂了一部分，但细节仍不稳。", None, False
+    if translation:
+        return f"{quoted}\n你听懂了：{translation}", translation, True
+    return f"{quoted}\n你听懂了这句话。", None, False
+
+
+def render_foreign_dialogue_for_investigator(
+    *,
+    source_text: str,
+    source_language: str,
+    investigator: dict[str, Any] | None,
+    translation: str | None = None,
+    partial_translation: str | None = None,
+    gist: str | None = None,
+    play_language: str = DEFAULT_PLAY_LANGUAGE,
+) -> dict[str, Any]:
+    """Render NPC dialogue through the investigator's structured language skill.
+
+    This helper does not translate source text. It only decides whether a
+    Keeper/semantic layer supplied translation, partial translation, or gist is
+    player-visible for this investigator.
+    """
+    skill = language_skill_for_source(investigator, source_language)
+    skill_value = int(skill["skill_value"])
+    tier = dialogue_comprehension_tier(skill_value, native=bool(skill["native"]))
+
+    if play_language == "zh-Hans":
+        visible_text, understood_text, translation_visible = _foreign_dialogue_visible_text_zh(
+            source_text,
+            tier,
+            translation=translation,
+            partial_translation=partial_translation,
+            gist=gist,
+        )
+    else:
+        quoted = f"\"{source_text}\""
+        if tier == "none":
+            visible_text, understood_text, translation_visible = (
+                f"{quoted}\nYou do not understand the exact words; only tone and body language carry through.",
+                None,
+                False,
+            )
+        elif tier == "gist":
+            understood_text = gist
+            visible_text = f"{quoted}\nYou catch only fragments: {gist}" if gist else f"{quoted}\nYou catch only fragments."
+            translation_visible = False
+        elif tier == "partial":
+            understood_text = partial_translation or gist
+            visible_text = (
+                f"{quoted}\nYou roughly make out: {understood_text}"
+                if understood_text else f"{quoted}\nYou understand part of it, but not reliably."
+            )
+            translation_visible = bool(partial_translation)
+        else:
+            understood_text = translation
+            visible_text = f"{quoted}\nYou understand: {translation}" if translation else f"{quoted}\nYou understand the sentence."
+            translation_visible = bool(translation)
+
+    return {
+        "source_language": source_language,
+        "source_text": source_text,
+        "skill_key": skill["skill_key"],
+        "skill_value": skill_value,
+        "native": skill["native"],
+        "comprehension": tier,
+        "understood_text": understood_text,
+        "translation_visible": translation_visible,
+        "visible_text": visible_text,
+    }
+
 BASE_REPORT_LABELS = {
     "roll_sentence": "- {skill}: {actor} rolled {roll} vs {target} -> {outcome}",
     "die_roll_sentence": "- {skill}: {actor} rolled {die} = {roll} ({breakdown}) -> {outcome}",

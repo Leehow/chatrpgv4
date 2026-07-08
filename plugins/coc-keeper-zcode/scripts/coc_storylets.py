@@ -26,6 +26,19 @@ _DEFAULT_SERVE_KEYS = {
     "can_surface_choice", "can_offer_recovery", "theme",
 }
 
+_NEED_DECKS: dict[str, list[str]] = {
+    "clue_delivery": ["clue_delivery", "clue_reinforcement", "investigation"],
+    "front_pressure": ["front_pressure", "pressure", "threat_front"],
+    "scene_pressure": ["scene_pressure", "pressure"],
+    "character_beat": ["character_beat", "npc", "relationship"],
+    "choice_pressure": ["choice_pressure", "choice", "route_cost"],
+    "recovery_redirection": ["recovery_redirection", "recovery", "clue_redirection"],
+    "complication": ["complication", "failure_consequence", "pressure"],
+    "opportunity": ["opportunity", "critical_success", "payoff"],
+    "transition_bridge": ["transition_bridge", "return_hook"],
+    "theme_echo": ["theme_echo", "ambience"],
+}
+
 
 def _as_list(value: Any) -> list[Any]:
     if value is None:
@@ -69,6 +82,95 @@ def normalize_storylet_ledger(ledger: dict[str, Any] | None) -> dict[str, Any]:
     ledger.setdefault("used_targets", [])
     ledger.setdefault("turn_number", 0)
     return ledger
+
+
+def _has_pressure_tick(plan: dict[str, Any]) -> bool:
+    for move in _as_list(plan.get("pressure_moves")):
+        if not isinstance(move, dict):
+            continue
+        try:
+            if int(move.get("tick", 0) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _active_npc_reactions(plan: dict[str, Any]) -> bool:
+    for move in _as_list(plan.get("npc_moves")):
+        if isinstance(move, dict) and move.get("active_reactions"):
+            return True
+    return False
+
+
+def infer_story_need(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    """Infer the story function that should be served before rolling a card.
+
+    This is the scheduler layer: it decides whether the current event window
+    needs clue delivery, front pressure, character life, recovery, etc. The
+    weighted storylet roll then happens only inside matching decks.
+    """
+    policy = ctx.get("storylet_policy") or {}
+    explicit = _non_empty_str(policy.get("story_need") or policy.get("need_id"))
+    if explicit:
+        decks = list(dict.fromkeys(_as_list(policy.get("candidate_decks")) or _NEED_DECKS.get(explicit, [explicit])))
+        return {
+            "schema_version": _SCHEMA_VERSION,
+            "need_id": explicit,
+            "story_functions": [explicit],
+            "candidate_decks": decks,
+            "reason": "storylet_policy",
+            "source": "story_need_scheduler",
+        }
+
+    trigger = ctx.get("storylet_trigger") or {}
+    trigger_reason = _non_empty_str(trigger.get("reason"))
+    trigger_polarity = _non_empty_str(trigger.get("polarity") or policy.get("polarity"))
+    if trigger_reason == "fumble" and trigger_polarity == "positive":
+        need_id = "opportunity"
+        reason = "fumble_positive"
+    elif trigger_reason in {"fumble", "risky_failure"}:
+        need_id = "complication"
+        reason = trigger_reason
+    elif trigger_reason == "critical_success":
+        need_id = "opportunity"
+        reason = trigger_reason
+    else:
+        action = plan.get("scene_action")
+        signals = (ctx.get("rule_signals") or {}) | (plan.get("rule_signals") or {})
+        if action == "REVEAL" and _available_clues(plan, ctx):
+            need_id = "clue_delivery"
+            reason = "director_reveal"
+        elif action == "RECOVER" or int(signals.get("stalled_turns", 0) or 0) >= 3:
+            need_id = "recovery_redirection"
+            reason = "recovery_or_stall"
+        elif action == "PRESSURE" and ((ctx.get("threat_fronts") or {}).get("fronts") or _has_pressure_tick(plan)):
+            need_id = "front_pressure"
+            reason = "director_pressure"
+        elif action == "PRESSURE" or _has_scene_pressure(ctx):
+            need_id = "scene_pressure"
+            reason = "scene_pressure"
+        elif action == "CHARACTER" or _active_npc_reactions(plan):
+            need_id = "character_beat"
+            reason = "npc_or_character_action"
+        elif action == "CHOICE":
+            need_id = "choice_pressure"
+            reason = "choice_frame"
+        elif action == "CUT" or plan.get("scene_transition"):
+            need_id = "transition_bridge"
+            reason = "scene_transition"
+        else:
+            need_id = "theme_echo"
+            reason = "default_theme_echo"
+
+    return {
+        "schema_version": _SCHEMA_VERSION,
+        "need_id": need_id,
+        "story_functions": [need_id],
+        "candidate_decks": list(_NEED_DECKS.get(need_id, [need_id])),
+        "reason": reason,
+        "source": "story_need_scheduler",
+    }
 
 
 def infer_conflict_level(plan: dict[str, Any], ctx: dict[str, Any]) -> str:
@@ -115,6 +217,75 @@ def _storylet_serves_scenario(storylet: dict[str, Any]) -> bool:
     if not isinstance(serves, dict):
         return False
     return any(bool(serves.get(key)) for key in _DEFAULT_SERVE_KEYS)
+
+
+def _storylet_story_functions(storylet: dict[str, Any]) -> set[str]:
+    explicit = set()
+    for key in ("story_functions", "story_function", "storylet_functions", "plot_functions"):
+        for value in _as_list(storylet.get(key)):
+            text = _non_empty_str(value)
+            if text:
+                explicit.add(text)
+    if explicit:
+        return explicit
+
+    serves = storylet.get("serves") or {}
+    req = storylet.get("requires") or {}
+    inferred: set[str] = set()
+    controlled_ids = " ".join(
+        str(storylet.get(key) or "").lower()
+        for key in ("storylet_id", "family_id", "trope_id")
+    )
+    if "fumble" in controlled_ids or "complication" in controlled_ids:
+        inferred.add("complication")
+    if "critical" in controlled_ids or "opportunity" in controlled_ids:
+        inferred.add("opportunity")
+    if isinstance(serves, dict):
+        if serves.get("can_reveal_clue"):
+            inferred.add("clue_delivery")
+        if serves.get("can_tick_front"):
+            inferred.add("front_pressure")
+        if serves.get("can_deepen_npc"):
+            inferred.add("character_beat")
+        if serves.get("can_surface_choice"):
+            inferred.add("choice_pressure")
+        if serves.get("can_offer_recovery"):
+            inferred.add("recovery_redirection")
+        if serves.get("theme"):
+            inferred.add("theme_echo")
+    if req.get("scene_pressure") is True:
+        inferred.add("scene_pressure")
+    return inferred
+
+
+def _storylet_deck_tags(storylet: dict[str, Any]) -> set[str]:
+    tags: set[str] = set()
+    for key in ("deck_id", "deck", "deck_tags", "decks", "storylet_deck"):
+        for value in _as_list(storylet.get(key)):
+            text = _non_empty_str(value)
+            if text:
+                tags.add(text)
+    for function in _storylet_story_functions(storylet):
+        tags.update(_NEED_DECKS.get(function, [function]))
+    return tags
+
+
+def _matching_deck_id(storylet: dict[str, Any], story_need: dict[str, Any]) -> str | None:
+    needed_functions = set(_as_list(story_need.get("story_functions")))
+    if story_need.get("need_id"):
+        needed_functions.add(str(story_need["need_id"]))
+    candidate_decks = set(_as_list(story_need.get("candidate_decks")))
+    storylet_functions = _storylet_story_functions(storylet)
+    deck_tags = _storylet_deck_tags(storylet)
+
+    function_match = storylet_functions & needed_functions
+    deck_match = deck_tags & candidate_decks
+    if not function_match and not deck_match:
+        return None
+    for deck in _as_list(story_need.get("candidate_decks")):
+        if deck in deck_tags:
+            return str(deck)
+    return next(iter(sorted(function_match or deck_match)), None)
 
 
 def _scene_type(ctx: dict[str, Any]) -> str | None:
@@ -245,6 +416,7 @@ def _has_current_scene_anchor(storylet: dict[str, Any], plan: dict[str, Any], ct
 def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[str, Any], target_level: str) -> bool:
     policy = ctx.get("storylet_policy") or {}
     scene = ctx.get("active_scene") or {}
+    story_need = ctx.get("story_need") or infer_story_need(plan, ctx)
     if storylet.get("storylet_id") in set(_as_list(scene.get("excluded_storylet_ids"))):
         return False
     if storylet.get("family_id") in set(_as_list(scene.get("excluded_storylet_families"))):
@@ -301,6 +473,8 @@ def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[s
         return False
 
     if not policy.get("allow_unanchored_storylets") and not _has_current_scene_anchor(storylet, plan, ctx):
+        return False
+    if not policy.get("ignore_story_need") and _matching_deck_id(storylet, story_need) is None:
         return False
 
     return _requirements_met(storylet, plan, ctx)
@@ -362,6 +536,19 @@ def _weighted_pick(scored: list[tuple[dict[str, Any], float]], rng: random.Rando
         if acc >= threshold:
             return storylet
     return scored[-1][0] if scored else None
+
+
+def _trace_storylet_ref(storylet: dict[str, Any], reason: str | None = None) -> dict[str, Any]:
+    ref = {
+        "storylet_id": storylet.get("storylet_id"),
+        "family_id": storylet.get("family_id"),
+        "trope_id": storylet.get("trope_id"),
+        "story_functions": sorted(_storylet_story_functions(storylet)),
+        "deck_tags": sorted(_storylet_deck_tags(storylet)),
+    }
+    if reason:
+        ref["reason"] = reason
+    return ref
 
 
 def _roll_variants(storylet: dict[str, Any], rng: random.Random) -> dict[str, Any]:
@@ -448,15 +635,44 @@ def select_storylet_moves(
     ledger = normalize_storylet_ledger(ledger or ctx.get("storylet_ledger"))
     target_level = infer_conflict_level(plan, ctx)
     policy = ctx.get("storylet_policy") or {}
+    story_need = ctx.get("story_need") or infer_story_need(plan, ctx)
+    selection_ctx = {**ctx, "story_need": story_need}
     storylets = [s for s in library.get("storylets", []) or [] if isinstance(s, dict)]
 
+    trace = {
+        "schema_version": _SCHEMA_VERSION,
+        "storylet_trigger": ctx.get("storylet_trigger"),
+        "story_need": story_need,
+        "candidate_decks": story_need.get("candidate_decks", []),
+        "target_conflict_level": target_level,
+        "candidate_counts": {
+            "library_total": len(storylets),
+            "after_context_filter": 0,
+            "after_story_need_filter": 0,
+            "after_anti_repeat": 0,
+        },
+        "rejected_examples": [],
+        "selected": None,
+    }
+
     scored: list[tuple[dict[str, Any], float]] = []
+    context_policy = {**policy, "ignore_story_need": True}
+    context_ctx = {**selection_ctx, "storylet_policy": context_policy}
     for storylet in storylets:
-        if not _matches_context(storylet, plan, ctx, target_level):
+        if not _matches_context(storylet, plan, context_ctx, target_level):
             continue
-        score = _score_storylet(storylet, plan, ctx, ledger, target_level)
+        trace["candidate_counts"]["after_context_filter"] += 1
+        if _matching_deck_id(storylet, story_need) is None:
+            if len(trace["rejected_examples"]) < 5:
+                trace["rejected_examples"].append(_trace_storylet_ref(storylet, "deck_mismatch"))
+            continue
+        trace["candidate_counts"]["after_story_need_filter"] += 1
+        score = _score_storylet(storylet, plan, selection_ctx, ledger, target_level)
         if score > 0:
+            trace["candidate_counts"]["after_anti_repeat"] += 1
             scored.append((storylet, score))
+        elif len(trace["rejected_examples"]) < 5:
+            trace["rejected_examples"].append(_trace_storylet_ref(storylet, "anti_repeat"))
     scored.sort(key=lambda pair: (pair[1], pair[0].get("storylet_id", "")), reverse=True)
 
     rng = random.Random(_stable_int_seed(seed or policy.get("seed", "storylet"), ctx.get("turn_number", 0), plan.get("decision_id"), plan.get("scene_action"), target_level))
@@ -466,8 +682,13 @@ def select_storylet_moves(
         pick = _weighted_pick(scored, rng)
         if not pick:
             break
-        bound = _bind_storylet(pick, plan, {**ctx, "storylet_ledger": working_ledger}, rng)
+        bound = _bind_storylet(pick, plan, {**selection_ctx, "storylet_ledger": working_ledger}, rng)
         rolled = _roll_variants(pick, rng)
+        deck_id = _matching_deck_id(pick, story_need)
+        selected_ref = _trace_storylet_ref(pick)
+        selected_ref["deck_id"] = deck_id
+        selected_ref["score"] = next((score for storylet, score in scored if storylet is pick), None)
+        trace["selected"] = selected_ref
         move = {
             "schema_version": _SCHEMA_VERSION,
             "storylet_id": pick.get("storylet_id"),
@@ -483,12 +704,17 @@ def select_storylet_moves(
             "bound_entities": bound,
             "rolled_variants": rolled,
             "serves": _serve_list(pick),
+            "story_need": story_need,
+            "deck_id": deck_id,
+            "candidate_decks": story_need.get("candidate_decks", []),
+            "scheduler_trace": trace,
             "effects": pick.get("effects", {}),
             "narration_directive": pick.get("narration_directive") or "Bind this beat to the active scenario node; do not introduce a new core truth.",
             "anti_repeat": pick.get("anti_repeat", {}),
             "source": "storylet-library.json",
         }
         move["ledger_update"] = project_ledger_update(working_ledger, move)
+        move["scheduler_trace"]["ledger_update"] = move["ledger_update"]
         moves.append(move)
         working_ledger = move["ledger_update"]
         scored = [(s, sc) for s, sc in scored if s.get("storylet_id") != pick.get("storylet_id")]

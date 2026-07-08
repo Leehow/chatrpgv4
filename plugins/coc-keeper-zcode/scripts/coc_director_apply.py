@@ -52,6 +52,14 @@ try:
 except Exception:
     coc_threat_state = None
 
+coc_async_recorder = None
+try:
+    coc_async_recorder = _load_sibling("coc_async_recorder", "coc_async_recorder.py")
+except Exception:
+    coc_async_recorder = None
+
+_ACTIVE_JSONL_RECORDER = None
+
 
 def _read_json(path: Path, fallback: Any) -> Any:
     if not path.exists():
@@ -137,9 +145,161 @@ def _apply_scene_on_enter(
 
 
 def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    if _ACTIVE_JSONL_RECORDER is not None:
+        _ACTIVE_JSONL_RECORDER.append_jsonl(path, record)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _apply_npc_state_and_agency(
+    campaign_dir: Path,
+    plan: dict[str, Any],
+    investigator_id: str,
+    ts: str,
+) -> list[dict[str, Any]]:
+    """Persist NPC persona cards and write one agency audit record per move."""
+    save = campaign_dir / "save"
+    logs = campaign_dir / "logs"
+    events: list[dict[str, Any]] = []
+    state_path = save / "npc-state.json"
+    state = _read_json(state_path, {"schema_version": 1, "npcs": {}})
+    if not isinstance(state.get("npcs"), dict):
+        state["npcs"] = {}
+
+    changed = False
+    for card in plan.get("npc_state_writes", []) or []:
+        if not isinstance(card, dict):
+            continue
+        npc_id = card.get("npc_id")
+        if not npc_id:
+            continue
+        state["npcs"][str(npc_id)] = card
+        changed = True
+        generation_log = card.get("generation_log")
+        if isinstance(generation_log, dict):
+            record = {
+                "schema_version": 1,
+                "decision_id": plan.get("decision_id"),
+                "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
+                "scene_id": (plan.get("turn_input") or {}).get("active_scene_id"),
+                "investigator_id": investigator_id,
+                "ts": ts,
+                **generation_log,
+            }
+            events.append(record)
+            _append_jsonl(logs / "npc-generation.jsonl", record)
+            _append_jsonl(logs / "events.jsonl", record)
+
+    for upgrade in plan.get("npc_stat_upgrades", []) or []:
+        if not isinstance(upgrade, dict):
+            continue
+        card = upgrade.get("card")
+        if not isinstance(card, dict):
+            continue
+        npc_id = upgrade.get("npc_id") or card.get("npc_id")
+        if not npc_id:
+            continue
+        state["npcs"][str(npc_id)] = card
+        changed = True
+        raw_log = upgrade.get("log")
+        if isinstance(raw_log, dict):
+            record = {
+                "schema_version": 1,
+                "decision_id": plan.get("decision_id"),
+                "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
+                "scene_id": (plan.get("turn_input") or {}).get("active_scene_id"),
+                "investigator_id": investigator_id,
+                "ts": ts,
+                **raw_log,
+            }
+            events.append(record)
+            _append_jsonl(logs / "npc-stat-upgrade.jsonl", record)
+            _append_jsonl(logs / "events.jsonl", record)
+    if changed:
+        _write_json(state_path, state)
+
+    for move in plan.get("npc_moves", []) or []:
+        if not isinstance(move, dict):
+            continue
+        npc_id = move.get("npc_id")
+        for agency_move in move.get("agency_moves", []) or []:
+            if not isinstance(agency_move, dict):
+                continue
+            record = {
+                "schema_version": 1,
+                "event_type": "npc_agency",
+                "decision_id": plan.get("decision_id"),
+                "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
+                "scene_id": (plan.get("turn_input") or {}).get("active_scene_id"),
+                "npc_id": npc_id,
+                "trigger": agency_move.get("reason"),
+                "selected_move": agency_move,
+                "investigator_id": investigator_id,
+                "ts": ts,
+            }
+            events.append(record)
+            _append_jsonl(logs / "npc-agency.jsonl", record)
+            _append_jsonl(logs / "events.jsonl", record)
+    return events
+
+
+def _storylet_scheduler_record(
+    plan: dict[str, Any],
+    investigator_id: str,
+    ts: str,
+) -> dict[str, Any] | None:
+    """Build one audit record explaining storylet scheduler decisions."""
+    moves = [m for m in plan.get("storylet_moves", []) if isinstance(m, dict)]
+    first_trace = None
+    for move in moves:
+        trace = move.get("scheduler_trace")
+        if isinstance(trace, dict):
+            first_trace = trace
+            break
+
+    enrichment = plan.get("narrative_enrichment") or {}
+    scheduler = enrichment.get("storylet_scheduler") or {}
+    trigger = (
+        (first_trace or {}).get("storylet_trigger")
+        or enrichment.get("storylet_trigger")
+        or (plan.get("narrative_directives") or {}).get("storylet_trigger")
+    )
+    story_need = (
+        (first_trace or {}).get("story_need")
+        or scheduler.get("story_need")
+        or (moves[0].get("story_need") if moves else None)
+    )
+    if not first_trace and not trigger and not story_need and not moves:
+        return None
+
+    selected = (first_trace or {}).get("selected")
+    if selected is None and moves:
+        selected = {
+            "storylet_id": moves[0].get("storylet_id"),
+            "deck_id": moves[0].get("deck_id"),
+            "family_id": moves[0].get("family_id"),
+            "trope_id": moves[0].get("trope_id"),
+        }
+
+    return {
+        "schema_version": 1,
+        "event_type": "storylet_scheduler",
+        "decision_id": plan.get("decision_id", "unknown"),
+        "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
+        "scene_id": (plan.get("turn_input") or {}).get("active_scene_id"),
+        "scene_action": plan.get("scene_action"),
+        "investigator_id": investigator_id,
+        "ts": ts,
+        "storylet_trigger": trigger,
+        "story_need": story_need,
+        "candidate_decks": (first_trace or {}).get("candidate_decks") or scheduler.get("candidate_decks") or [],
+        "candidate_counts": (first_trace or {}).get("candidate_counts", {}),
+        "selected": selected,
+        "rejected_examples": (first_trace or {}).get("rejected_examples", []),
+        "ledger_update": (first_trace or {}).get("ledger_update") or (moves[0].get("ledger_update") if moves else {}),
+    }
 
 
 _TENSION_LADDER = ["low", "medium", "high", "climax"]
@@ -413,7 +573,50 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
     return resolved_plan
 
 
+def flush_pending_records(campaign_dir: Path, *, limit: int | None = None) -> dict[str, int]:
+    """Flush queued fast-mode recorder batches into normal JSONL logs."""
+    if coc_async_recorder is None:
+        return {"flushed_files": 0, "flushed_entries": 0, "remaining_files": 0}
+    return coc_async_recorder.flush_pending_records(campaign_dir, limit=limit)
+
+
 def apply_plan(
+    campaign_dir: Path,
+    plan: dict[str, Any],
+    investigator_id: str,
+    rules_results: list[dict[str, Any]] | None = None,
+    recording_mode: str | None = None,
+) -> list[dict[str, Any]]:
+    """Apply a DirectorPlan with sync or fast queued JSONL recording.
+
+    Default sync mode preserves legacy behavior. Fast/minimal mode keeps save
+    state updates synchronous but queues verbose JSONL records under
+    logs/pending-turns for a recorder worker or later flush.
+    """
+    global _ACTIVE_JSONL_RECORDER
+
+    recorder = None
+    if coc_async_recorder is not None:
+        mode = coc_async_recorder.resolve_recording_mode(plan, explicit=recording_mode)
+        if mode != "sync":
+            recorder = coc_async_recorder.JsonlRecorder(
+                campaign_dir,
+                mode=mode,
+                decision_id=str(plan.get("decision_id", "unknown")),
+            )
+
+    previous_recorder = _ACTIVE_JSONL_RECORDER
+    _ACTIVE_JSONL_RECORDER = recorder
+    try:
+        events = _apply_plan_impl(campaign_dir, plan, investigator_id, rules_results)
+        if recorder is not None:
+            recorder.commit()
+        return events
+    finally:
+        _ACTIVE_JSONL_RECORDER = previous_recorder
+
+
+def _apply_plan_impl(
     campaign_dir: Path,
     plan: dict[str, Any],
     investigator_id: str,
@@ -468,7 +671,11 @@ def apply_plan(
         world["san_triggers_fired"] = fired
     _write_json(world_path, world)
 
-    # 2. pressure moves -> pacing state + events
+    # 2. NPC state writes + agency audit
+    npc_events = _apply_npc_state_and_agency(campaign_dir, plan, investigator_id, ts)
+    events.extend(npc_events)
+
+    # 3. pressure moves -> pacing state + events
     pacing_path = save / "pacing-state.json"
     pacing = _read_json(pacing_path, {"tension_level": "low", "turn_number": 0})
     pressure_moves = [*plan.get("pressure_moves", []), *extra_pressure]
@@ -513,7 +720,7 @@ def apply_plan(
                 events.append(full_ev)
                 _append_jsonl(logs / "events.jsonl", full_ev)
 
-    # 3. storylet ledger/events -> anti-repeat state for future enrichment.
+    # 4. storylet ledger/events -> anti-repeat state for future enrichment.
     storylet_moves = [m for m in plan.get("storylet_moves", []) if isinstance(m, dict)]
     if storylet_moves:
         ledger_path = save / "storylet-ledger.json"
@@ -543,7 +750,28 @@ def apply_plan(
             _append_jsonl(logs / "events.jsonl", ev)
         _write_json(ledger_path, ledger)
 
-    # 4. time advance -> world clock + triggers (coc_time layer)
+    scheduler_record = _storylet_scheduler_record(plan, investigator_id, ts)
+    if scheduler_record is not None:
+        _append_jsonl(logs / "storylet-scheduler.jsonl", scheduler_record)
+
+    scene_progress = (plan.get("narrative_directives") or {}).get("scene_progress")
+    if isinstance(scene_progress, dict):
+        progress_record = {
+            "schema_version": 1,
+            "event_type": "scene_progress_directive",
+            "decision_id": decision_id,
+            "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
+            "scene_id": (plan.get("turn_input") or {}).get("active_scene_id"),
+            "scene_action": action,
+            "investigator_id": investigator_id,
+            "ts": ts,
+            **scene_progress,
+        }
+        events.append(progress_record)
+        _append_jsonl(logs / "scene-progress.jsonl", progress_record)
+        _append_jsonl(logs / "events.jsonl", progress_record)
+
+    # 5. time advance -> world clock + triggers (coc_time layer)
     if coc_time is not None:
         time_events = coc_time.apply_time_advance_from_plan(
             campaign_dir, plan, investigator_id
@@ -552,7 +780,7 @@ def apply_plan(
         for ev in time_events:
             _append_jsonl(logs / "events.jsonl", ev)
 
-    # 5. memory writes -> cards
+    # 6. memory writes -> cards
     if coc_memory is not None:
         for i, mw in enumerate(plan.get("memory_writes", [])):
             mid = f"mem-{decision_id}-{i}"
@@ -567,7 +795,7 @@ def apply_plan(
                 source_events=[decision_id],
             )
 
-    # 6. scene transition — advance when current scene is exhausted or plan CUTs.
+    # 7. scene transition — advance when current scene is exhausted or plan CUTs.
     # The Haunting's exit_conditions are natural-language sentences that can't be
     # machine-evaluated, so we use a structural proxy: a scene is "exhausted"
     # when all its available_clues are in discovered_clue_ids. A CUT action forces
@@ -608,7 +836,7 @@ def apply_plan(
                                               investigator_id, ts, events, logs)
                         break
 
-    # 7. always emit a turn event if nothing else did
+    # 8. always emit a turn event if nothing else did
     if not events:
         ev = {"event_type": "turn", "decision_id": decision_id, "action": action,
               "investigator_id": investigator_id, "ts": ts}

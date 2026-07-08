@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "description": "Generic NPC persona tags. Scenario data maps concrete identities to these abstract tags.",
+  "categories": {
+    "demographic": [
+      {"tag": "demographic.adolescent", "weight": 1},
+      {"tag": "demographic.young_adult", "weight": 2},
+      {"tag": "demographic.adult", "weight": 3},
+      {"tag": "demographic.middle_aged", "weight": 2},
+      {"tag": "demographic.elder", "weight": 1}
+    ],
+    "body": [
+      {"tag": "body.small_frame", "weight": 1},
+      {"tag": "body.average_frame", "weight": 3},
+      {"tag": "body.tall", "weight": 1},
+      {"tag": "body.heavyset", "weight": 1},
+      {"tag": "body.wiry", "weight": 1},
+      {"tag": "body.visible_fatigue", "weight": 1}
+    ],
+    "temperament": [
+      {"tag": "temperament.cautious", "weight": 1},
+      {"tag": "temperament.impatient", "weight": 1},
+      {"tag": "temperament.protective", "weight": 1},
+      {"tag": "temperament.vain", "weight": 1},
+      {"tag": "temperament.greedy", "weight": 1},
+      {"tag": "temperament.curious", "weight": 1},
+      {"tag": "temperament.nervous", "weight": 1},
+      {"tag": "temperament.dutiful", "weight": 1}
+    ],
+    "values": [
+      {"tag": "values.order", "weight": 1},
+      {"tag": "values.profit", "weight": 1},
+      {"tag": "values.faith", "weight": 1},
+      {"tag": "values.reputation", "weight": 1},
+      {"tag": "values.family", "weight": 1},
+      {"tag": "values.truth", "weight": 1},
+      {"tag": "values.survival", "weight": 1}
+    ],
+    "competence": [
+      {"tag": "competence.combat", "weight": 1},
+      {"tag": "competence.medicine", "weight": 1},
+      {"tag": "competence.research", "weight": 1},
+      {"tag": "competence.logistics", "weight": 1},
+      {"tag": "competence.social", "weight": 1},
+      {"tag": "competence.wilderness", "weight": 1},
+      {"tag": "competence.bureaucracy", "weight": 1}
+    ],
+    "voice": [
+      {"tag": "voice.plain_spoken", "weight": 1},
+      {"tag": "voice.short_orders", "weight": 1},
+      {"tag": "voice.formal", "weight": 1},
+      {"tag": "voice.nervous_ramble", "weight": 1},
+      {"tag": "voice.soft_deflection", "weight": 1},
+      {"tag": "voice.low_volume", "weight": 1},
+      {"tag": "voice.too_loud", "weight": 1},
+      {"tag": "voice.repeats_key_word", "weight": 1}
+    ],
+    "habit": [
+      {"tag": "habit.checks_exit", "weight": 1},
+      {"tag": "habit.touches_keepsake", "weight": 1},
+      {"tag": "habit.avoids_eye_contact", "weight": 1},
+      {"tag": "habit.repeats_procedure", "weight": 1},
+      {"tag": "habit.fidgets_with_clothing", "weight": 1},
+      {"tag": "habit.counts_under_breath", "weight": 1}
+    ],
+    "stress_response": [
+      {"tag": "stress_response.command", "weight": 1},
+      {"tag": "stress_response.freeze", "weight": 1},
+      {"tag": "stress_response.seek_help", "weight": 1},
+      {"tag": "stress_response.lash_out", "weight": 1},
+      {"tag": "stress_response.bargain", "weight": 1},
+      {"tag": "stress_response.deny", "weight": 1},
+      {"tag": "stress_response.flee", "weight": 1},
+      {"tag": "stress_response.plead", "weight": 1},
+      {"tag": "stress_response.joke", "weight": 1}
+    ],
+    "social_mask": [
+      {"tag": "social_mask.polite", "weight": 1},
+      {"tag": "social_mask.evasive", "weight": 1},
+      {"tag": "social_mask.performative_confidence", "weight": 1},
+      {"tag": "social_mask.servile", "weight": 1},
+      {"tag": "social_mask.suspicious", "weight": 1}
+    ],
+    "relationship_seed": [
+      {"tag": "relationship_seed.trusts_pc", "weight": 1},
+      {"tag": "relationship_seed.resents_pc", "weight": 1},
+      {"tag": "relationship_seed.depends_on_pc", "weight": 1},
+      {"tag": "relationship_seed.fears_pc", "weight": 1},
+      {"tag": "relationship_seed.wants_use_pc", "weight": 1}
+    ],
+    "secret_posture": [
+      {"tag": "secret_posture.none", "weight": 3},
+      {"tag": "secret_posture.hiding_shame", "weight": 1},
+      {"tag": "secret_posture.hiding_crime", "weight": 1},
+      {"tag": "secret_posture.hiding_fear", "weight": 1},
+      {"tag": "secret_posture.hiding_loyalty", "weight": 1}
+    ],
+    "vulnerability": [
+      {"tag": "vulnerability.inexperienced", "weight": 1},
+      {"tag": "vulnerability.fear_of_disgrace", "weight": 1},
+      {"tag": "vulnerability.dependent_on_group", "weight": 1},
+      {"tag": "vulnerability.protects_secret", "weight": 1}
+    ]
+  }
+}

@@ -91,6 +91,109 @@ def test_apply_persists_storylet_narrative_fields_to_event_log(tmp_path):
     assert storylet_event["rolled_variants"]["sensory_detail_1d6"] == "空气里有一丝金属味。"
 
 
+def test_apply_writes_storylet_scheduler_jsonl(tmp_path):
+    camp = _campaign(tmp_path)
+    trace = {
+        "schema_version": 1,
+        "storylet_trigger": {"triggered": True, "reason": "forced", "polarity": "neutral"},
+        "story_need": {
+            "need_id": "clue_delivery",
+            "reason": "director_reveal",
+            "candidate_decks": ["clue_delivery", "investigation"],
+        },
+        "candidate_counts": {
+            "library_total": 2,
+            "after_context_filter": 2,
+            "after_story_need_filter": 1,
+            "after_anti_repeat": 1,
+        },
+        "selected": {
+            "storylet_id": "right-clue",
+            "deck_id": "clue_delivery",
+            "family_id": "clue_delivery",
+            "trope_id": "misfiled_record",
+        },
+        "rejected_examples": [{"storylet_id": "wrong-pressure", "reason": "deck_mismatch"}],
+        "ledger_update": {"recent_families": ["clue_delivery"]},
+    }
+    plan = {
+        "decision_id": "d-storylet-trace",
+        "scene_action": "REVEAL",
+        "turn_input": {"active_scene_id": "archive", "turn_number": 3},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_enrichment": {
+            "storylet_trigger": trace["storylet_trigger"],
+            "storylet_scheduler": {
+                "story_need": trace["story_need"],
+                "candidate_decks": trace["story_need"]["candidate_decks"],
+            },
+        },
+        "storylet_moves": [{
+            "storylet_id": "right-clue",
+            "family_id": "clue_delivery",
+            "trope_id": "misfiled_record",
+            "deck_id": "clue_delivery",
+            "story_need": trace["story_need"],
+            "scheduler_trace": trace,
+            "ledger_update": trace["ledger_update"],
+        }],
+    }
+
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    log_path = camp / "logs" / "storylet-scheduler.jsonl"
+    records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert len(records) == 1
+    record = records[0]
+    assert record["event_type"] == "storylet_scheduler"
+    assert record["decision_id"] == "d-storylet-trace"
+    assert record["scene_id"] == "archive"
+    assert record["story_need"]["need_id"] == "clue_delivery"
+    assert record["candidate_counts"]["after_story_need_filter"] == 1
+    assert record["selected"]["storylet_id"] == "right-clue"
+    assert record["rejected_examples"][0]["reason"] == "deck_mismatch"
+
+
+def test_apply_writes_scene_progress_jsonl(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-scene-progress",
+        "scene_action": "MONTAGE",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {"low_agency_continue_count": 2},
+        "turn_input": {"active_scene_id": "bridge-1", "player_intent_class": "move"},
+        "narrative_directives": {
+            "scene_progress": {
+                "schema_version": 1,
+                "action": "force_transition",
+                "reason": "low_agency_bridge_exhausted",
+                "scene_kind": "bridge",
+                "low_agency_continue_count": 2,
+                "max_low_agency_turns": 1,
+                "exit_directive": "cut to a meaningful decision point",
+                "fallback_action": "MONTAGE",
+            }
+        },
+    }
+
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    log_path = camp / "logs" / "scene-progress.jsonl"
+    records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert len(records) == 1
+    record = records[0]
+    assert record["event_type"] == "scene_progress_directive"
+    assert record["decision_id"] == "d-scene-progress"
+    assert record["scene_id"] == "bridge-1"
+    assert record["reason"] == "low_agency_bridge_exhausted"
+    assert record["fallback_action"] == "MONTAGE"
+
+
 def test_apply_records_recent_intent_classes(tmp_path):
     """apply_plan must append the plan's turn_input.player_intent_class to
     pacing['recent_intent_classes'] so read_stalled_turns can detect stalls.
@@ -104,6 +207,135 @@ def test_apply_records_recent_intent_classes(tmp_path):
     pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
     assert pacing["recent_intent_classes"] == ["social"]
 
+
+def test_apply_persists_npc_state_writes_and_agency_log(tmp_path):
+    camp = _campaign(tmp_path)
+    persona_card = {
+        "schema_version": 1,
+        "npc_id": "npc-authority",
+        "lifecycle": "persistent",
+        "social_role": {
+            "authority_scope": ["scene_safety"],
+            "responsibility_domains": ["group_survival"],
+            "initiative_style": "decisive",
+        },
+        "persona": {"tags": ["temperament.impatient"]},
+        "generation_log": {
+            "event_type": "npc_generation",
+            "npc_id": "npc-authority",
+            "lifecycle": "persistent",
+            "source": "scene_present_npc_missing_state",
+            "seed": "seed",
+            "inputs": {"module_id": "test"},
+            "rolls": {"temperament": {"result": "temperament.impatient"}},
+            "social_role": {
+                "authority_scope": ["scene_safety"],
+                "responsibility_domains": ["group_survival"],
+                "initiative_style": "decisive",
+            },
+            "persona": {"tags": ["temperament.impatient"]},
+            "name": {"status": "pending_llm", "value": None},
+        },
+    }
+    agency_move = {
+        "npc_id": "npc-authority",
+        "move_id": "assert_responsibility",
+        "reason": "authority_scope_matches_scene",
+        "rules_effect": {
+            "kind": "npc_assist",
+            "actor_role": "npc",
+            "bonus_dice": 1,
+            "scope": "scene_safety",
+            "reason": "controls the danger area",
+        },
+    }
+    plan = {
+        "decision_id": "d-npc",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 2},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_state_writes": [persona_card],
+        "npc_moves": [{"npc_id": "npc-authority", "agency_moves": [agency_move]}],
+    }
+
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    state = json.loads((camp / "save" / "npc-state.json").read_text())
+    assert state["npcs"]["npc-authority"]["social_role"]["authority_scope"] == ["scene_safety"]
+    records = [
+        json.loads(line)
+        for line in (camp / "logs" / "npc-agency.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert records[0]["event_type"] == "npc_agency"
+    assert records[0]["npc_id"] == "npc-authority"
+    assert records[0]["selected_move"]["move_id"] == "assert_responsibility"
+    generation_records = [
+        json.loads(line)
+        for line in (camp / "logs" / "npc-generation.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert generation_records[0]["event_type"] == "npc_generation"
+    assert generation_records[0]["npc_id"] == "npc-authority"
+
+
+def test_apply_persists_npc_stat_upgrade_log(tmp_path):
+    camp = _campaign(tmp_path)
+    upgrade = {
+        "npc_id": "npc-authority",
+        "card": {
+            "schema_version": 1,
+            "npc_id": "npc-authority",
+            "lifecycle": "mechanical_actor",
+            "stat_profile": {
+                "archetype_id": "ordinary_adult",
+                "characteristics": {"STR": 50, "CON": 45, "SIZ": 55, "DEX": 40, "POW": 50},
+                "derived": {"HP": 10},
+                "key_skills": {"Persuade": 40},
+            },
+        },
+        "log": {
+            "event_type": "npc_stat_upgrade",
+            "npc_id": "npc-authority",
+            "from_lifecycle": "silhouette",
+            "to_lifecycle": "mechanical_actor",
+            "reason": "entered_opposed_roll",
+            "archetype": "ordinary_adult",
+            "generated_stats": {
+                "STR": 50,
+                "CON": 45,
+                "DEX": 40,
+                "HP": 10,
+                "key_skills": {"Persuade": 40},
+            },
+            "rule_refs": ["core.npc.stat_archetypes"],
+        },
+    }
+    plan = {
+        "decision_id": "d-npc-upgrade",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 3},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_stat_upgrades": [upgrade],
+    }
+
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    state = json.loads((camp / "save" / "npc-state.json").read_text())
+    assert state["npcs"]["npc-authority"]["lifecycle"] == "mechanical_actor"
+    records = [
+        json.loads(line)
+        for line in (camp / "logs" / "npc-stat-upgrade.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert records[0]["event_type"] == "npc_stat_upgrade"
+    assert records[0]["generated_stats"]["HP"] == 10
 
 
 def test_apply_writes_event_to_logs(tmp_path):
@@ -315,3 +547,63 @@ def test_backfill_rule_results_recover_marks_fallback_as_in_world_recovery():
     failure = resolved["narrative_directives"]["failure_consequence"]
     assert failure["narration_mode"] == "recover_with_cost"
     assert "do not present this as a table-level hint" in failure["must_not_claim"]
+
+
+def test_apply_fast_recording_queues_audit_logs_without_blocking_save_state(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-fast",
+        "scene_action": "PRESSURE",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 7},
+        "clue_policy": {"reveal": ["clue-fast"]},
+        "pressure_moves": [{"clock_id": "storm", "tick": 1, "visible_symptom": "风雪压近"}],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {
+            "recording_mode": "fast",
+            "scene_progress": {
+                "schema_version": 1,
+                "action": "continue_with_pressure",
+                "reason": "test-fast-mode",
+            },
+        },
+    }
+
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1", recording_mode="fast"
+    )
+
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert "clue-fast" in world["discovered_clue_ids"]
+    assert pacing["turn_number"] == 1
+    assert any(event["event_type"] == "clue_reveal" for event in events)
+    assert (camp / "logs" / "events.jsonl").read_text() == ""
+    pending_files = sorted((camp / "logs" / "pending-turns").glob("*.json"))
+    assert len(pending_files) == 1
+    pending = json.loads(pending_files[0].read_text(encoding="utf-8"))
+    assert pending["recording_mode"] == "fast"
+    assert any(entry["relative_path"] == "logs/events.jsonl" for entry in pending["entries"])
+    assert any(entry["relative_path"] == "logs/scene-progress.jsonl" for entry in pending["entries"])
+
+
+def test_flush_pending_records_replays_fast_recording_queue(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-fast-flush",
+        "scene_action": "PRESSURE",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 8},
+        "clue_policy": {"reveal": ["clue-flush"]},
+        "pressure_moves": [{"clock_id": "storm", "tick": 1, "visible_symptom": "风雪压近"}],
+        "memory_writes": [],
+        "rule_signals": {},
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1", recording_mode="fast")
+
+    result = coc_director_apply.flush_pending_records(camp)
+
+    assert result["flushed_files"] == 1
+    assert result["flushed_entries"] >= 2
+    assert not list((camp / "logs" / "pending-turns").glob("*.json"))
+    events_text = (camp / "logs" / "events.jsonl").read_text(encoding="utf-8")
+    assert "clue-flush" in events_text

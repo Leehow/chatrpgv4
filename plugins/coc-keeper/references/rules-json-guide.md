@@ -22,6 +22,9 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 - `half-fifth-values.json`
 - `occupations.json`
 - `movement-rate.json`
+- `npc-core-tags.json`
+- `npc-social-roles.json`
+- `npc-stat-archetypes.json`
 - `percentile-check.json`
 - `pushed-roll.json`
 - `reward.json`

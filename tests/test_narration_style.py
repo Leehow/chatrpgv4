@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+
+def _load(name: str, rel: str):
+    spec = importlib.util.spec_from_file_location(name, Path(rel))
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+coc_narration_style = _load(
+    "coc_narration_style_test",
+    "plugins/coc-keeper/scripts/coc_narration_style.py",
+)
+
+
+def test_style_guard_contract_requires_observable_behavior_before_interpretation():
+    guard = coc_narration_style.player_visible_style_guard_contract("zh-Hans")
+
+    assert "observable_before_interpretation" in guard["required_rules"]
+    assert "rewrite_abstract_explanation_to_action" in guard["required_rules"]
+    assert "crisis_scene_clarity" in guard["required_rules"]
+    assert guard["not_for"] == ["scene_routing", "storylet_selection", "rules_adjudication"]
+
+
+def test_crisis_render_contract_keeps_blocking_internal_and_natural_rendering():
+    contract = coc_narration_style.crisis_scene_render_contract("zh-Hans")
+
+    assert contract["frame_type"] == "crisis_scene_render"
+    assert contract["required_slots"] == [
+        "viewpoint_anchor",
+        "spatial_anchor",
+        "active_motion",
+        "connection_or_force",
+        "risk_progression",
+        "visible_affordance",
+        "player_entry",
+    ]
+    assert contract["player_visible_must_not"] == [
+        "slot_labels",
+        "expository_choice_summary",
+        "if_then_option_dump",
+    ]
+
+
+def test_build_crisis_render_frame_orders_blocking_before_player_entry():
+    frame = coc_narration_style.build_crisis_scene_render_frame(
+        viewpoint_anchor="洛伦佐站在窄路内侧，背后是岩壁。",
+        spatial_anchor="山路外侧是一道雪坡，坡边的雪壳已经开裂。",
+        active_motion="押俘虏的士兵跪倒在路边，右臂被绑带猛地扯向坡外。",
+        connection_or_force="绑带另一头拖着坡下的奥军俘虏；俘虏一挣，士兵的肩膀就滑出去一点。",
+        risk_progression="几片雪壳从士兵身下剥落，滚下坡后迟迟听不见落底。",
+        visible_affordances=[
+            "滑出去的步枪横在雪里，枪背带露在外面。",
+            "医疗箱的宽皮带还压在洛伦佐肩上。",
+        ],
+        player_entry="班长压住后面的人，给洛伦佐让出一步空间。",
+    )
+
+    assert frame["schema_version"] == 1
+    assert frame["frame_type"] == "crisis_scene_render"
+    assert [beat["slot"] for beat in frame["render_sequence"]] == [
+        "viewpoint_anchor",
+        "spatial_anchor",
+        "active_motion",
+        "connection_or_force",
+        "risk_progression",
+        "visible_affordance",
+        "player_entry",
+    ]
+    assert coc_narration_style.validate_crisis_scene_render_frame(frame) == []
+
+
+def test_validate_crisis_render_frame_requires_force_risk_and_affordance():
+    frame = {
+        "schema_version": 1,
+        "frame_type": "crisis_scene_render",
+        "render_sequence": [
+            {"slot": "viewpoint_anchor", "content": "洛伦佐站在窄路内侧。"},
+            {"slot": "spatial_anchor", "content": "山路外侧是一道雪坡。"},
+            {"slot": "active_motion", "content": "士兵摔倒。"},
+            {"slot": "player_entry", "content": "你离得最近。"},
+        ],
+    }
+
+    findings = coc_narration_style.validate_crisis_scene_render_frame(frame)
+
+    assert {finding["rule_id"] for finding in findings} == {
+        "missing_connection_or_force",
+        "missing_risk_progression",
+        "missing_visible_affordance",
+    }
+
+
+def test_audit_flags_abstract_psychological_explanation():
+    findings = coc_narration_style.audit_player_visible_text(
+        "不是不信你，而是恐惧已经盖过了理解。"
+    )
+
+    assert findings
+    assert findings[0]["rule_id"] == "abstract_psychological_explanation"
+    assert findings[0]["severity"] == "rewrite"
+    assert "observable behavior" in findings[0]["rewrite_directive"]
+
+
+def test_audit_flags_expository_choice_summary_in_player_visible_crisis_text():
+    findings = coc_narration_style.audit_player_visible_text(
+        "你看清了两件事：如果直接拽俘虏，那个意军士兵会一起被拖下去；"
+        "如果先解皮带，俘虏可能立刻滑落。"
+    )
+
+    assert findings
+    assert findings[0]["rule_id"] == "expository_choice_summary"
+    assert findings[0]["severity"] == "rewrite"
+
+
+def test_audit_allows_natural_crisis_blocking_prose():
+    text = (
+        "窄路贴着岩壁拐过去，外侧的雪坡在风里发白。"
+        "押俘虏的士兵跪倒在路边，右臂被绑带猛地扯向坡外；"
+        "绑带另一头拖在坡下，俘虏的上半身卡在雪边，靴子在下面乱蹬。"
+        "几片雪壳从他们身下剥落，顺着坡面滚下去，过了好一会儿才没了声音。"
+    )
+
+    assert coc_narration_style.audit_player_visible_text(text) == []
+
+
+def test_audit_allows_observable_behavior_followed_by_skill_interpretation():
+    text = (
+        "他听见你的声音，却像没接住话，只顾往后缩，眼睛一直避开坑道。"
+        "你判断他不是在装疯，他的恐惧还没退下去。"
+    )
+
+    assert coc_narration_style.audit_player_visible_text(text) == []
