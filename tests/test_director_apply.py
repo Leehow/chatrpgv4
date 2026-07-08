@@ -1,6 +1,7 @@
 """Tests for coc_director_apply: persists DirectorPlan effects to save/logs/memory."""
 import importlib.util
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -688,3 +689,39 @@ def test_flush_pending_records_replays_fast_recording_queue(tmp_path):
     assert not list((camp / "logs" / "pending-turns").glob("*.json"))
     events_text = (camp / "logs" / "events.jsonl").read_text(encoding="utf-8")
     assert "clue-flush" in events_text
+
+
+def test_fast_recording_can_auto_flush_in_background(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-fast-background",
+        "scene_action": "PRESSURE",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 9},
+        "clue_policy": {"reveal": ["clue-background"]},
+        "pressure_moves": [{"clock_id": "storm", "tick": 1, "visible_symptom": "风雪压近"}],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {
+            "recording_mode": "fast",
+            "recording_flush": "background",
+        },
+    }
+
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert "clue-background" in world["discovered_clue_ids"]
+
+    deadline = time.time() + 5
+    events_text = ""
+    pending_files = []
+    while time.time() < deadline:
+        events_text = (camp / "logs" / "events.jsonl").read_text(encoding="utf-8")
+        pending_dir = camp / "logs" / "pending-turns"
+        pending_files = list(pending_dir.glob("*.json")) if pending_dir.is_dir() else []
+        if "clue-background" in events_text and not pending_files:
+            break
+        time.sleep(0.05)
+
+    assert "clue-background" in events_text
+    assert pending_files == []

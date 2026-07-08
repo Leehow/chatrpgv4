@@ -653,6 +653,7 @@ def apply_plan(
     investigator_id: str,
     rules_results: list[dict[str, Any]] | None = None,
     recording_mode: str | None = None,
+    recording_flush: str | None = None,
 ) -> list[dict[str, Any]]:
     """Apply a DirectorPlan with sync or fast queued JSONL recording.
 
@@ -662,9 +663,12 @@ def apply_plan(
     """
     global _ACTIVE_JSONL_RECORDER
 
+    mode = "sync"
+    flush_policy = "manual"
     recorder = None
     if coc_async_recorder is not None:
         mode = coc_async_recorder.resolve_recording_mode(plan, explicit=recording_mode)
+        flush_policy = coc_async_recorder.resolve_recording_flush(plan, explicit=recording_flush)
         if mode != "sync":
             recorder = coc_async_recorder.JsonlRecorder(
                 campaign_dir,
@@ -677,7 +681,9 @@ def apply_plan(
     try:
         events = _apply_plan_impl(campaign_dir, plan, investigator_id, rules_results)
         if recorder is not None:
-            recorder.commit()
+            pending_batch = recorder.commit()
+            if pending_batch is not None and flush_policy == "background":
+                coc_async_recorder.spawn_background_flush(campaign_dir)
         return events
     finally:
         _ACTIVE_JSONL_RECORDER = previous_recorder

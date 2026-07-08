@@ -40,6 +40,10 @@ recorder, between turns, or before generating a formal battle report. If the
 background recorder is unavailable, do not block ordinary narration; flush the
 pending batches at the next convenient maintenance point.
 
+Set `narrative_directives.recording_flush: background` when live play should
+spawn a local recorder process immediately after queuing a fast-mode batch.
+Leave it unset or `manual` when preserving pending batches for debugging.
+
 Use `recording_mode: sync` for bug hunts, replay-sensitive tests, and final
 verification. Sync mode is the default and preserves the legacy behavior of
 writing each JSONL audit record immediately.
