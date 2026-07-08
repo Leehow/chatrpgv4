@@ -612,3 +612,85 @@ def test_live_turn_keeps_advancing_when_no_actionable_content(tmp_path, monkeypa
     assert any(turn["auto_advanced"] for turn in result["turns"][1:])
     # The max_turns cap still holds (no runaway).
     assert result["auto_advance"]["turns_run"] <= result["auto_advance"]["max_turns"]
+
+
+def test_live_turn_stops_on_single_route_content_does_not_over_advance(tmp_path, monkeypatch):
+    """P1-2 reverse: a turn that DOES surface a handle (one open affordance ->
+    choice_frame.routes has 1 entry, is_real_fork=False, no clue, no npc
+    decision) reached via a non-low-agency intent must STOP at turn 1 with
+    awaiting_player_input. The over-advance guard in the empty-handle branch
+    must NOT fire here, because ``_turn_has_actionable_content`` returns True.
+
+    This is the critical coverage gap left by the keep-advancing test: that
+    test proves an empty turn keeps going; this one proves a turn WITH content
+    (a single route) does not get over-advanced past the player."""
+    camp, char_path = _build_live_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"] = [
+        {
+            "scene_id": "single-door",
+            "scene_type": "investigation",
+            "dramatic_question": "What is behind the single door?",
+            "entry_conditions": [],
+            "exit_conditions": [],
+            "available_clues": [],
+            "npc_ids": [],
+            "pressure_moves": [],
+            "tone": ["tense"],
+            "allowed_improvisation": [],
+            # A single open affordance: routes non-empty (content True) but
+            # is_real_fork=False (open_route_count=1, < 2) and no clue/npc to
+            # trigger _turn_interrupt_reason. This is the exact frame shape
+            # that lands in the P1-2 empty-handle branch.
+            "affordances": [
+                {"id": "open-door", "cue": "门虚掩着。", "status": "open", "route_priority": 0.5},
+            ],
+        },
+    ]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "single-door"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+
+    monkeypatch.setattr(
+        live_runner.coc_async_recorder,
+        "spawn_background_flush",
+        lambda campaign_dir, *, limit=None: {"started": True, "pid": 4266},
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我搜查这个地方。",
+        intent_class="investigate",
+        # A concrete (non-low-agency) investigative posture: the director does
+        # NOT emit a compressed_progress directive, so _should_auto_advance is
+        # False and the run reaches the P1-2 branch. Unlike the empty-hall case,
+        # this turn carries a single route -> helper True -> stop normally.
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "secondary_intents": ["search"],
+            "action_atoms": [{"topic": "room", "verb": "search"}],
+        },
+        max_auto_advance=3,
+        rng_seed=5,
+    )
+
+    # The turn had a single route (content present), so the helper returned
+    # True and the loop must stop at turn 1 rather than over-advancing.
+    first_turn = result["turns"][0]
+    choice_frame = first_turn["choice_frame"]
+    assert len(choice_frame["routes"]) == 1
+    assert choice_frame["is_real_fork"] is False
+    assert live_runner._turn_has_actionable_content(first_turn) is True
+    # No other handle should have surfaced to stop via a different reason.
+    assert not first_turn["clue_revealed"]
+    assert not any(
+        (move.get("requires_player_decision") if isinstance(move, dict) else False)
+        for move in first_turn["npc_moves"]
+    )
+
+    assert len(result["turns"]) == 1
+    assert result["auto_advance"]["turns_run"] == 1
+    assert result["auto_advance"]["stop_reason"] == "awaiting_player_input"
