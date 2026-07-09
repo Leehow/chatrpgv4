@@ -37,7 +37,7 @@ def test_zcode_plugin_manifest_uses_zcode_shape_not_codex_interface():
     manifest = json.loads(manifest_path.read_text())
 
     assert manifest["name"] == "coc-keeper"
-    assert manifest["version"] == "0.15.0-alpha"
+    assert manifest["version"] == "0.2.0-alpha"
     assert manifest["license"] == "Apache-2.0"
     # ZCode plugins point at the skills dir without the ./ prefix and have no
     # Codex-style interface block.

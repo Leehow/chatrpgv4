@@ -13,7 +13,7 @@ def test_plugin_manifest_declares_coc_keeper_skill_plugin():
 
     manifest = json.loads(manifest_path.read_text())
     assert manifest["name"] == "coc-keeper"
-    assert manifest["version"] == "0.15.0-alpha"
+    assert manifest["version"] == "0.2.0-alpha"
     assert manifest["skills"] == "./skills/"
     assert manifest["interface"]["displayName"] == "COC Keeper"
     assert "Call of Cthulhu" in manifest["description"]
