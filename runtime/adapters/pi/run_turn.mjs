@@ -73,6 +73,20 @@ function missingToolUseEvent(message) {
   };
 }
 
+function toolFailedEvent(message) {
+  const ts = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  return {
+    type: "error",
+    id: `evt_pi_tool_failed_${Date.now().toString(16)}`,
+    ts,
+    visibility: "system",
+    payload: {
+      kind: "pi_tool_failed",
+      message: message || "coc_live_turn failed",
+    },
+  };
+}
+
 function runCallDebug(request) {
   return new Promise((resolve, reject) => {
     const args = [
@@ -155,6 +169,9 @@ function buildCocLiveTurnTool(request, capture) {
       ),
     }),
     async execute(_toolCallId, params) {
+      // Mark invocation immediately so a later call_debug failure cannot be
+      // misreported as pi_missing_tool_use on the finish path.
+      capture.usedTool = true;
       const turnRequest = {
         ...request,
         player_text:
@@ -162,19 +179,33 @@ function buildCocLiveTurnTool(request, capture) {
             ? params.player_text
             : request.player_text,
       };
-      const events = await runCallDebug(turnRequest);
-      capture.events = events;
-      capture.usedTool = true;
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ ok: true, event_count: events.length }),
-          },
-        ],
-        details: { events },
-        terminate: true,
-      };
+      try {
+        const events = await runCallDebug(turnRequest);
+        capture.events = events;
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ ok: true, event_count: events.length }),
+            },
+          ],
+          details: { events },
+          terminate: true,
+        };
+      } catch (err) {
+        const message = err && err.message ? err.message : String(err);
+        capture.events = [toolFailedEvent(message)];
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ ok: false, error: message }),
+            },
+          ],
+          details: { error: message },
+          terminate: true,
+        };
+      }
     },
   });
 }
@@ -239,8 +270,16 @@ async function runTurn(request) {
     session.dispose();
   }
 
-  if (capture.usedTool && Array.isArray(capture.events)) {
-    return { ok: true, events: capture.events };
+  if (capture.usedTool) {
+    if (Array.isArray(capture.events)) {
+      return { ok: true, events: capture.events };
+    }
+    return {
+      ok: true,
+      events: [
+        toolFailedEvent("coc_live_turn invoked but produced no events"),
+      ],
+    };
   }
 
   return {

@@ -144,6 +144,68 @@ def test_parse_runner_response_missing_tool_use_event_is_schema_valid():
     events_mod.validate_event(events[0])
 
 
+def test_parse_runner_response_tool_failed_event_is_schema_valid():
+    """Tool invoke + call_debug failure must surface as pi_tool_failed, not missing-tool."""
+    adapter = _load_adapter()
+    events_mod = _load_events()
+    raw = {
+        "ok": True,
+        "events": [
+            {
+                "type": "error",
+                "id": "evt_pi_tool_failed",
+                "ts": "2026-07-09T00:00:00Z",
+                "visibility": "system",
+                "payload": {
+                    "kind": "pi_tool_failed",
+                    "message": "call_debug.py exited 1 with empty stdout",
+                },
+            }
+        ],
+    }
+    events = adapter.parse_runner_response(raw)
+    assert events[0]["payload"]["kind"] == "pi_tool_failed"
+    assert "call_debug" in events[0]["payload"]["message"]
+    events_mod.validate_event(events[0])
+
+
+def test_pi_send_turn_accepts_tool_failed_event_from_fake_runner(tmp_path):
+    adapter = _load_adapter()
+    events_mod = _load_events()
+    runner = tmp_path / "fake_run_turn_tool_failed"
+    payload = json.dumps(
+        {
+            "ok": True,
+            "events": [
+                {
+                    "type": "error",
+                    "id": "evt_pi_tool_failed1",
+                    "ts": "2026-07-09T00:00:00Z",
+                    "visibility": "system",
+                    "payload": {
+                        "kind": "pi_tool_failed",
+                        "message": "boom from call_debug",
+                    },
+                }
+            ],
+        }
+    )
+    _write_fake_runner(runner, stdout=payload + "\n", exit_code=0)
+
+    events = adapter.pi_send_turn(
+        {
+            "workspace": str(tmp_path),
+            "campaign_id": "live",
+            "investigator_id": "inv1",
+            "character_path": str(tmp_path / "character.json"),
+            "player_text": "试一下。",
+        },
+        runner_path=runner,
+    )
+    assert events[0]["payload"]["kind"] == "pi_tool_failed"
+    events_mod.validate_event(events[0])
+
+
 @pytest.mark.skipif(
     shutil.which("node") is None or not NODE_MODULES.is_dir(),
     reason="node or runtime/adapters/pi/node_modules not available",

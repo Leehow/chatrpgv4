@@ -28,3 +28,4 @@ Use Pi’s normal auth discovery (`~/.pi/agent` or environment variables). Do no
 - One process invocation per turn (no Pi session file continuity).
 - Only custom tool `coc_live_turn` is allowlisted (no unconstrained edit/write).
 - If the model returns prose without the tool, stdout still has `ok: true` with a single `error` event (`kind=pi_missing_tool_use`).
+- If `coc_live_turn` is invoked but `call_debug` fails, the bridge marks the tool as used and returns `ok: true` with a single `error` event (`kind=pi_tool_failed`) instead of misreporting `pi_missing_tool_use`.
