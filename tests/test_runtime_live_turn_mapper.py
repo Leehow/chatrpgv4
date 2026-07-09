@@ -155,6 +155,60 @@ def test_maps_choice_frame_and_stop_reason():
     assert len(choice["payload"]["options"]) == 2
 
 
+def test_rule_results_without_roll_do_not_emit_roll_event():
+    mapper = _load("live_turn_mapper", "runtime/engine/live_turn_mapper.py")
+    events_mod = _load("runtime_events", "runtime/engine/events.py")
+    result = {
+        "turns": [{
+            "decision_id": "turn-no-roll",
+            "rule_results": [{
+                "kind": "skill_check",
+                "outcome": "success",
+                "skill": "Spot Hidden",
+            }],
+            "narrative_directives": {
+                "must_include": ["director anchor: keep pressure on the door"],
+            },
+        }],
+    }
+    events = mapper.map_live_turn_result(result)
+    for ev in events:
+        events_mod.validate_event(ev)
+    assert not any(e["type"] == "roll" for e in events)
+    assert not any(e["type"] == "narration" for e in events)
+
+
+def test_rule_results_with_roll_emit_roll_event():
+    mapper = _load("live_turn_mapper", "runtime/engine/live_turn_mapper.py")
+    events_mod = _load("runtime_events", "runtime/engine/events.py")
+    result = {
+        "turns": [{
+            "decision_id": "turn-with-roll",
+            "rule_results": [{
+                "kind": "skill_check",
+                "skill": "Library Use",
+                "outcome": "regular_success",
+                "roll": 42,
+            }],
+            "narrative_directives": {
+                "narration": "The shelves creak as you find a marked folio.",
+                "must_include": ["do not invent a second clue"],
+            },
+        }],
+    }
+    events = mapper.map_live_turn_result(result)
+    for ev in events:
+        events_mod.validate_event(ev)
+    rolls = [e for e in events if e["type"] == "roll"]
+    assert len(rolls) == 1
+    assert rolls[0]["payload"]["roll"] == 42
+    assert rolls[0]["payload"]["outcome"] == "regular_success"
+    assert rolls[0]["payload"]["skill"] == "Library Use"
+    narrations = [e for e in events if e["type"] == "narration"]
+    assert len(narrations) == 1
+    assert narrations[0]["payload"]["text"] == "The shelves creak as you find a marked folio."
+
+
 def test_debug_adapter_runs_live_turn(tmp_path):
     camp, char_path = _build_live_campaign(tmp_path)
     debug_adapter = _load("debug_adapter", "runtime/adapters/debug/adapter.py")

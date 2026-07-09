@@ -32,19 +32,16 @@ def _structured_rolls(turn: dict[str, Any]) -> list[dict[str, Any]]:
     rule_results = turn.get("rule_results")
     if isinstance(rule_results, list):
         for item in rule_results:
-            if isinstance(item, dict) and (
-                "roll" in item or "outcome" in item or item.get("kind") in {
-                    "skill_check", "characteristic_check", "sanity_check", "opposed_check",
-                }
-            ):
+            # Require an actual dice field; kind/outcome alone is not a roll.
+            if isinstance(item, dict) and "roll" in item:
                 rolls.append(item)
     for key in ("rolls", "roll_records"):
         raw = turn.get(key)
         if isinstance(raw, list):
             for item in raw:
-                if isinstance(item, dict):
+                if isinstance(item, dict) and "roll" in item:
                     rolls.append(item)
-        elif isinstance(raw, dict) and raw:
+        elif isinstance(raw, dict) and "roll" in raw:
             rolls.append(raw)
     return rolls
 
@@ -54,15 +51,12 @@ def _narration_texts(turn: dict[str, Any]) -> list[str]:
     directives = turn.get("narrative_directives")
     if not isinstance(directives, dict):
         return texts
+    # Player-visible narration only from clear narrative fields; skip must_include
+    # director anchors (they are constraints, not prose to surface).
     for key in ("narration", "text", "keeper_narration", "summary"):
         value = directives.get(key)
         if isinstance(value, str) and value.strip():
             texts.append(value.strip())
-    must_include = directives.get("must_include")
-    if isinstance(must_include, list):
-        for item in must_include:
-            if isinstance(item, str) and item.strip():
-                texts.append(item.strip())
     return texts
 
 
