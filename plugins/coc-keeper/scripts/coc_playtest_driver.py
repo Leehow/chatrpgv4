@@ -215,7 +215,13 @@ def _execute_rules_requests(
 
     for idx, request in enumerate(requests, start=1):
         kind = request.get("kind")
-        if kind not in {"skill_check", "characteristic_check", "sanity_check", "opposed_check"}:
+        if kind not in {
+            "skill_check",
+            "characteristic_check",
+            "sanity_check",
+            "opposed_check",
+            "idea_roll",
+        }:
             continue
         target = _target_for_request(character, request)
         difficulty = str(request.get("difficulty", "regular"))
@@ -257,6 +263,49 @@ def _execute_rules_requests(
                 append(rolls_path, {"type": "roll", "actor": investigator_id,
                                     "payload": payload, "ts": ts})
                 continue
+
+        if kind == "idea_roll":
+            characteristics = (
+                character.get("characteristics", {})
+                if isinstance(character.get("characteristics"), dict)
+                else {}
+            )
+            int_value = int(characteristics.get("INT", target if target else 50))
+            roll = coc_roll.idea_roll(
+                int_value,
+                difficulty=difficulty,
+                bonus=bonus,
+                penalty=penalty,
+                rng=rng,
+            )
+            payload = {
+                "roll_id": f"{plan.get('decision_id', 'turn')}-rule-{idx}",
+                "decision_id": plan.get("decision_id"),
+                "kind": "idea_roll",
+                "skill": "INT",
+                "target": roll.get("target", int_value),
+                "difficulty": difficulty,
+                "reason": request.get("reason"),
+                "request_id": request.get("request_id"),
+                "signpost_level": request.get("signpost_level"),
+                "missed_clue_id": request.get("missed_clue_id"),
+                "bonus_penalty_dice": bonus_penalty,
+                "roll": roll.get("roll"),
+                "effective_target": roll.get("effective_target"),
+                "outcome": roll.get("outcome"),
+                "success": roll.get("outcome") in _SUCCESS_OUTCOMES,
+                "roll_contract": request.get("roll_contract"),
+                "roll_kind": "idea",
+                "characteristic": "INT",
+            }
+            results.append(payload)
+            append(rolls_path, {
+                "type": "roll",
+                "actor": investigator_id,
+                "payload": payload,
+                "ts": ts,
+            })
+            continue
 
         roll = coc_roll.percentile_check(
             target,

@@ -709,17 +709,105 @@ def test_apply_obscured_reveal_withholds_on_failure_and_costs(tmp_path):
 
 
 def test_apply_recover_fallback_reveals_after_stall_with_cost(tmp_path):
+    """Failed Idea Roll still surfaces the lead, but in a worse position (thick of it)."""
     camp = _campaign(tmp_path)
-    plan = {"decision_id": "d-recover", "scene_action": "RECOVER",
-            "clue_policy": {"reveal": [], "fallback_routes": ["clue-B"]},
-            "pressure_moves": [], "memory_writes": [],
-            "rule_signals": {"stalled_turns": 3}, "narrative_directives": {}}
-    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    plan = {
+        "decision_id": "d-recover",
+        "scene_action": "RECOVER",
+        "clue_policy": {"reveal": [], "fallback_routes": ["clue-B"]},
+        "rules_requests": [{"kind": "idea_roll", "skill": "INT", "difficulty": "regular"}],
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {"stalled_turns": 3},
+        "narrative_directives": {
+            "idea_roll_plan": {
+                "missed_clue_id": "clue-B",
+                "difficulty": "regular",
+                "signpost_level": "mentioned",
+            }
+        },
+    }
+    events = coc_director_apply.apply_plan(
+        camp,
+        plan,
+        investigator_id="inv1",
+        rules_results=[{
+            "kind": "idea_roll",
+            "skill": "INT",
+            "outcome": "failure",
+            "success": False,
+        }],
+    )
     world = json.loads((camp / "save" / "world-state.json").read_text())
     pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
     assert "clue-B" in world["discovered_clue_ids"]
     assert any(e.get("event_type") == "fail_forward_recovery" for e in events)
     assert pacing["tension_level"] == "medium"
+
+
+def test_apply_recover_idea_roll_success_surfaces_lead_without_danger(tmp_path):
+    """Winning the Idea Roll delivers the lead without increasing danger."""
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-recover-win",
+        "scene_action": "RECOVER",
+        "clue_policy": {"reveal": [], "fallback_routes": ["clue-B"]},
+        "rules_requests": [{"kind": "idea_roll", "skill": "INT", "difficulty": "regular"}],
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {"stalled_turns": 3},
+        "narrative_directives": {
+            "idea_roll_plan": {
+                "missed_clue_id": "clue-B",
+                "difficulty": "regular",
+                "signpost_level": "mentioned",
+            }
+        },
+    }
+    events = coc_director_apply.apply_plan(
+        camp,
+        plan,
+        investigator_id="inv1",
+        rules_results=[{
+            "kind": "idea_roll",
+            "skill": "INT",
+            "outcome": "regular",
+            "success": True,
+        }],
+    )
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert "clue-B" in world["discovered_clue_ids"]
+    assert any(e.get("event_type") == "idea_roll_recovery" for e in events)
+    assert not any(e.get("event_type") == "fail_forward_recovery" for e in events)
+    assert pacing["tension_level"] == "low"
+
+
+def test_apply_recover_unmentioned_free_delivery_without_roll(tmp_path):
+    """Never-signposted missed clue: Keeper gives the lead free (no Idea Roll)."""
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-recover-free",
+        "scene_action": "RECOVER",
+        "clue_policy": {"reveal": [], "fallback_routes": ["clue-B"]},
+        "rules_requests": [],
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {"stalled_turns": 3},
+        "narrative_directives": {
+            "idea_roll_plan": {
+                "missed_clue_id": "clue-B",
+                "difficulty": None,
+                "signpost_level": "unmentioned",
+            }
+        },
+    }
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1", rules_results=[])
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert "clue-B" in world["discovered_clue_ids"]
+    assert any(e.get("event_type") == "idea_roll_recovery" for e in events)
+    assert pacing["tension_level"] == "low"
 
 
 def test_backfill_rule_results_failure_prunes_exact_clue_anchor():
@@ -741,16 +829,134 @@ def test_backfill_rule_results_failure_prunes_exact_clue_anchor():
 
 
 def test_backfill_rule_results_recover_marks_fallback_as_in_world_recovery():
-    plan = {"decision_id": "d-recover", "scene_action": "RECOVER",
-            "clue_policy": {"reveal": [], "fallback_routes": ["clue-B"]},
-            "pressure_moves": [], "memory_writes": [],
-            "rule_signals": {"stalled_turns": 3},
-            "narrative_directives": {"must_include": ["fallback anchor"], "tone": []}}
-    resolved = coc_director_apply.backfill_rule_results(plan, [])
+    plan = {
+        "decision_id": "d-recover",
+        "scene_action": "RECOVER",
+        "clue_policy": {"reveal": [], "fallback_routes": ["clue-B"]},
+        "rules_requests": [{"kind": "idea_roll", "skill": "INT", "difficulty": "regular"}],
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {"stalled_turns": 3},
+        "narrative_directives": {"must_include": ["fallback anchor"], "tone": []},
+    }
+    resolved = coc_director_apply.backfill_rule_results(
+        plan,
+        [{"kind": "idea_roll", "skill": "INT", "outcome": "failure", "success": False}],
+    )
     assert resolved["resolved_clue_policy"]["fallback_recovered"] == ["clue-B"]
     failure = resolved["narrative_directives"]["failure_consequence"]
     assert failure["narration_mode"] == "recover_with_cost"
     assert "do not present this as a table-level hint" in failure["must_not_claim"]
+
+
+def test_backfill_idea_roll_success_uses_clean_recovery_mode():
+    plan = {
+        "decision_id": "d-recover-win",
+        "scene_action": "RECOVER",
+        "clue_policy": {"reveal": [], "fallback_routes": ["clue-B"]},
+        "rules_requests": [{"kind": "idea_roll", "skill": "INT", "difficulty": "regular"}],
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {"stalled_turns": 3},
+        "narrative_directives": {"must_include": ["fallback anchor"], "tone": []},
+    }
+    resolved = coc_director_apply.backfill_rule_results(
+        plan,
+        [{"kind": "idea_roll", "skill": "INT", "outcome": "regular", "success": True}],
+    )
+    assert resolved["resolved_clue_policy"]["fallback_recovered"] == ["clue-B"]
+    recovery = resolved["narrative_directives"]["failure_consequence"]
+    assert recovery["narration_mode"] == "recover_clean"
+    assert "do not present this as a table-level hint" in recovery["must_not_claim"]
+
+
+def test_apply_choice_leads_signposts_clues_as_mentioned(tmp_path):
+    """CHOICE that surfaces clue leads records structured signposts for Idea Roll."""
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-choice",
+        "scene_action": "CHOICE",
+        "clue_policy": {"reveal": [], "leads": ["clue-A", "clue-B"], "fallback_routes": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+        "choice_frame": {
+            "routes": [
+                {"route_id": "clue:clue-A", "route_type": "investigative_lead", "source": "clue_policy.leads"},
+                {"route_id": "clue:clue-B", "route_type": "investigative_lead", "source": "clue_policy.leads"},
+            ],
+        },
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world["clue_signposts"]["clue-A"] == "mentioned"
+    assert world["clue_signposts"]["clue-B"] == "mentioned"
+
+
+def test_apply_failed_obscured_check_signposts_clue_as_obvious(tmp_path):
+    """A failed obscured perception check marks the missed clue as obvious for Idea Roll."""
+    camp = _campaign(tmp_path)
+    contract = _clue_roll_contract("clue-A")
+    plan = {
+        "decision_id": "d-miss",
+        "scene_action": "REVEAL",
+        "clue_policy": {
+            "reveal": ["clue-A"],
+            "clue_type": "obscured",
+            "fallback_routes": ["clue-B"],
+            "skill": "Spot Hidden",
+        },
+        "rules_requests": [{
+            "kind": "skill_check",
+            "skill": "Spot Hidden",
+            "reason": "obscured clue in scene",
+            "difficulty": "regular",
+            "roll_contract": contract,
+        }],
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    coc_director_apply.apply_plan(
+        camp,
+        plan,
+        investigator_id="inv1",
+        rules_results=[{
+            "skill": "Spot Hidden",
+            "outcome": "failure",
+            "success": False,
+            "roll_contract": contract,
+        }],
+    )
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert "clue-A" not in world["discovered_clue_ids"]
+    assert world["clue_signposts"]["clue-A"] == "obvious"
+
+
+def test_apply_signpost_never_downgrades_obvious_to_mentioned(tmp_path):
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["clue_signposts"] = {"clue-A": "obvious"}
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    plan = {
+        "decision_id": "d-choice-again",
+        "scene_action": "CHOICE",
+        "clue_policy": {"reveal": [], "leads": ["clue-A"], "fallback_routes": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+        "choice_frame": {
+            "routes": [
+                {"route_id": "clue:clue-A", "route_type": "investigative_lead", "source": "clue_policy.leads"},
+            ],
+        },
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world["clue_signposts"]["clue-A"] == "obvious"
 
 
 def test_backfill_failed_non_clue_roll_adds_failure_routing():

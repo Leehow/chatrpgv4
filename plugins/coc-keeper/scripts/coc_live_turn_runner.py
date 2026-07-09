@@ -47,6 +47,7 @@ _INTERRUPT_EVENT_TYPES = {
     "clock_full",
     "clue_reveal",
     "fail_forward_recovery",
+    "idea_roll_recovery",
     "clue_withheld",
     "failure_consequence",
     "san_trigger_fired",

@@ -55,7 +55,30 @@ _SCENE_PROGRESS_KEYS = (
     "era",
 )
 _BRIDGE_SCENE_KINDS = {"bridge", "transition", "travel", "transit"}
-ROLL_REQUEST_KINDS = {"skill_check", "characteristic_check", "sanity_check", "opposed_check"}
+ROLL_REQUEST_KINDS = {
+    "skill_check",
+    "characteristic_check",
+    "sanity_check",
+    "opposed_check",
+    "idea_roll",
+}
+
+# Rulebook Idea Roll signpost ladder (Keeper Rulebook ~p.199):
+# never mentioned → free delivery; mentioned → Regular; obvious but missed → Extreme.
+_IDEA_SIGNPOST_FREE = "unmentioned"
+_IDEA_SIGNPOST_REGULAR = "mentioned"
+_IDEA_SIGNPOST_EXTREME = "obvious"
+_IDEA_SIGNPOST_ALIASES = {
+    "unmentioned": _IDEA_SIGNPOST_FREE,
+    "never": _IDEA_SIGNPOST_FREE,
+    "none": _IDEA_SIGNPOST_FREE,
+    "mentioned": _IDEA_SIGNPOST_REGULAR,
+    "signposted": _IDEA_SIGNPOST_REGULAR,
+    "regular": _IDEA_SIGNPOST_REGULAR,
+    "obvious": _IDEA_SIGNPOST_EXTREME,
+    "obvious_missed": _IDEA_SIGNPOST_EXTREME,
+    "extreme": _IDEA_SIGNPOST_EXTREME,
+}
 
 
 def _roll_contract(
@@ -882,26 +905,63 @@ def _first_unresolved_conclusion(ctx: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def _idea_roll_plan(ctx: dict[str, Any], action: str) -> dict[str, Any] | None:
+def _normalize_idea_signpost_level(raw: Any) -> str:
+    key = str(raw or "").strip().lower()
+    return _IDEA_SIGNPOST_ALIASES.get(key, _IDEA_SIGNPOST_FREE)
+
+
+def _clue_signpost_level(ctx: dict[str, Any], clue_id: str | None) -> str:
+    """Read structured signpost level for a clue from world-state.clue_signposts."""
+    if not clue_id:
+        return _IDEA_SIGNPOST_FREE
+    posts = (ctx.get("world_state") or {}).get("clue_signposts") or {}
+    if not isinstance(posts, dict):
+        return _IDEA_SIGNPOST_FREE
+    return _normalize_idea_signpost_level(posts.get(clue_id))
+
+
+def _idea_roll_difficulty_for_signpost(signpost_level: str) -> str | None:
+    """Map signpost level to Idea Roll difficulty.
+
+    Returns None when the Keeper should give the lead free (never mentioned).
+    """
+    level = _normalize_idea_signpost_level(signpost_level)
+    if level == _IDEA_SIGNPOST_FREE:
+        return None
+    if level == _IDEA_SIGNPOST_EXTREME:
+        return "extreme"
+    return "regular"
+
+
+def _idea_roll_plan(
+    ctx: dict[str, Any],
+    action: str,
+    *,
+    missed_clue_id: str | None = None,
+) -> dict[str, Any] | None:
     if action != "RECOVER":
         return None
-    conclusion = _first_unresolved_conclusion(ctx)
-    discovered = set((ctx.get("world_state") or {}).get("discovered_clue_ids", []))
-    missed_clue_id = None
-    for clue in (conclusion or {}).get("clues", []) or []:
-        if not isinstance(clue, dict):
-            continue
-        clue_id = clue.get("clue_id")
-        if clue_id and clue_id not in discovered:
-            missed_clue_id = clue_id
-            break
+    if missed_clue_id is None:
+        conclusion = _first_unresolved_conclusion(ctx)
+        discovered = set((ctx.get("world_state") or {}).get("discovered_clue_ids", []))
+        for clue in (conclusion or {}).get("clues", []) or []:
+            if not isinstance(clue, dict):
+                continue
+            clue_id = clue.get("clue_id")
+            if clue_id and clue_id not in discovered:
+                missed_clue_id = clue_id
+                break
+    signpost_level = _clue_signpost_level(ctx, missed_clue_id)
+    difficulty = _idea_roll_difficulty_for_signpost(signpost_level)
     return {
         "schema_version": 1,
         "missed_clue_id": missed_clue_id,
         "roll_target": "INT",
+        "signpost_level": signpost_level,
+        "difficulty": difficulty,
         "success_delivery": "surface a clean in-world inference or overlooked lead",
         "failure_delivery_with_cost": "surface the lead in a worse position",
-        "costs": ["time_pressure"],
+        "costs": ["time_pressure"] if difficulty is not None else [],
         "must_not": [
             "do not present this as table-level advice",
             "do not ask the player to guess the same missing route again",
@@ -1784,6 +1844,39 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                              "do not reveal exact withheld clue on failure",
                          ],
                      )})
+    if action == "RECOVER":
+        # Idea Roll recovery valve (Keeper Rulebook ~p.199). Never-signposted
+        # leads are given free; mentioned → Regular; obvious-but-missed → Extreme.
+        fallback_ids = [
+            cid for cid in ((clue_policy or {}).get("fallback_routes") or []) if cid
+        ]
+        missed_clue_id = fallback_ids[0] if fallback_ids else None
+        idea_plan = _idea_roll_plan(ctx, action, missed_clue_id=missed_clue_id)
+        difficulty = (idea_plan or {}).get("difficulty")
+        if idea_plan is not None and difficulty is not None:
+            clue_id = idea_plan.get("missed_clue_id") or "recover"
+            requests.append({
+                "kind": "idea_roll",
+                "skill": "INT",
+                "reason": "idea roll recovery valve",
+                "difficulty": difficulty,
+                "bonus_penalty_dice": 0,
+                "signpost_level": idea_plan.get("signpost_level"),
+                "missed_clue_id": idea_plan.get("missed_clue_id"),
+                "roll_contract": _roll_contract(
+                    goal="recover a missed investigative lead",
+                    success_effect="surface the lead cleanly without increasing danger",
+                    failure_effect="surface the lead in a worse position (in the thick of it)",
+                    failure_outcome_mode="goal_with_cost",
+                    roll_density_group=f"idea:{clue_id}",
+                    push_eligible=False,
+                    must_not=[
+                        "do not present this as table-level advice",
+                        "do not ask the player to guess the same missing route again",
+                        "do not withhold the recovery lead after the Idea Roll resolves",
+                    ],
+                ),
+            })
     return requests
 
 
@@ -1816,6 +1909,10 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         handoff = "rules"
     elif action in ("REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "RECOVER", "PAYOFF"):
         handoff = "rules" if rules_requests else "narration"
+    # Idea Roll / other emitted requests always need the rules handoff, even when
+    # Layer-3 forced RECOVER with a narration default.
+    if rules_requests and handoff != "rules":
+        handoff = "rules"
 
     pacing_entry = _current_pacing_entry(ctx)
     # horror stage from pacing-map, validated; fallback to wrongness
@@ -1857,7 +1954,12 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     )
     if dramatic_progress is not None:
         narrative_directives["dramatic_progress"] = dramatic_progress
-    idea_plan = _idea_roll_plan(ctx, action)
+    idea_fallback = None
+    for cid in (clue_policy.get("fallback_routes") or []):
+        if cid:
+            idea_fallback = cid
+            break
+    idea_plan = _idea_roll_plan(ctx, action, missed_clue_id=idea_fallback)
     if idea_plan is not None:
         narrative_directives["idea_roll_plan"] = idea_plan
     exit_pressure = _scene_exit_pressure_directive(ctx, action, clue_policy, rules_requests)

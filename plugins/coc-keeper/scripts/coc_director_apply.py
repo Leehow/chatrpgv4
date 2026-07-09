@@ -40,6 +40,105 @@ try:
 except Exception:
     coc_memory = None
 
+# Idea Roll signpost ladder (Keeper Rulebook ~p.199). Higher rank wins; never
+# downgrade an already-stronger signpost.
+_SIGNPOST_RANK = {
+    "unmentioned": 0,
+    "mentioned": 1,
+    "obvious": 2,
+}
+
+
+def _normalize_signpost_level(raw: Any) -> str | None:
+    key = str(raw or "").strip().lower()
+    aliases = {
+        "unmentioned": "unmentioned",
+        "never": "unmentioned",
+        "none": "unmentioned",
+        "mentioned": "mentioned",
+        "signposted": "mentioned",
+        "regular": "mentioned",
+        "obvious": "obvious",
+        "obvious_missed": "obvious",
+        "extreme": "obvious",
+    }
+    return aliases.get(key)
+
+
+def _clue_id_from_choice_route(route: dict[str, Any]) -> str | None:
+    """Extract a clue id from a choice_frame investigative lead route."""
+    if not isinstance(route, dict):
+        return None
+    route_type = str(route.get("route_type") or "")
+    source = str(route.get("source") or "")
+    route_id = str(route.get("route_id") or "")
+    if route_type == "investigative_lead" or source == "clue_policy.leads" or route_id.startswith("clue:"):
+        if route_id.startswith("clue:"):
+            clue_id = route_id.split(":", 1)[1].strip()
+            return clue_id or None
+        cue = str(route.get("cue") or "").strip()
+        return cue or None
+    return None
+
+
+def _collect_signpost_updates(
+    plan: dict[str, Any],
+    resolution_events: list[dict[str, Any]],
+) -> dict[str, str]:
+    """Derive structured clue_signposts updates from this turn's plan/events.
+
+    - CHOICE / clue leads offered to the player → mentioned
+    - failed obscured perception (clue_withheld) → obvious
+    """
+    updates: dict[str, str] = {}
+
+    def bump(clue_id: Any, level: str) -> None:
+        cid = str(clue_id or "").strip()
+        if not cid:
+            return
+        current = updates.get(cid)
+        if current is None or _SIGNPOST_RANK.get(level, 0) > _SIGNPOST_RANK.get(current, 0):
+            updates[cid] = level
+
+    policy = plan.get("clue_policy") or {}
+    for cid in policy.get("leads") or []:
+        bump(cid, "mentioned")
+
+    choice_frame = plan.get("choice_frame") or (plan.get("narrative_directives") or {}).get("choice_frame") or {}
+    for route in choice_frame.get("routes") or []:
+        if not isinstance(route, dict):
+            continue
+        clue_id = _clue_id_from_choice_route(route)
+        if clue_id:
+            bump(clue_id, "mentioned")
+
+    for event in resolution_events:
+        if not isinstance(event, dict):
+            continue
+        if event.get("event_type") == "clue_withheld":
+            for cid in event.get("clue_ids") or []:
+                bump(cid, "obvious")
+    return updates
+
+
+def _merge_clue_signposts(world: dict[str, Any], updates: dict[str, str]) -> dict[str, str]:
+    """Merge signpost updates into world-state; never downgrade a stronger level."""
+    existing = world.get("clue_signposts")
+    merged: dict[str, str] = {}
+    if isinstance(existing, dict):
+        for clue_id, level in existing.items():
+            normalized = _normalize_signpost_level(level)
+            if normalized and normalized != "unmentioned":
+                merged[str(clue_id)] = normalized
+    for clue_id, level in updates.items():
+        normalized = _normalize_signpost_level(level)
+        if not normalized or normalized == "unmentioned":
+            continue
+        current = merged.get(clue_id)
+        if current is None or _SIGNPOST_RANK.get(normalized, 0) > _SIGNPOST_RANK.get(current, 0):
+            merged[clue_id] = normalized
+    return merged
+
 coc_time = None
 try:
     coc_time = _load_sibling("coc_time", "coc_time.py")
@@ -520,6 +619,23 @@ def _synthetic_pressure_move(reason: str, visible_symptom: str = "time passes an
     }
 
 
+def _idea_roll_result(
+    plan: dict[str, Any],
+    rules_results: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Return the Idea Roll result for a RECOVER plan, if any."""
+    for result in rules_results or []:
+        if not isinstance(result, dict):
+            continue
+        if result.get("kind") == "idea_roll":
+            return result
+    for request in plan.get("rules_requests", []) or []:
+        if isinstance(request, dict) and request.get("kind") == "idea_roll":
+            # Request present but no result yet.
+            return None
+    return None
+
+
 def _resolve_committed_clues(
     plan: dict[str, Any],
     rules_results: list[dict[str, Any]] | None,
@@ -541,10 +657,51 @@ def _resolve_committed_clues(
     reveal_ids = [cid for cid in policy.get("reveal", []) if cid]
     fallback_ids = [cid for cid in policy.get("fallback_routes", []) if cid]
     stalled = int(plan.get("rule_signals", {}).get("stalled_turns", 0) or 0)
+    idea_plan = (plan.get("narrative_directives") or {}).get("idea_roll_plan") or {}
 
-    # RECOVER is a recovery valve, not another suggestion loop. After repeated
-    # stalls, commit the fallback clue/lead with a cost so play keeps moving.
+    # RECOVER is the Idea Roll recovery valve. Play always continues; the roll
+    # (when required) decides cost/position, not whether the lead surfaces.
     if action == "RECOVER" and stalled >= 3 and fallback_ids:
+        idea_result = _idea_roll_result(plan, rules_results)
+        has_idea_request = any(
+            isinstance(req, dict) and req.get("kind") == "idea_roll"
+            for req in (plan.get("rules_requests") or [])
+        )
+        free_delivery = (
+            idea_plan.get("difficulty") is None
+            and str(idea_plan.get("signpost_level") or "unmentioned") == "unmentioned"
+            and not has_idea_request
+        )
+        if has_idea_request and idea_result is None:
+            events.append({
+                "event_type": "clue_pending_rule_result",
+                "decision_id": decision_id,
+                "clue_ids": fallback_ids,
+                "investigator_id": investigator_id,
+                "summary": "Idea Roll recovery held until rule result is backfilled",
+                "ts": ts,
+            })
+            return [], events, pressure
+
+        success = True if free_delivery else _rule_result_success(idea_result)
+        if success is True or free_delivery:
+            events.append({
+                "event_type": "idea_roll_recovery",
+                "decision_id": decision_id,
+                "clue_id": fallback_ids[0],
+                "fallback_routes": fallback_ids,
+                "investigator_id": investigator_id,
+                "outcome": "free" if free_delivery else str((idea_result or {}).get("outcome", "success")),
+                "summary": (
+                    "never-signposted lead delivered free via Idea recovery"
+                    if free_delivery
+                    else "Idea Roll success surfaces the lead without increasing danger"
+                ),
+                "ts": ts,
+            })
+            return [fallback_ids[0]], events, pressure
+
+        # Failed Idea Roll: still surface the lead, but in a worse position.
         pressure.append(_synthetic_pressure_move(
             "recover_fail_forward_cost",
             "the recovery lead appears, but time has clearly been lost",
@@ -555,7 +712,8 @@ def _resolve_committed_clues(
             "clue_id": fallback_ids[0],
             "fallback_routes": fallback_ids,
             "investigator_id": investigator_id,
-            "summary": "stalled investigation recovered by surfacing a fallback route with a cost",
+            "outcome": str((idea_result or {}).get("outcome", "failure")),
+            "summary": "Idea Roll failure surfaces the lead in the thick of it",
             "ts": ts,
         })
         return [fallback_ids[0]], events, pressure
@@ -635,6 +793,7 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
     recovered: list[str] = []
     failure_event: dict[str, Any] | None = None
     recovery_event: dict[str, Any] | None = None
+    clean_recovery_event: dict[str, Any] | None = None
     for event in resolution_events:
         etype = event.get("event_type")
         if etype == "clue_withheld":
@@ -645,6 +804,10 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
             clue_id = event.get("clue_id")
             recovered = [clue_id] if clue_id else []
             recovery_event = event
+        elif etype == "idea_roll_recovery":
+            clue_id = event.get("clue_id")
+            recovered = [clue_id] if clue_id else []
+            clean_recovery_event = event
 
     resolved_plan["resolved_clue_policy"] = {
         "planned_reveals": planned_reveals,
@@ -678,6 +841,15 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
             "severity": "regular",
             "fallback_routes": recovery_event.get("fallback_routes", []),
             "costs": ["time_pressure"],
+            "must_not_claim": ["do not present this as a table-level hint"],
+        }
+    elif clean_recovery_event is not None:
+        directives["failure_consequence"] = {
+            "narration_mode": "recover_clean",
+            "consequence_type": "fallback_route_surfaces",
+            "severity": "regular",
+            "fallback_routes": clean_recovery_event.get("fallback_routes", []),
+            "costs": [],
             "must_not_claim": ["do not present this as a table-level hint"],
         }
     elif (failed_contract := _first_failed_contract_result(resolved_plan, resolved_results)) is not None:
@@ -848,6 +1020,11 @@ def _apply_plan_impl(
             _append_jsonl(logs / "events.jsonl", ev)
     if fired:
         world["san_triggers_fired"] = fired
+    # Idea Roll signpost bookkeeping: record which clues were offered as leads
+    # (mentioned) or missed on an obscured check (obvious). Never downgrade.
+    signpost_updates = _collect_signpost_updates(plan, resolution_events)
+    if signpost_updates or isinstance(world.get("clue_signposts"), dict):
+        world["clue_signposts"] = _merge_clue_signposts(world, signpost_updates)
     _write_json(world_path, world)
 
     # 1b. spoiler reveals — warning-gated Keeper-only disclosures.

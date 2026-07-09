@@ -634,10 +634,62 @@ def test_recover_plan_includes_idea_roll_contract(tmp_path):
     assert idea["roll_target"] == "INT"
     assert idea["missed_clue_id"] == "clue-1"
     assert idea["failure_delivery_with_cost"] == "surface the lead in a worse position"
+    assert idea["signpost_level"] == "unmentioned"
+    assert idea["difficulty"] is None  # never signposted → free delivery, no roll
     assert "target_characteristic" not in idea
     assert "missed_conclusion_id" not in idea
     assert "failure_delivery" not in idea
     assert "do not present this as table-level advice" in idea["must_not"]
+    # Free recovery still advances via fallback; no idea_roll request.
+    assert not any(req.get("kind") == "idea_roll" for req in plan.get("rules_requests", []))
+
+
+def test_idea_roll_difficulty_follows_signpost_level(tmp_path):
+    """Rulebook p.199: never mentioned → free; mentioned → Regular; obvious missed → Extreme."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["idle", "idle", "idle"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["clue_signposts"] = {"clue-1": "mentioned"}
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="不知道该干嘛",
+        player_intent_class="idle",
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="idea-mentioned")
+    idea = plan["narrative_directives"]["idea_roll_plan"]
+    assert idea["signpost_level"] == "mentioned"
+    assert idea["difficulty"] == "regular"
+    idea_reqs = [req for req in plan["rules_requests"] if req.get("kind") == "idea_roll"]
+    assert len(idea_reqs) == 1
+    assert idea_reqs[0]["difficulty"] == "regular"
+    assert idea_reqs[0]["skill"] == "INT"
+    assert plan["handoff"] == "rules"
+
+    world["clue_signposts"] = {"clue-1": "obvious"}
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="不知道该干嘛",
+        player_intent_class="idle",
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="idea-obvious")
+    idea = plan["narrative_directives"]["idea_roll_plan"]
+    assert idea["signpost_level"] == "obvious"
+    assert idea["difficulty"] == "extreme"
+    idea_reqs = [req for req in plan["rules_requests"] if req.get("kind") == "idea_roll"]
+    assert len(idea_reqs) == 1
+    assert idea_reqs[0]["difficulty"] == "extreme"
 
 
 def test_reveal_social_intent_surfaces_structured_npc_dialogue_clue(tmp_path):

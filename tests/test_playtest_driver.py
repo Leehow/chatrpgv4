@@ -152,7 +152,12 @@ def test_driver_roll_payload_preserves_roll_contract(tmp_path):
 
 
 def test_driver_stalled_recover_surfaces_fallback_route(tmp_path):
+    """Unmentioned missed clue: free Idea recovery (no roll) still advances play."""
     camp, char_path = _build_mini_campaign(tmp_path)
+    # Ensure INT exists so a future idea_roll path can resolve against it.
+    char = json.loads(char_path.read_text())
+    char["characteristics"]["INT"] = 70
+    char_path.write_text(json.dumps(char))
     result = driver.run_full_session(
         camp, char_path, "inv1",
         player_choices=[{"intent": "不知道该做什么", "intent_class": "idle"}] * 3,
@@ -160,9 +165,90 @@ def test_driver_stalled_recover_surfaces_fallback_route(tmp_path):
     )
     turn = result["turns"][-1]
     assert result["clue_coverage"]["discovered_count"] >= 1
-    assert "fail_forward_recovery" in turn["event_types"]
+    assert "idea_roll_recovery" in turn["event_types"]
     assert turn["resolved_clue_policy"]["fallback_recovered"]
-    assert turn["failure_consequence"]["narration_mode"] == "recover_with_cost"
+    assert turn["failure_consequence"]["narration_mode"] == "recover_clean"
+    assert not any(r.get("kind") == "idea_roll" for r in turn.get("rule_results", []))
+
+
+def test_driver_stalled_recover_rolls_idea_when_signposted(tmp_path):
+    """Mentioned missed clue: live path executes a real Idea Roll vs INT."""
+    camp, char_path = _build_mini_campaign(tmp_path)
+    char = json.loads(char_path.read_text())
+    char["characteristics"]["INT"] = 70
+    char_path.write_text(json.dumps(char))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    # Signpost the first available clue so RECOVER must roll (Regular).
+    world["clue_signposts"] = {"c1": "mentioned"}
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    result = driver.run_full_session(
+        camp, char_path, "inv1",
+        player_choices=[{"intent": "不知道该做什么", "intent_class": "idle"}] * 3,
+        max_turns=3,
+        rng_seed=7,
+    )
+    idea_turns = [
+        turn for turn in result["turns"]
+        if any(r.get("kind") == "idea_roll" for r in turn.get("rule_results", []))
+    ]
+    assert idea_turns, "expected at least one live Idea Roll on a signposted RECOVER"
+    turn = idea_turns[0]
+    idea_rolls = [r for r in turn.get("rule_results", []) if r.get("kind") == "idea_roll"]
+    assert len(idea_rolls) == 1
+    assert idea_rolls[0]["skill"] == "INT"
+    assert idea_rolls[0]["difficulty"] == "regular"
+    assert turn["resolved_clue_policy"]["fallback_recovered"]
+    assert turn["failure_consequence"]["narration_mode"] in {
+        "recover_clean",
+        "recover_with_cost",
+    }
+    assert result["clue_coverage"]["discovered_count"] >= 1
+
+
+def test_driver_choice_leads_auto_signpost_then_recover_rolls_idea(tmp_path):
+    """Live path: offering clue leads writes mentioned signposts; later RECOVER rolls Idea."""
+    camp, char_path = _build_mini_campaign(tmp_path)
+    char = json.loads(char_path.read_text())
+    char["characteristics"]["INT"] = 70
+    char_path.write_text(json.dumps(char))
+
+    # Scene needs ≥2 available clues so CHOICE can surface leads.
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["available_clues"] = ["c1", "c2"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+
+    # Turn 1: ambiguous/idle with multiple leads → CHOICE should signpost.
+    # Later idle turns stall into RECOVER, which must roll Idea vs INT (Regular).
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[
+            {"intent": "我该先查哪边？", "intent_class": "ambiguous"},
+            {"intent": "不知道该做什么", "intent_class": "idle"},
+            {"intent": "还是不知道", "intent_class": "idle"},
+            {"intent": "完全卡住了", "intent_class": "idle"},
+        ],
+        max_turns=4,
+        rng_seed=11,
+    )
+
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    signposts = world.get("clue_signposts") or {}
+    assert signposts.get("c1") in {"mentioned", "obvious"} or signposts.get("c2") in {
+        "mentioned",
+        "obvious",
+    }, f"expected auto signpost from offered leads, got {signposts}"
+
+    idea_turns = [
+        turn for turn in result["turns"]
+        if any(r.get("kind") == "idea_roll" for r in turn.get("rule_results", []))
+    ]
+    assert idea_turns, (
+        "expected RECOVER to roll Idea after auto-signposted leads; "
+        f"signposts={signposts} actions={[t.get('action') for t in result['turns']]}"
+    )
+    assert idea_turns[0]["rule_results"][0]["difficulty"] in {"regular", "extreme"}
 
 
 def test_driver_applies_narrative_enrichment_and_persists_storylet_ledger(tmp_path):
