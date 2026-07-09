@@ -7,7 +7,7 @@
 
 ## 项目背景（简述）
 
-Call of Cthulhu 7e（40 周年规则书）的 ZCode/Codex 插件。核心是一个 **deterministic 剧情导演层**（coc_story_director.py），每回合读规则状态 + 模组剧情图，产出 DirectorPlan JSON。
+Call of Cthulhu 7e（40 周年规则书）的 Codex 插件。核心是一个 **deterministic 剧情导演层**（coc_story_director.py），每回合读规则状态 + 模组剧情图，产出 DirectorPlan JSON。
 
 ```
 coc_story_director  = 导演脑（deterministic，选动作 + 评分）

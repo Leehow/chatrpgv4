@@ -13,7 +13,7 @@
 
 v1 已经从"规则器"迈进"导演脑 v1"的正确形态。方向比上次建议更工程化：不是把剧情编排写成 prompt，而是拆成 **LLM 读模组生成剧情图 → 确定性脚本校验 → deterministic director 运行期消费 → narration contract 检查** 这条链路。
 
-最关键的是，v1 已经明确利用 Codex/ZCode 的强项：**不写硬 PDF 解析器，让 LLM 通过 grep/read/PDF read 去编译剧情图；脚本只负责结构校验**。
+最关键的是，v1 已经明确利用 Codex 的强项：**不写硬 PDF 解析器，让 LLM 通过 grep/read/PDF read 去编译剧情图；脚本只负责结构校验**。
 
 v1 最强的地方：
 1. 没有把剧情编排做成纯 prompt（deterministic planner，可测可复现可审计）
@@ -99,7 +99,7 @@ def _current_pacing_entry(ctx):
 
 ## 记忆层：grep-native memory cards（核心建议）
 
-**强烈建议走 grep-native memory cards，不要急着做向量库。** Codex/ZCode 插件天然优势是成熟 grep/read 和文件工具链。
+**强烈建议走 grep-native memory cards，不要急着做向量库。** Codex 插件天然优势是成熟 grep/read 和文件工具链。
 
 ### 四层语义
 
@@ -234,7 +234,7 @@ keeper_only      只能给 director/keeper-play 隐藏使用
 system_only      玩家和 Keeper 叙事都不显示
 ```
 
-## 最大化利用 Codex/ZCode grep/read
+## 最大化利用 Codex grep/read
 
 1. **文件名就是索引**：`mem-20260706-ada-door-scratches-player-interest.md`（grep 友好，不要 UUID）
 2. **frontmatter 用稳定英文 key**，玩家可见内容中文
@@ -264,6 +264,6 @@ system_only      玩家和 Keeper 叙事都不显示
 
 v1 已经把"规则器"升级成"有导演脑的规则器"。要变成"有趣的 LLM GM"，下一步不是继续补规则，而是：
 
-> **用 Codex/ZCode 的 grep/read 能力做一个文本优先的记忆层，让 director 能从玩家过去的选择、偏好、误解、恐惧、NPC 关系里挑出 3–8 个 relevant memories，并把它们变成 PAYOFF、CHARACTER、PRESSURE、CHOICE 的依据。**
+> **用 Codex 的 grep/read 能力做一个文本优先的记忆层，让 director 能从玩家过去的选择、偏好、误解、恐惧、NPC 关系里挑出 3–8 个 relevant memories，并把它们变成 PAYOFF、CHARACTER、PRESSURE、CHOICE 的依据。**
 
 先别上向量库。先让每张记忆卡都能被 grep 精准命中、被 LLM 直接读懂、被 harness 证明"不是无关回忆倾倒"。

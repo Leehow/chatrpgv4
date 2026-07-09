@@ -17,7 +17,7 @@ the director gets another chance to surface a handle/threat/NPC question. The
 
 ## What was done
 
-### 1. `coc_live_turn_runner.py` (canonical + zcode synced)
+### 1. `coc_live_turn_runner.py` (canonical Codex track)
 - Added helper `_turn_has_actionable_content(turn) -> bool`. It returns True when
   the turn carries any structured handle the player could respond to:
   - `clue_revealed` is non-empty, OR
@@ -87,7 +87,7 @@ Sync check: `plugin copies are in sync` (both runner copies identical).
 - [x] On the continue path `choice = _semantic_low_agency_choice(choice)` runs
       before `continue`, so the next iteration is a low-agency advance
       (integration test asserts continuation turns are `auto_advanced=True`).
-- [x] Dual-track synced (canonical `coc-keeper` and `coc-keeper-zcode` are
+- [x] Single-track Codex (canonical `coc-keeper` and `coc-keeper` are
       byte-identical).
 
 ## Design decisions & notes

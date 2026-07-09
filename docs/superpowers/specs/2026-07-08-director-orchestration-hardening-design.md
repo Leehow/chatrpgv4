@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-08
 **Status:** Approved blueprint, written spec pending user review
-**Scope:** Harden the existing Call of Cthulhu Story Director rather than replacing it. This spec turns the rulebook pacing and investigation guidance into explicit DirectorPlan contracts, with Codex as the canonical implementation track and ZCode synchronized by the existing sync script.
+**Scope:** Harden the existing Call of Cthulhu Story Director rather than replacing it. This spec turns the rulebook pacing and investigation guidance into explicit DirectorPlan contracts, with Codex as the sole implementation track.
 
 ## Goal
 
@@ -15,7 +15,7 @@ The central design rule is: **the director must decide the dramatic contract, an
 - Do not rewrite `coc_story_director.py` from scratch.
 - Do not build a full action-scene controller in this pass. Combat, chase, and complex multi-actor action scenes remain a later project.
 - Do not introduce keyword-based gameplay branching. Legacy string heuristics may remain only as compatibility fallback and must emit or be covered by compile-time guidance toward structured fields.
-- Do not manually edit the ZCode plugin copy. Shared behavior changes start in `plugins/coc-keeper/` and flow through `scripts/sync_coc_plugin_copy.py`.
+- Shared behavior changes live only in `plugins/coc-keeper/`.
 - Do not add dependencies, vector search, or an LLM classifier to the deterministic director.
 
 ## Rulebook Principles Captured
@@ -302,9 +302,9 @@ Use TDD for implementation. Required focused tests:
    - critical success and fumble can open high-conflict storylet windows with correct polarity.
    - proposal transforms and choice frames coexist without rendering a menu.
 
-6. Dual-track checks:
-   - Run `python3 scripts/sync_coc_plugin_copy.py`.
-   - Run `python3 scripts/sync_coc_plugin_copy.py --check`.
+6. Single-track checks:
+   - Run `# single-track: edit plugins/coc-keeper/ only`.
+   - Run `# single-track: no sync script required`.
    - Run plugin metadata and sync tests.
 
 ## Acceptance Criteria
@@ -317,8 +317,8 @@ Use TDD for implementation. Required focused tests:
 - NPC agency has multiple abstract move types and audited reasons.
 - Psychology failure policy no longer defaults to false information.
 - Storylets remain event-triggered and anchor-bound.
-- Codex and ZCode plugin tracks are synchronized by script.
-- Focused tests and required dual-track tests pass.
+- Codex plugin tracks are synchronized by script.
+- Focused tests and required single-track tests pass.
 
 ## Self-Review Notes
 

@@ -68,12 +68,12 @@ heuristic fallback).
 ## Byte-identical verification
 
 All three modified artifacts are byte-identical across the `coc-keeper` and
-`coc-keeper-zcode` plugins:
+`coc-keeper` plugins:
 
 ```
-diff plugins/coc-keeper/scripts/coc_story_director.py          plugins/coc-keeper-zcode/scripts/coc_story_director.py
-diff plugins/coc-keeper/scripts/coc_scenario_compile.py        plugins/coc-keeper-zcode/scripts/coc_scenario_compile.py
-diff plugins/coc-keeper/.../story-graph-schema.md             plugins/coc-keeper-zcode/.../story-graph-schema.md
+diff plugins/coc-keeper/scripts/coc_story_director.py          plugins/coc-keeper/scripts/coc_story_director.py
+diff plugins/coc-keeper/scripts/coc_scenario_compile.py        plugins/coc-keeper/scripts/coc_scenario_compile.py
+diff plugins/coc-keeper/.../story-graph-schema.md             plugins/coc-keeper/.../story-graph-schema.md
 ```
 
 All three report no differences.

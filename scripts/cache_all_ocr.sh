@@ -2,10 +2,10 @@
 # OCR all rulebook chapters and cache to checks/ocr-cached/.
 # Idempotent: skips chapters already cached.
 set -u
-PROJECT="/Users/haoli/leehow/code/chatrpgv4-zcode"
+PROJECT="/Users/haoli/leehow/code/chatrpgv4"
 PDF="pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf"
 CACHE="$PROJECT/checks/ocr-cached"
-MINERU="$HOME/.zcode/cli/plugins/local/mineru/0.1.0/skills/mineru/scripts/parse.sh"
+MINERU="$HOME/.claude/skills/mineru/scripts/parse.sh"
 mkdir -p "$CACHE"
 
 # chapter_name:start_idx:end_idx

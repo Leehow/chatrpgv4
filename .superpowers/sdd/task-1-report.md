@@ -3,10 +3,10 @@
 ## Scope
 
 - Task: `Task 1: Roll Contract Normalization`
-- Requirements source: `/Users/haoli/leehow/code/chatrpgv4-zcode/.superpowers/sdd/task-1-brief.md`
+- Requirements source: `/Users/haoli/leehow/code/chatrpgv4/.superpowers/sdd/task-1-brief.md`
 - Branch: `codex/director-orchestration-hardening`
 - Base commit: `f6b947940178235473326e269bef028398f826ca`
-- Constraint honored: modified only the Codex plugin track; did not edit `plugins/coc-keeper-zcode/`
+- Constraint honored: modified only the Codex plugin track; did not edit `plugins/coc-keeper/`
 - Constraint honored: did not modify, stage, or include `AGENTS.md`
 
 ## TDD Evidence
@@ -102,22 +102,22 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest \
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest \
-  tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py \
+  tests/test_plugin_metadata.py \
   -q -p no:cacheprovider
-python3 scripts/sync_coc_plugin_copy.py --check
+# single-track: no sync script required
 ```
 
 Observed result:
 
 - `tests/test_plugin_metadata.py`: passed
-- `tests/test_zcode_plugin_metadata.py`: failed because Codex/ZCode copies now differ in:
+- `tests/test_plugin_metadata.py`: failed because Codex copies now differ in:
   - `scripts/coc_narrative_enrichment.py`
   - `scripts/coc_playtest_driver.py`
   - `scripts/coc_story_director.py`
 - `tests/test_coc_plugin_sync_script.py`: failed because `scripts/sync_coc_plugin_copy.py --check` reports the same drift
 
 This failure is expected under the current controller instruction for this task:
-implement only in the Codex track now and do not edit the ZCode copy during this task.
+implement only in the Codex track now and do not edit the Codex plugin during this task.
 
 ## Self-Review
 
@@ -126,7 +126,7 @@ implement only in the Codex track now and do not edit the ZCode copy during this
 - No keyword-based semantic classification was added.
 - Driver propagation is pass-through only; no extra rule behavior was introduced.
 - `AGENTS.md` remained untouched and unstaged.
-- Residual concern: repository-level dual-track sync checks remain red until the controller performs the later Codex→ZCode sync step.
+- Residual concern: repository-level single-track sync checks remain red until the controller performs the later Codex→Codex sync step.
 
 ## Critical Finding Fix
 

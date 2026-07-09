@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 两 plugin 同步：所有脚本改动同时写到 `plugins/coc-keeper/scripts/` 和 `plugins/coc-keeper-zcode/scripts/`（字节一致）。
+- 两 plugin 同步：所有脚本改动同时写到 `plugins/coc-keeper/scripts/` 和 `plugins/coc-keeper/scripts/`（字节一致）。
 - 测试在 `tests/test_<module>.py`，用 `importlib.util` 加载，从 `plugins/coc-keeper/scripts/` 加载。
 - 所有 RNG 用 `random.Random(seed)`。
 - 规则数据从 `references/rules-json/` 读，不硬编码。
@@ -25,12 +25,12 @@
 ## File Structure
 
 ```
-plugins/coc-keeper/scripts/           plugins/coc-keeper-zcode/scripts/
+plugins/coc-keeper/scripts/           plugins/coc-keeper/scripts/
   coc_memory.py          [NEW]           coc_memory.py          [NEW]
   coc_director_apply.py  [NEW]           coc_director_apply.py  [NEW]
   coc_story_director.py  [MOD]           coc_story_director.py  [MOD]
 
-plugins/coc-keeper/references/         plugins/coc-keeper-zcode/references/
+plugins/coc-keeper/references/         plugins/coc-keeper/references/
   memory-protocol.md     [NEW]           memory-protocol.md     [NEW]
 
 tests/
@@ -49,7 +49,7 @@ tests/
 ## Task 1: clue-graph 锚点 → must_include 自动填充
 
 **Files:**
-- Modify: `plugins/coc-keeper/scripts/coc_story_director.py` + zcode 副本
+- Modify: `plugins/coc-keeper/scripts/coc_story_director.py` 
 - Test: `tests/test_story_director.py` (追加)
 
 **Interfaces:**
@@ -125,7 +125,7 @@ def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[st
         ),
 ```
 
-同步到 zcode 副本。
+（单轨：仅维护 plugins/coc-keeper/。）
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -137,8 +137,8 @@ Expected: 2 passed
 ```bash
 pytest tests/ -q
 # sync check
-diff plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py
-git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py tests/test_story_director.py
+diff plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py
+git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py tests/test_story_director.py
 git commit -m "feat: populate must_include from clue player_visible_anchor"
 ```
 
@@ -147,7 +147,7 @@ git commit -m "feat: populate must_include from clue player_visible_anchor"
 ## Task 2: pacing-map 运行期消费（horror_stage/pacing_mode/tension_delta）
 
 **Files:**
-- Modify: `plugins/coc-keeper/scripts/coc_story_director.py` + zcode 副本
+- Modify: `plugins/coc-keeper/scripts/coc_story_director.py` 
 - Test: `tests/test_story_director.py` (追加)
 
 **Interfaces:**
@@ -231,7 +231,7 @@ def _current_pacing_entry(ctx: dict[str, Any]) -> dict[str, Any]:
 
 然后 `narrative_directives` 里把 `"horror_escalation_stage": "wrongness",` 改成 `"horror_escalation_stage": horror_stage,`，`"pacing_mode"` 改成用上面的变量，`"tension_delta"` 用上面的变量。
 
-同步到 zcode 副本。
+（单轨：仅维护 plugins/coc-keeper/。）
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -242,8 +242,8 @@ Expected: 2 passed
 
 ```bash
 pytest tests/ -q
-diff plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py
-git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py tests/test_story_director.py
+diff plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py
+git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py tests/test_story_director.py
 git commit -m "feat: consume pacing-map for horror_stage/pacing_mode/tension_delta"
 ```
 
@@ -252,8 +252,8 @@ git commit -m "feat: consume pacing-map for horror_stage/pacing_mode/tension_del
 ## Task 3: coc_memory.py — Markdown memory cards + 检索 + context pack
 
 **Files:**
-- Create: `plugins/coc-keeper/scripts/coc_memory.py` + zcode 副本
-- Create: `plugins/coc-keeper/references/memory-protocol.md` + zcode 副本
+- Create: `plugins/coc-keeper/scripts/coc_memory.py` 
+- Create: `plugins/coc-keeper/references/memory-protocol.md` 
 - Test: `tests/test_memory.py`
 
 **Interfaces:**
@@ -390,7 +390,7 @@ Expected: FAIL — ModuleNotFoundError
 Memory cards are Markdown files with YAML frontmatter. The frontmatter holds
 machine-readable fields (memory_id, privacy, salience, entities, tags,
 reactivation_cues); the body holds a short Chinese summary an LLM can read
-directly. This design favors Codex/ZCode grep/read over a database.
+directly. This design favors Codex grep/read over a database.
 
 Spec: docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md
 """
@@ -626,7 +626,7 @@ list_item = re.match(r"^\s*-\s+(.+)$", line)
 m = re.match(r"^([a-z_]+):\s*(.*)$", line)
 ```
 
-同步到 zcode 副本。
+（单轨：仅维护 plugins/coc-keeper/。）
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -669,15 +669,15 @@ grep -R "tags:.*player_interest" memory/cards
 7. foreshadow set or paid off
 ```
 
-同步到 zcode 副本。
+（单轨：仅维护 plugins/coc-keeper/。）
 
 - [ ] **Step 6: 全量 + Commit**
 
 ```bash
 pytest tests/ -q
-diff plugins/coc-keeper/scripts/coc_memory.py plugins/coc-keeper-zcode/scripts/coc_memory.py
-git add plugins/coc-keeper/scripts/coc_memory.py plugins/coc-keeper-zcode/scripts/coc_memory.py \
-        plugins/coc-keeper/references/memory-protocol.md plugins/coc-keeper-zcode/references/memory-protocol.md \
+diff plugins/coc-keeper/scripts/coc_memory.py plugins/coc-keeper/scripts/coc_memory.py
+git add plugins/coc-keeper/scripts/coc_memory.py plugins/coc-keeper/scripts/coc_memory.py \
+        plugins/coc-keeper/references/memory-protocol.md plugins/coc-keeper/references/memory-protocol.md \
         tests/test_memory.py
 git commit -m "feat: add coc_memory grep-native markdown memory cards + retrieval + context pack"
 ```
@@ -687,7 +687,7 @@ git commit -m "feat: add coc_memory grep-native markdown memory cards + retrieva
 ## Task 4: Director 接入 memory（memory_reads/writes + PAYOFF 评分）
 
 **Files:**
-- Modify: `plugins/coc-keeper/scripts/coc_story_director.py` + zcode 副本
+- Modify: `plugins/coc-keeper/scripts/coc_story_director.py` 
 - Test: `tests/test_story_director.py` (追加)
 
 **Interfaces:**
@@ -819,7 +819,7 @@ def _derive_memory_entities(ctx: dict[str, Any]) -> list[str]:
 
 `memory_writes` v2 先留空数组（写回由 M5 的 apply 层根据场景触发，不在 director 里决定）。
 
-同步到 zcode 副本。
+（单轨：仅维护 plugins/coc-keeper/。）
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -830,8 +830,8 @@ Expected: 2 passed
 
 ```bash
 pytest tests/ -q
-diff plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py
-git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py tests/test_story_director.py
+diff plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py
+git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py tests/test_story_director.py
 git commit -m "feat: wire memory retrieval into director (PAYOFF scores + memory_reads)"
 ```
 
@@ -840,7 +840,7 @@ git commit -m "feat: wire memory retrieval into director (PAYOFF scores + memory
 ## Task 5: coc_director_apply.py — DirectorPlan 写回层
 
 **Files:**
-- Create: `plugins/coc-keeper/scripts/coc_director_apply.py` + zcode 副本
+- Create: `plugins/coc-keeper/scripts/coc_director_apply.py` 
 - Test: `tests/test_director_apply.py`
 
 **Interfaces:**
@@ -1081,7 +1081,7 @@ def apply_plan(campaign_dir: Path, plan: dict[str, Any], investigator_id: str) -
     return events
 ```
 
-同步到 zcode 副本。
+（单轨：仅维护 plugins/coc-keeper/。）
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -1092,8 +1092,8 @@ Expected: 4 passed
 
 ```bash
 pytest tests/ -q
-diff plugins/coc-keeper/scripts/coc_director_apply.py plugins/coc-keeper-zcode/scripts/coc_director_apply.py
-git add plugins/coc-keeper/scripts/coc_director_apply.py plugins/coc-keeper-zcode/scripts/coc_director_apply.py tests/test_director_apply.py
+diff plugins/coc-keeper/scripts/coc_director_apply.py plugins/coc-keeper/scripts/coc_director_apply.py
+git add plugins/coc-keeper/scripts/coc_director_apply.py plugins/coc-keeper/scripts/coc_director_apply.py tests/test_director_apply.py
 git commit -m "feat: add coc_director_apply write-back layer (reveal/pressure/memory -> save/logs)"
 ```
 
@@ -1102,7 +1102,7 @@ git commit -m "feat: add coc_director_apply write-back layer (reveal/pressure/me
 ## Task 6: memory continuity harness drill + 全量验证
 
 **Files:**
-- Modify: `plugins/coc-keeper/scripts/coc_story_harness.py` + zcode 副本（加 memory continuity 检查）
+- Modify: `plugins/coc-keeper/scripts/coc_story_harness.py` （加 memory continuity 检查）
 - Test: `tests/test_story_harness.py` (追加)
 
 **Interfaces:**
@@ -1167,7 +1167,7 @@ Expected: FAIL 或 PASS（取决于 coc_memory 是否被正确加载）
     }
 ```
 
-同步到 zcode 副本。
+（单轨：仅维护 plugins/coc-keeper/。）
 
 - [ ] **Step 4: 全量 + 跑 v7 smoke 确认无回归**
 
@@ -1181,7 +1181,7 @@ python3 .coc/playtests/v7-director-smoke/run_smoke.py 2>/dev/null && echo "smoke
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/coc-keeper/scripts/coc_story_harness.py plugins/coc-keeper-zcode/scripts/coc_story_harness.py tests/test_story_harness.py
+git add plugins/coc-keeper/scripts/coc_story_harness.py plugins/coc-keeper/scripts/coc_story_harness.py tests/test_story_harness.py
 git commit -m "feat: add memory continuity drill + memory recap-dump assertion"
 ```
 

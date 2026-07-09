@@ -4,18 +4,18 @@
 
 **Goal:** 让 COC 插件内置一个开箱即玩的 OGL 改编剧本《白色战争》(The White War)，新人在创建战役后被主动引导选择「自带剧本 / 内置剧本」，零 PDF 准备即可开玩。
 
-**Architecture:** OGL 双轨——OGC 数值（Polyp Horror 怪物、寒冷规则、武器）忠实打包进 `rules-json/the-white-war.json` 并登记 `module.white_war.*` 规则命名空间；剧情/地点/NPC/对话为 Product Identity，故以「冰封竖井释放远古实体」的 OGC 抽象前提原创一个等价探险（7 个 story-graph JSON）。新增 Python loader `coc_starter.py` 负责列出/安装内置剧本到 campaign 目录。coc-main 工作流插入一个 Hard Rule：新档无剧本时强制弹出二选一引导。
+**Architecture:** OGL 单轨——OGC 数值（Polyp Horror 怪物、寒冷规则、武器）忠实打包进 `rules-json/the-white-war.json` 并登记 `module.white_war.*` 规则命名空间；剧情/地点/NPC/对话为 Product Identity，故以「冰封竖井释放远古实体」的 OGC 抽象前提原创一个等价探险（7 个 story-graph JSON）。新增 Python loader `coc_starter.py` 负责列出/安装内置剧本到 campaign 目录。coc-main 工作流插入一个 Hard Rule：新档无剧本时强制弹出二选一引导。
 
 **Tech Stack:** Python 3（stdlib only，无新依赖）、JSON、Markdown、pytest。两个插件轨由 `scripts/sync_coc_plugin_copy.py` 自动同步（`rglob` 全量镜像，新文件无需改 sync 脚本）。
 
 ## Global Constraints
 
-- **法律双轨不可逾越**：OGC 数值（Polyp Horror stat block p8-10、寒冷规则、武器数据）可忠实分发并附完整 OGL §15 归属；剧情/地点/人物/对话/地图属 Product Identity，**不得**逐字照搬——必须原创姓名、地点、场景描写、对话。所有 NPC 对话强制原创。
+- **法律单轨不可逾越**：OGC 数值（Polyp Horror stat block p8-10、寒冷规则、武器数据）可忠实分发并附完整 OGL §15 归属；剧情/地点/人物/对话/地图属 Product Identity，**不得**逐字照搬——必须原创姓名、地点、场景描写、对话。所有 NPC 对话强制原创。
 - **rule id 正则**：`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`（全小写，点分段）。"The White War" → `module.white_war.*`。
 - **scenario 文件契约**：director 运行期只读 `campaigns/<id>/scenario/` 下 7 个 story-graph JSON（`coc_story_director.py:95-183`）。内置剧本必须经 loader 拷贝进该位置才能跑。
 - **校验器约束**：scenario 目录必须通过 `coc_scenario_compile.py --validate` 无 error；critical conclusion 的 clues 数 ≥ minimum_routes（默认 3）；每个 scene 的 `dramatic_question` 非空；每个 NPC 有非空 `agenda`；`keeper_secrets` 不得与 player-safe clue_id 撞名。
-- **双轨同步**：所有 `plugins/coc-keeper/` 下的改动，完成后必须跑 `python3 scripts/sync_coc_plugin_copy.py` 同步到 `plugins/coc-keeper-zcode/`，再跑 `--check` 确认一致。
-- **回归门禁**：每批任务结束至少跑 `pytest tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py -q -p no:cacheprovider` + `python3 scripts/sync_coc_plugin_copy.py --check`。
+- **单轨维护**：所有 `plugins/coc-keeper/` 下的改动，完成后必须跑 `# single-track: edit plugins/coc-keeper/ only` 同步到 `plugins/coc-keeper/`，再跑 `--check` 确认一致。
+- **回归门禁**：每批任务结束至少跑 `pytest tests/test_plugin_metadata.py -q -p no:cacheprovider` + `# single-track: no sync script required`。
 - **era 登记约束**：`coc_state.py:307` 的 `_ERA_CLOCKS` 字典决定 era 时钟初始化；新增 `ww1` era 必须在此登记，否则回退 1920s 默认。
 
 ## File Structure
@@ -44,7 +44,7 @@
 - `plugins/coc-keeper/skills/coc-main/SKILL.md` — 工作流插入引导节点 + Hard Rule。
 - `README.md` — 版权章节追加 OGL starter scenario 声明。
 
-（以上 `plugins/coc-keeper/` 的改动由 sync 自动镜像到 `plugins/coc-keeper-zcode/`。）
+（以上 `plugins/coc-keeper/` 的改动由 sync 自动镜像到 `plugins/coc-keeper/`。）
 
 ---
 
@@ -1974,7 +1974,7 @@ git commit -m "feat(coc): add mandatory scenario onboarding prompt for new campa
 
 ---
 
-## Task 14: README 版权章节 + 双轨同步
+## Task 14: README 版权章节 + 单轨维护
 
 **Files:**
 - Modify: `README.md`（版权章节）
@@ -1992,21 +1992,21 @@ This repository ships one built-in, play-ready starter scenario — **The White 
 A full copy of the OGL and the complete Section 15 COPYRIGHT NOTICE are included with the scenario at `plugins/coc-keeper/references/starter-scenarios/the-white-war/`. This built-in scenario does not include any copyrighted rulebook or adventure PDF; it lets new players start playing with zero PDF preparation.
 ```
 
-- [ ] **Step 2: 同步到 ZCode 轨**
+- [ ] **Step 2: 确认单轨 Codex 插件**
 
-Run: `python3 scripts/sync_coc_plugin_copy.py 2>&1 | tail -5`
+Run: `# single-track: edit plugins/coc-keeper/ only 2>&1 | tail -5`
 Expected: 无输出（成功）或列出同步的文件。
 
 - [ ] **Step 3: 校验两轨一致**
 
-Run: `python3 scripts/sync_coc_plugin_copy.py --check 2>&1 | tail -5`
+Run: `# single-track: no sync script required 2>&1 | tail -5`
 Expected: 无输出（clean）。
 
 - [ ] **Step 4: 提交**
 
 ```bash
-git add README.md plugins/coc-keeper-zcode/
-git commit -m "docs(coc): document OGL starter scenario in README; sync ZCode track"
+git add README.md plugins/coc-keeper/
+git commit -m "docs(coc): document OGL starter scenario in README; sync Codex track"
 ```
 
 ---
@@ -2019,7 +2019,7 @@ git commit -m "docs(coc): document OGL starter scenario in README; sync ZCode tr
 
 Run:
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py tests/test_starter_scenarios.py tests/test_white_war_rules.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_starter_scenarios.py tests/test_white_war_rules.py -q -p no:cacheprovider
 ```
 Expected: ALL PASS。若有 sync 不一致，跑 Task 14 Step 2 重新同步。
 
@@ -2028,12 +2028,12 @@ Expected: ALL PASS。若有 sync 不一致，跑 Task 14 Step 2 重新同步。
 Run: `PYTHONDONTWRITEBYTECODE=1 python3 plugins/coc-keeper/scripts/coc_validate.py plugins/coc-keeper 2>&1 | tail -10`
 Expected: 无 error。
 
-- [ ] **Step 3: 跑 scenario 编译校验（ZCode 轨也跑一遍）**
+- [ ] **Step 3: 跑 scenario 编译校验（Codex 轨也跑一遍）**
 
 Run:
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 plugins/coc-keeper/scripts/coc_scenario_compile.py plugins/coc-keeper/references/starter-scenarios/the-white-war --validate
-PYTHONDONTWRITEBYTECODE=1 python3 plugins/coc-keeper/scripts/coc_scenario_compile.py plugins/coc-keeper-zcode/references/starter-scenarios/the-white-war --validate
+PYTHONDONTWRITEBYTECODE=1 python3 plugins/coc-keeper/scripts/coc_scenario_compile.py plugins/coc-keeper/references/starter-scenarios/the-white-war --validate
 ```
 Expected: 两个都 `0 errors`。
 
@@ -2070,7 +2070,7 @@ Expected: `active_scenario_id: the-white-war | era: ww1` + `7 files present: Tru
 
 - [ ] **Step 6: 跑 sync --check 最终确认**
 
-Run: `python3 scripts/sync_coc_plugin_copy.py --check`
+Run: `# single-track: no sync script required`
 Expected: clean（无输出）。
 
 - [ ] **Step 7: 最终提交（如有残留改动）**
@@ -2086,7 +2086,7 @@ git add -A && git commit -m "test(coc): verify full starter-scenario pipeline"
 ## Self-Review 结果
 
 **1. Spec 覆盖检查**:
-- 法律双轨（OGC 数值 + 原创改编）→ Task 1（OGC 规则包）+ Task 4-10（原创 scenario JSON，姓名/对话原创）✅
+- 法律单轨（OGC 数值 + 原创改编）→ Task 1（OGC 规则包）+ Task 4-10（原创 scenario JSON，姓名/对话原创）✅
 - OGL §15 归属 + license 文件 → Task 4（README + OGL-LICENSE.txt + module-meta 字段）✅
 - 新人引导节点（Hard Rule，仅新档无剧本）→ Task 13 ✅
 - loader（list/install 幂等）→ Task 3 ✅

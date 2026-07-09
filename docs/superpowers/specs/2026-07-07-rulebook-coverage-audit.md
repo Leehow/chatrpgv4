@@ -1,6 +1,6 @@
 # Call of Cthulhu 7e (40th Anniversary, Sandy Petersen) — Rulebook Coverage Audit (2026-07-07)
 
-Re-generated coverage audit of the `coc-keeper` / `coc-keeper-zcode` plugins
+Re-generated coverage audit of the `coc-keeper` / `coc-keeper` plugins
 against the authoritative Keeper Rulebook PDF (`pdf/Call Of Cthulhu Keeper
 Rulebook 40th Anniversary (Sandy Petersen).pdf`, 465 pages). Supersedes the
 2026-07-05 audit, which was written against a 32 rule-id / 19-table baseline

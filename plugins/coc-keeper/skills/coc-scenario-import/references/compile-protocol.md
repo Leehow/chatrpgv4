@@ -103,7 +103,7 @@
 
 ## 解析步骤（Layer 1 — LLM 解析）
 
-coc-scenario-import 的"剧情图编译"流程，由 LLM 驱动（利用 zcode 原生检索：grep / PDF read / webfetch），不写硬解析代码。
+coc-scenario-import 的"剧情图编译"流程，由 LLM 驱动（利用宿主原生检索：grep / PDF read / webfetch），不写硬解析代码。
 
 ```
 1. 读模组 PDF（read/grep；中文模组直接读，无需翻译）。

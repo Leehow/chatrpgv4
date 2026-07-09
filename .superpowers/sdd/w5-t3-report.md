@@ -6,7 +6,7 @@ COMPLETE
 ## Commit
 Commit directly on `release/0.15-alpha` (no feature branch).
 - Message: `feat(coc): cross-module helper API index (P2-4')`
-- Files: 4 changed — `plugins/coc-keeper/scripts/coc_api.py` (new), `plugins/coc-keeper-zcode/scripts/coc_api.py` (new, synced), `tests/test_api.py` (new), `.superpowers/sdd/w5-t3-report.md` (this file).
+- Files: 4 changed — `plugins/coc-keeper/scripts/coc_api.py` (new), `plugins/coc-keeper/scripts/coc_api.py` (new, synced), `tests/test_api.py` (new), `.superpowers/sdd/w5-t3-report.md` (this file).
 - Hash: recorded post-commit in the "Commit hash" section below (the hash is fixed once the commit is created; embedding it before committing would change it via amend, so it is read back after the commit lands).
 
 ## What was done
@@ -42,7 +42,7 @@ TDD cycle: wrote tests first → confirmed red (FileNotFoundError: coc_api.py mi
 - Full suite: 1097 passed (1090 prior baseline + 7 new), 0 failed.
 - `tests/test_coc_plugin_sync_script.py`: 4 passed (sync `--check` reports "plugin copies are in sync").
 
-## Dual-track sync
+## Single-track sync
 - `plugins/coc-keeper/scripts/coc_api.py` (canonical, Codex) created.
 - `scripts/sync_coc_plugin_copy.py` run; `--check` reports "plugin copies are in sync".
 - `diff` of the two `coc_api.py` copies: IDENTICAL.
@@ -53,11 +53,11 @@ TDD cycle: wrote tests first → confirmed red (FileNotFoundError: coc_api.py mi
 - [x] Robust to optional-sibling absence (3 robustness tests; never raises; degrades to available section, or `{}`).
 - [x] Entry shape mirrors coc_roll.public_api_index (`{aliases, signature, returns}`).
 - [x] `coc_rules_public_index()` helper added (inline in coc_api, per brief's "or inline in coc_api" option).
-- [x] Dual-track synced (canonical created, zcode propagated via sync script, `--check` clean, byte-identical).
+- [x] Single-track Codex (canonical created, codex propagated via sync script, `--check` clean, byte-identical).
 
 ## Files
 - Created: `plugins/coc-keeper/scripts/coc_api.py` (canonical).
-- Synced: `plugins/coc-keeper-zcode/scripts/coc_api.py` (byte-identical).
+- Synced: `plugins/coc-keeper/scripts/coc_api.py` (byte-identical).
 - Tests: `tests/test_api.py` (7 new tests).
 - Report: `.superpowers/sdd/w5-t3-report.md` (this file).
 

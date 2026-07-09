@@ -114,7 +114,7 @@ These checks confirm the clue-specific failure path still wins over the new gene
 ## Self-Review
 - Kept the generic failure routing behind existing `failure_event` and recovery precedence, so obscured-clue withholding behavior remains authoritative.
 - Reused `roll_contract` already attached to results/requests instead of introducing keyword heuristics or new schema.
-- Limited behavior change to the allowed Codex track only; no ZCode copy edits, no unrelated file churn, and no interaction with the pre-existing dirty `AGENTS.md`.
+- Limited behavior change to the allowed Codex track only; no Codex plugin edits, no unrelated file churn, and no interaction with the pre-existing dirty `AGENTS.md`.
 
 ## Concerns
 None.

@@ -6,8 +6,8 @@ This repository maintains one plugin track:
 
 - `plugins/coc-keeper/` is the canonical Codex plugin.
 
-Do not recreate a parallel ZCode plugin copy. Shared runtime behavior lives only
-in `plugins/coc-keeper/`.
+Do not recreate a parallel host-specific plugin copy. Shared runtime behavior
+lives only in `plugins/coc-keeper/`.
 
 Platform-specific capabilities must stay explicitly gated in the Codex plugin.
 In particular, investigator portrait generation is Codex-only and must remain

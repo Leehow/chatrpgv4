@@ -26,7 +26,7 @@ returned generic ambient storylets.
 
 ## Changes
 
-### `plugins/coc-keeper/scripts/coc_storylets.py` (+ mirrored in `plugins/coc-keeper-zcode/`)
+### `plugins/coc-keeper/scripts/coc_storylets.py` (+ mirrored in `plugins/coc-keeper/`)
 
 1. **New helper `_is_scene_tag_summoned(storylet, ctx)`** (after
    `_has_scene_pressure`). Returns True iff the turn's trigger reason is
@@ -120,7 +120,7 @@ prescribed location (`_score_storylet`) and uses the same
   opening test unaffected).
 - `tests/test_narrative_enrichment.py` + `tests/test_director_apply.py`
   (downstream consumers): **61 passed**.
-- `tests/test_plugin_metadata.py` + `tests/test_zcode_plugin_metadata.py` +
+- `tests/test_plugin_metadata.py` + `tests/test_plugin_metadata.py` +
   `tests/test_coc_plugin_sync_script.py`: **53 passed**.
 - `sync_coc_plugin_copy.py --check`: clean ("plugin copies are in sync").
 

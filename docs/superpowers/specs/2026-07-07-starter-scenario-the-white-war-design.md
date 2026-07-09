@@ -19,7 +19,7 @@ OGL §15 之后的声明将该作品划分为两类：
 - **OPEN GAME CONTENT（可自由分发）**: "all numeric game data, Creature descriptions included on pages 8–10"。即 Polyp Horror 属性/招式/SAN、寒冷暴露规则、武器数据、pre-gen 数值。
 - **PRODUCT IDENTITY（不可分发）**: "all trademarks, trade dress, maps, and all other original and licensed artwork, dialogue, plots, storylines, locations, and characters"。即剧本的剧情、场景、地点、NPC、对话、地图。
 
-**因此本设计采取双轨**：
+**因此本设计采取单轨**：
 1. **OGC 数值包**（`rules-json/the-white-war.json`）：忠实原数值，合法打包分发，附完整 OGL 归属。
 2. **改编剧本**（7 个 story-graph JSON）：基于 OGC 抽象前提「冰封竖井释放的远古实体」，**原创**等价探险（新地点、新 NPC 名、新对话、新场景描写），保留机制骨架但不用任何 PI 文本。成品完全原创、可任意分发。
 
@@ -31,7 +31,7 @@ OGL §15 之后的声明将该作品划分为两类：
 - coc-main 工作流的**主动引导节点**（Hard Rule）：新档无剧本时强制弹出。
 - coc_rules.py 的泛化 module-rules 加载。
 - OGL 合规标注（README + license 文件 + module-meta 字段）。
-- 两个插件轨（coc-keeper / coc-keeper-zcode）的同步。
+- 两个插件轨（coc-keeper / coc-keeper）的同步。
 - 测试与校验。
 
 **非目标（YAGNI）**:
@@ -82,7 +82,7 @@ plugins/coc-keeper/
       the-white-war.json            # OGC 数值：Polyp Horror + 寒冷规则 + 武器
   scripts/
     coc_starter.py                  # loader: list / install
-plugins/coc-keeper-zcode/           # 由 sync 脚本同步，结构镜像
+plugins/coc-keeper/           # 由 sync 脚本同步，结构镜像
 ```
 
 **为何不用 `.coc/module-library/`**: 该目录在 `docs/superpowers/specs/2026-07-03-coc-keeper-design.md:1320` 的 Open Question 中被定位为「存放用户导入的外部 PDF」，语义与「插件打包的内置成品剧本」冲突。内置剧本属于插件资产，应放 `references/starter-scenarios/`，随插件分发、git 跟踪。
@@ -236,7 +236,7 @@ CLI: `python3 coc_starter.py list` / `python3 coc_starter.py install --campaign 
 7. 改 coc-main/SKILL.md：插入引导节点 + Hard Rule（仅新档无剧本）。
 8. 改 README.md 版权章节 + sync 脚本纳入 starter-scenarios。
 9. 写 tests/test_starter_scenarios.py + 跑全套校验（pytest + sync --check + scenario compile --validate）。
-10. 同步两轨：`python3 scripts/sync_coc_plugin_copy.py && --check`。
+10. 同步两轨：`# single-track: edit plugins/coc-keeper/ only && --check`。
 11. 手动验收全流程。
 12. 提交 + PR。
 

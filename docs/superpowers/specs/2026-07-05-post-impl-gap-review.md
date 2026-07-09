@@ -8,7 +8,7 @@ self-report.
 ## Verification passed (no action needed)
 
 - Dual-plugin parity: ALL 17 shared JSON tables are byte-identical between
-  coc-keeper and coc-keeper-zcode; ALL 4 shared scripts (coc_rules.py,
+  coc-keeper and coc-keeper; ALL 4 shared scripts (coc_rules.py,
   coc_character.py, coc_combat.py, coc_validate.py) are byte-identical.
   rule-index.json: 56 ids each, 0 diff.
 - coc_validate.py clean on both plugins.

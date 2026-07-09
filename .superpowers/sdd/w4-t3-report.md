@@ -15,7 +15,7 @@ much foreign dialogue to reveal (source-only / fragments / partial / full).
 
 ## What was done
 
-### 1. `coc_narrative_enrichment.py` (canonical + zcode synced)
+### 1. `coc_narrative_enrichment.py` (canonical Codex track)
 - Loaded `coc_language` as an optional sibling (mirrors the existing
   `coc_storylets` load pattern): `coc_language = _load_optional_sibling("coc_language", "coc_language.py")`.
 - Added `build_dialogue_comprehension_directive(scene, npc_agendas, investigator, *, investigator_skills=None)`
@@ -33,14 +33,14 @@ much foreign dialogue to reveal (source-only / fragments / partial / full).
 - Constitution: `source_language` and the skill value are both structured; the
   helper never scans free text.
 
-### 2. `coc_story_director.py` (canonical + zcode synced)
+### 2. `coc_story_director.py` (canonical Codex track)
 - `build_director_context` now exposes `investigator_skills` (the character's
   structured skills dict) in the returned ctx. This lets enrichment gate
   foreign-dialogue translation on the actual Language skill value in live play
   without re-reading the character sheet. Slim dict only; the full sheet stays
   private. Backward-compatible (new optional key).
 
-### 3. `the-white-war/npc-agendas.json` (canonical + zcode synced)
+### 3. `the-white-war/npc-agendas.json` (canonical Codex track)
 - Added `foreign_dialogue: {"source_language": "German", "sample_line": "Der Schrecken... unten."}`
   to `npc-surprise-austrian-survivor` (the crazed Austrian). Also extended his
   `keeper_note` to state Italian investigators without Language (Other: German)
@@ -51,7 +51,7 @@ much foreign dialogue to reveal (source-only / fragments / partial / full).
   foreign to the Italian investigators. Marking him would be over-claiming; left
   unmarked so his dialogue defaults to normal comprehension. See Concerns.
 
-### 4. `story-graph-schema.md` (canonical + zcode synced)
+### 4. `story-graph-schema.md` (canonical Codex track)
 - Documented the optional `foreign_dialogue` field on npc-agenda entries
   (`source_language` structured key + optional `sample_line`), with a worked
   example and a note describing the runtime consumption path

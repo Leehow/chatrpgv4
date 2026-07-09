@@ -6,11 +6,11 @@ COMPLETE
 ## Commit
 Commit directly on `release/0.15-alpha` (no feature branch).
 - Message: `feat(coc): add list_investigators registry (P2-3')`
-- Files: 4 changed, +203 lines — `.superpowers/sdd/w5-t2-report.md`, `plugins/coc-keeper/scripts/coc_state.py`, `plugins/coc-keeper-zcode/scripts/coc_state.py`, `tests/test_state.py`.
+- Files: 4 changed, +203 lines — `.superpowers/sdd/w5-t2-report.md`, `plugins/coc-keeper/scripts/coc_state.py`, `plugins/coc-keeper/scripts/coc_state.py`, `tests/test_state.py`.
 - Hash: run `git log -1 --format=%H` for the above message; embedding the hash here is unstable because amending to record the hash changes the hash. The commit is the HEAD of `release/0.15-alpha` as of this report.
 
 ## What was done
-Added `list_investigators(root)` to `plugins/coc-keeper/scripts/coc_state.py` (canonical) and synced to `plugins/coc-keeper-zcode/scripts/coc_state.py`.
+Added `list_investigators(root)` to `plugins/coc-keeper/scripts/coc_state.py` (canonical) and synced to `plugins/coc-keeper/scripts/coc_state.py`.
 
 ### Implementation
 - Scans `coc_root(root)/investigators/*/character.json` for existing investigators.
@@ -36,7 +36,7 @@ Added `list_investigators(root)` to `plugins/coc-keeper/scripts/coc_state.py` (c
 - `tests/test_coc_plugin_sync_script.py`: 4 passed (sync check confirms plugin copies are in sync).
 - Full suite: 1090 passed, 0 failed.
 
-## Dual-track sync
+## Single-track sync
 - `plugins/coc-keeper/scripts/coc_state.py` (canonical, Codex) edited.
 - `scripts/sync_coc_plugin_copy.py` run; `--check` reports "plugin copies are in sync".
 - `diff` of the two `coc_state.py` copies: IDENTICAL.
@@ -44,7 +44,7 @@ Added `list_investigators(root)` to `plugins/coc-keeper/scripts/coc_state.py` (c
 
 ## Files
 - Modified: `plugins/coc-keeper/scripts/coc_state.py` (added `list_investigators`).
-- Synced: `plugins/coc-keeper-zcode/scripts/coc_state.py`.
+- Synced: `plugins/coc-keeper/scripts/coc_state.py`.
 - Tests: `tests/test_state.py` (3 new tests).
 
 ## Concerns

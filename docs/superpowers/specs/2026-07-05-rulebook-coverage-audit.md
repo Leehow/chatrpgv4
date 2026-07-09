@@ -14,7 +14,7 @@
 
 
 
-Chapter-by-chapter coverage audit of the `coc-keeper` / `coc-keeper-zcode` plugins against
+Chapter-by-chapter coverage audit of the `coc-keeper` / `coc-keeper` plugins against
 the authoritative Keeper Rulebook PDF (`pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary
 (Sandy Petersen).pdf`, 465 pages). Fast-grep source: `tmp/rulebook/keeper-rulebook.txt`.
 
@@ -30,7 +30,7 @@ Classification: **COVERED** (a machine-checkable rule with a traced implementati
 - Scripts: `plugins/coc-keeper/scripts/coc_rules.py`, `coc_roll.py`, `coc_combat.py`,
   `coc_character.py`, `coc_scenario.py`, `coc_state.py`, `coc_validate.py`, `coc_language.py`.
 - Skills: `plugins/coc-keeper/skills/coc-*` (13 skills).
-- zcode port: `plugins/coc-keeper-zcode/` (parity mirror).
+- codex port: `plugins/coc-keeper/` (parity mirror).
 - Existing machine-checklist foundation: `checks/coC7_rule_checklist.md` (sections A-L),
   validated by `checks/exhaustive_rulebook_validator.py`.
 - Note: there is no `coc_sanity.py`; sanity logic lives in `coc_rules.py` + `sanity.json`

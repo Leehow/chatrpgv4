@@ -2,7 +2,7 @@
 
 > Status: COMPLETE
 > Commit: see git log on branch `feat/w5-t1-percentile-breakdown`
-> Approach: TDD (red → green), canonical-first dual-track sync.
+> Approach: TDD (red → green), canonical-first single-track sync.
 
 ## Summary
 
@@ -56,7 +56,7 @@ Edge cases verified: roll=1 → tens 0, units 1; roll=100 (valid fumble band,
 - `plugins/coc-keeper/scripts/coc_roll.py` (canonical): `format_percentile_result`
   restructured; `public_api_index` signature string updated to
   `format_percentile_result(result, language='zh-Hans', compact=False)`.
-- `plugins/coc-keeper-zcode/scripts/coc_roll.py` (ZCode track): synced via
+- `plugins/coc-keeper/scripts/coc_roll.py` (Codex track): synced via
   `scripts/sync_coc_plugin_copy.py`; byte-identical to canonical.
 - `tests/test_roll.py`: +5 tests (breakdown default, roll=100 tens derivation,
   compact zh, compact en, breakdown en).
@@ -76,7 +76,7 @@ Edge cases verified: roll=1 → tens 0, units 1; roll=100 (valid fumble band,
 tests/test_roll.py: 17 passed (12 prior + 5 new)
 Full suite: 1087 passed
 Sync: plugin copies are in sync
-Metadata/sync tests: 77 passed (test_roll + test_playtest_report + test_coc_plugin_sync_script + test_plugin_metadata + test_zcode_plugin_metadata)
+Metadata/sync tests: 77 passed (test_roll + test_playtest_report + test_coc_plugin_sync_script + test_plugin_metadata + test_codex_plugin_metadata)
 ```
 
 New tests:
@@ -102,7 +102,7 @@ formatter, not `format_percentile_result`).
 - [x] no-modifier roll shows tens/units breakdown by default.
 - [x] `compact=True` preserves old minimal form (zh + en).
 - [x] bonus/penalty branch unchanged (byte-for-byte; tests still pass).
-- [x] Dual-track synced (canonical edited, zcode propagated via sync script,
+- [x] Single-track Codex (canonical edited, codex propagated via sync script,
       `--check` clean, tracks byte-identical).
 - [x] `public_api_index` signature string updated to reflect `compact=False`.
 

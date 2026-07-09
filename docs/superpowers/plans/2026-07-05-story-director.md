@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 两 plugin 同步：新脚本同时写到 `plugins/coc-keeper/scripts/` 和 `plugins/coc-keeper-zcode/scripts/`（现有脚本字节一致，测试加载 `coc-keeper`）。
+- 两 plugin 同步：新脚本同时写到 `plugins/coc-keeper/scripts/` 和 `plugins/coc-keeper/scripts/`（现有脚本字节一致，测试加载 `coc-keeper`）。
 - 测试在 `tests/test_<module>.py`，用 `importlib.util` 加载，命名 `test_<module>.py`。
 - 所有 RNG 用 `random.Random(seed)` 保证 deterministic。
 - 规则数据从 `references/rules-json/` 读，不硬编码。
@@ -26,14 +26,14 @@
 新建/修改文件（两 plugin 同步）：
 
 ```
-plugins/coc-keeper/scripts/           plugins/coc-keeper-zcode/scripts/
+plugins/coc-keeper/scripts/           plugins/coc-keeper/scripts/
   coc_rule_signals.py    [NEW]           coc_rule_signals.py    [NEW]
   coc_story_director.py  [NEW]           coc_story_director.py  [NEW]
   coc_story_harness.py   [NEW]           coc_story_harness.py   [NEW]
   coc_scenario_compile.py[NEW]           coc_scenario_compile.py[NEW]
   coc_scenario.py        [MOD]           coc_scenario.py        [MOD]
 
-plugins/coc-keeper/skills/             plugins/coc-keeper-zcode/skills/
+plugins/coc-keeper/skills/             plugins/coc-keeper/skills/
   coc-story-director/SKILL.md [NEW]      coc-story-director/SKILL.md [NEW]
   coc-keeper-play/SKILL.md    [MOD]      coc-keeper-play/SKILL.md    [MOD]
   coc-scenario-import/SKILL.md[MOD]      coc-scenario-import/SKILL.md[MOD]
@@ -66,7 +66,7 @@ tests/
 ## Task 1: coc_rule_signals.py — 基础信号函数（HP/Sanity/Credit）
 
 **Files:**
-- Create: `plugins/coc-keeper/scripts/coc_rule_signals.py` + zcode 副本
+- Create: `plugins/coc-keeper/scripts/coc_rule_signals.py` 
 - Test: `tests/test_rule_signals.py`
 
 **Interfaces:**
@@ -229,7 +229,7 @@ def read_credit_tier(credit_rating: int) -> str:
     return "super_rich"
 ```
 
-同步复制到 `plugins/coc-keeper-zcode/scripts/coc_rule_signals.py`。
+同步复制到 `plugins/coc-keeper/scripts/coc_rule_signals.py`。
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -239,7 +239,7 @@ Expected: 15 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/coc-keeper/scripts/coc_rule_signals.py plugins/coc-keeper-zcode/scripts/coc_rule_signals.py tests/test_rule_signals.py
+git add plugins/coc-keeper/scripts/coc_rule_signals.py plugins/coc-keeper/scripts/coc_rule_signals.py tests/test_rule_signals.py
 git commit -m "feat: add coc_rule_signals with hp/sanity/credit-tier translators"
 ```
 
@@ -248,7 +248,7 @@ git commit -m "feat: add coc_rule_signals with hp/sanity/credit-tier translators
 ## Task 2: coc_rule_signals.py — NPC 反应隐骰 + Luck + Crit/Fumble + Stalled + Tension
 
 **Files:**
-- Modify: `plugins/coc-keeper/scripts/coc_rule_signals.py` + zcode 副本
+- Modify: `plugins/coc-keeper/scripts/coc_rule_signals.py` 
 - Test: `tests/test_rule_signals.py` (追加)
 
 **Interfaces:**
@@ -412,7 +412,7 @@ def read_tension_clock(tension_level: str, lethal_chances_used: int) -> dict[str
     }
 ```
 
-在文件顶部 `import json` 后加 `import random`。同步到 zcode 副本。
+在文件顶部 `import json` 后加 `import random`。（单轨：仅维护 plugins/coc-keeper/。）
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -422,7 +422,7 @@ Expected: 27 passed (15 + 12 new)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/coc-keeper/scripts/coc_rule_signals.py plugins/coc-keeper-zcode/scripts/coc_rule_signals.py tests/test_rule_signals.py
+git add plugins/coc-keeper/scripts/coc_rule_signals.py plugins/coc-keeper/scripts/coc_rule_signals.py tests/test_rule_signals.py
 git commit -m "feat: add npc-reaction/luck/crit-fumble/stalled/tension signals"
 ```
 
@@ -431,7 +431,7 @@ git commit -m "feat: add npc-reaction/luck/crit-fumble/stalled/tension signals"
 ## Task 3: coc_rule_signals.py — v2 翻译函数（写全不引用）
 
 **Files:**
-- Modify: `plugins/coc-keeper/scripts/coc_rule_signals.py` + zcode 副本
+- Modify: `plugins/coc-keeper/scripts/coc_rule_signals.py` 
 - Test: `tests/test_rule_signals.py` (追加)
 
 **Interfaces:**
@@ -521,7 +521,7 @@ def read_believer_bomb(*args, **kwargs) -> dict[str, Any]:
     return {"implemented": False}
 ```
 
-同步到 zcode 副本。
+（单轨：仅维护 plugins/coc-keeper/。）
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -531,7 +531,7 @@ Expected: 33 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/coc-keeper/scripts/coc_rule_signals.py plugins/coc-keeper-zcode/scripts/coc_rule_signals.py tests/test_rule_signals.py
+git add plugins/coc-keeper/scripts/coc_rule_signals.py plugins/coc-keeper/scripts/coc_rule_signals.py tests/test_rule_signals.py
 git commit -m "feat: add v2 signal translators (phobia/psychology/pushed/contacts + stubs)"
 ```
 
@@ -540,7 +540,7 @@ git commit -m "feat: add v2 signal translators (phobia/psychology/pushed/contact
 ## Task 4: coc_story_director.py — DirectorPlan schema + build_director_context
 
 **Files:**
-- Create: `plugins/coc-keeper/scripts/coc_story_director.py` + zcode 副本
+- Create: `plugins/coc-keeper/scripts/coc_story_director.py` 
 - Test: `tests/test_story_director.py`
 
 **Interfaces:**
@@ -791,7 +791,7 @@ def write_director_plan(plan: dict[str, Any], artifacts_dir: Path) -> Path:
     return out
 ```
 
-同步到 zcode 副本。
+（单轨：仅维护 plugins/coc-keeper/。）
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -801,7 +801,7 @@ Expected: 2 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py tests/test_story_director.py
+git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py tests/test_story_director.py
 git commit -m "feat: add coc_story_director build_director_context + plan writer"
 ```
 
@@ -810,9 +810,9 @@ git commit -m "feat: add coc_story_director build_director_context + plan writer
 ## Task 5: coc_story_director.py — 三层评分引擎
 
 **Files:**
-- Modify: `plugins/coc-keeper/scripts/coc_story_director.py` + zcode 副本
+- Modify: `plugins/coc-keeper/scripts/coc_story_director.py` 
 - Test: `tests/test_story_director.py` (追加)
-- Create: `plugins/coc-keeper/references/rules-json/structure-weights.json` + zcode 副本
+- Create: `plugins/coc-keeper/references/rules-json/structure-weights.json` 
 
 **Interfaces:**
 - Produces: `score_scene_options()`, `select_action()`, `apply_rule_signal_overrides()`
@@ -838,7 +838,7 @@ git commit -m "feat: add coc_story_director build_director_context + plan writer
 }
 ```
 
-同步到 zcode。
+同步到 codex。
 
 - [ ] **Step 2: 追加失败测试**
 
@@ -1059,7 +1059,7 @@ def select_action(ctx: dict[str, Any]) -> tuple[str, dict[str, float]]:
     return candidates[0], scores
 ```
 
-同步到 zcode。
+同步到 codex。
 
 - [ ] **Step 5: 运行确认通过**
 
@@ -1069,7 +1069,7 @@ Expected: 7 passed (2 prior + 5 new)
 - [ ] **Step 6: Commit**
 
 ```bash
-git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py plugins/coc-keeper/references/rules-json/structure-weights.json plugins/coc-keeper-zcode/references/rules-json/structure-weights.json tests/test_story_director.py
+git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/references/rules-json/structure-weights.json plugins/coc-keeper/references/rules-json/structure-weights.json tests/test_story_director.py
 git commit -m "feat: add three-layer scoring engine (base × structure_weight × rule overrides)"
 ```
 
@@ -1078,7 +1078,7 @@ git commit -m "feat: add three-layer scoring engine (base × structure_weight ×
 ## Task 6: coc_story_director.py — DirectorPlan 完整产出
 
 **Files:**
-- Modify: `plugins/coc-keeper/scripts/coc_story_director.py` + zcode 副本
+- Modify: `plugins/coc-keeper/scripts/coc_story_director.py` 
 - Test: `tests/test_story_director.py` (追加)
 
 **Interfaces:**
@@ -1270,7 +1270,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     }
 ```
 
-同步到 zcode。
+同步到 codex。
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -1280,7 +1280,7 @@ Expected: 10 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py tests/test_story_director.py
+git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py tests/test_story_director.py
 git commit -m "feat: add generate_director_plan with full DirectorPlan output"
 ```
 
@@ -1289,7 +1289,7 @@ git commit -m "feat: add generate_director_plan with full DirectorPlan output"
 ## Task 7: coc_scenario_compile.py — 剧情图校验器
 
 **Files:**
-- Create: `plugins/coc-keeper/scripts/coc_scenario_compile.py` + zcode 副本
+- Create: `plugins/coc-keeper/scripts/coc_scenario_compile.py` 
 - Test: `tests/test_scenario_compile.py`
 
 **Interfaces:**
@@ -1464,7 +1464,7 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
     return {"errors": errors, "warnings": warnings}
 ```
 
-同步到 zcode。
+同步到 codex。
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -1474,7 +1474,7 @@ Expected: 6 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/coc-keeper/scripts/coc_scenario_compile.py plugins/coc-keeper-zcode/scripts/coc_scenario_compile.py tests/test_scenario_compile.py
+git add plugins/coc-keeper/scripts/coc_scenario_compile.py plugins/coc-keeper/scripts/coc_scenario_compile.py tests/test_scenario_compile.py
 git commit -m "feat: add coc_scenario_compile story-graph validator"
 ```
 
@@ -1483,7 +1483,7 @@ git commit -m "feat: add coc_scenario_compile story-graph validator"
 ## Task 8: coc_story_harness.py — GM 质量 harness
 
 **Files:**
-- Create: `plugins/coc-keeper/scripts/coc_story_harness.py` + zcode 副本
+- Create: `plugins/coc-keeper/scripts/coc_story_harness.py` 
 - Test: `tests/test_story_harness.py`
 
 **Interfaces:**
@@ -1728,7 +1728,7 @@ def run_suite(profiles_dir: Path, campaign_dir: Path, character_path: Path,
     return {"total": len(results), "passed": passed, "failed": len(results) - passed, "results": results}
 ```
 
-同步到 zcode。
+同步到 codex。
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -1738,7 +1738,7 @@ Expected: 3 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/coc-keeper/scripts/coc_story_harness.py plugins/coc-keeper-zcode/scripts/coc_story_harness.py tests/test_story_harness.py
+git add plugins/coc-keeper/scripts/coc_story_harness.py plugins/coc-keeper/scripts/coc_story_harness.py tests/test_story_harness.py
 git commit -m "feat: add coc_story_harness GM-quality assertion engine"
 ```
 
@@ -1747,12 +1747,12 @@ git commit -m "feat: add coc_story_harness GM-quality assertion engine"
 ## Task 9: SKILL.md 文件 + references
 
 **Files:**
-- Create: `plugins/coc-keeper/skills/coc-story-director/SKILL.md` + zcode 副本
-- Create: `plugins/coc-keeper/references/director-protocol.md` + zcode 副本
-- Modify: `plugins/coc-keeper/skills/coc-keeper-play/SKILL.md` + zcode 副本
-- Modify: `plugins/coc-keeper/skills/coc-scenario-import/SKILL.md` + zcode 副本
-- Create: `plugins/coc-keeper/skills/coc-scenario-import/references/story-graph-schema.md` + zcode 副本
-- Create: `plugins/coc-keeper/skills/coc-scenario-import/references/compile-protocol.md` + zcode 副本
+- Create: `plugins/coc-keeper/skills/coc-story-director/SKILL.md` 
+- Create: `plugins/coc-keeper/references/director-protocol.md` 
+- Modify: `plugins/coc-keeper/skills/coc-keeper-play/SKILL.md` 
+- Modify: `plugins/coc-keeper/skills/coc-scenario-import/SKILL.md` 
+- Create: `plugins/coc-keeper/skills/coc-scenario-import/references/story-graph-schema.md` 
+- Create: `plugins/coc-keeper/skills/coc-scenario-import/references/compile-protocol.md` 
 
 **Interfaces:** 这些是 LLM 读的文档，无代码测试。验证方式：文件存在 + 内容含必需章节。
 
@@ -1867,14 +1867,14 @@ Layer 3 overrides bypass scoring entirely (bout_active→SUBSYSTEM, fumble→PRE
 
 写 `references/story-graph-schema.md`（7 个 JSON 的字段+完整示例，从 spec 的 "Scenario Story-Graph Schema" 章节复制）和 `references/compile-protocol.md`（7 种 structure_type 判定指引 + 解析步骤）。
 
-- [ ] **Step 5: 同步到 zcode 副本 + Commit**
+- [ ] **Step 5: （单轨：仅维护 plugins/coc-keeper/） + Commit**
 
 ```bash
-# 同步全部新建/修改的 SKILL.md 和 references 到 plugins/coc-keeper-zcode/
-git add plugins/coc-keeper/skills/coc-story-director/ plugins/coc-keeper-zcode/skills/coc-story-director/ \
-        plugins/coc-keeper/skills/coc-keeper-play/SKILL.md plugins/coc-keeper-zcode/skills/coc-keeper-play/SKILL.md \
-        plugins/coc-keeper/skills/coc-scenario-import/ plugins/coc-keeper-zcode/skills/coc-scenario-import/ \
-        plugins/coc-keeper/references/director-protocol.md plugins/coc-keeper-zcode/references/director-protocol.md
+# 同步全部新建/修改的 SKILL.md 和 references 到 plugins/coc-keeper/
+git add plugins/coc-keeper/skills/coc-story-director/ plugins/coc-keeper/skills/coc-story-director/ \
+        plugins/coc-keeper/skills/coc-keeper-play/SKILL.md plugins/coc-keeper/skills/coc-keeper-play/SKILL.md \
+        plugins/coc-keeper/skills/coc-scenario-import/ plugins/coc-keeper/skills/coc-scenario-import/ \
+        plugins/coc-keeper/references/director-protocol.md plugins/coc-keeper/references/director-protocol.md
 git commit -m "feat: add coc-story-director SKILL + director-protocol + extend keeper-play/scenario-import"
 ```
 
@@ -1883,7 +1883,7 @@ git commit -m "feat: add coc-story-director SKILL + director-protocol + extend k
 ## Task 10: 全量测试 + rule-index 更新
 
 **Files:**
-- Modify: `plugins/coc-keeper/references/rules-json/rule-index.json` + zcode 副本（加 structure-weights 条目）
+- Modify: `plugins/coc-keeper/references/rules-json/rule-index.json` （加 structure-weights 条目）
 
 - [ ] **Step 1: 跑全量测试确认无回归**
 
@@ -1900,16 +1900,16 @@ Expected: 无错误
 Run:
 ```bash
 for f in coc_rule_signals.py coc_story_director.py coc_story_harness.py coc_scenario_compile.py; do
-  diff plugins/coc-keeper/scripts/$f plugins/coc-keeper-zcode/scripts/$f || echo "MISMATCH in $f"
+  diff plugins/coc-keeper/scripts/$f plugins/coc-keeper/scripts/$f || echo "MISMATCH in $f"
 done
-diff plugins/coc-keeper/references/rules-json/structure-weights.json plugins/coc-keeper-zcode/references/rules-json/structure-weights.json
+diff plugins/coc-keeper/references/rules-json/structure-weights.json plugins/coc-keeper/references/rules-json/structure-weights.json
 ```
 Expected: 全部 IDENTICAL
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add plugins/coc-keeper/references/rules-json/rule-index.json plugins/coc-keeper-zcode/references/rules-json/rule-index.json
+git add plugins/coc-keeper/references/rules-json/rule-index.json plugins/coc-keeper/references/rules-json/rule-index.json
 git commit -m "chore: register structure-weights in rule-index, verify dual-plugin parity"
 ```
 

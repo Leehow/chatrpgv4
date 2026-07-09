@@ -4,7 +4,7 @@
 
 ## 项目背景
 
-这是一个 Call of Cthulhu 7e（40 周年规则书）的 ZCode/Codex 插件，名为 coc-keeper。它有一个 **deterministic 的"剧情导演层"**（coc_story_director.py），每回合读规则状态 + 模组剧情图，产出 DirectorPlan JSON 指导叙事。
+这是一个 Call of Cthulhu 7e（40 周年规则书）的 Codex 插件，名为 coc-keeper。它有一个 **deterministic 的"剧情导演层"**（coc_story_director.py），每回合读规则状态 + 模组剧情图，产出 DirectorPlan JSON 指导叙事。
 
 架构分层：
 ```
