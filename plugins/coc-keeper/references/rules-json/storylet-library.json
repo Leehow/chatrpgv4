@@ -6805,6 +6805,394 @@
         "opening",
         "npc_depth"
       ]
+    },
+    {
+      "storylet_id": "arrival-terrain-wrong-note",
+      "title": "地形里的错音",
+      "family_id": "arrival_texture",
+      "trope_id": "terrain_wrong_note",
+      "conflict_level": "low",
+      "conflict_score": 1,
+      "base_weight": 1.0,
+      "dramatic_function": [
+        "CHARACTER",
+        "DEEPEN",
+        "REVEAL",
+        "PRESSURE",
+        "CHOICE"
+      ],
+      "scene_actions": [
+        "CHARACTER",
+        "DEEPEN",
+        "REVEAL",
+        "PRESSURE",
+        "CHOICE"
+      ],
+      "scope": "scene",
+      "structure_affinity": [
+        "linear_acts",
+        "branching_investigation",
+        "hub_sandbox",
+        "hybrid_mega"
+      ],
+      "eligible_scene_types": [
+        "exploration",
+        "investigation"
+      ],
+      "horror_stage": [
+        "ordinary",
+        "wrongness",
+        "pattern"
+      ],
+      "scene_tags": [
+        "arrival"
+      ],
+      "requires": {
+        "npc_id": false,
+        "unrevealed_clue": false,
+        "active_front": false
+      },
+      "serves": {
+        "mainline": true,
+        "can_reveal_clue": false,
+        "can_tick_front": false,
+        "can_deepen_npc": false,
+        "can_surface_choice": true
+      },
+      "anti_repeat": {
+        "cooldown_turns": 10,
+        "max_per_session": 1,
+        "exclude_if_family_used_recently": true,
+        "exclude_if_trope_used_recently": false
+      },
+      "cue": "抵达新地点的第一眼里，有一处细节与常理相悖——先于任何解释出现。",
+      "beat": "在踏入新场景的瞬间给出一个'不对劲'的具体感官锚点，让玩家自己决定要不要凑近。",
+      "effects": {
+        "narrative_move": "用一个具体的环境细节标记'这里不对劲'，不给结论。",
+        "clue_handling": "May foreshadow a clue location; never reveals the clue itself.",
+        "pressure": "No automatic clock tick.",
+        "choice": "The wrong detail is approachable or avoidable; both are valid."
+      },
+      "variants": {
+        "sensory_detail_1d6": [
+          "风声在某个方向上突然听不见了。",
+          "地上的痕迹在同一处全部转向，像绕开了什么。",
+          "光线落在那里的角度不对，影子比东西本身长得多。",
+          "空气里有一股说不出来源的味道，靠近一步就浓一分。",
+          "本该连续的表面上有一道过于笔直的接缝。",
+          "温度在几步之内毫无道理地变了。"
+        ],
+        "complication_1d6": [
+          "队伍里有人先注意到了，却装作没看见。",
+          "要看清它就得离开原定路线几步。",
+          "有动物或鸟群明显绕开那个位置。",
+          "它恰好挡在最省力的路径上。",
+          "越想描述它，越发现语言不够用。",
+          "第二眼再看，它和第一眼略有不同。"
+        ]
+      },
+      "narration_directive": "把'错音'绑定到本场景一个具体的地形/环境实体上；只呈现异样，不解释成因，不点名威胁。",
+      "story_functions": [
+        "theme_echo",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "theme_echo",
+        "ambience",
+        "scene_pressure",
+        "investigation"
+      ]
+    },
+    {
+      "storylet_id": "arrival-predecessor-trace",
+      "title": "先到者的痕迹",
+      "family_id": "arrival_trace",
+      "trope_id": "interrupted_predecessor",
+      "conflict_level": "low",
+      "conflict_score": 1,
+      "base_weight": 1.0,
+      "dramatic_function": [
+        "CHARACTER",
+        "DEEPEN",
+        "REVEAL",
+        "PRESSURE",
+        "CHOICE"
+      ],
+      "scene_actions": [
+        "CHARACTER",
+        "DEEPEN",
+        "REVEAL",
+        "PRESSURE",
+        "CHOICE"
+      ],
+      "scope": "scene",
+      "structure_affinity": [
+        "linear_acts",
+        "branching_investigation",
+        "hub_sandbox",
+        "hybrid_mega"
+      ],
+      "eligible_scene_types": [
+        "exploration",
+        "investigation"
+      ],
+      "horror_stage": [
+        "ordinary",
+        "wrongness",
+        "pattern"
+      ],
+      "scene_tags": [
+        "arrival"
+      ],
+      "requires": {
+        "npc_id": false,
+        "unrevealed_clue": false,
+        "active_front": false
+      },
+      "serves": {
+        "mainline": true,
+        "can_reveal_clue": false,
+        "can_tick_front": false,
+        "can_deepen_npc": false,
+        "can_surface_choice": true
+      },
+      "anti_repeat": {
+        "cooldown_turns": 10,
+        "max_per_session": 1,
+        "exclude_if_family_used_recently": true,
+        "exclude_if_trope_used_recently": false
+      },
+      "cue": "有人比你们先到过这里——他们留下的东西停在一半，像是被什么打断了。",
+      "beat": "用先到者的中断痕迹暗示这里发生过事，把'他们去哪了'留成一个开放的钩子。",
+      "effects": {
+        "narrative_move": "呈现一处进行到一半就被放弃的人类活动痕迹。",
+        "clue_handling": "May foreshadow what happened here; never states the cause.",
+        "pressure": "No automatic clock tick.",
+        "choice": "Following the trace or ignoring it are both playable routes."
+      },
+      "variants": {
+        "sensory_detail_1d6": [
+          "一件工具还立在原处，摆放得随时可以继续使用。",
+          "食物或饮水只动了一半就再没人碰过。",
+          "一行脚印走到某处突然变得凌乱，然后消失。",
+          "写到一半的字迹，最后一笔拖得很长。",
+          "衣物或装备整齐地留在原地，主人却不在。",
+          "一盏灯或炉火燃尽的位置，灰烬堆得比正常更久。"
+        ],
+        "complication_1d6": [
+          "痕迹的新鲜程度和常识对不上。",
+          "留下痕迹的人数和已知情报对不上。",
+          "痕迹指向的方向没有任何合理去处。",
+          "有一件东西被刻意藏起来了，但藏得很匆忙。",
+          "队伍里有人认出了痕迹主人的身份标记。",
+          "同样的中断痕迹在不远处还有第二组。"
+        ]
+      },
+      "narration_directive": "把中断痕迹绑定到本场景的具体位置或已知 NPC/部队；只呈现'被打断'的状态，不解释打断者。",
+      "story_functions": [
+        "theme_echo",
+        "clue_delivery"
+      ],
+      "deck_tags": [
+        "theme_echo",
+        "investigation",
+        "clue_reinforcement",
+        "ambience"
+      ]
+    },
+    {
+      "storylet_id": "first-contact-sound-answers-back",
+      "title": "会回应的声音",
+      "family_id": "first_contact_omen",
+      "trope_id": "sound_answers_back",
+      "conflict_level": "medium",
+      "conflict_score": 2,
+      "base_weight": 1.0,
+      "dramatic_function": [
+        "CHARACTER",
+        "DEEPEN",
+        "REVEAL",
+        "PRESSURE",
+        "CHOICE"
+      ],
+      "scene_actions": [
+        "CHARACTER",
+        "DEEPEN",
+        "REVEAL",
+        "PRESSURE",
+        "CHOICE"
+      ],
+      "scope": "scene",
+      "structure_affinity": [
+        "linear_acts",
+        "branching_investigation",
+        "hub_sandbox",
+        "hybrid_mega"
+      ],
+      "eligible_scene_types": [
+        "exploration",
+        "investigation"
+      ],
+      "horror_stage": [
+        "wrongness",
+        "pattern",
+        "revelation"
+      ],
+      "scene_tags": [
+        "first_contact"
+      ],
+      "requires": {
+        "npc_id": false,
+        "unrevealed_clue": false,
+        "active_front": false
+      },
+      "serves": {
+        "mainline": true,
+        "can_reveal_clue": false,
+        "can_tick_front": false,
+        "can_deepen_npc": false,
+        "can_surface_choice": true
+      },
+      "anti_repeat": {
+        "cooldown_turns": 12,
+        "max_per_session": 1,
+        "exclude_if_family_used_recently": true,
+        "exclude_if_trope_used_recently": false
+      },
+      "cue": "那个声音在你们停下的同一瞬间也停了——它不只是在响，它在听。",
+      "beat": "让'那个东西'第一次表现出对调查者的觉察：声音/征兆与队伍的动作产生呼应。",
+      "effects": {
+        "narrative_move": "把环境征兆升级为'有觉察的存在'——它回应队伍的动静。",
+        "clue_handling": "Confirms something is aware; never shows its form or nature.",
+        "pressure": "May justify a director pressure move; no automatic tick.",
+        "choice": "Answering it, freezing, or retreating are all meaningful responses."
+      },
+      "variants": {
+        "sensory_detail_1d6": [
+          "你们停步，它停；你们再走，它隔了一拍才跟上。",
+          "它重复了你们刚才弄出的那个声响——但音高不对。",
+          "队伍里有人低声咒骂，那声音立刻转向了他的方向。",
+          "它由远及近地绕了半圈，又退回原处。",
+          "两个声源同时响起，一问一答。",
+          "它忽然完全静默，静得比响着更难受。"
+        ],
+        "complication_1d6": [
+          "队伍中有人不由自主地想回应它。",
+          "声音出现的方向与撤退路线重合。",
+          "光源在声音靠近时明显变弱或摇晃。",
+          "有队员坚称听到了自己的名字。",
+          "声音的节奏和某个已知信号/军号一致，但慢了半拍。",
+          "它只在某个特定队员行动时才回应。"
+        ]
+      },
+      "narration_directive": "把回应绑定到队伍本回合的具体动作上；只呈现'被觉察'的事实，绝不描述实体的形态或身份。",
+      "story_functions": [
+        "scene_pressure",
+        "theme_echo"
+      ],
+      "deck_tags": [
+        "scene_pressure",
+        "pressure",
+        "theme_echo",
+        "ambience"
+      ]
+    },
+    {
+      "storylet_id": "first-contact-scale-collapse",
+      "title": "尺寸感崩塌",
+      "family_id": "first_contact_scale",
+      "trope_id": "wrong_scale_reveal",
+      "conflict_level": "medium",
+      "conflict_score": 2,
+      "base_weight": 1.0,
+      "dramatic_function": [
+        "CHARACTER",
+        "DEEPEN",
+        "REVEAL",
+        "PRESSURE",
+        "CHOICE"
+      ],
+      "scene_actions": [
+        "CHARACTER",
+        "DEEPEN",
+        "REVEAL",
+        "PRESSURE",
+        "CHOICE"
+      ],
+      "scope": "scene",
+      "structure_affinity": [
+        "linear_acts",
+        "branching_investigation",
+        "hub_sandbox",
+        "hybrid_mega"
+      ],
+      "eligible_scene_types": [
+        "exploration",
+        "investigation"
+      ],
+      "horror_stage": [
+        "wrongness",
+        "pattern",
+        "revelation"
+      ],
+      "scene_tags": [
+        "first_contact"
+      ],
+      "requires": {
+        "npc_id": false,
+        "unrevealed_clue": false,
+        "active_front": false
+      },
+      "serves": {
+        "mainline": true,
+        "can_reveal_clue": false,
+        "can_tick_front": false,
+        "can_deepen_npc": false,
+        "can_surface_choice": true
+      },
+      "anti_repeat": {
+        "cooldown_turns": 12,
+        "max_per_session": 1,
+        "exclude_if_family_used_recently": true,
+        "exclude_if_trope_used_recently": false
+      },
+      "cue": "你们终于看清了它的一角——然后才意识到，之前看到的一切都只是边缘。",
+      "beat": "用参照物的失效制造第一次接触的眩晕感：调查者原以为的整体只是局部。",
+      "effects": {
+        "narrative_move": "通过一个熟悉参照物的比例失真，让玩家重新估算眼前事物的真实尺度。",
+        "clue_handling": "Recalibrates what the evidence so far actually meant; adds no new clue.",
+        "pressure": "May justify a director pressure move; no automatic tick.",
+        "choice": "Pressing closer for certainty or backing off with doubt both stay open."
+      },
+      "variants": {
+        "sensory_detail_1d6": [
+          "拿人身高去比对，数字大得让人本能地想重新数一遍。",
+          "你们以为的'墙'在更远处还有延续，弧度对不上任何建筑。",
+          "灯光打到尽头就散了，根本照不到边界。",
+          "沿着它走了几十步，纹理毫无重复。",
+          "先前发现的'痕迹'原来只是它表面的一道细缝。",
+          "声音在它上面的回响时间长得不合常理。"
+        ],
+        "complication_1d6": [
+          "意识到尺度的那个人最先说不出话。",
+          "队伍对'看到的到底是什么'当场出现分歧。",
+          "原定的测绘/记录手段在这个尺度下失效。",
+          "有人开始怀疑来时的通道是否也属于'它'。",
+          "撤回报告的措辞成了一个难题——没人会信。",
+          "它的某一部分动了，也可能只是光线变了。"
+        ]
+      },
+      "narration_directive": "先给一个玩家熟悉的参照物，再让参照失效；只呈现尺度，不解释它是什么，不替玩家下结论。",
+      "story_functions": [
+        "theme_echo",
+        "scene_pressure"
+      ],
+      "deck_tags": [
+        "theme_echo",
+        "scene_pressure",
+        "ambience",
+        "investigation"
+      ]
     }
   ]
 }

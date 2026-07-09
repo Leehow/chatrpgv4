@@ -58,6 +58,9 @@
     {
       "scene_id": "crossing-saddle",
       "scene_type": "exploration",
+      "storylet_tags": [
+        "arrival"
+      ],
       "dramatic_question": "Can the patrol cross the killing ground without being shot, frozen, or worse?",
       "entry_conditions": [
         "orders_received"
@@ -87,6 +90,9 @@
     {
       "scene_id": "austrian-positions",
       "scene_type": "investigation",
+      "storylet_tags": [
+        "arrival"
+      ],
       "dramatic_question": "What happened to the Austrians who held this position?",
       "entry_conditions": [
         "reached_austrian_loopholes"
@@ -161,6 +167,9 @@
     {
       "scene_id": "blast-chamber",
       "scene_type": "investigation",
+      "storylet_tags": [
+        "first_contact"
+      ],
       "dramatic_question": "What did the Austrians' blasting unearth beneath the ice?",
       "entry_conditions": [
         "reached_blast_chamber"
@@ -226,6 +235,9 @@
     {
       "scene_id": "whistle-approaches",
       "scene_type": "exploration",
+      "storylet_tags": [
+        "first_contact"
+      ],
       "dramatic_question": "Do the investigators obey orders and withdraw, or push deeper toward the sound?",
       "entry_conditions": [
         "noted_the_shaft",

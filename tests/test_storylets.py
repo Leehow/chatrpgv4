@@ -577,3 +577,87 @@ def test_e2e_mission_briefing_summons_opening_briefing_storylet_real_data():
         f"expected an opening_briefing storylet in >=4 of 5 seeds; "
         f"got {opening_hits}/5. selected={selected_ids}, opening_ids={sorted(opening_ids)}"
     )
+
+
+def test_shipped_library_has_arrival_and_first_contact_storylets():
+    """Scenario-data wiring follow-up: the shipped library must also cover the
+    two deferred scene-type tags (arrival / first_contact) so mid-scenario
+    scene entries can summon beats, not just the opening briefing."""
+    library = storylets.load_storylet_library()
+    for tag in ("arrival", "first_contact"):
+        tagged = [s for s in library["storylets"] if tag in (s.get("scene_tags") or [])]
+        assert tagged, f"shipped library lacks any '{tag}' storylet"
+
+
+def test_e2e_white_war_scene_entries_summon_tagged_storylets_real_data():
+    """Real-data e2e for the deferred tags: each white-war scene that carries
+    `storylet_tags` (arrival on crossing-saddle / austrian-positions,
+    first_contact on blast-chamber / whistle-approaches) must reliably summon
+    a matching tagged storylet on scene entry, against the SHIPPED library."""
+    import json
+    from pathlib import Path
+
+    graph = json.loads(Path(
+        "plugins/coc-keeper/references/starter-scenarios/the-white-war/story-graph.json"
+    ).read_text())
+    scenes = {s["scene_id"]: s for s in graph["scenes"]}
+    library = storylets.load_storylet_library()
+
+    expectations = {
+        "crossing-saddle": "arrival",
+        "austrian-positions": "arrival",
+        "blast-chamber": "first_contact",
+        "whistle-approaches": "first_contact",
+    }
+    for scene_id, tag in expectations.items():
+        scene = scenes[scene_id]
+        assert tag in (scene.get("storylet_tags") or []), (
+            f"{scene_id} must carry storylet_tags [{tag}]"
+        )
+        tagged_ids = {
+            s["storylet_id"] for s in library["storylets"]
+            if tag in (s.get("scene_tags") or [])
+        }
+        assert tagged_ids, f"library must contain '{tag}' storylets"
+
+        hits = 0
+        seeds = (f"{scene_id}-1", f"{scene_id}-2", f"{scene_id}-3",
+                 f"{scene_id}-4", f"{scene_id}-5")
+        selected: list[str] = []
+        for seed in seeds:
+            ctx = {
+                "turn_number": 3,
+                "source_event_type": "scene_transition",  # fires scene_tag_beat
+                "structure_type": "linear_acts",
+                "storylet_policy": {"conflict_level": "medium", "seed": seed},
+                "active_scene": scene,
+                "world_state": {"discovered_clue_ids": []},
+                "threat_fronts": {"fronts": []},
+                "module_meta": {"content_flags": []},
+                "storylet_ledger": {},
+                "storylet_trigger": {
+                    "triggered": True,
+                    "reason": "scene_tag_beat",
+                    "polarity": "neutral",
+                    "conflict_level": "medium",
+                    "storylet_tags": [tag],
+                    "source": "storylet_trigger_gate",
+                },
+            }
+            plan = {
+                "decision_id": f"{scene_id}-entry",
+                "scene_action": "PRESSURE" if tag == "first_contact" else "DEEPEN",
+                "pacing_mode": "exploration",
+                "clue_policy": {"reveal": scene.get("available_clues", []), "leads": []},
+                "narrative_directives": {"horror_escalation_stage": "wrongness"},
+                "rule_signals": {"tension_clock": {"tension_level": "medium"}},
+            }
+            moves = storylets.select_storylet_moves(plan, ctx, library=library, seed=seed)
+            assert moves, f"{scene_id} seed {seed}: expected a storylet to be selected"
+            selected.append(moves[0]["storylet_id"])
+            if moves[0]["storylet_id"] in tagged_ids:
+                hits += 1
+        assert hits >= 4, (
+            f"{scene_id}: expected a '{tag}' storylet in >=4 of 5 seeds; "
+            f"got {hits}/5. selected={selected}, tagged={sorted(tagged_ids)}"
+        )
