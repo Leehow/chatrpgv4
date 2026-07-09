@@ -6628,11 +6628,15 @@
       "base_weight": 1.0,
       "dramatic_function": [
         "CHARACTER",
-        "DEEPEN"
+        "DEEPEN",
+        "REVEAL",
+        "CHOICE"
       ],
       "scene_actions": [
         "CHARACTER",
-        "DEEPEN"
+        "DEEPEN",
+        "REVEAL",
+        "CHOICE"
       ],
       "scope": "scene",
       "structure_affinity": [
@@ -6719,11 +6723,15 @@
       "base_weight": 1.0,
       "dramatic_function": [
         "CHARACTER",
-        "DEEPEN"
+        "DEEPEN",
+        "REVEAL",
+        "CHOICE"
       ],
       "scene_actions": [
         "CHARACTER",
-        "DEEPEN"
+        "DEEPEN",
+        "REVEAL",
+        "CHOICE"
       ],
       "scope": "scene",
       "structure_affinity": [
