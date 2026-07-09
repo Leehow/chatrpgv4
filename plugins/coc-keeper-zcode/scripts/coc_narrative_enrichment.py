@@ -1208,8 +1208,23 @@ def infer_storylet_trigger(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[st
     # 让带 storylet_tags 的场景（如开场简报）在场景进入时能触发匹配的 beat。
     scene = ctx.get("active_scene") or {}
     storylet_tags = [str(t) for t in _as_list(scene.get("storylet_tags")) if str(t)]
-    source_event = str(ctx.get("source_event_type") or "")
-    if storylet_tags and source_event in ("scene_transition", "scene_enter"):
+    # 场景进入信号可能来自多处：ctx 顶层、active_scene.source_event_type，
+    # 或 plan 的 scene_transition 标志（director/runner 在场景切换时置位）。
+    source_event = str(
+        ctx.get("source_event_type")
+        or scene.get("source_event_type")
+        or ("scene_transition" if plan.get("scene_transition") else "")
+        or ""
+    )
+    # 首回合（scenario start）也算场景首次进入：turn_number==0 且无历史 intent。
+    # recent_intent_classes 可能在 pacing_state 或 ctx 顶层（director ctx 不带 pacing_state）。
+    pacing = ctx.get("pacing_state") or {}
+    recent_intents = _as_list(
+        pacing.get("recent_intent_classes")
+        if pacing else ctx.get("recent_intent_classes")
+    )
+    is_scenario_start = ctx.get("turn_number") == 0 and not recent_intents
+    if storylet_tags and (source_event in ("scene_transition", "scene_enter") or is_scenario_start):
         return {
             "schema_version": _SCHEMA_VERSION,
             "triggered": True,

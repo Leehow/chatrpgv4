@@ -823,10 +823,26 @@ def test_storylet_does_not_trigger_without_scene_entry():
     plan = {"scene_action": "CHARACTER"}
     ctx = {
         "active_scene": {"storylet_tags": ["opening_briefing"]},
-        # no source_event_type → not a scene entry
+        # 非首回合（有历史 intent + turn_number>=1）、无 source_event_type → 不触发
+        "turn_number": 1,
+        "pacing_state": {"recent_intent_classes": ["investigate"]},
     }
     trigger = narr.infer_storylet_trigger(plan, ctx)
     assert trigger.get("triggered") is False
+
+
+def test_storylet_triggers_on_scenario_start_first_turn():
+    """首回合（scenario start）即使无 source_event_type 也应触发场景型 storylet，
+    因为开场场景的首次进入不被标记为 scene_transition。"""
+    plan = {"scene_action": "CHARACTER"}
+    ctx = {
+        "active_scene": {"storylet_tags": ["opening_briefing"]},
+        "turn_number": 0,
+        "pacing_state": {"recent_intent_classes": []},
+    }
+    trigger = narr.infer_storylet_trigger(plan, ctx)
+    assert trigger["triggered"] is True
+    assert trigger["reason"] == "scene_tag_beat"
 
 
 def test_storylet_does_not_trigger_without_storylet_tags():
