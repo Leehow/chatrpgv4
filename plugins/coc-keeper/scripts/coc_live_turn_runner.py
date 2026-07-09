@@ -732,4 +732,63 @@ def run_live_turn(
     return result
 
 
-__all__ = ["run_live_turn"]
+# P2-6 (conservative): the per-turn narration path NEVER blocks on a flush.
+# This constant is the single, explicit declaration of that contract. The
+# maintenance path below may force a synchronous flush, but it runs OUT OF BAND
+# (idle/cron/manual), not on the narration path.
+NARRATION_FLUSH_BLOCKING: bool = False
+
+
+def run_pending_flush_maintenance(
+    campaign_dir: Path | str,
+    *,
+    max_age_seconds: int = 30,
+    max_count: int = 50,
+) -> dict[str, Any]:
+    """Maintenance-path pending-flush health check + forced flush (P2-6).
+
+    Runs OUT OF BAND relative to ``run_live_turn``: this is the one place where
+    a stuck pending queue (batches older than ``max_age_seconds`` or more
+    numerous than ``max_count``) is force-flushed synchronously. It MUST NOT be
+    called from the per-turn narration path; ``completion_required_before_
+    narration`` on the live path stays False (see ``NARRATION_FLUSH_BLOCKING``).
+
+    Returns a dict with: ``checked`` (bool), ``stuck`` (bool), ``reasons``
+    (list[str]), ``pending_count`` (int), ``oldest_age_seconds`` (float|None),
+    ``flushed`` (bool), ``flush_result`` (dict|None).
+    """
+    campaign = Path(campaign_dir)
+    stuck = coc_async_recorder.pending_stuck_check(
+        campaign,
+        max_age_seconds=max_age_seconds,
+        max_count=max_count,
+    )
+    result: dict[str, Any] = {
+        "checked": True,
+        "stuck": stuck["stuck"],
+        "reasons": list(stuck.get("reasons") or []),
+        "pending_count": stuck["pending_count"],
+        "oldest_age_seconds": stuck["oldest_age_seconds"],
+        "max_age_seconds": stuck["max_age_seconds"],
+        "max_count": stuck["max_count"],
+        "flushed": False,
+        "flush_result": None,
+        "narration_blocking": NARRATION_FLUSH_BLOCKING,
+    }
+    if stuck["stuck"] and stuck["pending_count"] > 0:
+        flush_result = coc_async_recorder.flush_pending_records(campaign)
+        result["flushed"] = True
+        result["flush_result"] = flush_result
+        _append_jsonl_sync(campaign / "logs" / "maintenance-flush.jsonl", {
+            "schema_version": 1,
+            "event_type": "pending_flush_maintenance",
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "campaign_dir": str(campaign),
+            "stuck_reasons": result["reasons"],
+            "pending_before": stuck["pending_count"],
+            "flush_result": flush_result,
+        })
+    return result
+
+
+__all__ = ["run_live_turn", "run_pending_flush_maintenance", "NARRATION_FLUSH_BLOCKING"]

@@ -139,18 +139,65 @@ class JsonlRecorder:
         return target
 
 
-def pending_record_count(campaign_dir: Path) -> int:
+def _pending_files(campaign_dir: Path) -> list[Path]:
     pending_dir = Path(campaign_dir) / "logs" / "pending-turns"
     if not pending_dir.is_dir():
-        return 0
-    return len([p for p in pending_dir.glob("*.json") if p.is_file()])
+        return []
+    return sorted(p for p in pending_dir.glob("*.json") if p.is_file())
+
+
+def pending_record_count(campaign_dir: Path) -> int:
+    return len(_pending_files(campaign_dir))
+
+
+def pending_stuck_check(
+    campaign_dir: Path,
+    *,
+    max_age_seconds: int = 30,
+    max_count: int = 50,
+) -> dict[str, Any]:
+    """Detect pending JSONL batches that are too old or too numerous.
+
+    A maintenance health check (P2-6, conservative). Returning ``stuck=True``
+    tells the runner to force a synchronous flush on its maintenance path —
+    this is NOT the per-turn narration path, which stays non-blocking.
+
+    Returns a dict with: ``stuck`` (bool), ``pending_count`` (int),
+    ``oldest_age_seconds`` (float | None), ``max_age_seconds`` (int),
+    ``max_count`` (int), ``pending_dir`` (str), ``reasons`` (list[str]).
+    """
+    max_age_seconds = max(0, int(max_age_seconds))
+    max_count = max(0, int(max_count))
+    pending_dir = Path(campaign_dir) / "logs" / "pending-turns"
+    files = _pending_files(campaign_dir)
+    pending_count = len(files)
+
+    oldest_age: float | None = None
+    if files:
+        now = time.time()
+        oldest_age = now - min(f.stat().st_mtime for f in files)
+
+    reasons: list[str] = []
+    if oldest_age is not None and max_age_seconds > 0 and oldest_age >= max_age_seconds:
+        reasons.append("max_age_exceeded")
+    if max_count > 0 and pending_count > max_count:
+        reasons.append("max_count_exceeded")
+
+    return {
+        "stuck": bool(reasons),
+        "pending_count": pending_count,
+        "oldest_age_seconds": oldest_age,
+        "max_age_seconds": max_age_seconds,
+        "max_count": max_count,
+        "pending_dir": str(pending_dir),
+        "reasons": reasons,
+    }
 
 
 def flush_pending_records(campaign_dir: Path, *, limit: int | None = None) -> dict[str, int]:
     """Replay queued JSONL batches into their target logs, then remove them."""
     campaign = Path(campaign_dir)
-    pending_dir = campaign / "logs" / "pending-turns"
-    files = sorted(p for p in pending_dir.glob("*.json") if p.is_file()) if pending_dir.is_dir() else []
+    files = _pending_files(campaign)
     if limit is not None:
         files = files[:max(0, int(limit))]
 
@@ -186,8 +233,15 @@ def flush_pending_records(campaign_dir: Path, *, limit: int | None = None) -> di
 
 
 def spawn_background_flush(campaign_dir: Path, *, limit: int | None = None) -> dict[str, Any]:
-    """Start a detached local process that flushes pending JSONL batches."""
-    args = [sys.executable, str(Path(__file__).resolve()), "flush", str(Path(campaign_dir))]
+    """Start a detached local process that flushes pending JSONL batches.
+
+    Records an audit marker in ``logs/flush-attempts.jsonl`` ({ts, pid,
+    pending_before, campaign_dir}) so that flush attempts are observable even
+    though the worker itself is fire-and-forget. Marker write is best-effort —
+    it must never block or fail the spawn.
+    """
+    campaign = Path(campaign_dir)
+    args = [sys.executable, str(Path(__file__).resolve()), "flush", str(campaign)]
     if limit is not None:
         args.extend(["--limit", str(int(limit))])
     proc = subprocess.Popen(
@@ -197,7 +251,21 @@ def spawn_background_flush(campaign_dir: Path, *, limit: int | None = None) -> d
         stderr=subprocess.DEVNULL,
         close_fds=True,
     )
-    return {"started": True, "pid": proc.pid}
+    pending_before = pending_record_count(campaign)
+    try:
+        marker = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "pid": proc.pid,
+            "pending_before": pending_before,
+            "campaign_dir": str(campaign),
+            "limit": limit,
+        }
+        _append_jsonl_sync(campaign / "logs" / "flush-attempts.jsonl", marker)
+    except OSError:
+        # Best-effort: a failure to record the audit marker must not affect the
+        # actual flush, which is the load-bearing part of this call.
+        pass
+    return {"started": True, "pid": proc.pid, "pending_before": pending_before}
 
 
 def _main(argv: list[str] | None = None) -> int:
