@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "COC Runtime PublicState",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "campaign_id",
+    "play_language",
+    "active_scene_id",
+    "tension_level",
+    "turn_number",
+    "discovered_clue_ids",
+    "investigators",
+    "brain",
+    "pending_choice"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "type": "integer"
+    },
+    "campaign_id": {
+      "type": "string"
+    },
+    "play_language": {
+      "type": ["string", "null"]
+    },
+    "active_scene_id": {
+      "type": ["string", "null"]
+    },
+    "tension_level": {
+      "type": ["string", "null"]
+    },
+    "turn_number": {
+      "type": "integer"
+    },
+    "discovered_clue_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "investigators": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "current_hp", "current_san", "current_mp", "conditions"],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "current_hp": {
+            "type": ["integer", "null"]
+          },
+          "current_san": {
+            "type": ["integer", "null"]
+          },
+          "current_mp": {
+            "type": ["integer", "null"]
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "brain": {
+      "type": "string",
+      "enum": ["debug", "pi"]
+    },
+    "pending_choice": {
+      "type": ["object", "null"]
+    }
+  }
+}
