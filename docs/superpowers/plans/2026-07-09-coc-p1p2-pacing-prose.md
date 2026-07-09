@@ -2,6 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. Steps use `- [ ]`.
 
+> **实现进度对账（2026-07-10）：全部 Task 已落地提交。** 执行时 checkbox 未逐项勾选，以 commit 对账：
+> Task1 P2-2 `1cd41d5`（crit/fumble 按 risk 校准）· Task2 P1-7 `1a0723a`+`46af96d`（prose guard 扩表）· Task3 P1-8 `8717252`（语言分层通电）· Task4 P1-2 `9d5ec0b`+`0dd1827`（空 handle 反压）· Task5 P1-3 `e7fb2c4`（跨回合 roll density）· Task6 P1-1 `2360b74`（max_beats 上限）· Task7 全量回归。
+
 **Goal:** 修 P1-1（过渡场景拖长）、P1-2（无行动点也停）、P1-3（roll density 不合并）、P1-7（prose guard 不全+不通电）、P1-8（语言能力不通电）、P2-2（crit/fumble 无条件 high）。
 
 **Architecture:** 按低风险先行：(1) P2-2 crit/fumble 按动作赌注校准冲突级别；(2) P1-7/P1-8 把已实现的 guard/language 通电到 narration contract 强制钩子；(3) P1-2 stop 时 handle 空→反压继续推进；(4) P1-3 跨回合 roll 密度合并；(5) P1-1 进度契约/beat 上限。

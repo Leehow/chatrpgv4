@@ -2,6 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development.
 
+> **实现进度对账（2026-07-10）：全部 Task 已落地提交。** 以 commit 对账：
+> Task1 P2-1 `0aa4652`（奖励骰分量展示）· Task2 P2-3' `8bcd077`（list_investigators）· Task3 P2-4' `8ae67bd`（跨模块 API 索引）· Task4 P2-7 `20a888d`（live audit 日志）· Task5 P2-5 `3326cde`+`8aa0ed8`（handout 接通）· Task6 P2-6 `4632217`（可靠 flush + stuck-check）· Task7 全量回归。
+
 **Goal:** 修 P2-1（奖励骰展示不透明）、P2-3'（角色列表 registry）、P2-4'（跨模块 API 索引）、P2-5（PDF 图片/handout）、P2-6（flush 可靠性，保守）、P2-7（日志扩展）。
 
 **Architecture:** 按低风险先行：(1) P2-1 formatter 展示分量；(2) P2-3'/4' 小 helper；(3) P2-7 日志扩展；(4) P2-5 handout 接通；(5) P2-6 flush 可靠性（保守，不并行化主流程）。
@@ -50,7 +53,7 @@
 ## Task 5: P2-5 — handout 接通
 - Modify schema (story-graph-schema.md): clue/scene 加可选 `handout_asset_id`。
 - Modify `coc_director_apply.py:clue_reveal` (L726-728): 带 asset ref（从 clue 的 handout_asset_id）。
-- Modify `coc_narrative_enrichment.py` 或 narration contract: player_visible handout 提示渲染（Codex 绝对路径 Markdown 图；ZCode 标题+摘要，符合 sync drift）。
+- Modify `coc_narrative_enrichment.py` 或 narration contract: player_visible handout 提示渲染（Codex 绝对路径 Markdown 图；其他宿主标题+摘要）。
 - Apply to white-war（若有 handout 素材；否则只接机制 + 文档）。
 - Test + sync + commit `feat(coc): wire handout assets into clue reveal + narration (P2-5)`.
 

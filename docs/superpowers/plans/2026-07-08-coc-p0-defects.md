@@ -2,20 +2,24 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **实现进度对账（2026-07-10）：全部 Task 已落地提交。** 执行时 checkbox 未逐项勾选，以 commit 对账：
+> Task1 `cd31e92`（is_real_fork）· Task2 `f2b8802`（tag 统一）· Task3 `aeeec6a`（落盘带 tags）· Task4 `b59b2e9`（闸门收窄）· Task5 `68fabe3`（低主动 e2e）· Task6 `04bfe79`（storylet 渲染接通）· Task7 `f0c4f05`（scene_tag 触发）· Task8 `1c5bf27`+`15a93b9`（焦点提取）· Task9 `1102cf6`（handle 刷新）· Task10 `65ca2bc`（文档）· Task11 `65250f3` + 全量回归。
+> 生产数据激活（affordances/storylet_tags 实际填充）由后续 `2026-07-09-coc-scenario-data-wiring.md` 收口。
+
 **Goal:** 修复 COC 插件的 4 条 P0 缺陷（全程多线分叉、低主动推进失效、storylet 旁路化、stop-actionability 复用旧抓手），使 live play 中玩家能看到多条可行动线、低主动输入能多步推进、storylet 真正驱动叙述、stop 时的抓手贴合当前轮焦点。
 
-**Architecture:** 按 P0-1→P0-2→P0-3→P0-4 顺序实现。P0-1 在 story-graph 引入 `available_routes` 结构化字段与 `is_real_fork` 标记；P0-2 收窄 runner 闸门（route_count→is_real_fork、npc_moves→requires_player_decision）并统一低主动 tag；P0-3 把 storylet 渲染接线接通到 live runner 并扩触发面；P0-4 新增结构化焦点提取步骤刷新 handle。所有运行时改动先动 canonical `plugins/coc-keeper/`，每 Task 末尾跑 sync 脚本同步 zcode 轨道。
+**Architecture:** 按 P0-1→P0-2→P0-3→P0-4 顺序实现。P0-1 在 story-graph 引入 `available_routes` 结构化字段与 `is_real_fork` 标记；P0-2 收窄 runner 闸门（route_count→is_real_fork、npc_moves→requires_player_decision）并统一低主动 tag；P0-3 把 storylet 渲染接线接通到 live runner 并扩触发面；P0-4 新增结构化焦点提取步骤刷新 handle。所有运行时改动先动 canonical `plugins/coc-keeper/`，每 Task 末尾跑 sync 脚本同步 Codex 轨道。
 
-**Tech Stack:** Python 3（无第三方依赖），`importlib.util` 动态加载模块，pytest 测试，`scripts/sync_coc_plugin_copy.py` 双轨同步。
+**Tech Stack:** Python 3（无第三方依赖），`importlib.util` 动态加载模块，pytest 测试，`scripts/sync_coc_plugin_copy.py` 单轨维护。
 
 ## Global Constraints
 
-- **Dual-Track Law（AGENTS.md）**：运行时改动先动 `plugins/coc-keeper/`，再 `python3 scripts/sync_coc_plugin_copy.py` + `--check`。两轨运行时脚本必须逐字节一致（除 8 个 `INTENTIONAL_PLATFORM_DRIFT_FILES` 的 allowlisted 替换）。
+- **Dual-Track Law（AGENTS.md）**：运行时改动先动 `plugins/coc-keeper/`，再 `# single-track: edit plugins/coc-keeper/ only` + `--check`。两轨运行时脚本必须逐字节一致（除 8 个 `INTENTIONAL_PLATFORM_DRIFT_FILES` 的 allowlisted 替换）。
 - **Semantic Matcher Constitution（AGENTS.md）**：禁止用关键词扫描自由文本推断意义。所有"意义判定"必须用结构化字段/枚举/带 recorded reason 的语义路由输出。P0-4 允许新增语义步骤，但输出必须是结构化枚举+reason，禁止从原始 prose 取子串。
 - **测试门禁**：改 shared 行为后至少跑：
   ```
-  PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py -q -p no:cacheprovider
-  python3 scripts/sync_coc_plugin_copy.py --check
+  PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
+  # single-track: no sync script required
   ```
 - **TDD**：每个 Task 先写失败测试，再实现，再验证通过，再 commit。
 - **模块加载约定**：测试用 `importlib.util.spec_from_file_location` 从 `plugins/coc-keeper/scripts/coc_<name>.py` 加载（见现有测试样式），无包结构。
@@ -30,7 +34,7 @@
 
 ## File Structure
 
-**修改（canonical，每 Task 末 sync 到 zcode）：**
+**修改（canonical，每 Task 末 sync 到 codex）：**
 - `plugins/coc-keeper/scripts/coc_narrative_enrichment.py` — P0-1（build_choice_frame 加 is_real_fork）、P0-3（接渲染钩子）、P0-4（焦点提取 + handle 新源）
 - `plugins/coc-keeper/scripts/coc_live_turn_runner.py` — P0-2（闸门收窄）、P0-3（stop 前调渲染钩子）、P0-4（传 turn_focus）
 - `plugins/coc-keeper/scripts/coc_story_director.py` — P0-2（tag 集合统一）
@@ -177,20 +181,20 @@ Expected: 3 PASS
 Run: `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_narrative_enrichment.py::test_choice_frame_surfaces_affordance_tradeoffs_without_menu -v -p no:cacheprovider`
 Expected: PASS（既有断言不应破——route_count/routes/visible_risk 都保留）
 
-- [ ] **Step 6: sync 双轨 + 门禁**
+- [ ] **Step 6: sync 单轨 + 门禁**
 
 Run:
 ```
-python3 scripts/sync_coc_plugin_copy.py
-python3 scripts/sync_coc_plugin_copy.py --check
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py -q -p no:cacheprovider
+# single-track: edit plugins/coc-keeper/ only
+# single-track: no sync script required
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
 ```
 Expected: 全 PASS，`--check` 无 drift
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper-zcode/scripts/coc_narrative_enrichment.py tests/test_narrative_enrichment.py
+git add plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper/scripts/coc_narrative_enrichment.py tests/test_narrative_enrichment.py
 git commit -m "feat(coc): add is_real_fork structural marker to choice_frame (P0-1a)"
 ```
 
@@ -298,12 +302,12 @@ Expected: 3 PASS
 Run: `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_story_director.py -q -p no:cacheprovider`
 Expected: 全 PASS（既有 low_agency/routine 相关断言不应破——扩充集合是超集）
 
-- [ ] **Step 7: sync 双轨 + 门禁 + Commit**
+- [ ] **Step 7: sync 单轨 + 门禁 + Commit**
 
 ```bash
-python3 scripts/sync_coc_plugin_copy.py
-python3 scripts/sync_coc_plugin_copy.py --check
-git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py tests/test_story_director.py
+# single-track: edit plugins/coc-keeper/ only
+# single-track: no sync script required
+git add plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py tests/test_story_director.py
 git commit -m "fix(coc): unify low-agency tag sets into single source (P0-2a)"
 ```
 
@@ -427,13 +431,13 @@ Expected: PASS
 Run: `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_director_apply.py tests/test_story_director.py -q -p no:cacheprovider`
 Expected: 全 PASS（注意：若有测试断言 `recent_intent_classes` 是 `list[str]`，需同步更新为 `list[dict]`——按实际报错修）
 
-- [ ] **Step 7: sync 双轨 + 门禁 + Commit**
+- [ ] **Step 7: sync 单轨 + 门禁 + Commit**
 
 ```bash
-python3 scripts/sync_coc_plugin_copy.py
-python3 scripts/sync_coc_plugin_copy.py --check
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py -q -p no:cacheprovider
-git add plugins/coc-keeper/scripts/coc_director_apply.py plugins/coc-keeper-zcode/scripts/coc_director_apply.py plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py tests/test_director_apply.py tests/test_story_director.py
+# single-track: edit plugins/coc-keeper/ only
+# single-track: no sync script required
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
+git add plugins/coc-keeper/scripts/coc_director_apply.py plugins/coc-keeper/scripts/coc_director_apply.py plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py tests/test_director_apply.py tests/test_story_director.py
 git commit -m "fix(coc): persist recent_intent_classes with tags for cross-turn counting (P0-2b)"
 ```
 
@@ -548,13 +552,13 @@ Expected: 4 PASS
 Run: `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_live_turn_runner.py -q -p no:cacheprovider`
 Expected: 全 PASS（若有测试依赖旧的 route_count>=2 判停，需更新其 fixture——按报错修，通常是给 choice_frame 加 `is_real_fork` 字段）
 
-- [ ] **Step 6: sync 双轨 + 门禁 + Commit**
+- [ ] **Step 6: sync 单轨 + 门禁 + Commit**
 
 ```bash
-python3 scripts/sync_coc_plugin_copy.py
-python3 scripts/sync_coc_plugin_copy.py --check
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py -q -p no:cacheprovider
-git add plugins/coc-keeper/scripts/coc_live_turn_runner.py plugins/coc-keeper-zcode/scripts/coc_live_turn_runner.py tests/test_live_turn_runner.py
+# single-track: edit plugins/coc-keeper/ only
+# single-track: no sync script required
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
+git add plugins/coc-keeper/scripts/coc_live_turn_runner.py plugins/coc-keeper/scripts/coc_live_turn_runner.py tests/test_live_turn_runner.py
 git commit -m "fix(coc): narrow runner gates to is_real_fork and requires_player_decision (P0-2c)"
 ```
 
@@ -708,13 +712,13 @@ Expected: PASS（既有断言不涉及 storylet_cues，新字段不影响）
 Run: `grep -n "storylet_moves\|must_include" plugins/coc-keeper/scripts/coc_live_turn_runner.py`
 确认存在透传。若 final_turn（:499）来自 turns[-1]，而 turn 已含 storylet_moves，则 Step 3 的 build_stop_actionability_contract(final_turn,...) 已能读到——无需额外改。
 
-- [ ] **Step 7: sync 双轨 + 门禁 + Commit**
+- [ ] **Step 7: sync 单轨 + 门禁 + Commit**
 
 ```bash
-python3 scripts/sync_coc_plugin_copy.py
-python3 scripts/sync_coc_plugin_copy.py --check
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py tests/test_live_turn_runner.py tests/test_narrative_enrichment.py -q -p no:cacheprovider
-git add plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper-zcode/scripts/coc_narrative_enrichment.py tests/test_narrative_enrichment.py
+# single-track: edit plugins/coc-keeper/ only
+# single-track: no sync script required
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_live_turn_runner.py tests/test_narrative_enrichment.py -q -p no:cacheprovider
+git add plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper/scripts/coc_narrative_enrichment.py tests/test_narrative_enrichment.py
 git commit -m "feat(coc): surface storylet cues in stop_actionability contract (P0-3a)"
 ```
 
@@ -805,12 +809,12 @@ Expected: 3 PASS
 Run: `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_storylets.py tests/test_narrative_enrichment.py -q -p no:cacheprovider`
 Expected: 全 PASS
 
-- [ ] **Step 6: sync 双轨 + 门禁 + Commit**
+- [ ] **Step 6: sync 单轨 + 门禁 + Commit**
 
 ```bash
-python3 scripts/sync_coc_plugin_copy.py
-python3 scripts/sync_coc_plugin_copy.py --check
-git add plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper-zcode/scripts/coc_narrative_enrichment.py tests/test_narrative_enrichment.py
+# single-track: edit plugins/coc-keeper/ only
+# single-track: no sync script required
+git add plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper/scripts/coc_narrative_enrichment.py tests/test_narrative_enrichment.py
 git commit -m "feat(coc): add scene-entry storylet trigger via storylet_tags (P0-3b)"
 ```
 
@@ -952,12 +956,12 @@ def build_turn_focus_contract(ctx: dict[str, Any]) -> dict[str, Any] | None:
 Run: `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_narrative_enrichment.py -k "turn_focus" -v -p no:cacheprovider`
 Expected: 3 PASS
 
-- [ ] **Step 5: sync 双轨 + 门禁 + Commit**
+- [ ] **Step 5: sync 单轨 + 门禁 + Commit**
 
 ```bash
-python3 scripts/sync_coc_plugin_copy.py
-python3 scripts/sync_coc_plugin_copy.py --check
-git add plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper-zcode/scripts/coc_narrative_enrichment.py tests/test_narrative_enrichment.py
+# single-track: edit plugins/coc-keeper/ only
+# single-track: no sync script required
+git add plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper/scripts/coc_narrative_enrichment.py tests/test_narrative_enrichment.py
 git commit -m "feat(coc): add structured turn-focus extraction (P0-4a)"
 ```
 
@@ -1120,13 +1124,13 @@ def test_second_turn_focus_refreshes_handles_not_stale(tmp_path):
 Run: `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_live_turn_runner.py -k "turn_focus_refreshes" tests/test_narrative_enrichment.py -q -p no:cacheprovider`
 Expected: PASS。若 campaign fixture 需补 available_routes，更新 helper。
 
-- [ ] **Step 8: sync 双轨 + 门禁 + Commit**
+- [ ] **Step 8: sync 单轨 + 门禁 + Commit**
 
 ```bash
-python3 scripts/sync_coc_plugin_copy.py
-python3 scripts/sync_coc_plugin_copy.py --check
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py tests/test_live_turn_runner.py tests/test_narrative_enrichment.py -q -p no:cacheprovider
-git add plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper-zcode/scripts/coc_narrative_enrichment.py plugins/coc-keeper/scripts/coc_live_turn_runner.py plugins/coc-keeper-zcode/scripts/coc_live_turn_runner.py tests/test_narrative_enrichment.py tests/test_live_turn_runner.py
+# single-track: edit plugins/coc-keeper/ only
+# single-track: no sync script required
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_live_turn_runner.py tests/test_narrative_enrichment.py -q -p no:cacheprovider
+git add plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper/scripts/coc_live_turn_runner.py plugins/coc-keeper/scripts/coc_live_turn_runner.py tests/test_narrative_enrichment.py tests/test_live_turn_runner.py
 git commit -m "feat(coc): refresh handles via structured turn-focus (P0-4b)"
 ```
 
@@ -1148,18 +1152,18 @@ git commit -m "feat(coc): refresh handles via structured turn-focus (P0-4b)"
 
 在 `state-schema.md` 的 `pending_choices` 节（:72-77），加一句明确禁令："禁止将 `pending_choices` 存为玩家可见的选项字符串数组；玩家可见的行动暗示必须由 `available_routes` + narrator 生成 diegetic cue，不是 `pending_choices`。"
 
-- [ ] **Step 3: sync 双轨（这两个文件在 drift allowlist 内，需确认替换）+ 门禁**
+- [ ] **Step 3: sync 单轨（这两个文件在 drift allowlist 内，需确认替换）+ 门禁**
 
 ```bash
-python3 scripts/sync_coc_plugin_copy.py
-python3 scripts/sync_coc_plugin_copy.py --check
+# single-track: edit plugins/coc-keeper/ only
+# single-track: no sync script required
 ```
 Expected: 无 drift（若这两个 md 在 `INTENTIONAL_PLATFORM_DRIFT_FILES`，sync 会做 allowlisted 替换）
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add plugins/coc-keeper/skills/coc-scenario-import/references/story-graph-schema.md plugins/coc-keeper-zcode/skills/coc-scenario-import/references/story-graph-schema.md plugins/coc-keeper/references/state-schema.md plugins/coc-keeper-zcode/references/state-schema.md
+git add plugins/coc-keeper/skills/coc-scenario-import/references/story-graph-schema.md plugins/coc-keeper/skills/coc-scenario-import/references/story-graph-schema.md plugins/coc-keeper/references/state-schema.md plugins/coc-keeper/references/state-schema.md
 git commit -m "docs(coc): document available_routes and reinforce pending_choices ban (P0-1b)"
 ```
 
@@ -1181,7 +1185,7 @@ Expected: 全 PASS。若有 FAIL，逐个诊断修复（优先确认是否 Task 
 
 Run:
 ```
-python3 scripts/sync_coc_plugin_copy.py --check
+# single-track: no sync script required
 ```
 Expected: 无 drift。
 
@@ -1189,10 +1193,10 @@ Expected: 无 drift。
 
 Run:
 ```
-diff plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper-zcode/scripts/coc_narrative_enrichment.py
-diff plugins/coc-keeper/scripts/coc_live_turn_runner.py plugins/coc-keeper-zcode/scripts/coc_live_turn_runner.py
-diff plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper-zcode/scripts/coc_story_director.py
-diff plugins/coc-keeper/scripts/coc_director_apply.py plugins/coc-keeper-zcode/scripts/coc_director_apply.py
+diff plugins/coc-keeper/scripts/coc_narrative_enrichment.py plugins/coc-keeper/scripts/coc_narrative_enrichment.py
+diff plugins/coc-keeper/scripts/coc_live_turn_runner.py plugins/coc-keeper/scripts/coc_live_turn_runner.py
+diff plugins/coc-keeper/scripts/coc_story_director.py plugins/coc-keeper/scripts/coc_story_director.py
+diff plugins/coc-keeper/scripts/coc_director_apply.py plugins/coc-keeper/scripts/coc_director_apply.py
 ```
 Expected: 仅 drift allowlist 文件有允许的差异，其余无输出（一致）。
 
