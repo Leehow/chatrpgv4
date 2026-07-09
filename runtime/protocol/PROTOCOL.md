@@ -2,7 +2,7 @@
 
 Language-agnostic semantics for the headless COC agent runtime. V1 transport is an in-process SDK; HTTP/SSE may wrap the same contract later.
 
-Brain selection is **project-level only** via `.coc/runtime.json` (`"brain": "debug" | "pi"`). Missing config defaults to `debug`. Both brains emit the same Event schema and share `.coc/` campaign state. Exa and web search are out of scope.
+Brain selection is **project-level only** via `.coc/runtime.json` (`"brain": "debug" | "pi"`). Missing config defaults to `debug`. Both brains emit the same Event schema and share `.coc/` campaign state. Third-party web-search vendors are out of scope.
 
 ## Session API
 

@@ -57,3 +57,9 @@ fixed prose fragments.
   not add another local keyword list.
 - Legacy compatibility fallbacks that still use string heuristics should be
   treated as technical debt and not copied into new behavior.
+
+## Runtime Track
+
+`runtime/` is the open headless agent interface (Event SDK + debug/pi adapters).
+It must not fork keeper skills or rules. Shared behavior remains in
+`plugins/coc-keeper/`. Project brain switch lives at `.coc/runtime.json`.

@@ -33,3 +33,8 @@ Campaign directory:
 `workspace/.coc/campaigns/<campaign_id>/`.
 
 See `runtime/protocol/PROTOCOL.md` for the language-agnostic contract.
+
+## Boundaries
+
+- Content track stays in `plugins/coc-keeper/` — do not fork skills/rules into `runtime/`.
+- No third-party web-search vendor bindings in runtime package metadata or adapters.

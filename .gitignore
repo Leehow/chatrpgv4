@@ -3,3 +3,5 @@ pdf/
 .coc/
 __pycache__/
 .pytest_cache/
+node_modules/
+runtime/adapters/pi/node_modules/
