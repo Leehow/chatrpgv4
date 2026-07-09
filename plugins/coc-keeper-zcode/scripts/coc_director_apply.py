@@ -707,6 +707,42 @@ def flush_pending_records(campaign_dir: Path, *, limit: int | None = None) -> di
     return coc_async_recorder.flush_pending_records(campaign_dir, limit=limit)
 
 
+def _director_exit_eval(condition, discovered, campaign_dir, save_dir):
+    """Machine-checkable subset of an exit_condition for the apply-layer
+    auto-advance decision.
+
+    Mirrors coc_story_director._eval_exit but only knows the two *machine-
+    checkable* families — "X discovered" and "pressure clock reaches N" — using
+    the state the apply layer has on hand (discovered clue set + threat-state
+    clocks). Narrative exit_conditions (e.g. "investigators accept the job")
+    match neither family and therefore return False, which is what blocks the
+    clue-reveal auto-advance: such scenes must wait for an explicit CUT /
+    force_transition.
+    """
+    if not isinstance(condition, str):
+        return False
+    if "discovered" in condition:
+        clue_id = condition.split()[0]
+        return clue_id in discovered
+    if "pressure clock reaches" in condition:
+        try:
+            n = int(condition.split("reaches")[-1].strip())
+        except (ValueError, IndexError):
+            return False
+        if coc_threat_state is None or campaign_dir is None or save_dir is None:
+            return False
+        # any tracked clock that has reached N satisfies the condition
+        fronts_path = campaign_dir / "scenario" / "threat-fronts.json"
+        fronts = _read_json(fronts_path, {}).get("fronts", [])
+        for front in fronts:
+            for clock in front.get("clocks", []):
+                cid = clock.get("clock_id")
+                if cid and coc_threat_state.get_clock_segments(save_dir, cid) >= n:
+                    return True
+        return False
+    return False
+
+
 def apply_plan(
     campaign_dir: Path,
     plan: dict[str, Any],
@@ -1000,10 +1036,13 @@ def _apply_plan_impl(
 
     # 7. scene transition — advance when current scene is exhausted, plan CUTs,
     # or scene-progress governance explicitly forces a transition/montage.
-    # The Haunting's exit_conditions are natural-language sentences that can't be
-    # machine-evaluated, so we use a structural proxy: a scene is "exhausted"
-    # when all its available_clues are in discovered_clue_ids. A CUT action forces
-    # the advance regardless (the director decided the dramatic_question is answered).
+    # "Exhausted" means all available_clues are discovered AND the scene's
+    # exit_conditions are satisfiable: machine-checkable exit_conditions
+    # ("clue-x discovered", "pressure clock reaches N") must hold; narrative
+    # exit_conditions (e.g. "investigators accept the job") are not machine-
+    # checkable, so they block clue-reveal auto-advance and the scene waits for
+    # an explicit CUT / force_transition. Scenes with no exit_conditions advance
+    # on clue exhaustion alone. A CUT always forces the advance regardless.
     story_graph_path = campaign_dir / "scenario" / "story-graph.json"
     if story_graph_path.exists():
         story = _read_json(story_graph_path, {"scenes": []})
@@ -1018,7 +1057,21 @@ def _apply_plan_impl(
             elif isinstance(scene_progress, dict) and scene_progress.get("action") == "force_transition":
                 should_advance = True
             elif available and all(c in discovered for c in available):
-                should_advance = True
+                # Clue exhaustion alone is not a scene goal met: a scene with a
+                # *narrative* exit_condition (e.g. "investigators accept the
+                # job") that _director_exit_eval can't machine-check must NOT
+                # auto-advance on clue reveal — it waits for an explicit CUT /
+                # force_transition. Only scenes whose exit_conditions are empty
+                # (nothing to block on) or machine-checkable & satisfied advance.
+                exit_conditions = current_scene.get("exit_conditions", [])
+                exit_met = (
+                    not exit_conditions
+                    or any(
+                        _director_exit_eval(e, discovered, campaign_dir, save)
+                        for e in exit_conditions
+                    )
+                )
+                should_advance = exit_met
             if should_advance:
                 # find current scene's position; fall back to -1 if missing
                 try:

@@ -521,6 +521,87 @@ def test_apply_cut_forces_scene_transition(tmp_path):
     assert world2["active_scene_id"] == "scene-2"
 
 
+def test_apply_narrative_exit_does_not_auto_advance_on_clue_reveal(tmp_path):
+    """P1 scene-advancement: a scene with a *narrative* exit_condition (e.g.
+    "investigators accept the job") must NOT auto-advance just because its last
+    available_clue got revealed. The exit_condition can't be machine-checked, so
+    the scene waits for an explicit CUT / force_transition."""
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "briefing"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    # briefing has 1 available_clue + a narrative exit the apply layer can't eval
+    sg = {"scenes": [
+        {"scene_id": "briefing", "available_clues": ["clue-briefing"],
+         "dramatic_question": "will the investigators accept the job?",
+         "entry_conditions": [],
+         "exit_conditions": ["investigators accept the job"]},
+        {"scene_id": "archive", "available_clues": ["clue-newspaper"],
+         "dramatic_question": "q2", "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    # revealing the single clue exhausts available_clues
+    plan = {"decision_id": "d1", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-briefing"]}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "briefing"  # narrative exit blocks advance
+
+    # ... but a subsequent CUT must still force the transition.
+    plan_cut = {"decision_id": "d2", "scene_action": "CUT",
+                "clue_policy": {"reveal": []}, "pressure_moves": [],
+                "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan_cut, investigator_id="inv1")
+    world3 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world3["active_scene_id"] == "archive"
+
+
+def test_apply_machine_checkable_exit_auto_advances_on_clue_reveal(tmp_path):
+    """A scene whose exit_condition IS machine-checkable (e.g. "clue-x discovered")
+    still auto-advances once all available_clues are revealed — preserved behavior."""
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "scene-1"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "scene-1", "available_clues": ["clue-A"],
+         "dramatic_question": "q1", "entry_conditions": [],
+         "exit_conditions": ["clue-A discovered"]},
+        {"scene_id": "scene-2", "available_clues": ["clue-B"],
+         "dramatic_question": "q2", "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {"decision_id": "d1", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"]}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "scene-2"  # machine-checkable exit allows
+
+
+def test_apply_no_exit_conditions_auto_advances_on_clue_reveal(tmp_path):
+    """A scene with NO exit_conditions still auto-advances once all available_clues
+    are revealed — preserved behavior (nothing to block on)."""
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "scene-1"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "scene-1", "available_clues": ["clue-A"],
+         "dramatic_question": "q1", "entry_conditions": [], "exit_conditions": []},
+        {"scene_id": "scene-2", "available_clues": ["clue-B"],
+         "dramatic_question": "q2", "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {"decision_id": "d1", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"]}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "scene-2"  # no exit -> allow
+
+
 def test_apply_obscured_reveal_waits_for_rule_result(tmp_path):
     camp = _campaign(tmp_path)
     plan = {"decision_id": "d-rule", "scene_action": "REVEAL",
