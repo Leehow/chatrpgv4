@@ -18,6 +18,15 @@ def test_missing_runtime_json_defaults_to_debug(tmp_path):
     assert cfg["schema_version"] == 1
 
 
+def test_runtime_json_without_brain_defaults_to_debug(tmp_path):
+    coc = tmp_path / ".coc"
+    coc.mkdir()
+    (coc / "runtime.json").write_text(json.dumps({"schema_version": 1}))
+    cfg = _load().load_runtime_config(tmp_path)
+    assert cfg["brain"] == "debug"
+    assert cfg["schema_version"] == 1
+
+
 def test_reads_pi_brain_from_coc_runtime_json(tmp_path):
     coc = tmp_path / ".coc"
     coc.mkdir()
