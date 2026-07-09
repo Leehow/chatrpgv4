@@ -194,10 +194,10 @@
   - `title` (string)：展示标题。
   - `summary` (string)：面向玩家的安全摘要（无法内联显示图片时用）。
   - `source` (object)：来源定位，含 `path` (string) 与 `page` (int)。
-  - `player_visible` (bool)：是否可向玩家展示。`true` 时 Codex 渲染绝对 Markdown 图片路径；ZCode/纯文本界面改展示 `title` + `summary` + 来源页。
+  - `player_visible` (bool)：是否可向玩家展示。`true` 时 Codex 渲染绝对 Markdown 图片路径；纯文本界面改展示 `title` + `summary` + 来源页。
   - `scene_refs` (string[]，可选)：关联 scene_id 列表。
   - `clue_refs` (string[]，可选)：关联 clue_id 列表。
-- `display` (object)：渲染提示（codex / zcode 两条策略说明）。
+- `display` (object)：渲染提示（codex / text_only 两条策略说明）。
 
 **读取契约（运行期）：** `coc_scenario.load_handout_assets` 在文件缺失/不可解析/`assets` 为空时一律返回 `{}`；缺 `asset_id` 的条目被跳过。`coc_director_apply` 的 `clue_reveal` 仅在 clue 记录带 `handout_asset_id` 时调用它，把 `handout_asset_id` / `handout_title` / `handout_summary` / `player_visible` 附到事件——未登记或未设字段时不影响现有行为。
 
@@ -221,7 +221,7 @@
   ],
   "display": {
     "codex": "render absolute Markdown image paths when player_visible is true",
-    "zcode": "show title, summary, and source page when inline image display is unavailable"
+    "text_only": "show title, summary, and source page when inline image display is unavailable"
   }
 }
 ```

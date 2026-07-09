@@ -405,23 +405,11 @@ def audit_monster_attacks(root: Path, project: Path) -> list[str]:
     return gaps
 
 
-def audit_parity(keeper: Path, zcode: Path) -> list[str]:
-    """Both plugins must have identical rule-id sets and shared JSON content."""
-    gaps = []
-    try:
-        k_ids = {r["id"] for r in _load_table(keeper, "rule-index").get("rules", [])}
-        z_ids = {r["id"] for r in _load_table(zcode, "rule-index").get("rules", [])}
-        if k_ids != z_ids:
-            gaps.append(f"[C] rule-id set mismatch: only-keeper={k_ids - z_ids} only-zcode={z_ids - k_ids}")
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        gaps.append(f"[C] rule-index parity: UNREADABLE ({e})")
-    # spot-check a few shared JSON files for byte-content parity
-    for name in ("spells", "monsters", "weapons", "skills", "tomes"):
-        kf = keeper / "references" / "rules-json" / f"{name}.json"
-        zf = zcode / "references" / "rules-json" / f"{name}.json"
-        if kf.exists() and zf.exists() and kf.read_text() != zf.read_text():
-            gaps.append(f"[C] {name}.json content differs between plugins")
-    return gaps
+def audit_plugin_integrity(keeper: Path) -> list[str]:
+    """Confirm the single plugin track still has a readable rule index."""
+    if not (keeper / "references" / "rules-json" / "rule-index.json").exists():
+        return [f"[C] rule-index missing under {keeper}"]
+    return []
 
 
 # Section D: content correctness (not just counts).
@@ -752,11 +740,9 @@ def audit_monster_armor(root: Path, project: Path) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--plugin-root", default="plugins/coc-keeper")
-    ap.add_argument("--zcode-root", default="plugins/coc-keeper-zcode")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
     root = Path(args.plugin_root)
-    zroot = Path(args.zcode_root)
     # project root = parent of plugin-root (for checks/ dir)
     project = root.parent.parent if root.parent.name == "plugins" else Path.cwd()
 
@@ -777,7 +763,7 @@ def main() -> int:
     all_gaps += audit_occupation_credit_rating(root, project)
     all_gaps += audit_spell_mechanics(root, project)
     all_gaps += audit_monster_attacks(root, project)
-    all_gaps += audit_parity(root, zroot)
+    all_gaps += audit_plugin_integrity(root)
 
     if all_gaps:
         if not args.quiet:

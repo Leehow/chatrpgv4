@@ -107,12 +107,11 @@ def main() -> int:
     print(f"Total now: {len(tomes)}")
 
     if apply:
-        for plugin in ("plugins/coc-keeper", "plugins/coc-keeper-zcode"):
-            path = Path(plugin) / "references" / "rules-json" / "tomes.json"
-            data = json.loads(path.read_text())
-            data["tomes"] = tomes
-            path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-            print(f"Wrote {path} ({len(tomes)} tomes)")
+        path = Path("plugins/coc-keeper") / "references" / "rules-json" / "tomes.json"
+        data = json.loads(path.read_text())
+        data["tomes"] = tomes
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        print(f"Wrote {path} ({len(tomes)} tomes)")
     else:
         print("\n(dry-run; pass --apply)")
     return 0

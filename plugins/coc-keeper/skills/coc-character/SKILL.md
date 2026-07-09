@@ -62,6 +62,10 @@ English/canonical backstory is audit data unless explicitly localized.
 <!-- CODEX_ONLY_IMAGEGEN_START -->
 ## Codex-Only Portrait Generation
 
+Portrait generation is available only in Codex. If this skill is running outside
+Codex, skip portrait generation and continue with the rest of character
+creation.
+
 In Codex, when the user asks for an investigator portrait, use the system
 `imagegen` skill and the built-in `image_gen` tool by default. This does not
 require an `OPENAI_API_KEY`.

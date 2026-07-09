@@ -1,36 +1,23 @@
 # Project Rules
 
-## COC Plugin Dual-Track Law
+## COC Plugin Single-Track Law
 
-This repository maintains two plugin tracks:
+This repository maintains one plugin track:
 
 - `plugins/coc-keeper/` is the canonical Codex plugin.
-- `plugins/coc-keeper-zcode/` is the generated/checkable ZCode-native copy.
 
-When changing shared plugin behavior, edit the Codex track first, then sync the
-ZCode track with:
+Do not recreate a parallel ZCode plugin copy. Shared runtime behavior lives only
+in `plugins/coc-keeper/`.
 
-```bash
-python3 scripts/sync_coc_plugin_copy.py
-python3 scripts/sync_coc_plugin_copy.py --check
-```
-
-Do not manually drift shared runtime files between the two tracks. Platform
-differences must stay limited to the sync script's explicit rules: Codex
-`.codex-plugin` metadata, ZCode `.zcode-plugin` metadata and `package.json`,
-Codex-only `agents/openai.yaml`, Codex-only image generation instruction blocks
-marked with `CODEX_ONLY_IMAGEGEN`, and the allowlisted Codex/ZCode wording
-substitutions in `scripts/sync_coc_plugin_copy.py`.
-
-If a new platform-specific difference is required, update
-`scripts/sync_coc_plugin_copy.py` and the sync tests first so the rule is
-machine-checkable.
+Platform-specific capabilities must stay explicitly gated in the Codex plugin.
+In particular, investigator portrait generation is Codex-only and must remain
+inside `CODEX_ONLY_IMAGEGEN` markers in `skills/coc-character/SKILL.md`. Other
+hosts should skip that capability rather than invent a second plugin tree.
 
 Before finishing plugin work, run at minimum:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py tests/test_zcode_plugin_metadata.py tests/test_coc_plugin_sync_script.py -q -p no:cacheprovider
-python3 scripts/sync_coc_plugin_copy.py --check
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
 ```
 
 ## Playtest Battle Report Evidence Standard

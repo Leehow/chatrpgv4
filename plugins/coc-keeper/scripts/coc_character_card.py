@@ -3,7 +3,7 @@
 
 The source of truth remains the structured investigator or creation JSON. This
 script renders a localized display layer into portable Markdown for use in
-Codex and ZCode. Static HTML can be emitted explicitly for browser preview or
+Codex. Static HTML can be emitted explicitly for browser preview or
 printing, but Markdown is the default card format.
 """
 

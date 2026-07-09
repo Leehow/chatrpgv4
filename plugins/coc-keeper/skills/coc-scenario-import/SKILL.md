@@ -44,7 +44,7 @@ under `.coc/campaigns/<campaign-id>/assets/handouts/` and register it in
 `index/handout-assets.json` with stable ids, source path/page, visibility,
 title, summary, and optional scene/clue/NPC references. In Codex, render a
 player-visible image with an absolute Markdown image path only when the asset is
-marked `player_visible`. In ZCode or text-only surfaces, show the title,
+marked `player_visible`. On text-only surfaces, show the title,
 summary, and source page instead.
 
 ## 剧情图编译（Story-Graph Compilation）

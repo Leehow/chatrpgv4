@@ -70,29 +70,28 @@ def clean_damage_die(damage_die: str) -> tuple[str, str | None]:
 
 def main() -> int:
     apply = "--apply" in sys.argv
-    for plugin in ("plugins/coc-keeper", "plugins/coc-keeper-zcode"):
-        path = Path(plugin) / "references" / "rules-json" / "weapons.json"
-        data = json.loads(path.read_text())
-        weapons = data["weapons"]
-        changed = 0
-        for key, entry in weapons.items():
-            dtype = infer_damage_type(key, entry)
-            clean_dd, status = clean_damage_die(entry.get("damage_die", ""))
-            new_entry = dict(entry)
-            new_entry["damage_type"] = dtype
-            new_entry["damage_die"] = clean_dd if clean_dd else entry.get("damage_die", "")
-            # keep impales bool in sync (impale type => True, else False)
-            new_entry["impales"] = (dtype == "impale")
-            if status:
-                new_entry["status_effect"] = status
-            elif "status_effect" in new_entry:
-                del new_entry["status_effect"]
-            if new_entry != entry:
-                weapons[key] = new_entry
-                changed += 1
-        if apply:
-            path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-        print(f"{plugin}: {changed}/{len(weapons)} weapons normalized")
+    path = Path("plugins/coc-keeper") / "references" / "rules-json" / "weapons.json"
+    data = json.loads(path.read_text())
+    weapons = data["weapons"]
+    changed = 0
+    for key, entry in weapons.items():
+        dtype = infer_damage_type(key, entry)
+        clean_dd, status = clean_damage_die(entry.get("damage_die", ""))
+        new_entry = dict(entry)
+        new_entry["damage_type"] = dtype
+        new_entry["damage_die"] = clean_dd if clean_dd else entry.get("damage_die", "")
+        # keep impales bool in sync (impale type => True, else False)
+        new_entry["impales"] = (dtype == "impale")
+        if status:
+            new_entry["status_effect"] = status
+        elif "status_effect" in new_entry:
+            del new_entry["status_effect"]
+        if new_entry != entry:
+            weapons[key] = new_entry
+            changed += 1
+    if apply:
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    print(f"plugins/coc-keeper: {changed}/{len(weapons)} weapons normalized")
     # stats
     if apply:
         data = json.loads((BASE / "weapons.json").read_text())

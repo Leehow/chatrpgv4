@@ -16,9 +16,7 @@ workflow friction that does not belong in automated battle-report fixtures.
 - Evidence: during a live Masks of Nyarlathotep test, the player wanted to reuse
   the previously created Erich von Koskinen character instead of rebuilding a
   sheet.
-- Implementation note: shared behavior must be implemented in
-  `plugins/coc-keeper/` first and synced to `plugins/coc-keeper-zcode/` via
-  `python3 scripts/sync_coc_plugin_copy.py`.
+- Implementation note: implement shared behavior in `plugins/coc-keeper/`.
 - Resolution: `coc-keeper-play/SKILL.md` now requires reusable investigator
   selection from `/.coc/investigators/` before characteristic generation, and
   `tests/test_plugin_metadata.py` locks the protocol.

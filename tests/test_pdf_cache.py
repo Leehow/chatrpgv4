@@ -21,7 +21,7 @@ def _load(name, rel):
 
 pdf_cache = _load(
     "pdf_cache",
-    "plugins/coc-keeper-zcode/skills/trpg-pdf-ingest/scripts/pdf_cache.py",
+    "plugins/coc-keeper/skills/trpg-pdf-ingest/scripts/pdf_cache.py",
 )
 
 

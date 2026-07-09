@@ -119,7 +119,7 @@ def create_scenario_skeleton(
             "assets": [],
             "display": {
                 "codex": "render absolute Markdown image paths when player_visible is true",
-                "zcode": "show title, summary, and source page when inline image display is unavailable",
+                "text_only": "show title, summary, and source page when inline image display is unavailable",
             },
         },
     )

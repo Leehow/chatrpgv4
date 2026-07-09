@@ -4,7 +4,7 @@
 Memory cards are Markdown files with YAML frontmatter. The frontmatter holds
 machine-readable fields (memory_id, privacy, salience, entities, tags,
 reactivation_cues); the body holds a short Chinese summary an LLM can read
-directly. This design favors Codex/ZCode grep/read over a database.
+directly. This design favors Codex grep/read over a database.
 
 Spec: docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md
 """

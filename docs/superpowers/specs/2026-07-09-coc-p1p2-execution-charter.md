@@ -33,6 +33,6 @@
 
 ## 跨波次约束（沿用）
 
-- Dual-Track Law：先 canonical 后 sync + `--check`。
+- Single-Track Law：只维护 `plugins/coc-keeper/`；立绘等宿主能力用 `CODEX_ONLY_IMAGEGEN` 门控。
 - Semantic Matcher Constitution：结构化字段/枚举/带 reason 的语义输出，不扫自由文本。
-- 测试门禁：每 Task 末 `test_plugin_metadata.py`/`test_zcode_plugin_metadata.py`/`test_coc_plugin_sync_script.py` + `--check`。
+- 测试门禁：每 Task 末至少跑 `test_plugin_metadata.py`。

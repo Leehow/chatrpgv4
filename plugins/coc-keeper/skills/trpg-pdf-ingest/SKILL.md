@@ -158,7 +158,7 @@ to the CLI. It returns a dict with the markdown plus cache provenance:
 import importlib.util
 from pathlib import Path
 
-SCRIPT_DIR = Path("plugins/coc-keeper-zcode/skills/trpg-pdf-ingest/scripts")
+SCRIPT_DIR = Path("plugins/coc-keeper/skills/trpg-pdf-ingest/scripts")
 spec = importlib.util.spec_from_file_location(
     "pdf_cache", SCRIPT_DIR / "pdf_cache.py")
 pdf_cache = importlib.util.module_from_spec(spec)
