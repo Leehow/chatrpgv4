@@ -975,6 +975,50 @@ def test_low_agency_continue_exceeding_max_beats_forces_budget_exceeded(tmp_path
     assert pressure["must_change_state"] is True
 
 
+def test_compression_budget_max_beats_is_not_weakened_by_legacy_max_low_agency_turns(tmp_path):
+    """When both fields exist, compression_budget.max_beats is the authoritative
+    cap; max_low_agency_turns is only a compatibility fallback."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["available_clues"] = []
+    story["scenes"][0].pop("pressure_moves", None)
+    story["scenes"][0]["progress_contract"] = {
+        "kind": "active_scene",
+        "compression_budget": {"min_beats": 1, "max_beats": 2, "max_minutes": 8},
+        "max_low_agency_turns": 5,
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["follow", "follow"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    rich = {
+        "primary_intent": "follow",
+        "secondary_intents": ["continue_existing_strategy"],
+        "target_entities": ["group"],
+        "action_atoms": [],
+    }
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我继续跟着",
+        player_intent_class="follow",
+        player_intent_rich=rich,
+        rng=random.Random(42),
+    )
+
+    plan = coc_story_director.generate_director_plan(
+        ctx, decision_id="budget-cap-precedence"
+    )
+
+    pressure = plan["narrative_directives"]["scene_exit_pressure"]
+    assert pressure["low_agency_continue_count"] == 3
+    assert pressure["max_beats"] == 2
+    assert "budget_exceeded" in pressure["internal_reasons"]
+
+
 def test_low_agency_continue_below_max_beats_does_not_emit_budget_exceeded(tmp_path):
     """P1-1: below the cap, no budget_exceeded reason is added (no behavior change)."""
     camp, char_path = _make_minimal_campaign(tmp_path)

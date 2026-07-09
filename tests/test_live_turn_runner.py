@@ -694,3 +694,68 @@ def test_live_turn_stops_on_single_route_content_does_not_over_advance(tmp_path,
     assert len(result["turns"]) == 1
     assert result["auto_advance"]["turns_run"] == 1
     assert result["auto_advance"]["stop_reason"] == "awaiting_player_input"
+
+
+def test_live_resume_affordance_does_not_create_false_real_fork(tmp_path, monkeypatch):
+    """A synthetic live resume affordance keeps narration actionable, but must
+    not turn one real visible route into a meaningful player fork."""
+    camp, char_path = _build_live_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"] = [
+        {
+            "scene_id": "relay-dugout",
+            "scene_type": "investigation",
+            "dramatic_question": "How does the patrol proceed?",
+            "entry_conditions": [],
+            "exit_conditions": [],
+            "available_clues": [],
+            "npc_ids": [],
+            "pressure_moves": [],
+            "tone": ["tense"],
+            "allowed_improvisation": [],
+        },
+    ]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "relay-dugout"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    (camp / "save" / "active-scene.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scene_id": "relay-dugout",
+        "summary": "队伍抵达第二个电话掩体门口。",
+        "visible_affordances": [
+            {"cue": "电话线从门缝下方继续伸进去。", "route": "inspect_wire"},
+        ],
+    }, ensure_ascii=False))
+
+    monkeypatch.setattr(
+        live_runner.coc_async_recorder,
+        "spawn_background_flush",
+        lambda campaign_dir, *, limit=None: {"started": True, "pid": 4277},
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我继续跟着班长走。",
+        intent_class="move",
+        player_intent_rich={
+            "primary_intent": "move",
+            "secondary_intents": ["low_agency_continue", "follow_group", "yield_initiative"],
+            "target_entities": ["patrol"],
+            "risk_posture": "neutral",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+            "action_atoms": [],
+        },
+        max_auto_advance=3,
+        recording_mode="sync",
+        rng_seed=11,
+    )
+
+    choice_frame = result["turns"][0]["choice_frame"]
+    assert "inspect_wire" in choice_frame["open_route_ids"]
+    assert "live-scene-thread" not in choice_frame["open_route_ids"]
+    assert choice_frame["is_real_fork"] is False
+    assert result["auto_advance"]["stop_reason"] != "meaningful_choice"

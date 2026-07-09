@@ -1165,3 +1165,71 @@ def test_build_dialogue_comprehension_directive_helper_signature():
     for key in ("npc_id", "source_language", "skill_value", "comprehension",
                 "translation_visible", "rule"):
         assert key in entry
+
+
+def test_fork_eligibility_excludes_synthetic_resume_routes_from_real_fork():
+    scene = {"affordances": [
+        {"id": "inspect-wire", "cue": "电话线从门缝下方继续伸进去。", "status": "open"},
+        {
+            "id": "live-scene-thread",
+            "cue": "当前场景的核心问题仍未解决。",
+            "status": "open",
+            "fork_eligible": False,
+        },
+    ]}
+
+    frame = narr.build_choice_frame(scene)
+
+    assert frame["open_route_ids"] == ["inspect-wire"]
+    assert frame["open_route_count"] == 1
+    assert frame["is_real_fork"] is False
+
+
+def test_existing_storylet_keeps_selection_trigger_after_rule_trigger_appears():
+    plan = {
+        "decision_id": "storylet-existing-then-fumble",
+        "scene_action": "CHARACTER",
+        "storylet_moves": [{
+            "storylet_id": "opening-briefing-beat",
+            "cue": "开场简报里的某个细节突然显得不对。",
+            "target_conflict_level": "low",
+            "scheduler_trace": {
+                "storylet_trigger": {
+                    "schema_version": 1,
+                    "triggered": True,
+                    "reason": "scene_tag_beat",
+                    "polarity": "neutral",
+                    "conflict_level": "low",
+                    "source": "storylet_trigger_gate",
+                },
+            },
+        }],
+        "narrative_directives": {
+            "storylet_trigger": {
+                "schema_version": 1,
+                "triggered": True,
+                "reason": "scene_tag_beat",
+                "polarity": "neutral",
+                "conflict_level": "low",
+                "source": "storylet_trigger_gate",
+            },
+        },
+        "rules_results": [{
+            "outcome": "fumble",
+            "skill": "Spot Hidden",
+            "roll": 100,
+            "risk_level": "high",
+        }],
+    }
+    ctx = {
+        "active_scene": {"storylet_tags": ["opening_briefing"]},
+        "source_event_type": "scene_enter",
+    }
+
+    enriched = narr.enrich_storylets_after_rules(plan, ctx)
+
+    assert enriched["storylet_moves"][0]["storylet_id"] == "opening-briefing-beat"
+    assert enriched["narrative_directives"]["storylet_trigger"]["reason"] == "scene_tag_beat"
+    assert enriched["narrative_enrichment"]["storylet_trigger"]["reason"] == "scene_tag_beat"
+    assert enriched["narrative_directives"]["post_rule_storylet_trigger"]["reason"] == "fumble"
+    assert enriched["narrative_enrichment"]["post_rule_storylet_trigger"]["reason"] == "fumble"

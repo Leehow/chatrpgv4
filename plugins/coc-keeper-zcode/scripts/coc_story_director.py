@@ -147,6 +147,8 @@ def _choice_affordance(choice: Any, index: int) -> dict[str, Any] | None:
             "promise": choice.get("promise") or choice.get("visible_benefit"),
             "cost": choice.get("cost") or choice.get("visible_cost"),
             "risk": choice.get("risk") or choice.get("visible_risk"),
+            "status": choice.get("status", "open"),
+            "fork_eligible": choice.get("fork_eligible", True),
             "source": "save.active-scene.pending_choices",
         }
     cue = _text_or_none(choice)
@@ -182,6 +184,8 @@ def _visible_affordance(affordance: Any, index: int) -> dict[str, Any] | None:
             "promise": affordance.get("promise") or affordance.get("visible_benefit"),
             "cost": affordance.get("cost") or affordance.get("visible_cost"),
             "risk": affordance.get("risk") or affordance.get("visible_risk"),
+            "status": affordance.get("status", "open"),
+            "fork_eligible": affordance.get("fork_eligible", True),
             "source": "save.active-scene.visible_affordances",
         }
     cue = _text_or_none(affordance)
@@ -231,6 +235,8 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
             "cue": "当前场景的核心问题仍未解决。",
             "promise": "沿着当前场景继续推进",
             "visible_benefit": _short_text(summary, 80),
+            "status": "resume",
+            "fork_eligible": False,
             "source": "save.active-scene.summary",
         })
     if len(affordances) < 2:
@@ -240,6 +246,8 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
             "cue": "调查员仍可从随身记录、装备、现场人物或既有判断重新切入。",
             "promise": "换一个角度寻找行动入口",
             "risk": "拖延会让局势继续变化",
+            "status": "resume",
+            "fork_eligible": False,
             "source": "live-story-bridge.default",
         })
 
@@ -744,6 +752,21 @@ def _compression_budget(scene: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def _has_explicit_compression_budget(scene: dict[str, Any]) -> bool:
+    contract = _progress_contract(scene)
+    return isinstance(contract.get("compression_budget"), dict) or isinstance(contract.get("progress_budget"), dict)
+
+
+def _low_agency_max_beats(scene: dict[str, Any]) -> int:
+    if _has_explicit_compression_budget(scene):
+        return _compression_budget(scene).get("max_beats", 4)
+    contract = _progress_contract(scene)
+    fallback_turns = contract.get("max_low_agency_turns")
+    if fallback_turns is not None:
+        return _positive_int(fallback_turns, 4)
+    return _compression_budget(scene).get("max_beats", 4)
+
+
 def _ordered_unique(values: list[Any]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -895,14 +918,7 @@ def _low_agency_budget_exceeded(ctx: dict[str, Any]) -> bool:
     to 4. Scene-agnostic: does not inspect scene_type / bridge kind.
     """
     scene = ctx.get("active_scene") or {}
-    max_beats = _compression_budget(scene).get("max_beats", 4)
-    contract = _progress_contract(scene)
-    fallback_turns = contract.get("max_low_agency_turns")
-    if fallback_turns:
-        try:
-            max_beats = max(max_beats, int(fallback_turns))
-        except (TypeError, ValueError):
-            pass
+    max_beats = _low_agency_max_beats(scene)
     count = int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 0) or 0)
     return count >= max_beats
 
@@ -948,7 +964,7 @@ def _scene_exit_pressure_directive(
         "advance_until": list(_DRAMATIC_PROGRESS_ADVANCE_UNTIL),
         "must_change_state": True,
         "low_agency_continue_count": continue_count,
-        "max_beats": _compression_budget(scene).get("max_beats", 4),
+        "max_beats": _low_agency_max_beats(scene),
         "must_not": [
             "do not ask for another equivalent low-agency action",
             "do not repeat the same scene state with cosmetic wording",

@@ -110,6 +110,7 @@ def build_choice_frame(
             "reward_hint": affordance.get("reward_hint"),
             "forbidden_reveal": affordance.get("forbidden") or affordance.get("must_not_reveal"),
             "status": str(affordance.get("status") or "open"),
+            "fork_eligible": affordance.get("fork_eligible", True),
             "source": "scene.affordances",
         })
 
@@ -143,6 +144,7 @@ def build_choice_frame(
         str(route["route_id"])
         for route in routes
         if str(route.get("status") or "open") == "open"
+        and route.get("fork_eligible", True) is not False
     ]
     open_route_count = len(open_route_ids)
     is_real_fork = open_route_count >= 2
@@ -1312,6 +1314,16 @@ def _update_enrichment_summary(
         summary["incident_moves"] = len(incident_moves)
 
 
+def _existing_storylet_trigger(plan: dict[str, Any], moves: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for move in moves:
+        trace = move.get("scheduler_trace")
+        if isinstance(trace, dict) and isinstance(trace.get("storylet_trigger"), dict):
+            return deepcopy(trace["storylet_trigger"])
+    directives = plan.get("narrative_directives") or {}
+    trigger = directives.get("storylet_trigger")
+    return deepcopy(trigger) if isinstance(trigger, dict) else None
+
+
 def enrich_storylets_after_rules(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     """Add storylets after rule results are known.
 
@@ -1322,7 +1334,16 @@ def enrich_storylets_after_rules(plan: dict[str, Any], ctx: dict[str, Any]) -> d
     enriched = deepcopy(plan)
     existing_moves = [m for m in _as_list(enriched.get("storylet_moves")) if isinstance(m, dict)]
     trigger = infer_storylet_trigger(enriched, ctx)
-    if existing_moves or not trigger.get("triggered") or coc_storylets is None:
+    if existing_moves:
+        selected_trigger = _existing_storylet_trigger(enriched, existing_moves) or trigger
+        _apply_storylet_state(enriched, existing_moves, selected_trigger)
+        _update_enrichment_summary(enriched, storylet_trigger=selected_trigger)
+        if trigger.get("triggered") and trigger.get("reason") != selected_trigger.get("reason"):
+            nd = enriched.setdefault("narrative_directives", {})
+            nd["post_rule_storylet_trigger"] = trigger
+            enriched.setdefault("narrative_enrichment", {})["post_rule_storylet_trigger"] = trigger
+        return enriched
+    if not trigger.get("triggered") or coc_storylets is None:
         _apply_storylet_state(enriched, existing_moves, trigger)
         _update_enrichment_summary(enriched, storylet_trigger=trigger)
         return enriched
