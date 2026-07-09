@@ -57,6 +57,85 @@ def test_apply_reveal_adds_clue_to_discovered(tmp_path):
     assert any("clue-A" in e.get("summary", "") or "reveal" in e.get("event_type", "") for e in events)
 
 
+def test_apply_reveal_clue_reveal_carries_handout_asset_when_clue_has_ref(tmp_path):
+    """P2-5: clue_reveal carries handout_asset_id + resolved title/summary
+    from index/handout-assets.json when the clue record has a handout_asset_id."""
+    camp = _campaign(tmp_path)
+    # clue record in scenario/clue-graph.json with a handout_asset_id
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps({
+        "conclusions": [{
+            "conclusion_id": "c1", "importance": "major", "minimum_routes": 1,
+            "clues": [{
+                "clue_id": "clue-handout",
+                "delivery": "reading the letter",
+                "visibility": "player-safe",
+                "handout_asset_id": "handout-letter",
+                "player_safe_summary": "A cryptic letter from the professor.",
+            }],
+            "fallback_policy": "n/a",
+        }],
+    }))
+    # the resolved handout asset in index/handout-assets.json
+    (camp / "index").mkdir(parents=True, exist_ok=True)
+    (camp / "index" / "handout-assets.json").write_text(json.dumps({
+        "schema_version": 1, "scenario_id": "test", "asset_root": "assets/handouts",
+        "assets": [{
+            "asset_id": "handout-letter",
+            "title": "The Professor's Letter",
+            "summary": "A handwritten letter hinting at the chapel.",
+            "source": {"path": "pdf/module.pdf", "page": 7},
+            "player_visible": True,
+            "clue_refs": ["clue-handout"],
+        }],
+        "display": {},
+    }))
+
+    plan = {"decision_id": "d1", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-handout"]},
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {}}
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    reveals = [e for e in events if e.get("event_type") == "clue_reveal"
+               and e.get("clue_id") == "clue-handout"]
+    assert reveals, "expected a clue_reveal event for clue-handout"
+    ev = reveals[0]
+    assert ev["handout_asset_id"] == "handout-letter"
+    assert ev["handout_title"] == "The Professor's Letter"
+    assert ev["handout_summary"] == "A handwritten letter hinting at the chapel."
+    # rendering hint surfaces player visibility for consumers
+    assert ev["player_visible"] is True
+
+
+def test_apply_reveal_clue_reveal_omits_handout_when_clue_has_no_ref(tmp_path):
+    """A clue without handout_asset_id produces a plain clue_reveal with no
+    handout fields (backward compatible with all existing scenarios)."""
+    camp = _campaign(tmp_path)
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps({
+        "conclusions": [{
+            "conclusion_id": "c1", "importance": "major", "minimum_routes": 1,
+            "clues": [{
+                "clue_id": "clue-plain", "delivery": "looking around",
+                "visibility": "player-safe",
+                "player_safe_summary": "A mundane observation.",
+            }],
+            "fallback_policy": "n/a",
+        }],
+    }))
+
+    plan = {"decision_id": "d1", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-plain"]},
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {}}
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    reveals = [e for e in events if e.get("event_type") == "clue_reveal"
+               and e.get("clue_id") == "clue-plain"]
+    assert reveals
+    ev = reveals[0]
+    assert "handout_asset_id" not in ev
+    assert "handout_title" not in ev
+    assert "handout_summary" not in ev
+
+
 def test_apply_pressure_updates_pacing_turn(tmp_path):
     camp = _campaign(tmp_path)
     plan = {"decision_id": "d2", "scene_action": "PRESSURE",

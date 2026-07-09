@@ -23,6 +23,38 @@ def _write_json(path: Path, payload: dict[str, Any] | list[Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def load_handout_assets(campaign_dir: Path) -> dict[str, dict[str, Any]]:
+    """Read index/handout-assets.json and return a {asset_id: asset} map.
+
+    Returns an empty dict when the file is missing, unreadable, or contains no
+    assets. This is the reader for the scaffold written by
+    `create_scenario_skeleton` (which starts with `assets: []`); once a module
+    extracts player-safe images/clippings/maps into `assets/handouts/` and
+    registers them, this resolves their display info (title/summary/source/
+    player_visible) for clue_reveal events and narration contracts.
+
+    Asset entries are keyed by their `asset_id`; entries missing an `asset_id`
+    are skipped (defensive against partial registrations).
+    """
+    index_path = campaign_dir / "index" / "handout-assets.json"
+    if not index_path.exists():
+        return {}
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for asset in payload.get("assets", []) or []:
+        if not isinstance(asset, dict):
+            continue
+        asset_id = asset.get("asset_id")
+        if isinstance(asset_id, str) and asset_id:
+            result[asset_id] = asset
+    return result
+
+
 def catalog_pdfs(pdf_dir: Path) -> list[dict[str, Any]]:
     if not pdf_dir.exists():
         return []

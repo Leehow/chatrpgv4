@@ -58,6 +58,12 @@ try:
 except Exception:
     coc_async_recorder = None
 
+coc_scenario = None
+try:
+    coc_scenario = _load_sibling("coc_scenario", "coc_scenario.py")
+except Exception:
+    coc_scenario = None
+
 _ACTIVE_JSONL_RECORDER = None
 
 
@@ -83,6 +89,60 @@ def _lookup_clock_def(campaign_dir: Path, clock_id: str) -> dict[str, Any] | Non
             if clock.get("clock_id") == clock_id:
                 return clock
     return None
+
+
+def _find_clue_record(campaign_dir: Path, clue_id: str) -> dict[str, Any] | None:
+    """Find a clue dict by id across all conclusions in scenario/clue-graph.json.
+
+    Returns None when the file is missing or the clue is not registered. This
+    is how clue_reveal resolves optional fields (e.g. handout_asset_id) that the
+    director plan does not carry inline.
+    """
+    cg_path = campaign_dir / "scenario" / "clue-graph.json"
+    if not cg_path.is_file():
+        return None
+    cg = _read_json(cg_path, {"conclusions": []})
+    for concl in cg.get("conclusions", []):
+        for clue in concl.get("clues", []):
+            if clue.get("clue_id") == clue_id:
+                return clue
+    return None
+
+
+def _resolve_handout_for_clue(
+    campaign_dir: Path, clue: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Resolve a clue's handout asset into clue_reveal payload fields.
+
+    Reads the clue record's optional ``handout_asset_id`` and, when set, looks
+    up the asset in index/handout-assets.json (via coc_scenario.load_handout_assets)
+    to surface its title/summary and a player_visible rendering hint.
+
+    Returns an empty dict when the clue has no handout_asset_id, when the asset
+    is unregistered, or when the reader is unavailable — keeping clue_reveal
+    backward compatible with all existing scenarios (none currently ship assets).
+    """
+    if not clue:
+        return {}
+    asset_id = clue.get("handout_asset_id")
+    if not isinstance(asset_id, str) or not asset_id:
+        return {}
+    if coc_scenario is None or not hasattr(coc_scenario, "load_handout_assets"):
+        return {"handout_asset_id": asset_id}
+    assets = coc_scenario.load_handout_assets(campaign_dir)
+    asset = assets.get(asset_id)
+    if not asset:
+        # id is set but asset not registered — surface the ref so the gap is
+        # visible to consumers, without fabricated display info.
+        return {"handout_asset_id": asset_id}
+    fields: dict[str, Any] = {"handout_asset_id": asset_id}
+    if isinstance(asset.get("title"), str):
+        fields["handout_title"] = asset["title"]
+    if isinstance(asset.get("summary"), str):
+        fields["handout_summary"] = asset["summary"]
+    if "player_visible" in asset:
+        fields["player_visible"] = bool(asset["player_visible"])
+    return fields
 
 
 def _apply_scene_on_enter(
@@ -726,6 +786,16 @@ def _apply_plan_impl(
             ev = {"event_type": "clue_reveal", "decision_id": decision_id,
                   "clue_id": clue_id, "investigator_id": investigator_id,
                   "summary": f"clue revealed: {clue_id}", "ts": ts}
+            # P2-5: when the clue record carries a handout_asset_id, attach it
+            # plus the resolved title/summary and a player_visible rendering
+            # hint from index/handout-assets.json. No-op when the field is
+            # absent (all current scenarios), keeping the event backward
+            # compatible.
+            handout_fields = _resolve_handout_for_clue(
+                campaign_dir, _find_clue_record(campaign_dir, clue_id)
+            )
+            if handout_fields:
+                ev.update(handout_fields)
             events.append(ev)
             _append_jsonl(logs / "events.jsonl", ev)
     world["discovered_clue_ids"] = discovered

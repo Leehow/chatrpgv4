@@ -117,6 +117,7 @@
     - `skill` (string，可选)：当 `delivery_kind=skill_check` 时使用的技能名（如 `Spot Hidden`、`Library Use`）。其它 `delivery_kind` 留空。
     - `difficulty` (string，可选)：技能检定难度 `regular` | `hard` | `extreme`，默认 `regular`。仅 `skill_check` 有效。
     - `player_safe_summary` (string，可选)：可向玩家揭示的、面向玩家的安全摘要文本（导演会把它放入 `narrative_directives.must_include`）。**遗留字段 `player_visible_anchor` 仍被读取作回退**，两者都存在时优先用 `player_safe_summary`。
+    - `handout_asset_id` (string，可选)：当这条线索带有一张可向玩家展示的手稿/地图/剪报/肖像图片时，填入 `index/handout-assets.json` 中已登记的 `asset_id`。导演应用层（`coc_director_apply.apply_plan`）在产出 `clue_reveal` 事件时会读 `scenario/clue-graph.json` 找到这条 clue，再通过 `coc_scenario.load_handout_assets` 解析该 asset，把 `handout_asset_id` + `handout_title` + `handout_summary` + `player_visible` 渲染提示附到事件上。没有此字段时事件保持原样（向后兼容）。详见下方「handout-assets.json」一节。
     - `source_refs` (object[]，可选)：溯源引用数组，指向来源 PDF 中的具体位置。每条 `source_ref` 含 4 个规范字段：
       - `source_id` (string)：稳定 id（如 `pdf:the-haunting`），用于跨文件交叉引用。
       - `path` (string)：PDF 文件路径（相对或绝对，如 `pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf`）。
@@ -129,7 +130,7 @@
       - `requires_player_action` (string，可选)：玩家为获取此线索必须执行的动作描述。
   - `fallback_policy` (string)：当多数路径被错过时导演的兜底策略。
 
-> **向后兼容**：`delivery_kind` / `skill` / `difficulty` / `player_safe_summary` / `source_refs` / `route_priority` / `leads_to` / `risk` / `requires_player_action` 全部可选。没有这些字段的旧 clue-graph 仍能通过校验并正常工作——导演会回退到读取 `delivery` 字符串做启发式判断，线索路由字段缺省时回退 `route_priority=0.5`（所有路径等价）。只有当某个字段被填了但格式不对（如 `delivery_kind=skill_check` 却没给 `skill`，或 `source_ref` 缺 `source_id`/`path`/整数 `page`/`grep_anchor`）时，编译器才会发 warning（不是 error）。
+> **向后兼容**：`delivery_kind` / `skill` / `difficulty` / `player_safe_summary` / `source_refs` / `route_priority` / `leads_to` / `risk` / `requires_player_action` / `handout_asset_id` 全部可选。没有这些字段的旧 clue-graph 仍能通过校验并正常工作——导演会回退到读取 `delivery` 字符串做启发式判断，线索路由字段缺省时回退 `route_priority=0.5`（所有路径等价）。只有当某个字段被填了但格式不对（如 `delivery_kind=skill_check` 却没给 `skill`，或 `source_ref` 缺 `source_id`/`path`/整数 `page`/`grep_anchor`）时，编译器才会发 warning（不是 error）。
 
 **示例：**
 
@@ -149,6 +150,7 @@
           "skill": "Library Use",
           "difficulty": "regular",
           "player_safe_summary": "1920年的剪报提到教堂地下室的诉讼记录被转移",
+          "handout_asset_id": "handout-newspaper",
           "source_refs": [
             { "source_id": "pdf:the-haunting", "path": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf", "page": 92, "grep_anchor": "Chapel records were moved" }
           ]
@@ -175,6 +177,56 @@
   ]
 }
 ```
+
+---
+
+## 4. handout-assets.json
+
+手稿资产索引。位于 `index/handout-assets.json`，由 `create_scenario_skeleton` 写成空骨架（`assets: []`），运行期由 `coc_scenario.load_handout_assets(campaign_dir)` 读取，返回 `{asset_id: asset}` 字典。当一条 clue 的 `handout_asset_id` 指向这里登记的资产时，`clue_reveal` 事件会附上解析后的展示信息。
+
+**顶层字段：**
+
+- `schema_version` (int)：固定 1。
+- `scenario_id` (string)：所属 scenario id。
+- `asset_root` (string)：资产文件根目录（相对 campaign，默认 `assets/handouts`）。
+- `assets` (object[])：资产条目数组。每条 asset：
+  - `asset_id` (string)：稳定唯一 id，clue 的 `handout_asset_id` 用它引用。
+  - `title` (string)：展示标题。
+  - `summary` (string)：面向玩家的安全摘要（无法内联显示图片时用）。
+  - `source` (object)：来源定位，含 `path` (string) 与 `page` (int)。
+  - `player_visible` (bool)：是否可向玩家展示。`true` 时 Codex 渲染绝对 Markdown 图片路径；ZCode/纯文本界面改展示 `title` + `summary` + 来源页。
+  - `scene_refs` (string[]，可选)：关联 scene_id 列表。
+  - `clue_refs` (string[]，可选)：关联 clue_id 列表。
+- `display` (object)：渲染提示（codex / zcode 两条策略说明）。
+
+**读取契约（运行期）：** `coc_scenario.load_handout_assets` 在文件缺失/不可解析/`assets` 为空时一律返回 `{}`；缺 `asset_id` 的条目被跳过。`coc_director_apply` 的 `clue_reveal` 仅在 clue 记录带 `handout_asset_id` 时调用它，把 `handout_asset_id` / `handout_title` / `handout_summary` / `player_visible` 附到事件——未登记或未设字段时不影响现有行为。
+
+**示例：**
+
+```json
+{
+  "schema_version": 1,
+  "scenario_id": "the-haunting",
+  "asset_root": "assets/handouts",
+  "assets": [
+    {
+      "asset_id": "handout-newspaper",
+      "title": "1920 Newspaper Clipping",
+      "summary": "A clipping mentioning the chapel lawsuit.",
+      "source": {"path": "pdf/module.pdf", "page": 12},
+      "player_visible": true,
+      "scene_refs": ["scene-archive"],
+      "clue_refs": ["clue-chapel-link"]
+    }
+  ],
+  "display": {
+    "codex": "render absolute Markdown image paths when player_visible is true",
+    "zcode": "show title, summary, and source page when inline image display is unavailable"
+  }
+}
+```
+
+> **向后兼容**：所有现存 scenario 的 `handout-assets.json` 都是空骨架（`assets: []`），`load_handout_assets` 返回 `{}`，`clue_reveal` 不携带任何 handout 字段——行为与接入前完全一致。只有当某条 clue 显式设置 `handout_asset_id` 且对应 asset 已登记时，机制才生效。
 
 ---
 
