@@ -39,6 +39,11 @@ def _load_debug_adapter():
     return _load_module("runtime_debug_adapter", path)
 
 
+def _load_pi_adapter():
+    path = _repo_root() / "runtime" / "adapters" / "pi" / "adapter.py"
+    return _load_module("runtime_pi_adapter", path)
+
+
 def create_session(
     workspace: Path | str,
     *,
@@ -92,7 +97,15 @@ def send(session_id: str, player_input: str) -> list[dict[str, Any]]:
             player_input,
         )
     if brain == "pi":
-        raise NotImplementedError("pi brain not wired")
+        return _load_pi_adapter().pi_send_turn(
+            {
+                "workspace": str(workspace),
+                "campaign_id": campaign_id,
+                "investigator_id": investigator_id,
+                "character_path": str(character_path),
+                "player_text": player_input,
+            }
+        )
     raise ValueError(f"unsupported brain: {brain!r}")
 
 
