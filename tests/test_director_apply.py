@@ -757,3 +757,109 @@ def test_apply_recent_intent_tags_absent_when_no_rich(tmp_path):
     pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
     # no rich intent → empty tags list for that turn
     assert pacing["recent_intent_tags"] == [[]]
+
+
+def test_apply_writes_spoiler_reveal_to_audit_jsonl(tmp_path):
+    """P2-7: when a DirectorPlan carries warning-gated spoiler reveals (Keeper-only
+    secrets disclosed to the player after warning+confirm), apply_plan must mirror
+    the playtest harness record shape into logs/audit.jsonl and also record the
+    reveal in save/flags.json's spoiler_reveals list (previously a dead field).
+
+    Live director currently does not emit spoiler_reveals (keeper_secrets are only
+    ever withheld), so this wires the real audit path that a future spoiler-aware
+    director decision would flow through. See w5-t4-report.md for scope note."""
+    camp = _campaign(tmp_path)
+    # flags.json initialized with the dead spoiler_reveals field, mirroring coc_state
+    (camp / "save" / "flags.json").write_text(json.dumps({
+        "schema_version": 1, "campaign_id": "test",
+        "clues_found": {}, "decisions": [], "spoiler_reveals": [],
+    }))
+    plan = {
+        "decision_id": "d-spoiler",
+        "scene_action": "REVEAL",
+        "turn_input": {"active_scene_id": "corbitt-house-basement", "turn_number": 13},
+        "clue_policy": {"reveal": []},
+        "spoiler_reveals": [{
+            "spoiler_id": "corbitt-basement-reveal",
+            "keeper_secret_id": "secret-corbitt-body",
+            "scope": "corbitt_basement_presence",
+            "confirmed": True,
+            "payload": {
+                "summary": "Player confirmed a warning-gated limited reveal that "
+                           "Walter Corbitt's body remains in the basement.",
+            },
+        }],
+        "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+    }
+
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    # audit.jsonl gets one record mirroring the playtest shape
+    audit_records = [
+        json.loads(line)
+        for line in (camp / "logs" / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(audit_records) == 1
+    rec = audit_records[0]
+    assert rec["type"] == "spoiler_reveal"
+    assert rec["spoiler_id"] == "corbitt-basement-reveal"
+    assert rec["keeper_secret_id"] == "secret-corbitt-body"
+    assert rec["scope"] == "corbitt_basement_presence"
+    assert rec["confirmed"] is True
+    assert "Walter Corbitt" in rec["payload"]["summary"]
+    assert rec["decision_id"] == "d-spoiler"
+    assert rec["investigator_id"] == "inv1"
+    # a spoiler_reveal event also surfaces in the events stream
+    assert any(
+        e.get("event_type") == "spoiler_reveal"
+        and e.get("spoiler_id") == "corbitt-basement-reveal"
+        for e in events
+    )
+    # flags.json spoiler_reveals list is now populated (was previously dead)
+    flags = json.loads((camp / "save" / "flags.json").read_text())
+    assert any(
+        f.get("spoiler_id") == "corbitt-basement-reveal" for f in flags["spoiler_reveals"]
+    )
+
+
+def test_apply_creates_flags_json_and_audit_jsonl_when_missing(tmp_path):
+    """If flags.json was never initialized, apply_plan still records the spoiler
+    reveal without crashing (creates audit.jsonl from scratch, populates flags)."""
+    camp = _campaign(tmp_path)
+    # deliberately do NOT create flags.json
+    plan = {
+        "decision_id": "d-spoiler2",
+        "scene_action": "REVEAL",
+        "clue_policy": {"reveal": []},
+        "spoiler_reveals": [{
+            "spoiler_id": "sp1",
+            "keeper_secret_id": "sec1",
+            "scope": "scope1",
+            "confirmed": True,
+            "payload": {"summary": "limited reveal"},
+        }],
+        "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+    }
+
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    audit_records = [
+        json.loads(line)
+        for line in (camp / "logs" / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(audit_records) == 1
+    assert audit_records[0]["spoiler_id"] == "sp1"
+    flags = json.loads((camp / "save" / "flags.json").read_text())
+    assert any(f.get("spoiler_id") == "sp1" for f in flags["spoiler_reveals"])
+
+
+def test_apply_no_spoiler_reveals_leaves_audit_jsonl_untouched(tmp_path):
+    """A plan with no spoiler_reveals must not create or touch logs/audit.jsonl."""
+    camp = _campaign(tmp_path)
+    plan = {"decision_id": "d-none", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"]},
+            "pressure_moves": [], "memory_writes": [], "rule_signals": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    assert not (camp / "logs" / "audit.jsonl").exists()

@@ -744,6 +744,59 @@ def _apply_plan_impl(
         world["san_triggers_fired"] = fired
     _write_json(world_path, world)
 
+    # 1b. spoiler reveals — warning-gated Keeper-only disclosures.
+    # The director's clue_policy.withhold keeps keeper_secrets private; a
+    # spoiler_reveal is the rare opposite: a secret the player explicitly
+    # requested and confirmed after a warning. We mirror the playtest harness
+    # record shape (coc_playtest_harness.py:4075) into logs/audit.jsonl so the
+    # live path records the same Keeper-only reveal evidence the harness does,
+    # and populate save/flags.json's spoiler_reveals list (previously a dead
+    # field initialized by coc_state but never written).
+    for spec in plan.get("spoiler_reveals", []) or []:
+        if not isinstance(spec, dict):
+            continue
+        spoiler_id = spec.get("spoiler_id") or spec.get("secret_id") or "spoiler"
+        audit_record = {
+            "type": "spoiler_reveal",
+            "spoiler_id": spoiler_id,
+            "keeper_secret_id": spec.get("keeper_secret_id"),
+            "scope": spec.get("scope"),
+            "confirmed": bool(spec.get("confirmed", True)),
+            "payload": spec.get("payload", {}) or {},
+            "decision_id": decision_id,
+            "investigator_id": investigator_id,
+            "ts": ts,
+        }
+        _append_jsonl(logs / "audit.jsonl", audit_record)
+        # surface a parallel event so consumers reading events.jsonl see the
+        # reveal alongside clue_reveal / scene events.
+        ev = {
+            "event_type": "spoiler_reveal", "decision_id": decision_id,
+            "spoiler_id": spoiler_id,
+            "keeper_secret_id": spec.get("keeper_secret_id"),
+            "scope": spec.get("scope"), "confirmed": audit_record["confirmed"],
+            "summary": (spec.get("payload") or {}).get("summary", ""),
+            "investigator_id": investigator_id, "ts": ts,
+        }
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
+        # record in flags.json so resume/UI can see prior spoiler disclosures.
+        flags_path = save / "flags.json"
+        flags = _read_json(flags_path, {
+            "schema_version": 1, "campaign_id": campaign_dir.name,
+            "clues_found": {}, "decisions": [], "spoiler_reveals": [],
+        })
+        reveals = list(flags.get("spoiler_reveals", []))
+        reveals.append({
+            "spoiler_id": spoiler_id,
+            "keeper_secret_id": spec.get("keeper_secret_id"),
+            "scope": spec.get("scope"),
+            "confirmed": audit_record["confirmed"],
+            "decision_id": decision_id, "ts": ts,
+        })
+        flags["spoiler_reveals"] = reveals
+        _write_json(flags_path, flags)
+
     # 2. NPC state writes + agency audit
     npc_events = _apply_npc_state_and_agency(campaign_dir, plan, investigator_id, ts)
     events.extend(npc_events)
