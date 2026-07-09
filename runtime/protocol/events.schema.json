@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "COC Runtime Event",
+  "type": "object",
+  "required": ["type", "id", "ts", "visibility", "payload"],
+  "additionalProperties": true,
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "narration",
+        "speech",
+        "roll",
+        "state_patch",
+        "choice",
+        "spoiler_gate",
+        "system",
+        "error"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "ts": {
+      "type": "string"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": ["player", "keeper", "system"]
+    },
+    "payload": {
+      "type": "object"
+    }
+  }
+}
