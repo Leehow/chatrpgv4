@@ -640,3 +640,39 @@ def test_iter_player_visible_text_fields_covers_new_envelope_prose():
     assert fields["narration_envelope.scene_anchor.sensory_anchors[0]"] == "灰尘味"
     assert fields["narration_envelope.npc_moves[0].dialogue_seed"] == "今天就定下来吧。"
     assert fields["narration_envelope.npc_moves[0].display_name"] == "Knott"
+
+
+def test_envelope_passthrough_redirection_is_player_safe():
+    plan = _good_plan()
+    plan["redirection"] = {
+        "strategy": "npc_influence",
+        "reason_code": "stuck_player",
+        "grounding": {
+            "npc_id": "npc-guide",
+            "display_name": "Guide",
+            "keeper_only_note": "SECRET_SHOULD_NOT_LEAK",
+            "agenda_prose": "SECRET_AGENDA",
+        },
+        "internal_rationale": "SECRET_RATIONALE",
+    }
+    envelope = cnc.build_narration_envelope(plan)
+    redir = envelope.get("redirection")
+    assert isinstance(redir, dict)
+    assert redir["strategy"] == "npc_influence"
+    assert redir["grounding"]["npc_id"] == "npc-guide"
+    assert redir["grounding"]["display_name"] == "Guide"
+    assert "reason_code" not in redir
+    assert "internal_rationale" not in redir
+    assert "keeper_only_note" not in redir["grounding"]
+    assert "agenda_prose" not in redir["grounding"]
+    blob = json.dumps(envelope, ensure_ascii=False)
+    assert "SECRET_SHOULD_NOT_LEAK" not in blob
+    assert "SECRET_AGENDA" not in blob
+    assert "SECRET_RATIONALE" not in blob
+    assert "hard_denial" not in blob
+
+
+def test_envelope_omits_redirection_when_absent():
+    plan = _good_plan()
+    envelope = cnc.build_narration_envelope(plan)
+    assert "redirection" not in envelope or envelope.get("redirection") is None

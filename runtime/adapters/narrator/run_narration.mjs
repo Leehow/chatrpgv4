@@ -181,6 +181,47 @@ function formatNpcSeeds(envelope) {
     .join("\n");
 }
 
+function formatRedirection(envelope) {
+  const redir = envelope && envelope.redirection;
+  if (!redir || typeof redir !== "object") return "(none — on-track; no redirection)";
+  const strategy = String(redir.strategy || "").trim();
+  const grounding =
+    redir.grounding && typeof redir.grounding === "object" ? redir.grounding : {};
+  const lines = [`Selected strategy: ${strategy || "(unspecified)"}`];
+  if (strategy === "in_world_consequences") {
+    lines.push(
+      "Instruction: ALLOW the attempted action to happen in fiction, then narrate",
+      "believable world fallout. Do not flatly refuse. Never use hard_denial.",
+    );
+    if (grounding.boundary_id) lines.push(`Boundary id: ${grounding.boundary_id}`);
+    if (grounding.category) lines.push(`Category: ${grounding.category}`);
+    if (grounding.consequence_hint) {
+      lines.push(`Consequence hint: ${grounding.consequence_hint}`);
+    }
+  } else if (strategy === "npc_influence") {
+    const who = grounding.display_name || grounding.npc_id || "a present NPC";
+    lines.push(
+      `Instruction: Have ${who} caution, challenge, or appeal in character`,
+      "to redirect the player without OOC refusal. Never use hard_denial.",
+    );
+    if (grounding.npc_id) lines.push(`npc_id: ${grounding.npc_id}`);
+    if (grounding.display_name) lines.push(`display_name: ${grounding.display_name}`);
+  } else if (strategy === "more_information") {
+    lines.push(
+      "Instruction: Reveal an environmental or knowledge cue that clarifies",
+      "options and gently reorients play. Never flatly refuse the player.",
+      "Never use hard_denial.",
+    );
+    if (grounding.scene_id) lines.push(`scene_id: ${grounding.scene_id}`);
+    if (grounding.clue_id) lines.push(`clue_id: ${grounding.clue_id}`);
+  } else {
+    lines.push(
+      "Instruction: Redirect in-fiction without hard_denial; never flatly refuse.",
+    );
+  }
+  return lines.join("\n");
+}
+
 function formatRecent(recent) {
   if (!Array.isArray(recent) || recent.length === 0) {
     return "(none)";
@@ -212,6 +253,9 @@ function buildPromptText(request) {
     "",
     "## NPC dialogue seeds (keep character voice; do not reveal secrets)",
     formatNpcSeeds(envelope),
+    "",
+    "## Narrative redirection (explicit strategy; never hard_denial)",
+    formatRedirection(envelope),
     "",
     "## Narration envelope (player-safe; do not invent beyond this)",
     summarizeEnvelope(envelope),

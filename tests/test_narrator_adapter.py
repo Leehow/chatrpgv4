@@ -168,3 +168,17 @@ def test_run_narration_mjs_surfaces_grounded_envelope_fields():
         "sensory",
     ):
         assert needle in source, f"run_narration.mjs should surface {needle!r}"
+
+
+def test_run_narration_mjs_surfaces_redirection_policy_section():
+    """SENNA redirection strategies must be explicit prompt instructions."""
+    source = (NARRATOR_DIR / "run_narration.mjs").read_text(encoding="utf-8")
+    for needle in (
+        "redirection",
+        "in_world_consequences",
+        "npc_influence",
+        "more_information",
+        "hard_denial",
+        "formatRedirection",
+    ):
+        assert needle in source, f"run_narration.mjs should surface {needle!r}"

@@ -661,6 +661,43 @@ def _sanitize_npc_move(move: dict[str, Any]) -> dict[str, Any]:
     return safe_move
 
 
+_REDIRECTION_PLAYER_SAFE_STRATEGIES = frozenset({
+    "in_world_consequences",
+    "npc_influence",
+    "more_information",
+})
+
+
+def _sanitize_redirection(redirection: Any) -> dict[str, Any] | None:
+    """Player-safe redirection passthrough: strategy + display grounding only.
+
+    Drops reason_code / internal rationale / keeper-only grounding keys.
+    Never emits hard_denial.
+    """
+    if not isinstance(redirection, dict):
+        return None
+    strategy = str(redirection.get("strategy") or "").strip()
+    if strategy not in _REDIRECTION_PLAYER_SAFE_STRATEGIES:
+        return None
+    raw_grounding = redirection.get("grounding") if isinstance(redirection.get("grounding"), dict) else {}
+    grounding: dict[str, Any] = {}
+    for key in (
+        "npc_id",
+        "display_name",
+        "boundary_id",
+        "category",
+        "consequence_hint",
+        "scene_id",
+        "clue_id",
+    ):
+        value = raw_grounding.get(key)
+        if isinstance(value, str) and value.strip():
+            grounding[key] = value.strip()
+        elif value is not None and key in {"npc_id", "boundary_id", "scene_id", "clue_id"} and str(value).strip():
+            grounding[key] = str(value).strip()
+    return {"strategy": strategy, "grounding": grounding}
+
+
 def build_narration_envelope(
     plan: dict[str, Any],
     *,
@@ -687,7 +724,7 @@ def build_narration_envelope(
     scene = active_scene
     if not isinstance(scene, dict) or not scene:
         scene = plan.get("active_scene") if isinstance(plan.get("active_scene"), dict) else {}
-    return {
+    envelope: dict[str, Any] = {
         "decision_id": plan.get("decision_id"),
         "scene_action": plan.get("scene_action"),
         "dramatic_question": plan.get("dramatic_question"),
@@ -716,6 +753,10 @@ def build_narration_envelope(
         "scene_anchor": _build_scene_anchor(scene),
         "rationale": plan.get("rationale"),
     }
+    redirection = _sanitize_redirection(plan.get("redirection"))
+    if redirection is not None:
+        envelope["redirection"] = redirection
+    return envelope
 
 
 def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str, dict[str, Any]]:
