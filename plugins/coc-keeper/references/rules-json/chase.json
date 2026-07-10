@@ -1,5 +1,5 @@
 {
-  "source_note": "Keeper Rulebook chase procedure assigns movement actions from adjusted MOV relative to the slowest participant, and active chase hazards, barriers, and conflicts resolve inside chase action economy rather than by pushed rerolls.",
+  "source_note": "Keeper Rulebook Chapter 7 chase procedure. Movement actions from adjusted MOV relative to the slowest participant. Hazards, barriers, and conflicts resolve inside chase action economy; pushed rolls are not used in an active chase (p.134).",
   "movement_actions": {
     "base_movement_actions": 1,
     "extra_actions_per_mov_above_slowest": 1,
@@ -15,7 +15,7 @@
   },
   "speed_roll": {
     "source_rule_id": "core.chase.speed_roll",
-    "source_note": "Keeper Rulebook p132: each participant makes a CON roll (on foot) or Drive Auto roll (vehicle) to adjust MOV for the whole chase.",
+    "source_note": "Keeper Rulebook p.132: each participant makes a CON roll (on foot) or Drive Auto roll (vehicle) to adjust MOV for the whole chase.",
     "foot_skill": "CON",
     "vehicle_skill": "Drive Auto",
     "success": "mov_unchanged",
@@ -25,60 +25,131 @@
   },
   "escape_criterion": {
     "source_rule_id": "core.chase.escape_criterion",
-    "source_note": "Keeper Rulebook p132: the chase is not played out if the fleeing adjusted MOV exceeds the pursuer's adjusted MOV.",
+    "source_note": "Keeper Rulebook p.132: the chase is not played out if the fleeing adjusted MOV exceeds the pursuer's adjusted MOV.",
     "flee_escapes_if": "flee_adjusted_mov > pursuer_adjusted_mov"
   },
   "starting_range": {
     "source_rule_id": "core.chase.starting_range",
-    "source_note": "Keeper Rulebook p133: default starting gap is 2 locations; 1 for a tenser chase; not advised beyond 2.",
+    "source_note": "Keeper Rulebook p.133: default starting gap is 2 locations; 1 for a tenser chase; not advised beyond 2.",
     "default_locations": 2,
     "minimum_locations": 1,
     "advised_maximum_locations": 2
   },
+  "hazard": {
+    "source_rule_id": "core.chase.hazard",
+    "source_note": "Keeper Rulebook p.134-135: cautious approach spends movement actions for bonus dice (1 action = 1 bonus die, max 2). Failed hazard check inflicts damage and 1D3 movement-action debt, but the character still advances to the next location.",
+    "cautious_bonus_die_per_action": 1,
+    "cautious_bonus_die_maximum": 2,
+    "failure_movement_debt_dice": "1D3",
+    "failure_still_advances": true
+  },
+  "barrier": {
+    "source_rule_id": "core.chase.barrier",
+    "source_note": "Keeper Rulebook p.136-137: barriers block until negotiated or broken. Vehicles inflict Build×1D10 with no attack roll. Vehicle that fails to destroy the barrier is wrecked; destroyed barrier debris may become a hazard. Vehicle that destroys a barrier takes damage equal to half the barrier's HP prior to impact.",
+    "vehicle_damage_per_build": "1D10",
+    "vehicle_fail_to_destroy": "wrecked",
+    "debris_becomes_hazard": true,
+    "sample_hit_points": {
+      "internal_door_or_thin_wooden_fence": 5,
+      "standard_back_door": 10,
+      "strong_domestic_external_door": 15,
+      "brick_wall_9_inch": 25,
+      "mature_tree": 50,
+      "concrete_bridge_support": 100
+    }
+  },
+  "pedal_to_the_metal": {
+    "source_rule_id": "core.chase.pedal_to_the_metal",
+    "source_note": "Keeper Rulebook p.139-140: one movement action may move 2-5 locations. 2-3 locations → 1 penalty die on hazards; 4-5 locations → 2 penalty dice. Commitment cannot be retracted; stop on failed hazard.",
+    "min_locations": 2,
+    "max_locations": 5,
+    "penalty_dice_for_2_or_3": 1,
+    "penalty_dice_for_4_or_5": 2
+  },
+  "sudden_hazards": {
+    "source_rule_id": "core.chase.sudden_hazards",
+    "source_note": "Keeper Rulebook p.139: alternating Luck calls between players and Keeper. Success → caller places hazard; failure → other side places. Sudden hazards are Regular difficulty by default.",
+    "default_difficulty": "regular",
+    "must_alternate_callers": true
+  },
   "vehicles": {
     "source_rule_id": "core.chase.vehicles",
-    "source_note": "Keeper Rulebook Table V (pp.145-146): common chase vehicles with MOV, Build, armor, and passenger capacity. MOV here is the chase MOV (1 location/round baseline for the slowest). Build is the vehicle's structural Build (used for collision damage and ramming). Armor reduces incoming collision/weapon damage. Passengers is the maximum including the driver.",
+    "source_note": "Keeper Rulebook Table V (p.145): Drive Auto vehicles. MOV is chase MOV. Build is structural. Armor protects occupants vs external attacks. Passengers include driver capacity notes from the chart.",
+    "aliases": {
+      "motorcycle": "motorcycle_light",
+      "car": "car_standard",
+      "truck": "truck_6_ton"
+    },
     "entries": {
       "car_economy": {
-        "label": "Economy car (e.g. Model T, compact sedan)",
-        "mov": 3,
-        "build": 2,
+        "label": "Car, economy",
+        "mov": 13,
+        "build": 4,
         "armor": 1,
-        "passengers": 4
+        "passengers": 4,
+        "rulebook_note": "Table V: 3 or 4 passengers"
       },
       "car_standard": {
-        "label": "Standard car (family sedan / cruiser)",
-        "mov": 4,
-        "build": 3,
-        "armor": 2,
-        "passengers": 5
-      },
-      "car_deluxe": {
-        "label": "Deluxe car (luxury / performance)",
-        "mov": 5,
-        "build": 4,
-        "armor": 3,
-        "passengers": 4
-      },
-      "motorcycle": {
-        "label": "Motorcycle (with or without sidecar)",
-        "mov": 5,
-        "build": 1,
-        "armor": 0,
-        "passengers": 2
-      },
-      "truck": {
-        "label": "Truck (lorry / pickup)",
-        "mov": 3,
+        "label": "Car, standard",
+        "mov": 14,
         "build": 5,
         "armor": 2,
+        "passengers": 4
+      },
+      "car_deluxe": {
+        "label": "Car, deluxe",
+        "mov": 15,
+        "build": 6,
+        "armor": 2,
+        "passengers": 4
+      },
+      "sports_car": {
+        "label": "Sports car",
+        "mov": 16,
+        "build": 5,
+        "armor": 2,
+        "passengers": 1
+      },
+      "pickup_truck": {
+        "label": "Pickup truck",
+        "mov": 14,
+        "build": 6,
+        "armor": 2,
+        "passengers": 2
+      },
+      "truck_6_ton": {
+        "label": "6-ton truck",
+        "mov": 13,
+        "build": 7,
+        "armor": 2,
+        "passengers": 2
+      },
+      "truck_18_wheeler": {
+        "label": "18-wheeler",
+        "mov": 13,
+        "build": 9,
+        "armor": 2,
         "passengers": 3
+      },
+      "motorcycle_light": {
+        "label": "Motorcycle, light",
+        "mov": 13,
+        "build": 1,
+        "armor": 0,
+        "passengers": 1
+      },
+      "motorcycle_heavy": {
+        "label": "Motorcycle, heavy",
+        "mov": 16,
+        "build": 3,
+        "armor": 0,
+        "passengers": 1
       }
     }
   },
   "vehicular_collisions": {
     "source_rule_id": "core.chase.vehicular_collisions",
-    "source_note": "Keeper Rulebook Table VI (p.147): collision severity tiers by narrative outcome. Each tier applies Build damage to the vehicle(s) and an HP cost to passengers. Passenger damage assumes an un-fastened occupant; a successful Drive Auto or CON-based roll may halve it at the Keeper's discretion.",
+    "source_note": "Keeper Rulebook Table VI (p.147): collision severity tiers. Defaults: Regular hazard → minor, Hard → moderate, Extreme → severe (p.144). Each full 10 HP of damage decreases vehicle Build by 1 (p.145).",
     "tiers": {
       "minor": {
         "label": "Minor (fender-bender, low-speed bump)",

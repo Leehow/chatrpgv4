@@ -143,18 +143,20 @@ def test_read_believer_bomb_permanent_insanity_flag():
 # 3. Vehicle stats + vehicular collisions
 # --------------------------------------------------------------------------- #
 def test_get_vehicle_stats_known_vehicle():
+    # Table V p.145: motorcycle alias → motorcycle_light (MOV 13, Build 1).
     stats = coc_chase.get_vehicle_stats("motorcycle")
-    assert stats["vehicle"] == "motorcycle"
-    assert stats["mov"] == 5
+    assert stats["vehicle"] == "motorcycle_light"
+    assert stats["mov"] == 13
     assert stats["build"] == 1
     assert stats["armor"] == 0
-    assert stats["passengers"] == 2
+    assert stats["passengers"] == 1
 
 
 def test_get_vehicle_stats_case_insensitive():
     stats = coc_chase.get_vehicle_stats("Car_Standard")
     assert stats["vehicle"] == "car_standard"
-    assert stats["build"] == 3
+    assert stats["mov"] == 14
+    assert stats["build"] == 5
 
 
 def test_get_vehicle_stats_unknown_raises():
