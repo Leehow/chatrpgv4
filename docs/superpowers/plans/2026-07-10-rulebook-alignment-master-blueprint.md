@@ -826,6 +826,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 ## R-4 体验纵深（G1/G3 + A1 残留 + D1 联动）
 
 - [ ] G1 线索 affordance（target_entities/verbs/skills 可计算匹配玩家动作）；G3 NPC 持久心理状态（trust/fear/suspicion/known_facts/lies/promises）；playtest driver 收口到 run_live_turn。
+  - 状态：G1 已完成（`f2d12d4`：clue `affordance` 块 + `match_clue_affordances` 集合交集匹配 + 导演 REVEAL 加权 + `matched_affordance` 入 plan + 编译器形状校验）；G3 已完成（`dfd414c`：`coc_npc_state.py` psych 持久层 + apply 层 `npc_effects` 幂等落地 + `_build_npc_moves` 消费 stance/drivers）。playtest driver 收口由并行 agent 负责，完成后整项打勾。
 
 ## R-5 PDF 编译器硬化（F1-F4）+ CI
 
