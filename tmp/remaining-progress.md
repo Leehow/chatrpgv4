@@ -1,9 +1,5 @@
 # CoC Remaining Rule Subsystems — Progress
 
-> **维护说明（2026-07-10）：** 这是历史执行日志。下文提到的 ZCode sync、
-> “Both plugins”和双副本校验只描述当时环境；该 track 已由 `e314156`
-> 移除，当前只维护 `plugins/coc-keeper/`。
-
 Baseline: 648 tests pass.
 
 ## Batch 1: Magic casting engine + spell learning — DONE
