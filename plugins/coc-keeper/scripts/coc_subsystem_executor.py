@@ -64,6 +64,10 @@ SUCCESS_OUTCOMES = frozenset({
 })
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_TRANSACTION_DIR_FD_SUPPORTED = all(
+    function in os.supports_dir_fd for function in (os.open, os.stat, os.unlink)
+)
+_TRANSACTION_NOFOLLOW_STAT_SUPPORTED = os.stat in os.supports_follow_symlinks
 
 
 class SubsystemCommand(TypedDict):
@@ -710,32 +714,434 @@ def _load_state(campaign_dir: Path) -> dict[str, Any]:
     return _validate_state(raw)
 
 
-def _contained_target(campaign_dir: Path, relative: str) -> Path:
-    campaign = Path(campaign_dir).resolve()
-    target = (campaign / relative).resolve()
-    try:
-        target.relative_to(campaign)
-    except ValueError as exc:
-        raise _state_error(f"inflight path escapes campaign root: {relative!r}") from exc
-    return target
+def _unsafe_transaction_path(relative: str, message: str) -> SubsystemExecutorError:
+    return _error("unsafe_subsystem_transaction_path", relative, message)
 
 
-def _capture_preimage(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {"exists": False, "encoding": "base64", "data": None}
-    if not path.is_file():
-        raise _error(
-            "subsystem_transaction_preflight_failed",
-            str(path),
-            "mutable transaction target must be a file",
+class _AnchoredTransactionTarget:
+    """No-follow access to one fixed transaction target below a campaign.
+
+    Every parent component stays open while the target is accessed. Named
+    parent identities are rechecked around mutations, so a concurrent rename
+    plus symlink replacement cannot redirect rollback outside the campaign.
+    """
+
+    def __init__(self, campaign_dir: Path, relative: str) -> None:
+        if not (
+            _allowed_preimage_path(relative)
+            or relative in {"logs/rolls.jsonl", "logs/time.jsonl"}
+        ):
+            raise _unsafe_transaction_path(relative, "target is not transaction-owned")
+        directory_flag = getattr(os, "O_DIRECTORY", None)
+        nofollow_flag = getattr(os, "O_NOFOLLOW", None)
+        if directory_flag is None or nofollow_flag is None:
+            raise _unsafe_transaction_path(
+                relative,
+                "runtime lacks required O_DIRECTORY/O_NOFOLLOW primitives",
+            )
+        if (
+            not _TRANSACTION_DIR_FD_SUPPORTED
+            or not _TRANSACTION_NOFOLLOW_STAT_SUPPORTED
+        ):
+            raise _unsafe_transaction_path(
+                relative,
+                "runtime lacks required dir_fd/follow_symlinks primitives",
+            )
+
+        self.relative = relative
+        self.campaign_path = Path(campaign_dir).resolve()
+        self._directory_flags = (
+            os.O_RDONLY
+            | directory_flag
+            | nofollow_flag
+            | getattr(os, "O_CLOEXEC", 0)
         )
+        self.campaign_fd: int | None = None
+        self.parent_fd: int | None = None
+        self._opened_parent_fds: list[int] = []
+        self._parent_entries: list[tuple[int, str, int, tuple[int, int]]] = []
+        self._missing_parent: tuple[int, str] | None = None
+        parts = Path(relative).parts
+        self.leaf_name = parts[-1]
+        try:
+            self.campaign_fd = os.open(self.campaign_path, self._directory_flags)
+            container_fd = self.campaign_fd
+            for component in parts[:-1]:
+                try:
+                    child_fd = os.open(
+                        component,
+                        self._directory_flags,
+                        dir_fd=container_fd,
+                    )
+                except FileNotFoundError:
+                    self._missing_parent = (container_fd, component)
+                    break
+                try:
+                    opened = os.fstat(child_fd)
+                except Exception:
+                    os.close(child_fd)
+                    raise
+                if not stat.S_ISDIR(opened.st_mode):
+                    os.close(child_fd)
+                    raise _unsafe_transaction_path(
+                        relative,
+                        f"parent component {component!r} is not a directory",
+                    )
+                identity = self._identity(opened)
+                self._opened_parent_fds.append(child_fd)
+                self._parent_entries.append(
+                    (container_fd, component, child_fd, identity)
+                )
+                container_fd = child_fd
+            else:
+                self.parent_fd = container_fd
+            self.verify_parents()
+        except Exception as exc:
+            self.close()
+            if isinstance(exc, SubsystemExecutorError):
+                raise
+            raise _unsafe_transaction_path(
+                relative,
+                f"transaction parent could not be opened safely: {exc}",
+            ) from exc
+
+    def __enter__(self) -> "_AnchoredTransactionTarget":
+        return self
+
+    def __exit__(self, _exc_type, _exc, _tb) -> None:
+        self.close()
+
+    @staticmethod
+    def _identity(info: os.stat_result) -> tuple[int, int]:
+        return int(info.st_dev), int(info.st_ino)
+
+    def verify_parents(self) -> None:
+        assert self.campaign_fd is not None
+        try:
+            opened_campaign = os.fstat(self.campaign_fd)
+            named_campaign = os.stat(self.campaign_path, follow_symlinks=False)
+            if (
+                not stat.S_ISDIR(opened_campaign.st_mode)
+                or not stat.S_ISDIR(named_campaign.st_mode)
+                or self._identity(opened_campaign) != self._identity(named_campaign)
+            ):
+                raise _unsafe_transaction_path(
+                    self.relative,
+                    "campaign root identity changed",
+                )
+            for container_fd, component, child_fd, identity in self._parent_entries:
+                opened = os.fstat(child_fd)
+                named = os.stat(
+                    component,
+                    dir_fd=container_fd,
+                    follow_symlinks=False,
+                )
+                if (
+                    not stat.S_ISDIR(opened.st_mode)
+                    or not stat.S_ISDIR(named.st_mode)
+                    or self._identity(opened) != identity
+                    or self._identity(named) != identity
+                ):
+                    raise _unsafe_transaction_path(
+                        self.relative,
+                        f"parent component {component!r} changed during access",
+                    )
+            if self._missing_parent is not None:
+                container_fd, component = self._missing_parent
+                try:
+                    os.stat(
+                        component,
+                        dir_fd=container_fd,
+                        follow_symlinks=False,
+                    )
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise _unsafe_transaction_path(
+                        self.relative,
+                        f"missing parent component {component!r} appeared during access",
+                    )
+        except SubsystemExecutorError:
+            raise
+        except (OSError, TypeError) as exc:
+            raise _unsafe_transaction_path(
+                self.relative,
+                f"transaction parent identity could not be verified: {exc}",
+            ) from exc
+
+    def _leaf_info(self) -> os.stat_result | None:
+        if self.parent_fd is None:
+            self.verify_parents()
+            return None
+        self.verify_parents()
+        try:
+            info = os.stat(
+                self.leaf_name,
+                dir_fd=self.parent_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            self.verify_parents()
+            return None
+        except (OSError, TypeError) as exc:
+            raise _unsafe_transaction_path(
+                self.relative,
+                f"transaction target could not be inspected safely: {exc}",
+            ) from exc
+        if not stat.S_ISREG(info.st_mode):
+            raise _unsafe_transaction_path(
+                self.relative,
+                "transaction target must be a regular file",
+            )
+        self.verify_parents()
+        return info
+
+    def _verify_leaf_identity(self, expected: os.stat_result | None) -> None:
+        assert self.parent_fd is not None
+        try:
+            current = os.stat(
+                self.leaf_name,
+                dir_fd=self.parent_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            current = None
+        except (OSError, TypeError) as exc:
+            raise _unsafe_transaction_path(
+                self.relative,
+                f"transaction target identity could not be verified: {exc}",
+            ) from exc
+        if expected is None:
+            if current is not None:
+                raise _unsafe_transaction_path(
+                    self.relative,
+                    "transaction target appeared during access",
+                )
+            return
+        if (
+            current is None
+            or not stat.S_ISREG(current.st_mode)
+            or self._identity(current) != self._identity(expected)
+        ):
+            raise _unsafe_transaction_path(
+                self.relative,
+                "transaction target identity changed during access",
+            )
+
+    def read_bytes(self) -> bytes | None:
+        info = self._leaf_info()
+        if info is None:
+            return None
+        assert self.parent_fd is not None
+        target_fd: int | None = None
+        try:
+            target_fd = os.open(
+                self.leaf_name,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW") | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=self.parent_fd,
+            )
+            opened = os.fstat(target_fd)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or self._identity(opened) != self._identity(info)
+            ):
+                raise _unsafe_transaction_path(
+                    self.relative,
+                    "transaction target changed while being opened",
+                )
+            chunks: list[bytes] = []
+            while True:
+                chunk = os.read(target_fd, 64 * 1024)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            self._verify_leaf_identity(info)
+            self.verify_parents()
+            return b"".join(chunks)
+        except SubsystemExecutorError:
+            raise
+        except (OSError, TypeError) as exc:
+            raise _unsafe_transaction_path(
+                self.relative,
+                f"transaction target could not be read safely: {exc}",
+            ) from exc
+        finally:
+            if target_fd is not None:
+                os.close(target_fd)
+
+    def file_size(self) -> tuple[bool, int]:
+        info = self._leaf_info()
+        if info is None:
+            return False, 0
+        assert self.parent_fd is not None
+        target_fd: int | None = None
+        try:
+            target_fd = os.open(
+                self.leaf_name,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW") | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=self.parent_fd,
+            )
+            opened = os.fstat(target_fd)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or self._identity(opened) != self._identity(info)
+            ):
+                raise _unsafe_transaction_path(
+                    self.relative,
+                    "transaction log changed while being opened",
+                )
+            self._verify_leaf_identity(info)
+            self.verify_parents()
+            return True, int(opened.st_size)
+        except SubsystemExecutorError:
+            raise
+        except (OSError, TypeError) as exc:
+            raise _unsafe_transaction_path(
+                self.relative,
+                f"transaction log size could not be read safely: {exc}",
+            ) from exc
+        finally:
+            if target_fd is not None:
+                os.close(target_fd)
+
+    def write_bytes_atomic(self, payload: bytes) -> None:
+        if self.parent_fd is None:
+            raise _unsafe_transaction_path(
+                self.relative,
+                "transaction target parent is missing",
+            )
+        original = self._leaf_info()
+        temp_name = f".{self.leaf_name}.{os.getpid()}.{time.time_ns()}.tmp"
+        temp_fd: int | None = None
+        replaced = False
+        try:
+            temp_fd = os.open(
+                temp_name,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_NOFOLLOW")
+                | getattr(os, "O_CLOEXEC", 0),
+                0o600,
+                dir_fd=self.parent_fd,
+            )
+            view = memoryview(payload)
+            while view:
+                written = os.write(temp_fd, view)
+                view = view[written:]
+            os.fsync(temp_fd)
+            os.close(temp_fd)
+            temp_fd = None
+            self.verify_parents()
+            self._verify_leaf_identity(original)
+            os.replace(
+                temp_name,
+                self.leaf_name,
+                src_dir_fd=self.parent_fd,
+                dst_dir_fd=self.parent_fd,
+            )
+            replaced = True
+            os.fsync(self.parent_fd)
+            self.verify_parents()
+        except SubsystemExecutorError:
+            raise
+        except (OSError, TypeError) as exc:
+            raise _unsafe_transaction_path(
+                self.relative,
+                f"transaction target could not be replaced safely: {exc}",
+            ) from exc
+        finally:
+            if temp_fd is not None:
+                os.close(temp_fd)
+            if not replaced:
+                try:
+                    os.unlink(temp_name, dir_fd=self.parent_fd)
+                except (FileNotFoundError, OSError, TypeError):
+                    pass
+
+    def unlink_if_exists(self) -> None:
+        info = self._leaf_info()
+        if info is None:
+            return
+        assert self.parent_fd is not None
+        try:
+            self.verify_parents()
+            self._verify_leaf_identity(info)
+            os.unlink(self.leaf_name, dir_fd=self.parent_fd)
+            os.fsync(self.parent_fd)
+            self.verify_parents()
+        except SubsystemExecutorError:
+            raise
+        except (OSError, TypeError) as exc:
+            raise _unsafe_transaction_path(
+                self.relative,
+                f"transaction target could not be removed safely: {exc}",
+            ) from exc
+
+    def truncate(self, expected_size: int) -> None:
+        info = self._leaf_info()
+        if info is None:
+            raise _state_error(
+                f"missing log required for inflight recovery: {self.relative!r}"
+            )
+        assert self.parent_fd is not None
+        target_fd: int | None = None
+        try:
+            target_fd = os.open(
+                self.leaf_name,
+                os.O_RDWR | getattr(os, "O_NOFOLLOW") | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=self.parent_fd,
+            )
+            opened = os.fstat(target_fd)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or self._identity(opened) != self._identity(info)
+            ):
+                raise _unsafe_transaction_path(
+                    self.relative,
+                    "transaction log changed while being opened",
+                )
+            if int(opened.st_size) < expected_size:
+                raise _state_error(
+                    f"log {self.relative!r} is shorter than its pre-append offset"
+                )
+            self.verify_parents()
+            self._verify_leaf_identity(info)
+            os.ftruncate(target_fd, expected_size)
+            os.fsync(target_fd)
+            self.verify_parents()
+        except SubsystemExecutorError:
+            raise
+        except (OSError, TypeError) as exc:
+            raise _unsafe_transaction_path(
+                self.relative,
+                f"transaction log could not be truncated safely: {exc}",
+            ) from exc
+        finally:
+            if target_fd is not None:
+                os.close(target_fd)
+
+    def close(self) -> None:
+        for parent_fd in reversed(self._opened_parent_fds):
+            os.close(parent_fd)
+        self._opened_parent_fds.clear()
+        if self.campaign_fd is not None:
+            os.close(self.campaign_fd)
+            self.campaign_fd = None
+        self.parent_fd = None
+
+
+def _capture_preimage(campaign_dir: Path, relative: str) -> dict[str, Any]:
+    with _AnchoredTransactionTarget(campaign_dir, relative) as target:
+        raw = target.read_bytes()
+    if raw is None:
+        return {"exists": False, "encoding": "base64", "data": None}
     try:
-        raw = path.read_bytes()
         raw.decode("utf-8")
-    except (OSError, UnicodeError) as exc:
+    except UnicodeError as exc:
         raise _error(
             "subsystem_transaction_preflight_failed",
-            str(path),
+            relative,
             f"could not capture UTF-8 preimage: {exc}",
         ) from exc
     return {
@@ -774,22 +1180,9 @@ def _build_inflight(
     if structured_sanity:
         log_relatives.append("logs/time.jsonl")
     for relative in log_relatives:
-        path = _contained_target(campaign_dir, relative)
-        if path.exists() and not path.is_file():
-            raise _error(
-                "subsystem_transaction_preflight_failed",
-                relative,
-                "transaction log target must be a file",
-            )
-        try:
-            size = path.stat().st_size if path.exists() else 0
-        except OSError as exc:
-            raise _error(
-                "subsystem_transaction_preflight_failed",
-                relative,
-                str(exc),
-            ) from exc
-        log_offsets[relative] = {"exists": path.exists(), "size": int(size)}
+        with _AnchoredTransactionTarget(campaign_dir, relative) as target:
+            exists, size = target.file_size()
+        log_offsets[relative] = {"exists": exists, "size": size}
     inflight = {
         "commands": [
             {
@@ -799,7 +1192,7 @@ def _build_inflight(
             for command, command_hash in commands_with_hashes
         ],
         "preimages": {
-            relative: _capture_preimage(_contained_target(campaign_dir, relative))
+            relative: _capture_preimage(campaign_dir, relative)
             for relative in preimage_relatives
         },
         "log_offsets": log_offsets,
@@ -811,35 +1204,19 @@ def _build_inflight(
 def _restore_inflight_targets(campaign_dir: Path, inflight: dict[str, Any]) -> None:
     _validate_inflight(inflight)
     for relative, preimage in inflight["preimages"].items():
-        target = _contained_target(campaign_dir, relative)
-        if preimage["exists"]:
-            raw = base64.b64decode(preimage["data"].encode("ascii"), validate=True)
-            coc_fileio.write_text_atomic(target, raw.decode("utf-8"), encoding="utf-8")
-        elif target.exists():
-            if not target.is_file():
-                raise _state_error(f"cannot remove non-file recovery target {relative!r}")
-            target.unlink()
+        with _AnchoredTransactionTarget(campaign_dir, relative) as target:
+            if preimage["exists"]:
+                raw = base64.b64decode(preimage["data"].encode("ascii"), validate=True)
+                target.write_bytes_atomic(raw)
+            else:
+                target.unlink_if_exists()
 
     for relative, offset in inflight["log_offsets"].items():
-        target = _contained_target(campaign_dir, relative)
-        if not offset["exists"]:
-            if target.exists():
-                if not target.is_file():
-                    raise _state_error(f"cannot remove non-file log target {relative!r}")
-                target.unlink()
-            continue
-        if not target.is_file():
-            raise _state_error(f"missing log required for inflight recovery: {relative!r}")
-        current_size = target.stat().st_size
-        expected_size = int(offset["size"])
-        if current_size < expected_size:
-            raise _state_error(
-                f"log {relative!r} is shorter than its pre-append offset"
-            )
-        with target.open("r+b") as handle:
-            handle.truncate(expected_size)
-            handle.flush()
-            os.fsync(handle.fileno())
+        with _AnchoredTransactionTarget(campaign_dir, relative) as target:
+            if not offset["exists"]:
+                target.unlink_if_exists()
+            else:
+                target.truncate(int(offset["size"]))
 
 
 def _write_executor_state(campaign_dir: Path, state: dict[str, Any]) -> None:
@@ -1242,7 +1619,7 @@ def normalize_rule_results(
                 "normalized results must exactly cover current expected commands",
             )
         campaign = Path(campaign_dir)
-        state = _recover_inflight(campaign, _load_state(campaign))
+        state = _load_state(campaign)
         for index, (row, expected_command) in enumerate(zip(rows, expected)):
             assert isinstance(row, dict)
             command_id = row.get("command_id")
@@ -1286,6 +1663,7 @@ def normalize_rule_results(
                     f"rules_results[{index}]",
                     "normalized result does not match a persisted executor snapshot",
                 )
+        _recover_inflight(campaign, state)
         return flatten_result_events(rows)
     # Legacy mode is an explicit compatibility path for already-flat rows.
     # Envelope containers are never reinterpreted as legacy data.

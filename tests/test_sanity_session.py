@@ -311,6 +311,25 @@ def test_load_fails_closed_for_missing_or_mismatched_investigator_identity(
         coc_sanity.SanitySession.load(tmp_path, "inv1", rng=random.Random(132))
 
 
+def test_save_does_not_overwrite_mismatched_investigator_mirror(tmp_path):
+    mirror_path = tmp_path / "save" / "investigator-state" / "ada.json"
+    mirror_path.parent.mkdir(parents=True)
+    original = {
+        "schema_version": 1,
+        "investigator_id": "inv2",
+        "current_san": 12,
+    }
+    mirror_path.write_text(json.dumps(original), encoding="utf-8")
+    session = _make_session(san=55, seed=138)
+
+    session.save(tmp_path)
+    assert json.loads(mirror_path.read_text(encoding="utf-8")) == original
+
+    with pytest.raises(coc_sanity.SanityStateIdentityError):
+        session.save(tmp_path, strict_mirror=True)
+    assert json.loads(mirror_path.read_text(encoding="utf-8")) == original
+
+
 def test_summary_bout_carries_backstory_amend_suggestion():
     """W1-2 (p.157): a bout of madness suggests corrupting a backstory entry.
     Summary bouts end immediately, so the suggestion rides the bout event."""

@@ -387,6 +387,132 @@ def _prepare_uncommitted_inflight(executor, campaign: Path) -> dict[Path, bytes 
     return {path: path.read_bytes() if path.exists() else None for path in tracked}
 
 
+def _prepare_uncommitted_inflight_on_persisted_state(
+    executor,
+    campaign: Path,
+) -> dict[Path, bytes | None]:
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    command = _san_command("prepared-normalize-crash")
+    command_hash = executor._canonical_command_hash(command)
+    state["inflight"] = executor._build_inflight(
+        campaign,
+        "inv1",
+        [(command, command_hash)],
+    )
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    sanity_path = campaign / "save" / "sanity.json"
+    roll_log = campaign / "logs" / "rolls.jsonl"
+    inv_path.write_text(
+        json.dumps({"investigator_id": "inv1", "current_san": 1}),
+        encoding="utf-8",
+    )
+    sanity_path.write_text(
+        json.dumps({"investigator_id": "inv1", "san_current": 1}),
+        encoding="utf-8",
+    )
+    with roll_log.open("ab") as handle:
+        handle.write(b"uncommitted-normalize-tail")
+    tracked = [state_path, inv_path, sanity_path, roll_log]
+    return {path: path.read_bytes() if path.exists() else None for path in tracked}
+
+
+@pytest.mark.parametrize(
+    "invalid_binding",
+    ["reversed", "wrong_actor", "wrong_hash", "forged_snapshot"],
+)
+def test_untrusted_normalized_results_do_not_recover_prepared_inflight(
+    tmp_path,
+    invalid_binding,
+):
+    executor = _executor(f"coc_subsystem_executor_normalize_before_recovery_{invalid_binding}")
+    campaign, character = _campaign_and_character(tmp_path)
+    decision_id = "normalize-before-recovery"
+    commands = [
+        _command(
+            "normalize-first",
+            "skill_check",
+            payload={"skill": "Spot Hidden", "decision_id": decision_id},
+        ),
+        _command(
+            "normalize-second",
+            "skill_check",
+            payload={"skill": "Dodge", "decision_id": decision_id},
+        ),
+    ]
+    results = _execute(executor, campaign, character, commands, random.Random(133))
+    before = _prepare_uncommitted_inflight_on_persisted_state(executor, campaign)
+    supplied = json.loads(json.dumps(results))
+    expected = json.loads(json.dumps(commands))
+    investigator_id = "inv1"
+    if invalid_binding == "reversed":
+        supplied.reverse()
+    elif invalid_binding == "wrong_actor":
+        investigator_id = "inv2"
+    elif invalid_binding == "wrong_hash":
+        expected[0]["payload"]["difficulty"] = "hard"
+    else:
+        supplied[0]["events"][0]["success"] = not supplied[0]["events"][0]["success"]
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.normalize_rule_results(
+            supplied,
+            campaign_dir=campaign,
+            expected_commands=expected,
+            investigator_id=investigator_id,
+            decision_id=decision_id,
+            results_mode="normalized",
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert {path: path.read_bytes() if path.exists() else None for path in before} == before
+
+
+def test_trusted_normalized_results_recover_prepared_inflight_before_return(tmp_path):
+    executor = _executor("coc_subsystem_executor_trusted_normalize_recovery")
+    campaign, character = _campaign_and_character(tmp_path)
+    decision_id = "trusted-normalize-recovery"
+    commands = [
+        _command(
+            "trusted-normalize",
+            "skill_check",
+            payload={"skill": "Spot Hidden", "decision_id": decision_id},
+        )
+    ]
+    results = _execute(executor, campaign, character, commands, random.Random(136))
+    _prepare_uncommitted_inflight_on_persisted_state(executor, campaign)
+
+    events = executor.normalize_rule_results(
+        results,
+        campaign_dir=campaign,
+        expected_commands=commands,
+        investigator_id="inv1",
+        decision_id=decision_id,
+        results_mode="normalized",
+    )
+
+    assert events == executor.flatten_result_events(results)
+    state = json.loads(
+        (campaign / "save" / "subsystem-state.json").read_text(encoding="utf-8")
+    )
+    assert state["inflight"] is None
+    assert not (campaign / "save" / "sanity.json").exists()
+    mirror = json.loads(
+        (campaign / "save" / "investigator-state" / "inv1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert mirror["current_san"] == 55
+    assert not (campaign / "logs" / "rolls.jsonl").read_bytes().endswith(
+        b"uncommitted-normalize-tail"
+    )
+
+
 def test_invalid_command_is_rejected_before_prepared_inflight_recovery(tmp_path):
     executor = _executor("coc_subsystem_executor_validate_before_recovery")
     campaign, character = _campaign_and_character(tmp_path)
@@ -607,6 +733,156 @@ def test_subsystem_state_write_is_dirfd_anchored_across_save_swap(tmp_path, monk
     assert not list(outside.glob("tmp*"))
 
 
+def test_inflight_preimage_restore_is_dirfd_anchored_across_parent_swap(
+    tmp_path,
+    monkeypatch,
+):
+    executor = _executor("coc_subsystem_executor_preimage_restore_toctou")
+    campaign, _character = _campaign_and_character(tmp_path)
+    command = _san_command("preimage-restore-swap")
+    inflight = executor._build_inflight(
+        campaign,
+        "inv1",
+        [(command, executor._canonical_command_hash(command))],
+    )
+    inv_dir = campaign / "save" / "investigator-state"
+    displaced_inv_dir = campaign / "save" / "investigator-state-displaced"
+    inv_path = inv_dir / "inv1.json"
+    inv_path.write_text(
+        json.dumps({"investigator_id": "inv1", "current_san": 1}),
+        encoding="utf-8",
+    )
+    outside = tmp_path / "outside-investigators"
+    outside.mkdir()
+    outside_sentinel = outside / "inv1.json"
+    sentinel = b'{"outside": "preimage sentinel"}'
+    outside_sentinel.write_bytes(sentinel)
+    real_replace = executor.os.replace
+    swapped = False
+
+    def swap_parent_during_preimage_replace(src, dst, **kwargs):
+        nonlocal swapped
+        if Path(dst).name == "inv1.json" and not swapped:
+            swapped = True
+            real_replace(inv_dir, displaced_inv_dir)
+            inv_dir.symlink_to(outside, target_is_directory=True)
+            # Preserve the vulnerable absolute temp pathname so a path-based
+            # replace demonstrably overwrites the external sentinel.
+            if kwargs.get("src_dir_fd") is None:
+                source_name = Path(src).name
+                real_replace(displaced_inv_dir / source_name, outside / source_name)
+        return real_replace(src, dst, **kwargs)
+
+    monkeypatch.setattr(executor.os, "replace", swap_parent_during_preimage_replace)
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor._restore_inflight_targets(campaign, inflight)
+
+    assert swapped is True
+    assert exc_info.value.code == "unsafe_subsystem_transaction_path"
+    assert exc_info.value.path == "save/investigator-state/inv1.json"
+    assert outside_sentinel.read_bytes() == sentinel
+    assert not list(outside.glob("*.tmp"))
+
+
+def test_inflight_log_delete_is_dirfd_anchored_across_parent_swap(tmp_path, monkeypatch):
+    executor = _executor("coc_subsystem_executor_log_delete_toctou")
+    campaign, _character = _campaign_and_character(tmp_path)
+    log_path = campaign / "logs" / "rolls.jsonl"
+    log_path.unlink()
+    command = _command(
+        "log-delete-swap",
+        "skill_check",
+        payload={"skill": "Spot Hidden"},
+    )
+    inflight = executor._build_inflight(
+        campaign,
+        "inv1",
+        [(command, executor._canonical_command_hash(command))],
+    )
+    log_path.write_text("uncommitted roll\n", encoding="utf-8")
+    logs_dir = campaign / "logs"
+    displaced_logs = campaign / "logs-displaced"
+    outside = tmp_path / "outside-logs-delete"
+    outside.mkdir()
+    outside_sentinel = outside / "rolls.jsonl"
+    sentinel = b'{"outside": "delete sentinel"}\n'
+    outside_sentinel.write_bytes(sentinel)
+    real_unlink = executor.os.unlink
+    real_replace = executor.os.replace
+    swapped = False
+
+    def swap_parent_during_log_unlink(path, *args, **kwargs):
+        nonlocal swapped
+        if Path(path).name == "rolls.jsonl" and not swapped:
+            swapped = True
+            real_replace(logs_dir, displaced_logs)
+            logs_dir.symlink_to(outside, target_is_directory=True)
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(executor.os, "unlink", swap_parent_during_log_unlink)
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor._restore_inflight_targets(campaign, inflight)
+
+    assert swapped is True
+    assert exc_info.value.code == "unsafe_subsystem_transaction_path"
+    assert exc_info.value.path == "logs/rolls.jsonl"
+    assert outside_sentinel.read_bytes() == sentinel
+
+
+def test_inflight_log_truncate_is_dirfd_anchored_across_parent_swap(
+    tmp_path,
+    monkeypatch,
+):
+    executor = _executor("coc_subsystem_executor_log_truncate_toctou")
+    campaign, _character = _campaign_and_character(tmp_path)
+    log_path = campaign / "logs" / "rolls.jsonl"
+    baseline = b'{"baseline": true}\n'
+    log_path.write_bytes(baseline)
+    command = _command(
+        "log-truncate-swap",
+        "skill_check",
+        payload={"skill": "Spot Hidden"},
+    )
+    inflight = executor._build_inflight(
+        campaign,
+        "inv1",
+        [(command, executor._canonical_command_hash(command))],
+    )
+    with log_path.open("ab") as handle:
+        handle.write(b"uncommitted roll tail")
+    logs_dir = campaign / "logs"
+    displaced_logs = campaign / "logs-displaced"
+    outside = tmp_path / "outside-logs-truncate"
+    outside.mkdir()
+    outside_sentinel = outside / "rolls.jsonl"
+    sentinel = b'{"outside": "truncate sentinel must remain"}\n'
+    outside_sentinel.write_bytes(sentinel)
+    real_stat = executor.os.stat
+    real_replace = executor.os.replace
+    swapped = False
+
+    def swap_parent_during_log_stat(path, *args, **kwargs):
+        nonlocal swapped
+        path_name = Path(path).name if isinstance(path, (str, Path)) else ""
+        if path_name == "rolls.jsonl" and not swapped:
+            swapped = True
+            real_replace(logs_dir, displaced_logs)
+            logs_dir.symlink_to(outside, target_is_directory=True)
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(executor.os, "stat", swap_parent_during_log_stat)
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor._restore_inflight_targets(campaign, inflight)
+
+    assert swapped is True
+    assert exc_info.value.code == "unsafe_subsystem_transaction_path"
+    assert exc_info.value.path == "logs/rolls.jsonl"
+    assert outside_sentinel.read_bytes() == sentinel
+
+
 def test_strict_san_mirror_failure_rolls_back_every_transaction_surface(tmp_path, monkeypatch):
     executor = _executor("coc_subsystem_executor_strict_san_mirror")
     campaign, character = _campaign_and_character(tmp_path)
@@ -638,6 +914,47 @@ def test_strict_san_mirror_failure_rolls_back_every_transaction_surface(tmp_path
     assert not (campaign / "save" / "sanity.json").exists()
     assert log_path.read_bytes() == log_before
     state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["applied_command_ids"] == []
+    assert state["inflight"] is None
+
+
+def test_strict_san_mirror_failure_removes_new_identity_mirror(tmp_path, monkeypatch):
+    executor = _executor("coc_subsystem_executor_strict_new_san_mirror")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_path.unlink()
+    log_path = campaign / "logs" / "rolls.jsonl"
+    log_before = log_path.read_bytes()
+    rng = random.Random(137)
+    rng_before = rng.getstate()
+    real_write = executor.coc_sanity.coc_fileio.write_json_atomic
+
+    def write_new_mirror_then_fail(path, payload, **kwargs):
+        result = real_write(path, payload, **kwargs)
+        if Path(path) == inv_path:
+            persisted = json.loads(inv_path.read_text(encoding="utf-8"))
+            assert persisted["schema_version"] == 1
+            assert persisted["investigator_id"] == "inv1"
+            raise OSError("injected failure after new identity mirror write")
+        return result
+
+    monkeypatch.setattr(
+        executor.coc_sanity.coc_fileio,
+        "write_json_atomic",
+        write_new_mirror_then_fail,
+    )
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [_san_command("san-new-mirror-fail")], rng)
+
+    assert exc_info.value.code == "subsystem_transaction_failed"
+    assert rng.getstate() == rng_before
+    assert not inv_path.exists()
+    assert not (campaign / "save" / "sanity.json").exists()
+    assert log_path.read_bytes() == log_before
+    state = json.loads(
+        (campaign / "save" / "subsystem-state.json").read_text(encoding="utf-8")
+    )
     assert state["applied_command_ids"] == []
     assert state["inflight"] is None
 
@@ -886,6 +1203,35 @@ def test_sanity_and_investigator_state_identity_must_match_requested_actor(tmp_p
     assert investigator_exc.value.path.endswith("inv1.json.investigator_id")
     assert rng.getstate() == rng_before
     assert not (campaign / "save" / "subsystem-state.json").exists()
+
+
+def test_first_structured_san_creates_identity_bound_investigator_mirror(tmp_path):
+    executor = _executor("coc_subsystem_executor_first_san_mirror_identity")
+    campaign, character = _campaign_and_character(tmp_path)
+    investigator_path = campaign / "save" / "investigator-state" / "inv1.json"
+    investigator_path.unlink()
+
+    first = _execute(
+        executor,
+        campaign,
+        character,
+        [_san_command("first-san-without-mirror")],
+        random.Random(134),
+    )[0]
+    second = _execute(
+        executor,
+        campaign,
+        character,
+        [_san_command("second-san-after-mirror")],
+        random.Random(135),
+    )[0]
+
+    mirror = json.loads(investigator_path.read_text(encoding="utf-8"))
+    assert first["status"] == "completed"
+    assert second["status"] == "completed"
+    assert mirror["schema_version"] == 1
+    assert mirror["investigator_id"] == "inv1"
+    assert isinstance(mirror["current_san"], int)
 
 
 def test_persisted_pending_choice_survives_empty_batch_and_blocks_new_commands(tmp_path):

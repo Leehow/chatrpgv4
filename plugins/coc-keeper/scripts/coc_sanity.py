@@ -980,7 +980,16 @@ class SanitySession:
         """
         inv_path = campaign_dir / "save" / "investigator-state" / f"{self.investigator_id}.json"
         try:
-            data = json.loads(inv_path.read_text(encoding="utf-8")) if inv_path.exists() else {}
+            mirror_exists = inv_path.exists()
+            data = json.loads(inv_path.read_text(encoding="utf-8")) if mirror_exists else {}
+            if not isinstance(data, dict):
+                raise TypeError("investigator-state root must be an object")
+            if mirror_exists and data.get("investigator_id") != self.investigator_id:
+                raise SanityStateIdentityError(
+                    "persisted investigator-state investigator_id does not match session"
+                )
+            data.setdefault("schema_version", 1)
+            data["investigator_id"] = self.investigator_id
             data["current_san"] = int(self.san_current)
             data["indefinite_insane"] = bool(self.indefinite_insane)
             data["temporary_insane"] = bool(self.temporary_insane)

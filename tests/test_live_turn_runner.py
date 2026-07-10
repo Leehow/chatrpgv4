@@ -1475,10 +1475,8 @@ def test_live_turn_exposes_normalized_subsystem_results_and_passes_them_to_apply
 def test_live_turn_returns_current_stable_pending_choice(tmp_path, monkeypatch):
     camp, char_path = _build_live_campaign(tmp_path)
 
-    monkeypatch.setattr(
-        live_runner.subsystem_executor,
-        "commands_from_rules_requests",
-        lambda plan: [{
+    def push_commands_from_plan(plan):
+        return [{
             "command_id": f"{plan['decision_id']}-push",
             "kind": "push_offer",
             "phase": "offer",
@@ -1486,7 +1484,17 @@ def test_live_turn_returns_current_stable_pending_choice(tmp_path, monkeypatch):
                 "decision_id": plan["decision_id"],
                 "original_roll_id": f"{plan['decision_id']}-rule-1",
             },
-        }],
+        }]
+
+    monkeypatch.setattr(
+        live_runner.subsystem_executor,
+        "commands_from_rules_requests",
+        push_commands_from_plan,
+    )
+    monkeypatch.setattr(
+        live_runner.apply_mod.coc_subsystem_executor,
+        "commands_from_rules_requests",
+        push_commands_from_plan,
     )
     result = live_runner.run_live_turn(
         camp,

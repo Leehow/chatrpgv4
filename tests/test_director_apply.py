@@ -167,6 +167,40 @@ def test_apply_rejects_authentic_result_from_an_old_decision(tmp_path):
     assert not (camp / "save" / "apply-ledger.json").exists()
 
 
+def test_apply_cannot_override_commands_derived_from_the_current_plan(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    source_plan = _normalized_rules_plan("decision-no-command-override")
+    authentic_results = _execute_plan_results(camp, character, source_plan)
+    authentic_commands = (
+        coc_director_apply.coc_subsystem_executor.commands_from_rules_requests(source_plan)
+    )
+    plan_without_requests = {
+        "decision_id": source_plan["decision_id"],
+        "scene_action": "REVEAL",
+        "clue_policy": {"reveal": ["clue-A"]},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    world_path = camp / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+
+    with pytest.raises(TypeError, match="expected_subsystem_commands"):
+        coc_director_apply.apply_plan(
+            camp,
+            plan_without_requests,
+            investigator_id="inv1",
+            rules_results=authentic_results,
+            rules_results_mode="normalized",
+            expected_subsystem_commands=authentic_commands,
+        )
+
+    assert world_path.read_bytes() == world_before
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
 def test_apply_rejects_authentic_result_for_a_different_investigator(tmp_path):
     camp = _campaign(tmp_path)
     character = _character_file(tmp_path)

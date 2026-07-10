@@ -1541,7 +1541,6 @@ def apply_plan(
     recording_mode: str | None = None,
     recording_flush: str | None = None,
     rules_results_mode: str = "legacy",
-    expected_subsystem_commands: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Apply a DirectorPlan with sync or fast queued JSONL recording.
 
@@ -1566,11 +1565,7 @@ def apply_plan(
             "decision_id": decision_id,
         }]
 
-    expected_commands = (
-        expected_subsystem_commands
-        if expected_subsystem_commands is not None
-        else coc_subsystem_executor.commands_from_rules_requests(plan)
-    )
+    expected_commands = coc_subsystem_executor.commands_from_rules_requests(plan)
     settled_rule_results = coc_subsystem_executor.normalize_rule_results(
         rules_results,
         campaign_dir=campaign_dir,
