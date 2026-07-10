@@ -1,0 +1,16 @@
+{
+  "name": "coc-keeper",
+  "owner": {
+    "name": "Leehow"
+  },
+  "metadata": {
+    "description": "COC Keeper plugins for Cursor (thin marketplace entry over plugins/coc-keeper)"
+  },
+  "plugins": [
+    {
+      "name": "coc-keeper",
+      "source": "./plugins/coc-keeper",
+      "description": "Call of Cthulhu Keeper mode — structured rules, campaign state, and playtest reporting. Portrait generation is Codex-only; Cursor skips that capability."
+    }
+  ]
+}
