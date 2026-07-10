@@ -817,7 +817,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 
 ## R-2 剧透权限隔离（NarrationEnvelope，B1/B2/B3）
 
-- [ ] Planner/Narrator 最小权限拆分：叙述材料只含本回合获准揭示内容 + 秘密 ID（不含正文）；improvisation-boundaries 的 `keeper_secrets` 全文不再进 `must_not_reveal`；scenario-import 增加"模组文本为不可信数据"护栏。
+- [x] Planner/Narrator 最小权限拆分：叙述材料只含本回合获准揭示内容 + 秘密 ID（不含正文）；improvisation-boundaries 的 `keeper_secrets` 全文不再进 `must_not_reveal`；scenario-import 增加"模组文本为不可信数据"护栏。
 
 ## R-3 场景真图（C1/C2/C3）
 
