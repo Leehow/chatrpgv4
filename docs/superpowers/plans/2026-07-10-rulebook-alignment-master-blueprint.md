@@ -33,7 +33,7 @@
 | **Wave 1** | 好玩优先项：幸运消费、背景个人化恐怖、幻觉/Reality Check、恐惧症压迫、惊吓技法、SAN 演出协议、怪物演出契约、收尾仪式（本文档含完整任务） | ☑ 2026-07-10 |
 | **Wave 2** | 规则引擎补洞：典籍阅读引擎、成长阶段结算、推骰门闩进 apply、治疗/asylum/self-help 重做、施法推骰后果表、信徒流程接线（任务级定义，波次启动时按本文档展开细化计划） | ☑ 2026-07-10 |
 | **Wave 3** | 动作场面：追逐 Part2–5 重写、自动武器/多发/瞄准、环境伤害引擎、prone/投掷修正（任务级定义） | ☐ |
-| **Wave 4** | 遗留 N 系列：N5 真 LLM 对战、N6 存档工程化、N1 多宿主、N2/N7 内容+快速开玩、N3 叙述闭环、N4 缓存、N8 清理（任务级定义） | ☐ |
+| **Wave 4** | 遗留 N 系列：N5 真 LLM 对战、N6 存档工程化、N1 多宿主、N2/N7 内容+快速开玩、N3 叙述闭环、N4 缓存、N8 清理（任务级定义） | ◐ N5 done |
 | **Backlog** | Contacts / Training / Aging / CR 消费 / 组合检定 API / 物理极限 / Spot Rules 可选规则 | ☐ |
 
 > 每个波次完成后：在上表打勾、跑全量测试、更新本文件的"波次日志"。**禁止跳过日志直接开下一波**——这是防遗忘机制。
@@ -860,7 +860,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 
 > 事实与验收标准见 `docs/superpowers/specs/2026-07-10-next-phase-optimization-audit.md`，此处只登记防遗忘。
 
-- [ ] **N5 真 LLM 玩家 vs KP harness**（审计标尺，建议本波第一个做）：player-brain adapter 复用 pi 桥模式，玩家 LLM 只看 player-safe PublicState；产物满足 AGENTS.md 战报证据标准；`simulation_method` 非 live 的 run 永不算 gameplay 证据。
+- [x] **N5 真 LLM 玩家 vs KP harness**（审计标尺）：`runtime/adapters/player/` + `coc_live_match.py`；玩家 LLM 只看 `build_public_state` 等 player-safe 字段；`live=False` 的 `simulation_method` 永不算 gameplay 证据；仅 `--live` 可标 `live_llm_player_vs_kp`。
 - [ ] **N6 存档工程化**：apply 热路径统一 `write_json_atomic`（coc_director_apply.py:177 等非原子点）、轻量文件锁、schema_version 迁移钩子。
 - [ ] **N1 多宿主安装**：`.claude-plugin/` manifest + Cursor 入口薄适配层指向同一 skills 树（单轨法）；立绘保持 `CODEX_ONLY_IMAGEGEN` 门控。
 - [ ] **N2+N7 内容与快速开玩**：The Haunting 叙事包（story-graph/clue-graph/npc-agendas）或第二短 starter；预生成调查员 + 一句话开玩入口。
