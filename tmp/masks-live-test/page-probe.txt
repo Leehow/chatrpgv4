@@ -1,0 +1,635 @@
+                                                               INTRODUCTION
+
+S
+E   JENNIFER SMALLWOOD
+R   Age: 36     Occupation: Dilettante		
+    Nationality: English		
+P   STR 35      CON 70          SIZ 50        DEX 70 INT 65
+E   APP 55
+    DB: 0
+                POW 60          EDU 60        SAN 60 HP 12
+                Build: 0        Move: 8       MP: 12		
+N   Luck: roll 3D6 ×5
+
+T   Skills
+    Art/Craft (Dancing) 35% (17/7)
+O   Charm 50% (25/10)
+    Climb 25% (12/5)
+                                                                              an expedition being mounted in Peru seeking people with a
+                                                                              yearning for adventure, Jennifer contacted the man in charge,
+F   Credit Rating 80% (40/16)
+    Disguise 40% (20/8)
+                                                                              one Augustus Larkin, who told her of his quest to find a lost
+                                                                              pyramid. Her offer to donate $1,000 towards the expedition
+Y   Intimidate 30% (15/6)
+    Jump 35% (17/7)
+                                                                              was gladly accepted by Larkin. With her travel arrangements in
+                                                                              place, Jennifer set off for Lima and her destiny.
+I   Language (English) 60% (30/12)
+    Language (French) 20% (10/4)                                               • Description: white English, tall and slender, with dark
+G   Listen 30% (15/6)
+    Navigate 30% (15/6)
+                                                                                 hair sporting a fashionable bobbed cut.
+                                                                               • Traits: adventurous, fool hardy, and forever on the go.
+    Psychology 20% (10/4)                                                      • Ideology/Beliefs: sometimes you have to crack a few
+    Ride 35% (17/7)                                                              eggs to make an omelet (i.e. get things done). Devout
+    Spot Hidden 30% (15/6)                                                       Catholic upbringing.
+    Stealth 30% (15/6)                                                         • Treasured Possessions: travel wallet containing a
+    Swim 25% (12/5)                                                              photograph of her family in happy times; a gold necklace
+                                                                                 given to her by departed father.
+    Combat
+    Brawl		          30% (15/6), damage 1D3
+    12g shotgun (2B) 40% (20/8), damage 		
+    		4D6/2D6/1D6
+    Dodge 		         45% (22/9)
+                                                                                            PULP ADJUSTMENTS
+    Backstory                                                                  Archetype: Thrill Seeker (page 22, Pulp Cthulhu)
+    Jennifer heralds from an English family, whose wealth was                  Core Characteristic: change DEX or POW to 90
+    accumulated during the early 19th century though shipping                  Hit Points: 24
+    ventures. Her parents were lost at sea in 1888 while on board              Sanity: 90 (if POW 90)
+    the SS Vaitarna on route to Bombay, leaving Jennifer and her               Add/Adjust Skills: Climb 50%, Dodge 45% (if DEX 90),
+    older sister Valerie the heirs to the Smallwood fortune. While             Drive Auto 40%, Fast Talk 40%, Stealth 50%.
+    Valerie preferred to remain at the family’s home in Hampshire,
+    Jennifer packed her bags and elected to travel to the New World.           Talents
+    The decision strained her relationship with her sister, who                 • Master of Disguise: spend 10 Luck points to gain bonus
+    considered a lady’s job was to find a suitable husband and not go             dice to Disguise rolls; ventriloquism.
+    gallivanting to foreign climes. After partying in New York and              • Nimble: does not lose next action when “diving for
+    then California, Jennifer grew weary of the endless dances and                cover” versus firearm attacks.
+    queues of men bidding for her interest. She resolved that there
+    was much more to see and experience and set about looking
+    for (as she put it) “something different.” Seeing an article about
+
+
+
+
+                                                                         42
+                                                          INTRODUCTION
+
+
+
+
+JOHAN BRAUN
+Age: 48     Occupation: Professor of Languages		
+Nationality: German		
+
+STR 55      CON 60         SIZ 50        DEX 70 INT 65
+APP 45      POW 70         EDU 85        SAN 70 HP 11
+DB: 0       Build: 0       Move: 8       MP: 14		
+Luck: roll 3D6 ×5
+
+Skills
+Appraise 30% (15/6)
+Credit Rating 31% (15/6)                                                 into the interior of Peru to seek out a lost pyramid; the interview
+History 30% (15/6)                                                       ended with Larkin calling for experts and adventurers to contact
+Intimidate 30% (15/6)                                                    him. Wasting no time, Johan corresponded with Larkin and
+Language (Arabic) 40% (20/8)                                             secured a place on the team; Larkin felt his knowledge of
+Language (Cuneiform) 20% (10/4)                                          languages would prove useful. Larkin’s last letter told Johan to
+Language (English) 60% (30/12)                                           meet him and the other expedition members in Lima.
+Language (German) 85% (42/17)
+Language (Greek) 50% (25/10)                                              • Description: white German, short and a little overweight,
+Language (Spanish) 30% (15/6)                                               with receding hair, a beard, and a prominent mustache.
+Law 20% (10/4)                                                            • Traits: dives for cover when hearing a loud noise (compliments
+Library Use 60% (30/12)                                                     of his war experience); a distinct thirst for knowledge.
+Occult 20% (10/4)                                                         • Ideology/Beliefs: the war was a terrible mistake and
+Persuade 40% (20/8)                                                         humanity should never succumb to such base instincts
+Psychology 40% (20/8)                                                       again: we must work together to build a better future free
+Spot Hidden 30% (15/6)                                                      from the horrors of the past.
+                                                                          • Treasured Possessions: the silver hip flask that saved his
+Combat                                                                      life: the English bullet is still lodged tightly in the metal.
+Brawl		                    25% (12/5), damage 1D3
+Dodge 		                   40% (20/8)
+
+Backstory
+Johan’s mother was a librarian and his father a language teacher,
+which may explain his great love of books and languages:
+                                                                                        PULP ADJUSTMENTS
+throughout childhood, the young boy was surrounded with                    Archetype: Seeker (page 21, Pulp Cthulhu)
+books on science, history, myths, and more. The top of his class,          Core Characteristic: change INT to 90
+Johan pursued an academic career, reading languages and classics           Hit Points: 22
+at the University of Würzburg in Bavaria. It was while teaching            Add/Adjust Skills: Appraise 50%, Library Use 80%,
+at his alma mater that the Great War broke out and Johan was               Listen 50%, Science (Mathematics) 30%.
+called to serve on the Western Front. Surviving the horrors of
+the trenches, he left Europe as quickly as he could and headed             Talents
+to America to take up a post at the University of California in             • Quick Study: halve reading times for Initial and Full
+Berkeley. Despite a promising start, Johan never felt he fit in               Reading of Mythos tomes and other books.
+with the American way of life and began to grow disillusioned               • Linguist: able to determine what language is being spoken
+with academia. He read with interest about the resurgence of                  or what is written; gains a bonus die to Language rolls.
+archaeological digs taking place in the wake of the war, and
+discovered an article featuring an interview with a man called
+Augustus Larkin, who was proposing to mount an expedition
+
+
+
+
+                                                                    43
+                                                              INTRODUCTION
+
+S
+E   PRANIT SINGH DHILLON
+R   Age: 29     Occupation: Ex-Soldier		
+    Nationality: Indian		
+P   STR 75       CON 65        SIZ 80        DEX 65  INT 65
+E   APP 75       POW 60        EDU 65        SAN 60  HP 14
+    DB: +1D4 Build: 1          Move: 7       MP: 12		
+N   Luck: roll 3D6 ×5
+
+T   Skills
+    Climb 50% (25/10)
+O   Credit Rating 20% (10/4)
+    Intimidate 55% (27/11)                                                   expired, so seeing an advertisement for Augustus Larkin’s
+F   Language (Arabic) 31% (15/6)
+    Language (English/Punjabi) 65% (32/13)
+                                                                             expedition to find a lost pyramid couldn’t have come at
+                                                                             a better time. On reading his service history, Larkin has
+Y   Language (Spanish) 31% (15/6)
+    Listen 35% (17/7)
+                                                                             taken Pranit on as security for the upcoming expedition.
+
+I   Spot Hidden 55% (27/11)
+    Stealth 60% (30/12)
+                                                                              • Description: Indian, tall and handsome, with piercing
+                                                                                eyes, an unkempt beard, and a pale-blue turban.
+G   Survival (Desert) 30% (15/6)
+    Throw 60% (30/12)
+                                                                              • Traits: proud and loyal to those he considers his comrades.
+                                                                              • Ideology/Beliefs: god is one, and all men (and women)
+                                                                                are equal.
+    Combat                                                                    • Treasured Possessions: the five Ks (the articles of his
+    Brawl		                 65% (32/13), damage 1D3+1D4                         faith), including his kangha (ivory comb), kara (steel
+    Kirpan (knife)          65% (32/13), damage 1D4+2+1D4                       bangle), and kirpan (ceremonial knife).
+    Saber (sword)           60% (30/12), damage 1D8+1+1D4
+    Chakram (thrown)        60% (30/10), damage 1D8+1D2,
+    		                      (range 40 yards)
+    .45 Martini-Henry rifle 55% (27/11), damage 1D8+1D6+3
+    Dodge 		                65% (32/13)
+
+    Backstory
+    Born and raised in the Punjabi city of Ferozepore, Pranit’s
+    family have a long history of military service; first for the
+                                                                                           PULP ADJUSTMENTS
+    Maharajas of the Sikh Empire, and then for the British                    Archetype: Steadfast (page 22, Pulp Cthulhu)
+    after the empire’s fall. Keen to follow in his forebears’                 Core Characteristic: change CON to 90
+    footsteps, Pranit joined the 14th Prince of Wales’s Own                   Hit Points: 34
+    Ferozepore Sikhs as soon as he could. During the Great                    Add/Adjust Skills: First Aid 50%, Navigate 20%,
+    War, the battalion saw service in Egypt, Gallipoli, Persia,               Psychology 50%, Survival ( Jungle) 30%.
+    and Mesopotamia (where the valor of the Sikh soldiers
+    earned them the nickname “the Black Lions”). Having been                  Talents
+    one of the few to survive the bloodbath that was the Third                 • Hardened: ignores Sanity point loss from attacking
+    Battle of Krithia unscathed (Gallipoli, 1915), Pranit was                    other humans, viewing horrific injuries, or the deceased.
+    finally invalided out of the army due to injury just before                • Heavy Hitter: may spend 10 Luck points to add an
+    the Armistice. Finding it difficult to settle into civilian life,            additional damage die when dealing out melee combat.
+    Pranit decided to put his military skills to good use and
+    now travels the world as a soldier for hire. His previous
+    contract as a guard at one of Peru’s silver mines had just
+
+
+
+
+                                                                        44
+                                                       INTRODUCTION
+
+
+
+
+FRANCOISE PELLETIER
+Age: 33     Occupation: Photographer		
+Nationality: French		
+
+STR 55      CON 60        SIZ 55       DEX 65  INT 70
+APP 55      POW 70        EDU 65       SAN 70  HP 11
+DB: 0       Build: 0      Move: 8      MP: 14		
+Luck: roll 3D6 ×5
+
+Skills
+Art/Craft (Photography) 65% (32/13)
+Charm 65% (32/13)
+Credit Rating 30% (15/6)
+Drive Auto 30% (15/6)                                                 • Description: white French; wavy, blonde hair, with a broad
+Language (English) 30% (15/6)                                           smile. She dresses in male attire whenever she thinks she
+Language (French) 65% (32/13)                                           can get away with it. Her hazel eyes constantly search for
+Language (Spanish) 50% (25/10)                                          the best angle for a shot.
+Persuade 50% (25/10)                                                  • Traits: determined and stubborn.
+Psychology 60% (30/12)                                                • Ideology/Beliefs: believes a woman is just as capable as
+Science (Chemistry) 40% (20/8)                                          any man, and eager to prove the point.
+Spot Hidden 65% (32/13)                                               • Treasured Possessions: her camera.
+
+Combat
+Brawl		                   25% (12/5), damage 1D3
+Dodge 		                  40% (20/8)
+
+Backstory
+The daughter of a naval attaché, Francoise had never lived
+anywhere long enough to consider it home. When her father
+was stationed in Lima as part of France’s ongoing military
+mission to Peru, Francoise was dazzled by the nightlife of her
+adoptive city, and she drifted in and out of the social scene,
+struggling to find a place for herself that wasn’t defined by
+                                                                                   PULP ADJUSTMENTS
+her father’s occupation. The chance gift of a camera for her          Archetype: Dreamer (page 17, Pulp Cthulhu)
+21st birthday gave her the answer, and she has steadily built         Core Characteristic: change POW to 90
+a reputation for herself in Lima as a portrait photographer           Hit Points: 23
+of some renown. However, she yearned to be taken seriously            Sanity: 90
+as something more than a chronicler of Lima’s high society            Add/Adjust Skills: Art/Craft (Photography) 85%,
+and wished to branch out into landscape photography.                  Charm 75%, Language (English) 40%, Listen 60%,
+Lately, she has taken to visiting the numerous archaeological         Natural World 30%.
+sites around Lima, particularly the temples at Pachacamac,
+whose antiquity and persistence fascinate her. On hearing             Talents
+Augustus Larkin’s announcement about seeking out a lost                • Keen Vision: gain a bonus die to Spot Hidden rolls.
+pyramid, she saw an opportunity to finally break free and              • Strong Willed: gain a bonus die when making
+find adventure and fulfillment. Having secured a position to             POW rolls.
+document the expedition, Francoise sees Larkin’s endeavor
+as an opportunity to prove herself to those who feel she’d be
+better off sticking to what she knows.
+
+
+
+
+                                                                 45
+    INTRODUCTION
+
+S
+E
+R
+P
+E
+N
+T
+O
+F
+Y
+I
+G
+
+
+
+
+        46
+                          PERU
+ PROLOGUE
+
+
+
+
+                          “…shapeless lurkers and caperers in darkness, and vacuous herds of drifting entities that
+                          pawed and groped and groped and pawed; the nameless larvae of the Other Gods, that
+                          are like them blind and without mind, and possessed of singular hungers and thirsts”.
+
+                                                             —H. P. Lovecraft, The Dream-Quest of Unknown Kadath
+
+
+The events of this optional chapter take place in March 1921,              M’Weru drugged Larkin and placed a mystical tattoo
+almost four years before Jackson Elias summons the investigators        on his chest while he was helpless. The tattoo is a stylized
+to his hotel room in New York City (Campaign Beginning, page            representation of the Bloody Tongue, and the unholy blend
+91) for the fateful event that trigger the core campaign.               of ingredients that went into the ink provide a permanent
+   If your group would prefer to jump straight into the                 channel between Larkin’s consciousness and that of the
+action, or you have already run other prequel scenarios                 Crawling Chaos. Thus, the god is able to affect Larkin’s
+of your own devising involving Jackson Elias, you can                   actions and, occasionally, possess him. The poison in the
+easily skip this chapter. Its main purpose is to provide an             ink and the repeated intrusions of alien horror are slowly
+introduction to Elias, although it also potentially sets up             killing Larkin, his flesh rotting from the inside and his
+a few other elements of the larger campaign and offers                  blood turning to black tar.
+some foreshadowing. As such, it provides a foundation                      Under the sway of Nyarlathotep, Larkin has spent the
+for the rest of the story, but is not essential.                        past few years traveling the world, acting as an errand boy
+   If you do not play through this chapter first, you may               and dogsbody, furthering his controller’s various agendas
+need to change a few references to the investigators’                   (if the Keeper is planning more prequel scenarios before
+shared history with Elias, especially in relation to the                embarking on the main campaign, the investigators may
+reading of his will (The Reading of the Will, page 127,                 find links to other missions carried out by Larkin). His most
+America) and the associated bequest (guidance notes are                 recent journey has brought him to Peru, where he is being
+provided). Alternatively, you may assume the events of this             compelled to release an avatar of Nyarlathotep—known
+chapter occurred anyway and portray them to the players                 as El Padre de los Gusanos (the Father of Maggots)—that
+as flashbacks or brief summaries.                                       has been imprisoned for almost 3,000 years.
+
+
+BACKGROUND                                                              THE AVATAR
+Augustus Larkin is a changed man. The eldest son of a relatively        IN THE PYRAMID
+wealthy colonial family in Kenya, he refused to follow in his           The Father of Maggots is trapped within an ancient pyramid
+father’s footsteps, building railways across Africa, and instead        in a remote part of the southern Andean highlands, close to
+became a wastrel, drunk, and womanizer. His path through                the border with Bolivia. The structure was built by an unknown
+
+
+
+
+                                                                                                                                           Opposite: The feral kharisiri
+the less reputable parts of Nairobi society brought him to              contingent of the Tiwanaku people; no records survive of its
+the attention of a beautiful and manipulative young woman               existence, and it has largely fallen into mythology. A few local
+named M’Weru (Dramatis Personae, page 391, Kenya).                      farmers and shepherds know of the existence of the site, but
+The two embarked on what Larkin thought would be a brief                shun the area due to its evil reputation.
+fling. Instead, Larkin found himself drawn into a hideous cult             In the 1650s, a group of conquistadors stumbled across
+known as the Bloody Tongue (Cult in Residence, page 390,                the pyramid while looking for treasures to loot. They found
+Kenya), devoted to the worship of an ancient evil god (also             the tunnels surrounding the structure, the walls of which
+known as Nyarlathotep). Larkin tried to flee, but M’Weru and            were inlaid with strange designs in gold. In removing
+her associates had other plans for him.                                 some of the gold inlay, they inadvertently weakened the
+
+
+
+                                                                   47
+                                                                 PROLOGUE
+
+S                                                                              While in Peru, Larkin is accompanied by Luis de
+    magical ward holding the avatar inside. The inners walls
+E   and top of the pyramid cracked, allowing the trapped god to
+    release parts of its essence into the world as small, writhing
+                                                                             Mendoza, one of the kharisiri, who acts as his bodyguard,
+                                                                             protecting the failing mortal husk that contains his god.
+R   seeds, made of its flesh. A few of these seeds entered the
+    bodies of the conquistadors, transforming most of them
+                                                                             De Mendoza is one of the more intelligent kharisiri, but
+                                                                             he is still stupid and impulsive enough that his presence
+P   into mindless servitors driven by pure hunger. One of their
+    number, Gaspar Figueroa, managed to escape unchanged.
+                                                                             poses as many problems for Larkin as it prevents.
+
+E   His account of the horrors he saw survives in the university
+    archive in Lima (Carlyle Papers Peru #3). The investigators
+                                                                             Connection to Jackson Elias
+                                                                             Several months ago, the American writer Jackson Elias was
+N   may find Figueroa’s tale if they visit Professor Sánchez
+    (Museo de Arqueología y Antropología, page 65).
+                                                                             searching for a new story as a follow up to his last book,
+                                                                             The Black Power. While searching through old accounts and
+T   Deathless Conquistadors
+                                                                             reports in the dusty stacks of various New York libraries, he
+                                                                             came across stories of the kharisiri legend. Elias wondered
+O   The transformed conquistadors became deathless tools of
+    Nyarlathotep, traveling remote regions of Peru and Bolivia,
+                                                                             if there may be a horrible, if human, basis to the Peruvian
+                                                                             vampire tales. Having encountered death cults across the
+F   and preying on lone travelers. These walking horrors suck
+    the life out of their victims in the form of body fat and fluids,
+                                                                             world, he assumed that something similar was happening in
+                                                                             Peru, with the murderous actions of an all-too human death
+Y   before returning to the pyramid to regurgitate it into the
+    crack at the top of the edifice, which then drops down to
+                                                                             cult forming the foundation of the kharisiri mythology. The
+                                                                             descriptions of the kharisiri as usually being white men led
+I   sustain their god. They have been doing this for over 350
+    years, birthing the myth of fat-sucking vampires known as
+                                                                             him to wonder if this cult had come to the Americas with
+                                                                             the conquistadors. Thus, with a new direction of research in
+G   the “kharisiri.” Their numbers have, largely, stayed the same
+    over the centuries, but things have changed with the arrival
+                                                                             mind, he headed to Peru.
+                                                                                In due course, Elias will come into contact with
+    of Larkin and his dark passenger.                                        investigators, who have come to meet Larkin and join
+       In 1920, Larkin made his way to the pyramid in a bid                  his expedition. Through their interaction, Elias and the
+    to release the god trapped within. The surviving wards—                  investigators (hopefully) start a friendship that eventually
+    designed to counter the power of Nyarlathotep—proved                     leads the investigators into the core Masks of Nyarlathotep
+    sufficiently robust to repel him, meaning that Larkin                    campaign some years later. In time, assuming events end
+    was unable to damage the wards or the pyramid directly.                  well in Peru, Elias writes up his account of the “kharisiri
+    Acting through Larkin, Nyarlathotep partially restored the               death cult” in a book called The Hungry Dead.
+    intelligence of the kharisiri and instructed them to destroy
+    the wards, but they, too, were powerless to do so. Next,
+    Larkin tried to convince people in the surrounding area
+    that there were riches to be plundered in the pyramid. The
+    fact that Larkin had been seen with suspected kharisiri,
+    combined with the evil reputation of the area surrounding
+                                                                                    PERUVIAN VAMPIRE NAMES
+    the pyramid, meant his attempts failed utterly. Finally,                  The mythology of the “kharisiri” (meaning to “cut with
+    Larkin hit upon a new plan. If he recruited foreigners                    a knife or razor”) is known in the Andes region of
+    for a purported archaeological expedition and hinted that                 South America and also in Bolivia. Another common
+    there were golden treasures to be discovered, he could                    name given to these pale-faced fat-sucking vampires
+    convince these dupes to break the wards and free the                      is “pishtaku” or “pishtaco,” which stem from the
+    Father of Maggots. Thus, Larkin headed back to Lima                       Quechua “pishtay,” translating as “to cut into pieces” (i.e.
+    and wrote to a number of academic institutions around                     slaughter). In southern Peru and other areas, the creatures
+    the world, and also conducted interviews with a number                    are known as “ñakaq” meaning “to butcher.” The Keeper
+    of international news agencies about the priceless treasures              is, of course, free to adopt any of the names given above
+    reputed to be sealed in this lost pyramid. In so doing,                   as they wish.
+    Larkin was laying a lure to entice researchers, treasure
+    hunters, archaeologists, and others to join his expedition,
+    bringing him the means to finally break the pyramid ward
+    and free the Father of Maggots.
+
+
+
+
+                                                                        48
+                                                                    PERU
+
+
+
+CONNECTIONS TO                                                             Elias’ Research into the Kharisiri
+                                                                           From the information gained from written sources held
+
+THE LARGER CAMPAIGN                                                        in some of New York’s research libraries; Elias discovered
+                                                                           references to the legends of the kharisiri: white-faced men
+While this chapter is essentially stand-alone, it does contain             who sucked the fat of innocent farmers and their families
+links and foreshadowing of events to come. Rather than                     in the Peruvian highlands. While the historical information
+providing paths for active investigation, these elements                   seemed to be mostly fanciful folklore, Elias found that these
+should fall into place for the investigators as the campaign               accounts gained credence when he found contemporary
+progresses, allowing them to—eventually—see how                            stories of murder and mutilation in the same locales. Seeking
+everything is connected.                                                   a new direction for a new book, he believed he had enough
+                                                                           reason to suppose that some form of pagan ritual was at the
+ • The tattoo on Larkin’s chest introduces the symbolism of                root of the tales of the kharisiri, and that in all likelihood, the
+   the Cult of the Bloody Tongue (Background, above). The                  attacks were perpetrated by humans, perhaps as some form
+   investigators will later come to understand the significance            of human sacrifice, which to his mind, could be evidence
+   of the mark when they encounter the cult in the America                 of death cult operating in Peru. Thinking of the country’s
+   and Kenya chapters of the campaign.                                     history, he soon developed the hypothesis that the legends
+ • There is the potential for the investigators to encounter               stemmed from the arrival of the Spanish conquistadors
+   two different aspects of Nyarlathotep directly. The Father              in the 16th century. Had a cult that had arrived with the
+   of Maggots is a lesser avatar, more of a mindless force of              Spanish survived to the modern-day? Elias now believes
+   hunger than the keen, calculating intellect encountered in              that the details of the myths indicate an all-too-real cult that
+   the larger campaign. The aspect of Nyarlathotep contained in            practices murder as ritual practice. (He is partly right.)
+   the body of Augustus Larkin is closer to the manipulator the
+   investigators may meet later: this avatar may mock or wheedle,          Jackson Elias in Peru
+   making threats and promises that they shall meet again.                 Elias made his way to Peru and spent four months in
+ • The Golden Mirror in de Mendoza’s room (Hotel España,                   the southern Andean highlands, in the region around
+   page 64) may grant the investigators visions, some of which             Lake Titicaca, meeting the local people (such as Nayra, a
+   can be used to foreshadow images or plot elements from                  wisewoman), and researching stories of the kharisiri. He
+   later chapters.                                                         soon realized that many people saw the kharisiri not as
+ • The act of repairing the golden ward on the pyramid (The                stories from history but as a real and tangible threat. While
+   Pool of Filth, page 80) has later echoes in the possible                some could only pass on second-hand accounts, a few were
+   reconstruction of the Eye of Light and Darkness in the                  able to recount seeing “pale-faced monsters” from personal
+   main campaign.                                                          experience. Currently, Elias considers such first-hand
+ • If the investigators and Jackson Elias discover the gold in             information to illustrate the fact that a death cult is still
+   the chamber beneath the ruins in the Andean highlands                   active in the region.
+   (The Chamber, page 79) then Elias leaves his share to the                  While speaking with the locals, Elias was warned about
+   investigators in his will (The Reading of the Will, page                a man named Luis de Mendoza; a person mentioned by
+   127, America), which can support the investigators in their             some as a man to be feared. While no one was able to
+   quest to discover the mysteries of the Carlyle Expedition.              provide concrete proof of any wrongdoings, some referred
+ • Elias’ further investigation into Augustus Larkin puts him              to de Mendoza as a kharisiri. Elias, ever the rationalist,
+   on the trail of the Carlyle Expedition, ultimately setting in           took this as an indication that the man was a key figure
+   motion the events that make up the rest of the campaign.                in the death cult, rather than an actual monster. Making
+                                                                           note of the name, Elias was surprised to encounter de
+                                                                           Mendoza in Puno, although the two men did not actually
+CONNECTIONS                                                                meet there. Instead, Elias followed him from a distance,
+TO JACKSON ELIAS                                                           making notes of his movements and contacts. In so doing,
+Keeper note: refer back to the following information should                Elias learned of de Mendoza’s association with Augustus
+the investigators wish to question Elias about his Peruvian                Larkin and, ultimately, Larkin’s plan to find and explore
+research and his theories about the “kharisiri death cult.”                a lost pyramid. While no one has been able to confirm
+Such information is likely to come out quickly once the                    the fact, Elias believes that the pyramid and surrounding
+investigators see a kindred spirit in Elias.                               site are, somehow, linked to the kharisiri.
+
+
+
+
+                                                                    49
+                                                            PROLOGUE
+    Carlyle Papers Peru #1
+S
+E                                                                       INVOLVING THE
+R                                                                       INVESTIGATORS
+                                                                        The investigators are people who have been recruited by
+P                                                                       Augustus Larkin. They have either seen an article in the
+                                                                        international press (Carlyle Papers Peru #1) about the
+E                                                                       archaeological expedition to the highlands of Peru or heard
+                                                                        about it via an academic or another association—and thereby
+N                                                                       contacted Larkin and secured a place—or were sought out by
+                                                                        Larkin and recruited for their particular skills or experience.
+T                                                                       The investigators may be an existing group (in this case,
+                                                                        Larkin may have contacted them directly, neatly creating his
+O                                                                       team in one fell swoop) or this could be the point at which
+                                                                        they meet. The important thing is that they are keen to join
+F                                                                       Larkin’s expedition; this may be because they are interested in
+                                                                        archaeology, have useful skills, or they seek the excitement of
+Y                                                                       traveling through the Andes and uncovering a lost pyramid.
+                                                                        Some individuals may even be simply lured by the hint of
+I                                                                       treasures to be found. Refer to Creating Investigators (page
+                                                                        26, Introduction) for ideas and guidance.
+G                                                                          It is the lure of treasure or lost wisdom that Larkin’s plan
+                                                                        depends upon. He will not explicitly reject investigators
+                                                                        who seem interested in preserving the site, although he is
+                                                                        suspicious of such people from the outset and hopes that
+                                                                        greed will overtake them when they see the riches on offer.
+                                                                           The make up of the expedition consists of: Augustus
+       Elias has now followed Larkin and de Mendoza to Lima             Larkin, Luis de Mendoza, Jesse Hughes (a.k.a. Jackson
+    to try to determine their goal in recruiting foreigners to          Elias), and the investigators. It’s purposefully a small team
+    join the expedition and what precisely this has to do with          by the design of Larkin.
+    the cult. Using a pseudonym, Elias has volunteered to                  Larkin instructs all of the expedition recruits (via telegram
+    join Larkin’s expedition, hoping that neither Larkin nor            or letter) to arrive in Lima in order to meet him at the Bar
+    de Mendoza realize that he has been investigating them;             Cordano in Lima at 7 p.m. on Friday, March 18 (Carlyle
+    however, De Mendoza knows that an African man with                  Papers Peru #2).
+    an American accent has been asking questions—thus, he
+    is already suspicious of Elias.
+       Elias aims to learn more about Luis de Mendoza and               RUNNING THIS CHAPTER
+    Augustus Larkin and their activities. While de Mendoza              The main purpose of this prologue is to introduce Jackson
+    may not actually be a kharisiri, he may know information            Elias to the investigators and, ideally, create a bond between
+    relevant to Elias’ researches or be, somehow, involved in           them. The scenario is designed to create a framework in
+    Elias’ supposed death cult; the locals may think de Mendoza         which the Keeper may insert opportunities to create these
+    is a monster but Elias believes he is just a man; one who           bonds, and doing so should be the Keeper’s top priority. Note
+    might have ties to the dark truth behind the legends.               this chapter is designed to be self-contained and relatively
+       On arriving in Lima to meet with Larkin and join his             short in duration.
+    expedition, the investigators will come into contact with              The majority of this chapter will probably take place
+    Jackson Elias—setting up the foundation for a friendship            in Lima. While the investigators may assume that they
+    that will reach its climax at the start of the core campaign        will leave for the southern highlands and search for the
+    in the America chapter. Aware of how much danger he                 pyramid after buying last-minute provisions, they are more
+    may be in, Elias is keen to find allies to help with his            likely to be drawn into the intrigue surrounding Larkin,
+    researches. The investigators may be just the friends he            de Mendoza, and their true motivations for mounting the
+    is looking for.                                                     expedition. It is possible that some investigators may turn
+
+
+
+                                                                   50
+                                                                   PERU
+                                                                                                            Carlyle Papers Peru #2
+
+
+
+
+a blind eye to the suspicious activities of Larkin and de                 and the investigators will usually have a few rounds to
+Mendoza and end up traveling all the way to the pyramid                   capture or kill them before risking infection. Even the
+with them, but it is far more likely that the conflict will               Father of Maggots poses little direct danger, unless the
+escalate to confrontation and/or violence before then. It                 investigators take some very unwise actions.
+poses no problem if the investigators kill or otherwise                      The Keeper should describe each of these threats
+neutralize Larkin and/or Mendoza early on. Jackson                        in such a way as to make them seem as dangerous as
+Elias knows that there are other kharisiri operating in                   possible, but try to avoid ever facing the investigators
+the highlands, and that the pyramid is important to their                 with overwhelming odds or no-win situations. A little
+cult. Unless the investigators have given him good reason                 gory or sinister narration goes a long way in building
+not to trust them, Elias asks them to accompany him to                    a sense of menace even when the stakes are low. Of
+the heart of this mystery.                                                course, avoid pulling punches—after all Jackson Elias is
+   It is possible that the investigators bypass Puno completely.          a world traveler and, if necessary, he can call upon other
+This is not a problem. The purpose of the Puno section is                 acquaintances should some or all of the investigators die
+to get the investigators on track if necessary—if they’ve                 as a result of their exploits in Peru.
+learned the location of the ruins and do not need to do
+more than buy some pack mules, the Keeper may skip                        Keeping Jackson Elias Alive
+over Puno and move on to the trek across the highlands.                   One of the dangers of running any prequel scenario involving
+   Many of the encounters in Peru are designed to appear                  Jackson Elias is that he may meet a horrible fate earlier than
+more dangerous than they actually are. While the kharisiri                planned. His date with destiny in New York is essential to
+are dangerous foes and very difficult to kill, their tactics              involving the investigators with the events surrounding the
+in combat place them at a disadvantage against opponents                  Carlyle Expedition. As a result, the Keeper should work to
+armed with guns or other weapons. Larkin is host to a                     ensure that Elias survives this chapter. Depending on the
+fragment of a god, but is weak of body and his mind dulled                tastes of the Keeper and the group, this may involve a little
+by narcotics. The larvae are quick and agile, but fragile,                sleight of hand.
+
+
+
+                                                                    51
+                                                                 PROLOGUE
+
+S                                                                               If the heroes threaten Larkin, Nyarlathotep is quick to
+       It will be rare for the investigators to be outnumbered
+E   in any combat in Peru, which allows the Keeper to ensure
+    that most attacks by monsters or NPCs are directed against
+                                                                             take over and ready to use violence and magic to defend
+                                                                             his vessel. In this case, he may summon a creature (such as
+R   the investigators and not Elias. As Elias is more of a
+    gunman than a brawler anyway, he hangs back in most
+                                                                             a hunting horror or dimensional shambler) to deal with his
+                                                                             opponents or provide a distraction to allow him to escape.
+P   fights and lays down covering fire or picks off enemies
+    not engaged in melee.
+                                                                                In a classic Call of Cthulhu game, Luis de Mendoza
+                                                                             is the only kharisiri in Lima, but for pulp games he is
+E      In dangerous situations, Elias should take on a supporting
+    role. Instead of being the first into the fray he keeps an eye
+                                                                             accompanied by two of his converts. The other kharisiri
+                                                                             do not accompany Larkin or de Mendoza overtly, but are
+N   on the investigators, helping them out if they get into serious
+    trouble. This may involve dragging them out of a burning
+                                                                             never far away, unless de Mendoza has sent them to deal
+                                                                             with a troublesome hero or NPC. The Keeper should
+T   building, pointing out a threat that the investigators have
+    missed, applying first aid, or shooting an enemy that was
+                                                                             make liberal use of other kharisiri, having them watch or
+                                                                             tail the heroes wherever they go. The information Elias
+O   about to launch a deadly attack on one of his companions.
+       Despite these considerations, it is important that the
+                                                                             has to share with them indicates that the kharisiri are all
+                                                                             of European appearance, but the recent recruitment drive
+F   Keeper not portray Elias as a coward. The purpose of
+    this chapter is to forge an emotional bond between Elias
+                                                                             by the cult has led to them converting people of all ages,
+                                                                             sexes, and ethnicities. This may prove a nasty surprise
+Y   and the investigators—having Elias run away from every
+    fight and leave the investigators to face danger alone will
+                                                                             the first time the heroes realize that anyone could be a
+                                                                             kharisiri. Ideally, the heroes should become so paranoid
+I   undermine this. Consider Elias as an example investigator:
+    he thinks before acting, ascertains the situation based on
+                                                                             about it that they are wary of meeting any new people.
+                                                                                For inspiration, Fitzcarraldo (Herzog, 1982) is set in
+G   the accumulated facts before heading into danger, and tries
+    to avoid drawing unnecessary attention to himself—skills
+                                                                             the early 20th century in Peru and is somewhat surreal,
+                                                                             while Indiana Jones and the Kingdom of the Crystal Skull
+    and attitudes the investigators would do well to learn and               (Spielberg, 2008) features Peru and some crazy goings-
+    copy! Use him to demonstrate to the players how they                     on with archaeology.
+    “could” go about their business.
+       Elias also has a considerable reserve of Luck. The
+    Keeper can use this to bolster rolls, either to preserve
+    Elias or to make him more effective at helping the                       SETTING
+    investigators. In a Pulp Cthulhu campaign, this Luck
+    can also be used to allow Elias to avoid certain death,                  INFORMATION: PERU
+    should this prove necessary.                                             Located on the west coast of South America, Peru (officially
+                                                                             the Republic of Peru) is the third largest country in the
+    Pulp Considerations                                                      subcontinent, home to just under 5 million people. Its northern
+    This chapter easily lends itself to pulp play simply by dialing          point touches the equator and its landmass of around 500,000
+    up a few threats. The core of the action involves sinister plots,        square miles (1.25 million square km) is widely varied in
+    hidden enemies, and betrayals, all of which can be amped up              terrain and climate. The arid coast gives way inland to warm,
+    to provide a more deliciously pulpy feel.                                wet lowlands (including the Amazon basin), as well as the
+       The Keeper should make more use of the fragment of                    Andes Mountains and their associated highlands.
+    Nyarlathotep in Larkin. This may involve Larkin having a                    Civilization in what is now is Peru dates back to at least
+    dizzy spell and collapsing, only to have his eyes turn black             2,500 BCE. The wide variety of pre-Columbian civilizations
+    and his voice change. In this guise, he is quick to mock                 largely gave way to the Incan Empire in the 14th century,
+    the heroes, offering taunts and threats in quick succession.             which then ruled over most of Peru. The empire proved
+    While this works against Nyarlathotep’s scheme, he is                    short-lived, however. The first Spaniards arrived in 1528,
+    unable to help himself. It also provides an opportunity                  followed by the conquistadors, led by Francisco Pizarro, in
+    for the Keeper to foreshadow some later elements of the                  1532. Pizarro founded the city of Lima in 1535, where he
+    campaign, with Nyarlathotep telling the heroes that the                  was later assassinated in 1542. The Incan Empire finally fell
+    Bloody Tongue will grip them tight until they are crushed,               in 1572 when Francisco de Toledo executed the last reigning
+    or that they may live long enough to see the skies turn                  Inca, Túpac Amaru, and the Viceroyalty of Peru was created.
+    black and all humanity perish. At the very least, he should                 The Viceroyalty lasted until the early 1820s, when
+    promise them that they will meet again.                                  General Jose de San Martin invaded with an army of soldiers
+
+
+
+                                                                        52
+

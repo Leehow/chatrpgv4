@@ -1,0 +1,359 @@
+{
+  "conclusions": [
+    {
+      "conclusion_id": "larkin-serves-nyarlathotep",
+      "importance": "critical",
+      "minimum_routes": 3,
+      "origin": "source",
+      "description": "Augustus Larkin's expedition is a cover; he is marked/controlled to break the pyramid ward imprisoning the Father of Maggots.",
+      "fallback_policy": "RECOVER: at the ruins Larkin's insistence on stripping gold and the tattoo make the truth undeniable even if Lima research was skipped.",
+      "clues": [
+        {
+          "clue_id": "clue-larkin-illness",
+          "delivery": "Bar Cordano dinner observation",
+          "delivery_kind": "npc_dialogue",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Larkin looks wasted, coughs blood, and insists his condition will not slow the expedition.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 59,
+              "grep_anchor": "Larkin"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-larkin-tattoo",
+          "delivery": "glimpse of chest / Elias research",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "A stylized Bloody Tongue tattoo brands Larkin's chest; he cannot explain how he got it.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 59,
+              "grep_anchor": "Larkin's tattoo"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-carlyle-papers-peru",
+          "delivery": "Elias handouts / press clippings",
+          "delivery_kind": "handout",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Carlyle Papers Peru cuttings show Larkin recruiting for a highland dig after failed earlier attempts near a sealed pyramid.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 50,
+              "grep_anchor": "Carlyle Papers Peru"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-broken-ward",
+          "delivery": "inspecting the pyramid base",
+          "delivery_kind": "obvious",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "A section of golden warding around the pyramid base is cracked; rancid fluid and larvae threaten to spill free.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 81,
+              "grep_anchor": "Broken Ward"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "conclusion_id": "de-mendoza-is-kharisiri",
+      "importance": "critical",
+      "minimum_routes": 3,
+      "origin": "source",
+      "description": "Luis de Mendoza is a kharisiri—an undead conquistador feeding the Father of Maggots—not merely Larkin's bodyguard.",
+      "fallback_policy": "RECOVER: open transformation or feeding at the ruins reveals him even if social routes failed.",
+      "clues": [
+        {
+          "clue_id": "clue-de-mendoza-unease",
+          "delivery": "social observation at dinner",
+          "delivery_kind": "social",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "De Mendoza's stare, stillness, and protective hovering around Larkin feel wrong even before Mythos proof.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 62,
+              "grep_anchor": "de Mendoza"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-de-mendoza-kharisiri-hint",
+          "delivery": "Lima street watch / folklore match",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Pale watchers and fat-sucking vampire tales cluster around men who look like de Mendoza.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 55,
+              "grep_anchor": "THE KHARISIRI"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-de-mendoza-named-kharisiri",
+          "delivery": "Nayra names him",
+          "delivery_kind": "npc_dialogue",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Nayra told Elias that Luis de Mendoza is a suspected kharisiri; she has been followed since.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 75,
+              "grep_anchor": "Luis de Mendoza"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-feral-kharisiri-attack",
+          "delivery": "highland camp attack",
+          "delivery_kind": "obvious",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "A feral kharisiri raids the camp at 3 a.m., proving the legends are flesh-and-blood predators.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 77,
+              "grep_anchor": "The Feral Kharisiri"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "conclusion_id": "pyramid-ward-imprisons-father",
+      "importance": "critical",
+      "minimum_routes": 3,
+      "origin": "source",
+      "description": "An ancient golden ward imprisons the Father of Maggots beneath the Andean pyramid; repairing it ends the kharisiri cult.",
+      "fallback_policy": "RECOVER: Nayra's tale plus the visible crack/feeding ritual at the ruins converge even if archives were missed.",
+      "clues": [
+        {
+          "clue_id": "clue-pyramid-rumor",
+          "delivery": "Lima archives / university",
+          "delivery_kind": "handout",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Records and campus research point to a lost highland pyramid tied to fat-stealing legends.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 68,
+              "grep_anchor": "pyramid"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-kharisiri-folklore",
+          "delivery": "folklore research",
+          "delivery_kind": "handout",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Kharisiri/pishtaku tales describe pale men who cut or suck fat and return offerings to a mountain site.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 48,
+              "grep_anchor": "PERUvIAN vAMPIRE"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-nayra-kharisiri-lore",
+          "delivery": "Nayra's teaching",
+          "delivery_kind": "npc_dialogue",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Nayra explains kharisiri as knife-cutters/fat-thieves and links them to a forgotten evil sealed in the highlands.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 75,
+              "grep_anchor": "Of the Kharisiri"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-pyramid-precise-fix",
+          "delivery": "Nayra's directions",
+          "delivery_kind": "npc_dialogue",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Nayra can give a precise bearing to the pyramid ~70 miles SSE of Puno.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 74,
+              "grep_anchor": "precise location for the pyramid"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-charnel-pit",
+          "delivery": "ruins exploration",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "A charnel pit near the pyramid reeks of the kharisiri's discarded victims.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 80,
+              "grep_anchor": "Charnel Pit"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-kharisiri-lair",
+          "delivery": "tunnels under the ruins",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Side tunnels lead to a chamber where kharisiri sleep after feeding their god.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 80,
+              "grep_anchor": "Chamber"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-gold-ward-repair",
+          "delivery": "repairing the golden ward",
+          "delivery_kind": "obvious",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Restoring the gold ward seals the crack; afterward the kharisiri wither as their link to the imprisoned god dies.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 83,
+              "grep_anchor": "repair the ward"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "conclusion_id": "elias-is-ally",
+      "importance": "major",
+      "minimum_routes": 2,
+      "origin": "source",
+      "description": "Jesse Hughes is Jackson Elias, investigating Larkin/kharisiri as a lead toward the wider Carlyle mystery.",
+      "fallback_policy": "RECOVER: Elias may reveal himself if the party is about to abandon the trail.",
+      "clues": [
+        {
+          "clue_id": "clue-elias-alias",
+          "delivery": "private talk / slip of name",
+          "delivery_kind": "npc_dialogue",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Jesse Hughes is traveling under a pseudonym; he is the journalist Jackson Elias.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 56,
+              "grep_anchor": "Jesse Hughes"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-expedition-roster",
+          "delivery": "dinner briefing",
+          "delivery_kind": "handout",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "The expedition roster lists Larkin, de Mendoza, Jesse Hughes, and the hired investigators meeting 18 March at Bar Cordano.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 52,
+              "grep_anchor": "Bar Cordano"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-trinidad-notes",
+          "delivery": "Trinidad Rizo research",
+          "delivery_kind": "handout",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Undergraduate Trinidad Rizo's notes track Larkin's likely destination and kharisiri folklore links.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 68,
+              "grep_anchor": "Trinidad Rizo"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-nayra-location",
+          "delivery": "Puno contacts via Elias",
+          "delivery_kind": "npc_dialogue",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Nayra is hiding on a floating reed island about two miles from Puno.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 74,
+              "grep_anchor": "floating island"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-highland-warnings",
+          "delivery": "Puno locals",
+          "delivery_kind": "social",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Locals warn that few from Puno go near the forgotten highland site tied to evil stories.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 74,
+              "grep_anchor": "few if any"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-julio-warning",
+          "delivery": "Julio and Domingo encounter",
+          "delivery_kind": "npc_dialogue",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Shepherd Julio says kharisiri attacked his son and fled toward the pyramid.",
+          "source_refs": [
+            {
+              "path": "pdf:masks-of-nyarlathotep",
+              "page": 77,
+              "grep_anchor": "Julio"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

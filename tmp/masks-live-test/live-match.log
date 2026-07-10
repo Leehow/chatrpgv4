@@ -1,0 +1,7 @@
+stop_reason: max_turns_reached
+player_turns: 6
+kp_turns: 6
+battle_report: tmp/masks-live-test/ws/.coc/playtests/live-match-20260710T075908Z/artifacts/battle-report.md
+simulation_method: live_llm_player_vs_kp
+narration_method: llm_narrator
+fallback_turns: 0

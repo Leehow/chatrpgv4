@@ -1,0 +1,1075 @@
+
+===== PDF page index 418 (rulebook p.418) =====
+407 
+chapter 16: APPENDICES
+Summary of  
+Game System 
+Rules
+Making Skill Rolls:
+T State a goal before rolling any dice. 
+T Determine the difficulty level for the roll.
+T Pushing the roll: can the player justify it? Keeper may 
+foreshadow consequence of failure.
+T Check skills when used successfully.
+Critical success: 01.
+Fumble: 100 is always a fumble. If the dice roll required for 
+success is below 50, a fumble occurs if 96—100 is rolled.
+Regular Difficulty Level:  Opposing skill/characteristic is 
+below 50, or the task is a standard one. The player needs to roll 
+equal to or below his or her full skill or characteristic to succeed.
+Hard Difficulty Level: Opposing skill/characteristic is equal 
+to or above 50, or the task is exceptionally difficult. The player 
+needs to roll equal to or below half his or her skill or charac -
+teristic to succeed.
+Extreme Difficulty Level:  Opposing skill/characteristic is 
+equal to or above 90, or this task is on the borders of human 
+capability. The player needs to roll equal to or below a fifth of 
+his or her skill or characteristic to succeed.
+Opposed Rolls
+Use when two players are opposing one another. Both roll 
+against agreed skill or characteristic. The one with the best 
+level of success wins:
+A Critical success beats an Extreme success.
+An Extreme success beats a Hard success.
+A Hard success beats a Regular success.
+A Regular success beats a Failure or Fumble.
+In the case of a tie, the side with the higher skill (or charac -
+teristic) wins. If still tied either an impasse has been reached 
+or both sides should re-roll. Opposed rolls cannot be pushed.
+Bonus Dice and Penalty Dice
+For each bonus die: roll an additional tens percentile die 
+alongside the usual pair of percentile dice when making a skill 
+roll (rolling 3 separate dice: one units die and two tens dice). 
+Use the tens dice that yields the better (lower) result. 
+For each penalty die: roll an additional tens percentage die 
+alongside the usual pair of percentage dice (rolling 3 separate 
+dice: one units die and two tens dice). Use the tens dice that 
+yields the worse (higher) result. 
+Human Limits and Skill Rolls
+The upper limit of what can be opposed is 100 + the 
+investigator’s skill or characteristic.
+Starting with the lowest, deduct each investigator’s 
+characteristic value in turn from the opposition’s characteristic. 
+Continue doing this until the opponent’s characteristic 
+has been reduced to a value that can be challenged by an 
+investigator. Investigators whose characteristics were not used 
+to reduce the opposing factor may now make a skill roll, with 
+an Extreme, Hard or Regular difficulty level, as determined 
+by the value of the opposing characteristic. The opposition 
+cannot be reduced to zero or lower by this method; a skill roll 
+is always required.
+Combined Skill Rolls
+Used when a situation allows or demands the use of more 
+than one skill. 
+Only one dice roll is made; the result is then compared 
+with each of the skills named. The Keeper will specify whether 
+a success is required for both skills, or if only one of the skills 
+need be successful.
+Investigator  
+Development Phase
+T Roll 1D100 for each skill checked. If the result is high-
+er than the skill or over 95, add 1D10 skill points.
+T Erase ticks.
+T If an increase raises a skill to 90% or more, add 2D6 
+Sanity points.
+T Check Credit Rating and review finances (see Inves-
+tigator Development Phase: Employment and 
+Credit Rating, page 96).
+T Seek to recover Sanity (see Chapter 7: Sanity).
+T Review the investigator’s background (see Altering 
+an Investigator’s Backstory, page 95).
+
+===== PDF page index 419 (rulebook p.419) =====
+408 
+Call of Cthulhu
+Summary of  
+Melee Combat
+1. Establish the order of attack: Rank all characters in DEX 
+order—highest goes first.
+Surprise attacks: Allow a skill roll to determine whether the 
+target anticipates the attack (Spot Hidden, Listen, Psychology). 
+If successful, switch to the usual DEX combat order. Otherwise 
+the attack automatically hits or gains a bonus die.
+2. Each character gets one action: Any action a character can 
+make in a combat round—attacking, dodging, fighting back, 
+fleeing, casting a spell, etc. Note: some NPCs and monsters 
+have multiple actions.
+3. Determine the intention of the action: Is the intention to 
+cause damage, dodge or perform a maneuver?
+4. The target of an attack may fight back, dodge the attack 
+or attempt a maneuver of their own.
+5. Both sides make a skill roll.
+If the character chooses to fight back, use the target’s 
+Fighting skill to oppose the attacker’s Fighting skill. 
+If the character chooses to dodge, use the target’s Dodge 
+skill to oppose the attacker’s Fighting skill.
+If the target is neither fighting back nor dodging, refer to 
+Striking the first blow (Surprise Attacks) on page 106.
+6. Determine who was successful. 
+a) Attacking a target that is fighting back: The side with the 
+better level of success avoids being harmed, and inflicts damage on 
+the opponent. In a draw the character initiating the attack beats the 
+character that is fighting back. If both fail, no damage is inflicted.
+b) Attacking a target that is dodging: If the attacker gains a 
+higher level of success, the attack is successful and the attacker 
+inflicts damage on the loser. Otherwise the attack is dodged 
+and no damage is dealt. In a draw the character dodging wins 
+and evades the attack. If both fail, no damage is inflicted.
+Combat rolls cannot be pushed.
+7. Roll damage for successful attacks (see Table XVII: 
+Weapons, page 401-406, or 1D3 for unarmed human attack). 
+If the attacker gains an Extreme level of success (not if fighting 
+back) greater damage is inflicted:
+If the attacker is using an impaling weapon: maximum 
+damage (maximum damage plus maximum damage bonus) 
+plus roll weapon damage. 
+If the attacker is using a non-impaling weapon (e.g. blunt): 
+maximum damage (maximum damage plus maximum damage 
+bonus).
+Summary of  
+Fighting Maneuvers
+If the goal is something other than simply inflicting physical 
+harm (e.g. disarm), resolve it with a maneuver.
+1. Compare Builds of the character performing the ma -
+neuver and the target: If attacker is smaller then they take 1 
+penalty die for each point of difference in Build. If difference is 
+3 or more, the maneuver is impossible.
+2. Make the attack roll: Same as for a regular Fighting attack 
+(Brawling or appropriate fighting specialization skill). The 
+opponent should choose to either dodge or fight back as they 
+would for a normal attack:
+G If the target is dodging: Roll Fighting skill vs. Dodge 
+skill. If the character performing the maneuver 
+achieves a higher level of success than the character 
+dodging, the maneuver is successful (if tied, the tar -
+get is able to dodge the maneuver).
+G If the target is fighting back: Roll Fighting skill vs. 
+Fighting skill. If the character fighting back achieves 
+a higher level of success, the maneuver fails and the 
+opponent inflicts damage on the character performing 
+the maneuver (if tied, the maneuver is successful). 
+G The target of an attack may use a maneuver of their 
+own: Resolve as for fighting back, but apply the effect 
+of their maneuver instead of inflicting damage.
+3. A successful maneuver allows the character to achieve 
+one goal (page 105).
+Other Combat Situations
+Outnumbered
+Once a character has either fought back or dodged once in 
+the present combat round, all subsequent attacks on them are 
+made with one bonus die.
+Characters and monsters that have more than one attack 
+per round may also dodge or fight back that number of times 
+before the bonus die is applied. Note that some Mythos 
+entities can never be outnumbered by investigators.
+Ranged and Thrown Attacks 
+Ranged missile attacks (such as bows) are treated like firearms 
+(target has the option of Diving for Cover, see page 113).
+Thrown weapons may be opposed with the Dodge skill in the 
+same way as Fighting attacks (see Resolving a Fighting Attack 
+Made Against a Target that is Dodging, page 103).
+===== PDF page index 420 (rulebook p.420) =====
+409 
+chapter 16: APPENDICES
+A character may not choose the option of fighting back 
+against a ranged (missile) or thrown weapon attack unless he 
+or she is already within close physical proximity to the attacker 
+(within a fifth of their DEX in feet).
+Half the attacker’s damage bonus is applied to thrown 
+weapons and missile weapons which rely directly on the 
+user’s strength. Thus this applies to bows and slings but not 
+to crossbows.
+To resolve a ranged or thrown attack, the Keeper should set 
+a difficulty level as for a firearm attack (see Range and Firearms 
+Difficulty Levels, page 112).
+Escaping Close Combat
+On their turn in the order of combat, providing a character has 
+an escape route and is not physically restrained, their action 
+can be used to flee melee combat. 
+Armor 
+Armor reduces the damage received: deduct the number of 
+armor points from the damage.
+Summary of  
+Firearms Combat
+To resolve a firearms attack, make a 1D100 roll and compare 
+the result with the attacker’s Firearms skill (using the 
+appropriate specialization). The firearms roll is not opposed. 
+The difficulty level is determined by the range, with various 
+other factors granting either penalty or bonus dice. A failure 
+never deals damage.
+Readied Firearms: Shoot at DEX + 50.
+Firearms  
+Difficulty Levels
+The difficulty level of a firearms skill roll is always set according 
+to range. 
+G Within base range: Regular difficulty level.
+G Long range (up to twice base range): Hard difficulty 
+level.
+G Very long range (up to four times base range): Ex -
+treme difficulty level.
+Any further modifiers use bonus or penalty dice.
+Note: At very long range, when only an Extreme success 
+will hit the target, an impale only occurs with a critical hit (a 
+roll of 01).
+Firearm Modifiers
+Once the difficulty level of a firearms attack has been set, all 
+other factors that lend a distinct advantage or disadvantage 
+are taken into account.
+ 
+G Target is diving for cover (Dodge roll success): one 
+penalty die.
+G Target is partially concealed: one penalty die.
+G Point-blank range (within fifth DEX in feet): one 
+bonus die.
+G Aiming (for one round): one bonus die.
+G Fast-moving target (MOV 8+): one penalty die.
+G Target is small (Build –2): one penalty die.
+G Target is large (Build 4+): one bonus die.
+G Loading 1 bullet and shooting in same round: one 
+penalty die.
+G Firing 2+ shots from a handgun in one round: one 
+penalty die on all shots.
+G Firing into melee: one penalty die.
+Aiming: Must be declared on the character’s turn in the order 
+of combat. The shot is taken on the same turn in the order of 
+combat on the following round. If the aiming character takes 
+damage or moves while aiming, the advantage of aiming is lost. 
+Firing into melee combat:  A fumble indicates an ally has 
+been hit. If multiple allies are in the line of fire, the one with 
+the lowest Luck score is hit.
+Armor Examples:
+Heavy leather jacket 1 point
+WWI helmet 2 points
+1" Hardwood 3 points
+Present U.S. Helmet 5 points
+Heavy Kevlar Vest 8 points
+Military Body Armor 12 points
+1.5" bulletproof glass 15 points
+1" Steel plate 19 points
+Large sand bag 20 points
+===== PDF page index 421 (rulebook p.421) =====
+410 
+Call of Cthulhu
+Reloading Firearms: One combat round to load two shells 
+into any handgun, rifle or shotgun. Allow one round to 
+exchange a clip. Allow two rounds to change a machine gun 
+belt.
+Full Auto/ Burst Fire
+Player declares the number of bullets to be fired before rolling 
+dice. Full auto fire is divided into a number of volleys; each 
+volley requires a skill roll. Divide firer’s skill by 10 (round down) 
+to determine how many bullets are in a volley (regardless of 
+skill, a volley is never less than 3 bullets). The attacker must 
+make a fresh attack roll for each volley of shots or whenever 
+they select a new target. Burst fire is a single skill roll (a single 
+volley).
+Ammunition is expended when moving between targets 
+(one bullet per meter/yard).
+Rolling to Hit with Full Auto/Burst Fire:
+First attack roll:  set difficulty by range and then apply any 
+modifiers.
+Second and further attack rolls: add one penalty die (or re-
+move a bonus die) for each additional attack roll. If this would 
+incur three penalty dice, stick with two penalty dice and raise 
+the difficulty level by one step.
+Resolving each attack roll:
+G If the attack roll is successful: half of the shots 
+fired hit the target—roll damage for half of the shots 
+(round down, minimum of one). Subtract any armor 
+from each shot.
+G  If the attack is an Extreme success:  all shots fired 
+hit the target, the first half (round down, minimum of 
+one) of which impale. Subtract any armor from each 
+shot. If the difficulty level of the shot was Extreme, 
+the best possible result is a successful hit and not an 
+impale. 
+Malfunctions: Any attack roll result equal to or higher than 
+the firing weapon’s malfunction number indicates that the 
+weapon malfunctions and does not fire.
+A Summary of  
+Firearms Modifiers: Bonus 
+and Penalty dice
+Difficulty Level Bonus Die Penalty Die
+Regular: Normal 
+range
+Aiming for 1 round Target diving for 
+cover
+Hard: Long range Point blank Fast-moving target 
+(MOV 8+)
+Extreme: Very long 
+range
+Large target (Build 4+) Partial (50%+) 
+concealment
+Small target (Build –2)
+Multiple handgun 
+shots
+Loading and firing 
+one shot in a single 
+round
+Firing into melee
+===== PDF page index 422 (rulebook p.422) =====
+411 
+chapter 16: APPENDICES
+Table III:  
+Other Forms of Damage
+*Asphyxiation and drowning: a CON roll should be made each round; once a CON roll is failed, damage is sustained each 
+round thereafter until death or until the victim is able to breathe. If the character is in a state of physical exertion, a Hard success 
+is required on the CON roll. Death occurs at zero hit points (ignore the Major Wound rule).
+**Poisons: a roll equal to or less than one-fifth of CON will halve damage from poisons. Poisons may cause a variety 
+of additional symptoms including: stomach pains, vomiting, diarrhea, chills, sweats, cramps, jaundice, altered heart rate, 
+impaired vision, convulsions, unconsciousness and paralysis. It is up to the Keeper whether the symptoms permit the victim 
+to act or not, or to act with a penalty die or an increased level of difficulty.
+In certain circumstances, Keepers may allow a poison's effects to be shaken off if the CON roll is a critical success.
+Injury Damage Examples
+Minor: a person could survive 
+numerous occurrences of this level 
+of damage.
+1D3 Punch, kick, head-butt, mild acid, breathing smoky atmosphere*, a 
+thrown fist-size rock, falling (per 10 feet) onto soft swamp.
+Moderate: might cause a major 
+wound; it would take a few such 
+attacks to kill.
+1D6
+Falling (per 10 feet) onto grass, club, strong acid, breathing water*, 
+exposure to vacuum*, small caliber bullet, arrow,  
+fire (burning torch).
+Severe: likely to cause a major 
+wound. One or two occurrences 
+would render a person 
+unconscious or dead.
+1D10
+.38 caliber bullet, falling (per 10 feet) onto concrete, axe, fire 
+(flamethrower, running through a burning room), being 6 to 9 
+yards from an exploding hand grenade or stick of dynamite,  
+a mild poison**.
+Deadly: the average person has a 
+50% chance of dying. 2D10 Hit by a car at 30mph, being 3 to 6 yards from an exploding hand 
+grenade or stick of dynamite, a strong poison**.
+Terminal: outright death is likely. 4D10 Hit by a speeding car, being within 3 yards of an exploding hand 
+grenade or stick of dynamite, a lethal poison**.
+Splat: outright death almost 
+certain. 8D10 Being involved in a high-speed head-on collision,  
+being hit by a train.
+
+===== PDF page index 423 (rulebook p.423) =====
+412 
+Call of Cthulhu
+
+===== PDF page index 424 (rulebook p.424) =====
+413 
+chapter 16: APPENDICES
+
+===== PDF page index 425 (rulebook p.425) =====
+414 
+Call of Cthulhu
+Summary of  
+Chase Rules
+Establishing the Chase
+Decide whether fleeing characters/vehicles are heading in 
+same direction or splitting up. If splitting up, decide which 
+pursuers are chasing which characters/vehicles. If you have 
+multiple groups, treat each one as a separate chase.
+Speed roll: All participants make a skill roll: CON (if on foot 
+or other self-propelled mode) or Drive Auto (for vehicles). 
+G If passed: MOV remains unchanged. 
+G If an Extreme success: MOV +1. 
+G If failed: MOV –1.
+Order each group separately in order of MOV.
+Fleeing characters/vehicles with a speed greater than any 
+of their pursuers may escape completely. 
+Pursuers with a speed that is lower than the slowest fleeing 
+character are completely out of the chase. 
+Cut to the Chase 
+Place the pursuers:  Place pursuers in order, slowest at the 
+rear, others a number of locations ahead equal to their differ -
+ence in MOV.
+Place the fleeing characters:  Place the fleeing characters/
+vehicles in order, slowest at the rear (2 locations ahead of the 
+lead pursuer), others a number of locations ahead equal to 
+their difference in MOV.
+Position hazards and barriers.
+Allocate each participant a number of movement ac -
+tions: Every character and vehicle gets one movement action 
+by default. To this is added the difference between their move-
+ment rating (MOV) and the movement rating of the slowest 
+participant in the chase.
+Determine DEX order
+Hazards: Make a skill roll to move through a hazard. If the 
+skill roll is failed, the Keeper may inflict damage (see Table III: 
+Other Forms of Damage, page 411, or Table VI: Vehicular 
+Collisions, opposite) and delay (1D3 movement actions).
+Cautious approach to hazards:  1 or 2 movement actions 
+may be spent to buy 1 or 2 bonus dice for the skill roll to 
+negotiate a hazard.
+Barrier: Either a barrier must be broken down or a skill roll 
+must also be made before a character/vehicle can move onto 
+the next location. If appropriate, the Keeper may wish to 
+inflict damage and delay as for a hazard.
+Breaking down barriers:  Vehicles inflict 1D10 damage for 
+each point of their Build. If a vehicle attacks a barrier and fails 
+to destroy it, the vehicle is wrecked. If the barrier is destroyed, 
+the vehicle suffers an amount of damage equal to half the 
+barrier’s hit points prior to impact.
+G Internal door or thin wooden fence: 5 hit points.
+G Standard back door: 10 hit points.
+G Strong domestic external door: 15 hit points.
+G 9” brick wall: 25 hit points.
+G Mature tree: 50 hit points.
+G Concrete bridge support: 100 hit points.
+Attacks: Cost 1 movement action to initiate (except if 
+ranged). Resolve as regular combat. 
+Vehicles in combat: Substitute Drive Auto for both Fighting 
+and Dodge skills. A vehicle can be used as a weapon (1D10 
+damage per listed build point). Whenever a vehicle is used to 
+inflict damage it also suffers an amount of damage equal to 
+half (round down) that which it delivers, but never enough 
+to cause it to lose a greater amount of build points than the 
+thing which it hit originally possessed. Each full 10 hit points 
+of damage decreases a vehicle’s build by one point (round 
+down); damage below 10 points is ignored.
+Random locations: Roll 1D100:
+ 01-59 = 1 open location
+ 60+ = 1 Regular hazard
+ 85+ = 1 Hard hazard 
+ 96+ = 1 Extreme hazard 
+Environment is especially hazardous: add a penalty die.
+Environment is unlikely to have any dangers or delays:  
+add a bonus die.
+Sudden hazards: Once per round there is the option to call 
+for a group Luck roll. Winner (Keeper or players) gets to place 
+a regular hazard where they wish. Keeper and players must 
+alternate in who calls for a sudden hazard.
+MOV 5 6 7 8 9 10 11 12
+MPH 3 4 6 8 12 18 27 40
+MOV 13 14 15 16 17 18 19 20
+MPH 60 90 135 200 300 450 675 1000
+===== PDF page index 426 (rulebook p.426) =====
+415 
+chapter 16: APPENDICES
+Pedal to the Metal
+A driver can elect to move 2 or 3 locations 
+with one movement action. Any hazards 
+encountered have one penalty die applied to 
+the skill rolls.
+A driver can elect to move 4 or 5 
+locations with one movement action. Any 
+hazards encountered have two penalty dice 
+applied to the skill rolls.
+One passenger can assist the driver with 
+navigation and spotting ways to negotiate 
+hazards. With a successful Spot Hidden or 
+Navigate roll, on the vehicle’s next move, 
+the vehicle can accelerate once with 1 fewer 
+penalty die.
+Firearms: Penalty die while moving. No 
+penalty die if remaining stationary and 
+spending 1 movement action.
+Tires: Penalty die to target tires. Armor:3. 
+Hit points: 2 (only damaged by impaling 
+weapons). Destroying a tire reduces vehicle 
+Build by 1.
+Driver damage: If the driver of a moving 
+vehicle takes a major wound he or she may 
+lose control of their vehicle and must roll 
+immediately as for a Hazard at Hard diffi -
+culty level.
+Switching between being running and 
+driving: Make a fresh speed roll. Recalculate 
+movement actions. 
+Monsters in Chases
+Where the monster or non-player character 
+has an implied aptitude, use their DEX in place of 
+the skill.
+Where the monster or non-player character has 
+an implied ineptitude, use one-fifth of their DEX in 
+place of the skill (or simply rule the attempt to be an 
+automatic failure).
+Where the monster or non-player character has 
+neither implied aptitude nor ineptitude, use half of 
+their DEX in place of the skill.
+If other skills are required, the Keeper might use a 
+similar approach, using what he or she feels to be the 
+most appropriate characteristic from which to derive 
+skill values.
+Table VI: Vehicular Collisions
+Incident Damage Examples
+Minor incident: 
+Most Regular 
+Hazards. May be 
+cosmetic damage 
+only, possibly 
+something serious.
+1D3–1 
+Build
+Glancing blow from another 
+vehicle, grazing a lamp post, 
+hitting a post, colliding with 
+person or similar-sized creature.
+Moderate incident: 
+Most Hard Hazards. 
+Might cause major 
+damage. Might 
+wreck a car. .
+1D6 
+Build 
+Hitting a cow or large deer, 
+collision with a heavy motorbike 
+or economy car.
+Severe incident: 
+Most Extreme 
+Hazards. Likely 
+to wreck a car 
+outright.
+1D10 
+Build
+Collision with a standard car, 
+lamp post or tree.
+Mayhem: Likely 
+to wreck a truck 
+outright. Almost 
+certain to wreck a 
+car.
+2D10 
+Build
+Collision with a truck or coach 
+or a mature tree.
+Road kill: Most 
+vehicles will be little 
+more than scattered 
+debris.
+5D10 
+Build
+Collision with a juggernaut or a 
+train, hit by a meteor.
+Summary: Five Steps to 
+Setting Up a Chase
+To sum up, there are five steps for the Keeper to 
+perform when setting up a chase:
+G Place the pursuer.
+G Place the fleeing character.
+G Position hazards and barriers.
+G Allocate each participant a number of move -
+ment actions.
+G Determine DEX order.
+
+===== PDF page index 427 (rulebook p.427) =====
+416 
+Call of Cthulhu
+Table V: Vehicle Reference Charts
+The following vehicles use the Drive Auto skill.
+Vehicles on the following chart require specialist training to 
+operate; the skill Operate Heavy Machinery might be substituted. 
+Vehicles on the following chart use the Pilot skill. Many require a 
+substantial crew. The armor value is for those on deck.
+Vehicles on the following chart use the Pilot skill. Many require 
+a substantial crew.
+Vehicles on the following chart use the Ride skill. 
+Key
+MOV: A rating of the vehicle’s speed and maneuverability 
+in chases. These ratings are for modern vehicles and may be 
+reduced by around 20% for 1920s vehicles (though there were 
+cars in the 1920s that could exceed 100 MPH). 
+Build: A rating of the strength and size of the vehicle. When 
+reduced to zero, the vehicle is out of action. Each full 10 hit 
+points of damage decreases a vehicle’s build by 1 point (round 
+down); damage below 10 hit points is ignored.
+If a vehicle’s build is reduced to half (round down) of its 
+starting value or lower, it is impaired; one penalty die is applied 
+to all Drive Auto (or appropriate skill) rolls.
+If a vehicle takes damage equal to its full build value in one 
+incident, the vehicle is completely wrecked in an impressive 
+manner. It may explode, burn, roll or suffer some combination 
+thereof. All occupants of the vehicle are likely to die. Whether or 
+not investigators have a chance of survival is up to the Keeper: 
+Luck rolls may be allowed. Those who are fortunate get thrown 
+free, though it is recommended they take at least 2D10 damage. 
+If a vehicle’s build is otherwise reduced to zero by 
+cumulative damage (i.e. in increments of less than the vehicle’s 
+starting build value), it becomes undriveable, grinding to a halt. 
+Depending on the situation (and perhaps a Luck roll) this may 
+lead to an accident resulting in 1D10 damage for the driver and 
+each passenger. 
+Armor for people: The armor rating is for the passengers and 
+driver, reflecting the number of points of armor the vehicle 
+provides against external attacks.
+Passengers and crew: The number of people that can be 
+accommodated.
+Vehicle MOV Build Armor 
+for people
+Passengers
+Car, economy 13 4 1 3 or 4
+Car, standard 14 5 2 4
+Car, deluxe 15 6 2 4
+Sports car 16 5 2 1
+Pickup truck 14 6 2 2+
+6-ton truck 13 7 2 2+
+18-wheeler 13 9 2 3+
+Motorcycle, light 13 1 0 1
+Motorcycle, 
+heavy
+16 3 0 1
+Air Vehicles MOV Build Armor for 
+people
+Passengers
+Dirigible 12 10 2 112+
+Propeller plane 15 5 1 4+
+Bomber plane 17 11 2 10+
+Jet plane 18 11 3 50+
+Helicopter 15 5 2 15+
+Other forms of 
+transport
+MOV Build Armor for 
+people
+Passengers
+Horse (with 
+rider)
+11 4 0 1
+4-horse carriage 10 3 0 6+
+Bicycle 10 0.5 0 1
+Heavy 
+Vehicles
+MOV Build Armor for 
+people
+Passengers
+Tank 11 20 24 4
+Steam train 12 12 1 400+
+Modern train 15 14 2 400+
+Water Vehicles MOV Build Armor for 
+people
+Passengers
+Row boat 4 2 0 3
+Hovercraft 12 4 0 22
+Motorboat 14 3 0 6
+Cruise ship 11 32 0 2200+
+Battleship 11 65 0 1800+
+Aircraft carrier 11 75 0 3200+
+Submarine 12 24 0 120+
+===== PDF page index 428 (rulebook p.428) =====
+417 
+chapter 16: APPENDICES
+Summary of  
+Sanity Rules
+Failing a Sanity roll: one involuntary action.
+Sanity loss of 5 points or more: make an Intelligence roll—if 
+successful, temporary insanity ensues.
+Sanity loss of one-fifth or more in one day:  indefinite 
+insanity ensues.
+The Phases of Insanity
+A bout of madness:  either "real time" (1D10 rounds) or 
+"summary" (1D10 hours); Keeper amends one backstory 
+detail (phobia, mania, etc.)
+Underlying Insanity:  any further Sanity loss results in 
+another bout of madness; the investigator is prone to 
+delusions.
+The Side-Effects of Insanity
+1. Phobias: while insane, must fight/flee or take a penalty die 
+on skill rolls.
+2. Manias: while insane, must submit to mania or take a 
+penalty die on skill rolls.
+3. Delusions and Reality Checks: make a Sanity roll to test 
+for delusions:
+ Failure:  lose 1 Sanity point (and undergo a bout of  
+ madness if insane).
+ Success: dismiss delusions.
+4. Insanity and the Cthulhu Mythos:  add 5% Cthulhu 
+Mythos skill with first bout of madness inspired by a Mythos-
+related event. Add 1% on subsequent occasions.
+Recovery
+From temporary insanity: after 1D10 hours or a good rest.
+From indefinite insanity: roll at the end of each month of 
+treatment; Keeper may allow automatic recovery during the 
+next investigator development phase.
+Treatment with private/home care (roll 1D100 per month): 
+01–95: success (or under psychoanalysis skill); add 1D3 
+Sanity points. Make a Sanity roll—if successful, insanity is 
+cured.
+96–100: failure; lose 1D6 Sanity points.
+Treatment at institution (roll 1D100 per month): 
+01–50: success (or under Psychoanalysis skill); add 1D3 
+Sanity points. Make a Sanity roll—if successful, insanity is 
+cured.
+51-95: no progress.
+96–100: failure; lose 1D6 Sanity points. 
+Getting Used to the Awfulness
+The player records the cumulative Sanity points lost to a given 
+Mythos entity (e.g. deep ones); the cumulative loss should 
+not exceed the maximum amount for a single encounter with 
+that entity. Lower the recorded cumulative loss by 1 with each 
+investigator development phase.
+
+===== PDF page index 429 (rulebook p.429) =====
+418 
+Call of Cthulhu
+Table VII: 
+Bouts of Madness—Real Time (roll 1D10):
+1) Amnesia: The investigator has no memory of events that have taken place since they were last in a place of safety. For example, it seems 
+to them that one moment they were eating breakfast and the next they are facing a monster. This lasts for 1D10 rounds.
+2) Psychosomatic disability: The investigator suffers psychosomatic blindness, deafness, or loss of the use of a limb or limbs for 1D10 rounds.
+3) Violence: A red mist descends on the investigator and they explode in a spree of uncontrolled violence and destruction directed at their 
+surroundings, allies or foes alike for 1D10 rounds. 
+4) Paranoia: The investigator suffers severe paranoia for 1D10 rounds; everyone is out to get them; no one can be trusted; they are being spied 
+on; someone has betrayed them; what they are seeing is a trick.
+5) Significant Person: Review the investigator’s backstory entry for Significant People. The investigator mistakes another person in the 
+scene for their Significant Person. Consider the nature of the relationship; the investigator acts upon it. This lasts 1D10 rounds. 
+6) Faint: The investigator faints. They recover after 1D10 rounds.
+7) Flee in panic: The investigator is compelled to get as far away as possible by whatever means are available, even if it means taking the only 
+vehicle and leaving everyone else behind. They travel for 1D10 rounds.
+8) Physical hysterics or emotional outburst: The investigator is incapacitated from laughing, crying, screaming, etc. for 1D10 rounds.
+9) Phobia: Investigator gains a new phobia. Roll 1D100 on Table IX: Sample Phobias (page 160), or the Keeper may choose one. Even if 
+the source of the phobia is not present, the investigator imagines it is there for the next 1D10 rounds.
+10) Mania: The investigator gains a new mania. Roll 1D100 on Table X: Sample Manias (page 161), or the Keeper may choose one. The 
+investigator seeks to indulge in their new mania for the next 1D10 rounds.
+Table VIII: 
+Bouts of Madness—Summary (roll 1D10):
+1) Amnesia: The investigator comes to their senses in some unfamiliar place with no memory of who they are. Their memories will slowly 
+return to them over time.
+2) Robbed: The investigator comes to their senses 1D10 hours later, having been robbed. They are unharmed. If they were carrying a 
+Treasured Possession (see investigator backstory), make a Luck roll to see if it was stolen. Everything else of value is automatically missing.
+3) Battered: The investigator comes to their senses 1D10 hours later to find themselves battered and bruised. Hit points are reduced to 
+half of what they were before going insane, though this does not cause a Major wound. They have not been robbed. How the damage was 
+sustained is up to the Keeper.
+4) Violence: The investigator explodes in a spree of violence and destruction. When the investigator comes to their senses, their actions 
+may or may not be apparent or remembered. Who or what the investigator has inflicted violence upon and whether they have killed or 
+simply inflicted harm is up to the Keeper.
+5) Ideology/Beliefs: Review the investigator’s backstory entry for Ideology and Beliefs. The investigator manifests one of these in an extreme, 
+crazed and demonstrative manner. For example, a religious person might be found later, preaching the gospel loudly on the subway.
+6) Significant People: Consult the investigator’s backstory entry for Significant People and why the relationship is so important. In the time 
+that passes (1D10 hours or more) the investigator has done their best to get close to that person and act upon their relationship in some way.
+7) Institutionalized: The investigator comes to their senses in a psychiatric ward or police cell. They may slowly recall the events that 
+led them there.
+8) Flee in panic: When the investigator comes to their senses they are far away, perhaps lost in the wilderness or on a train or long-distance bus.
+9) Phobia: The investigator gains a new phobia. Roll 1D100 on Table IX: Sample Phobias (page 160), or the Keeper may choose one. 
+The investigator comes to their senses 1D10 hours later, having taken every precaution to avoid their new phobia.
+10) Mania: The investigator gains a new mania. Roll 1D100 on Table X: Sample Manias (page 161), or the Keeper may choose one. The 
+investigator comes to their senses 1D10 hours later. During this bout of madness, the investigator will have been fully indulging in their new 
+mania. Whether this is apparent to other people is up to the Keeper and player.
+
+===== PDF page index 430 (rulebook p.430) =====
+419 
+chapter 16: APPENDICES
+Summary of 
+ Magic Rules
+Initial reading of a tome: may require reading roll; variable 
+duration (hours to weeks at the Keeper’s discretion); results in 
+Sanity point loss (if a believer); reader gains Cthulhu Mythos 
+skill points as noted in the tome description.
+Reading Roll:
+Printed within the last century and in good condition:  
+Regular difficulty.
+Handwritten (especially if old): Hard difficulty level.
+Most challenging of ancient, moldering tomes:  Extreme 
+difficulty level.
+Full study of a tome:  an initial reading must first be com -
+pleted; no reading roll required; see Table XI: Mythos Tomes  
+(page 237) for study time; results in Sanity point loss (if a 
+believer); if the tome’s Mythos rating is greater than the read-
+er’s Cthulhu Mythos skill, the reader gains the full Cthulhu 
+Mythos benefit; if Cthulhu Mythos skill is greater than tome’s 
+Mythos rating, the reader gains only the initial reading value; 
+each subsequent full study doubles in study time. 
+For details of tomes see Chapter 11: Tomes of Eldritch Lore.
+Initial reading: Reading roll may be required. Keeper decides 
+on time required. Roll for Sanity loss and increase Cthulhu 
+Mythos skill by tome's CMI value.
+Using a tome as a reference book:  must have completed 
+a full study; 1D4 hours; roll less than or equal to the book’s 
+Cthulhu Mythos Rating. 
+Magic points, overspending:  take additional Magic points 
+from hit points.
+Magic points, recovery:  1 Magic point per hour (more if 
+POW is over 100).
+Learning a spell from a Mythos book:  complete an Initial 
+reading; variable duration (hours to weeks at Keeper’s discre -
+tion, typically 2D6 weeks); make a Hard INT roll (optional).
+Learning a spell from another person: as from a book, but faster.
+Learning a spell from a Mythos entity:  very fast; INT roll 
+to retain spell.
+Initial casting of a spell: make a Hard POW roll; either Push 
+or fully relearn spell; failing the Pushed roll allows the spell 
+to be cast but costs 1D6 x MP and Sanity points, and incurs 
+other side-effects.
+Casting time and spells in combat (see Chapter 12: 
+Grimoire): instantaneous—on the user’s DEX+50; one 
+round—it activates on the user’s DEX in the present round; 
+two rounds—it activates in the following round on the user’s 
+DEX, and so on.
+Believer: while a nonbeliever, gain Cthulhu Mythos skill but 
+do not lose Sanity points for reading tomes; with first loss of 
+Sanity points to direct experience of the Cthulhu Mythos, also 
+lose Sanity points equal to Cthulhu Mythos skill.
+Increasing POW 
+A spell requiring an opposed POW roll to affect a target is 
+successfully cast (the opposed roll is won)—roll 1D100; if 
+greater than POW (or roll 96 or greater), POW increases by 
+1D10 points permanently.
+A Luck roll result of 01—roll 1D100; if greater than POW (or 
+roll 96 or greater), POW increases by 1D10 points permanently.
+
+===== PDF page index 431 (rulebook p.431) =====
+420 
+Call of Cthulhu
+Find the characteristic or skill value under the Base Number column, and read across to determine the half (Hard) and fifth 
+(Extreme) values.
+Quick Reference Chart for Half and Fifth V alues
+Base 
+Number
+Half 
+Value 
+(½)
+Fifth 
+Value 
+(1/5)
+Base 
+Number
+Half 
+Value 
+(½)
+Fifth 
+Value 
+(1/5)
+Base 
+Number
+Half 
+Value 
+(½)
+Fifth 
+Value 
+(1/5)
+Base 
+Number
+Half 
+Value 
+(½)
+Fifth 
+Value 
+(1/5)
+1 0
+0
+26
+13
+5
+51 25
+10
+76
+38
+15
+2
+1
+27 52
+26
+77
+3 28
+14
+53 78
+39
+4
+2
+29 54
+27
+79
+5
+1 
+30
+15
+6
+55
+11
+80
+40
+16
+6
+3
+31 56
+28
+81
+7 32
+16
+57 82
+41
+8
+4
+33 58
+29
+83
+9 34
+17
+59 84
+42
+10
+5
+2
+35
+7
+60
+30
+12
+85
+17
+11 36
+18
+61 86
+43
+12
+6
+37 62
+31
+87
+13 38
+19
+63 88
+44
+14
+7
+39 64
+32
+89
+15
+3
+40
+20
+8
+65
+13
+90
+45
+18
+16
+8
+41 66
+33
+91
+17 42
+21
+67 92
+46
+18
+9
+43 68
+34
+93
+19 44
+22
+69 94
+47
+20
+10
+4
+45
+9
+70
+35
+14
+95
+19
+21 46
+23
+71 96
+48
+22
+11
+47 72
+36
+97
+23 48
+24
+73 98
+49
+24
+12
+49 74
+37
+99
+25 5 50 25 10 75 15 100 50 20
+===== PDF page index 432 (rulebook p.432) =====
+421 
+chapter 16: APPENDICES
+Eldritch Words
+H.P . Lovecraft was known for his use of unusual words, 
+which lent his writing a particular flavor. Y ou may find 
+the following list of Lovecraftian words useful and 
+inspirational in play. 
+A word of caution—reading the entire list causes 
+1D3 sanity loss!
+Aberrant, Abnormal, Abominable, Absurd, Abysmal, 
+Accursed, Acidic, Adhesive, Airy, Alien, Ambiguous, 
+Amorphous, Anarchic, Ancient, Angular, Animalistic, 
+Animated, Anomalous, Antediluvian, Antiquarian, 
+Appalling, Appendaged, Ashen, Askew, Astounding, 
+Atrocious, Awry, Baboon-Like, Baleful, Baneful, 
+Bankrupt, Barbarous, Batrachian, Beastly, Bellowing, 
+Bilious, Bizarre, Blasphemous, Bleating, Bloated, 
+Bloodshot, Blubbery, Boiling, Brutish, Bug-eyed, 
+Bulbous, Cackling, Cadaverous, Cancerous, Cellular, 
+Changeable, Chaotic, Charnel, Chattering, Chitinous, 
+Coarse, Colorless, Colossal, Confusing, Congealed, 
+Conical, Convoluted, Corpselike, Corpulent, Corrupt, 
+Creamy, Criminal, Croaking, Crustaceous, Crystalline, 
+Cyclopean, Cylindrical, Daemonic, Dank, Dark, 
+Dazzling, Deafening, Deathless, Debased, Debauched, 
+Decadent, Decomposing, Deformed, Degenerate, 
+Degraded, Delirious, Depraved, Deranged, Detestable, 
+Deviant, Diabolical, Diffuse, Dire, Discordant, Diseased, 
+Disfigured, Disgusting, Dislocated, Disordered, 
+Disproportionate, Dissolved, Distorted, Dreadful, 
+Dripping, Effervescent, Effulgence, Effusive, Elastic, 
+Eldritch, Elephantine, Endless, Enlarged, Enormous, 
+Enveloping, Evasive, Exaggerated, Excruciating, 
+Extended, Fabulous, Faceless, Fantastic, Fearful, Fecund, 
+Festering, Fibrous, Fiendish, Fiery, Filthy, Fishlike, 
+Flabby, Flowing, Fluctuating, Fluid, Foaming, Fetid, 
+Foul, Fractured, Fragrant, Frantic, Fungous, Fungoid, 
+Furious, Furtive, Gambrel, Gangrenous, Gargantuan, 
+Gaunt, Ghastly, Ghoulish, Gibbering, Gibbous, 
+Gigantic, Globular, Glutinous, Gluttonous, Gnashing, 
+Gory, Grasping, Greenish, Grim, Grisly, Gross, 
+Grotesque, Gushing, Hairy, Hallucinatory, Hapless, 
+Hateful, Hazy, Heaving, Hellish, Hideous, Hissing, 
+Horned, Horrible, Howling, Huge, Hybrid, Ichorous, 
+Idiotic, Illogical, Immaterial, Immemorial, Immense, 
+Immoral, Indescribable, Incoherent, Incomplete, 
+Incongruous, Incredible, Indistinct, Infected, Infernal, 
+Infested, Inhuman, Insane, Insipid, Iridescent, 
+Irrational, Irregular, Jabbering, Jaded, Jangling, 
+Jaundiced, Jellified, Jumbled, Jutting, Kleptomaniacal, 
+Leprous, Limp, Liquefied, Loathsome, Lumbering, 
+Luminescent, Lumpy, Lunatic, Lurking, Mad, Maggoty, 
+Malevolent, Malformed, Malicious, Malignant, Massive, 
+Membranous, Menacing, Mesmerizing, Metallic, 
+Mildewed, Mindless, Miscarried, Misshapen, Moaning, 
+Molten, Monstrous, Monumental, Morbid, Mortifying, 
+Mottled, Moldering, Mucky, Mucous, Murmuring, 
+Mutilated, Nagging, Nameless, Nauseous, Nearsighted, 
+Nebulous, Necromantic, Necrotic, Nightmarish, 
+Noiseless, Noisome, Non-Euclidian, Nonsensical, 
+Noxious, Numbing, Obscene, Obsequious, Octopoid, 
+Odious, Odorous, Oily, Ominous, Oozing, Organic, 
+Outlandish, Outré, Oval, Overgrown, Overripe, Pagan, 
+Pale, Pallid, Palpitating, Palsied, Parasitic, Pasty, Peculiar, 
+Perfidious, Perverse, Phlegmatic, Pitiless, Plastic, Pliable, 
+Poisonous, Porous, Pregnant, Prodigious, Profane, 
+Profuse, Pronged, Protoplasmic, Protuberant, Prurient, 
+Pseudopoidal, Puckered, Pudding-Like, Pulsating, 
+Pustular, Putrid, Quavering, Queasy, Quiescent, 
+Quivering, Radiant, Rainbowed, Rectangular, Reeking, 
+Remorseless, Repellent, Reprehensible, Reptilian, 
+Repugnant, Repulsive, Resplendent, Restless, Rheumy, 
+Rigid, Rotten, Rotting, Rough, Rubbery, Rugose, 
+Sacrilegious, Sallow, Sanguine, Scabby, Scaly, Screaming, 
+Scummy, Seething, Senseless, Sepulchral, Shadowy, 
+Shiny, Shrieking, Shuffling, Shunned, Sickly, Sightless, 
+Sinewy, Singular, Skeletal, Sleepless, Slimy, Slippery, 
+Slithering, Slobbering, Sluggish, Solemn, Sordid, 
+Soundless, Spectral, Spherical, Sponge-Like, Squamous, 
+Stagnant, Stench, Sticky, Stupefying, Stupendous, 
+Stygian, Sulphurous, Syrupy, Teeming, Tenebrous, 
+Tentacled, Terrible, Thickening, Thrashing, Throbbing, 
+Transformed, Transparent, Tubular, Tumultuous, 
+Turbid, Turbulent, Ugly, Ultimate, Ululating, Unclean, 
+Uncouth, Undigested, Ungainly, Unknown, Unmasked, 
+Unmentionable, Unnamable, Unnatural, Unripe, 
+Unseen, Unspeakable, Unutterable, Vague, Vaporous, 
+Vast, Vibrating, Vile, Viperous, Viscous, Vivid, 
+Voluminous, Vomiting, Wailing, Wan, Warped, Waxen, 
+Webbed, Wet, Whirling, Withered, Worm-eaten, 
+Wormy, Wretched, Writhing, Xenophobic, Y ammering, 
+Zodiacal, Zymotic.

@@ -1,5 +1,9 @@
 # Time + Subsystems Integration Progress
 
+> **维护说明（2026-07-10）：** 这是历史执行日志。下文提到的
+> `coc-keeper-zcode`、双树验证和同步步骤只描述当时环境；该 track 已由
+> `e314156` 移除，当前只维护 `plugins/coc-keeper/`，不要按旧步骤重建副本。
+
 Tracking the 5-task integration of the time system + new rule subsystems.
 Baseline: 584 tests. Promise: `TIME SYSTEM INTEGRATED MP HEALING PHOBIA MANIA SANITY TRIGGERS ALL TESTS GREEN`
 

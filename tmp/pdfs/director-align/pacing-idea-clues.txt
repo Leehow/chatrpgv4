@@ -1,0 +1,587 @@
+                               chapter 10: playing the game
+
+
+    Matthew asks a hotel receptionist if a certain person
+                                                                    Verbal Conflicts
+                                                                    Verbal confrontations should be roleplayed at the table
+    has stayed at the hotel recently. After failing initially,
+                                                                    with much gusto and performance. However, when there’s
+    he refuses to take no for an answer and offers a bribe.
+                                                                    a genuine conflict, you will want to pick up the dice. See
+    The Keeper grants a pushed roll. Thinking fast, the
+                                                                    Charm, Fast Talk, Intimidate, and Persuade Skills:
+    Keeper foreshadows the consequence: “Your persis-
+                                                                    Difficulty Levels (page 93) for further details.
+    tence may cause offense, perhaps more.” It’s vague,
+                                                                        You must decide when a non-player character can be
+    but it’s what the investigator might expect. Matthew
+                                                                    coerced and when they cannot. It might require a pretty face,
+    fails the pushed roll and the Keeper considers how to
+                                                                    a threat, a bribe, and so on, but most people can be won over
+    make life more difficult for the investigator and push
+                                                                    with the right approach. Even the most evil of cultists might
+    the horror theme. Up to this point the Keeper had
+                                                                    be conned or succumb to threats or persuasion if the players
+    not considered the receptionist but, as a result of this
+                                                                    somehow find the non-player character’s weakness. Always
+    pushed roll, the Keeper decides that the receptionist is
+                                                                    work within the confines of the story—the cult boss would
+    allied with the investigator’s enemies and will inform
+                                                                    not knowingly be persuaded of anything by someone who is
+    them of the investigator’s enquiry. To increase the ten-
+                                                                    clearly an enemy, but if the investigator inveigles their way
+    sion, the Keeper hints at this within the consequence.
+                                                                    into the cult, they might stand a chance.
+    “The receptionist holds up his hands and with a slight
+    smile says, ‘I’m sorry sir, I’ve never heard of this
+    gentleman’. A few moments later, as you’re leaving
+                                                                        Hasna has taken a cultist captive and tries to get him
+    the hotel, you see him speaking on the phone. You
+                                                                        to reveal the cult’s plans. The Keeper asks what Hasna
+    catch his eye and he looks away hastily.”
+                                                                        is doing to elicit information from the cultist and it
+         Notice that the receptionist had not been considered
+                                                                        soon becomes clear that intimidation is being used
+    a threat until the player lost the pushed roll. It was
+                                                                        rather than persuasion. The cultist has low Intimidate
+    only then that the Keeper changed the status of the
+                                                                        and Psychology (both below 50%), so the difficulty
+    receptionist, adding yet another pawn to the enemy.
+                                                                        level starts at Regular. Given the cultist’s motivation,
+                                                                        the Keeper raises the level of difficulty to Extreme.
+                                                                        There is a slim that chance the cultist will crack!
+    Alternatively, if the investigator is insane at the time of
+                                                                             In this case, Hasna’s goal is possible as the cultist
+losing the pushed roll then this presents a prime opportunity
+                                                                        is relatively ineffective; however, if the cultist had an
+to introduce a delusion:
+                                                                        Intimidate or Psychology skill over 50%, the initial
+                                                                        difficulty level would be Hard, and by raising the
+    If in the example above, Matthew’s investigator were                difficulty level by two steps the goal would become
+    insane, the Keeper might pick an alternative conse-                 impossible. In that case the cultist would not crack
+    quence, choosing to hit Matthew’s investigator with a               unless Hasna could do something to “up her game,”
+    delusion. “The receptionist is clearly losing his patience          such as using threats of, or actual, violence (in the
+    with you. He informs you again that he knows nothing                case of Intimidate).
+    of the person of whom you are enquiring. As he loudly
+    states the name, you notice another guest staring hard
+    at you. Something writhes beneath his shirt. His skin           Violence and Sanity Rolls
+    is slick with sweat, his eyes are fixed on you and he is        Intimidation may use threats of physical violence. One
+    mumbling something you can’t quite make out and                 suggested consequence of losing a pushed Intimidation roll
+    making strange movements with his left hand.” In reality        is to have the investigator unintentionally carry out his or
+    this is just another mundane guest at the hotel, however        her threat. The player may not want to shoot the non-player
+    Matthew (the player) doesn’t know that and (suspecting          character in the kneecap, but pushing the roll can result
+    a delusion) asks for a reality check (see Reality check         in unwanted outcomes. The use of such violence in that
+    rolls, page 162). He fails the roll, sending his investigator   situation would constitute torture, and the Keeper may wish
+    into a bout of madness. The Keeper decides that, during         to ask for Sanity rolls for the participating investigators.
+    his bout of madness, the investigator attacks the inno-              Taking a life in a game is easy—we grew up doing it in
+    cent bystander until he is restrained by hotel staff, who       make-up games as children, we do it in video games, we watch
+    then summon the police. The Keeper tells Matthew that           it on television, and so on. Actually doing it in real life is a
+    the next thing his investigator is aware of is lying on the     whole other matter. You may wish to reflect this in your game
+    floor, pinned by a police officer’s knee, while nearby a        by calling for a Sanity roll (SAN 0/1D6) when an investigator
+    man’s beaten body is being attended to by hotel staff. He       first kills a person, whether or not it is in cold blood.
+    has a lot of questions to answer.                                    Cold-blooded murder is especially difficult, and an
+                                                                    investigator may find themselves incapable of doing it. Such
+                                                                    callous behavior may require the player to fail a Sanity roll
+
+                                                                                                                                       197
+                                                  Call of Cthulhu
+
+      before they are able to pull the trigger on a fellow human             The majority of roleplaying games are based upon
+      being. There is, after all, a word for people who can carry        acquisition of skills and stuff, whereas Call of Cthulhu is a game
+      out such acts without flinching—psychopaths. A psychopath          of attrition. Be mindful when pacing or planning sessions that
+      would have a low Sanity and thus be able to do such acts           the effect of the horror genre on characters is different from
+      without their conscience stepping in to prevent them.              that of a standard fantasy adventure game. In the latter the
+                                                                         characters may be fighters and wizards exploring dungeons,
+      Pacing the Game                                                    accruing experience, wealth, and power as they do so. They may
+                                                                         risk life and limb with every fight, but they soon recover and
+      Your role is like that of an orchestra conductor: you set the      grow more effective as the game progresses. Contrast this with
+      tempo. Giving a good pace to the game can be essential,            characters in a horror story, who rarely increase in effectiveness
+      keeping everyone interested and excited. Some scenes have          and for whom each challenge chips away at their physical and
+      a natural end and the game progresses organically; others          mental resources, with injuries taking considerable time to heal.
+      have the risk of becoming overextended and dull. Try to            A low-level monster may cease to be the threat that it was for
+      keep things moving, but bear in mind that sometimes the            experienced characters in some other games, but a low-level
+      players need a chance to catch their breath and review the         monster in Call of Cthulhu remains a threat no matter how
+      situation. Combats and chases demand fast-paced action and         experienced an investigator becomes.
+      quick decisions from yourself and the players. Sometimes               Take note of how your players react to events in the
+      the players may disagree about how to proceed. When two            game. If they are blasé about the dangers their investigators
+      players get caught up in a discussion about whether to stay in     face then increase the threat level. If the reverse is true and
+      the musty old cellar or to make a break for freedom, you can       they are cautious about every minor action, so suspicious
+      take a step back and give them time to talk and work things        that they never accept a drink from a non-player character
+      out. If the players are animated you can take that as a sure       or spend ages planning for every eventuality, this may be a
+      sign that they are enjoying the game. If players are arguing       product of previous gaming experiences in which the games
+      about rules then you should offer arbitration; otherwise just      moderator was overly harsh. If this is the case, you should
+      sit back and rest your voice for a while.                          ease off a little or reassure them when the risks they are
+           If everyone is enjoying themselves, there’s no problem;       taking are reasonable.
+      however, if some players are getting bored or the discussion
+      is becoming repetitive, you should move things on. Do what         Problems With Players
+      you can to introduce some drama and push the players               Solving all potential problems between players is beyond the
+      towards some form of action. For example, have a desperate         scope of this book. As Keeper, you are responsible for more
+      non-player character call upon the investigators for aid.          of the game than an individual player, however you should
+      Another option is to discuss the likelihood of success of their    not feel that everything is your responsibility. Whether a
+      various plans. Alternatively, if they are completely stuck or      game goes well or not is due to your whole gaming group,
+      cannot agree on how to proceed, you can offer them an Idea         not just you. If problems arise then be ready to stop and talk
+      roll (following page).                                             to your players if you feel the need to do so.
+           A key aspect of your job as Keeper is to build an                 If you feel that one person is dominating the game,
+      atmosphere of tension, and the way you pace the game is            encourage the quieter players to participate. Imagine your
+      key to this. You may start with a low-key opening and take         players are actors on the stage and you are in control of the
+      a slow-boil approach, gradually building the tension as the        spotlight; by addressing questions to different players you
+      game reaches a climax. Alternatively you may kick the game         are shifting the light from one player to another.
+      off with a bang, starting the story in medias res, guns blazing,       One investigator can’t be present in more than one place
+      then alternate between tense dramatic scenes and high-             at one time, though some players will attempt to have their
+      action scenes. Keep your finger on the pulse of the game,          investigator be omnipresent. If this is an issue then be clear
+      allowing it to slow down at times, but always be ready to          about where investigators are—you may even consider using
+      draw a scene to a close and push the game on.                      a map and counters to clearly illustrate investigator location.
+           A one-off game should have a beginning, a middle, and         If one player’s counter is in the kitchen and another is in the
+      an end, with escalating tension throughout. If the game is         attic, then when dealing with the investigator in the attic you
+      being run across multiple sessions, a different structure is       shine the spotlight on and speak to that player only—remind
+      required. Rather than building to an ending, the Keeper            the other player of the situation if he or she attempts to butt in.
+      should have next session in mind. Try to end each session              Handling a group of people is an important skill for a
+      on a cliffhanger or some kind of revelation. Leave the players     Keeper to learn. Hopefully everyone is enthusiastic and full
+      with an unanswered question. The realization that things are       of ideas, but if they all speak over each other you will have
+      about to take a turn for the worse or the investigators are in     chaos. Focus is the answer. Focus your attention on only
+      much deeper than they first thought can be a real driver. If       the players who are in the present scene and ask the other
+      none of these things are available for the session climax, then    players to be patient. Remember you can cut from one scene
+      a blood-pumping combat scene or chase can provide a great          to another whenever you want, but you must take control of
+      ending.                                                            this and be aware that you are doing it.
+198
+                             chapter 10: playing the game
+
+    If the investigators have split up, be clear about which        Invariably the players will misinterpret or simply forget clues
+investigators are at the present scene. Resolve the scene or        that are required for the game to progress. It may be that
+bring it to an interesting point, perhaps at a moment of great      as your story unfolds you are unable to provide a certain
+conflict, then cut to the other investigators and do the same       important clue to the players. This may cause the game to
+for them. Don’t leave any single player inactive for too long.      stall and the fear of this happening can be a source of anxiety
+Consider the structure of television drama and place yourself       among Keepers and players alike. A dice roll to allow the
+in the role of director; you get to call “action” and “cut”.        investigator to gain a clue is all very well, but what if the
+    Usually you will have multiple investigators in a given         players lose the roll? Do you just ask them to make another
+scene. Talk to the players who are involved in the scene and ask    roll and another until they succeed?
+questions about what each investigator is doing. Do not allow           This is where the Idea roll comes in. The players will get
+a player to dictate the actions of another player’s investigator.   the clue regardless of whether they pass the Idea roll or not.
+If one player states that another player’s investigator is doing    An Idea roll is a highly significant and unusual event in the
+something, turn to the player of that other investigator and        game. The roll determines not if, but how they get the clue.
+ask them what they are doing. Remember that not everything              The goal of an Idea roll is always “to get the investigation
+relies on consensus. If an investigator is holding a grenade        back on track”. The Keeper starts by figuring out which was
+and the player states, “I’m pulling the pin,” then it is pulled     the most important clue the players missed and uses this to
+regardless of what the other players might say. A player might      set a difficulty level for the Idea roll as follows. One player
+attempt to interfere in the activity of another investigator
+                                                                    (whose investigator has the highest INT) then rolls dice for
+through the actions of their own investigator, but one player
+                                                                    the Idea roll:
+cannot declare the actions of another player’s investigator.
+
+Running With                                                          i If the Keeper never mentioned the clue, the difficulty
+                                                                           level is Regular (requiring the player to roll equal to
+What the Players Throw at You                                              or less than their investigator’s INT). The likelihood
+Your players may well take an approach to the story that
+                                                                           of winning this roll is high—it is hardly fair to expect
+you have not thought of or planned for. Many Keepers will
+                                                                           the players to act on something that they don’t know
+be tempted to block the players’ progress, simply saying
+no and steering the players back towards the story that the                about.
+Keeper has prepared. Instead of that, where possible, try to          i If the clue was definitely mentioned (but not em-
+incorporate the players’ suggestions, especially if you can add            phasized), the difficulty level of the Idea roll is Hard.
+complications of your own to their contribution. Wherever                  The players have had the chance to pick up on this
+possible you should try to have an attitude of “Yes, and…” or              clue and missed it. If weeks of real world time have
+“Yes, but…” rather than a flat “No”.                                       passed since the clue was mentioned, you might
+                                                                           want to use Regular difficulty level for this. This is
+                                                                           the default difficulty level for an Idea roll.
+    An investigator decides to make a telephone call to
+    the local police. The Keeper has three options:                   i If the clue was made clear by the Keeper (i.e.
+        No: The Keeper could tell the players that they are                mentioned several times) or the players discussed
+    the investigators and that it is not in the spirit of the              it themselves, the difficulty level of the Idea roll is
+    game for them to call the police. This is clearly not a                Extreme.
+    pleasing option for anyone.
+                                                                        The setting of difficulty levels for Idea rolls may appear
+        Yes, and…: Rather than blocking the action,
+                                                                    counterintuitive; the more obvious a clue was made, the more
+    the Keeper might tell how the phone line is cut off or
+                                                                    difficult the Idea roll is. The Keeper is not trying to figure out
+    the police station unobtainable, or that only strange
+                                                                    the likelihood of the investigators realizing the clue—this
+    unearthly voices can be heard on the line.
+                                                                    is something they are incapable of, as fictional characters.
+        Yes, but…: Perhaps a policeman turns up promptly,
+    but he is corrupt and in league with the cult.                  The Keeper is offering the players a gamble, asking them to
+                                                                    risk the negative consequences to gain the clue. A part of
+                                                                    the role of players is to take note of clues during the game.
+                                                                    There is a balance between the Keeper giving clues out and
+
+The Idea Roll                                                       the players taking clues in. The Idea roll aims to reflect this
+                                                                    balance. If the clue has never been mentioned, the balance
+The players’ perception of the game world is formed by what         must be redressed in the players’ favor and this is achieved
+you tell them; they cannot perceive what is in your head,           by giving the players a strong chance of getting the clue for
+only what you say. The players’ next step in a game may seem        free. If the clue has been made obvious but somehow missed
+obvious to you but elude the players themselves. You should         by the players, the players have had their chance and so they
+seek a balance between spoon-feeding clues to the players           are owed no redress, and thus the Idea roll is set to Extreme
+and being overly secretive; this may sound easy, but it is not.     difficulty level.
+                                                                                                                                         199
+                                                    Call of Cthulhu
+
+      Winning the Idea Roll                                             “thick of things.” The Keeper should consider the clue on
+                                                                        offer and try to come up with the worst situation in which
+      If the players win the Idea roll, the Keeper should deliver the
+                                                                        the investigators might realize it. The Keeper starts the
+      clue. The information should be enough to get the story going
+                                                                        game again in medias res and the players must deal with the
+      again with a strong direction. The Keeper should weave the
+                                                                        situation in which they find themselves.
+      delivery of the “idea” into the story rather than simply giving
+                                                                            You may well find that your group never resorts to using
+      out the information. If the clue was never mentioned at all,
+                                                                        the Idea roll. Indeed, you may find that your group is never
+      some creativity is required in how the players attain the clue.
+                                                                        at a loose end and always have some ideas of their own as to
+           When an Idea roll is made, the Keeper has complete
+                                                                        how the story might proceed. Alternatively, the players may
+      control of the situation and can move time on or place the
+                                                                        get stuck, but be so cautious that they refuse to call for an Idea
+      investigators in whatever situation is judged appropriate;
+                                                                        roll. If this is the case, you can draw the current chapter of the
+      however, you should not increase their level of danger as the
+                                                                        game to a close and carry out investigator development phase
+      result of a winning roll.
+                                                                        (rolling skill improvement and so on). Then ask the players
+                                                                        what their likely courses of action might now be. If you feel
+                                                                        the players lack direction, you should insist on starting the
+          The investigators visited a second-hand bookshop              next part of the game with an Idea roll, using it to determine
+          when researching a cult. They went to the shop be-            whether things restart well for the investigators or not.
+          cause they found an occult tome with a bookmark on
+          which was written the shop’s name. The investigators
+                                                                             Using the previous example, what if the Idea roll had
+          had hoped to find yet more tomes. Unknown to the
+                                                                             been lost? The Keeper has identified a clue to give to
+          players, the shop is run by the cult, and the investiga-
+                                                                             the players (the shopkeeper and his link to the cult).
+          tors had seen the shopkeeper previously but failed to
+                                                                             The Keeper states, “You spend four weeks [Note: time
+          recognize him during their visit. The Keeper called
+                                                                             has been wasted—that’s part of the consequence of
+          for a Spot Hidden roll at the time to see if anyone
+                                                                             losing the Idea roll] going over previous leads and
+          recognized the shopkeeper, thinking that it might be
+                                                                             come up with nothing. As you sit in a café, you glance
+          interesting if the investigators didn’t recognize him.
+                                                                             across the street and notice a bookshop that you rec-
+          With the benefit of hindsight, this was an error.
+                                                                             ognize. You finish your coffee and make your way to
+               Now, two sessions later, the investigators have
+                                                                             the shop, intending to have another look to see if they
+          exhausted their leads and have requested an Idea Roll.
+                                                                             have any rare tomes. You spend a while perusing the
+          The Keeper agrees, considers what lead to give them
+                                                                             shelves and pay little heed as more customers enter
+          and decides that the second-hand bookshop offers a
+                                                                             the shop. Suddenly a glint of metal catches your eye
+          strong link to the plot, being a key location for the cult.
+                                                                             and you realize that the customers in the shop are
+               The players never spoke to or discussed the
+                                                                             approaching you with curved daggers drawn! Glanc-
+          shopkeeper, even though the Keeper mentioned him a
+                                                                             ing around you see the shopkeeper closing the blinds
+          couple of times, so that calls for a Hard difficulty level.
+                                                                             and turning the ‘Open’ sign to ‘Closed’.”
+          The player with the highest INT throws the dice and
+                                                                                 Note that the players don’t get to act or interject
+          rolls under half their Idea score—a win.
+                                                                             until you allow them to, at which point the players
+               The Keeper tells the players how the investigators
+                                                                             are back in the story. As this scene is played out
+          sit together, going over all their research and clues.
+                                                                             the Keeper makes every effort to yield sufficient
+          “You decide to check out all the previous leads
+                                                                             information to the players to put them back on track.
+          again. Ten days later you find yourself (addressing a
+                                                                             The players now know the shop is run by the cult.
+          particular player) back in that bookshop on Charing
+          Cross Road. Remember that? There are quite a few
+          customers in there this time and one of them is
+          chatting to the shopkeeper. You recognize him from            Luck for Non-Player Characters
+          when you spied on the cult meeting—he was there               If you decide ahead of time that the players will meet the
+          too! Fortunately he hasn’t spotted you and you can            arch-villain in a warehouse, and that the investigators will
+          slip out unseen if you wish.”                                 neither catch nor kill him, then you have already scripted
+               This will probably be enough to get the game             the events and the players will be no more than pawns in
+          moving again.                                                 your story. Remember, Call of Cthulhu centers on a shared
+                                                                        story created by both the Keeper and the players. Avoid
+                                                                        predetermining events in which the players will be involved.
+      Losing the Idea Roll—In the Thick of It                               However, let us assume you want to do your best to keep
+                                                                        the arch-villain alive or out of the investigators’ hands. One
+      If the players lose the Idea roll they find themselves in deep
+                                                                        way to achieve this outcome is to give the arch-villain a Luck
+      trouble. A lost Idea roll gives the Keeper permission to put
+                                                                        pool—this does not guarantee escape, but it greatly increases
+      any of the investigators (regardless of who rolled dice) in the
+                                                                        the villain’s effectiveness and improves the chances of any
+200
+                           chapter 10: playing the game
+
+                                                                 example. Since you know how the murder took place, you
+                                                                 will know if intruders broke in through the study window
+                                                                 (which you can decide has a flowerbed outside), in which
+                                                                 case there is indeed mud on the carpet!
+                                                                      When disseminating information, try to restrict yourself
+                                                                 to describing evidence as found and leave it up to the players
+                                                                 to deduce what has happened. You might inform the players
+                                                                 that there was mud on the carpet, but avoid explaining the
+                                                                 reason for it.
+                                                                      Leaving areas of doubt and uncertainty is essential to
+                                                                 promoting a sense of intrigue among the players. Fear finds
+                                                                 fertile ground in ignorance, uncertainty, and doubt. Just
+                                                                 tell the players what their investigators perceive and let the
+                                                                 players make their own deductions.
+                                                                      The investigators shoot a monster, avoid saying, “It’s
+                                                                 dead”. Simply inform the players that they cannot perceive
+                                                                 any signs of life. Now the players are uncertain—is the thing
+                                                                 dead or alive? A First Aid or Medicine roll will determine
+                                                                 whether a person is alive or dead for certain.
+                                                                      The investigators search a room and fail their Spot Hidden
+                                                                 roll. Avoid saying, “There’s nothing there”. Tell the players they
+                                                                 have not found anything. Now they are wondering if they
+                                                                 missed something. Pushing the Spot Hidden roll would allow
+                                                                 them to know if they have missed a clue or not.
+      Flying polyps are very dangerous Mythos beings.                 The players will think of avenues of investigation that will
+                                                                 surprise you. Be creative and try to incorporate their ideas and
+escapes performed within the rules (see Spending Luck,
+                                                                 allow leads to manifest wherever it makes sense for them to
+page 99).
+                                                                 do so. A player may think to look through the bookshelves of
+    If you have an important non-player character (especially
+                                                                 the study for a family tree; the text of the scenario may not list
+in a campaign) who is likely to crop up numerous times,
+                                                                 the presence of a family tree, but such a thing might be quite
+then you may provide that non-player character with a Luck
+                                                                 feasible, so reward this idea and build on it. Remember the
+pool equal to his or her POW. This can be spent to affect dice
+                                                                 principle of “Yes, and…” and “Yes, but…”.
+rolls, but the pool is not replenished—thus it might be used
+                                                                      Yes, and…: The family tree is inscribed inside a family
+to cause mayhem and allow an escape, although eventually
+                                                                 bible along with some other useful hints.
+the non-player character’s luck will run dry.
+                                                                      Yes, but…: You don’t want the players to discover the
+    One of the reasons for restricting the use of Luck for
+                                                                 clue so easily, in which case, rather than simply not finding a
+non-player characters is that many non-player characters will
+                                                                 family tree on the shelves, perhaps the investigator finds the
+only appear once, and thus could easily spend all their luck
+                                                                 family bible from which the first few pages have been torn
+there and then, making them very powerful during the short
+                                                                 out or certain names erased.
+time that they are in play. Non-player characters who appear
+                                                                      Either of these options foster further investigation and
+multiple times will have a reason to reserve their Luck.
+                                                                 are preferable to the simple blocking statement, “No, you
+
+Disseminating Information
+                                                                 can’t find a family tree.”
+
+Expect the players to investigate and ask questions. That        Perception Rolls
+statement may sound obvious; however, these investigations
+                                                                 There are three main perception skills in Call of Cthulhu:
+will lead the players to ask questions regarding matters you
+have not considered. If there has been a murder, for example,      i Spot Hidden: Chiefly visual observation, though it
+you need to have a clear vision of what has occurred at                 can also be used for smell or taste.
+the scene. You also need to decide how the murder took
+place. A player may ask if there are muddy footprints on           i Listen: Perceiving and identifying sounds.
+the study carpet, whether there are any witnesses, or if the       i Psychology: Understanding the motivations and
+murder weapon has been thrown in the trash. If you have                 intentions of another person.
+a good grasp of how events unfolded, you can provide a
+reliable answer, even to unanticipated questions. You may            If a player succeeds in a roll for a perception skill, some
+not have considered a certain detail previously and hence        information pertinent to the scenario should be forthcoming
+don’t instantly know if there is mud on the study carpet, for    (referred to as a clue).
+
+                                                                                                                                      201
+                                                 Call of Cthulhu
+
+
+
+
+                                       The main goal for investigators is to find out what is happening.
+           The Keeper will usually be the one to ask for perception
+      rolls, however sometimes a player may request one if his or             The investigators are looking for a cultist in the town.
+      her investigator is actively searching for a clue, for example          The Keeper has prepared a cool scene that takes
+      exploring a room (Spot Hidden) or attempting to determine               place in a haunted house; however, the players don’t
+      if someone is lying (Psychology).                                       know about it yet. The Keeper wants the investiga-
+           Avoid having a single concealed clue that is the key to            tors to recognize the skulking cultist and be led to the
+      the whole adventure—despite the Keeper’s best efforts,                  house. Treating this as an obvious clue, the Keeper
+      the players could miss it, especially in a scenario in which            tells Harvey’s player that her investigator spots a
+      the location of the key clue may be bypassed. A variety of              suspicious-looking man heading down a back alley.
+      strategies exist. You can ensure that important information             To everyone’s surprise, the player shouts out, “Stop
+      is accessible in several ways. The information need not be              that man!” and Harvey sprints off in pursuit before
+      precisely the same or appear in the same manner; however,               any of his fellow investigators can stop him.
+      it should be enough to point the investigators in the right
+      direction. If ultimately they do miss the clue, don’t worry—
+      you always have the Idea roll (page 199) to fall back on.              If the clue is likely to be perceived by just one player among
+           Clues are divided into two categories: obvious clues and      the group, it is up to you who you give it to; perhaps the player
+      obscure clues. You decide which prior to the dice being rolled.    who has been least actively involved in the game, or the player
+                                                                         of the investigator with the highest Spot Hidden score.
+      Obvious Clues
+      If you have something you want the players to find out about,      Obscured Clues
+      you should make the clue obvious. Obvious clues are useful         Finding an obscured clue may help the investigators in some
+      if your game is plot-driven, especially when missing such a        way, but is not pivotal to progressing the plot. If you feel
+      clue would leave the players at a loss for how to proceed. The     that either option, getting the clue or not getting the clue,
+      players are not required to roll dice to uncover obvious clues.    would allow the game to proceed in an interesting direction,
+          There may be obvious clues and obscured clues at the           you can use an obscured clue. When the players request a
+      same location. It might be obvious that a book has been            perception roll, you should generally use an obscured clue.
+      moved by the dust marks on the desk, but the single blonde             Obscured clues serve two functions:
+      hair lying in the dust might go unnoticed. The first piece of
+                                                                            i The chance to gain useful information.
+      information—that the book was moved—is an obvious clue,
+      while the blonde hair is an obscured clue.                            i To create tension when the players miss the roll and
+                                                                                 know they have missed a clue.
+202
+                              chapter 10: playing the game
+
+Resolving a Perception
+Roll For an Obscured Clue                                                The investigators have followed a cultist into an old
+Each investigator that could potentially perceive the clue               house. The Keeper decides the cultist has hidden in
+should make a perception roll (Spot Hidden, Psychology,                  the master bedroom and that he has left a blood
+Listen, or a combination thereof). Decide on a difficulty                trail—will the investigators notice it? The Keeper can
+level and declare it before the players roll. The information            foresee some interesting events happening either way;
+is given to the player with the highest level of success that            the players are set to explore the house anyway, and
+meets or exceeds the difficulty level. In the case of a tie, the         not getting the clue is not going to spoil anything. This
+clue is perceived simultaneously by multiple investigators or            information would give them an advantage, though,
+by the investigator with the highest skill (Keeper’s choice).            and the Keeper decides to treat it as an obscured clue,
+    Obscured perception rolls, when lost, have a second                  asking for Spot Hidden rolls with a difficulty level of
+function—to provide a clear sign to the players that the                 Hard because the players are using only one flashlight
+investigators have missed a clue. Note that there is a dissonance        between them.
+here between player knowledge and investigator knowledge.                     All the players miss the roll and they don’t see the
+The players know for certain there is a clue that has been missed,       blood trail. The tension is raised—the players know they
+but the investigators should be unaware of anything they failed          have missed a clue. The investigators may choose to
+to perceive. The players now have three options, and which they          leave the house, or they may choose to spend more time
+choose is a matter of personal preference and style of play:             searching, allowing the players to push the Spot Hidden
+                                                                         roll. The consequences of missing the pushed roll could
+Ignore it: Play strictly within the bounds of the investigator’s         be that the investigators take damage from an ambush,
+knowledge.                                                               or provide time for the cultist to make his escape.
+
+Push it: Have an investigator act on a hunch and take action
+that justifies a pushed perception roll, actively using percep-
+tion skills in an attempt to get the clue.                           Using More Than One Perception Skill
+                                                                     Which skill to use for perception can be open to question,
+Act on it: The player may pre-emptively guess what the clue          depending on the situation. If a non-player character is about
+is and act on it, rather than risk the consequences of losing a      to draw a weapon to attack an investigator, the player might
+pushed perception roll. Of course they may have leapt to the         make a Spot Hidden roll to see the weapon being drawn
+wrong conclusion.                                                    or a Psychology roll to become aware of the non-player
+                                                                     character’s intention. In this case, allow the player to make
+                                                                     one dice roll using the higher of the investigator’s two skills.
+Consequences of Losing
+a Pushed Perception Roll
+Regardless of who called for the perception roll and why, the            Harvey is a guest of Lord Foxton, who has chosen
+player may push the roll if it can be justified through the              to drug Harvey’s coffee. The Keeper wants to give
+investigator’s actions. Perception rolls may be used in many             Harvey a chance to notice this and offers a percep-
+different situations and there are many different potential              tion roll. The Keeper allows Harvey’s player to make
+consequences of losing a pushed roll.                                    a combined dice roll, comparing her rolled result to
+    Here are a few ideas of what may go wrong when losing                both Spot Hidden and Psychology. If the roll is made
+a pushed perception roll:                                                using Psychology, Harvey would pick up Lord Fox-
+                                                                         ton’s anxiety and sense that something is wrong. If it
+  G The investigators waste time searching and in that                   were made using Spot Hidden, Harvey would notice
+       time enemies arrive.                                              that his coffee smells a little strange.
+  G Evidence of a search is left; items are broken or are
+       replaced out of order.
+                                                                     Player Goals For Perception Rolls
+  G A foe creeps up to ambush the investigator while he              Usually the goal for a perception roll is simply “to find a
+       or she is searching.                                          clue”; however, a player may create a more specific goal,
+  G The investigator causes offense or suspicion by                  such as “I want to search the room. I’m hoping to find a
+       studying the target too closely.                              diary or journal that will give some information regarding
+                                                                     the whereabouts of the person we’re looking for.” If you are
+  G That thing you were listening for? It heard you and it           happy that such a book could be found in the room, accept
+       is coming!                                                    the goal and allow the player to roll the dice. If not, modify
+                                                                     the goal accordingly or apply the “nothing there” technique
+                                                                     outlined below.
+
+
+                                                                                                                                        203
+                                                  Call of Cthulhu
+
+      Nothing There?                                                     can also shift the focus from you and onto the person you
+                                                                         hand it to. If the handout is for everyone then encourage the
+      Don’t be tempted to call for Perception rolls when there
+                                                                         player to read it aloud.
+      is nothing to find. Remember that the default goal of a
+                                                                             Some Keepers prefer to create their handouts from
+      Perception roll is always “to find a clue”—if there is no clue
+                                                                         scratch, whether for a published or a home-brew scenario.
+      to find then there is no roll to be made. The clue, whatever
+                                                                         These can be works of art in themselves. Simple techniques
+      it is, should be notable, something that adds an interesting
+                                                                         can be used to great effect, such as writing letters with a
+      new twist or aspect to the story.
+                                                                         fountain pen, or using an old, worn notebook, wherein the
+           If a player requests a Spot Hidden roll, you may allow
+                                                                         Keeper has prepared suitable pages. Coffee can be used to
+      one even if there is no clue present. The goal should be
+                                                                         stain the paper to give a timeworn effect. A piece of clothing
+      phrased as “to look for a clue” or if looking for a specific
+                                                                         from a charity shop (like a glove or torn shirt) can be
+      item, perhaps “to look for Jefferson’s journal,” for example. If
+                                                                         embellished with fake blood so that the Keeper can present
+      the goal is achieved, the player will discover that the clue or
+                                                                         it to the players when their investigators are searching the
+      item is definitely not present at the scene.
+                                                                         scene of some dark activity.
+      Psychology                                                             Photographs of the period in which the scenario is set
+                                                                         can be useful in showing locations and people. Postcards
+      If a player passes a Psychology roll, the truth should be
+                                                                         from antique fairs might also be used.
+      revealed. If the roll is lost, you may be tempted to deceive the
+                                                                             If the setting is more modern, the Keeper might prepare
+      player, but if you automatically do this every time, the player
+                                                                         a sound file to be played when a recorded message is
+      (who knows because they lost the dice roll) will know that
+                                                                         discovered, or perhaps a short video appropriate to the
+      the opposite is true! Therefore, rather than feeling compelled
+                                                                         scenario. The possibilities are endless; whole “dummy”
+      to inform the player of the opposite of what is true, you are
+                                                                         websites could be created for the purpose of a specific
+      free to tell the player whatever you like—the difference being
+                                                                         investigation.
+      that the player won’t know if the information is reliable.
+                                                                             Whether you have time to create such handouts from
+                                                                         scratch, go searching for them or simply use the ones
+                                                                         provided in published scenarios, the use of handouts greatly
+          Harvey is showing a photo of his missing friend to the         complements the game. Have fun and see what you can
+          barman, “Have you seen this guy?” The Keeper tells             come up with.
+          how the barman glances at it then goes back to wiping              Listen to what the players say and how they respond.
+          a glass and stating, “Never seen him before in my life.”       If they are excited when you bring out a floor plan with
+          Harvey’s player requests Psychology roll to tell if the        counters or miniatures to map the action then do it more
+          barman is lying; she fails the roll. The Keeper smiles,        often. If they study every detail of each handout then use
+          “Well, he seems to be telling the truth.”                      more of them. Usually you’ll have a mix of players and they
+               Harvey’s player now feels sure that the barman            will respond to a mix of approaches. Don’t sweat it; keep
+          is lying but she is not certain. Should she press the          things in balance and just try to make a good game.
+          matter, perhaps offering a bribe or a threat?
+
+                                                                         Using the Rules
+      Handouts
+                                                                         The rules in this book are intended to be flexible enough to
+                                                                         cope with every eventuality.
+                                                                             The rules, in brief, are:
+      Player handouts are a common feature of Call of Cthulhu
+                                                                             Regardless of the situation, the player’s intention defines
+      games. These are usually given to the players when their
+                                                                         the goal, and a skill or characteristic is chosen that best suits
+      investigators have found some important information, such
+                                                                         the situation.
+      as a letter or excerpt from a book. Published scenarios often
+                                                                             If the situation is reliant upon on external circumstances
+      reprint (or make available online) such handouts, allowing
+                                                                         rather than an investigator’s actions then a Luck roll is used.
+      Keepers to print or cut them out for use in the game.
+          For example, a handwritten letter from an anonymous
+      informer, a map showing the location of the tomb of an
+                                                                         A Guide to Using the Rules for
+      ancient wizard, or a newspaper article detailing sightings
+                                                                         Specific Situations
+                                                                         Here are some examples of goals and how a Keeper might
+      of the Sasquatch could each be presented to the players as
+                                                                         use the rules to resolve them. These are not spot rules and
+      handouts.
+                                                                         are only provided as suggestions to help Keepers understand
+          Handouts serve several functions. One is sensory:
+                                                                         how skill rolls can be used with a variety of goals.
+      a lovingly crafted handout helps to boost the sense of
+      immersion in the story. Another is information. A handout          Winning at a casino:
+      is a convenient way to give out clues and information that
+                                                                         Most games at a casino are based on luck; however, the
+      can be retained by the players for later reference. A handout
+                                                                         odds are always stacked in favor of the house, so a straight
+204
+

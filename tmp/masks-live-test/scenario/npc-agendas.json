@@ -1,0 +1,104 @@
+{
+  "npcs": [
+    {
+      "npc_id": "npc-augustus-larkin",
+      "name": "Augustus Larkin",
+      "origin": "source",
+      "agenda": "Lead the expedition to the highland pyramid and break or strip the golden ward so the Father of Maggots can be freed—while insisting he is only a sick treasure-hunter.",
+      "fear": "Being exposed as a vessel of Nyarlathotep before the ward is broken; losing de Mendoza's protection.",
+      "secret": "M'Weru drugged him and tattooed the Bloody Tongue on his chest; the Mask wears him increasingly as the chapter progresses.",
+      "voice": "Colonial charm fraying into feverish insistence. Talks treasure, press coverage, and 'nothing to worry about.'",
+      "relationship_to_investigators": "employer",
+      "keeper_note": "Classic: mostly human until late. Pulp: possession can surge. Stats in Characters and Monsters: Peru.",
+      "source_refs": [
+        {
+          "path": "pdf:masks-of-nyarlathotep",
+          "page": 59,
+          "grep_anchor": "Augustus Larkin"
+        }
+      ]
+    },
+    {
+      "npc_id": "npc-luis-de-mendoza",
+      "name": "Luis de Mendoza",
+      "origin": "source",
+      "agenda": "Guard Larkin, shepherd the party to the pyramid, and feed the Father of Maggots—eliminating threats (including Nayra) as needed.",
+      "fear": "Permanent severance from the imprisoned god if the ward is fully restored.",
+      "secret": "He is an intelligent kharisiri (undead conquistador), not a mortal bodyguard.",
+      "voice": "Sparse Spanish-accented English. Polite, cold, watchful.",
+      "relationship_to_investigators": "adversary",
+      "keeper_note": "In Lima he usually stays human-seeming; open horror reserved for highlands/ruins unless pulp pacing demands earlier reveals.",
+      "source_refs": [
+        {
+          "path": "pdf:masks-of-nyarlathotep",
+          "page": 58,
+          "grep_anchor": "Luis de Mendoza"
+        }
+      ]
+    },
+    {
+      "npc_id": "npc-nayra",
+      "name": "Nayra",
+      "origin": "source",
+      "agenda": "Survive kharisiri attention, help trusted friends understand the pyramid threat, and refuse to march into the ruins herself.",
+      "fear": "Leading hunters to her reed-island refuge; dying before she can warn others.",
+      "secret": "She knows enough folklore and geography to pinpoint the pyramid and identify de Mendoza as kharisiri.",
+      "voice": "Warm, teasing Aymara elder; Elias translates. Defuses tension with jokes, then turns deadly serious about the sealed god.",
+      "relationship_to_investigators": "ally",
+      "keeper_note": "Will heal injuries; resists joining the trek. Pulp: island ambush possible after the meeting.",
+      "source_refs": [
+        {
+          "path": "pdf:masks-of-nyarlathotep",
+          "page": 58,
+          "grep_anchor": "Nayra"
+        },
+        {
+          "path": "pdf:masks-of-nyarlathotep",
+          "page": 74,
+          "grep_anchor": "Meeting Nayra"
+        }
+      ]
+    },
+    {
+      "npc_id": "npc-jackson-elias",
+      "name": "Jackson Elias (a.k.a. Jesse Hughes)",
+      "origin": "source",
+      "agenda": "Infiltrate Larkin's expedition, confirm the kharisiri cult, and gather leads that later connect to the Carlyle Expedition.",
+      "fear": "Being unmasked to Larkin too early; dying before the wider story is told.",
+      "secret": "Traveling under the Jesse Hughes alias; already consulted Nayra once and followed Larkin to Lima.",
+      "voice": "Worldly journalist—curious, wry, suddenly intense when cult evidence appears.",
+      "relationship_to_investigators": "ally",
+      "keeper_note": "Primary hook into the larger Masks campaign after Peru concludes.",
+      "source_refs": [
+        {
+          "path": "pdf:masks-of-nyarlathotep",
+          "page": 56,
+          "grep_anchor": "Jackson Elias"
+        }
+      ]
+    },
+    {
+      "npc_id": "npc-trinidad-rizo",
+      "name": "Trinidad Rizo",
+      "origin": "source",
+      "agenda": "Help document Larkin's destination for Professor Sánchez and impress as a capable undergraduate researcher.",
+      "fear": "Being buried—literally—under storeroom artifacts or dismissed as a meddling student.",
+      "secret": "Her notes already triangulate folklore and Larkin's press claims; she can be endangered in the university storeroom.",
+      "voice": "Eager, rapid Spanish/English mix; academic excitement.",
+      "relationship_to_investigators": "ally",
+      "keeper_note": "Optional Lima research face; storeroom mishap set piece on p.68.",
+      "source_refs": [
+        {
+          "path": "pdf:masks-of-nyarlathotep",
+          "page": 58,
+          "grep_anchor": "Trinidad Rizo"
+        },
+        {
+          "path": "pdf:masks-of-nyarlathotep",
+          "page": 68,
+          "grep_anchor": "Rizo is found"
+        }
+      ]
+    }
+  ]
+}

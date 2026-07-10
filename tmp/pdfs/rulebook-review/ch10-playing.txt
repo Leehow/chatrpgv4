@@ -1,0 +1,3323 @@
+
+===== PDF page index 193 (rulebook p.193) =====
+182 
+Call of Cthulhu
+
+===== PDF page index 194 (rulebook p.194) =====
+
+===== PDF page index 195 (rulebook p.195) =====
+184 
+Call of Cthulhu
+eing the Keeper can be immensely rewarding; 
+you get to make a lot of decisions about what 
+happens during the game, present the mystery 
+to the players, and portray numerous non-
+player characters and monsters. Y ou will also 
+be the final arbiter of how rules are applied, and this chapter 
+contains advice and guidance intended to help you use those 
+rules to best effect. 
+Before reading this chapter make sure you have read 
+chapters 4-9. 
+New Keepers
+When you act as Keeper you become the game moderator. 
+Whether you are using a published scenario or creating one 
+of your own, you alone know the story plot and the likely 
+outcomes and solutions. Y our job is to present the mystery 
+and story during play, incidentally playing the roles of 
+monsters and sinister or ordinary people that the investigators 
+meet. Y ou have the responsibility for preparing and running 
+the scenario without bias. Above all else, you should listen to 
+your players and react to what they say and do.
+Having a good understanding of the game and the rules 
+is essential in enabling you to answer player questions and to 
+be able to present the material fairly. Y ou will find individual 
+monster and spell descriptions in other chapters—you don’t 
+need to memorize this information, just be familiar with it.
+With the purchase of this book and some dice, you 
+have everything needed to play Call of Cthulhu . It is 
+recommended that you start with either The Haunting—in 
+the Call of Cthulhu Quick-Start Rules , a free download at 
+www.chaosium.com, or Amidst the Ancient Trees  (page 
+346). These scenarios have been specifically presented for 
+new Keepers, with advice dotted throughout the text. Pick 
+one to play, read the scenario through, and then invite 
+some friends over to play. Have them create investigators 
+together—be sure to have the relevant sheets printed out or 
+photocopied in advance.
+Summarize the rules for your players. Don’t try to 
+explain every rule in detail—just give them a brief overview 
+and then address specific rules as they arise in play. Once 
+everyone is ready, introduce the scenario and work your way 
+through it.
+Do not be concerned if 
+you make some mistakes 
+the first time around. 
+When you have finished 
+playing, read through 
+the rules and this chapter 
+again. After having run one 
+game, the rules and advice 
+will make a lot more sense. 
+Y ou will continue to hone 
+your “Keepering” skills over 
+a number of games as you 
+become more familiar with 
+the game.
+Y ou may wish to invent your own scenarios—that’s great, 
+but it’s probably best to start with the ones in this book or 
+consult one of the many Call of Cthulhu scenario supplements 
+available. Published scenarios can be a great source of 
+information about crafting a story into an adventure, as well 
+as providing an insight into how the game can be played.  
+Finding Players
+Okay, so you’ve got the Call of Cthulhu rulebook and some 
+roleplaying dice, and you’re ready to run a game—except 
+you’ve got no players! What can you do?
+Here are a few ideas to get you gaming:
+Talk to your friends. Show them the rulebook and tell 
+them about how cool the game sounds. Perhaps get them to 
+read one of Lovecraft’s stories to see if they like it, preferably 
+a short one like The Outsider . Y ou could also ask family 
+members to try the game. Essentially, you only need a 
+Keeper and one player, but if you can get two or three players 
+together then that’s ideal. 
+Ask in your local hobby store or put a notice up. Talk to 
+the staff in the hobby store and ask if there is a game of Call 
+of Cthulhu you can join—many stores have gaming rooms 
+where people can get together to play. Perhaps a group is 
+looking for a new player? Failing that, ask if you can put 
+a notice up saying that you want to start a Call of Cthulhu 
+game and need players.
+Many schools, colleges, and universities have roleplaying 
+societies and groups. If there’s not one where you are, 
+perhaps you can start one. This can be a really good way to 
+meet like-minded people.
+Go to a local gaming convention. Gaming conventions 
+come in all shapes and sizes, and they are held all around 
+the world. Perhaps your local gaming store can point you 
+in the right direction. Conventions provide the opportunity 
+to meet new people, make friends, and play games. Even 
+though you might not find anyone local to you, you’ll have 
+the chance to play games and get some experience before 
+starting your own group.
+Experienced 
+Keepers
+The Call of Cthulhu roleplaying 
+game has been around for over 30 
+years, so many of you reading this 
+will be old hands when it comes 
+to running the game. You will have 
+noticed that this edition presents 
+some modifications to the rules 
+and this chapter is intended to 
+offer advice on how to integrate 
+these changes into your game.
+When meeting 
+ prospective players 
+for the first time, try 
+to arrange to meet in 
+a safe public place 
+such as a cafe or 
+bar. Don’t give out 
+your phone number 
+or address to anyone 
+until you get to know 
+them.
+
+===== PDF page index 196 (rulebook p.196) =====
+185 
+chapter 10: playing the game
+Look online at Cthulhu gaming sites. Look at www.yog-
+sothoth.com and www.mu-podcast.com, where people from 
+all around the world discuss Call of Cthulhu. 
+Preparing to Play the Game
+The purpose of roleplaying is to have a good time—that 
+should not need saying, but as with any hobby, some people 
+get so caught up in the moment that they lose sight of this 
+most basic of requirements.
+Some tips for creating atmosphere in your games:
+Try to play in a room where there is no one but the 
+gaming group; having your daughter running around the 
+table or your brother watching football on TV in the same 
+room is not going to help!
+Set up the gaming area appropriately. Close the curtains 
+and dim the lights a little (remember you still need to be 
+able to read the scenario and the players need to be able to 
+see their investigator sheets and the dice). Using low-light 
+lamps, LED penlights, or candles can be very effective—but 
+never leave lit candles unattended!
+Turn cell/mobile phones to silent (or preferably turn 
+them off) for the duration of the game. Likewise, put away 
+the computers and tablets—everyone’s focus should be on 
+the game. Being distracted by electronic devices is a surefire 
+way to dispel any sense of atmosphere.
+Suitable music playing low in the background can be 
+great for establishing a mood. Avoid pop and rock songs as 
+familiarity and the sudden changes in tempo and volume can 
+work against you. Look for atmospheric classical music or 
+soundscapes of electronic music. Published music especially 
+written for horror roleplaying games can also be purchased. 
+Period music (appropriate to the scenario) can also help, 
+such as twenties jazz played at a low volume.
+Setting the Tone
+Consider what sort of game you want to run. Y ou can aim for 
+high tension, over-the-top schlock horror, or a pulp-action romp. 
+Having said that, the default mode for this game is intended to be 
+horror with some action scenes thrown into the mix. 
+Y ou should decide, as a group, whether the game is to be 
+serious or jocular. Comedy and horror are good bedfellows 
+and the switch from one to the other is used to great effect in 
+many movies. However, too much comedy lessens the horror. 
+The way that you act (as Keeper) reinforces or undermines 
+the tone. As Keeper, you may find that the players take their 
+lead from you, not only in what you say, but how you behave. 
+Y ou may set the scene and build the pace and the tension, 
+only to have a player make a joke remark and for everyone 
+to fall about laughing, breaking the tension and ruining the 
+atmosphere. Shared jokes and laughing are important, but as 
+the game draws to a climax, so too should the horror. 
+If you are seeking a more intense gaming experience, talk 
+to your players about atmosphere and tell them at the start of 
+a gaming session that tonight’s game will be more enjoyable 
+for all if you can work together on building and maintaining 
+a good atmosphere. Some groups use the first 30 minutes of 
+a gaming session to share news, tell jokes, and relax—getting 
+this all out of the way before the game begins. Try to draw a 
+clear line between “social” time and “game” time.
+This is a horror game and you can expect players to enjoy 
+being scared; however, people have differing views of what is 
+acceptable, and these limits should be discussed before play. 
+Ask your players if there is anything that they definitely do not 
+want to see in the game. The answers can be quite unexpected; 
+one player may be fine with everything except violence to 
+animals, for example. Establish the level of their objection 
+and either avoid the topic entirely or use the dramatic effect of 
+“fading to black” when it occurs in play.
+Distasteful Historical Themes
+Distasteful issues may arise during the game. Y ou may feel 
+that your portrayal of fictional prejudice and bigotry is 
+worthy of an Oscar; however, another player may find it 
+offensive. The world was a very different place in the 1920s. 
+Behaviors most of us would find repugnant today were 
+ordinary and acceptable then. Racism, xenophobia, religious 
+bias, and sexual discrimination were part of everyday life and 
+often loudly espoused. Many laws systematically supported 
+segregation and discrimination of every sort, and social 
+forces of great power underwrote that legislation.
+Scenario authors and Keepers can choose to ignore 
+social history as not germane, or decide to incorporate 
+specific elements into their plots. Both approaches can be 
+found in published scenarios. Ultimately how you play it is 
+up to you and your group, but if you are going to use themes 
+of discrimination in the game, it is strongly recommended 
+that you discuss the issue early on.
+Investigators don't always sleep easy.
+===== PDF page index 197 (rulebook p.197) =====
+186 
+Call of Cthulhu
+Creating Investigators 
+Creating an investigator is straightforward—just follow 
+the rules in Chapter 3: Creating Investigators . There is 
+plenty of supplementary information on period settings 
+and professions that can help the players expand and flesh 
+out their investigators. A good place for more information 
+is in the numerous Call of Cthulhu source books published 
+by Chaosium, especially the Investigator Handbook, as this 
+includes a lot of extra information and options for players.
+Advising the Players
+Once you are familiar with your scenario it is time to brief 
+the players so that they can create suitable investigators. For 
+a standard scenario the players can be presented with an 
+initial premise:
+G The date and location of the scenario.
+G A basic description of how the scenario begins.
+G Suggested professions suitable to the scenario’s 
+premise.
+G Suggestions for how the investigators know each 
+other.
+The more information the players have to work with, the 
+better they can create investigators who will be tied into the 
+plot and possess motivation to follow the story path. 
+There may be quite a lot you can say about the initial 
+premise without giving away too much of what is to come. 
+When discussing the initial premise, you might consider 
+telling the players information that would be unknown to 
+their investigators at the outset of play
+Investigator Groups (I):                             
+Integrated Investigators
+Try to throw out as many “hooks” as possible in your 
+initial premise. One way to involve a player is to place a 
+family member or friend in jeopardy; for example, “Y our 
+investigator’s brother has been murdered. ” That’s fine, 
+but some players may not feel affected by the death of a 
+fictional relative. However, if you volunteer the story-hook 
+as a question to the players (“There’s been a murder—tell me 
+who’s been killed"), a player may suggest the link (“Could 
+the deceased be my brother?”). When the motivation is 
+coming from the player, you can be sure it will hold a lot 
+more emotional resonance for that particular player than 
+something you impose.
+You’re about to run Amidst the Ancient Trees, the first 
+of the scenarios at the back of this book. You deliver 
+the premise thus: “The story is set in Vermont, 1925. 
+There’s been a kidnapping and a call is out for posses to 
+head into the woods in search of the missing girl. You’ll 
+probably want at least one outdoorsman or hunter 
+among the group. Most likely you’ll all be concerned lo-
+cals, but if you want to be from out of town, you could 
+be. How you know each other, if you do, is up to you. ” 
+Investigators can come from all manners of backgrounds
+===== PDF page index 198 (rulebook p.198) =====
+187 
+chapter 10: playing the game
+Some scenarios don’t require 
+that the investigators know 
+one another before the game 
+starts. A game may begin with a 
+disparate group of investigators 
+compelled to action by some 
+dramatic event. These adventures 
+are often described as starting 
+“in medias res”—in the middle 
+of things. Think of these like 
+a horror film in which random 
+characters have to work          
+together to survive; many zombie 
+films work on such a premise. 
+Some campaigns can begin this 
+way too, with the investigators 
+drawn together to combat 
+the Mythos due to a shared            
+experience that has changed 
+their view of the world and their 
+purpose in life.
+This exchange works both ways. Just as the player should 
+pick up on story-hooks that you provide, you should pick up 
+on what the players say about their characters. The players 
+are encouraged to come up with interesting backstories 
+for their investigators, and you should listen to what the 
+players say and try to weave it into your existing story. These 
+story-hooks might be listed as investigator backstories or be 
+implied by the choice of profession or skills. 
+Weave the investigators and the plot together wherever 
+possible. This may feel contrived at times, but good drama 
+is often a contrivance. Consider the cast of non-player 
+characters in the scenario. How many of them could be 
+family members, friends, enemies, or associates that the 
+players have mentioned in their investigator backstories? 
+Y ou may have some detailed non-player characters prepared 
+as part of the plot—consider if any of those non-player 
+characters could be played as investigators. Don’t allow the 
+non-player characters to outshine the investigators.
+Ask the players questions about their investigators–—
+their backstories, aspirations, friends, and rivals, and take 
+note of any replies that might be incorporated or noted for 
+use later. Alternatively, you might suggest amendments to be 
+made to an investigator that will integrate them more closely 
+to the plot. As stated earlier, this is a two-way process and 
+everything is mutable at this stage. Get it right now and the 
+game will flow more smoothly.
+Many of the details in your scenario, such as place 
+names and character names, can easily be changed without 
+affecting the core of the scenario. Incorporating names and 
+other details that the players come up with can make those 
+elements of the scenario feel more real to the players, and 
+produces a more collaborative story to which everyone has 
+contributed.
+Investigator Groups (II):                       
+Random Investigators
+Some scenarios, especially “one-shots, ” will work with a random 
+mix of investigators. In this case, simply allow each player to 
+create an investigator, then find a way of bringing them together 
+and a reason for them to engage with the scenario. The benefit 
+of this approach is that players get free rein to make their 
+investigators however they wish. This can work well in a scenario 
+that takes random people and throws them into a situation, but 
+is not so good for a more open-ended investigative scenario or 
+campaign where the players would struggle for a reason why 
+their investigators would work together.
+Nick says his investigator grew up in a rural area but 
+has since moved in search of work. Someone suggests 
+a travelling salesman and Nick likes the idea. The 
+Keeper asks Nick to say a little more about where he 
+grew up and what his village was called. Nick states 
+that his investigator grew up in a small town called 
+Tingewick. The Keeper immediately changes the 
+name of the town in the scenario from Bennington 
+to Tingewick. The Keeper asks a few more questions 
+of the player. “Who do you remember? Any child -
+hood friends, enemies, teachers, etc.?” The Keeper 
+incorporates some of Nick’s responses into the plot. 
+Rather than adding new characters, the Keeper sim-
+ply changes some pre-existing non-player characters 
+to fit those offered by the player. Nick mentions a girl 
+his investigator was sweet on, and the Keeper im -
+mediately latches onto this and has her be the kidnap 
+victim (adjusting her age accordingly), asking the 
+player for the girl’s name (again, changing this detail 
+in the scenario to fit the player’s contribution). 
+All the Keeper tells the players is that the scenario is 
+set in the modern day and that they can create what-
+ever investigators they wish. The players end up with 
+a group consisting of a frail Archaeologist, a French 
+dancer, an ex-KGB agent, and a middle-aged Ameri-
+can housewife. The Keeper smiles and tells them they 
+are all on a transatlantic flight as the game begins. 
+At this stage the investigators don’t even know each 
+other, but the isolation of being 27,000 feet up in the 
+air throws them together for the scenario. Fun will 
+no doubt be had through the clash of personalities. If 
+they survive the scenario, it would seem unlikely that 
+they would ever have cause to meet again, let alone 
+team up to carry out future investigations.
+
+===== PDF page index 199 (rulebook p.199) =====
+188 
+Call of Cthulhu
+Investigator Groups (III):  
+Pre-Generated Investigators
+Y ou can create the investigators before play and then 
+distribute them among the players. This approach works 
+well for games where play is restricted to a set time slot, such 
+as at a gaming convention.
+ Try to remember the following factors when designing 
+investigators for other people:
+Archetypes are quickly accessible:  The grizzled ex-cop, 
+curious reporter, etc. 
+Balance: Try to balance the group so that each player will 
+get a turn in the spotlight. Consider the requirements of the 
+scenario in terms of skills and plot-hooks, and share these 
+with the investigators. Avoid basing the scenario around one 
+investigator, as this may leave the other players feeling they 
+are playing mere cameo roles. Presenting balanced investiga-
+tors does not require that every investigator be equally good 
+at all things. Just be sure that each investigator has strengths 
+that will come into play; one investigator might be good with 
+their fists, while another is strong academically. 
+Backstory: Write a backstory for each investigator, but don’t 
+write too much because some players may struggle to remem-
+ber or make use of backstory information. If the scenario 
+depends upon a particular investigator knowing certain infor-
+mation, be sure to make it very clear to the player—don’t hide 
+it in a large body of text. Be sure to allow players time to read 
+and digest their backstories at the start of play, and consider 
+using bullet points to summarize essential information.
+Unallocated skill points: Consider leaving some skill points 
+unallocated to allow each player to customize their own 
+investigator.
+Tell each investigator what he or she knows about the 
+other investigators: Y ou may also want to provide a brief 
+résumé for each investigator, listing what he or she knows 
+about the other investigators, though this is not essential. If 
+you do write one, it should be partial, being based on that 
+particular investigator’s point of view—an individual’s per -
+ception of a particular person can conflict with another’s, or 
+be wholly mistaken.
+Say what they know, not how they feel:  Rather than dic -
+tating how an investigator feels in their backstory, tell the 
+player the “facts” as their investigator perceives them, and 
+let the player decide what is true and how they feel about it. 
+Write reciprocal backstory information: If you write a 
+statement for one investigator regarding another, be sure 
+to write a reciprocal statement on the other investigator’s 
+sheet. As already stated, different investigators may perceive 
+different versions of the same truth. 
+Approving the Investigators
+Take a few minutes to look over the investigator sheets. 
+Ensure the players have completed their investigators 
+correctly (have skill points all been spent?) Then note down 
+a few details about each investigator along with names, 
+occupations, APP , Credit Rating, and any key aspects of 
+their backstory that catch your attention. 
+Key information can be summarized in a reference chart, 
+using the format at the bottom of the page.
+Avoid being unnecessarily harsh when reviewing 
+investigators; remember that regardless of how skilled or 
+well-armed an investigator may appear to be, the monsters 
+of the Cthulhu Mythos will always be more powerful.
+In place of, “You bear a grudge against Trevor who 
+stole your girlfriend, ” simply write the facts as that 
+investigator understands them, “Trevor stole the affec-
+tions of your girlfriend”. It’s then up to the player to 
+decide how his or her investigator feels about losing his 
+girlfriend and what effect it has upon his relationship 
+with Trevor.
+If one investigator (Brian) is told, “Trevor stole the af-
+fections of your girlfriend”, it is important that Trevor’s 
+player also be told about this. This might take a slightly 
+conflicting form: “You’re friends with Suzie. She used 
+to go out with Brian until she got bored with him”.
+Name Profession APP Credit 
+Rating
+Backstory Notes
+Todd Rahman Private Eye 65 30 Buddhist.
+Runs Rockwell Investigations in NYC.
+Police issue handgun.
+Pat Swift Ex-Athlete 75 20 Health-food fanatic.
+Proud of his sporting trophies.
+Worships the New Y ork Y ankees.
+Todd Rahman saved his life and he now works for Todd.
+Loves his elderly mother.
+===== PDF page index 200 (rulebook p.200) =====
+189 
+chapter 10: playing the game
+Creating New Occupations
+If none of the published list of professions fit your 
+requirements when creating investigators, or if you simply 
+prefer, just choose any combination of eight skills that best 
+fit the investigator’s occupation. Don’t forget to determine 
+a range for Credit Rating. This is a quick and easy method, 
+allowing for spontaneity and speed.
+Linking Investigators  
+When Playing Subsequent Scenarios
+The advice offered above for tying characters to the scenario 
+may work well enough for their first adventure, however this 
+can become labored if overused. If you are running unrelated 
+scenarios with the same investigators, a good reason is 
+required for them to be repeatedly involved in foiling the 
+plots of the Mythos. A deceased uncle is all very well for one 
+plotline, but what about next time? Just how many murdered 
+relatives can one investigator have?  
+Many scenarios are conceived and written as an 
+interesting story, with the investigators added on afterwards. 
+Some form of motivation must be chosen as a reason for the 
+investigators to connect with the plot. 
+Common motivations include:
+G Employment: The investigators are professionals 
+available for hire.
+G A social connection:  A friend or member of an 
+investigator’s family, who is integral to the plot.
+G Personal gain: A chance to find fame or fortune.
+G Altruism: Saving others, perhaps even saving the 
+world itself.
+G Moral code:  Battling evil as a result of personal 
+convictions.
+The investigator’s background is there to help in this 
+respect. The initial backstory written by the players serves 
+to build their characters and define their connections to the 
+world. The entries that you add or amend during play should 
+provide connections between that character and the Mythos, 
+especially those that are the result of madness. Try to word 
+backstory entries in a way that might push the character to 
+pursue the Mythos, such as:
+G An insatiable appetite for knowledge that man was 
+not meant to know.
+G Y ou cannot rest until the Cult of the Black Pharaoh 
+is destroyed.
+G Every night you dream of a sunken city; you hear 
+voices calling your name.
+G The answer must lie in the Necronomicon.
+Non-Player  
+Characters (NPCs)
+The players control their investigators; the Keeper controls 
+everyone else in the world, known as non-player characters. 
+These can come into the game in a number of ways.
+Y ou may find that players suggest ideas for non-player 
+characters when making their investigators: relatives, 
+colleagues, friends, or enemies. Refer to the investigators’ 
+backstories for these and take careful note of any details for 
+later incorporation into the scenario.
+Investigators may establish contacts during the game 
+(see Contacts, page 97).
+Y our plot will include some key non-player characters—
+the villains!
+The game will inevitably lead to encountering new non-
+player characters. Every street, every bar, every library has 
+people in it for the investigators to talk to.
+The important non-player characters in published 
+scenarios will have their characteristics and a selection of 
+skills already drawn up; however, there are always non-player 
+characters the investigators will wish to speak to in addition to 
+those already prepared. Y ou may need to come up with skills 
+and characteristics for these improvised non-player characters 
+as required during play—and this can easily be done. Of 
+course, you will only need skills or characteristics for your 
+non-player characters if they are opposing an investigator in 
+some way—often you can just play the interaction without 
+concern for any skill values or numbers.  
+When an investigator makes a skill roll versus a non-player 
+character, you will need to establish whether the difficulty 
+level for the player is Regular, Hard, or Extreme. To do this, 
+consider the skill or characteristic being used in opposition 
+by the non-player character. As Keeper, you should make a 
+swift and arbitrary decision whether a particular skill or 
+characteristic is a key aspect of that character’s profession. 
+If the skill or characteristic directly relates to the non-player 
+character’s profession, then it would be rated at 50% or higher, 
+Walter is creeping about in an old mansion when he 
+hears someone coming and wants to hide. As the door 
+opens, the Keeper asks for a Stealth roll. The Keeper fig-
+ures that the opposing factor would be the Spot Hidden 
+skill of the approaching non-player character. In this 
+case the non-player character is a maid. The Keeper 
+doesn’t have any statistics for the maid, but her pro-
+fession does not imply or require a high Spot Hidden 
+skill, thus the difficulty level is Regular (requiring a roll 
+equal to or less than the investigator’s Stealth skill). If 
+the person entering were a police detective, the difficul-
+ty level would be Hard (requiring a roll equal to or less 
+half than the investigator’s skill), as Spot Hidden can be 
+assumed to be a key aspect of the detective’s profession.
+===== PDF page index 201 (rulebook p.201) =====
+190 
+Call of Cthulhu
+and thus the difficulty level should be Hard. If this is not the 
+case, the skill is below 50%, so a Regular difficulty level is set. 
+Only in truly exceptional circumstances should the difficulty 
+level be set to Extreme (few non-player characters will have 
+even a single skill of 90% or above).
+If combat rolls are called for, arbitrarily assign some 
+combat values on the spot: average Joe (unskilled) 25%; 
+barroom brawler or hired thug 40%; trained killer 70%.
+While prepared non-player characters will be provided 
+with notes for you to interpret, ad-hoc non-player characters 
+won’t have their personalities and goals predetermined. 
+How you play these characters is up to you, but if you wish to 
+introduce a random element, refer to Non-Player Character 
+Reactions to the Investigators (see following page).
+Roleplaying Non-Player Characters
+Roleplay is at the heart of this game, and it’s your job as 
+Keeper to reinforce this. While the players get to play one 
+character each, you get to play everyone else, and the key 
+thing is that you roleplay the non-player characters. Rather 
+than telling the players what they learn from the barman, 
+take the role of the barman yourself. Try to alter your voice, 
+perhaps speaking with an appropriate accent or changing 
+the tone and volume of your voice. Don’t be afraid to act 
+the part, using gestures and mannerisms to help the players 
+build a mental image of the person they are interacting with. 
+It’s common for players to view the Keeper as being in 
+charge of the game and as such they will look to you for how 
+to play, modeling their performances on yours. Some people 
+are a little shy, but when they see and hear you talking “in 
+character, ” they will feel encouraged to do likewise. Teach 
+by example and reward them for getting into the spirit of 
+the game. If a player really gets into character and makes 
+a strong argument, then you might reward the player by 
+forgoing a Persuade roll, or at least lower the difficulty level 
+of the roll. Don’t feel compelled to reward strong roleplaying 
+every time; roleplaying is enjoyable in itself and shouldn’t 
+require constant reward.
+When possible, try to bring previously established non-
+player characters back into play. Doing this builds the feeling of 
+consistency and continuity. Consider how television shows do 
+this. When investigators want to know the word on the street, 
+they may visit the same bar where 
+they are familiar with Bernie the 
+barkeep. Bernie soon becomes 
+a character in his own right and 
+his story becomes entwined 
+with that of the investigators. 
+Placing non-player character 
+contacts at risk will provide 
+further motivation for the 
+players. When the players hear 
+that cultists picked Bernie the 
+barkeep as a sacrifice to their 
+dark god, it’s going to be more 
+meaningful than if it were just 
+an unknown victim.
+Roleplaying Hooks
+Everybody wants something. Have non-player characters 
+approach the investigators with requests, demands, and 
+problems. Consider how events in the story might create 
+problems for non-player characters. These non-player 
+characters will want help with their problems and, wherever 
+possible, you should direct their requests for help to the 
+investigators. If a non-player character has something the 
+players want, the non-player character will probably want 
+something in return. 
+As an aid to presenting non-player characters in play, 
+list two or three of these “roleplaying hooks” alongside 
+each of the key non-player characters in your scenario. The 
+hooks are more than personality traits or clues; they are 
+plot drivers that allow the non-player character to hook an 
+investigator like a fish on a line. Y our players will soon be 
+pulled in multiple directions by various hooks and if most of 
+these hooks are rooted in your core plot then your story will 
+become more layered and engaging. 
+Presenting the Authorities
+The Keeper should define the function and purpose of a given 
+authority in the context of the scenario. A sheriff or a judge, 
+for instance, can be a great help or a great obstruction to an 
+investigation; perhaps by controlling access to evidence, the 
+non-player character may willfully pursue personal theories 
+concerning a crime rather than cheerfully adopting the ideas 
+of the investigators, and may even blindly order the arrest 
+of the investigators as suspects, or hold them as material 
+witnesses.
+Uniformly portraying authorities as sleazy opportunists, 
+corrupt fools, and rigid bumpkins enforces a cliché that can 
+corrode the heart of the game. Call of Cthulhu assumes that 
+The Keeper has noted the following roleplaying hooks 
+for Parkin Withers (NPC):
+G Parkin’s business (and possibly life) is under 
+threat from the mob—he desperately needs help.
+G Parkin knows that Ephraim Smith is a cultist and 
+will seek some form of reward or recompense from 
+the investigators in return for this information.
+Harvey Walters regularly stops to chat over a 
+drink with Parkin Withers. Harvey wants to know 
+how Parkin got his black eye, and Parkin explains 
+how a man is extorting money from him. Parkin 
+wants Harvey’s help. The Keeper knows that this 
+mystery man is tied in with the plot, as part of a local 
+gang associated with a cult. If Harvey takes the bait 
+and offers to help Parkin, the plot is progressed.
+Parkin also possesses information pertaining 
+to Harvey’s investigation, but in return he wants a 
+package delivered. “It’s nothing suspect, but whatever 
+you do, don’t open it… ”
+Remember to 
+present non-player 
+characters in a 
+believable way. The 
+use of accents and 
+mannerisms can 
+quickly establish 
+a character’s 
+personality in 
+the minds of the 
+players. 
+===== PDF page index 202 (rulebook p.202) =====
+191 
+chapter 10: playing the game
+humanity and human civilization considers itself worth 
+defending and saving. However bad humanity can be, the 
+Mythos is far worse. Since investigators risk their lives to save 
+such people, some authorities must be shown to be worth 
+the struggle. The truth is that some are and some are not. 
+If the investigators encounter authorities with well-rounded 
+characters, freely capable of good and bad, they can make up 
+their own minds about the value of society.
+Non-Player Character Reactions to 
+the Investigators
+Y ou decide how non-player characters react to an 
+investigator; however, if you want to test the  non-player 
+character’s reaction to an investigator, you can make a 
+concealed roll using either the investigator's APP or Credit 
+Rating. Which one you use is determined by the situation 
+and the non-player character; ask yourself whether wealth 
+or looks is more likely to influence the particular non-player 
+character? If you are unsure, use the higher of the two. It’s a 
+good idea to take note of each investigator’s APP and Credit 
+Rating skill at the start of the game.
+To perform the test, roll 1D100 and compare it to either 
+the investigator's Credit Rating or APP . If the dice result is 
+below the target number, the reaction is positive; otherwise 
+the reaction is negative. How you portray a positive or 
+negative reaction in play is up to you. An initial negative 
+reaction should make the investigator's life more difficult, 
+especially if the player’s intention is to befriend or influence 
+the non-player character. This test is intended for use with 
+non-player characters who have no outstanding reason to 
+like or dislike the investigator.
+Playing Within the  
+Limits of Character Knowledge
+When roleplaying non-player characters, remember that 
+they don’t know everything that you know as Keeper. It’s 
+easy to make non-player characters infallible, but it can be 
+a lot more fun to play up their flaws. Non-player characters 
+can make mistakes, misunderstand, and fail just as readily as 
+the investigators. Cultists are only human, so let them make 
+human mistakes too. Their mistakes may serve to further 
+confound the players, who may seek some rationale for the 
+non-player characters’ curiously mistaken activities.
+Prepare a List of Names
+Y ou will have to name non-player characters during play. It’s 
+a good idea to have a list of names ready so that you can 
+pick one with ease rather than fumbling around only to 
+come up with a common name such as “Bob” . Fumbling for 
+a name is a sure sign to the players that the character is not 
+central to the plot, and you should try to make all non-player 
+characters feel equally real. Using names appropriate for the 
+place and period gives an increased sense of realism. Once 
+you’ve decided that the owner of the Castle Stahleck is called 
+Fabian Azoth, you simply make a quick note alongside the 
+name on your list for future reference.
+Pick-Up Non-Player Characters
+As previously stated, players play their investigators and you 
+play the non-player characters. Occasionally a situation may 
+present itself in which it is possible to hand a group of non-
+player characters over to the players’ control, thus allowing 
+the non-player characters to be played by the players 
+(temporarily replacing their investigators) for a time. 
+Pick-up non-player characters don’t require a full 
+character sheet; indeed, the less you give the player, the 
+freer the player may feel. Sometimes it is easier to improvise 
+around a simple archetype than to portray a fully detailed 
+character. A simple index card with a name, profession and a 
+few key characteristics or skills is enough for one scene—fill 
+Harvey Walters enters a police station late at night. 
+The place is busy with arrested late-night brawlers 
+and drunks. The Keeper wants to randomly deter -
+mine the desk sergeant's reaction to Harvey; the desk 
+sergeant is more likely to be impressed by wealth than 
+looks and so Credit Rating is more important in this 
+instance than APP . Harvey has a Credit Rating score 
+of 41. The Keeper rolls 83—well above 41, indicat -
+ing a failure and thus a poor reaction. Harvey will 
+get short shrift from this overworked and already 
+agitated officer.
+Using Props to  
+Present NPCs
+Games of Call of Cthulhu  can feature a wide variety 
+of non-player characters—that’s before we even get 
+to the monsters! Keeping track of who’s who can be 
+daunting for both the Keeper and the players. Preparing 
+some simple props ahead of the game can help.
+A quick and easy way to differentiate between 
+non-player characters is to find a portrait for each of 
+them. Most published scenarios include a drawing 
+or photograph of each of the important non-player 
+characters that the investigators will meet. Having a 
+copy of these allows you to show the players who 
+they are speaking to. If you are running a scenario 
+of your own design or one where images of the non-
+player characters are not provided, a quick search on 
+the Internet can provide a range of suitable character 
+portraits for you to print and cut out. Try looking 
+at websites featuring people of the period in which 
+the game is set. For example, galleries of 1920s film 
+stars are available and provide a perfect resource for 
+Keepers.
+
+===== PDF page index 203 (rulebook p.203) =====
+192 
+Call of Cthulhu
+
+===== PDF page index 204 (rulebook p.204) =====
+193 
+chapter 10: playing the game
+in any other statistics as they are called for. If it’s a combat 
+scene then combat skills, weapons, and hit points should be 
+detailed in advance or quickly generated in play.
+Playing a non-player character allows the player to 
+“see” through the eyes of a character that is not his or her 
+usual investigator and discover things that the player would 
+otherwise be unaware of. This conflict of knowledge happens 
+all the time in roleplaying—every time the investigators 
+split up, a player may hear about things that are not being 
+perceived through his or her investigator. The latter is 
+easily overlooked as it can be generally assumed that fellow 
+investigators fill each other in on what they have discovered. 
+How you and your players deal with knowledge gained when 
+playing pick-up non-player characters is up to you. This 
+technique of playing other characters can be used to build 
+tension and boost the horror. 
+Making the Most of the  
+Investigator’s  Backstory
+The investigator backstory can be a springboard for story 
+development. Consider how each investigator’s backstory 
+could drive the story forward and provide plot inspiration. 
+While some backstory entries could possibly link to the 
+scenario’s central plot, the majority are more likely to form 
+the basis for subplots. The players will be more involved 
+if you can weave such entries into the broad story of the 
+scenario.
+Corrupting Backstory  
+Entries as a Result of Madness
+The only way to hurt a man who has lost everything is to give 
+him back something broken.
+—Stephen Donaldson, The Wounded Land
+When preparing a scenario (or between sessions), think 
+about the investigators’ backstories and how the entries 
+might be corrupted, undermined or distorted, given the 
+likely events of the scenario. 
+This is a game of horror, and horror is most effective 
+when it hits close to home. In Lovecraft’s story The Shadow 
+over Innsmouth, the threat to the narrator’s sanity comes 
+not from the terrible monsters he encounters but from the 
+realization concerning his own bloodline.
+Plan out your intentions regarding investigator 
+backstories from the outset so that they can be woven into 
+The investigators have managed to persuade the 
+police that a SWAT team is required to assault the 
+cult’s hideout. Rather than simply telling the players 
+the outcome of the operation, the Keeper decides it 
+would be fun to allow the players to play members of 
+the SWAT team for the duration of the mission. This 
+is especially effective, since the role of the non-player 
+characters contrasts with that of the investigators. 
+Playing a combat-trained, well-armed professional 
+provides a major change of pace to a player whose 
+investigator is a college professor.
+The Keeper gives the players some pick-up non-player 
+characters to play—a group of students living in a 
+shared house. The players don’t know anything about 
+the house or the non-player characters, and they just 
+play the characters as they see fit. Only one scene is 
+played out, in which one of the pick-up non-player 
+characters is possessed (at the Keeper’s direction) by 
+some supernatural force and murders his compan -
+ions. The players love the scene as it is quick and 
+gruesome! What’s more, their investigators are not 
+under threat, so the players can relax and enjoy the 
+action without fear that their main character will die.
+The players then return to playing their 
+investigators with no idea how the pick-up non-player 
+characters link in with their story. However, while 
+following up a future lead, the investigators are invited 
+to dinner by a town councilor. While roleplaying the 
+dinner scene, the Keeper drops hints to the players that 
+this is the very house in which the earlier murder scene 
+took place. The players know what is happening but 
+their investigators do not—this dichotomy increases 
+the tension. As the penny drops, the Keeper mentions 
+how quiet the councilor has become and how his face 
+changes as he takes hold of the carving knife…
+The Keeper reviews Harvey Walters’ backstory and 
+occupation, and considers how they might be brought 
+into the game:
+“Uncle Theodore, who inspired a love of 
+archaeology. Harvey will prove himself a better man 
+than his uncle, who was driven mad by his obsessions. ”
+Given that the scenario features the mi-go, the 
+Keeper decides that one of Uncle Theodore’s artifacts 
+could be a Mist Projector (see Chapter 13: Artifacts 
+and Alien Devices ). Perhaps after encountering the 
+mi-go, Harvey might be given an INT roll to see if he 
+recognizes the artifact.
+“Journalist. ”
+Harvey talks to a publisher about his idea for a 
+story (based upon his encounters with the mi-go). The 
+publisher mentions it in passing to another author 
+who suspects Harvey’s tale is more fact than fiction. 
+Is this other author in league with the mi-go or a 
+potential ally?
+“Handsome, well-dressed and a little overweight. ”
+It is not so easy to see how this can be used. Perhaps 
+Harvey’s tailor might be persuaded to disclose useful 
+information regarding his other clients.
+
+===== PDF page index 205 (rulebook p.205) =====
+194 
+Call of Cthulhu
+the story. When a backstory entry is later corrupted, the 
+revelation will flow naturally and be more pertinent to both 
+the player and the overall story.
+It can sometimes be difficult to come up with an 
+appropriate entry in the middle of a game, so having a list 
+of ideas prepared before the game can help, either tailored to 
+specific investigators or just a general list that can be tweaked 
+and handed out as needed. 
+Each time an investigator experiences a bout of madness, 
+you may add or amend a backstory entry on the investigator’s 
+sheet. Corrupting an existing backstory entry rather than 
+replacing it with something completely new can be more 
+effective in building the story, and serves to maintain a 
+sense of continuity. Changing a backstory entry may have a 
+direct effect on the investigator’s mind—the game reality has 
+not changed; rather, the investigator has had a realization 
+concerning some aspect of it.
+Y ou are never compelled to amend backstory entries as 
+a result of investigator insanity or injury. It may be that the 
+game is in full flow and you do not wish to pause the action 
+while you consider. Or it may be that you have changed an 
+investigator’s backstory recently and do not wish to make 
+any further alterations at the time. If you wish, you can delay 
+the changes to allow yourself time to think, and then apply 
+them before the next session of play.
+Rolling Dice
+Dice Rule 1: The Keeper decides when to call for a skill roll. 
+Y ou (as Keeper) decide on the difficulty level for each skill roll 
+and, by extension, decide whether a skill roll is required at all. 
+If the task is routine and no drama is involved then it doesn’t 
+require a roll. There may be instances when you want the action 
+to move on quickly or want to avoid adding complications to 
+the proceedings and allow the players to do something difficult 
+without a roll; as Keeper, this is your prerogative.
+Dice Rule 2: Dice don’t tell stories; people do.
+The dice do not decide what winning or losing means in 
+your story; that’s the Keeper’s job. When a player wins a skill 
+roll, his or her goal is achieved (as agreed before the roll), but 
+when they lose, the Keeper decides what happens.
+Dice Rule 3: Losing a roll doesn’t necessarily mean failing 
+the goal.
+There are two possible outcomes of a skill roll: win or lose. 
+It is important to realize that losing a dice roll does not 
+automatically lead to failing the task. 
+Things go the way the player wants when a Pushed skill 
+roll is won (the player’s goal is achieved). 
+When a player loses in a Pushed skill roll things go the 
+way the Keeper wants (the goal may or may not be achieved 
+and additional negative consequences occur).
+One of the keys to running a good game is learning 
+to define how winning or losing a dice roll translates into 
+events in your story. Describe the outcome, not the dice roll.
+If the player loses the roll then you get to decide what 
+happens. Problems can arise if you declare an outcome that 
+blocks play.
+The Keeper reviews Harvey Walters’ backstory and 
+considers how each entry might be amended as a 
+result of insanity:
+1. “Uncle Theodore, who inspired a love of 
+archaeology. Harvey will prove himself a better man 
+than his uncle, who was driven mad by his obsessions. ”
+Uncle Theodore could either turn out to be an 
+evildoer, or Harvey could just believe him to be one 
+as a result of paranoia. This entry could be corrupted 
+to read, “Uncle Theodore is a bad influence. I must 
+do what I can to save his soul, ” or “Uncle Theodore’s 
+artifacts present a danger to the world and must be 
+destroyed!” or “Uncle Theodore is trying to recruit me 
+as a cultist. ”
+2. “Fate. Looks for signs and omens. ”
+This could become “I begin to foresee the end of 
+days, ” or, “I have been chosen as a prophet and must 
+tell people of what is to come. ” Alternatively it might 
+take a superstitious bent, “Careful not to tread on the 
+cracks in the pavement. ”
+3. “Handsome, well-dressed and a little overweight. ”
+A love of good clothes speaks of a materialistic 
+person who takes pride in fashion and appearance. 
+This may be altered to “Disdainful of material 
+wealth, ” or “Unaware of how ragged my clothes have 
+become. ”
+Martha discovers the secret of her mother's heirloom mirror.
+===== PDF page index 206 (rulebook p.206) =====
+195 
+chapter 10: playing the game
+Dice Rule 4: Dice are used to determine who tells the story.
+On winning a skill roll, the player gets to say what happens 
+next. What the player can say has already been agreed with 
+the Keeper when the goal was set. If you feel that the player 
+is overstepping the mark (going far beyond the stated goal) 
+you may veto the player’s comments, perhaps calling for a 
+subsequent dice roll.
+If the player loses a dice roll, you have free rein to 
+describe any outcome you wish. Usually this will mean 
+that the player’s goal is not realized; however, you are not 
+constrained to presenting the opposite of the player’s 
+goal—the player’s goal could be fully or partially achieved 
+along with a consequence. The Keeper’s job is to create an 
+interesting outcome, preferably one that develops the theme 
+of horror in the story.
+One way to think of this is to compare it to a football 
+game in which the two teams battle for possession of the 
+ball. In Call of Cthulhu  the player and Keeper battle for 
+“possession” of the story. The side that wins the dice roll gets 
+to run with the metaphorical ball for a while.
+Dice Rule 5: Avoid consecutive rolls against the same skill.
+Asking a player to make a skill roll more than once for the 
+same task greatly reduces the likelihood of the player winning 
+the roll. An investigator with a Stealth skill of 50% obviously 
+has a 50% chance of winning (at Regular difficulty level). If 
+the player is asked to make this roll twice in succession, the 
+chance of passing both rolls drops to 25%. Therefore, if there 
+are three guard posts and each must be passed to enter the 
+cult base, rather than asking for three consecutive Stealth 
+rolls, you could call for one roll to cover all three, allowing 
+the one winning roll to stand so that no further rolls will be 
+required for a time. If you feel that there being three guard 
+posts makes the task significantly harder then you can raise 
+the difficulty level. 
+Dice Rule 6: Roll dice in full view.
+Both players and Keeper should roll the dice in full view 
+and use the result as rolled. If you find that dice rolls bring 
+unwanted consequences, you should read through Dice 
+Rules 1 to 4 again. The only exception to this is when the 
+Keeper is making a “concealed roll, ” such as for Psychology 
+rolls (see Contacts, page 97).
+Setting Difficulty Levels
+The difficulty level of a given task should be the same for 
+everyone and should not be altered according to the skill of 
+the person attempting it. If the difficulty level for a climb is 
+declared as being Hard it remains Hard regardless of whether 
+one is a novice or an expert climber.  The skill percentage 
+is what makes the difference; the person with the greater 
+Climb skill has a greater chance of winning the roll.
+If you feel that a task is so easy that it would be routine, you 
+can either not call for a roll (the task is simply accomplished) 
+or you may ask for a roll at Regular difficulty (or give a Bonus 
+die), but make the consequence of failure be very mild. 
+A routine task that relates directly to an investigator’s 
+occupation should be achieved automatically; remember, 
+only roll dice for important and dramatic reasons.
+Ask the Player
+Ask questions of the players. Encourage the players to talk in 
+terms of their investigators’ actions rather than using rules 
+terminology. When a player proposes an action by asking to 
+make a roll, ask questions about what the investigator is actually 
+doing. It’s the Keeper’s job to ask the player to make a roll. Asking 
+to make a roll does not convey the drama of the situation.
+The investigators are locked in a room that is rapidly 
+filling with water and have no hope of rescue. Their 
+only way out is through a locked door. Andrew sets a 
+goal for his investigator to “Pick the lock on the door”. 
+He fails and feels compelled to push the roll. He does 
+not request any foreshadowing—the consequence of 
+being trapped underwater is self-evident. He loses 
+a second time, placing the outcome in the Keeper’s 
+hands. The group has only been playing for an hour 
+and dying now would bring the session to a prema -
+ture end. This presents a problem: the investigators 
+are all going to drown if the door remains closed. The 
+Keeper considers the options.
+Devise a prompt rescue (which may feel like a 
+contrivance). 
+Allow for some additional rolls (which of course 
+might also be lost, leaving the players in the same 
+situation).
+Have the consequence of losing the Pushed roll be 
+that the room fills with water, but just before everyone 
+drowns, Andrew’s investigator manages to open the 
+door and everyone is carried out on a wave of water.
+Clearly the final option is preferable. The 
+investigators should take some damage as part of the 
+consequence, but they survive and the game goes on. 
+The player has achieved his goal, but at a significant 
+cost because he failed the Locksmith roll.
+Harvey’s player is trying to open a puzzle-box. 
+“Can I make an INT roll to try to open it”, the 
+player asks. 
+“What are you actually doing with the box?”, 
+asks the Keeper, prompting the player to elaborate.
+Harvey’s player thinks for a moment. “I’m going 
+to spend a while studying the various symbols, 
+perhaps looking some of them up in my Uncle’s 
+books, and see if I can figure out how to turn the 
+various sides until it opens. ”
+“Sounds good. OK, give me an INT roll”.
+Notice how the Keeper’s question coaxed some 
+extra description and story from the player.
+===== PDF page index 207 (rulebook p.207) =====
+196 
+Call of Cthulhu
+Encourage the players to describe the way in which their 
+goals are achieved when they win the roll. Think of it as 
+shining a spotlight on the player and placing a microphone 
+under his or her nose. Don’t be unnecessarily restrictive 
+when it comes to what you allow a player to narrate. With 
+a goal of “breaking the door down, ” does it really matter 
+whether the player describes it as, “I force the door with 
+my shoulder until the latch pops off, ” or “I charge the door, 
+smashing it asunder, sending splinters of wood flying across 
+the room?” If it’s a matter of inconsequential details and the 
+player has enjoyed describing his or her investigator’s actions, 
+just smile and say, “Y es!” Try to avoid restating or rephrasing 
+what the player just said—doing so is unnecessarily and may 
+undermine the player’s contribution.
+Some players may roll the dice and look at you to tell them 
+what happens: “I rolled 14 to break down the door. That’s 
+a success. What happens?” Throw the question back and 
+encourage the player to elaborate. “Cool, tell us how you do it” .
+Some players may go to the other extreme and 
+describe everything that happens, including non-player 
+characters’ reactions and more. How far you allow the 
+player to go when it comes to describing how their goal is 
+achieved is up to you. Y ou have veto if the player goes too far, 
+and you will develop a feel for what “too far” means. 
+Learn to differentiate between descriptive color and 
+mechanical effect. How the player describes breaking down 
+the door isn’t really important—it’s just color. The dice were 
+rolled, the goal was achieved, and the door is broken down. 
+From another point of view, this descriptive color is of utmost 
+importance, as it is this description that builds the story and 
+makes the game more interesting and fun.
+There is only a mechanical effect on the game when 
+the player goes beyond color and adds something that will 
+affect future dice rolls. This is where you need to use your 
+judgment on whether to accept, veto, or adapt the player’s 
+description. If what the player asks for or describes seems 
+reasonable, you can allow it, but don’t make life too easy for 
+the player—remember that this is a horror game. Y ou can 
+veto it, but where possible try to adapt it or offer an alternative 
+rather than blocking the player’s suggestion. If you feel unsure 
+whether to allow it or not, you can ask for a Luck roll. 
+Pushing the Roll—Pushing the Horror
+Sometimes, a player will simply ask, “Can I push that?” 
+Remember the advice—ask questions of the players. 
+Players must always describe the extra effort or action their 
+investigators make to justify a pushed roll—if it sounds 
+insufficient then suggest what more might be done. A pushed 
+roll should usually be possible, but events in the story must 
+account for it. 
+When a player loses a pushed roll, he or she is giving 
+you, the Keeper, license to make the investigators’ lives more 
+difficult. Y ou should think of a consequence that takes the 
+investigators one step nearer to their doom. It may be some 
+unexpected occurrence, perhaps even one that is unrelated 
+to the subject of the skill roll.
+The consequence should be more than failure. Every 
+time a player loses a pushed roll, you should try to steer 
+the game towards the theme of horror. This may not always 
+be possible, but have that as your goal: a pushed roll is your 
+chance to push the horror.
+Harvey wins a skill roll to break a door down. The play-
+er describes Harvey’s actions thus: “I charge the door 
+and smash it, sending splinters of wood flying across 
+the room. There’s a guard there, right?” The Keeper 
+nods. The player then says, “OK, the guard cowers and 
+drops his weapon in surprise. I run over and grab the 
+gun while he’s pulling splinters out of his face!”
+You may feel that the player has gotten a little 
+carried away here, but it’s creating good story. The 
+Keeper decides to rewind the action a little to where 
+the investigator is running at the guard, stating, “The 
+guard sees you coming and makes a grab for his fallen 
+weapon as he rolls away from you. Sounds like you’re 
+trying to get it before him, right?”
+Bang—it’s an exciting action scene. All that’s 
+happened is that the player has achieved his goal of 
+getting through the door and is now grappling the 
+guard. The only thing that the player’s description 
+really added was that the guard has dropped his 
+weapon and the Keeper feels this is acceptable in the 
+circumstances. The guard would normally have to 
+draw a weapon, so either way the weapon is not in 
+the guard’s hand at that moment. The whole thing 
+about the splinters in the guard’s face is just color and 
+has no effect on the dice or hit points.
+Delusions can lead to investigators acting irrationally
+===== PDF page index 208 (rulebook p.208) =====
+197 
+chapter 10: playing the game
+Alternatively, if the investigator is insane at the time of 
+losing the pushed roll then this presents a prime opportunity 
+to introduce a delusion:
+Verbal Conflicts
+Verbal confrontations should be roleplayed at the table 
+with much gusto and performance. However, when there’s 
+a genuine conflict, you will want to pick up the dice. See 
+Charm, Fast Talk, Intimidate, and Persuade Skills: 
+Difficulty Levels (page 93) for further details.
+Y ou must decide when a non-player character can be 
+coerced and when they cannot. It might require a pretty face, 
+a threat, a bribe, and so on, but most people can be won over 
+with the right approach. Even the most evil of cultists might 
+be conned or succumb to threats or persuasion if the players 
+somehow find the non-player character’s weakness. Always 
+work within the confines of the story—the cult boss would 
+not knowingly be persuaded of anything by someone who is 
+clearly an enemy, but if the investigator inveigles their way 
+into the cult, they might stand a chance.
+Violence and Sanity Rolls
+Intimidation may use threats of physical violence. One 
+suggested consequence of losing a pushed Intimidation roll 
+is to have the investigator unintentionally carry out his or 
+her threat. The player may not want to shoot the non-player 
+character in the kneecap, but pushing the roll can result 
+in unwanted outcomes. The use of such violence in that 
+situation would constitute torture, and the Keeper may wish 
+to ask for Sanity rolls for the participating investigators.
+Taking a life in a game is easy—we grew up doing it in 
+make-up games as children, we do it in video games, we watch 
+it on television, and so on. Actually doing it in real life is a 
+whole other matter. Y ou may wish to reflect this in your game 
+by calling for a Sanity roll (SAN 0/1D6) when an investigator 
+first kills a person, whether or not it is in cold blood.
+Cold-blooded murder is especially difficult, and an 
+investigator may find themselves incapable of doing it. Such 
+callous behavior may require the player to fail a Sanity roll 
+Matthew asks a hotel receptionist if a certain person 
+has stayed at the hotel recently. After failing initially, 
+he refuses to take no for an answer and offers a bribe. 
+The Keeper grants a pushed roll. Thinking fast, the 
+Keeper foreshadows the consequence: “Your persis -
+tence may cause offense, perhaps more. ” It’s vague, 
+but it’s what the investigator might expect. Matthew 
+fails the pushed roll and the Keeper considers how to 
+make life more difficult for the investigator and push 
+the horror theme. Up to this point the Keeper had 
+not considered the receptionist but, as a result of this 
+pushed roll, the Keeper decides that the receptionist is 
+allied with the investigator’s enemies and will inform 
+them of the investigator’s enquiry. To increase the ten-
+sion, the Keeper hints at this within the consequence. 
+“The receptionist holds up his hands and with a slight 
+smile says, ‘I’m sorry sir, I’ve never heard of this 
+gentleman’. A few moments later, as you’re leaving 
+the hotel, you see him speaking on the phone. You 
+catch his eye and he looks away hastily. ”
+Notice that the receptionist had not been considered 
+a threat until the player lost the pushed roll. It was 
+only then that the Keeper changed the status of the 
+receptionist, adding yet another pawn to the enemy.
+If in the example above, Matthew’s investigator were 
+insane, the Keeper might pick an alternative conse -
+quence, choosing to hit Matthew’s investigator with a 
+delusion. “The receptionist is clearly losing his patience 
+with you. He informs you again that he knows nothing 
+of the person of whom you are enquiring. As he loudly 
+states the name, you notice another guest staring hard 
+at you. Something writhes beneath his shirt. His skin 
+is slick with sweat, his eyes are fixed on you and he is 
+mumbling something you can’t quite make out and 
+making strange movements with his left hand. ” In reality 
+this is just another mundane guest at the hotel, however 
+Matthew (the player) doesn’t know that and (suspecting 
+a delusion) asks for a reality check (see Reality check 
+rolls, page 162). He fails the roll, sending his investigator 
+into a bout of madness. The Keeper decides that, during 
+his bout of madness, the investigator attacks the inno-
+cent bystander until he is restrained by hotel staff, who 
+then summon the police. The Keeper tells Matthew that 
+the next thing his investigator is aware of is lying on the 
+floor, pinned by a police officer’s knee, while nearby a 
+man’s beaten body is being attended to by hotel staff. He 
+has a lot of questions to answer.
+Hasna has taken a cultist captive and tries to get him 
+to reveal the cult’s plans. The Keeper asks what Hasna 
+is doing to elicit information from the cultist and it 
+soon becomes clear that intimidation is being used 
+rather than persuasion. The cultist has low Intimidate 
+and Psychology (both below 50%), so the difficulty 
+level starts at Regular. Given the cultist’s motivation, 
+the Keeper raises the level of difficulty to Extreme. 
+There is a slim that chance the cultist will crack!
+In this case, Hasna’s goal is possible as the cultist 
+is relatively ineffective; however, if the cultist had an 
+Intimidate or Psychology skill over 50%, the initial 
+difficulty level would be Hard, and by raising the 
+difficulty level by two steps the goal would become 
+impossible. In that case the cultist would not crack 
+unless Hasna could do something to “up her game, ” 
+such as using threats of, or actual, violence (in the 
+case of Intimidate). 
+===== PDF page index 209 (rulebook p.209) =====
+198 
+Call of Cthulhu
+before they are able to pull the trigger on a fellow human 
+being. There is, after all, a word for people who can carry 
+out such acts without flinching—psychopaths. A psychopath 
+would have a low Sanity and thus be able to do such acts 
+without their conscience stepping in to prevent them.
+Pacing the Game
+Y our role is like that of an orchestra conductor: you set the 
+tempo. Giving a good pace to the game can be essential, 
+keeping everyone interested and excited. Some scenes have 
+a natural end and the game progresses organically; others 
+have the risk of becoming overextended and dull. Try to 
+keep things moving, but bear in mind that sometimes the 
+players need a chance to catch their breath and review the 
+situation. Combats and chases demand fast-paced action and 
+quick decisions from yourself and the players. Sometimes 
+the players may disagree about how to proceed. When two 
+players get caught up in a discussion about whether to stay in 
+the musty old cellar or to make a break for freedom, you can 
+take a step back and give them time to talk and work things 
+out. If the players are animated you can take that as a sure 
+sign that they are enjoying the game. If players are arguing 
+about rules then you should offer arbitration; otherwise just 
+sit back and rest your voice for a while.
+If everyone is enjoying themselves, there’s no problem; 
+however, if some players are getting bored or the discussion 
+is becoming repetitive, you should move things on. Do what 
+you can to introduce some drama and push the players 
+towards some form of action. For example, have a desperate 
+non-player character call upon the investigators for aid. 
+Another option is to discuss the likelihood of success of their 
+various plans. Alternatively, if they are completely stuck or 
+cannot agree on how to proceed, you can offer them an Idea 
+roll (following page).
+A key aspect of your job as Keeper is to build an 
+atmosphere of tension, and the way you pace the game is 
+key to this. Y ou may start with a low-key opening and take 
+a slow-boil approach, gradually building the tension as the 
+game reaches a climax. Alternatively you may kick the game 
+off with a bang, starting the story in medias res, guns blazing, 
+then alternate between tense dramatic scenes and high-
+action scenes. Keep your finger on the pulse of the game, 
+allowing it to slow down at times, but always be ready to 
+draw a scene to a close and push the game on.
+A one-off game should have a beginning, a middle, and 
+an end, with escalating tension throughout. If the game is 
+being run across multiple sessions, a different structure is 
+required. Rather than building to an ending, the Keeper 
+should have next session in mind. Try to end each session 
+on a cliffhanger or some kind of revelation. Leave the players 
+with an unanswered question. The realization that things are 
+about to take a turn for the worse or the investigators are in 
+much deeper than they first thought can be a real driver. If 
+none of these things are available for the session climax, then 
+a blood-pumping combat scene or chase can provide a great 
+ending. 
+The majority of roleplaying games are based upon 
+acquisition of skills and stuff, whereas Call of Cthulhu is a game 
+of attrition. Be mindful when pacing or planning sessions that 
+the effect of the horror genre on characters is different from 
+that of a standard fantasy adventure game. In the latter the 
+characters may be fighters and wizards exploring dungeons, 
+accruing experience, wealth, and power as they do so. They may 
+risk life and limb with every fight, but they soon recover and 
+grow more effective as the game progresses. Contrast this with 
+characters in a horror story, who rarely increase in effectiveness 
+and for whom each challenge chips away at their physical and 
+mental resources, with injuries taking considerable time to heal. 
+A low-level monster may cease to be the threat that it was for 
+experienced characters in some other games, but a low-level 
+monster in Call of Cthulhu remains a threat no matter how 
+experienced an investigator becomes.
+Take note of how your players react to events in the 
+game. If they are blasé about the dangers their investigators 
+face then increase the threat level. If the reverse is true and 
+they are cautious about every minor action, so suspicious 
+that they never accept a drink from a non-player character 
+or spend ages planning for every eventuality, this may be a 
+product of previous gaming experiences in which the games 
+moderator was overly harsh. If this is the case, you should 
+ease off a little or reassure them when the risks they are 
+taking are reasonable.
+Problems With Players
+Solving all potential problems between players is beyond the 
+scope of this book. As Keeper, you are responsible for more 
+of the game than an individual player, however you should 
+not feel that everything is your responsibility. Whether a 
+game goes well or not is due to your whole gaming group, 
+not just you. If problems arise then be ready to stop and talk 
+to your players if you feel the need to do so.
+If you feel that one person is dominating the game, 
+encourage the quieter players to participate. Imagine your 
+players are actors on the stage and you are in control of the 
+spotlight; by addressing questions to different players you 
+are shifting the light from one player to another.
+One investigator can’t be present in more than one place 
+at one time, though some players will attempt to have their 
+investigator be omnipresent. If this is an issue then be clear 
+about where investigators are—you may even consider using 
+a map and counters to clearly illustrate investigator location. 
+If one player’s counter is in the kitchen and another is in the 
+attic, then when dealing with the investigator in the attic you 
+shine the spotlight on and speak to that player only—remind 
+the other player of the situation if he or she attempts to butt in.
+Handling a group of people is an important skill for a 
+Keeper to learn. Hopefully everyone is enthusiastic and full 
+of ideas, but if they all speak over each other you will have 
+chaos. Focus is the answer. Focus your attention on only 
+the players who are in the present scene and ask the other 
+players to be patient. Remember you can cut from one scene 
+to another whenever you want, but you must take control of 
+this and be aware that you are doing it. 
+===== PDF page index 210 (rulebook p.210) =====
+199 
+chapter 10: playing the game
+If the investigators have split up, be clear about which 
+investigators are at the present scene. Resolve the scene or 
+bring it to an interesting point, perhaps at a moment of great 
+conflict, then cut to the other investigators and do the same 
+for them. Don’t leave any single player inactive for too long. 
+Consider the structure of television drama and place yourself 
+in the role of director; you get to call “action” and “cut” . 
+Usually you will have multiple investigators in a given 
+scene. Talk to the players who are involved in the scene and ask 
+questions about what each investigator is doing. Do not allow 
+a player to dictate the actions of another player’s investigator. 
+If one player states that another player’s investigator is doing 
+something, turn to the player of that other investigator and 
+ask them what they are doing. Remember that not everything 
+relies on consensus. If an investigator is holding a grenade 
+and the player states, “I’m pulling the pin, ” then it is pulled 
+regardless of what the other players might say. A player might 
+attempt to interfere in the activity of another investigator 
+through the actions of their own investigator, but one player 
+cannot declare the actions of another player’s investigator.
+Running With  
+What the Players Throw at You
+Y our players may well take an approach to the story that 
+you have not thought of or planned for. Many Keepers will 
+be tempted to block the players’ progress, simply saying 
+no and steering the players back towards the story that the 
+Keeper has prepared. Instead of that, where possible, try to 
+incorporate the players’ suggestions, especially if you can add 
+complications of your own to their contribution. Wherever 
+possible you should try to have an attitude of “Y es, and… ” or 
+“Y es, but… ” rather than a flat “No” .
+The Idea Roll
+The players’ perception of the game world is formed by what 
+you tell them; they cannot perceive what is in your head, 
+only what you say. The players’ next step in a game may seem 
+obvious to you but elude the players themselves. Y ou should 
+seek a balance between spoon-feeding clues to the players 
+and being overly secretive; this may sound easy, but it is not. 
+Invariably the players will misinterpret or simply forget clues 
+that are required for the game to progress. It may be that 
+as your story unfolds you are unable to provide a certain 
+important clue to the players. This may cause the game to 
+stall and the fear of this happening can be a source of anxiety 
+among Keepers and players alike. A dice roll to allow the 
+investigator to gain a clue is all very well, but what if the 
+players lose the roll? Do you just ask them to make another 
+roll and another until they succeed?
+This is where the Idea roll comes in. The players will get 
+the clue regardless of whether they pass the Idea roll or not. 
+An Idea roll is a highly significant and unusual event in the 
+game. The roll determines not if, but how they get the clue. 
+The goal of an Idea roll is always “to get the investigation 
+back on track” . The Keeper starts by figuring out which was 
+the most important clue the players missed and uses this to 
+set a difficulty level for the Idea roll as follows. One player 
+(whose investigator has the highest INT) then rolls dice for 
+the Idea roll:
+i If the Keeper never mentioned the clue, the difficulty 
+level is Regular (requiring the player to roll equal to 
+or less than their investigator’s INT). The likelihood 
+of winning this roll is high—it is hardly fair to expect 
+the players to act on something that they don’t know 
+about.
+i If the clue was definitely mentioned (but not em -
+phasized), the difficulty level of the Idea roll is Hard. 
+The players have had the chance to pick up on this 
+clue and missed it. If weeks of real world time have 
+passed since the clue was mentioned, you might 
+want to use Regular difficulty level for this. This is 
+the default difficulty level for an Idea roll.
+i If the clue was made clear by the Keeper ( i.e. 
+mentioned several times) or the players discussed 
+it themselves, the difficulty level of the Idea roll is 
+Extreme. 
+The setting of difficulty levels for Idea rolls may appear 
+counterintuitive; the more obvious a clue was made, the more 
+difficult the Idea roll is. The Keeper is not trying to figure out 
+the likelihood of the investigators realizing the clue—this 
+is something they are incapable of, as fictional characters. 
+The Keeper is offering the players a gamble, asking them to 
+risk the negative consequences to gain the clue. A part of 
+the role of players is to take note of clues during the game. 
+There is a balance between the Keeper giving clues out and 
+the players taking clues in. The Idea roll aims to reflect this 
+balance. If the clue has never been mentioned, the balance 
+must be redressed in the players’ favor and this is achieved 
+by giving the players a strong chance of getting the clue for 
+free. If the clue has been made obvious but somehow missed 
+by the players, the players have had their chance and so they 
+are owed no redress, and thus the Idea roll is set to Extreme 
+difficulty level.
+An investigator decides to make a telephone call to 
+the local police. The Keeper has three options:
+No: The Keeper could tell the players that they are 
+the investigators and that it is not in the spirit of the 
+game for them to call the police. This is clearly not a 
+pleasing option for anyone.
+Y es, and…: Rather than blocking the action, 
+the Keeper might tell how the phone line is cut off or 
+the police station unobtainable, or that only strange 
+unearthly voices can be heard on the line.
+Y es, but…: Perhaps a policeman turns up promptly, 
+but he is corrupt and in league with the cult.
+===== PDF page index 211 (rulebook p.211) =====
+200 
+Call of Cthulhu
+Winning the Idea Roll
+If the players win the Idea roll, the Keeper should deliver the 
+clue. The information should be enough to get the story going 
+again with a strong direction. The Keeper should weave the 
+delivery of the “idea” into the story rather than simply giving 
+out the information. If the clue was never mentioned at all, 
+some creativity is required in how the players attain the clue. 
+When an Idea roll is made, the Keeper has complete 
+control of the situation and can move time on or place the 
+investigators in whatever situation is judged appropriate; 
+however, you should not increase their level of danger as the 
+result of a winning roll.
+Losing the Idea Roll—In the Thick of It
+If the players lose the Idea roll they find themselves in deep 
+trouble. A lost Idea roll gives the Keeper permission to put 
+any of the investigators (regardless of who rolled dice) in the 
+“thick of things. ” The Keeper should consider the clue on 
+offer and try to come up with the worst situation in which 
+the investigators might realize it. The Keeper starts the 
+game again in medias res and the players must deal with the 
+situation in which they find themselves.
+Y ou may well find that your group never resorts to using 
+the Idea roll. Indeed, you may find that your group is never 
+at a loose end and always have some ideas of their own as to 
+how the story might proceed. Alternatively, the players may 
+get stuck, but be so cautious that they refuse to call for an Idea 
+roll. If this is the case, you can draw the current chapter of the 
+game to a close and carry out investigator development phase 
+(rolling skill improvement and so on). Then ask the players 
+what their likely courses of action might now be. If you feel 
+the players lack direction, you should insist on starting the 
+next part of the game with an Idea roll, using it to determine 
+whether things restart well for the investigators or not.
+Luck for Non-Player Characters
+If you decide ahead of time that the players will meet the 
+arch-villain in a warehouse, and that the investigators will 
+neither catch nor kill him, then you have already scripted 
+the events and the players will be no more than pawns in 
+your story. Remember, Call of Cthulhu centers on a shared 
+story created by both the Keeper and the players. Avoid 
+predetermining events in which the players will be involved.
+However, let us assume you want to do your best to keep 
+the arch-villain alive or out of the investigators’ hands. One 
+way to achieve this outcome is to give the arch-villain a Luck 
+pool—this does not guarantee escape, but it greatly increases 
+the villain’s effectiveness and improves the chances of any 
+Using the previous example, what if the Idea roll had 
+been lost? The Keeper has identified a clue to give to 
+the players (the shopkeeper and his link to the cult). 
+The Keeper states, “You spend four weeks [Note: time 
+has been wasted—that’s part of the consequence of 
+losing the Idea roll] going over previous leads and 
+come up with nothing. As you sit in a café, you glance 
+across the street and notice a bookshop that you rec-
+ognize. You finish your coffee and make your way to 
+the shop, intending to have another look to see if they 
+have any rare tomes. You spend a while perusing the 
+shelves and pay little heed as more customers enter 
+the shop. Suddenly a glint of metal catches your eye 
+and you realize that the customers in the shop are 
+approaching you with curved daggers drawn! Glanc-
+ing around you see the shopkeeper closing the blinds 
+and turning the ‘Open’ sign to ‘Closed’. ”
+Note that the players don’t get to act or interject 
+until you allow them to, at which point the players 
+are back in the story. As this scene is played out 
+the Keeper makes every effort to yield sufficient 
+information to the players to put them back on track. 
+The players now know the shop is run by the cult.
+The investigators visited a second-hand bookshop 
+when researching a cult. They went to the shop be -
+cause they found an occult tome with a bookmark on 
+which was written the shop’s name. The investigators 
+had hoped to find yet more tomes. Unknown to the 
+players, the shop is run by the cult, and the investiga-
+tors had seen the shopkeeper previously but failed to 
+recognize him during their visit. The Keeper called 
+for a Spot Hidden roll at the time to see if anyone 
+recognized the shopkeeper, thinking that it might be 
+interesting if the investigators didn’t recognize him. 
+With the benefit of hindsight, this was an error. 
+Now, two sessions later, the investigators have 
+exhausted their leads and have requested an Idea Roll. 
+The Keeper agrees, considers what lead to give them 
+and decides that the second-hand bookshop offers a 
+strong link to the plot, being a key location for the cult.
+The players never spoke to or discussed the 
+shopkeeper, even though the Keeper mentioned him a 
+couple of times, so that calls for a Hard difficulty level. 
+The player with the highest INT throws the dice and 
+rolls under half their Idea score—a win.
+The Keeper tells the players how the investigators 
+sit together, going over all their research and clues. 
+“You decide to check out all the previous leads 
+again. Ten days later you find yourself (addressing a 
+particular player) back in that bookshop on Charing 
+Cross Road. Remember that? There are quite a few 
+customers in there this time and one of them is 
+chatting to the shopkeeper. You recognize him from 
+when you spied on the cult meeting—he was there 
+too! Fortunately he hasn’t spotted you and you can 
+slip out unseen if you wish. ”
+This will probably be enough to get the game 
+moving again.
+===== PDF page index 212 (rulebook p.212) =====
+201 
+chapter 10: playing the game
+escapes performed within the rules (see Spending Luck , 
+page 99).
+If you have an important non-player character (especially 
+in a campaign) who is likely to crop up numerous times, 
+then you may provide that non-player character with a Luck 
+pool equal to his or her POW . This can be spent to affect dice 
+rolls, but the pool is not replenished—thus it might be used 
+to cause mayhem and allow an escape, although eventually 
+the non-player character’s luck will run dry.
+One of the reasons for restricting the use of Luck for 
+non-player characters is that many non-player characters will 
+only appear once, and thus could easily spend all their luck 
+there and then, making them very powerful during the short 
+time that they are in play. Non-player characters who appear 
+multiple times will have a reason to reserve their Luck.
+Disseminating Information
+Expect the players to investigate and ask questions. That 
+statement may sound obvious; however, these investigations 
+will lead the players to ask questions regarding matters you 
+have not considered. If there has been a murder, for example, 
+you need to have a clear vision of what has occurred at 
+the scene. Y ou also need to decide how the murder took 
+place. A player may ask if there are muddy footprints on 
+the study carpet, whether there are any witnesses, or if the 
+murder weapon has been thrown in the trash. If you have 
+a good grasp of how events unfolded, you can provide a 
+reliable answer, even to unanticipated questions. Y ou may 
+not have considered a certain detail previously and hence 
+don’t instantly know if there is mud on the study carpet, for 
+example. Since you know how the murder took place, you 
+will know if intruders broke in through the study window 
+(which you can decide has a flowerbed outside), in which 
+case there is indeed mud on the carpet!
+When disseminating information, try to restrict yourself 
+to describing evidence as found and leave it up to the players 
+to deduce what has happened. Y ou might inform the players 
+that there was mud on the carpet, but avoid explaining the 
+reason for it. 
+Leaving areas of doubt and uncertainty is essential to 
+promoting a sense of intrigue among the players. Fear finds 
+fertile ground in ignorance, uncertainty, and doubt. Just 
+tell the players what their investigators perceive and let the 
+players make their own deductions.
+The investigators shoot a monster, avoid saying, “It’s 
+dead” . Simply inform the players that they cannot perceive 
+any signs of life. Now the players are uncertain—is the thing 
+dead or alive? A First Aid or Medicine roll will determine 
+whether a person is alive or dead for certain.
+The investigators search a room and fail their Spot Hidden 
+roll. Avoid saying, “There’s nothing there” . Tell the players they 
+have not found anything. Now they are wondering if they 
+missed something. Pushing the Spot Hidden roll would allow 
+them to know if they have missed a clue or not.
+The players will think of avenues of investigation that will 
+surprise you. Be creative and try to incorporate their ideas and 
+allow leads to manifest wherever it makes sense for them to 
+do so. A player may think to look through the bookshelves of 
+the study for a family tree; the text of the scenario may not list 
+the presence of a family tree, but such a thing might be quite 
+feasible, so reward this idea and build on it. Remember the 
+principle of “Y es, and… ” and “Y es, but… ” .
+Y es, and…: The family tree is inscribed inside a family 
+bible along with some other useful hints.
+Y es, but…: Y ou don’t want the players to discover the 
+clue so easily, in which case, rather than simply not finding a 
+family tree on the shelves, perhaps the investigator finds the 
+family bible from which the first few pages have been torn 
+out or certain names erased. 
+Either of these options foster further investigation and 
+are preferable to the simple blocking statement, “No, you 
+can’t find a family tree. ”
+Perception Rolls
+There are three main perception skills in Call of Cthulhu:
+i Spot Hidden: Chiefly visual observation, though it 
+can also be used for smell or taste.
+i Listen: Perceiving and identifying sounds.
+i Psychology: Understanding the motivations and 
+intentions of another person.
+If a player succeeds in a roll for a perception skill, some 
+information pertinent to the scenario should be forthcoming 
+(referred to as a clue).
+Flying polyps are very dangerous Mythos beings.
+===== PDF page index 213 (rulebook p.213) =====
+202 
+Call of Cthulhu
+The Keeper will usually be the one to ask for perception 
+rolls, however sometimes a player may request one if his or 
+her investigator is actively searching for a clue, for example 
+exploring a room (Spot Hidden) or attempting to determine 
+if someone is lying (Psychology). 
+Avoid having a single concealed clue that is the key to 
+the whole adventure—despite the Keeper’s best efforts, 
+the players could miss it, especially in a scenario in which 
+the location of the key clue may be bypassed. A variety of 
+strategies exist. Y ou can ensure that important information 
+is accessible in several ways. The information need not be 
+precisely the same or appear in the same manner; however, 
+it should be enough to point the investigators in the right 
+direction. If ultimately they do miss the clue, don’t worry—
+you always have the Idea roll (page 199) to fall back on. 
+Clues are divided into two categories: obvious clues and 
+obscure clues. Y ou decide which prior to the dice being rolled. 
+Obvious Clues
+If you have something you want the players to find out about, 
+you should make the clue obvious. Obvious clues are useful 
+if your game is plot-driven, especially when missing such a 
+clue would leave the players at a loss for how to proceed. The 
+players are not required to roll dice to uncover obvious clues. 
+There may be obvious clues and obscured clues at the 
+same location. It might be obvious that a book has been 
+moved by the dust marks on the desk, but the single blonde 
+hair lying in the dust might go unnoticed. The first piece of 
+information—that the book was moved—is an obvious clue, 
+while the blonde hair is an obscured clue.
+If the clue is likely to be perceived by just one player among 
+the group, it is up to you who you give it to; perhaps the player 
+who has been least actively involved in the game, or the player 
+of the investigator with the highest Spot Hidden score.
+Obscured Clues
+Finding an obscured clue may help the investigators in some 
+way, but is not pivotal to progressing the plot. If you feel 
+that either option, getting the clue or not getting the clue, 
+would allow the game to proceed in an interesting direction, 
+you can use an obscured clue. When the players request a 
+perception roll, you should generally use an obscured clue.
+Obscured clues serve two functions:
+i The chance to gain useful information.
+i To create tension when the players miss the roll and 
+know they have missed a clue. 
+The investigators are looking for a cultist in the town. 
+The Keeper has prepared a cool scene that takes 
+place in a haunted house; however, the players don’t 
+know about it yet. The Keeper wants the investiga -
+tors to recognize the skulking cultist and be led to the 
+house. Treating this as an obvious clue, the Keeper 
+tells Harvey’s player that her investigator spots a 
+suspicious-looking man heading down a back alley. 
+To everyone’s surprise, the player shouts out, “Stop 
+that man!” and Harvey sprints off in pursuit before 
+any of his fellow investigators can stop him. 
+The main goal for investigators is to find out what is happening.
+===== PDF page index 214 (rulebook p.214) =====
+203 
+chapter 10: playing the game
+Resolving a Perception  
+Roll For an Obscured Clue
+Each investigator that could potentially perceive the clue 
+should make a perception roll (Spot Hidden, Psychology, 
+Listen, or a combination thereof). Decide on a difficulty 
+level and declare it before the players roll. The information 
+is given to the player with the highest level of success that 
+meets or exceeds the difficulty level. In the case of a tie, the 
+clue is perceived simultaneously by multiple investigators or 
+by the investigator with the highest skill (Keeper’s choice).
+Obscured perception rolls, when lost, have a second 
+function—to provide a clear sign to the players that the 
+investigators have missed a clue. Note that there is a dissonance 
+here between player knowledge and investigator knowledge. 
+The players know for certain there is a clue that has been missed, 
+but the investigators should be unaware of anything they failed 
+to perceive. The players now have three options, and which they 
+choose is a matter of personal preference and style of play:
+Ignore it: Play strictly within the bounds of the investigator’s 
+knowledge.
+Push it: Have an investigator act on a hunch and take action 
+that justifies a pushed perception roll, actively using percep-
+tion skills in an attempt to get the clue.
+Act on it: The player may pre-emptively guess what the clue 
+is and act on it, rather than risk the consequences of losing a 
+pushed perception roll. Of course they may have leapt to the 
+wrong conclusion.
+Consequences of Losing  
+a Pushed Perception Roll
+Regardless of who called for the perception roll and why, the 
+player may push the roll if it can be justified through the 
+investigator’s actions. Perception rolls may be used in many 
+different situations and there are many different potential 
+consequences of losing a pushed roll. 
+Here are a few ideas of what may go wrong when losing 
+a pushed perception roll:
+G The investigators waste time searching and in that 
+time enemies arrive.
+G Evidence of a search is left; items are broken or are 
+replaced out of order.
+G A foe creeps up to ambush the investigator while he 
+or she is searching.
+G The investigator causes offense or suspicion by 
+studying the target too closely.
+G That thing you were listening for? It heard you and it 
+is coming!
+Using More Than One Perception Skill 
+Which skill to use for perception can be open to question, 
+depending on the situation. If a non-player character is about 
+to draw a weapon to attack an investigator, the player might 
+make a Spot Hidden roll to see the weapon being drawn 
+or a Psychology roll to become aware of the non-player 
+character’s intention. In this case, allow the player to make 
+one dice roll using the higher of the investigator’s two skills.
+Player Goals For Perception Rolls
+Usually the goal for a perception roll is simply “to find a 
+clue”; however, a player may create a more specific goal, 
+such as “I want to search the room. I’m hoping to find a 
+diary or journal that will give some information regarding 
+the whereabouts of the person we’re looking for. ” If you are 
+happy that such a book could be found in the room, accept 
+the goal and allow the player to roll the dice. If not, modify 
+the goal accordingly or apply the “nothing there” technique 
+outlined below.
+The investigators have followed a cultist into an old 
+house. The Keeper decides the cultist has hidden in 
+the master bedroom and that he has left a blood 
+trail—will the investigators notice it? The Keeper can 
+foresee some interesting events happening either way; 
+the players are set to explore the house anyway, and 
+not getting the clue is not going to spoil anything. This 
+information would give them an advantage, though, 
+and the Keeper decides to treat it as an obscured clue,  
+asking for Spot Hidden rolls with a difficulty level of 
+Hard because the players are using only one flashlight 
+between them. 
+All the players miss the roll and they don’t see the 
+blood trail. The tension is raised—the players know they 
+have missed a clue. The investigators may choose to 
+leave the house, or they may choose to spend more time 
+searching, allowing the players to push the Spot Hidden 
+roll. The consequences of missing the pushed roll could 
+be that the investigators take damage from an ambush, 
+or provide time for the cultist to make his escape.
+Harvey is a guest of Lord Foxton, who has chosen 
+to drug Harvey’s coffee. The Keeper wants to give 
+Harvey a chance to notice this and offers a percep -
+tion roll. The Keeper allows Harvey’s player to make 
+a combined dice roll, comparing her rolled result to 
+both Spot Hidden and Psychology. If the roll is made 
+using Psychology, Harvey would pick up Lord Fox -
+ton’s anxiety and sense that something is wrong. If it 
+were made using Spot Hidden, Harvey would notice 
+that his coffee smells a little strange.
+===== PDF page index 215 (rulebook p.215) =====
+204 
+Call of Cthulhu
+Nothing There?
+Don’t be tempted to call for Perception rolls when there 
+is nothing to find. Remember that the default goal of a 
+Perception roll is always “to find a clue”—if there is no clue 
+to find then there is no roll to be made. The clue, whatever 
+it is, should be notable, something that adds an interesting 
+new twist or aspect to the story. 
+If a player requests a Spot Hidden roll, you may allow 
+one even if there is no clue present. The goal should be 
+phrased as “to look for a clue” or if looking for a specific 
+item, perhaps “to look for Jefferson’s journal, ” for example. If 
+the goal is achieved, the player will discover that the clue or 
+item is definitely not present at the scene.
+Psychology
+If a player passes a Psychology roll, the truth should be 
+revealed. If the roll is lost, you may be tempted to deceive the 
+player, but if you automatically do this every time, the player 
+(who knows because they lost the dice roll) will know that 
+the opposite is true! Therefore, rather than feeling compelled 
+to inform the player of the opposite of what is true, you are 
+free to tell the player whatever you like—the difference being 
+that the player won’t know if the information is reliable.
+Handouts
+Player handouts are a common feature of Call of Cthulhu  
+games. These are usually given to the players when their 
+investigators have found some important information, such 
+as a letter or excerpt from a book. Published scenarios often 
+reprint (or make available online) such handouts, allowing 
+Keepers to print or cut them out for use in the game.
+For example, a handwritten letter from an anonymous 
+informer, a map showing the location of the tomb of an 
+ancient wizard, or a newspaper article detailing sightings 
+of the Sasquatch could each be presented to the players as 
+handouts. 
+Handouts serve several functions. One is sensory: 
+a lovingly crafted handout helps to boost the sense of 
+immersion in the story. Another is information. A handout 
+is a convenient way to give out clues and information that 
+can be retained by the players for later reference. A handout 
+can also shift the focus from you and onto the person you 
+hand it to. If the handout is for everyone then encourage the 
+player to read it aloud.
+Some Keepers prefer to create their handouts from 
+scratch, whether for a published or a home-brew scenario. 
+These can be works of art in themselves. Simple techniques 
+can be used to great effect, such as writing letters with a 
+fountain pen, or using an old, worn notebook, wherein the 
+Keeper has prepared suitable pages. Coffee can be used to 
+stain the paper to give a timeworn effect. A piece of clothing 
+from a charity shop (like a glove or torn shirt) can be 
+embellished with fake blood so that the Keeper can present 
+it to the players when their investigators are searching the 
+scene of some dark activity.
+Photographs of the period in which the scenario is set 
+can be useful in showing locations and people. Postcards 
+from antique fairs might also be used. 
+If the setting is more modern, the Keeper might prepare 
+a sound file to be played when a recorded message is 
+discovered, or perhaps a short video appropriate to the 
+scenario. The possibilities are endless; whole “dummy” 
+websites could be created for the purpose of a specific 
+investigation.
+Whether you have time to create such handouts from 
+scratch, go searching for them or simply use the ones 
+provided in published scenarios, the use of handouts greatly 
+complements the game. Have fun and see what you can 
+come up with.
+Listen to what the players say and how they respond. 
+If they are excited when you bring out a floor plan with 
+counters or miniatures to map the action then do it more 
+often. If they study every detail of each handout then use 
+more of them. Usually you’ll have a mix of players and they 
+will respond to a mix of approaches. Don’t sweat it; keep 
+things in balance and just try to make a good game.
+Using the Rules
+The rules in this book are intended to be flexible enough to 
+cope with every eventuality.
+The rules, in brief, are:
+Regardless of the situation, the player’s intention defines 
+the goal, and a skill or characteristic is chosen that best suits 
+the situation. 
+If the situation is reliant upon on external circumstances 
+rather than an investigator’s actions then a Luck roll is used.
+A Guide to Using the Rules for  
+Specific Situations
+Here are some examples of goals and how a Keeper might 
+use the rules to resolve them. These are not spot rules and 
+are only provided as suggestions to help Keepers understand 
+how skill rolls can be used with a variety of goals.
+Winning at a casino: 
+Most games at a casino are based on luck; however, the 
+odds are always stacked in favor of the house, so a straight 
+Harvey is showing a photo of his missing friend to the 
+barman, “Have you seen this guy?” The Keeper tells 
+how the barman glances at it then goes back to wiping 
+a glass and stating, “Never seen him before in my life. ” 
+Harvey’s player requests Psychology roll to tell if the 
+barman is lying; she fails the roll. The Keeper smiles, 
+“Well, he seems to be telling the truth. ”
+Harvey’s player now feels sure that the barman 
+is lying but she is not certain. Should she press the 
+matter, perhaps offering a bribe or a threat? 
+===== PDF page index 216 (rulebook p.216) =====
+205 
+chapter 10: playing the game
+Luck roll would be generous. Perhaps this is one situation in 
+which you could ask for a roll against half the investigator’s 
+Luck score. A custom rule might be appropriate if you want 
+to simulate the feeling of gambling. Y ou might decide to call 
+for three Luck rolls over the course of the evening at the 
+casino and set out the possible outcomes before rolling. Let 
+the player nominate the stakes they are risking. If the player 
+wins all three Luck rolls, he or she wins big, multiplying the 
+stake by ten. If two out of three are achieved, the player wins 
+a little. If one is achieved, the player breaks even. If all three 
+are lost, the player ends up deep in debt. 
+Ambushing an opponent: 
+The investigator wants to gain concealment and attack with 
+an advantage. If the investigator makes a winning Stealth 
+skill roll (opposed by the enemy’s Spot Hidden skill) you 
+might grant a bonus die to the player’s first attack, or simply 
+allow an automatic success.
+Swimming to safety (drowning): 
+An investigator has fallen into turbulent water and must swim 
+to safety or drown. The Keeper calls for a swim roll with the goal 
+“swim to safety. ” If the player loses, then no progress is made 
+and water may be inhaled; the player must make a CON roll or 
+his or her investigator will suffer 1D6 damage per round (see 
+Other Forms of Damage, page 124). The situation demands a 
+pushed roll—the only alternative is that the investigator gives 
+up and drowns. If the player misses the pushed swim roll, the 
+investigator is battered and half-drowned, taking 1D6 damage 
+per round. The Keeper must then make an important decision: 
+either the investigator’s life is put on the line or the investigator 
+is washed up later elsewhere. If the Keeper chooses the former, 
+then the investigator will continue to lose hit points each round 
+until saved by another investigator or non-player character. 
+Alternatively, if no one else is around, the Keeper could waive 
+the drowning damage and instead have the unsuccessful pushed 
+roll mean that the investigator has washed up on some foreign 
+shore, bereft of all possessions and in a bad way.
+Strangling an enemy:
+First the attacker would use a Fighting Maneuver with the 
+aim of “seizing my victim in a stranglehold” . The standard 
+combat rules accommodate this. After completing the 
+maneuver, on each successive round the attacker (who is 
+now acting with one bonus die as a result of the successful 
+fighting maneuver) may strangle the target using the Fighting 
+skill to make attacks as normal; any damage is narrated as 
+strangulation. Note how this uses standard combat rules.
+House Rules
+If you wish to create a custom or house rule for specific 
+circumstances, think carefully before doing so.
+Are you sure that what you want to do would not be 
+handled equally well using the standard rules? Is a custom 
+rule going to add significantly to the game? 
+The game includes specific rules for combat, chases, 
+magic, luck, sanity, and physical harm. Everything else is 
+handled with skill rolls. For example, no specific rules are 
+included for how long a person can survive without food and 
+water or how long it takes to hack into a computer network. 
+These things can be decided by the Keeper as appropriate to 
+the current scenario, using the standard rules and personal 
+judgment. However, if one of these is a key element in a 
+particular scenario, then it might be appropriate to come up 
+with custom rules that specifically focus on that aspect. 
+When making a custom rule, try to keep it simple—focus 
+on one skill or a limited number of skills (or characteristics) 
+and decide on a method of tracking degrees of success. Try 
+to build in meaningful decisions that can be taken by the 
+players; such things might alter the difficulty level or change 
+which skill is used.
+Of course, the rulebook could attempt to list a specific 
+rule for every eventuality, but this leads to a game in which the 
+rules must constantly be referred to and in which everyone 
+is restrained by a rule on every action. Call of Cthulhu  is 
+designed to be flexible and to encourage the Keeper to make 
+creative use of the core rule: the skill roll.
+Characteristic Rolls 
+The standard rules present a method of generating 
+characteristics and creating an investigator. A variety of 
+alternative approaches are presented in Chapter 3: Creating 
+Investigators. Players expect consistency. If you allow one 
+player to re-roll or juggle characteristics, you should be up 
+front about it and apply the same approach for all players.
+Action Scenes
+Scenes involving multiple investigators, non-player 
+characters and/or monsters can become confusing, 
+especially when trying to figure out who is doing what and 
+when. To maintain control, you should quickly establish a 
+list of investigators and non-player characters in DEX order. 
+You are writing a scenario that begins with the 
+investigators lost in a desert, with limited food and 
+water. The aim is to design a rule that will empha -
+size the effects of deprivation and fatigue. Being in 
+the desert will lead to dehydration, disorientation, 
+starvation, sunburn, and fatigue. You decide that the 
+key characteristic relating to this is CON. Ultimately, 
+being lost in the desert will lead to death, so hit points 
+will be used to track failure. The players will be asked 
+to make a CON roll for each day of game time that 
+passes—if a player fails the roll, their investigator will 
+take 1D3 damage. Normally this would heal, but you 
+decide that no healing is permitted due to the severe 
+conditions. An investigator’s hit points might fall to 
+zero over the course of a few days, at which time he 
+or she would be unconscious and facing imminent 
+death. The “new” rule fits with the intention and you 
+institute this as a custom rule for use in that scenario.
+===== PDF page index 217 (rulebook p.217) =====
+206 
+Call of Cthulhu
+Start with the highest DEX (at the top of the list) and resolve 
+that character’s action, then work down the list in turn. The 
+round is over when everyone has had their turn; go back to 
+the top of the list and start over until the situation or scene 
+is resolved. 
+Some actions take longer to perform than others. 
+Sometimes the rules define how long it may take to perform 
+a particular action, such as with combat attacks and spells, 
+but for other actions you will have to make a judgment. 
+“But That’s How it Works in Reality”
+When using your judgment over what might happen in the 
+game, try to balance a sense of reality with what you think 
+will create a dramatic situation—if it’s clear that being a 
+slave to verisimilitude is going to produce a dull outcome 
+then try being more creative. This is not to imply that you 
+should strive to be unrealistic; however, if you find yourself 
+justifying a universally undesirable event with the phrase, 
+“But that’s how it works in reality, ” you should ask yourself 
+if you couldn’t do something more dramatically creative. A 
+shotgun blast, for example, may not send a person flying 
+back through the air in reality, but if you like the idea of it 
+doing so then where’s the harm?
+Movement
+All distances are approximate and based on narrative 
+description, so accurate measurement will rarely be an 
+issue. Should you wish to gauge distances then, as a rough 
+guide, a character can cautiously travel one meter or yard 
+per movement point (MOV) in one combat round; thus an 
+average human can travel 8 meters in one combat round. If 
+sprinting, a character might cover five times that distance, 
+but would soon tire.
+Hit Points and Physical Injury  
+for Non-Player Characters
+Y ou should use the standard damage rules for non-player 
+characters. However, non-player characters are under your 
+control. If you decide that a non-player character has a 
+heart attack and drops dead on the spot then that is what 
+happens, so it follows that if an investigator punches a 
+non-player character, and you decide that the non-player 
+character drops dead as a result of the attack, then that is 
+what happens. Y ou don’t even have to ask for a roll to hit or 
+a damage roll on a non-player character if you do not wish 
+to. If an investigator has a non-player character at his or 
+her mercy (perhaps a knife held to their throat) and states 
+that he or she is killing the non-player character then allow 
+this to happen without using dice if you wish. This would of 
+course be exceptional; however, it illustrates the point that 
+you are only compelled to apply the rules when they directly 
+affect an investigator. Y ou can have a ceiling fall and crush a 
+non-player character without a roll, but an investigator will 
+always get a dice roll—in this case, perhaps to dodge falling 
+masonry or to notice the loose ceiling before it falls.
+Players may assess a non-player character’s injuries 
+by tracking the damage they inflict or simply by what the 
+investigators perceive, although these may not be wholly 
+reliable, as a non-player character might have magical 
+defense or may only be pretending to be injured. When a 
+successful First Aid or Medicine roll is performed on a non-
+player character, you should indicate to the player whether 
+the non-player character is dying, dead, or alive. 
+The investigators may reduce an enemy to 
+unconsciousness—a condition from which the enemy will 
+most likely recover, given time. This may provide a moral 
+dilemma—do the investigators allow an evil cultist to live 
+or do they carry out a summary execution? In most cases, 
+cold-blooded murder should incur a Sanity roll.
+Chases
+The task of describing a location is usually part of the 
+Keeper’s role; in a chase, however, when the player wins a 
+Luck roll, he or she is encouraged to do so. Some players may 
+be hesitant to do this, in which case you should ask leading 
+questions and encourage the player to elaborate.
+Harvey is running along a street, pursued by an 
+enraged gang. The Keeper has no plans for the sur -
+rounding area and decides to throw it open to chance. 
+Harvey’s player wins a Luck roll and gets to define the 
+next few locations. Harvey’s player looks a little blank. 
+“OK, so you’re running up the street, it’s crowded 
+with evening shoppers and people heading home 
+from work. You’ve passed your Dodge roll and weave 
+through the crowd with ease. There are alleys to the 
+left and right, some shops are still open, where are you 
+heading?” the Keeper asks.
+“Um, I’ll head for a side alley. ”
+“Great. What’s the alley like? Is it clear or are 
+there any obstacles such as trashcans? Is there anyone 
+in the alley?” the Keeper prompts the player.
+“There’s a garbage truck and men emptying 
+trashcans into it, ” the player states.
+“So you’re going to have to dodge around them?”
+The Keeper sums up what the player has said and 
+defines the location clearly, writing it on the sheet. 
+“So the next Location is an alley, partially blocked by 
+a garbage truck and workers. The alley features one 
+hazard requiring a Dodge roll. ”
+Ricardo Moore attempts to pick a lock while his com-
+panions protect his back from marauding cultists. 
+The Keeper rules that it will take 3 combat rounds to 
+pick the lock—more if the roll is pushed.
+
+===== PDF page index 218 (rulebook p.218) =====
+207 
+chapter 10: playing the game
+Presenting the  
+Terrors of the Mythos
+In Chapter 14: Monsters, Beasts and Alien Gods , each 
+monster has a description (usually taken directly from 
+a Mythos story). These are a great place to start, but you 
+should try to build upon these and vary your descriptions so 
+that recurring monsters do not become mundane. 
+Using images to present the horrors of the Cthulhu 
+Mythos can be problematic. While the Internet and books 
+can sometimes provide approximations of some of the 
+monsters of the Mythos, they are not always ideal, and 
+sometimes detract from the sense of horror that you as 
+Keeper are trying to portray. Likewise, popping a miniature 
+figure of an elder thing onto the gaming table is more likely 
+to have the effect of breaking any tension you have built thus 
+far (such miniatures can be useful later on, once you have 
+fully set the scene and engaged the players with a sense of 
+dread or horror).
+As many film directors know, the motto “less is more” is 
+a useful one to remember when presenting mind-blasting 
+entities from beyond space and time. Try describing 
+monsters vaguely, hinting at their otherworldliness and 
+letting each player’s imagination fill in the blanks. 
+Each time you present a monster, present it afresh. Make 
+the description intense and visceral. A deep one is never just a 
+deep one. It is always a creature from the depths of the sea and 
+old as time itself, a creature whose very presence hits you deep 
+in the gut, repelling mankind in a profound manner causing 
+revulsion and nausea. Remember, it is never just a deep one.
+Playing Alien Entities
+Then, too, there was the upsetting of the larder, the 
+disappearance of certain staples, and the jarringly comical 
+heap of tin cans pried open in the most unlikely ways and at 
+the most unlikely places. The profusion of scattered matches, 
+intact, broken, or spent, formed another minor enigma—as did 
+the two or three tent cloths and fur suits which we found lying 
+about with peculiar and unorthodox slashings conceivably due 
+to clumsy efforts at unimaginable adaptations. 
+—H.P . Lovecraft, At the Mountains of Madness
+Only the Keeper knows how the creatures of the Mythos 
+should behave. Anything they do may be important. They 
+are capable of influencing investigators in all sorts of ways. In 
+too many games, monsters just turn up, growl or pipe in an 
+eldritch tone and then attack. This presentation is limiting, 
+predictable, and unworthy of the Mythos.
+Intelligent creatures build, experiment, worship, learn, 
+perform magic, question, torture, or do anything else 
+humans might do. They do much more as well; things that 
+are odd, inexplicable, or incomprehensible. 
+The horror, mystery and tone of the game are best served 
+if behaviors are dark and unusual. The actions of such 
+creatures are beyond the imagination and you should strive 
+to portray them as sinister, threatening, and unwholesome. 
+The easy identification of a monster takes away mystery 
+and reveals details about the plot. Don’t let investigators get 
+information for free. If they get closer to the thing, it is still 
+not a deep one—it is a dark, wet shape, half-submerged, 
+draped with seaweed, stinking like long-dead fish.
+When monsters die, it is up to you whether they exhibit 
+symptoms of distress, simply collapse, or vanish. Mythos 
+creatures that die often dissolve or evaporate—the noxious 
+cloud soon replaced by a damp spot and clean air, as 
+happened to Wilbur Whateley in Miskatonic University’s 
+library in The Dunwich Horror. This conveniently leaves the 
+investigators short of physical evidence. 
+Descriptions need not be entirely visual and become 
+more real if two or more senses can be employed, such as 
+sight and smell. Did the monster leave a trail of noxious 
+slime behind? Describe its texture. Does it expel disagreeable 
+odors? Does it emit a strange, high-pitched wail as the slime 
+dissolves? Don’t strain for effect or break off the narrative to 
+try to come up with the right word, but keep in mind texture, 
+smell, taste, and quality of light as possible factors. 
+Smell is particularly evocative, perhaps because it 
+cannot be communicated by second-hand stimuli such 
+as photographs, radio, or television; we know a thing is 
+physically present with us when we can smell it. Sometimes 
+the mere proximity of a Mythos monster can make the hairs 
+on the investigator’s neck stand up. 
+The evidence that a creature leaves behind—pools, prints, 
+fragments, flakes, etc.—or the damage it has done, provide a 
+much more interesting way to lead to the deduction of its 
+identity or purpose. Sets of clues that add up to a baffling 
+monster can make for fascinating play.
+Take this description of a hound of Tindalos:
+“Out of the room’s corner jumps a hound of 
+Tindalos. It’s going to attack you... ”
+Perhaps we can do a little better:
+“You see a strange-looking dog appear from the 
+corner of the room. Its eyes are yellow and its skin a 
+pale blue color. It snarls evilly at you, rises on its hind 
+legs and leaps towards you... ”
+Or how about this:
+“ As you look about the room, a foul stench fills 
+your nostrils. You find yourself choking on the fetid 
+air. Your eyes turn irresistibly towards the northeast 
+corner as a sickly yellow light appears to leech from the 
+walls. The light grows in intensity, burning your eyes. 
+It’s difficult to make out, but you begin to see a dark 
+shape emerge from the corner, out of the repulsive 
+yellow light. The hairs on the back of your neck stand 
+up as you realize something bad is approaching. You 
+hear a terrible, inhuman snarl and you see a pair of 
+jaws open, revealing lines of razor-sharp teeth... ”
+By setting the tone and using appropriate 
+description, the player’s imagination will do the rest.
+===== PDF page index 219 (rulebook p.219) =====
+208 
+Call of Cthulhu
+Remember that nearly all Mythos races, such as mi-go, 
+serpent men, and deep ones, are of human intelligence or higher, 
+lead longer lives and are more knowledgeable of the world and 
+cosmos around them. Who among these semi-immortals 
+would willingly risk death for some momentary victory over 
+beings who are to them the equivalent of chimpanzees? Lacking 
+reasons to fight, intelligent creatures retreat before danger. 
+Avoid negotiation between investigators and their inhuman 
+adversaries—such actions suggest that the monsters operate on 
+a human level and diminishes their horror.
+Shoggoths and other entities of lesser intelligence should 
+be terrifyingly unpredictable and rancorous. Such creatures 
+may well launch all-out attacks and can be terrible in their 
+wrath. Here the challenge is physical and the Keeper is 
+obliged only to give reasonable warning of impending 
+doom. Attacking the shoggoth who lives in the cave can 
+be an episodic problem, one that can be returned to until 
+the investigators can destroy it—should they survive long 
+enough—seal it in, or somehow banish it elsewhere.
+Looking Away Won’t Save You!
+And as I watched the ripples that told of the writhing of 
+worms beneath, I felt a new chill from afar out whither the 
+condor had flown, as if my flesh had caught a horror before 
+my eyes had seen it.
+—H.P . Lovecraft, What the Moon Brings.
+This quote illustrates how we perceive with all of our senses, 
+not just our eyes. Given the alien nature of the Mythos, we 
+might even perceive its presence through some primal sense 
+beyond the known five that we recognize. Averting one’s eyes 
+from the TV screen may shield us from the sight of unwanted 
+scenes of horror, but this is rarely enough when confronted 
+with the tangible, unspeakable presence of a Mythos monster. 
+Winners and Losers
+Call of Cthulhu  is not a competition between you and the 
+players. The rules ensure that everyone is treated fairly; 
+however, there is no mechanism to enforce game balance 
+between the Keeper and the players. Balance is derived from 
+the decisions that you make as Keeper. Y ou decide what the 
+investigators encounter, you set the scene, you decide on the 
+actions of the non-player characters. 
+Sometimes, a monster looks the same whether or not it is alive. Use caution when confirming kills.
+
+===== PDF page index 220 (rulebook p.220) =====
+209 
+chapter 10: playing the game
+The odds can easily be stacked against the players. There 
+are no rules to limit what you can present the investigators 
+with; if you decide that a host of dark young descend on the 
+investigators while they are asleep, then there is little that 
+the players can do to save their investigators. This would not 
+make for a good game nor happy players. Y ou must measure 
+the threat and be aware that many of the monsters presented 
+in this book are capable of wiping out a party of investigators. 
+Usually, the best option open to the investigators is to flee 
+and live to fight another day.
+Fair Warning
+Keepers should endeavor to provide players with the chance 
+to avoid investigator death wherever possible. This is not to 
+say that Keepers should diminish the abilities of monsters 
+and villains in the game, or pull their punches when dealing 
+out damage from attacks and other injuries. Rather, it is 
+recommended that Keepers give players up to three chances 
+to avoid certain death.
+Failed Sanity Rolls
+A sense of self-control is an essential quality of sanity. A non-
+player character may hold a gun to an investigator’s head and 
+demand information regarding a missing segment of the 
+R’lyeh Disk, but whether the investigator tells or accepts a 
+bullet in the head is up to the player. However, when a Sanity 
+roll is failed, the investigator loses all self-control and may 
+act in a way that is counter to his or her best interests. 
+People who lose control may harm themselves or others, 
+even loved ones, or act in some other way that is counter to 
+how they would act when rational. To simulate this loss of 
+self-control, the investigator is handed to you, the Keeper, 
+for a short time—whenever a Sanity roll is failed you take 
+control and dictate the investigator’s next action. As always, 
+you should aim to drive the game towards the theme of 
+horror and consider how an involuntary action could do 
+this. For example, if the investigators are hiding under a bed 
+when the cannibal cult arrive home, will one of them cry out 
+upon missing a Sanity roll as a result of seeing the cultists 
+preparing their lunch?
+If the Sanity roll results in insanity, the Keeper gains 
+control of the investigator’s actions for the duration of the 
+bout of madness. This won’t be for long—in real time at 
+least. Once the bout of madness is over, control of the 
+investigator is handed back to the player. Note the difference 
+between madness, which is of short duration, and the 
+underlying insanity, which is longer—the Keeper controls 
+the investigator during madness, the player controls during 
+insanity.
+Players may take a cue from their investigator going 
+insane to present their character as "mad" all of the time—
+while they can portray their character however they wish, you 
+may want to remind such players that being insane does not 
+necessarily mean that the character acts out their madness 
+all of the time. Indeed, while there is an underlying insanity, 
+the investigator may act and function completely normally 
+The investigators have closed in on the hideout of the Cult 
+of the Whispering Tongue and are currently searching the 
+secret base for leads on the cult’s plans to unleash devasta-
+tion on New York City. What the investigators don’t know 
+is that the cult has a shoggoth living in an underground 
+pool. The shoggoth is powerful and very likely to kill some, 
+if not all, of the investigators if they blunder into it—such 
+an outcome will most likely mean the premature end of 
+the game. Therefore, the Keeper provides the players with 
+three chances to avoid confronting the shoggoth.
+The first chance comes when the Keeper discusses the 
+players’ plans for searching the hideout. The players are 
+excited and it appears they want to rush in, abandoning 
+any sense of caution. During the conversation, the Keeper 
+rephrases what the players are saying as, “So you think the 
+murderous Cult of the Whispering Tongue are hiding out 
+here and you want to rush in with guns blazing, with no 
+evidence that this in indeed the right place?” Hopefully, 
+something along these lines will give the players enough 
+of a hint that a degree of caution might be advisable. 
+Perhaps they should stake out the place first to gather 
+more information about the cult’s activities.
+Having watched the hideout for a couple of days, the 
+players have recognized some of the cultists and are now 
+certain that they have the right place. The investigators 
+quietly gain entry and are searching the many rooms of the 
+building when they come upon a lone cultist. After a quick 
+fight, the cultist is captured, and the investigators decide 
+to question him before going any further. The Keeper uses 
+this opportunity to give a second hint that the players really 
+should avoid entering the cave under the cellar. When the 
+players ask the captured cultist what is in the cellar, the 
+Keeper replies in the voice of the cultist “Go in the cellar, 
+eh? That’s a good idea. Yes, you go down there and find 
+the pool! You’ll get just what’s coming to you down there! 
+Ha Ha HA!!” The Keeper presents the cultists as mad and 
+dangerous, hoping that the players will pick up on the fact 
+that whatever is in the pool in the cellar is dangerous.
+Ignoring the Keeper’s hints so far, the players tie up 
+the cultist and leave him hidden in a closet, and decide to 
+go straight to the cellar to check out the pool (no one said 
+that the players will listen to the Keeper!). As they explore 
+the cellar, one of them discovers stone steps leading down 
+to a large hole in the floor. As the investigators look 
+down the steps, the Keeper provides a third and final 
+warning, “The stone steps look slimy and there’s a foul 
+smell—something evil dwells down there. You can hear 
+the water splash, like something huge was climbing out 
+of a pool. A hideous popping sound carries up the stairs. 
+Whatever’s down there doesn’t smell or sound good. ”
+Whatever the players decide to do next is up to them, 
+but the Keeper has now given them three warnings that this 
+isn’t going to be a walk in the park. Hopefully the players 
+are at least prepared and forearmed now—if they have any 
+sense they’ll run rather than try to fight the shoggoth!
+===== PDF page index 221 (rulebook p.221) =====
+210 
+Call of Cthulhu
+
+===== PDF page index 222 (rulebook p.222) =====
+211 
+chapter 10: playing the game
+in everyday situations, however if they suffer further Sanity 
+point loss, then a bout of madness ensues and the character’s 
+madness takes hold for the duration of the bout.
+Ultimately with the onset of permanent insanity (which 
+equates with permanent madness) the player’s control of his 
+or her investigator comes to an end.
+One way to think of Call of Cthulhu  is as a struggle 
+between player and Keeper for control of the investigator. 
+The player takes the side of rational and sane behavior, while 
+you, the Keeper, are like a little devil on the investigator’s 
+shoulder, constantly pushing the investigator into situations 
+that will lead to your gaining control, resulting in madness 
+and irrational behavior.
+Delusions
+Delusions have greater impact if the delusion has some 
+relevance to the investigator. A great way to do this is to keep 
+track of each investigator’s backstory and use the entries 
+as inspiration for delusions. A lone investigator might set 
+out to explore some old house, only to meet an old friend 
+there (from his or her backstory). The whole event may be a 
+delusion taking place in the investigator’s home. 
+A number of films offer good inspiration for how to use 
+delusions and madness, among them Twelve Monkeys, Bug, 
+The Shining, The Lovely Bones, Pan’s Labyrinth, Fight Club  
+and Mulholland Drive. In these movies, characters struggle to 
+differentiate between reality and hallucinations, and we, the 
+viewer, are unsure if what we are seeing is real or imaginary.
+Scaring the Players
+“What would your feelings be, seriously, if your cat or your 
+dog began to talk to you, and to dispute with you in human 
+accents? You would be overwhelmed with horror. I am sure 
+of it. And if the roses in your garden sang a weird song, you 
+would go mad. And suppose the stones in the road began to 
+swell and grow before your eyes, and if the pebble that you 
+noticed at night had shot out stony blossoms in the morning?”
+—Arthur Machen, The White People
+The horror genre can be a lot of fun. Right down to pounding 
+hearts and sweating brows, it is part of human nature to find 
+pleasure in being scared, as long as being scared is not for 
+real. Of course, actually scaring anyone is rare in a game 
+consisting of dice and paper, but be assured it can happen. 
+The game’s setting is ostensibly that of the real world 
+with which we are intimately familiar. As you play, strive to 
+make the world realistic so your players feel at home in it. If 
+a monster appeared in real life, most of us would be scared, 
+but a player is unlikely to be scared even if a monster enters 
+through his or her investigator’s front door—the player knows 
+this is a horror game, and is expecting monsters. Instead 
+of using a monster to scare a player, try to confound the 
+player’s expectations of how things in the “real” world work. 
+Consider the following event for example: the investigator 
+says goodbye to his wife as she leaves the house for work, 
+and then, five minutes later, his wife walks down the stairs in 
+her dressing gown. Don’t provide an explanation. If you can 
+induce cognitive dissonance (holding two conflicting ideas 
+simultaneously) in the player, you will open the door to fear 
+as the player’s mind struggles to make sense of the situation. 
+We get scared when we can’t make sense of things, especially 
+when those things that don’t make sense are the mundane, 
+everyday things that we know we should understand. 
+Pacing works hand-in-hand with confounding 
+expectations to create a sense of escalating tension and 
+terror. Present the players with problems and, when the 
+player shows signs of coping with the problems, toss in 
+an additional complication. Look through your scenario, 
+consider the problems that will arise for the investigators 
+and be on the lookout for more as you play. 
+Magic
+Magic is part of the Cthulhu Mythos and man can never 
+fully comprehend it. Each spell has its own description 
+listed in Chapter 12: Grimoire ; however, spells are in the 
+Keeper’s domain and therefore mutable. Y ou are free to 
+change any aspect of a spell as you wish. Consistency is 
+antithetical to the horror genre—Lovecraft himself never 
+constrained himself with it, so neither should you. Once 
+a spell or monster is established in a given story, you will 
+probably want to keep it largely unchanged for the duration 
+of that story, but this does not mean that in another story 
+with different investigators the same monster or spell cannot 
+manifest in a quite different way. 
+Harvey has discovered that a cult is operating in the 
+local town (problem 1). Investigations lead him to 
+discover that they are planning something horrible 
+for the town fair tomorrow night (problem 2)! As 
+his investigations proceed, he unearths evidence 
+that Uncle Theodore is involved with the cult—is the 
+information really true (problem 3)?
+Harvey is desperate and seeks the help of an old 
+friend, Matthias Nixon, who is learned in magic. 
+Unbeknownst to Harvey, Nixon is in a state of transition, 
+becoming a ghoul. Nixon offers Harvey a bargain: he 
+will help Harvey, but in return Harvey must supply him 
+with a fresh human corpse (problem 4). 
+Harvey’s problems are piling up and the clock is 
+ticking.
+The spell Wave of Oblivion (page 265) requires a body 
+of salt water to be present for the spell to work and 
+describes its effect as a mighty ocean wave crashing 
+down upon the target. There’s no reason why this 
+couldn’t instead be a wave of invisible force or a wind 
+so strong it tears flesh from the bone.
+===== PDF page index 223 (rulebook p.223) =====
+212 
+Call of Cthulhu
+As well as the danger associated with the first casting of a 
+spell, you are encouraged to incorporate your own ideas for 
+hazards for the spells, perhaps to suit your scenario. 
+Tomes
+Y ou should note that the rules state that it is up to you when 
+to call for rolls, and this applies equally to reading tomes 
+and using magic. If reading the tome is essential to the 
+progression of your plot, then beware of introducing a dice 
+roll and thus a risk of failure.
+Using the Optional Rule: Spontaneous 
+Use of the Cthulhu Mythos Skill
+Clearly, use of this option must be handled with care, as it 
+can potentially place disproportionate power in the hands of 
+a player. When an investigator has only 2% Cthulhu Mythos 
+skill, the chances of successfully using spontaneous magic 
+are very low. Y ou may be tempted by this low probability of 
+success to allow an investigator a chance to achieve a major 
+goal, such as raising the dead through spontaneous use of 
+the Cthulhu Mythos skill. This may become an issue when 
+that same investigator has 50% Cthulhu Mythos skill in the 
+future; suddenly what was a rare chance becomes a fifty-fifty 
+chance and the investigator is casually raising the dead on a 
+daily basis. Only you can decide what is appropriate to your 
+game, so take care not to allow overly generous goals simply 
+because the present chance of success is very low. Opting to 
+downscale an investigator’s abilities later will give the players 
+a sense of being penalized and should be avoided by using 
+some forethought.
+When setting goals for the use of Cthulhu Mythos 
+skill, refer to a comparable spell for guidance on costs and 
+requirements. Tell the player how many magic points it will 
+cost when the goal is agreed, or perhaps state a die type 
+(e.g. 1D8) that will be rolled to determine the magic point 
+cost. Each spontaneous use of Cthulhu Mythos should be 
+dangerous and unique; losing the pushed roll can have dire 
+consequences (see Failing a Pushed Casting Roll, page 178).
+Y ou may decide to be more generous in the setting of 
+goals for the use of the spontaneous Cthulhu Mythos skill 
+if the goal is associated with the investigator’s profession. 
+In this way a doctor could become a Herbert West-style 
+character—a mad doctor bent on the reanimation of dead 
+tissue.
+Entering the World of the Cthulhu Mythos
+In creating atmosphere, the Keeper should play up the 
+transition that the investigators go through when they 
+come to realize the reality of the Mythos. For someone 
+with no Cthulhu Mythos skill points or who disbelieves 
+in it (see Becoming a Believer , page 179), the world is a 
+place of hope, a place where mankind has the potential to 
+live in happiness, a place where the investigator can look 
+forward to settling down, starting a family and enjoying 
+a long and happy life. However, for those who take the 
+irrevocable step and comprehend the true nature of the 
+universe, that optimistic light is extinguished forever. 
+When one becomes a believer, the world changes and 
+becomes a threatening and unpleasant place—people look 
+strange and threatening, and the wind blows cold. There 
+are no more tranquil places, only places of dread. The once 
+great achievements of mankind are now seen as shallow 
+mockeries. Where once cheery faces gathered to welcome 
+the investigator, now there are only lurking figures whose 
+eyes are filled with malice and resentment. Those with 
+knowledge of the Mythos face a worse fate than most. As 
+their sanity is drained away, the nightmares increase, until 
+they perceive the horror even with their waking mind. When 
+all sanity is gone, as their mind snaps, they hear it clearly, but 
+for a moment:  the dreadful Call of Cthulhu.
+Ending a Story
+Everyone likes a good ending, but what constitutes a good 
+ending? Consider films: some end with a bang ( Star Wars), 
+others end at a crucial point ( The Italian Job ) and some 
+simply stop mid-flow (No Country for Old Men).
+Potentially, a game could continue on and on, but as 
+Keeper you should know when the story comes to an end. 
+Sometimes the ending is obvious, other times it is a matter of 
+deciding when to say, “cut” . If the investigators defeat the big 
+bad in a battle, this clearly presents one way to end the game. 
+Other times an ending may not be so clear. 
+If you’ve been playing for several hours and want to draw 
+the session to a close, you have a couple of options. Ask the 
+players if they want to continue the story another day. If so, 
+try to bring the game to a cliffhanger or dramatic moment 
+and then cease play. If people want to end the game then 
+fast-forward to the final scene. An Idea roll (page 199) may 
+be useful here to decide whether the investigators begin 
+the final scene in an advantageous position or not. Tell the 
+players what they find out and where it takes them, and then 
+kick off the final scene in medias res. The movie Planet Terror 
+(a.k.a. Grindhouse) illustrates this approach wonderfully: 
+simulating the outdated problem of having a missing reel of 
+film, the movie jumps to a later scene of carnage with the 
+protagonists in the thick of the action.
+Investigator Death
+In some instances, death (even death of the whole investigator 
+group) can be a dramatic and memorable outcome. But the 
+death of an investigator knocks a player out of the game 
+until such a time that a new investigator can be created and 
+introduced to the story. Don’t be too ready to deal out death 
+if other interesting options are possible. Endeavoring to 
+make the game an enjoyable experience for everyone is far 
+more important than being a slave to realism. 
+Remember, this is a horror game, and the threat of both 
+death and insanity should accompany the investigators’ 
+every step. An investigator is controlled by a player and there 
+are only two outcomes that permanently end this: death and 
+permanent insanity. 
+
+===== PDF page index 224 (rulebook p.224) =====
+213 
+chapter 10: playing the game
+Y ou may be tempted towards leniency when it comes 
+to dealing out damage, but be mindful that in most cases 
+accumulated damage leads to unconsciousness rather than 
+death. Players are encouraged to form an attachment to 
+their investigators and the death of an investigator should 
+always be a significant event. Don’t be surprised if a player 
+welcomes the death of an investigator, especially if the death 
+is heroic, meaningful, or will simply make a great anecdote!
+Epilogues
+A short epilogue for each investigator is a nice way to wrap 
+up the end of a story. A brief epilogue can be used to tell 
+what becomes of each investigator in the aftermath of the 
+story, and provides an opportunity to recognize every 
+player’s contribution to the game. Go around the group and 
+talk to each player in turn about the fate of their investigator. 
+There’s no need for dice rolls, just a brief description of 
+what the future holds. Try to make each epilogue suitably 
+Lovecraftian and appropriate to your story.
+Creating Scenarios
+This section looks at the basic ingredients of a Call of Cthulhu 
+adventure, aiming to help you take your first steps in crafting 
+scenarios for a group of intrepid investigators.
+There is no one single approach to creating a scenario 
+any more than there is one way to write a book or compose 
+a song. Here is a selection of starting points.
+Start with setting details  
+and build a story from the ground up
+Picking the 1969 Woodstock Festival as the setting, the 
+Keeper sets about researching the period, people involved, 
+etc., and uses it as inspiration for a plot. 
+Start with a mysterious event
+Rather than starting with a general setting, pick a more 
+mysterious or unexplained event and build a scenario based 
+upon it; for example the Tunguska event of 1908 in Russia.
+Devise an alternate history
+Pick a turning point in history and ask what would have 
+happened if things had gone differently; what if Hitler had 
+used Mythos magic to win the war?
+Pick a monster or god
+Use a Mythos entity as inspiration for a scenario; picking 
+“fire vampire” gives a theme of fire, for example. They may 
+be summoned to attack people and are linked with the god 
+Cthugha. Who might worship such a god, who might want 
+to summon fire vampires and why?
+Create a cult
+In Lovecraft’s stories, many beings of the Mythos are too powerful 
+to be defeated by human opponents and so horrific that direct 
+knowledge of them causes insanity. When dealing with such 
+beings, Lovecraft needed a way to provide exposition and build 
+tension without bringing the story to a premature end. Human 
+followers gave him a way to reveal information about their "gods" 
+in a diluted form and made it possible for his protagonists to win 
+paltry victories. If the investigators are going up against powerful 
+Mythos entities every week, it won’t be long before they are all 
+dead. Using human cultists, worshippers, mad scientists, and 
+other suitably nefarious characters will provide not only more 
+evenly matched opponents but also variety in your games.
+Survival horror
+The most basic of human motivations is survival. What 
+clearer theme can there be than fighting for one’s life? 
+Survival horror is popular horror sub-genre and can work 
+well for scenarios in which the investigators are thrown 
+head-first into a threatening situation and are forced to act 
+to survive.
+Isolation
+Remember, the onus must be on the investigators. It is they 
+who should feel compelled to deal with the situation rather 
+than calling on external help, such as the police. Sometimes 
+the isolation of remote places can be complete, where the 
+investigators are miles away from society and lack the ability 
+to call for help. In other situations they may be isolated of 
+their own volition; perhaps the investigators are wanted for a 
+crime and are forced to isolate themselves to avoid arrest and 
+imprisonment. In such situations the investigators must work 
+on the fringes of society, outside of the protection of the law.
+Pick a story
+Seek inspiration from a Lovecraft story or perhaps something 
+else, such as a film or television show. Make alterations to it, 
+perhaps stripping it down to its essential parts then building 
+it up in a new and interesting way. For example, take The 
+Shadow over Innsmouth and place it in a lush forested area, 
+Things don’t go well for a group of three investigators 
+playing Amidst the Ancient Trees . Two investiga -
+tors  are dead and the remaining survivor has fled 
+into the forest after a sanity breaking encounter with 
+the monster in the lake. The Keeper could just end it 
+there, but it feels a little abrupt. Instead the Keeper 
+suggests a brief epilogue and looks to the player of 
+the surviving investigator. “What becomes of you?” 
+The player suggests that the investigator returns 
+to town ranting about the "Thing in the lake." The 
+Keeper wraps things up: “Very well, the townsfolk 
+don't believe your tales of watery monsters. Despite a 
+search of the lake, no evidence is found to substanti-
+ate your story. You find that it's easier to hit the bottle 
+and forget your horrific experience, but each night 
+bad dreams haunt you. Eventually, consumed with a 
+desire to break-free of this curse, you head towards 
+the lake, a box of dynamite in your hands...
+
+===== PDF page index 225 (rulebook p.225) =====
+214 
+Call of Cthulhu
+replacing deep ones with monster-human hybrids who 
+worship Shub-Niggurath.
+Begin with a compelling opening scene
+The investigators begin aboard a bus. Looking out of the 
+window they see a man, apparently a vagrant, screaming at 
+the pigeons. All of a sudden a rip appears in the fabric of 
+space and things begin to spew forth. Perhaps this man is a 
+wizard, opening a gate to the Dreamlands.
+Big ending
+Beware of using a climactic scene as a starting point from 
+which to create a scenario. It can be done, but it involves a lot 
+of work to figure out how to achieve the climax—and what if 
+your players do something that will avert the climactic event?
+A twist or hideous revelation
+Come up with something exciting, mysterious or horrible, then 
+create a scenario as a vehicle to deliver it. M. Night Shyamalan 
+has used this technique to good effect in his films. For example, 
+unbeknownst to them, one of the investigators is the evildoer, 
+possessed or controlled by some malign force. The truth will 
+most likely only be revealed towards the end of the game.
+Begin with the player characters
+Have the players generate their investigators and then use these 
+characters and their backstories as the inspiration for a scenario. 
+This has the potential to be a strongly player-led game.
+Construct Layers of Mystery
+At the heart of a Call of Cthulhu  scenario is a mystery, 
+something the investigators must find out in order to 
+progress and affect an outcome. Mysteries can be organized 
+like the layers of an onion: each clue tears away one layer and 
+leads to a further question or puzzle to solve (another layer). 
+These layers might go on and on until the investigators feel 
+they have a possible explanation or answer, which in turn 
+directs them to some form of action.
+In Lovecraft’s The Case of Charles Dexter Ward, for example, 
+young Ward begins by investigating the ancient writings of his 
+wizard ancestor (there’s our story; our onion). As he investigates 
+further (peeling away the first layer of the onion), he discovers 
+a technique to raise the dead. He tries it (peeling away a second 
+layer of the onion), and is able to raise his ancestor, who proves 
+to be a near twin of Ward in appearance. This ancestor then 
+becomes Ward’s mentor in the arcane arts (the third layer of the 
+onion). However, young Ward proves too squeamish and his 
+ancestor murders him and takes his place. That’s the end of the 
+scenario for Ward, and the end of the first onion for us.
+Y oung Ward’s doctor then starts his investigations, 
+researching along the same lines Ward began. This is the 
+initial layer of a new onion. Dr. Willett finds that the ancient 
+house of the sinister ancestor still stands and visits it (the 
+second layer of this onion). In the house’s vast basements, 
+Willett encounters horrific sights and beings, and discovers 
+how to lay to rest the evil ancestor whom he suspects has 
+displaced his patient, young Ward (this is the third layer of 
+the new onion). Now full of knowledge and determination, 
+Willett visits the insane asylum where the evil ancestor 
+masquerades as the young Ward. There, Willett recites the 
+Resurrection spell backward, destroying the ancestor and 
+finishing the second onion and the story as well.
+Each layer of a scenario should present the investigators 
+with two or three choices as to where to proceed. Players 
+should never be certain that they have delved to the bottom 
+of a mystery, except for their own purposes, nor should they 
+ever be certain of the Keeper’s intentions. Obviously, the 
+Keeper cannot make scenarios infinitely deep and complex, 
+so must either break off play when the investigators get too 
+deep, or improvise. If breaking off from play, this should only 
+be until the Keeper manages to extend the scenario further 
+and give more depth to the mysteries.
+Using Lovecraftian Themes
+The oldest and strongest emotion of mankind is fear, and the 
+oldest and strongest kind of fear is fear of the unknown.
+—H.P . Lovecraft, Supernatural Horror in Literature
+Key themes can be recognized throughout Lovecraft’s 
+writing, either lurking underneath the text or central to 
+the plot. Utilizing these themes when designing scenarios 
+and running games of Call of Cthulhu can help imbue your 
+games with an undercurrent of Lovecraftian horror.
+Fear… 
+of the Alien, the Outsider , of Knowledge
+A central tenet presented in nearly all of Lovecraft’s fiction 
+is fear of the unknown. Anything that comes from outside 
+of your normal reality, your day-to-day existence, is to be 
+feared. Such things have a way of invading your space, your 
+life, and ultimately destroying your very personality and 
+way of life. Man is imprisoned and isolated. Truth lies in the 
+dark, secret places of the world; in ancient woods, hollow 
+hills, and remote locales. Every stranger could be hiding 
+something, plotting your demise, or wanting something of 
+yours. Investigators find themselves cut off from civilization 
+(no phones, ho help, no safety) with no one who will come 
+to their aid. They are the “outsiders” .
+Knowledge causes pain, sorrow, and death. Books of 
+secrets and magic are to be feared; they change how you 
+perceive the world around you, they question your faith, and 
+obliterate your very soul. Better they are destroyed or kept 
+hidden lest some fool messes with things best left sleeping.
+The realization that something has affected you, be it 
+alien implants, false memories, or dark truths, can make 
+for highly immersive and scary stories. The investigators 
+and their players may not know these secrets as the game 
+starts—part of the horror (and fun) comes from unraveling 
+the mystery and facing up to the big revelation. 
+Suggested reading: The Case of Charles Dexter Ward, The 
+Call of Cthulhu. 
+===== PDF page index 226 (rulebook p.226) =====
+215 
+chapter 10: playing the game
+
+===== PDF page index 227 (rulebook p.227) =====
+216 
+Call of Cthulhu
+Corruption…  
+of the Body, the Mind, the World
+A pervading sense of corruption, in mind and body. Many of 
+Lovecraft’s stories carry a sense of decay in their surroundings 
+and settings, as well as in the mental and physical decay of 
+the protagonists. The slow, but inevitable creep of corruption 
+can be a useful backdrop to a scenario to inspire a theme 
+of foreboding and dread. Keepers can also take this theme 
+and make it personal; for example, the slow developing and 
+frightening metamorphosis of an investigator into a deep 
+one (the Innsmouth taint) or into a ghoul. Alterations in 
+appearance and habits over time may provoke Sanity point 
+loss for the investigator as well as those around him or her. 
+The investigators in question may not be aware of what is 
+happening, perhaps thinking the changes are caused by the 
+slow creep of a dreadful disease or the results of insanity and 
+delusion.
+Family bloodlines carry “memories” and taints. 
+Descendants cannot escape the stain of evil crimes committed 
+by their forebears; unwittingly, they begin to mirror such 
+dark deeds. Exposure to the Mythos drains not only sanity 
+but also humanity. Those who repeatedly risk contact with 
+things not of this world may become corrupted, losing their 
+faith and mind. What lengths would such a person go to? 
+The world around us is decaying. Walk any street, look 
+at the signs in the window, look into the eyes of strangers 
+on the street corners. The end is near. What hope is left? 
+Everything good crumbles away and is replaced with a 
+mocking, choking darkness.
+Suggested reading: The Rats in the Walls, The Lurking Fear, 
+The Shadow Over Innsmouth, The Colour Out of Space. 
+Cosmic Horror…  
+the Nightmare of Reality,  
+the Place of Humanity, the Cold Universe
+At the start of the twentieth century, humanity’s increased 
+reliance upon science was both opening new worlds and 
+solidifying the manners by which they could be understood. 
+Lovecraft portrays this scientific potential as a terrifying 
+hole in man's understanding of the universe. 
+The cosmos is uncaring and humanity is but a speck of 
+dust, inconsequential. Mankind is simply, at best, sport for 
+those from outside to prey upon. The universe is a dark place 
+that mocks humanity’s feeble attempts to understand it. 
+The quest for the unknown is the pursuit of madness. 
+Strange experiments gone wrong (or right!) and the 
+construction of devices that lift the veil of mankind’s ignorance 
+lead such explorers into darkest and most terrifying realms 
+of reality and possibility. Man was not meant to know such 
+things and those who seek for the unknown return “changed. ” 
+The very biology and composition of Mythos creatures is 
+beyond man’s ability to know and understand. It is dangerous 
+to become exposed to such matter; even being in the presence 
+of such creatures and their technology is anathema to humans, 
+causing headaches, pain, and a pervading dread.
+Suggested reading: The Dreams in the Witch House, From 
+Beyond, At the Mountains of Madness.
+Of course, Lovecraft didn’t confine himself to Cthulhu 
+Mythos stories and neither should you. Gain inspiration 
+from other writers, television, films and folklore. Let your 
+imagination roam.
+Opening Scene
+Every journey starts with a first step. The start of a scenario 
+establishes the premise by which the investigators become 
+involved and effectively provides the players with their 
+initial direction of investigation and research. 
+Don’t miss the opportunity to hook the players’ interest 
+from the first with an exciting or intriguing opening scene. 
+Ensure that it is thoroughly engaging and something the 
+investigators can’t ignore.
+Anatomy of a Linear Scenario
+While scenarios can come in all shapes and forms, the 
+majority share some common elements, much like a classic 
+piece of detective fiction. A beginning, middle, and an end is 
+a good place to start. Without these three a scenario will lack 
+definition and has the potential to become a confusing mess, 
+not only for the players, but also for the Keeper. 
+The beginning sets up the whole game: it hooks the 
+players’ interest, sets the tone and mood, and provides 
+an initial source of clues and leads for investigation. The 
+middle is where the investigators get to pursue information, 
+meet non-player characters, discover clues, and begin to 
+piece together the bigger picture. The end comes when the 
+investigators have (more or less) discovered what’s going on 
+and have decided to confront the big villain or at least have 
+a workable solution to solve the mystery. All this comes to 
+a climax, when the truth is (probably) revealed, the villain 
+caught or dispatched, and some form of resolution is reached.
+Linear adventures can be characterized like a car journey. 
+If you know your destination you can plan a route—perhaps 
+driving a certain way to take in some wonderful scenery. If 
+Your scenario begins with the players learning about 
+a murder through newspaper reports. Could this be 
+made more engaging? What if one of the investigators 
+discovered the mangled corpse while walking his dog. 
+Consider what the investigator’s reaction might be? Is 
+the scene challenging enough? Could it be ignored by 
+the player? The example is unpleasant, but might not 
+lead anywhere beyond the investigator inspecting the 
+scene for clues and calling the police. What if the victim 
+is known to the investigator and able to talk for a brief 
+time before dying? What if the victim is someone the 
+investigator would be glad to see the back of? Perhaps 
+someone to whom the investigator is in debt? Take a 
+look at the investigators’ backstories for inspiration.
+===== PDF page index 228 (rulebook p.228) =====
+217 
+chapter 10: playing the game
+you encounter bad traffic en route, you can make a detour. 
+This might affect your journey time but you’ll still get to your 
+destination in the end. The scenario starts at point “ A ” and 
+ends at point “E, ” with the investigators journeying through 
+points “B, ” “C, ” and “D” en route. 
+Constructing a plot is essential to good linear scenario 
+design, and this is easy to do. Just think about the books you’ve 
+read, films and TV you’ve watched, and stories you’ve been 
+told. All of these can provide great inspiration. Don’t be afraid 
+to steal a cool idea or recreate a whole story as the basis of 
+your scenario’s plot—every Keeper worth his or her (essential) 
+salt steals from movies and books. If you don’t know where to 
+start, grab a collection of Lovecraft stories and get reading! 
+Changing a few names and mixing up the monsters in a 
+particular Lovecraft story is the perfect way to start.
+Most players, as they become more familiar with the 
+game and confident in their investigators, will want to 
+diverge from the linear scenario. Rather than follow the 
+obvious clues laid out for them by the Keeper, they will 
+want to follow up a different clue or even come up with a 
+line of enquiry entirely of their own devising. Suddenly the 
+adventure is sidetracked and the Keeper may be tempted 
+to contrive something to get the story back on its intended 
+track rather than go where the players are heading. If the 
+players are compelled back to the Keeper’s prepared plot, 
+they will come to feel that their contribution is of little value 
+and that they are simply following a preordained story rather 
+than creating their own. This means that it’s time to look at 
+running scenarios in a non-linear way.
+The Anatomy of a Non-Linear Scenario
+Novice Keepers are advised to create linear stories at first, 
+moving onto non-linear scenarios as their experience and 
+confidence grows. 
+In a non-linear adventure, after starting out at point 
+A, the successive points may be encountered in a different 
+order each time the scenario is played and various unknown 
+endings may ultimately be reached. 
+In creating a sandbox, the Keeper is establishing a 
+“geography” for the game wherein numerous interconnected 
+or separate plots can be set for the investigators to discover over 
+the course of play. Should the players go off at a tangent, the 
+Keeper is well-versed enough in the setting to accommodate 
+the developing story. Note that you are not writing a story 
+when you create a non-linear scenario. Above all, you do 
+not script an ending—avoid this at all costs! Y ou may write a 
+backstory, but it must stop where the game starts. What you 
+are creating is plot elements (non-player characters, locations, 
+etc.), but how these are woven together into a story is decided 
+during play. Y ou may also make a timeline of events that will 
+take place in the story if the course of events is not altered by 
+the investigators, but you must be ready to alter the events on 
+the timeline according to the actions of the players.
+Sometimes the players will miss clues or head down a 
+path the Keeper did not foresee.  This is fine; in fact, it is 
+better than fine, as some of the best parts of a game are those 
+improvised in play. 
+Non-linear adventures give the player's choice in how to 
+proceed. The very fact that unexpected things will happen 
+because of the players’ choices makes for a more exciting game 
+for everyone—the Keeper included. In this sense, the story 
+really does become a collaboration between the Keeper and 
+players. 
+Let’s take a look at one of the scenarios in this book—
+Amidst the Ancient Trees (page 346). The scenario 
+begins at point A, as the investigators are called to join 
+a posse to find a missing girl. Point B would encompass 
+the various scenes that may be encountered before 
+entering point C. The order in which the investigator’s 
+play through the scenes is more-or-less up to them and 
+the keeper, but eventually they will encounter the lake 
+for the climax of the scenario (Point D).
+As you can see, the plot is driven in one direction 
+by the acquisition of clues and sparse information. 
+Think of it like a train track—the story can only go 
+one way. This is fine for novice Keepers and players 
+who are getting to grips with the game. However, it 
+relies on the players doing what is expected of them—
+following the clues in the right order.
+The  King in Yellow, an avatar of Hastur
+
+===== PDF page index 229 (rulebook p.229) =====
+218 
+Call of Cthulhu
+Campaigns
+If a scenario were likened to an episode of a television series, 
+a campaign would be a season or perhaps an entire series. A 
+published campaign is divided into chapters, each of which 
+might be considered one scenario. The chapters are linked 
+with a common theme or story-arc. Depending on the 
+campaign, the chapters may need to be completed in a set 
+order or there may be a flexibility to accommodate playing 
+the chapters in different orders, depending on the actions of 
+the investigators.
+First, think up several scenario plots, each only two or 
+three layers deep. With three or four scenarios in mind, 
+think about how they might connect to a central horror 
+or mystery. The players start out fooling around with the 
+very edges of the Mythos, where there are dozens of myths, 
+legends, clues, and adventures. As they gain more knowledge 
+and experience, the investigators will work their way inward, 
+into stories of greater depth. After several such stories, the 
+players should begin to see the links between the various 
+scenarios. At the center of the mystery lies the hideous truth 
+and the climax of the campaign.
+Let's take the plot of well-known horror film, John Carpen-
+ter’s The Thing, as the basis for a Call of Cthulhu scenario. 
+The basic summary of the film is as follows:
+The crew of a remote Antarctic research facility 
+unwittingly takes in a shape-shifting alien that proceeds 
+to murder and replicate members of the team. The alien 
+has been awoken from centuries of sleep by men digging 
+in the ice and is now trying to survive while constructing a 
+spacecraft to escape the Antarctic. 
+These are the key ingredients of the story—there’s plenty 
+more going on, but this will be enough for now. Taking 
+these ideas, let's rework the plot for Call of Cthulhu.
+The Setup (“the mystery”):
+A team of researchers from Miskatonic University 
+is called to investigate the disappearance of members of 
+an archaeological dig in the Vermont countryside. The 
+only known facts are that the archaeological team had 
+discovered the remains of an ancient site and had been 
+conducting the dig for one month. A few days ago, some 
+local people visited the site only to discover the team had 
+inexplicably disappeared, leaving all of their possessions 
+and equipment.
+What’s going on:
+The team unearthed a stone tablet on which was 
+inscribed the spell Summon/Bind Star Vampire and, 
+unwittingly, one of them cast the spell. The archaeological 
+team were eaten by the monster (a star vampire), with only 
+one survivor (we’ll call him Ted). While the spell worked, 
+the summoned star vampire was not bound properly and 
+so is free to do as it pleases. At the moment it is roaming 
+the woods, randomly murdering the locals, livestock and 
+wildlife until it decides to transport itself back from whence 
+it came. The missing bodies of the archeological team can 
+be found in the woods near the dig site—such discoveries 
+can be made by the local police and/or the investigators. 
+Ted is also roaming the woods, having fled the monster’s 
+attack. He has lost his mind and is insane. Star vampires 
+are invisible most of the time, so no one knows who is 
+carrying out the murders, and suspicion falls upon Ted.
+So, we have a relatively isolated location (enough for 
+the investigators to feel they are on their own, but close 
+enough to civilization for a range of non-player characters 
+to be introduced (local farmers, the police, etc.) We have a 
+reason for a team of investigators to be there (let’s assume 
+the investigators can be from Miskatonic University) and 
+we have a nasty monster! 
+How to solve it:
+Once at the site, the investigators will need to explore 
+the dig site, examine the remains of those murdered, 
+question the locals, and ultimately discover the stone tablet, 
+before learning the spell properly and casting it to dispel 
+the monster. While trying to do this, all sorts of craziness 
+occurs as the monster is on the loose and is working its 
+way around the local farms, killing livestock and people. 
+Meanwhile, Ted is being hunted by the police as suspect 
+number one. It is up to the investigators to save Ted and 
+banish or kill the monster.
+Three potential endings (just examples, there are many 
+more):
+T Some of the investigators engage the monster in 
+combat as others chant the spell at the site. As it 
+kills its second investigator, the spell takes effect 
+and the creature is banished.
+T The star vampire uses its magic to control the 
+local policeman, who leads the investigators into 
+a trap, leading to a chaotic scene that ends with 
+half of the investigators dead and the remaining 
+ones fleeing madly into the night.
+T The investigators discover the stone tablet and 
+destroy it, believing it to be the source of the 
+evil. They may have just signed their own death 
+warrants!
+As you can see, from the simple idea of a monster 
+attacking a research team, you can begin to construct a 
+scenario, adding as many bells and whistles as you like. 
+As in The Thing , the investigators aren’t the ones who 
+unleash the monster; instead they have to research what 
+happened to the original team and try to fix the mess they 
+find themselves in.
+===== PDF page index 230 (rulebook p.230) =====
+219 
+chapter 10: playing the game
+There should be hoaxes and meaningless trails 
+sprinkled among the scenarios. These will keep your world 
+from degenerating into a mass of monsters and their kin. 
+Gamblers, spies, religious fanatics, drug smugglers, slavers, 
+grasping entrepreneurs, venal labor bosses, terrorists, movie 
+stars, nefarious politicians, and piratical sea captains are also 
+available. An occasional scenario with dangers originating 
+from this (mundane) world might divert your players, 
+but keep in mind that the main theme of the game is the 
+investigators’ struggle against the Cthulhu Mythos. 
+Within each scenario you prepare, sprinkle additional 
+information that relates to the “big picture”—the main plot 
+and what is really happening in the background. As the 
+investigators work through the scenarios, these disparate 
+pieces of information should begin to form connections, 
+driving the investigators to pursue new lines of enquiry 
+and leading them ever deeper into the main plot until they 
+reach a point of realization as to what is really going on and 
+who the real enemy is. This point of realization from various 
+disassociated clues should prepare the investigators for their 
+biggest challenge and the climax of the campaign.
+Chaosium has published a number of campaigns for Call 
+of Cthulhu, including Horror on the Orient Express and The 
+Masks of Nyarlathotep. If you are you new to the concept of 
+campaigns then reading (and playing!) through a published 
+campaign will give you a good grasp of how individual 
+scenarios can be linked to form a campaign.
+Level of Detail
+We’ve looked at how to structure linear and non-linear 
+scenarios and campaigns, but what should a finished 
+scenario look like? The scenarios at the back of this book 
+are by different authors, each with their own style. However, 
+these are of course published scenarios and each has had to 
+meet certain requirements and standards that may not be 
+required for the homegrown scenario. 
+Just as there is no single way to start when writing a 
+scenario, there is no prescribed end product. Compare 
+creating a scenario with making a speech. When making a 
+speech, some people are able to make it up on the spot with 
+little or no preparation, while others make a few notes to 
+improvise around and still others write the whole thing out 
+word for word. These various levels of preparation can work 
+equally well—there is no right or wrong here. The important 
+thing is to know what level of detail you personally require. 
+If you are writing a scenario, it might be no more than 
+a handful of notes. If you are new to running games, it is 
+unlikely that you will feel confident enough to use this 
+approach initially. If used successfully, the results of the 
+"notes" approach can prove highly rewarding as the low level 
+of preparation encourages greater improvisation, leading to 
+more creative and unpredictable play. 
+How to Use a Published Scenario
+The great thing about a published scenario is that the work 
+has been done for you and lots of detailed background 
+and setting material is provided for you to use. Depending 
+on how you approach it, this can feel like a blessing or a 
+burden. If you are someone who can read a large quantity 
+of text quickly, identify the salient points and retain the 
+information, then you are off to a flying start. Most of us, 
+however, will find we forget certain parts, requiring us 
+to break the flow of the game to consult the scenario text, 
+clumsily leafing through the pages in search of those elusive 
+but seemingly all-important details.
+So how best to use a published scenario? To start 
+with, leaf through the scenario and gain an overview of 
+the chapters and contents, then read the whole document 
+thoroughly from cover to cover once. Y ou should now have 
+Crimson Letters (page 364) is 
+an example of a non-linear or 
+“sandbox” structure scenario. 
+The investigators can roam around 
+the sandbox wherever they like, in 
+whatever order they like—discovering 
+and unlocking the plot as they go. 
+In the course of the scenario, 
+the onus is on the investigators 
+to choose where to visit and who 
+to talk to.
+The scenario may end in a 
+desperate battle with the source 
+of the evil, with a shootout 
+at Unconsidered Trifles, with a 
+confrontation with Atlantic City 
+gangsters or with the investigators 
+locked-up in Arkham Sanitarium. 
+When preparing a sandbox scenario, 
+you don’t need to write lengthy 
+descriptions of each locale. Just a 
+few bullet-points about each will 
+suffice to act as reminder. Your 
+notes should include possible clues 
+to be found and how they connect 
+to other non-player characters or 
+locations. Non-player characters 
+don’t need to have all their skills 
+detailed; a profession, a few bullet 
+points and relationships to other 
+characters should suffice. 
+In one scenario, papers found in the old Starry Wis -
+dom cult chapel in Boston could mention the Esoteric 
+Order of Dagon. Later, in another scenario, investiga-
+tions of swamp cults in Louisiana could unearth con-
+nections to a master cult in New England, centered in 
+Innsmouth, also called the Esoteric Order of Dagon.
+===== PDF page index 231 (rulebook p.231) =====
+220 
+Call of Cthulhu
+
+===== PDF page index 232 (rulebook p.232) =====
+221 
+chapter 10: playing the game
+a good understanding of what the scenario is about, but 
+you may still be hazy on some of the details, perhaps not 
+quite grasping the roles played by some of the non-player 
+characters; this is fine. 
+Next, work through the scenario again, this time taking 
+notes. Try to write a bare minimum. Avoid superfluous 
+detail or things that you feel confident that you’ll remember 
+anyway. Identify text that is simply adding color and reduce 
+or omit it. For example, the text might describe a bedroom 
+in great detail, down to the color of the bedspread, the 
+wallpaper, the contents of the bedside cabinet and other 
+furnishings. If you are confident that none of this information 
+is vital and that you can improvise a description of a similar 
+room during play then there is no need to record the details 
+in your notes. Y ou are not doing the published adventure 
+any disrespect—the printed text of the scenario has served 
+its purpose in communicating to you, the reader, an image 
+of the bedroom. When you run the game you will be able 
+to describe a bedroom inspired by what you read in the 
+scenario. Whether the bedspread is pink or blue is neither 
+here nor there. What may be important is whether it is an 
+opulent suite or a seedy motel room, and you will know this 
+from having read the published text. 
+Be sure to identify and note down anything that is 
+essential to the scenario. Y ou will know what is important 
+and what is not because you have read the scenario once 
+already. Clearly if the scenario notes that there is a copy of 
+the Cultes des Goules in the bedside cabinet then you need to 
+note its presence. In your mind it might better be concealed 
+under the bed or beneath a loose floorboard—the location is 
+not important, only its presence.
+To run a scenario effectively you need to feel ownership of 
+it. After this second reading of the scenario, you should have 
+a set of notes from which you can run the game in your own 
+way. See how you have distilled a published scenario back to 
+Keeper’s notes, perhaps similar to those used by the author 
+when the game was run for the very first time. Use these notes 
+as a framework and with your players you’ll create wonderful 
+new stories that would amaze the scenario’s author!
+And Finally...
+If there’s one thing you need above all others to make this 
+game fun, it is a positive enthusiasm to make stuff up and 
+create conflict and drama. That spark of life trumps all the 
+rules and advice that anyone can give you on how to run a 
+game. On its own, enthusiasm will not make you a great 
+Keeper, but without it you will never be one. If anything in 
+this book excited you, then focus on that. Get fired up, get 
+excited and share that with your players so that they feel it too.
+Now go and have fun!
+A published scenario describes a room as follows:
+Main bedroom: A comfortable bedroom with a 
+large window overlooking the rear garden. Clothes 
+lie scattered across the floor and the room would 
+benefit from a good clean. A wooden bedside 
+cabinet contains a copy of the Cultes des Goules in a 
+locked drawer. 
+Your notes might reduce this to:
+Main bedroom, grubby, hidden Cultes des 
+Goules.

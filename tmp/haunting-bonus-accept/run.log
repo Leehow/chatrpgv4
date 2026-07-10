@@ -1,0 +1,5 @@
+stop_reason: max_turns_reached
+player_turns: 6
+kp_turns: 6
+battle_report: tmp/haunting-bonus-accept/ws/.coc/playtests/live-match-20260710T070433Z/artifacts/battle-report.md
+simulation_method: bridged_scripted_player_not_live_llm

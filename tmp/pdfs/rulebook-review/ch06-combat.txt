@@ -1,0 +1,1935 @@
+
+===== PDF page index 111 (rulebook p.111) =====
+
+===== PDF page index 112 (rulebook p.112) =====
+
+===== PDF page index 113 (rulebook p.113) =====
+102 
+Call of Cthulhu
+espite their best efforts to avoid bloodshed, 
+sometimes investigators are faced with 
+situations where the outcome can only be 
+decided by the fist or gun.
+Combat encompasses a range of skills and 
+goals; sometimes an investigator may wish to merely subdue 
+an opponent without causing undue harm, while at other 
+times the goal may be to kill, or simply to flee.
+Combat has its own rules that focus on the action and 
+help to determine who is doing what, when it is done, and 
+the degree of success achieved. Rather than having a single 
+roll decide the outcome of the fight, a series of rolls are made 
+until there is a clear victor.
+Declaration of Intent: “What 
+is your character doing?”
+The Keeper should always ask the player that question and 
+encourage them to describe their investigator’s actions 
+rather than use game terminology. “I’m rolling to hit, ” is not 
+something an investigator would ever say or do. Endeavor 
+to paint a picture with your descriptions of combat and 
+encourage your players to do likewise. When the player has 
+described their investigator’s action, the Keeper should then 
+tell the player which skill to roll dice against. 
+Player: “I’m going to punch the guard, then run for the open door. ”
+Keeper: “The guard is going to try to grab you. Roll your 
+Brawling skill. ”
+Keeper: “The monstrous humanoid is running straight at 
+you—what are you doing?”
+Player: “I raise my shotgun and blast the thing. ”
+Keeper: “OK, give me a skill roll for Shotgun. ”
+Keeper: “Scott’s investigator is acting crazy—he’s heading 
+out of the tent into the freezing cold without his coat or 
+mittens. He’ll freeze to death out there!”
+Player: “I’m going to grab him and wrestle him to the ground. ”
+Keeper: “Let’s have an opposed Brawling roll. ”
+Notice how the request for a dice roll develops out of 
+what the players say. In the first example the goal is to get past 
+the guard, and the punch is simply a method of achieving 
+the goal; damage may be inflicted as a consequence, but 
+the Keeper uses the dice to judge whether the maneuver is 
+accomplished.
+In the second example, the player’s goal is clearly to inflict 
+maximum damage, so the dice will be used to determine if the 
+monster is hit, and to gauge the amount of damage inflicted.
+In the third example the player is trying to restrain a 
+fellow investigator without inflicting harm. Again the dice 
+will be used to gauge the success of the maneuver. 
+The dice are then rolled, usually by the Keeper and the 
+player simultaneously, and the results used to determine what 
+maneuvers are achieved and how much damage is inflicted.
+How you describe the outcome of the dice roll is 
+important to your story, but of no importance to the game 
+mechanics. One Fighting roll which inflicts 6 hit points of 
+damage may represent a few good punches, a knee to the 
+groin, a series of kicks or a head-butt—your description of 
+the outcome should elaborate upon your stated intention, 
+suiting the relative success achieved.
+Try to use this format each round: allow each character’s 
+actions in the story to suggest what rolls are required, resolve 
+the dice rolls, incorporate the outcome of the rolls back into 
+the story, then move onto the next character. Don’t just 
+repeatedly roll dice without any story. 
+The Combat Round
+It is confusing for everyone when multiple players act and 
+speak at once, so to maintain order, combat is structured 
+into rounds, with each player taking one turn in each round. 
+A combat round is a deliberately elastic unit of time in 
+which everyone wishing to act and capable of doing so has 
+a chance to complete at least one action. An investigator’s 
+equality of opportunity is much more important than the 
+notion that a combat round must represent a precise amount 
+of real-world time. When every investigator and other 
+Keeper-controlled characters have had an opportunity to act, 
+that combat round is over and the next round can begin. 
+Dexterity and the Order of Attack 
+The question of who gets the first opportunity to attack 
+can be an important issue in a fight. Determine the order 
+of attack by ranking the combatants' DEX from highest to 
+lowest. In the case of a draw, the side with the higher combat 
+skill goes first.
+Actions in a Combat Round
+On their turn in DEX order (highest to lowest) each character 
+may use their action:
+T To initiate an attack using the Fighting or Firearms 
+skill*.
+T To perform a fighting maneuver.
+T To flee from the combat.
+T To cast a spell.
+T To perform some other action requiring time and 
+perhaps a dice roll, such as picking a lock while 
+others fight.
+*Note that some monsters are capable of multiple attacks in 
+one round: these all take place on the monster’s turn.
+A character may elect to delay acting until another 
+character has acted. If this leads to more than one character 
+wishing to act simultaneously, the one with the highest DEX 
+takes priority. If both insist on waiting for the other, the 
+round may end with neither of them acting and therefore 
+losing their action, after which play will continue with the 
+usual order of combat next round.
+
+===== PDF page index 114 (rulebook p.114) =====
+103 
+chapter 6: combat
+Fist Fights
+The man behind me—the only one of the party older than 
+I—croaked the hackneyed “My God!” in the most cracked 
+voice I ever heard. Of seven cultivated men, only Sir William 
+Brinton retained his composure, a thing the more to his credit 
+because he led the party and must have seen the sight first.
+—H. P . Lovecraft, The Rats In The Walls
+To explain the combat rules, we shall start with a simple, 
+old-fashioned, one-on-one fist fight. Later we can add rules 
+for melee weapons, multiple opponents, firearms, and other 
+options.
+This fight might be a barroom brawl, or any situation 
+where two people are determined to hurt one another in 
+unarmed combat. This is not a boxing match or a martial 
+arts class; there are no holds barred here. This is down and 
+dirty: fists fly, feet lash out, hair is pulled, foreheads clash, 
+nails rake, fingers twist, vulnerable parts are targeted, eyes 
+gouged, and teeth spat out. This is all encompassed in one 
+skill: Brawling (a specialization of the Fighting skill). The 
+alternative to attacking is to try to avoid being hit, and this is 
+represented by the Dodge skill. 
+Melee attacks are resolved using opposed skill rolls. 
+When attacked, a character has a simple choice: either dodge 
+or fight back. 
+T If the character chooses to fight back, use the target’s 
+Fighting skill to oppose the attacker’s Fighting skill. 
+T If the character chooses to dodge, use the target’s 
+Dodge skill to oppose the attacker’s Fighting skill.
+T If the target is neither fighting back nor dodging, 
+refer to surprise attacks on page 106.
+Resolving a Fighting Attack Made 
+Against a Target That is Fighting Back
+Both sides roll percentile dice and compare the results with 
+their own Fighting skill. The side with the better level of 
+success avoids being harmed, and inflicts damage on their 
+opponent (see Determining Damage, nearby). If both sides 
+achieve the same level of success, the character initiating 
+the attack hits the character that is fighting back, inflicting 
+damage. 
+T If the attacker achieves a higher level of success, they 
+deal damage to their target.
+T If the defender achieves a higher level of success, he 
+or she has successfully blocked, parried or avoided 
+the attacker’s blows and simultaneously landed a 
+blow of their own upon their attacker, inflicting 
+damage.
+T In the case of a draw, the attacker wins (when their 
+opponent is fighting back).
+T If both fail, no damage is inflicted.
+Resolving a Fighting Attack Made 
+Against a Target That is Dodging
+The attacker and the target (who is trying to dodge) make 
+an opposed roll using their Fighting skill and Dodge skill 
+respectively. If the attacker gains a higher level of success, 
+the attack is successful and the attacker inflicts damage on 
+the loser (see Determining Damage , below). Otherwise 
+the attack is dodged and no damage is dealt. If both sides 
+achieve the same level of success, the character dodging wins 
+and evades the attack.
+T If the attacker achieves a higher level of success, they 
+deal damage.
+T If the defender achieves a higher level of success, 
+they have dodged the attack and take no damage.
+T In the case of a draw, the defender wins (when the 
+defender is dodging).
+T If both fail, no damage is inflicted.
+Determining Damage
+The amount of damage that an attack delivers is indicated 
+on Table XVII: Weapons  (pages 401-405). Note that the 
+damage for unarmed human attacks is 1D3 ( e.g. punching 
+and kicking).
+Extreme Damage and Impales
+Greater damage is inflicted if the attacker gains an Extreme 
+level of success in their attack. This only occurs if the attack 
+is made on a character’s turn in the DEX order, not when 
+fighting back: each character gets one moment in the 
+spotlight each round, and this is their opportunity to make 
+an outstanding attack. 
+If the attacker achieves an Extreme success with a non-
+impaling weapon (for example, blunt weapons, such as a fist, 
+kick, or club), then they have hit a weak spot and caused 
+maximum damage (plus maximum damage bonus, if any).
+If the attacker achieves an Extreme level of success with 
+a penetrating weapon (such as a blade or bullet) then an 
+impale has been inflicted. This means that the weapon or 
+bullet chanced to strike a vital area, driving deeply through 
+arteries or slashing crucial tendons or muscles. Apply the 
+increased damage as for an Extreme success with a blunt 
+weapon (maximum damage plus maximum damage bonus) 
+and add a damage roll for the weapon.
+Weapons that can impale are indicated on the Table 
+XVII: Weapons (pages 401-405).
+Harvey has been cornered by an angry cultist, and 
+both are attempting to hurt one another. The cultist 
+has a DEX of 55 and so does Harvey. However the 
+cultist’s Fighting (Brawling) skill is 70%, which is far 
+higher than Harvey’s, so the cultist acts first.
+===== PDF page index 115 (rulebook p.115) =====
+104 
+Call of Cthulhu
+Using Weapons in a Fight
+Anything that can be picked up and used to hit or stab can be 
+considered a melee weapon. If it is the kind of weapon that 
+anyone could just pick up and use (a chair leg, kitchen knife, 
+etc.), then use the Fighting (Brawl) skill. Such weapons belong 
+to the basic weapons category and include simple clubs and 
+knives. If the weapon is more cumbersome or complex and 
+does not conform to the basic weapons category, a weapon 
+specialization skill should be used. Weapons with similar 
+characteristics and function are grouped together for the 
+purpose of weapon skill specializations. 
+Consult Table XVII: Weapons  (pages 401-405) for 
+details of the weapon groups and specific weapons, together 
+with the damage they inflict.
+Improvised Weapons
+All sorts of items can be used to inflict physical harm: snooker 
+cues, scissors, bottles, rocks and so on. Even a gramophone 
+player could be smashed over the back of someone’s head for 
+a nasty injury. 
+The Keeper should determine the damage done by an 
+improvised weapon by using a comparable item on Table 
+XVII: Weapons (pages 401-405). If the improvised weapon 
+is similar to a basic melee weapon, such as a knife or club, it 
+may be used with the Fighting (Brawl) skill. If it is not, the 
+Keeper should decide on which Fighting skill specialization 
+is appropriate.
+Everyone is strongly encouraged to make use of the 
+environment in a fight. Doing so will add a unique feel to 
+each fight and will make the setting come to life. If every 
+fight uses the same old punches, kicks, and regular weapons, 
+they may feel repetitive. Picture the scene and grab what 
+comes to mind. If the fight takes place in a bar, you should 
+be swinging pool cues, throwing bottles, and hitting each 
+other with barstools. Fire pokers, hat stands, and ornamental 
+swords may be to hand in a mansion. Computer monitors, 
+power cables, and scissors could all be deadly in an office. As 
+Keeper, encourage your players to improvise and don’t block 
+their ideas without good reason. If you want to introduce the 
+hand of fate to determine whether that handy improvised 
+weapon is present, call for a Luck roll.
+No Pushing 
+Combat Rolls
+There is no option to 
+push combat rolls (either 
+Fighting or Firearms). Skill 
+rolls are resolved with one 
+or two rolls, but combat 
+is resolved with a sequence 
+of rolls. Pushing a skill 
+roll indicates a subsequent 
+attempt—a concerted 
+effort to succeed. In 
+combat this subsequent 
+attempt would be your 
+next punch or your next 
+shot, i.e. your next attack.
+Does the Monster 
+Fight Back or 
+Dodge?
+The default mode for monsters 
+and non-player character is to 
+fight back rather than dodge. This 
+serves to make combat quicker and 
+simpler for the Keeper. Monsters 
+and non-player characters should 
+only use dodge when their priority 
+is to escape.
+Frying pans make excellent improvised weapons.
+A character with 1D4 damage bonus achieves an 
+Extreme level of success when attacking with a 
+switchblade. The player rolls 1D4 for the weapon’s 
+damage, and adds the maximum damage the weapon 
+can inflict (4) together with their maximum damage 
+bonus (4). This results in a total of 1D4+8, (a range of 
+9 to 12 points of damage).
+Old Man Birch has the choice of picking up a knife 
+or a sword. With the knife, he would use his Fighting 
+(Brawl) skill of 40%. A sword is trickier to use and 
+has its own skill, which is not part of the Fighting 
+(Brawl) skill. Old Man Birch doesn’t have any skill 
+with a sword, so would have to use it at the base skill 
+value: Fighting (Sword) 20%.
+===== PDF page index 116 (rulebook p.116) =====
+105 
+chapter 6: combat
+Fighting Maneuvers
+If a player describes a goal other than simply inflicting 
+physical harm, such as disarming their opponent or knocking 
+them over, then it can be resolved with a maneuver. This 
+may include pushing someone out of the way, throwing the 
+opponent to the floor, restraining someone in a headlock, 
+disarming an opponent, and so on.
+Step 1: Compare Builds
+Clearly skill is an important factor in performing a successful 
+fighting maneuver, but size and strength also have an effect. 
+A small, skillful fighter might unbalance or disarm a larger 
+opponent, but there are limits. No human is ever going to 
+be able to wrestle a huge monster such as a Dark Y oung 
+of Shub-Niggurath to the ground, whatever their skill. 
+Conveniently, Size and Strength are already factored into 
+each character’s Build, and thus by comparing these we may 
+gauge the relative might of the opponents. 
+To determine the relative capability of the two opponents 
+and whether the character performing the maneuver 
+takes penalty dice, simply compare the Build of the two 
+combatants. If the character performing the maneuver has 
+a smaller Build than their opponent then he or she takes a 
+Harvey: DEX 55
+ Fighting (Brawl) skill: 25 (Regular) / 12 (Hard) / 5 (Extreme)
+ Dodge skill: 27 (Regular) / 13 (Hard) / 5 (Extreme)
+Old Man Birch: DEX 60     
+ Fighting (Brawl) skill: 40 (Regular) / 20 (Hard) / 8 (Extreme)
+ Dodge skill: 30 (Regular) / 15 (Hard) / 6 (Extreme)
+The first round:
+Things go badly for Harvey when he fails to sneak around the house, leading to an encounter with Old Man Birch, 
+who tries to punch the intruder.
+Old Man Birch has the higher DEX and therefore goes first. 
+Old Man Birch’s Action:
+The Keeper picks up the dice and states that Old Man Birch is swinging a fist at Harvey. Harvey’s reaction is to duck. 
+The Keeper will therefore roll against Old Man Birch’s Fighting (Brawl) skill and will be opposed by Harvey’s Dodge skill.
+The Keeper rolls 04 for Old Man Birch’s Fighting (Brawl) skill—an Extreme success.
+Harvey requires an Extreme level of success to avoid the blow. Harvey’s player rolls 25 for Harvey’s Dodge skill—a 
+Regular success. Not good enough.
+Old Man Birch deals 1D3 damage for an unarmed attack, to which is added his 1D4 damage bonus. As it was an 
+Extreme success, the maximum result is used in place of rolling dice; Harvey takes the full 7 points of damage (3 + 4 = 7).
+The Keeper tells how Old Man Birch catches Harvey with a left hook before he has a chance to flee. This is followed 
+up with a couple of solid jabs as Harvey reels back, blood running down his face. A smile spreads over Old Man Birch’s 
+face as he gets a taste of victory.
+Harvey’s action:
+Harvey is cornered and lashes out at his foe. Old Man Birch attempts to side-step and clout Harvey again. His 
+intentions include damage, so this means he is fighting back.
+Harvey’s player rolls 25 for Harvey’s Fighting (Brawl) skill—a Regular success. 
+The Keeper rolls 23 for Old Man Birch’s Fighting (Brawl) skill—a Regular success.
+When the target is fighting back, the attacker wins in the case of a tie. Harvey rolls 1D3 for 2 points of damage.
+That’s the end of round one.
+Old Man Birch has a good left hook.
+===== PDF page index 117 (rulebook p.117) =====
+106 
+Call of Cthulhu
+penalty die for each point of difference (to a maximum of 
+two penalty dice). If an opponent exceeds the attacker’s build 
+by three or more, any fighting maneuvers are ineffective; the 
+attacker may be able to lay hands on their opponent, but 
+lacks the strength and size required to take advantage of 
+their grip.
+T If the character performing the maneuver has a 
+Build that is three or more points lower than their 
+opponent’s, the maneuver is impossible.
+T If the character performing the maneuver has a 
+Build that is two points lower than their opponent’s, 
+the maneuver roll is made with two penalty dice.
+T If the character performing the maneuver has a 
+Build that is one point lower than their opponent’s, 
+the maneuver roll is made with one penalty die.
+T If the character performing the maneuver has the 
+same (or higher) Build as their opponent, no addi -
+tional modifiers are applied.
+Step 2: Make the Attack Roll
+A maneuver is treated the same way as a regular Fighting 
+attack. Most maneuvers will use the Brawling skill, though 
+some may be performed using another specialization: for 
+example, the Fighting (Sword) skill might be used to disarm 
+a person. The Keeper must rule according to the situation. 
+The opponent should choose to either dodge or fight back as 
+they would when attacked normally. 
+Maneuver attack roll:
+T If the target is dodging: the attacker’s Fighting skill is 
+opposed by the target’s Dodge skill. If the character 
+performing the maneuver achieves a higher level of 
+success than the character dodging, the maneuver 
+is successful (if tied, the target is able to dodge the 
+maneuver).
+T If the target is fighting back: the attacker’s Fighting 
+skill is opposed by the target’s Fighting skill. If the 
+character fighting back achieves a higher level of 
+success, the maneuver fails and the opponent inflicts 
+damage on the character performing the maneuver 
+(if tied, the maneuver is successful). 
+T The target of an attack may use a maneuver of their own: 
+Resolve as for fighting back, but instead of inflicting 
+damage, apply the effect of their maneuver.
+A successful maneuver allows the character to achieve 
+one goal, such as:
+T Disarming an opponent, or wresting an item such as 
+a book out of the opponent’s hand.
+T Place the enemy at an on-going disadvantage, either 
+inflicting one penalty die on the opponent’s future 
+actions or granting one bonus die to allies’ actions 
+taken against the target (choose whichever seems 
+most appropriate to the situation). This disadvantage 
+may be as a result of physical restraint or of having 
+been knocked to the floor. 
+T To escape when physically restrained by another 
+character. The restrained character may use a maneu-
+ver of their own on their turn to break out of a hold, 
+such as a bear hug or neck lock; otherwise they are au-
+tomatically held until their attacker releases them, is 
+incapacitated or suffers a major wound (see Wounds 
+and Healing, page 119).
+T Pushing an opponent over a cliff, out of a large win-
+dow or simply knocking the opponent to the floor.
+The Keeper may inflict damage on those engaged 
+in a maneuver if it is appropriate to the events in the 
+story—clearly someone falling from a second story 
+window is going to take damage unless they land in a 
+safety net or similar.
+Striking the First Blow 
+(Surprise)
+Something must happen to start a combat; someone 
+must strike the first blow. Opponents may square up 
+to each other like two boxers in the ring, knowing 
+they are engaged in a fight even before the first punch 
+is thrown. If this is the case, the Keeper should start 
+a combat round. 
+Fighting Maneuvers  
+Require a Definite Goal
+Sometimes a player may state an action as 
+a goal; in response to having a gun pointed 
+in their face they might simply say, “I’m 
+pushing his arm away so the gun isn’t 
+pointing at my face”. Pushing an arm away 
+isn’t a goal—it’s an action. It doesn’t 
+define a strong objective; the opponent 
+could simply say they are pulling back 
+and firing the gun when it comes to their 
+turn. A goal should be something definite 
+such as, “I’m knocking the gun from his 
+hand”, “I’m seizing the pistol from him”, 
+or “I’m grabbing the gun arm and keeping it 
+pointed away from me”. Each of these has 
+a definite effect on the status quo and 
+thus constitutes a goal.
+===== PDF page index 118 (rulebook p.118) =====
+107 
+chapter 6: combat
+Alternatively the attack may be a complete surprise; a 
+sudden knee to the groin or punch to the jaw, for example. 
+When someone states that they are making a sudden, 
+unexpected attack, they should have the opportunity to 
+surprise their opponent. If the Keeper were to automatically 
+switch to combat rounds (see below), the person who 
+declared the first attack may end up acting last in the DEX 
+order, which would make no narrative sense. 
+Of course if the target has their wits about them, they 
+may see the attack coming. The Keeper may allow a skill 
+roll to determine if the target anticipates the attack, using 
+either Listen or Spot Hidden to hear or see it coming, or 
+Psychology to perceive the attacker’s intent. The Stealth skill 
+of the attacker can be used to set the difficulty level for the 
+investigator’s Listen, Spot Hidden, or Psychology skill, or 
+vice versa if the investigator is the one making the surprise 
+attack (remembering that the player should be rolling the 
+dice where possible). 
+Depending on the outcome of the roll:
+T If the target anticipates the attack, they may choose 
+to dodge or fight back.
+T If the target fails to anticipate the attack, the Keeper 
+may allow the attack to be an automatic success 
+(unless a fumble is rolled) or award the attacker a 
+Harvey: DEX 55
+ Fighting (Brawl) skill: 25 (Regular) / 12 (Hard) / 5 (Extreme)
+ Dodge skill: 27 (Regular) / 13 (Hard) / 5 (Extreme)
+ Build: 0
+Thug: DEX 50     
+ Fighting skill: 35 (Regular) / 17 (Hard) / 7 (Extreme)
+ Dodge skill: 25 (Regular) / 12 (Hard) / 5 (Extreme)
+ Build: 1
+Harvey is following a cultist that he knows to be carrying a copy of the Book of Eibon in a briefcase through Boston. 
+When he loses sight of the cultist in the crowd, Harvey makes a Spot Hidden roll and fails. Harvey runs down the street 
+looking in every side alley. The Keeper grants a pushed Spot Hidden roll, which is also failed. As a consequence the 
+Keeper tells how Harvey follows his target into the shadows of one of those alleys, only to be jumped by a knife-wielding 
+thug demanding money. 
+The first round:
+Harvey has the higher DEX and therefore goes first. 
+Harvey’s Action:
+Harvey tries to push the thug out of his way and run past; it’s a risk, but Harvey knows that he will lose the trail if he 
+delays. This is a Fighting Maneuver, the goal being to push the thug away long enough for Harvey to run past.
+The thug has a Build 1. This is one point higher than Harvey’s Build (of zero) so Harvey will have one penalty die. 
+The thug is fighting back, attempting to stab Harvey. The thug has a knife and so uses his Fighting (Brawl) skill to attack.
+Harvey’s player rolls with a penalty die, getting 12 and 22. He must take the higher roll—a Regular success. 
+The Keeper rolls 03 for the thug—an Extreme success. 
+ While trying to push the thug aside, Harvey is stabbed for 6 points of damage (1D4 for the switchblade and 1D4 
+damage bonus). If this had been the thug’s action, the Extreme success would have resulted in an impale for 8 + 1D4 
+damage (maximum weapon damage and maximum damage bonus plus a roll for weapon damage).
+The thug’s action:
+The thug threatens Harvey with the knife and demands money. Harvey, knowing that he is badly injured and 
+outmatched, surrenders his wallet.
+Harvey struggles with the thug as the cultist flees.
+===== PDF page index 119 (rulebook p.119) =====
+108 
+Call of Cthulhu
+bonus die, depending on the situation. If the attacker 
+is making a ranged attack (for example with a gun or 
+throwing knife), a roll should always be made to hit.
+Note: Hitting someone on the head (when attacking 
+unseen) from the rear would automatically succeed (unless 
+fumbled), whereas seizing a weapon from someone’s hand 
+would only receive a bonus die.
+When attacking a target that is unable to or chooses not 
+to dodge or fight back, the attacker should roll their attack 
+normally, but will only fail to hit if they roll a fumble. It 
+should be remembered that the Keeper decides when dice 
+rolls are called for. If a person doesn’t wake up, why would 
+a dice roll be required to stab or shoot them in their sleep?
+Once a surprise attack has been resolved, the Keeper 
+should then switch to combat rounds as detailed below.
+Outnumbered
+When a character is outnumbered by the opposition, the 
+character is at a disadvantage. Once a character has either 
+fought back or dodged in the present combat round, all 
+subsequent melee attacks on them are made with one bonus 
+die. This does not apply to attacks made using firearms.
+Characters and monsters that have more than one attack 
+per round may also dodge or fight back that number of times 
+before the bonus die is applied. Thus a ghoul with three 
+attacks can fight back three times before its attackers gain 
+a bonus die. Note that some Mythos entities can never be 
+outnumbered by investigators (see Chapter 14: Monsters, 
+Beasts, and Alien Gods).
+Ranged and Thrown Weapons
+Ranged missile attacks (such as bows) are treated like firearms 
+(target has the option of Diving for Cover, page 113).
+Thrown weapons may be opposed with the Dodge skill in 
+the same way as Fighting attacks (see Resolving a Fighting 
+Attack Made Against a Target that is Dodging, page 103).
+A character may not choose the option of fighting back 
+against a ranged (missile) or thrown weapon attack unless he 
+or she is within one-fifth of their DEX in feet near the attacker.
+Half the attacker’s damage bonus is applied to thrown 
+and missile weapons that rely on the user’s strength—this 
+applies to bows and slings but not to crossbows.
+To resolve a ranged or thrown attack, the Keeper should 
+set a difficulty level as for a firearm attack (see Range and 
+Firearms Difficulty Levels, page 112).
+Escaping Close Combat
+A character can use their action to flee melee combat on 
+their turn in the order of combat, providing they have an 
+escape route and are not physically restrained. 
+Armor
+Armor reduces damage received, whether it is the natural 
+armor of some monsters, body armor worn by a character, 
+or the natural defense of an obstacle between the attacker 
+and the target. Deduct the number of armor points from 
+damage inflicted by attacks passing through the armor.
+Note that armor will not reduce damage from magical 
+attacks, poison, drowning, etc.
+A deep one surprises an investigator. 
+Even an old piece of metal will work as armor.
+===== PDF page index 120 (rulebook p.120) =====
+109 
+chapter 6: combat
+
+===== PDF page index 121 (rulebook p.121) =====
+110 
+Call of Cthulhu
+Harvey and his friend Rodger spot the cultist they suspect to be carrying the Book of Eibon in a briefcase. The cultist 
+is standing on the station platform, awaiting a train. Harvey takes advantage of the fact that they have not met and 
+approaches the cultist to enquire when the next train is due.
+Rodger: DEX 70     
+ Fighting (Brawl) skill: 40 (Regular) / 20 (Hard) / 8 (Extreme)
+ Dodge skill: 42 (Regular) / 21 (Hard) / 8 (Extreme)
+ Damage Bonus: 1D4
+ Build: 1
+ Hit points: 14
+Cultist: DEX 60     
+ Fighting (Brawl) skill: 30 (Regular) / 15 (Hard) / 6 (Extreme)
+ Dodge skill: 30 (Regular) / 15 (Hard) / 6 (Extreme)
+ Damage Bonus: 1D4
+ Build: 1
+ Hit points: 13
+Harvey: DEX 55
+ Fighting (Brawl) skill: 25 (Regular) / 12 (Hard) / 5 (Extreme)
+ Dodge skill: 27 (Regular) / 13 (Hard) / 5 (Extreme)
+ Damage Bonus: none
+ Build: 0 
+ Hit points: 15
+Harvey attempts to snatch the briefcase from the cultist. The Keeper rules that this constitutes a fighting maneuver 
+(see Fighting Maneuvers, page 105) since it will clearly initiate a combat and it is similar in intent to disarming an 
+opponent. The cultist’s DEX is higher than Harvey’s, but he is not aware of being in combat until Harvey acts, although 
+he may anticipate Harvey’s action—see Striking the First Blow (Surprise) , page 106. Using the rules for surprise 
+attacks, the Keeper asks for a Stealth roll from Harvey, setting the difficulty level as Regular (the cultist’s Spot Hidden 
+skill is below 50). Harvey is successful and the cultist doesn’t see the attack coming.
+Harvey’s surprise attack:
+Harvey attempts to snatch the cultist’s case using a fighting maneuver. The cultist does not get a chance to dodge or 
+fight back as he is unaware of the attack. Harvey gained a surprise attack and so has one bonus die for his maneuver. 
+When figuring the outcome of a Fighting maneuver, the opponent’s Build must always be factored in. The cultist’s Build 
+is one step above Harvey’s, so Harvey gains a penalty die. The bonus die and penalty die cancel each other out.
+An 11 is rolled for Harvey’s Fighting (Brawl) skill—a Hard success.
+No opposing roll is made for the cultist on account of Harvey having the advantage of surprise.
+Harvey snatches the bag from the cultist.
+Now that Harvey’s surprise attack is concluded, the Keeper switches to using combat rounds (see Striking the First 
+Blow (Surprise), page 106).
+Combat round one:
+Rodger’s action:
+Rodger has the highest DEX and so acts first. The Keeper asks what Rodger is doing (see Declaration of Intent: 
+“What is your character doing?”  page 102). Rodger’s player leans forward and tells how Rodger is going to grab the 
+cultist from behind, keeping hold of him while Harvey punches the cultist’s lights out. The Keeper interprets this as a 
+fighting maneuver with the goal of restraining the cultist. Both sides have equal Builds, so there are no bonus dice or 
+penalty dice. The cultist tries to fight back, with an elbow to Rodger’s gut.
+29 is rolled for Rodger’s Fighting (Brawl) skill—a Regular success.
+21 is rolled for the cultist’s Fighting (Brawl) skill—a Regular success.
+In the case of a draw with an opponent that is fighting back, the attacker wins.
+Rodger’s maneuver is successful and he has grabbed hold of the cultist. The cultist’s blow fails to connect.
+Cultist’s action:
+The cultist acts next. He struggles to break free of Rodger’s hold, as Rodger strives to keep him held. The cultist is 
+making a fighting maneuver. Rodger is simply trying to keep his hold on the cultist. The hold will only be broken if 
+the cultist wins the maneuver, otherwise the status quo will remain. The cultist has a penalty die as a result of being 
+restrained (see  Fighting Maneuvers, page 105).
+===== PDF page index 122 (rulebook p.122) =====
+111 
+chapter 6: combat
+Either 82 or 02 (penalty die) is rolled for the cultist’s Fighting (Brawl) skill—the highest roll is used—a Failure.
+Rodger rolls a 24 for his Dodge skill—a Regular success.
+The cultist fails to break free. Neither side inflicts damage on the other.
+Harvey’s action:
+Harvey has the briefcase in his hands, and the cultist is restrained before him. Harvey uses the briefcase as an 
+improvised weapon (see Improvised Weapons, page 104) to bash the cultist in the face. The Keeper decides to allow 
+Harvey to use his Brawl skill for the attack. The cultist has already fought back this round (versus Rodger) and so 
+Harvey gets a bonus die (see Outnumbered, page 108). The cultist attempts to dodge, but suffers one penalty die 
+because he is being restrained. 
+Either 19 or 89 (bonus die) is rolled for Harvey’s Fighting (Brawl) skill—a Regular success.
+Either 01 or 71 (penalty die) is rolled for the cultist’s Dodge skill—a Failure.
+The Keeper decides the briefcase will do the same damage as a small club, 1D6. The cultist takes 3 points of damage.
+Combat round two:
+Other commuters are shocked at the conflict that is taking place, but no one steps forward to intervene.
+Rodger’s action:
+Rodger already has hold of the cultist, so he doesn’t need to roll dice unless he wishes to do anything in addition to 
+continuing to hold him. Rodger decides he’s going to take advantage of his hold on the cultist to slam the cultist’s face 
+against a nearby pillar. The cultist attempts to break free. Both sides will make a fighting maneuver roll. The cultist has 
+one penalty die for being restrained.
+Rodger gets a 49 for his Fighting (Brawl) skill—a failure.
+Either 11 or 81 (penalty die) is rolled for the cultist’s Fighting (Brawl) skill—a failure.
+Rodger fails to hurt the cultist and the cultist fails to break free. The cultist is still held and the two of them are 
+struggling around the platform.
+Cultist’s action:
+Instead of struggling to break free, the cultist now raises his feet to waist height and pushes against the nearby pillar, 
+attempting to overbalance Rodger onto the floor. Rodger continues to hold on and to resist being toppled. Since his goal 
+is to avoid the attack, this will use Rodger’s Dodge skill. The cultist has one penalty die for being restrained.
+Rodger gets 32 for his Dodge skill—a Regular success.
+The Keeper rolls 03 twice (penalty die) for the cultist’s Fighting (Brawl) skill—an Extreme success.
+The Keeper rules that hitting the concrete floor is worth 
+1D6 damage (like a club) plus the cultist’s 1D4 damage 
+bonus. Rodger takes the maximum of 10 points of damage as 
+a result of the Extreme success (see Determining Damage, 
+page 103). This drops Rodger’s hit points to 4. This is a major 
+wound (see Wounds and Healing, page 119) and as a result 
+Rodger is automatically knocked prone and must release his 
+hold on the cultist. Rodger passes a CON roll and remains 
+conscious.
+Harvey’s action:
+Harvey hates to leave his friend like this, but figures 
+the cultist will probably chase after him, and so he flees 
+the scene. 
+Combat round three:
+Rodger is prone on the floor. The cultist is running 
+after Harvey.
+Rodger’s action:
+No action has been taken against Rodger this round, 
+so he is free to stand up and act. He draws a throwing 
+dagger from his belt and throws it at the cultist’s back. This 
+is a thrown weapon attack; the Keeper decides that the 
+cultist will not be able to dodge it because he is unaware 
+of the attack (see Ranged and Thrown Weapons, page 
+108), but Rodger still has to roll to hit.
+A Failure is rolled for Rodger’s Throw skill. The 
+dagger misses.
+ Harvey and the cultist grapple for the briefcase.
+===== PDF page index 123 (rulebook p.123) =====
+112 
+Call of Cthulhu
+Firearms
+It is true that I have sent six bullets through the head of my 
+best friend, and yet I hope to show by this statement that I 
+am not his murderer.
+—H. P . Lovecraft, The Thing on the Doorstep
+To resolve a firearms attack, make a 1D100 roll and compare 
+the result with the attacker’s Firearms skill (using the 
+appropriate specialization).
+The firearms roll is not opposed. The difficulty level is 
+determined by the range, with various other factors granting 
+either penalty or bonus dice. A failure never deals damage. 
+Firearms and the DEX Order
+It takes less time to pull a trigger than to swing a club or 
+sword, therefore readied firearms may shoot at DEX + 50 in 
+the DEX order.
+Range and Firearms  
+Difficulty Levels
+The difficulty level of a firearms skill roll is always set 
+according to range. Each doubling of range above the 
+weapon’s listed base range on the Weapons Chart increases 
+the difficulty level by one step. 
+T Within the base range: Regular difficulty level.
+T Long range (up to twice the base range):  Hard 
+difficulty level.
+T Very long range (up to four times the base range): 
+Extreme difficulty level.
+Any further modifiers use bonus or penalty dice.
+At very long range, when only an Extreme success will 
+hit the target, an impale only occurs with a critical hit (a roll 
+of 01).
+Cultist’s action:
+The cultist uses his Dominate spell to command 
+Harvey to, ‘Stop where you are”. The rules for magic 
+and spells are covered later in this book, and all we 
+need to know is that the spell fails. However Harvey, 
+knowing that he is unlikely to outrun the cultist, 
+chooses to pretend that he is under the cultist’s 
+command; the player has an idea of her own…
+ Harvey’s action:
+Harvey feigns being under the cultist’s command 
+as his enemy approaches. Harvey’s player then asks if 
+perhaps the train is pulling in at that moment? The 
+Keeper hadn’t previously remarked upon the train 
+and decides to allow a Luck roll to determine the 
+situation. Harvey’s Luck roll is a success and the train 
+is just pulling in as the cultist reaches to take the case 
+from him. Harvey seizes the opportunity to push the 
+cultist in front of the train, using the briefcase.
+This action will require a successful fighting 
+maneuver. The Keeper loves the idea and grants 
+Harvey a bonus die for his clever manipulation of 
+the situation. The cultist tries to take the bag, and the 
+Keeper decides that his goal is to spin Harvey round 
+and throw him before the train! Both sides are making 
+a fighting maneuver. Harvey will take one penalty die 
+because his Build is 1 point lower than the cultist’s. 
+This cancels out the bonus die awarded by the Keeper.
+08 is rolled for Harvey’s Fighting (Brawl) skill—a 
+Hard success. 23 is rolled for the cultist’s Fighting 
+(Brawl) skill—a Regular success.
+Harvey keeps hold of the case and pushes the 
+cultist in front of the train; the Keeper doesn’t bother 
+rolling for damage!
+Harvey goes on vacation to Innsmouth and en -
+counters a deep one while exploring the caves under 
+Darke’s Travelling Circus of Earthly Delights. A man 
+of action, Harvey successfully clubs the deep one for 
+5 points of damage. The deep one has tough, leathery 
+skin and scales, giving it 1 point of natural armor. 
+The Keeper deducts 1 from the damage, thus Har -
+vey’s strike only does a total of 4 damage.
+The deep one is none too happy and advances on 
+Harvey, its needle sharp teeth glinting in the beam of 
+Harvey’s flashlight…
+Armor Examples:
+Heavy leather jacket 1 point
+WWI helmet 2 points
+1" Hardwood 3 points
+Present U.S. Helmet 5 points
+Heavy Kevlar Vest 8 points
+Military Body Armor 12 points
+1.5" bulletproof glass 15 points
+1" Steel plate 19 points
+Large sand bag 20 points
+
+===== PDF page index 124 (rulebook p.124) =====
+113 
+chapter 6: combat
+Firearm Attack Modifiers
+Once the difficulty level of a firearms attack has been set, all other 
+factors that lend a distinct advantage or disadvantage are taken 
+into account. Some options follow, but others may occur to you 
+during play. Modifiers grant either a bonus die or a penalty die.
+Diving for Cover (Penalty die)
+A target that is aware of being fired upon may react by diving 
+for cover. This may mean jumping behind a physical barrier, 
+throwing oneself to the floor, or ducking and diving at speed 
+in an attempt to present a more difficult target.
+Diving for cover requires a Dodge roll. If this is successful, 
+the target presents a more difficult target and the attacker 
+gets one penalty die.
+Diving for cover is a desperate response to a desperate 
+situation. A character that opts to dive for cover forfeits their 
+next attack (regardless of whether they were successful or 
+not). If they have already used their attack this round, they 
+forfeit their attack in the following round. The only option 
+available to a character that has dived for cover, until their 
+next attack, is to dodge further attacks. If an individual 
+with multiple attacks dives for cover, they forfeit all of their 
+attacks, not just a single attack.
+Cover and Concealment (Penalty die)
+The degree of protection offered by cover is at the Keeper’s 
+discretion; a wooden fence may not stop a bullet, but it 
+does obscure the target, making the shot more difficult. 
+Concealment of at least half of the target adds one penalty 
+die to a firearms attack. 
+A target that breaks cover even briefly (to fire shots for 
+example) may be targeted by another character—if that 
+character is holding his or her turn.
+Point-Blank Range (Bonus die)
+If the target is at point-blank range—within a fifth of the 
+shooter’s DEX in feet—the attacker gains a bonus die.
+An attacker that is using a firearm at point-blank range 
+may be targeted by melee attacks and could be disarmed 
+with a successful fighting maneuver on their opponent’s 
+turn. A target may not fight back against or dodge a Firearm 
+attack as they can a Fighting attack.
+Aiming (Bonus die)
+The intention to take careful aim must be declared on the 
+character’s turn in the order of combat. The shot is taken on 
+the same turn in the order of combat on the following round. 
+If no other actions are taken before the shot is fired, the 
+attacker gains one bonus die. If the aiming character takes 
+damage or moves while aiming, the advantage of aiming is 
+lost. Only one bonus die may be gained by aiming.
+Fast-Moving Targets (Penalty die)
+A target that is moving at full speed (MOV 8 or more) is 
+hard to hit; apply one penalty die. 
+Target Size (Bonus or Penalty die)
+Smaller targets are harder to hit. If the target is Build –2 or 
+smaller, apply one penalty die.
+Larger targets are easier to hit. If the target is Build 4 or 
+larger, apply one bonus die. 
+Reloading Firearms (possible Penalty die)
+It takes one combat round to load two shells into any 
+handgun, rifle or shotgun. Allow one round to exchange a 
+clip. Allow two rounds to change a machine gun belt.
+In a round, it is possible to put one round in a chamber 
+and get that shot off with one penalty die.
+Handguns, Multiple Shots (Penalty die)
+Many handguns are capable of firing 2 or 3 shots per round. 
+Firing one shot allows for a more careful aim and steadying 
+of the weapon. Firing more than one shot places speed above 
+accuracy. When firing two or three shots in one round, roll for 
+each shot individually, with all shots receiving one penalty die. 
+Firing into Melee Combat
+Combatants in melee combat are constantly on the move 
+and may obscure one another. One penalty die is applied 
+Harvey shoots at the Deep One.
+Harvey is shooting a single shot from his pistol at a 
+target at normal range, so the difficulty level is Regu-
+lar. On the next round he fires three shots. Harvey’s 
+player rolls for each shot (at Regular difficulty), ap -
+plying a penalty die to each roll.
+===== PDF page index 125 (rulebook p.125) =====
+114 
+Call of Cthulhu
+when targeting a combatant involved in melee combat. A 
+fumble indicates an ally has been hit. If multiple allies are 
+in the line of fire, the one with the lowest Luck score is hit.
+Automatic Fire
+If using automatic fire an attacker can make one pull of 
+the trigger in one combat round. The automatic weapon 
+will then continue firing until the trigger is released or the 
+ammunition is expended (called full auto). Some weapons 
+are limited to fire a burst (i.e. 2 or 3 bullets) rather than full 
+auto, while others may be switched to fire semi-automatic 
+(single bullets), and/or burst or full auto.
+For full auto:  the player declares the number of rounds 
+(bullets) to be fired, which may be any number up to the 
+capacity of the gun before rolling the dice. Due to the recoil 
+of automatic weapons, it is very hard to place a high number 
+of rounds in a single target. To simulate this, the number of 
+bullets fired is divided into a series of volleys, with an attack 
+roll made for each volley.
+A volley is a number of bullets up to or equal to the 
+firer’s Submachine Gun (SMG) or Machine Gun (MG) skill  
+divided by 10 and rounded down: simply read the tens digit 
+of the skill value. Regardless of skill, a full auto volley is  
+never fewer than 3 bullets. For example: a character with 
+Firearms (SMG) 47% would fire four bullets in a volley. 
+A character can fire full auto (multiple volleys) in a single 
+round until their ammunition runs out, although the 
+chances of hitting reduce after the first volley has been fired.
+For burst fire: one pull of the trigger fires 2 or 3 bullets, this 
+being considered the best combination of accuracy and con-
+servation of ammunition. This is simply treated as a volley of 
+2 or 3 shots (depending on the firearm; the user’s skill plays 
+no role in determining the number of bullets).
+When firing semi-automatic ( ie. multiple single shots): 
+apply a penalty die to each shot, making a skill roll for each 
+bullet fired, just as when firing multiple rounds from a hand-
+gun see Handguns, Multiple Shots (page 113).
+Rolling to hit with automatic fire:
+First attack roll: apply the usual rules for a firearms attack 
+roll (set difficulty by range and then apply any modifiers).
+Second and further attack rolls: add one penalty die (or re-
+move a bonus die) for each additional attack roll. If this would 
+Sometimes taking cover is more advantageous than fighting back.
+===== PDF page index 126 (rulebook p.126) =====
+115 
+chapter 6: combat
+Harvey is investigating the disappearance of his old friend, Nott. He hears a strange sound coming from an upstairs room, pulls 
+out his gun (.38 revolver), and cautiously opens the door. Peering inside, Harvey sees a shape crouching in the semidarkness—he 
+wonders if it is human or animal. Harvey calls out, “Stop where you are. I’m armed!” Baring teeth and hissing, the thing rears 
+up and charges at Harvey, who lets off a shot, and the Keeper begins a combat round. Sanity rolls would have to be made for 
+encountering these monsters, but this will be explained in a later chapter—for now let’s accept that Harvey remains steadfast.
+Harvey: DEX 55
+ Firearms (Handgun) skill: 20 (Regular) / 10 (Hard) / 4 (Extreme)
+ Dodge skill: 27 (Regular) / 13 (Hard) / 5 (Extreme)
+ Damage Bonus: none
+ Build: 0 
+ Hit points: 15
+Monster: DEX 60     
+ Fighting (Brawl) skill: 40 (Regular) / 20 (Hard) / 8 (Extreme)
+ Dodge skill: 30 (Regular) / 15 (Hard) / 6 (Extreme)
+ Damage Bonus: none
+ Build: 0
+ Hit points: 14
+Round one:
+Harvey has already announced he is firing and will do so on DEX 105 (DEX+50) since his gun was readied (see 
+Firearms and the DEX Order , page 112). The creature goes second with its DEX of 60. Without a readied firearm, 
+Harvey would have acted after the creature.
+Harvey’s action:
+Harvey’s handgun can fire up to three shots each round, but he decides to fire only one steady shot to maximize his 
+chance of hitting. As the target is within the base range of the handgun, Harvey requires a Regular level of success to 
+hit. This shot is taken at point-blank range, so he gets a bonus die on the attack roll (see Point-Blank Range, page 113). 
+Harvey’s Handgun skill is 20%, and he hits with a Regular success (rolling a possible 58 or 18). The revolver does 1D10 
+damage, blowing a chunk out of the creature (5 points of damage).
+Monster’s action:
+Now that it is upon him, Harvey can clearly see the creature is not human at all, but more dog-like. It attacks him 
+with its clawed forelimbs. Harvey opts to dodge the attack. 
+The Keeper rolls 31 for the creature’s attack, using its Fighting skill of 40—a success. 
+Harvey’s player rolls 12 (under half his skill—a Hard success) for his dodge, and avoids the blow.
+Round two: 
+Harvey acts first again, as his pistol is readied.
+Harvey’s action:
+Harvey fires off three shots in rapid succession. The range is point-blank, so Harvey gains a bonus die on each shot, 
+but this is negated by the penalty die on each shot for firing multiple shots in one round from a handgun (see Handguns,  
+Multiple Shots page 113).
+Three dice rolls are made in turn, one for each of Harvey’s shots (each requiring a Regular level of success): 04, 27 and 
+92. Two of the shots miss, but the first is an Extreme success. The Extreme success is an impale, so the damage is 1D10 
++ 10. The thing collapses.
+Monster’s action:
+It is dead or dying and can take no action.
+Round three: 
+Before Harvey can check if the creature is dead, he sees two more lurking in the shadows at the far side of the room.
+Harvey’s action:
+Harvey lifts his gun to fire again. Picking his target with care, he spends a whole round aiming, and gains a bonus 
+die on the shot (see Aiming, page 113). 
+Monster’s action:
+The creatures appear to be feeding on something, heedless of the recent deafening gunshots, and are ignoring Harvey. 
+Round four: 
+Harvey’s action:
+Harvey fires on DEX 105, after spending a round aiming. The nearest creature is mostly concealed by an overturned 
+table. The table looks flimsy so Harvey chooses to shoot through it. The range is around 20 feet, beyond point-blank, but 
+within the base range of the revolver (15 yards), so the difficulty level of the shot is Regular. Continued...  
+===== PDF page index 127 (rulebook p.127) =====
+116 
+Call of Cthulhu
+incur three penalty dice, stick with two penalty dice and raise 
+the difficulty level by one step (from Normal to Hard, Hard to 
+Extreme, Extreme to Critical, or Critical to impossible).
+The attacker must make a fresh attack roll for each volley 
+(or burst) of shots or whenever they select a new target.
+All targets should be within a reasonable arc of fire (around 
+a sixty-degree arc). Ammunition is expended when moving 
+between targets (one bullet per meter/yard). This is simply 
+additional wasted ammunition, and for convenience is not 
+factored into volley size, attack rolls, or the quantity of shots 
+that can be made before incurring penalty dice. 
+Resolving each attack roll:
+T If the attack roll is successful: half of the shots fired 
+hit the target—roll damage for half of the shots 
+(round down, minimum of one). Subtract any armor 
+from each shot.
+T If the attack roll is an Extreme success: all shots fired 
+hit the target, the first half (round down, minimum 
+of one) of which impale. Subtract any armor from 
+each shot. If the difficulty level of the shot was Ex -
+treme, the best possible result is a successful hit and 
+not an impale.
+The creature is partially concealed, so Harvey 
+takes one penalty die (see Cover and Concealment, 
+page 113), which is negated by the bonus die he gets 
+for aiming.
+Harvey makes one attack roll for the shot and 
+scores a Hard success with a roll of 09. 1D10 is rolled 
+for 7 points of damage, which is reduced by 2 points 
+for the armor rating of the table, giving 5 damage.
+Monster’s action:
+Startled by the proximity of the shot, both creatures 
+realize the danger and bound for the nearby window.
+Round five: 
+Harvey runs to the window and empties his 
+gun at the fleeing creatures. The Keeper decides that 
+Harvey will get one shot at normal range. That’s 
+Harvey’s sixth shot and his revolver is empty. 
+Round six:
+Harvey’s action:
+Harvey loads one bullet and fires it on the same 
+round at the fleeing creature before it disappears from 
+sight. The shot is at very long range (40 yards) so the 
+difficulty level is Extreme (see Range and Firearms 
+Difficulty Levels, page 112). A penalty die is added 
+because Harvey is loading and firing a shot on the same 
+round (see Reloading Firearms, page 113). Harvey’s 
+player cheers as she rolls 01 and 01 with the penalty 
+dice, giving a final result of 01! A critical at very long 
+range is an impale delivering 1D10 + 10 damage that 
+drops one of the creatures in its tracks. 
+Monster’s action:
+The remaining creature escapes unharmed.
+Harvey turns and sees the gored corpse of his old 
+friend Nott lying at his feet, then wanders over to 
+check that the first creature is indeed dead.
+Tommy guns aren't always useful against the Mythos.
+A shooter with a skill of 63%, firing a full auto 
+(multiple volleys) at a single target at normal range, 
+makes one attack roll for each volley of 6 shots. The 
+first volley requires a Regular success. The second 
+volley of 6 bullets incurs a penalty die, as this is the 
+second attack roll (for shots 7-12), and the third 
+volley takes two penalty dice (for shots 13-18).
+If the shooter had announced they were firing a 
+fourth volley then the attack roll would incur two 
+penalty dice, and the difficulty level (for shots 19-24) 
+would increase to Hard.
+Alternatively, if the same shooter fired just 12 
+shots, dividing them equally between three targets (4 
+shots at each) at normal range, the first attack roll 
+would be for the 4 shots at the first target. The next 
+4 shots at the second target would require a second 
+attack roll, with one penalty die, followed by a further 
+attack roll for the 4 shots at the third target, this time 
+with two penalty dice. In this case the attacker has 
+chosen to fire three partial volleys of 4 shots (rather 
+than the full 6-shot volleys) to conserve ammunition.
+===== PDF page index 128 (rulebook p.128) =====
+117 
+chapter 6: combat
+For example: Harvey and his two friends, Rodger and Cecil, turn up to a prearranged meeting place in an old warehouse. 
+Suddenly a gangster appears from the shadows, bringing a tommy gun to bear, and opens fire on the investigators, 
+initiating a combat round. 
+Gangster: DEX 50 
+Firearms (Submachine gun) skill: 40 (Regular) / 20 (Hard) / 8 (Extreme)
+Fighting (Brawl) skill: 30 (Regular) / 15 (Hard) / 6 (Extreme)
+Dodge skill: 25 (Regular) / 12 (Hard) / 5 (Extreme)
+Damage Bonus: 1D4
+Hit points: 13
+Harvey: DEX 55 
+Fighting (Brawl) skill: 25 (Regular) / 12 (Hard) / 5 (Extreme)
+Dodge skill: 27 (Regular) / 13 (Hard) / 5 (Extreme)
+Damage Bonus: none
+Hit points: 15
+Rodger: DEX 70 
+Fighting (Brawl) skill: 40 (Regular) / 20 (Hard) / 8 (Extreme)
+Dodge skill: 42 (Regular) / 21 (Hard) / 8 (Extreme)
+Damage Bonus: 1D4
+Hit points: 14
+Round one:
+The gangster goes first, firing on his DEX +50 for using a readied firearm. 
+The gangster’s action:
+One-tenth of the gangster’s SMG skill is 4, so he is able to fire volleys of 4 rounds. He chooses to fire 4 shots at each of 
+the three investigators (3 volleys, 12 shots in total). Harvey and Cecil dive for cover, but Rodger pulls a pistol and stands 
+his ground. Harvey makes a Dodge roll, but Cecil fails. The Keeper rules that the investigators are each 3 meters apart; 
+the gangster wastes 6 extra rounds moving between his three targets (his ammunition is reduced by a total of 18 shots 
+this round).
+The gangster has a Submachine Gun skill of 40%. The targets are within normal range, so the difficulty level is 
+Regular. The gangster has a penalty die when shooting at Harvey because he successfully dived for cover (see Diving for 
+Cover, page 113). Continued...
+A firefight breaks out in the warehouse between a gangster and the investigators.
+===== PDF page index 129 (rulebook p.129) =====
+118 
+Call of Cthulhu
+Malfunctions
+Firearms are prone to jamming or misfiring. With any 
+attack roll result equal to or higher than the firing weapon’s 
+malfunction number (see Table XVII: Weapons, pages 401-
+405), the shooter does not merely miss—his or her weapon 
+does not fire. If the weapon is a revolver, break-open gun, or 
+bolt-action rifle, the problem is merely a dud round. If the 
+weapon is lever-action, the malfunction is a jam. Fixing a 
+jam takes 1D6 combat rounds, plus a successful Mechanical 
+Repair roll or Firearms skill roll. The user can keep trying 
+once per round until succeeding. If the roll is also a fumble, 
+the Keeper may choose whether the gun malfunctions or if 
+some other outcome occurs, such as hitting an ally or the 
+wielder injuring themselves in some way.
+The Keeper rolls 33 or 43 (with the penalty die for diving for cover) to hit Harvey—a miss.
+ Switching to the second target, the Keeper rolls 04 or 04 (with one penalty die for it being the gangster’s second attack 
+roll this round) to hit Cecil—an Extreme success, indicating that all the shots hit and that half of them impaled. The 
+Keeper makes two rolls of 1D10+2 plus two rolls of 12+1D10+2, totaling 45 points of damage. Cecil is killed outright.
+The Keeper rolls the gangster’s third attack with two penalty dice and misses Rodger. 
+Harvey’s action:
+Harvey dived for cover and so forfeits his next action, which means that there is nothing he can do at present. Harvey 
+has taken cover behind a car.
+Rodger’s action:
+Rodger lets off a shot but misses the gangster.
+Round two:
+The gangster still has his submachine gun pointing in the investigators’ direction, but Rodger now has a readied pistol 
+(DEX 70+50), which means Rodger acts first, followed by the gangster, and then Harvey, still behind the cover of the 
+nearby car.
+Rodger’s action:
+Rodger fires a single shot but misses.
+The gangster’s action:
+The gangster fires 16 shots at the two investigators (4 volleys, 8 bullets at each investigator). The targets are within 
+base range, so the difficulty level is Regular. Harvey remains behind the car, giving him partial cover, so the gangster 
+will get an additional penalty die on his attacks on Harvey. Rodger dives for cover and fails. The Keeper rules that the 
+two investigators are now 10 meters apart; the gangster will waste 10 extra rounds moving between his targets (his 
+ammunition is reduced by a total of 26 shots this round, leaving 6 shots in his 50-round drum).
+The Keeper rolls 87 to hit Rodger with his first volley of 4 bullets: a miss. He then makes a second attack roll for the 
+second volley of 4 bullets, taking one penalty die. He rolls 92 and 72: another miss. 
+The gangster then switches targets to Harvey and makes a third attack roll. This time he should have three penalty 
+dice, two for making a third attack roll and one for Harvey having partial cover. As the number of penalty dice is capped 
+at two, he rolls two penalty dice and the difficulty level for the attack is raised by one step to Hard. He rolls 02, 12 and 
+12. 12 is a Hard success, so half the four bullets hit. The Keeper rolls 1D10 + 2  for each hit, giving a total of 6 points of 
+damage. The Keeper narrates this, stating that two bullets skim the hood of the car and strike Harvey in the shoulder. 
+On his final volley of 4 shots at Harvey, the gangster would gain another penalty die, but as he is already on two 
+penalty dice the difficulty level is raised once more to Extreme. This time the Keeper rolls 08, 38 and 98. 98 is both a 
+fumble and a malfunction (see Malfunctions, below). The Keeper describes it as a malfunction—the gun jams.
+Harvey’s action:
+Harvey breaks cover, runs in and punches the gangster. The gangster dodges and Harvey misses.
+Round three:
+Rodger would normally go first this round with his readied pistol but, as he dived for cover in the last round, he loses 
+his next action. Harvey is fighting the gangster in hand-to-hand combat. The machine gun is jammed, but the gangster 
+could still strike Harvey with it.
+The gangster’s action:
+Realizing his gun is jammed, the gangster flees the scene.
+Harvey’s action:
+Harvey holds his bleeding side and looks in disbelief at Rodger! 
+Rodger’s action:
+Rodger can do nothing but look aghast as the gangster runs away. 
+===== PDF page index 130 (rulebook p.130) =====
+119 
+chapter 6: combat
+Wounds and 
+Healing
+I think they mean to get rid of me because of what 
+I have discovered. There is a great black stone 
+with unknown hieroglyphics half worn away 
+which I found in the woods on Round Hill, east of 
+here; and after I took it home everything became 
+different. If they think I suspect too much they will 
+either kill me or take me off the earth to where 
+they come from. They like to take away men of 
+learning once in a while, to keep informed on the 
+state of things in the human world.
+—H.P . Lovecraft, The Whisperer In Darkness
+Descriptions of injuries should be appropriate 
+to the type and degree of damage received. Thus 
+the investigator is not merely shot, but shot in 
+one arm or the other; likewise a fall might mean 
+the investigator has sprained an ankle, or now 
+has a lump the back of her skull, as well as the 
+hit point loss.
+Keepers should describe the effects of 
+damage and try to avoid simply saying, “Y ou 
+lost 3 hit points. ”
+Tracking Damage
+The number of hit points of damage inflicted 
+by an attack can be used to differentiate between 
+regular damage and major wounds. Someone beaten 
+unconscious by punches (each doing a small amount 
+of damage) may awaken the next day battered and bruised but 
+able to act. However, someone who takes the same total amount 
+of harm in a single attack, such as a gunshot, might be out of 
+action for a week or more before the slow healing process even 
+begins. A punch is likely to result in regular damage, whereas a 
+gunshot is more likely to inflict a major wound.
+If the damage from a single attack is:
+T Less than half the character’s maximum hit points, it 
+is regular damage.
+T Equal to or more than half the character’s maximum 
+hit points, it is a Major Wound.
+T More than the character’s maximum hit points, the 
+result is death.
+Regular Damage: The Effects 
+Regular damage is the result of any single attack that deals 
+damage equal to less than half the character’s maximum hit 
+points in a single blow. It has no significant effect on the 
+character until current hit points are reduced to zero, when 
+the character will become unconscious. A character cannot 
+die as a result of regular damage.
+A Summary of  
+Firearms Modifiers:  
+Bonus and Penalty dice
+Difficulty Level Bonus Die Penalty Die
+Regular: Normal 
+range
+Aiming for 1 round Target diving for 
+cover
+Hard: Long range Point blank Fast-moving target 
+(MOV 8+)
+Extreme: Very long 
+range
+Large target (Build 4+) Partial (50%+) 
+concealment
+Small target (Build 
+–2)
+Multiple handgun 
+shots
+Loading and firing 
+one shot in a single 
+round
+Firing into melee
+
+===== PDF page index 131 (rulebook p.131) =====
+120 
+Call of Cthulhu
+Major Wound: The Effects 
+A Major Wound results when an attack delivers an amount 
+of damage equal to or greater than half of the character’s 
+maximum hit points in a single attack. A character that has 
+received a major wound may die if their current hit points 
+are reduced to zero.
+When a character takes a major wound:
+T Tick the Major Wound box. 
+T The character immediately falls prone. 
+T Make a successful CON roll to avoid the character 
+falling unconscious.
+T If current hit points fall to zero while the Major 
+Wound box is ticked, the character is dying (see 
+Dying, below).
+Zero Hit Points: The Effects
+Cumulative damage ceases to be tracked once current hit 
+points have fallen to zero; do not record negative hit points. 
+On zero hit points the character is unconscious. 
+Further damage is generally ignored, but any sincere 
+attempt to kill an unconscious character should succeed.
+Zero hit points can indicate one of three conditions (akin 
+to the triage model):
+T If only regular damage has been taken, the character 
+does not die and will heal in time.
+T If the character has taken a Major Wound, the char-
+acter will soon die unless First Aid is administered 
+(see Dying). If an uninjured character takes a wound 
+that is equal to their maximum hit points, this would 
+be a major wound.
+T If an amount of damage greater than the character’s 
+maximum hit points is taken in one attack then 
+death is inevitable.
+First Aid
+To be effective, First Aid must be delivered within one hour, in 
+which case it grants 1 hit point recovery. It may be attempted 
+once, with subsequent attempts constituting a Pushed roll. 
+Two people can work together to administer First Aid, with 
+a success granted if either one of them rolls a success. An 
+exception is allowed when treating a dying character (see 
+Dying, below), wherein the best that can be achieved with 
+First Aid is to temporarily stabilize the patient.
+Medicine
+Treatment of injuries using the Medicine skill takes a 
+minimum of one hour and can be delivered any time after 
+damage is taken. If this is not performed on the same day, 
+the difficulty level is increased (requiring a Hard success). 
+A person treated successfully with Medicine recovers 1D3 
+hit points (in addition to any First Aid they have received), 
+except in the case of a dying character (see Dying, below), 
+who must initially receive successful First Aid, after which 
+they must be stabilized using Medicine (see Major Wound 
+Recovery, page 121).
+Dying
+A character is dying when their hit points are reduced to 
+zero and they have also sustained a Major Wound. Record 
+the Current Hit Points as "0" and check the “Dying” box.
+The character immediately falls unconscious. The player 
+must make a CON roll at the end of the next round and 
+every round thereafter; if one of these CON rolls fails, the 
+character dies immediately. Only the First Aid skill can be 
+used to stabilize a dying character. Medicine cannot be used 
+to stabilize a dying character (see Chapter 4: Skills).
+The use of First Aid to stabilize a dying character grants 
+1 temporary hit point, and it must be followed up with a 
+successful Medicine skill roll. A dying character that has 
+been stabilized with First Aid (on 1 temporary hit point) 
+should make a CON roll at the end of each hour; a failure 
+indicates the patient's condition has deteriorated: they lose 
+Harvey has 15 hit points. Damage of 8 or more will 
+inflict a Major Wound. 
+Harvey is attacked by a mad cultist and, over the 
+course of the fight, takes 3 damage, then 8 damage. 
+His current hit points are down to 4. The Major 
+Wound knocks him to the floor. He is required to 
+make a CON roll for the Major Wound and does so 
+successfully, remaining conscious. 
+"Argh...I can't reach it"
+===== PDF page index 132 (rulebook p.132) =====
+121 
+chapter 6: combat
+the temporary hit point and revert to the start of the Dying 
+process, in need of First Aid and requiring a CON roll at the 
+end of each round. 
+The Medicine skill should be used to treat a dying 
+character after he or she has been stabilized with First Aid. 
+After a successful Medicine roll, uncheck the “dying” box 
+on the investigator sheet and increase hit points by 1D3. A 
+recovery roll (see Major Wound Recovery) should be made 
+at the end of each further week of care/convalescence.
+Regular Damage Recovery
+Recovering from regular damage is relatively fast. If the 
+character has not sustained a major wound (the major wound 
+box is unchecked) the character recovers 1 hit point per day.
+Major Wound Recovery
+A CON roll should be made at the end of each week of game 
+time that the Major Wound box is ticked,
+T If the CON roll is failed, no recovery takes place that 
+week. On a success, 1D3 hit points are recovered.
+T On an Extreme success, 2D3 hit points are recovered.
+T Add a bonus die: If the character has complete rest 
+in a comfortable environment.
+T Add a bonus die:  If the character receives effective 
+medical care. The care giver with the highest Medicine 
+skill should make one Medicine skill roll at the end of 
+the week (before the patient’s CON roll is made).
+T Add a penalty die:  If the character is in a poor en -
+vironment and is unable to take sufficient rest, and/
+or a fumble was rolled on their doctor’s (or nurse’s) 
+Medicine skill roll.
+There are two ways to heal a major wound (i.e. erase the 
+major wound marker). Firstly, when the character rolls an 
+Extreme success for their recovery (CON roll). Secondly, 
+any time their current hit points have recovered to half (or 
+more than half  of their full hit point total.
+If the roll is a fumble, a lasting injury, complication, or 
+worse condition results. Rather than rolling for a random 
+complication, the Keeper is encouraged to pick something 
+that relates to the nature of the character’s injuries ( e.g. 
+permanent limp, blindness in one eye, missing fingers, 
+loss of a limb, scarred face, etc.) and make an entry in the 
+investigator’s backstory (under Wounds and Scars).
+Continuing the previous example: Harvey suffers a 
+further 5 damage. His current hit points fall to zero 
+and, since he has taken a Major Wound (8 points 
+of damage in a single attack), he is now dying; his 
+player checks the “dying” box and marks hit points as 
+“0”. The following round a companion attempts First 
+Aid and fails. Harvey’s CON roll is successful and 
+he survives another round. The companion attempts 
+First Aid again, this time he is successful. Harvey 
+gains 1 hit point and is stabilized (only requiring a 
+CON roll per hour) and is taken quickly to a hospital 
+where he receives professional medical assistance. 
+The dying tick is removed and Harvey gains 2 hit 
+points (1D3 from Medicine skill roll). After a week of 
+rest Harvey makes a recovery roll (see below).
+In another incident, Harvey (who has a total of 
+15 hit points) takes 4 damage, then 6, then 7. He 
+has taken a total of 17 damage, but as negative hit 
+points are not recorded his current hit points now 
+equal zero. He has only taken regular damage (none 
+of the attacks, in themselves, cost more than half 
+of Harvey’s maximum hit points) and so Harvey 
+recovers one hit point per day and is back to full 
+health after 15 days.
+Harvey is recovering in hospital after almost dying (see 
+the example for Dying, to the left). He has the best of 
+care and complete rest, so gains two bonus dice to his 
+recovery roll. This roll gives a Hard success, granting 
+the recovery of 3 hit points (1D3). Harvey is now well 
+enough to return home. He does some light work on 
+the second week, (thus he has not rested) and, as he is 
+no longer under medical care, his recovery roll gets no 
+bonus dice. This time he rolls a failure; no recovery. On 
+the third week he realizes that he needs to take it easy 
+and asks a friendly nurse to look in on him as he rests 
+in bed; this grants a bonus die. A Medicine roll is made 
+for the nurse’s care (a success), and so he gains a second 
+Bonus die. He rolls an Extreme success on his recovery 
+roll at the end of week three. He recovers another 5 hit 
+points (2D3) and erases the major wound marker. His 
+current hit points now stand at 8. He regains one more 
+hit point each day, and in seven more days he is fully 
+healed to his maximum of 15 hit points.
+ Another example: Cecil is on an expedition in the 
+jungles of South America. He suffers a major wound 
+during a fight, receiving a terrible bite to his left arm. 
+A friend administers First Aid, but there is nowhere 
+for Cecil to rest properly and, anyway, he and his 
+companions are working to a deadline to prevent a 
+cult summoning their dark god. At the end of a week 
+he attempts his recovery roll with one penalty die, 
+rolling a fumble. The Keeper decides the wound has 
+become infected and that the lower arm is swollen 
+and painful; medical treatment is required promptly 
+or the infection may kill him. Cecil looks at his com-
+panions; one of them is going to have to attempt an 
+amputation!
+===== PDF page index 133 (rulebook p.133) =====
+122 
+Call of Cthulhu
+
+===== PDF page index 134 (rulebook p.134) =====
+123 
+chapter 6: combat
+Unconsciousness and Death
+Call of Cthulhu is a horror game and sometimes it may be 
+more terrifying for an investigator to stay conscious; if the 
+Keeper wishes, a character may be incapacitated rather than 
+fully unconscious. Equally, final death does not have to occur 
+instantaneously, and the light in a character’s eyes might not 
+go out until after a particularly dramatic moment or once their 
+final words have been uttered (at the Keeper’s discretion).
+Other Forms of Damage
+Often the Keeper will be forced to make a judgment for the 
+amount of damage caused by some random event such as 
+dropping a TV set on someone’s foot, running into a doorpost, 
+or falling down an elevator shaft. Whatever the cause, consider 
+the likely injury and rate it against the left-hand column on 
+Table III: Other Forms of Damage (page 124).
+Don’t feel compelled to limit yourself to the amounts of 
+damage listed—you wish you may increase or decrease the 
+amounts subject to the circumstances of the situation. 
+Each injury type is for one incident or one round; one 
+round of being punched by one attacker, one bullet, one 
+round of drowning, one round of being burned. The character 
+will take further damage on each successive round that they 
+are exposed to the source of the harm.
+Spot Rules: Optional 
+Rules for Combat
+The main combat chapter contains all the rules you will need 
+to run fight scenes in your game and you are advised to stick 
+with these until you become accustomed to them. 
+What follows are a collection of optional rules from which 
+you can mix and match as you please. Y ou are not compelled 
+to use them just because they are here. Some people prefer to 
+make spontaneous judgments about each new situation based 
+on its unique merits, while others prefer to have a strongly 
+defined set of rules to play by. Y ou and your group should 
+decide which you prefer.
+Rolling for Initiative
+If you prefer more variation in combat, ask everyone to 
+make a DEX roll to determine the initiative order. Those 
+who rolled an Extreme success will be first to act, followed by 
+those who rolled a Hard success, then those with a Regular 
+success, and finally those who failed the roll. 
+If more than one character achieves the same level of 
+success, give priority to those with the higher DEX value. If 
+characters are still tied, use combat skill value to prioritize. 
+Those that roll 01 (critical) on their DEX roll should gain 
+a tactical advantage or bonus die on their first attack. Those 
+that roll a fumble should forgo their first attack, perhaps 
+dropping their weapon or tripping.
+Once the initiative order has been determined, stick with 
+it for the duration of that combat.
+Note down each combatant in order, along with their 
+level of success (for example "Brian, Fail"). That way if 
+additional combatants join, they can make a DEX roll and 
+be placed in the existing initiative order. This will also be 
+useful if characters draw guns, as this will affect the timing 
+of their action in the combat round. 
+When using this optional rule, a character with a readied 
+firearm may roll their DEX with a bonus die. If a character 
+draws a firearm during the combat and has it readied at the 
+start of a round, they may re-roll their DEX roll with a bonus 
+die. If this results in a worse result than previously rolled, 
+they may retain their previous place in the order.
+Harvey fails a pushed Stealth roll as he attempts to 
+follow someone through a fairground. As a conse -
+quence the Keeper rules that he is struck by one of 
+the moving fairground rides. There is no damage 
+listed for fairground rides so he refers to the Other 
+Forms of Damage table. The Keeper feels it would 
+be likely to knock someone unconscious and chooses 
+‘Severe’, rolling 1D10 damage.
+Trips to the hospital will become routine for investigators.
+
+===== PDF page index 135 (rulebook p.135) =====
+124 
+Call of Cthulhu
+Table III:  
+Other Forms of Damage
+*Asphyxiation and Drowning: a CON roll should be made each round; once a CON roll is failed, damage is sustained 
+each round thereafter until death or until the victim is able to breathe. If the character is in a state of physical exertion, 
+a Hard success is required on the CON roll. Death occurs at 0 hit points (ignore the Major Wound rule).
+**Poisons: an Extreme CON roll will halve damage from poisons. Poisons may cause a variety of additional symptoms 
+including: stomach pains, vomiting, diarrhea, chills, sweats, cramps, jaundice, altered heart rate, impaired vision, 
+convulsions, unconsciousness, and paralysis. It is up to the Keeper whether the symptoms permit the victim to act 
+or not, or to act with a penalty die or an increased level of difficulty.
+In certain circumstances, Keepers may allow a poison's effects to be shaken off if the CON roll is a critical success.
+Injury Damage Examples
+Minor: a person could survive 
+numerous occurrences of this level 
+of damage.
+1D3 Punch, kick, head-butt, mild acid, breathing smoky atmosphere*, a 
+thrown fist-size rock, falling (per 10 feet) onto soft swamp.
+Moderate: might cause a major 
+wound; it would take a few such 
+attacks to kill.
+1D6
+Falling (per 10 feet) onto grass, club, strong acid, breathing water*, 
+exposure to vacuum*, small caliber bullet, arrow, fire (burning 
+torch).
+Severe: likely to cause a major 
+wound. One or two occurrences 
+would render a person 
+unconscious or dead.
+1D10
+.38 caliber bullet, falling (per 10 feet) onto concrete, axe, fire 
+(flamethrower, running through a burning room), being 6 to 9 
+yards from an exploding hand grenade or stick of dynamite, a mild 
+poison**.
+Deadly: the average person has a 
+50% chance of dying. 2D10 Hit by a car at 30mph, being 3 to 6 yards from an exploding hand 
+grenade or stick of dynamite, a strong poison**.
+Terminal: outright death is likely. 4D10 Hit by a speeding car, being within 3 yards of an exploding hand 
+grenade or stick of dynamite, a lethal poison**.
+Splat: outright death almost 
+certain. 8D10 Being involved in a high-speed head-on collision, being hit by a 
+train.
+
+===== PDF page index 136 (rulebook p.136) =====
+125 
+chapter 6: combat
+Knock-Out Blows
+The standard rules already allow for a target to be knocked 
+unconscious: when an attack inflicts a Major Wound (an 
+amount of damage equal to or greater than half the target’s 
+hit points), the target must make a CON roll to remain 
+conscious. Also a target that is reduced to zero hit points will 
+fall unconscious automatically.
+The standard rules require significant lasting damage, and 
+we are accustomed to seeing characters routinely knocked 
+out on TV and in films. Rather than suffering a concussion or 
+fractured skull, these fictional characters awake later, rub their 
+head, and carry on as if nothing happened.
+If you wish to incorporate a movie-style knock-out rule 
+into your game then treat this as a maneuver using blunt 
+attacks (punch, club, rifle-butt, etc.) If the maneuver is 
+successful, the opponent is rendered unconsciousness and 
+suffers only 1 hit point of damage. Knock-out attacks may be 
+used on any opponent with a skull or similar vulnerable spot 
+(humans, deep ones, ghouls, and so on, but not a shoggoth).
+Spending Luck to Remain Conscious
+If you are using the optional rule for spending Luck points to 
+alter rolls, Luck may be spent to remain conscious for a few 
+extra rounds. Remaining conscious until the end of the current 
+round costs 1 point of Luck. The cost doubles on successive 
+rounds—2, 4, 8, and so on—and should be spent at the start of 
+each round. This is a mixed blessing, as an active character may 
+present a more attractive target for further damage.
+Avoiding Nothing Happening When 
+Both Sides Fail Their Fighting Skill Roll
+Sometimes during melee combat, both sides simultaneously 
+fail their Fighting skill rolls and nothing happens. One way 
+to view this is that both sides are being equally ineffective at 
+inflicting harm. An alternative point of view it is that dealing 
+harm is relatively easy, and that the real skill lies in protecting 
+oneself from harm during a fight. When taking the latter 
+approach, failing a Fighting skill roll means that you have 
+failed to protect yourself during the combat. Narratively you 
+may have missed your target and punched a wall or moved 
+the wrong way and into your opponent’s blow. There are 
+many ways to get hurt during combat; your opponent’s fist is 
+only one of them.
+There are three solutions available to you:
+T First use the default rule by which nothing happens 
+when both sides fail.
+T Second resolve the situation by breaking the tie in 
+favor of the higher skill. 
+T Third allow both sides to inflict damage as for a 
+successful attack. The two sides have clashed during 
+combat.
+This rule is not applicable to ranged or firearm attacks.
+Harvey wishes to knock out the security guard at the 
+British Museum. Harvey picks up a fire extinguisher 
+and successfully sneaks up and hits the guard on the 
+back of the head with it. Referring to Striking the 
+First Blow (Surprise) (see page 106) the Keeper de-
+cides that because the target is completely unaware of 
+the attack, it will be an automatic success. The guard 
+takes 1 hit point of damage and is knocked out cold. 
+ If Harvey had failed his Stealth roll, he would 
+have attempted a fighting maneuver with the goal 
+of knocking the guard out. The guard is a big fellow 
+with Build 1, one above Harvey’s Build of zero, so 
+Harvey takes one penalty die on the maneuver. 
+Harvey rolls a Regular success and the guard fails 
+to dodge, so Harvey succeeds in the maneuver. The 
+guard is rendered unconscious.
+Harvey (DEX 55) rolls 13—a Hard success. Colin (DEX 
+60) rolls 84—a failure. The cultist (DEX 50) rolls 14—a 
+Hard success. Harvey acts first, then the cultist, then Co-
+lin. If the default system had been used, the order would 
+have been Colin, Harvey and then the cultist. 
+Another cultist arrives part way through the 
+combat. The second cultist has DEX 50 and rolls 45—a 
+Regular success. He slots into the initiative order after 
+the first cultist. 
+On a later round, Colin draws a gun and at the start 
+of the following round he has a readied firearm, so he 
+re-rolls his initiative with one bonus die, rolling a Hard 
+success. This places him first in the order of initiative.
+Harvey takes a major wound and fails his CON 
+roll. He automatically falls prone, and should be -
+come unconscious, but he spends 1 point of Luck to 
+remain conscious till the end of the present round. 
+At the start of the following round he spends 2 Luck 
+points. At the start of the third round he spends 
+4 Luck points. A total of 7 Luck points have been 
+spent, at which point Harvey has reached safety. At 
+the start of the fourth round Harvey doesn’t spend 
+Luck points, and automatically falls unconscious.
+Harvey is fighting a deep one. Harvey throws a punch 
+and the deep one fights back with its clawed hand. 
+Both roll a failure for their Fighting (Brawl) skill. 
+They have clashed, both hurling blows at each other. 
+Harvey inflicts 1D3 damage and the deep one inflicts 
+1D6 + 1D4. 
+===== PDF page index 137 (rulebook p.137) =====
+126 
+Call of Cthulhu
+Concealed Damage
+When you take an injury, do you know how close you are 
+to death? This sense of uncertainty can be simulated if the 
+Keeper notes down the points of damage an investigator 
+receives without revealing a number to the player. Instead 
+the Keeper only describes the injury to the player. Of course 
+this is subjective and can be misleading; sometimes a minor 
+injury can seem far worse than it is and vice versa. A cut 
+to the head can look terrible; a little blood goes a long way, 
+but it may only represent one or two points of damage. The 
+Keeper can always call for a CON roll just to keep the player 
+guessing whether they have received a major wound or not 
+(of course the investigator would only fall unconscious if the 
+wound really was a major wound). The Keeper can reveal the 
+actual number of points of damage after the event.
+Suppressing Fire 
+The aim of suppressing fire is to make a group of targets 
+"dive for cover," since targets that do so cannot return fire. 
+The shooter does not nominate a specific target but declares 
+that they are bringing suppressive fire upon a group. A group 
+of targets might be all the people in one room (such as in a 
+bank heist) or any group of people within the gun’s firing 
+arc. Each target in that area then has the option to "dive for 
+cover" without knowing if they will be specifically targeted 
+or not. The intention is to simulate the panic that people 
+might feel when fired upon.
+Once those that wished to dive for cover have done so, 
+the Keeper should determine the target or targets from the 
+original group at random, including those that chose to 
+dive for cover. Those that successfully dived for cover will of 
+course be harder to hit.
+Armor Revisited
+Shotguns fire a mass of small pellets, each of which must 
+pierce any armor. The damage for shotguns is rolled using a 
+number of six-sided dice. Armor ratings are factored against 
+every D6 when rolling shotgun damage. Thus, if an attack 
+with a shotgun hits a target wearing a leather jacket (1 point 
+of armor), that one point of armor is deducted from each 
+and every damage die, reducing an attack that deals 4D6 
+damage by 4 points.
+Some forms of armor offer protection to specific parts 
+of the body; for example, a helmet protects the head. The 
+standard Call of Cthulhu combat rules do not use hit locations 
+(see the Optional Hit Location rules below). In the general 
+rough-and-tumble of a fist-fight or a fall from a window, it 
+is credible that armoring specific parts of the body (such as 
+the head) will reduce the overall damage received, and in 
+the interest of simplicity and the flow of the game no further 
+rolls need be made. 
+However the case of a single specific attack (such as being 
+shot) raises the question of whether the shot was to an area 
+protected by armor. In the case of such an attack, a Luck roll 
+is required. If the Luck roll is successful, the armor was hit 
+and the damage is reduced by the armor value. If the Luck 
+roll is failed, the attack hit an area not protected by armor. A 
+character wearing armor that protects both head and torso 
+gains a bonus die on their Luck roll for armor protection. 
+A character wearing armor all over their body or 
+possessing natural armor such as that of an elephant’s 
+skin does not require a Luck roll; it applies in all cases. If a 
+weakness is spotted in an enemy’s armor—a vulnerable spot, 
+such as an open mouth or eye—that area may be targeted, 
+and the Keeper should set an increased level of difficulty or 
+penalty dice for the attempt.
+Optional Hit Locations
+Rather than using Luck to determine if an armored part 
+of the body has been hit, roll 1D20 and consult Table IV: 
+Optional Hit Locations (page 127).
+Sights
+Telescopic sights effectively double the base range when 
+using firearms. If using sights with a .303 Lee Enfield rifle 
+(base range of 110 yards), for example, the difficulty level 
+would not be increased until the range exceeded 220 yards 
+with Extreme range being from 440 to 880 yards. Sights are 
+of no benefit at point-blank range.
+A group of six investigators and four non-player char-
+acter allies are trying to rescue a girl being held hostage 
+by a cultist. The cultist is dragging the girl to a car, and 
+lets off three shots in the direction of the investigators. 
+The Keeper gives everyone a chance to dive for cover. 
+Four of the investigators dive for cover (two are suc -
+cessful, two fail); everyone else stands their ground. 
+The Keeper allocates every investigator and non-player 
+character a number from one to ten, then rolls 1D10 
+three times to decide who is shot at. One non-player 
+character, one investigator that stood his ground and 
+one that dived for cover are targeted by the bullets. 
+Each attack is then resolved using the usual rules.
+Harvey is snooping around an alley when he is shot. 
+The Keeper tells how Harvey hears the shot then feels 
+the impact in his left leg, and looking down to see blood 
+seeping into his trousers. A moment later the pain hits 
+him. It’s bad, but Harvey’s player must decide whether 
+to go on or get Harvey to a hospital. The Keeper doesn’t 
+confirm whether it is a major wound or not, but asks 
+for a CON roll anyway. Harvey’s player makes a suc-
+cessful CON roll. Later on the Keeper confirms that is 
+was not a major wound (only 4 hit points of damage).
+===== PDF page index 138 (rulebook p.138) =====
+127 
+chapter 6: combat
+Bracing
+Bracing a firearm, such as using a bipod, tripod or a mounted 
+weapon, effectively doubles the base range for the weapon. 
+Where the weapon is mechanically braced to a structure 
+(vehicle or building) the user gains a bonus die.
+Movement During Combat
+Combat is usually described narratively, so the distance 
+between combatants is rarely measured precisely. It is more 
+often expressed in approximate and subjective terms such 
+as "arm’s reach," "close," "across the room," "away down the 
+alley," etc. If it seems that distance should be an issue in a 
+particular fight, the following rules should be used.
+The maximum distance a character can move in one 
+combat round is equal to their MOV rating multiplied by 
+5, in yards. 
+In the case of melee attacks, the attacker must get into 
+melee range before attacking. 
+T A character can move a number of yards equal to 
+their MOV rate and attack normally.
+T If the attacker moves up to their MOV rate multi -
+plied by 5, they may make one melee attack at the 
+end of the round.
+In the case of firearms, shots can be taken by a moving 
+character at any time in the round. 
+T To take advantage of the +50 DEX for using a read-
+ied firearm, the firearm must be used before any 
+movement is made.
+T A character can move up to a number of yards equal 
+to their MOV rate and make their firearms attack (or 
+attacks) normally on their usual DEX rank.
+T If the attacker moves their MOV rate multiplied by 
+5 in yards,  they must fire while running and so lack 
+sufficient time to take a steady firing position, taking 
+a penalty die to their attack roll(s). The shots will 
+normally be taken on their usual turn in the DEX or-
+der, but may be delayed if significant distance must 
+be covered to reach a firing position (at the Keeper’s 
+discretion).
+Complete Concealment
+If a target remains completely concealed for the whole round, 
+an attacker may still take shots through the cover in the hope 
+of hitting their target. The chance of hitting depends on the 
+size of the area in which the target is taking cover; there is a 
+great difference between hiding in a small garden shed and 
+hiding in an aircraft hangar. The attacker is mostly using 
+intuition to hit the target. If the hiding space is small, the 
+Keeper should raise the difficulty level by only one step; if 
+there is more space to hide in, raise it again or only allow a 
+hit on a critical success, if at all.
+Shooting at a Target Through Cover
+In some instances of partial concealment, the attacker may 
+choose to shoot through the cover in an attempt to hit 
+the target. In this case add one penalty die (as for partial 
+concealment) and apply an armor rating for the type of 
+cover, for example a low brick wall could provide an armor 
+rating of 10, whereas a thin wooden fence might only give 1 
+point of protection (see Armor page 108). 
+Point-Blank Revisited
+The point-blank bonus die does not apply to long or 
+cumbersome weapons such as rifles, full-length shotguns, 
+and bows, as these are less easily brought to bear on a moving 
+target at close range. Short-barreled shotguns (of the kind 
+designed for home defense) or sawn-off shotguns do gain 
+the point-blank bonus die.
+Prone
+A prone character is assumed to be lying flat on the ground.
+T Kicking someone when they are down is easier; 
+fighting attacks made against a prone character gain 
+one bonus die.
+Table IV:  
+Optional Hit Locations
+Die Roll Location
+1–3 Right leg
+4 — 6 Left leg
+7 — 10 Abdomen
+11 — 15 Chest
+16 — 17 Right arm
+18 — 19 Left arm
+20 Head
+Shooting through a high brick wall to target someone 
+who is hiding behind it (complete concealment): raise 
+the difficulty level by two steps and apply the wall’s 
+armor rating of 10 to any successful attacks.
+===== PDF page index 139 (rulebook p.139) =====
+128 
+Call of Cthulhu
+T A character that is prone may stand up when they 
+successfully dodge or fight back against an oppo -
+nent. Alternatively, when it comes to their turn in 
+the round, they may stand up and then take their 
+action.
+T Lying down provides a stable position from which 
+to shoot; a prone character gets one bonus die when 
+making a Firearms roll. 
+T By lying flat on the floor you present a smaller target; 
+those targeting a prone character with a firearm get 
+one penalty die (ignore this if at point blank-range).
+Poisons
+Table III: Other Forms of Damage  (see page 124) covers 
+mild, strong and lethal poisons in a simplified manner, and 
+is likely to be all you need in the game. If you wish to focus 
+on a specific type of poison and its effects, you may find this 
+more detailed guide useful.
+All poisons are divided into four bands: very mild, mild, 
+strong and lethal. The bands indicate the deadliness of the 
+poison, and assume a single dose (application, draft, bite or 
+sting—depending on how the poison is administered). If 
+multiple doses are received, the victim adds a penalty die to 
+their CON roll.
+The speed at which the poison acts is determined by the 
+administration method and Keeper discretion. Fast-acting 
+poisons begin to work within a single round (death from 
+cyanide poisoning could be expected within a minute, for 
+example). Slower poisons may take hours or even days to 
+register their effects.
+Individual poisons cause a range of different symptoms, 
+including stomach pains, vomiting, diarrhea, chills, sweats, 
+cramps, jaundice, altered heart rate, impaired vision, 
+convulsions, unconsciousness and paralysis. It is up to the 
+Keeper whether the symptoms permit the victim to act or 
+not, or to act with a penalty die or an increased level of 
+difficulty.
+Alongside the various symptoms, poisons also cause 
+physical damage.
+T Very Mild poisons: no damage, only temporary 
+unconsciousness.
+T Mild poisons: 1D10.
+T Strong poisons: 2D10.
+T Lethal poisons: 4D10.
+Those who succeed in rolling equal to or below a fifth of 
+their CON suffer a lesser effect. Damage should be halved 
+and symptoms reduced as decided by the Keeper. In certain 
+circumstances, Keepers may allow a poison's effects to be 
+shaken off if the CON roll is a critical success. A character 
+might push the CON roll by attempting to purge the 
+poison, through vomiting, amputation, or bloodletting, for 
+example. Whether these things would work in real-life is 
+questionable—what matters is the drama.
+
+===== PDF page index 140 (rulebook p.140) =====
+129 
+chapter 6: combat
+Sample Poisons
+Poison Speed Effect (1 dose) Notes
+Amanita (agaric 
+mushrooms)
+6 to 24 
+hours
+Violent stomach pains, vomiting, 
+jaundice. 
+1D10 damage
+Responsible for 95% of fatalities from mushroom 
+poisoning, the death cap mushroom being 
+foremost.
+Arsenic 30 minutes 
+to 24 hours
+Burning pain, vomiting, violent 
+diarrhea.
+4D10 damage
+Arsenic poisoning was difficult to determine 
+(hence its popularity as a tool for murder) until 
+1836, when the Marsh Test was invented. 
+Belladonna 
+(deadly 
+nightshade)
+2 hours to 2 
+days
+Rapid heartbeat, impaired vision, 
+convulsions.
+4D10 damage
+One of the most toxic plants in the world; 
+consumption of 10-20 berries by an adult will 
+probably cause death.
+Black Widow 
+Spider Venom 
+(latrotoxin)
+2 to 8 hours Chills, sweats, nausea.
+1D10 damage
+Rarely causes death if medical treatment is 
+provided.
+Chloroform 1 round Unconsciousness for 1 hour. 
+No damage
+Widely used an anesthetic in 1800-1900s, 
+however a high strength toxic dose may cause 
+death.
+Cobra Venom 15 to 60 
+minutes
+Convulsions, respiratory failure.
+4D10 damage
+Contact with eyes will cause immediate irritation 
+and, if untreated, blindness. If serum is available 
+then major injury and death can be avoided.
+Curare 1 round Muscular paralysis, respiratory 
+failure.
+4D10 damage.
+Common name for poison administered to 
+arrows in South America. Harmless if ingested—
+only direct application via a skin wound results 
+in paralysis.
+Cyanide 1 to 15 
+minutes
+Dizziness, convulsions, fainting, 
+death.
+4D10 damage
+Highly toxic—causes death if ingested as cyanide 
+salt or inhaled through gas.
+Rattlesnake 
+Venom
+6 to 24 
+hours
+Vomiting, violent spasms, yellowish 
+vision.
+2D10 damage
+Venom destroys tissue, causing necrosis, 
+although rarely fatal (especially if antidote is 
+given within 1 to 2 hours).
+Rohypnol 15 to 30 
+minutes
+Unconsciousness for 4-8 hours, 
+possible amnesia.
+No damage.
+Odorless, colorless and only available in modern 
+game settings.
+Strychnine 10 to 20 
+minutes
+Violent muscle contractions, 
+asphyxiation, death.
+4D10 damage
+Death within hours if medical treatment not 
+provided.

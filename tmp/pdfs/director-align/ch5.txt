@@ -1,0 +1,1099 @@
+                                          chapter 4: skills
+
+Languages
+When a character first raises a language (other than Own
+Language) to 50%, all other related language families are
+raised by 10 percentage points (but not higher than 50%).
+This may happen only once more: when a character first
+raises a language (other than Own Language) to 90%, all
+other related languages within that family are raised by 10
+percentage points (but not higher than 90%). For example,
+related family categories include Germanic (English,
+German, Dutch), Slavic (Russian, Czech, Polish, etc.), Niger-
+Congo (Swahili, Zulu, Yoruba, etc.)
+    Note this is in no way an exhaustive list of the possible
+language families, and Keepers opting to use this rule are
+recommended to refer to standard encyclopedia entries for
+“language families.”
+
+
+
+
+                                                                "It will take me several weeks to translate this"
+
+
+
+
+                                                                                                                    79
+                                                  Call of Cthulhu
+
+                    his chapter details the Call of Cthulhu game
+                    rules that are used to ensure fairness and
+                    balance, as well as to resolve conflicts and                        The Keeper’s
+                    challenges as they arise in play.
+                                                                                       Decision is Final
+
+          When to Roll Dice
+                                                                                      While the Call of
+                                                                                                           Cthulhu
+                                                                                      rules are designed
+                                                                                                           to be as
+                                                                                      clear and flexible
+     There is a large amount of fun to be had playing a roleplaying                                       as possible,
+                                                                                      from time to tim
+     game, and much of it is derived from discussing your                                               e you may
+                                                                                     encounter a situa
+                                                                                                         tion in the
+     character’s actions with your fellow players (and the Keeper)                   game for which th
+                                                                                                           e rules
+     without rolling any dice whatsoever. Players declare what                       do not provide a so
+                                                                                                           lution.
+     their investigators are doing and often speak "in character"                    In such circums
+                                                                                                         tances the
+     to better express themselves. The Keeper states what the                        Keeper’s decision
+                                                                                                        is final.
+     non-player characters (NPCs) are doing, and describes the                      Players are encour
+                                                                                                          aged to
+                                                                                    offer suggestions
+     world around the investigators. So far so good. Everyone                                             and ideas,
+                                                                                    however the playe
+     accepts what everyone else says and builds upon it to create                                       rs should
+                                                                                    respect the Keeper
+     an interesting story. Until, of course, they don’t accept what                                      ’s decision
+                                                                                    and move on with
+     someone else is saying. For example, an investigator doesn’t                                       the game.
+     believe what Old Man Marsh (played by the Keeper) is saying
+     about the whereabouts of the missing library books. When
+     someone says something that you don’t like, you can ask
+     for clarification or you can disagree—but ultimately, if you
+     don’t accept what someone says about what’s happening in                 The player should be clear about what they want to
+     the story, the situation can be resolved with dice. Likewise,        achieve by stating a goal before rolling any dice. If the
+     you could simply say that your investigator managed to               goal isn’t acceptable, the Keeper should help the player to
+     climb to the top of the church steeple in the pouring rain           rephrase it. The goal should define the player’s objective
+     at midnight—however if there’s no dice roll to test your             clearly and concisely. For advice on setting goals see Chapter
+     investigator’s skill, there’s no tension or drama either!            10: Playing the Game.
+         Equally there’s no need to roll dice for everything. For
+     example, each investigator has a Drive Auto skill, but dice
+                                                                              Harvey Walters wants to force a door open. The Keeper
+     don’t need to be rolled every time an investigator gets in a
+                                                                              might assume that he is simply bashing the door and
+     car—that would be just dull! If you say your investigator is
+                                                                              creating a loud noise in the process. If Harvey wants
+     driving to the local historical society, unless someone takes
+                                                                              to open the door quietly, he needs to state this as his
+     issue with you, then it’s done. Simply move on with the story.
+                                                                              goal. Thus ‘break the door down’ and ‘lever the door
+     Normal day-to-day stuff that everyone "just does" should be
+                                                                              open quietly’ are two different goals, and the Keeper
+     just that—no dice needed.
+                                                                              will consider the complexity of the goal when setting
+         However, if the Keeper describes a car full of cultists
+                                                                              a difficulty level.
+     attempting to push the investigator’s car off the road, the
+     player may object to this. The player could say, “Hold on, I’m
+     putting my foot down and getting away,” but still the Keeper
+     may insist the cultists are barging the investigator’s car off the   Skill Roll:
+     road. There’s a disagreement, a conflict—a reason to roll dice       Determining the Difficulty Level
+     and see whether the investigator’s car is indeed pushed into         The Keeper determines the difficulty level for skill rolls.
+     the ditch. The story has reached a moment of tension that            There are three levels of difficulty in Call of Cthulhu: Regular,
+     requires a definite outcome. Time to reach for the dice!             Hard, and Extreme.
+                                                                          Regular difficulty level: an average example of what would
+     Skill Rolls                                                          challenge a competent person. The player needs to roll equal
+                                                                          to or below their full skill or characteristic in order to suc-
+     The word "roll" is used in conjunction with the appropriate          ceed. This should be used in the vast majority of cases.
+     skill or characteristic; thus the Keeper will, for example, call
+     for a "Climb roll" or a "Strength roll".                             Hard difficulty level: this task would challenge a profession-
+         The Keeper has the final say about which skill or                al. The player needs to roll equal to or below a half of their
+     characteristic is appropriate to roll, depending on the              skill or characteristic in order to succeed. This should only
+     situation and the nature of the opposition. The term "skill          be used occasionally.
+     roll" is used regardless of whether a skill or a characteristic
+     is used.
+
+82
+                                       chapter 5: game system
+
+Extreme difficulty level: this task would challenge an ex-
+pert; it is on the border of what is humanly possible. The
+player needs to roll equal to or below a fifth of their skill or
+characteristic in order to succeed. This should be reserved
+for extreme situations.
+     If you, as Keeper, feel that the task is easy then don’t ask
+for a dice roll. Save dice rolls for challenging situations.
+     If the investigator is facing a living being, the difficulty
+level should be set according to the complementary skill or
+characteristic belonging to that being (human or otherwise).
+It is up to the Keeper to decide which skill or characteristic
+would be used by the opponent to counter the investigator’s
+actions—examples can be found with each skill entry (see
+Chapter 4: Skills).
+   i If the opponent’s skill or characteristic is below 50,
+         the difficulty level is Regular.
+  i If the opponent’s skill or characteristic is equal to or
+       above 50, the difficulty level is Hard.
+  i If the opponent’s skill or characteristic is equal to or
+       above 90, the difficulty level is Extreme.
+
+
+     Harvey Walters is trying to persuade the librarian to
+     allow him access to the library on a Sunday, when the                               "Sorry, the library is closed!"
+     library is normally closed. The Keeper considers the
+                                                                         to see if the tail is spotted, but this time Keeper would use the
+     librarian’s Persuade and Psychology skills (the two
+                                                                         non-player character’s Stealth skill to set the difficulty level.
+     skills which are used to oppose Persuade). Neither
+                                                                         Remember, the players should
+     of these is above 50% and so the difficulty level is
+                                                                         be rolling the dice more often
+     Regular, requiring Harvey’s player to roll equal to or
+                                                                         than the Keeper.
+     below Harvey’s full Persuade skill in order to succeed.                                                    Remember, only ro
+                                                                             See Chapter 10: Playing                                    ll the
+           Harvey failed to persuade the librarian to open                                                      dice if it’s a mome
+                                                                         the Game for more advice               tension. Dice rolls
+                                                                                                                                         nt of
+     up, so he has decided to force open the back door                                                                                are not
+                                                                         on setting difficulty levels.          needed
+     of the library. Harvey has a STR of 20. The library                                                               when characters
+     door is made of thick oak, with a stout iron lock, and                                                    undertake mundan
+     the Keeper judges it to be particularly strong. The
+                                                                         Rolling the Dice:                     everyday tasks.
+                                                                                                                                e and
+
+     difficulty level is thus set to Hard, requiring Harvey
+                                                                         Success or
+     to roll 10 or below (half Harvey’s STR).
+                                                                         Failure
+                                                                         There are two possible outcomes
+                                                                         of a roll: success or failure. The various divisions of skill (fifth,
+                                                                         half, full) do not equate with graduations of success. The player
+    In the case of non-living opponents, the Keeper must                 states a goal and then rolls the dice. If the dice roll is equal to or
+act as judge, weighing up the pertinent factors. A standard              below the required number, the goal is fully achieved. If the dice
+challenge would be of Regular difficulty. Where the challenge            roll is below a half or a fifth of the specified skill, the goal will
+is clearly beyond Regular difficulty, the Keeper may use the             not necessarily be performed to a higher standard. Any further
+Hard difficulty level. If the challenge is exceptionally difficult       interpretation of the roll is at the discretion of the Keeper.
+but still within the bounds of what is humanly possible, the
+Keeper should use the Extreme difficulty level.                          Success
+    Wherever possible, the situation should be framed in such a          If the player has rolled equal to or under the target set by the
+way that the dice are being rolled by the player. Players won’t get      Keeper, their investigator has achieved the goal that was set
+much fun out of watching the Keeper roll the dice every time. If         and agreed before the roll. The player should be encouraged
+the investigator is attempting to use their Stealth skill to furtively   to participate in describing the outcome. This can include
+follow a non-player character, the player would roll the dice and        aspects of the story beyond his or her investigator, such as
+the Keeper would use the non-player character’s Spot Hidden              the actions of non-player characters and the environment;
+skill to set the difficulty level. If the situation were reversed        however, such things may be moderated by the Keeper.
+and the non-player character were following the investigator,            Thus both player and Keeper are involved in describing the
+the player would roll the dice against their Spot Hidden skill           outcome of a successful roll.
+
+                                                                                                                                                  83
+                                                    Call of Cthulhu
+
+
+         Harvey drives his car directly at a shambling human-
+         like monster with the goal of hitting it. The Keeper
+         declares that the difficulty level to hit it will be hard
+         (given it has a Dodge skill of 60). The player rolls less
+         than half of her investigator’s Drive Auto skill—a suc-
+         cess! The player describes the scene...
+             “I push down the accelerator and ram into the
+         shambling thing, knocking it flying. I brake hard, spin
+         the car to a halt and jump out, leaving the engine
+         running. I draw my pistol and fire three shots into the
+         monster’s corpse.”
+             There’s no need to take issue with the player’s
+         description of Harvey’s cool driving technique—it is
+         just description—but did he really kill the monster?
+         The Keeper checks the monster’s hit points and
+         considers that it would take more than this to kill it.
+         The player’s goal was to hit the monster with the car
+         (which she did), not to kill it. The Keeper jumps in,
+         slightly altering what the player has said...
+             “Great, but when you get out of your car and look
+         around there’s no sign of a body; the thing you hit
+         with your car is nowhere to be seen.”
+             Alternatively, the Keeper (referring to Other
+         Forms of Damage on page 123) could ask the player                              Harvey speeds towards the monster.
+         to roll dice to see exactly how much damage the car
+         did to the monster. Determining that the monster is                Pushing the Roll
+         definitely not dead yet, the Keeper amends the latter                    ...the essence of pure nightmare was upon me. Sanity
+         part of what the player said...                                    departed—and, ignoring everything except the animal impulse
+             “As you reach for your pistol, you see the shambling               of flight, I merely struggled and plunged upward over the
+         thing emerge from the foliage. It looks undamaged                  incline’s debris as if no gulf had existed. Then I saw the chasm’s
+         and very, very angry.”                                             edge, leaped frenziedly with every ounce of strength I possessed,
+                                                                                and was instantly engulfed in a pandaemoniac vortex of
+                                                                               loathsome sound and utter, materially tangible blackness.
+     Failure                                                                                   —H.P. Lovecraft, The Shadow Out Of Time
+     The player stated a goal and has failed to achieve it, but exactly
+                                                                            Pushing a skill roll provides the player with a second and
+     how the player’s investigator has failed is entirely up to the
+                                                                            final attempt to achieve a goal. A pushed roll is only allowed
+     Keeper (though of course the players may throw in suggestions).
+                                                                            if it can be justified, and it is up to the player to do this.
+     Initial failure at a skill roll should not usually inflict damage or
+                                                                            Whenever a player asks, “Can I push the roll?” the Keeper
+     Sanity loss, but this depends on the circumstances. A failed
+                                                                            should always ask, “What action are you taking to push the
+     roll could represent failure to act rather than a failed attempt.
+                                                                            situation?” It is not for the Keeper to simply say yes or no; it
+     Worse things may happen if the player chooses to push the roll
+                                                                            is for the player to describe the extra effort or time taken to
+     and fails a second time (see Pushing the Roll). Save "what’s the
+                                                                            justify the pushed roll. If the player is stuck, other players or
+     worst that could happen?" style consequences for pushed rolls.
+                                                                            the Keeper might offer suggestions.
+                                                                                 By making a pushed roll, the player is upping the ante
+         Harvey fails his Climb skill roll as he attempts to de-            and giving the Keeper permission to bring dire consequences
+         scend from an upper floor window to the street below.              should the roll be failed a second time. Pushing a roll means
+         The Keeper describes the lack of handholds and that                pushing the situation to the limit:
+         the nearby drainpipe feels loose. Harvey’s goal was
+         to get safely to the ground, and this has not been                   T If you are breaking down a door, it may mean throw-
+         achieved—Harvey is still stuck where he was before                        ing yourself at it with no heed for your own safety.
+         the dice roll. Note how the Keeper did not take the
+         situation to its extreme, that of Harvey falling and                 T If you are persuading a police officer, it may mean
+         suffering harm, as it made sense that Harvey would                        risking arrest.
+         hesitate when he realized the danger.
+
+
+84
+                                     chapter 5: game system
+
+  T If you are searching a room, it may mean turning             Foreshadowing Failure
+       it over and risking breaking things, or spending           So haunting were these formulae, and so frequently did he
+       too long there when you know the bad guys might             come upon them, that before the doctor knew it he was
+       return at any moment.                                                  repeating them under his breath.
+  T If you are trying to read someone with Psychology,                   —H. P. Lovecraft, The Case Of Charles Dexter Ward
+       it may mean studying a person that little bit too
+                                                                 Before rolling the dice for a pushed roll, the consequence of
+       closely, or asking some very prying questions.
+                                                                 failure may be foreshadowed by the Keeper. To foreshadow,
+  T If you are picking a lock, it may mean using a little        the Keeper says, “If you fail…” followed by as much detail
+       too much force. Something may break, but what will        as he or she desires. The Keeper should highlight things
+       it be? The lock or your lock picks?                       that would be apparent to the investigator (though perhaps
+                                                                 unconsidered by the player). Things that the investigator
+  T If it involves Cthulhu Mythos, you may risk staring          would not be aware of might only be hinted at (at the
+       into the abyss of dark knowledge for so long that
+                                                                 Keeper’s discretion). Players are welcome to offer their own
+       something looks back at you.
+                                                                 suggestions for consequences, especially when they come up
+  T If you are climbing a wall, it may mean continuing           with scarier ones!
+       even though it feels completely unsafe.                   There are two reasons why the Keeper should foreshadow
+  T If you are reading a tome, it may mean obsessing             the consequence:
+       over every page, reading and rereading obsessively          i The player requests foreshadowing to clarify the
+       until you can correlate the contents.                           dangers (as the investigator would be aware of
+                                                                       them), so that they can gauge the risk.
+    It is important to note that a pushed roll is not simply a
+re-roll; time always passes between rolls—it may be seconds        i The Keeper chooses to foreshadow to highlight the
+or hours.                                                              danger or to increase the drama of the situation.
+    When making a pushed roll, the goal must still be
+                                                                    It is imperative that the Keeper focuses on an interesting
+achievable. The skill and difficulty level normally remain
+                                                                 consequence, rather than flat failure.
+unchanged, but may be modified if the situation changes.
+                                                                    More advice on foreshadowing is offered in Chapter 10:
+    Only skill and characteristic rolls can be pushed, not
+                                                                 Playing the Game.
+Luck, Sanity, or combat rolls, or rolls to determine an
+amount of damage or Sanity loss.
+
+
+    Harvey is fleeing from pursuing cultists. His player
+    declares that Harvey is trying to hide behind a mar-
+    ket stall positioned in the main street. The Keeper
+    determines that this requires a Stealth roll at Regular
+    difficulty. Harvey’s player rolls high and fails the roll.
+    The Keeper describes the stall as being little more
+    than a few boxes on the pavement, with nowhere
+    to hide behind. Believing it’s only a matter of time
+    before he is caught, Harvey decides to try to hide in
+    plain sight, among the passing crowds, hoping that
+    the cultists won’t see him in the throng of people.
+    The Keeper approves this for a pushed roll. Harvey is
+    taking a bigger risk—he’s effectively making himself
+    easier to spot, and so will have no chance of escape if
+    the pushed roll is failed.
+         Harvey’s player makes a second Stealth roll, this
+    time succeeding! Harvey’s quick thinking means that
+    he melts away into the crowd. The cultists have lost
+    him this time!
+
+
+
+                                                                                   "Run! Run for your life!"
+
+
+                                                                                                                                 85
+                                                   Call of Cthulhu
+
+
+         Using the previous example, Harvey’s player has de-
+         clared she would like to try to push the failed Stealth
+         roll and described what Harvey is doing to justify this.
+         The player then asks the Keeper for the likely conse-
+         quence if the pushed roll is failed. The Keeper thinks
+         for a moment and says, “Well, as Harvey is trying to
+         mingle with the crowd of people in the street—if the
+         pushed roll is failed he could well find himself bump-
+         ing into one of the pursuing cultists and be caught.”
+
+
+     Pushed Roll: Success
+     The player’s goal is achieved as it would have been for the
+     original roll. None of the consequences of failure happen.
+
+     Pushed Roll: Failure
+     Failing a pushed roll grants the Keeper free rein over the
+     outcome, including damage, Sanity checks, loss of equipment,
+     isolation from the rest of the investigators, capture, and so
+     on. The Keeper can even incorporate the player’s goal being
+     achieved (even though the player failed the pushed roll), but
+     at some form of cost.
+         When a player fails a pushed roll, he or she is giving the
+     Keeper license to make the investigators’ lives more difficult.                   Between a rock and a hard place!
+     A consequence should steer the game towards the theme
+     of horror, taking the investigators one step nearer to their          i The investigator is taken captive rather than killed.
+     doom. A player gets to push a skill roll and, if he or she fails,
+     the Keeper gets to push the horror back in that player’s face.        i A deal: rather than killing the investigator, the ene-
+                                                                               my offers a pact or deal.
+
+          In the previous example, instead of succeeding in the
+                                                                           i Fainting: it is perfectly Lovecraftian for a character
+                                                                               to faint, only to awaken later to find themselves
+         pushed Stealth roll let's say Harvey failed it. The Keeper            unharmed and the situation changed.
+         now has license to make matters far worse for Harvey.
+             “As Harvey tries to blend into the crowd, he finds
+         himself jostled as he goes against the flow of people. He           Harvey is fleeing through underground tunnels, pur-
+         is pushed against a market stall, knocking it and himself           sued by ghouls. He sees an abyss before him. Perhaps
+         over (Harvey takes 1 point of damage). As Harvey falls              he can leap across to the other side. He fails his Jump
+         to the pavement, fruit falling on his head, the sudden              roll. There is really nothing he can do to push this
+         noise of his cry makes the crowd part around him.                   roll. The Keeper could simply describe Harvey falling
+         He looks up to see everyone staring at him, including               to his death, which would end the game for Harvey’s
+         the cultists who were in pursuit. They quickly shout                player. Alternatively, the Keeper could describe how
+         out, “He’s our friend!” as they come forward and grab               Harvey falls and lands in an underground river, later
+         Harvey. The crowd of people seem satisfied, and no one              to be washed up, injured and lost at an unknown
+         notices the dagger that one the cultists is now holding             location, his flashlight and equipment lost. The first
+         to Harvey’s ribs as they manhandle him into an alley.               outcome will bring the game to a sudden end and,
+                                                                             while this may be acceptable, the second allows for
+                                                                             the game to continue.
+     Failed Dice Rolls and Sudden Endings
+     Where possible try to avoid an outcome that will end the            More Than One Player Rolling Dice
+     game (unless you wish to, of course). Try to be creative and        for a Skill Roll?
+     describe an outcome that allows for play to proceed, but not        In some circumstances two or more characters may work
+     in the way the players intended. Rather than sudden death,          together towards the same goal. The decision of how many
+     consider other options such as:                                     investigators may be involved in a particular situation is up
+                                                                         to the Keeper.
+       i A setback: a loss of equipment or the death of an ally.
+
+86
+chapter 5: game system
+
+
+
+
+                         87
+                                                   Call of Cthulhu
+
+                                                                       Physical Human Limits
+        Examples include:
+       i Researching a single book: one person at a time may
+           read the book.                                              The investigators are only human, and there are limits to
+                                                                       what they can achieve physically. As has already been stated,
+       i Picking a lock: one person may attempt to pick the            the difficulty level of a roll is Extreme when opposed by a
+            lock, rolling their Locksmith skill.
+                                                                       characteristic of 90 or above. The upper limit of what can be
+       i Delivering First Aid: two people may assist each              faced with an Extreme success is 100 + the investigator’s skill
+            other, both rolling their First Aid skill. A success is    or characteristic. Anything beyond this is impossible for
+            granted if either of them succeeds.                        that character, and no dice roll is allowed. Thus no human
+                                                                       can win a test of STR versus a large monster such as a Dark
+       i Carrying a body: the Keeper should use the SIZ                Young (STR 220).
+            characteristic of the body to set the difficulty level.
+                                                                           The only way to exceed human limits is for multiple
+            Up to four people, each taking one limb, could assist
+                                                                       investigators to combine their efforts. One or more
+            one another in carrying a body, in which case a roll
+                                                                       investigators’ characteristics are deducted from the
+            would only be required if the body were exception-
+                                                                       opponent’s characteristic to reduce it to a level against which
+            ally heavy (see Physical Human Limits for guidance
+                                                                       other investigators may make a skill roll. To do this, starting
+            on combining physical characteristics).
+
+       i Library Use in a public library: all investigators in             Cecil’s fellow investigator, Rodger, is trapped beneath
+            the library may conduct research and attempt a skill           a fallen rafter. The Keeper rules that the rafter has
+            roll. Only one successful roll is required.                    a SIZ of 150. Cecil’s STR is only 40, which is more
+       i Spotting a clue: everyone who is in the right position            than 100 below the rafter’s SIZ, making it impossible
+            to view whatever is in question may roll Spot Hid-             for him to lift it on his own, according to the rule on
+            den. Only one successful roll is required.                     physical human limits.
+                                                                                 Luckily, Martin (STR 45) is there to help. Cecil’s
+       i Determining if someone is withholding information:                STR is lowest, so it is subtracted first from the rafter’s
+            everyone who is able to observe the subject may roll           SIZ, leaving the rafter’s SIZ at 110 (150–40). This
+            Psychology. Only one successful roll is required.              is over 90, but less than 100 points above Martin’s
+                                                                           STR, so he can attempt a skill roll to move the rafter,
+       i Sneaking past a guard: Everyone needs to roll their               requiring an Extreme success. Martin fails this roll.
+            Stealth skill; if one person fails, the guard will be
+            alerted to their presence.                                           Cecil has STR 40; the most he can attempt to lift
+                                                                           is SIZ 140.
+         The examples above are intended only as guidelines. For                 Martin has STR 45; the most he can attempt to
+     tasks in which the number of participants is limited, further         lift is SIZ 145.
+     attempts may be made by other investigators, but such                       At that moment the rest of the group arrive. There
+     attempts will take additional time.                                   are now five investigators attempting to lift the rafter:
+         It may not be apparent in some situations whether                 Cecil (STR 40), Harvey (STR 20), Martin (STR 45),
+     another skill roll should be allowed or if a player is required       Helen (STR 60) and Belinda (STR 75).
+     to push a skill roll; the Keeper must decide. In general, when              Harvey has STR 20; the most he can attempt to
+     an investigator is attempting the same goal a second time,            lift is SIZ 120.
+     this requires a pushed roll.                                                Helen has STR 60; the most she can attempt to
+                                                                           lift is SIZ 160.
+         The Keeper allows two investigators to administer First                 Belinda has STR 75; the most she can attempt to
+         Aid to a fallen comrade. Each player rolls dice; if both          lift is SIZ 175.
+         fail the skill roll, they may either continue with their                Subtracting Harvey’s STR from the rafter leaves
+         efforts (pushing the roll) or they can move aside and             SIZ 130; deducting Cecil’s STR then leaves SIZ 90;
+         allow other investigators to attempt it (up to two at a           finally, subtracting Martin’s STR leaves SIZ 45. This
+         time). Each attempt to administer first aid takes time,           has reduced the difficulty level to Regular. The Keeper
+         and this may be crucial if the patient is at death’s door.        rules that they can all lay hands on the rafter and
+              Another example: The players wish to interrogate             attempt the lift, but since one attempt has already
+         a cultist, and decide to use the classic good cop, bad            been made, that this will constitute a pushed skill roll.
+         cop routine. One player uses Intimidate and another               Neither Helen’s nor Belinda’s STRs have been factored
+         uses Charm. They take it in turns to play their roles,            in yet, so they are both able to attempt the pushed
+         each rolling dice to test if the cultist cracks. Once the         skill roll to lift the rafter. Helen rolls a success, Belinda
+         investigators have each made one dice roll, they must             rolls a failure. One success was all that was needed.
+         either give up, or one of them must push the roll.                Rodger is freed.
+
+
+88
+                                    chapter 5: game system
+
+
+
+
+                                                 "We'll get you out of there, Rodger"
+with the lowest, deduct each investigator’s characteristic
+value in turn from the opposition’s characteristic. Continue
+                                                                    01: A Critical Success
+                                                                    A roll of 01 means that something beneficial occurs beyond
+doing this until the opponent’s characteristic has been
+                                                                    simply achieving the goal. The nature of the good fortune is
+reduced to a value that can be challenged by an investigator.
+                                                                    at the Keeper’s discretion, although the players may make
+Investigators whose characteristics were not used to reduce
+                                                                    suggestions. In combat, for example, a critical success
+the opposing factor may now make a skill roll, with an
+                                                                    means that the attacker has hit a vulnerable spot and causes
+Extreme, Hard, or Regular difficulty level, as determined by
+                                                                    maximum damage.
+the new value of the opposing characteristic.
+    This rule is only generally applicable to physical
+challenges in which characters can use their shared Strength             Brian is attempting to appraise an unusual gold
+or Size to achieve a task. The opposition cannot be reduced              crown, and rolls 01 with his Appraise skill of 35%.
+to zero or lower by this method; a skill roll is always required.        The Keeper tells Brian that not only is he able to
+                                                                         determine an accurate monetary value for the crown
+Fumbles and Criticals                                                    (the normal outcome for a Regular success), he also
+                                                                         identifies that the crown is from the South Seas, pos-
+I have said that Danforth refused to tell me what final horror           sibly one of the fabled items brought back by Captain
+   made him scream out so insanely—a horror which, I feel                Marsh in the 1830s (as a result of the critical success).
+ sadly sure, is mainly responsible for his present breakdown.
+             —H.P. Lovecraft, At The Mountains Of Madness
+Very high or very low dice rolls are unusual, and signify
+                                                                    96—100: Fumble
+                                                                    A fumble simply means that something really bad occurs—
+good or bad fortune for the players.
+                                                                    something worse than a straight failure. The nature of the
+   The impact of Fumbles should take effect immediately
+                                                                    misfortune or bad luck is at the Keeper’s discretion.
+and may not be negated through pushing the roll.
+
+                                                                                                                                     89
+                                                 Call of Cthulhu
+
+         If the dice roll required for success is 50 or over and the        An Idea roll is different to an Intelligence roll, although
+     dice read 100, a fumble has occurred.                              made in the same manner by rolling equal to or below the
+         If the dice roll required for success is below 50 and the      investigator’s Intelligence characteristic. An Idea roll is usually
+     dice read 96—100, a fumble has occurred.                           proposed by the players when their investigators have become
+                                                                        stuck at a point in the investigation; perhaps they have
+                                                                        completely missed a vital clue, or just don’t know what to do
+         Brian encounters a ghoul. Making his Sanity roll               next, and so the game has stalled. The outcome of the Idea roll
+         he rolls 100—a fumble. He automatically takes the              will get the investigation back on track; however, the success
+         maximum Sanity point loss for seeing the ghoul.                or failure of the Idea roll determines whether the missed clue
+              Another example: Harvey has 55% Library Use               has been obtained easily, or at some cost to the investigators
+         skill. If he were searching the library for clues, the         (see Chapter 10 for more advice about Idea rolls).
+         Keeper might ask for a Library Use roll. Given that
+         his skill is 55%, he will only fumble on a roll of 100.        Know Roll
+         If Harvey were furtively searching through a private           All people know bits of information about different topics.
+         library in the dark, with only a candle for light,             The Know roll represents what’s stored in the brain’s
+         the Keeper might set the difficulty level to Hard,             intellectual attic, calculated as the percentage chance that
+         requiring a roll of 27. In this case, Harvey would             the investigator’s education supplied the information. Roll
+         fumble on a roll of 96 to 100.                                 equal to or under a character’s EDU value to determine the
+                                                                        success of a Know roll.
+                                                                            The investigator might know it is dangerous to pour
+     Luck                                                               water into sulfuric acid (without studying Chemistry),
+     Luck rolls may be called for by the Keeper when                    or be able to remember the geography of Tibet (without a
+     circumstances external to any investigator are in question,        Navigate roll), or know how many legs arachnids have (and
+     and also when determining the fickle hand of fate. If a skill      possess only one percentile of Biology).
+     or characteristic is applicable to a situation then it should be       Identification of present-day earthly languages is an
+     used rather than Luck.                                             excellent use for the Know roll. If a specific skill is more
+         If the Keeper calls for a Group Luck roll, the player whose    applicable to the situation, then it should be used rather than
+     investigator has the lowest Luck score (among those present        making a Know roll (at the Keeper’s discretion).
+     in the scene) should make the roll.
+         If something bad is deemed to happen to one member
+     of the group, the Keeper can simply ask who has the lowest
+                                                                        Opposed Skill Rolls:
+     Luck score at that moment and have that individual suffer
+     the unfortunate event.
+                                                                        Player versus Player
+         You will also find an optional rule for spending Luck
+     points to alter dice rolls at the end of this chapter.
+                                                                        and Melee Combat
+                                                                        There may be times, such as when two investigators are
+                                                                        opposing one another, when you wish for both sides to roll
+          Finding a cab doesn’t require a dice roll, but getting        dice to determine a victor. Opposed rolls are the standard for
+         one before the investigators lose sight of the car that        melee combat (see Chapter 6: Combat). Outside of combat,
+         they wish to pursue could. Credit Rating could be a            the Keeper should avoid using opposed rolls between non-
+         factor in attracting the attention of a cabdriver on the       player characters and investigators. However once a Keeper
+         lookout for a well-dressed fare who may tip gener-             is accustomed to these rules, he or she may wish to use an
+         ously. However, quickly getting a ride at two o’clock          opposed roll where they feel it will enhance the drama.
+         in the morning on the undesirable side of town might               To make an opposed roll, both sides declare a mutually
+         not be so easy. Would there even be a cab to hail? No          exclusive goal: one will win, the other will lose. Each side
+         skill is going to make a cab appear at that moment.            selects a skill or a characteristic to use­—not necessarily the
+         It is a matter of chance whether a cab may be driving          same one—both of which must be approved by the Keeper.
+         down that road, hence a Luck roll is required.                     Both sides roll dice to determine a level of success by
+                                                                        comparing their rolls with their chosen skill or characteristic.
+                                                                        The Keeper should be aware that characteristics are usually
+     Intelligence Rolls and Idea Rolls                                  higher than skills, so where one side uses a characteristic the
+     An Intelligence (INT) roll may be called for by the Keeper         other side should be given the choice of whether to use a
+     when an investigator is attempting to solve an intellectual        characteristic or a skill.
+     puzzle of some kind. By rolling equal to or below the                  Opposed skill rolls cannot be pushed.
+     investigator’s Intelligence, the player will receive a solution
+     from the Keeper. This might include solving a crossword
+     puzzle or answering a riddle.
+90
+                                     chapter 5: game system
+
+                                                                         In most cases, the Keeper would boost or penalize a
+    Harvey gets drawn into a game of chess with Edgar,               roll with a single "bonus die" or "penalty die," but where
+    another investigator. There is nothing riding on the             conditions are highly advantageous or dire, a second bonus
+    outcome of the game, but the players still want to know          die or penalty die could be applied.
+    who wins. Both sides have the goal ‘to win’. These goals             One bonus die and one penalty die cancel each other out.
+    are mutually exclusive; if one wins the other must lose.
+    The situation is also irreversible; if Edgar wins, there         For each bonus die:
+    is nothing Harvey can do to change that (thus the roll           Roll an additional "tens"
+    cannot be pushed). Neither has ‘play chess’ as a skill, so       percentage die alongside
+    both agree to use INT. Both players roll a Regular suc-          the usual pair of percentage
+    cess. Edgar has the higher INT, and so wins the game.            dice when making a skill
+                                                                     roll. You are now rolling
+                                                                     three separate dice: one
+A skill roll can yield one of six results:                           "units" die and two "tens"
+Fumble: the roll is 100. If the roll required for success is less    dice. If you have a bonus
+than 50, a roll of 96 or over is a fumble.                           die, you should use the
+                                                                     "tens" die that yields the
+Failure: the roll is above the character’s skill or characteristic   better (lower) result.
+(but not a fumble).                                                                                     Figure 1: Bonus Dice
+
+Regular success: the roll is equal to or below the character’s
+                                                                         Two rival investigators, Malcolm and Hugh, are vying
+skill or characteristic.
+                                                                         for the affection of Lady Greene. Only one can gain
+                                                                         her hand in marriage, thus the Keeper determines that
+Hard success: the roll is equal to or below a half of the char-
+                                                                         an opposed roll is needed to determine the outcome of
+acter’s skill or characteristic.
+                                                                         their wooing. It is decided that each should make an
+                                                                         opposed Charm roll. The Keeper reviews the events of
+Extreme success: the roll is equal to or below a fifth of the
+                                                                         the scenario so far: Malcolm has visited Lady Greene
+character’s skill or characteristic.
+                                                                         twice, each time lavishing expensive gifts upon her,
+Critical success: a roll of 01.                                          while Hugh has only visited once and brought no gifts
+                                                                         at all. The Keeper states that Malcolm has an advan-
+Comparing Results:                                                       tage and will get a bonus die in the opposed roll.
+                                                                             Hugh’s player rolls first against his Charm skill of
+       A Critical success beats an Extreme success.                      55, getting 45—a Regular success.
+        An Extreme success beats a Hard success.                             Malcolm’s player rolls against his Charm skill
+         A Hard success beats a Regular success.                         with one bonus die, rolling one units die and two
+       A Regular success beats a Failure or Fumble.                      tens dice (see fig 1.) The units die reads 4 and can be
+                                                                         paired with either of the two tens dice to give scores
+    In the case of a tie, the side with the higher skill (or             of 44 or 24. Malcolm’s player takes the lower result
+characteristic) wins. If still tied, either an impasse has been          24—a Hard success.
+reached or both sides should re-roll.                                        Malcolm wins the opposed roll, and his proposal
+                                                                         of marriage to Lady Greene is accepted.
+Bonus Dice and Penalty Dice
+(Primarily for Use with Opposed Dice Rolls)                          For each penalty die:
+Sometimes the prevailing conditions, environment, and                Roll an additional "tens"
+available time can hinder or benefit a skill or characteristic       percentage die alongside
+roll. Certain conditions mean that the Keeper may grant a            the usual pair of percentage
+bonus die or a penalty die to a roll.                                dice. You are now rolling 3
+    Bonus dice and penalty dice are not trifling small additions     separate dice: one "units"
+or subtractions of a few percentage points, and so should            die and two "tens" dice. For
+not be used without good cause. If a factor is so small that it      a penalty, use the "tens"
+would only modify a roll by a few percentage points then don’t       die that yields the worse
+bother with it. Driving in light rain should not inflict a penalty   (highest) result.
+die, but racing against another driver in heavy torrential rain
+(opposed Drive roll)—now there’s your penalty!
+                                                                                                       Figure 2: Penalty Dice
+                                                                                                                                    91
+                                              Call of Cthulhu
+
+                                                                 Difficulty Levels vs. Bonus/Penalty Dice
+                                                                 In the majority of cases, only one person, usually the player,
+                                                                 makes a skill roll. Any factors that provide an advantage or
+                                                                 disadvantage for the investigator should be factored into the
+                                                                 difficulty level set by the Keeper. Bonus dice and penalty dice
+                                                                 may be awarded in conjunction with difficulty levels, at the
+                                                                 Keeper’s discretion, but doing so should be the exception
+                                                                 rather than the rule.
+                                                                     In the case of an opposed roll (wherein both sides are
+                                                                 rolling in opposition to one another, as in melee combat)
+                                                                 difficulty levels are never set. The level of success achieved
+                                                                 by one side is, in effect, the level of difficulty that the other
+                                                                 side must compete against. If there are factors that provide a
+                                                                 distinct advantage or disadvantage for one of the characters
+                                                                 involved, the Keeper should grant a bonus die or a penalty
+                                                                 die to that player.
+                                                                 Skill rolls: Set level of difficulty.
+
+                                                                 Opposed rolls: Award penalty dice or bonus dice.
+
+
+
+                                                                       An evil cultist is attempting to push a door open
+                                                                      as Harvey pushes it closed from the other side. This
+         "Sorry Harrison, I don't intend to die today."               calls for a STR or SIZ roll. The Keeper lacks statistics
+                                                                      for the cultist and must set an appropriate difficulty
+                                                                      level. He decides that the cultist’s STR and SIZ would
+                                                                      both be between 50 and 89, requiring Harvey to
+      In a dire turn of events, two investigators, Felix and          make a roll of Hard difficulty level to push the door
+     Harrison, have been captured by the insane cultists              closed. The Keeper allows Harvey to choose whether
+     of the Scarlet Smile. The cultists decide to have some           to use his STR or his SIZ (he uses his SIZ of course, it
+     fun at the investigators’ expense, decreeing that both           is much higher). If he fails, he might be able to push
+     must undertake the Ordeal of Pain, from which only               the roll by throwing himself recklessly against the
+     one can survive; the loser will be sacrificed to the             door, but only at the risk of taking physical damage
+     cultists’ foul god.                                              should he fail.
+          The Ordeal of Pain involves lifting up a huge rock               If the cultist is a key non-player character (with
+     and holding it aloft. Whoever holds the rock up the              STR 80 and SIZ 65), the Keeper may feel that it would
+     longest will win. This requires an opposed Strength              be more fun to have both sides make an opposed
+     roll from each of the investigators. The Keeper rules            roll. Harvey rolls 57 against his SIZ of 80, giving
+     that Harrison must take a penalty die, as he recently            him a Regular success. The Keeper rolls 15, which is
+     suffered a major wound (he received an injury when               an Extreme success for the cultist’s STR. Harvey is
+     he was captured by the cultists) and is still recovering.        knocked back, with no chance of pushing the roll.
+          Felix’s player rolls 51 against STR 65—a Regular
+     success.
+          Harrison’s STR is 55. His player rolls 20 and 40
+     on two tens dice and 1 on the units die (see fig 2.),       Combined Skill Rolls
+     which can be combined to read 21 or 41. The extra           Some situations allow or demand the use of more than
+     die was a penalty die so Harrison must take the             one skill. Only one dice roll is made, and the result then
+     higher result—a Regular success.                            compared with each of the skills named. The Keeper will
+          Both players have achieved a Regular success,          specify whether a success is required for both skills (i.e. the
+     and so Felix wins because he has the higher STR.            roll is a success when measured against each of the skills) or
+          Felix is able to hold the rock above his head for      if only one of the skills need be successful.
+     longer than Harrison. The cultists jeer and lead                Note the importance of using a single dice roll in
+     Harrison off towards their altar.                           the latter example. Harvey has only 10% skill in both
+                                                                 Mechanical Repair and Electrical Repair. The chance of
+                                                                 success when making one dice roll and comparing it to both
+
+92
+                                   chapter 5: game system
+
+                                                                 (whichever is higher). Thus, if the opposing skill is 50% or
+                                                                 higher, a Hard success is required (a roll equal to or below
+                                                                 half skill). If the opposing skill is 90% or higher, an Extreme
+                                                                 success is required (a roll equal to or below one-fifth of skill).
+                                                                 For the vast majority of non-player characters, these skills
+                                                                 will be below 50%, and so the difficulty level will be Regular
+                                                                 and the player only needs a regular success.
+                                                                   i If the non-player character is positively inclined
+                                                                        towards the player’s goal, don’t bother rolling dice,
+                                                                        but simply have them agree.
+
+                                                                   i If the non-player character lacks strong feelings
+                                                                        towards the player’s goal then no modification to the
+                                                                        difficulty level is required.
+
+                                                                   i If the non-player character is strongly opposed to
+                                                                        the player’s goal, the difficulty is raised by one or two
+                                                                        levels.
+
+                                                                   i If the player comes up with something to support
+                                                                        their case, such as a substantive argument (if using
+                                                                        Persuade), or is holding a weapon and is clearly will-
+                                                                        ing to use it (in the case of Intimidate), the Keeper
+                                                                        should lower the difficulty by one level.
+                                                                     The lowest chance of success requires an Extreme success
+                        "I'm coming in!"                         (equal to or below one-fifth of the skill), but in some rare
+skills simultaneously is 10%. If two separate rolls were made,   circumstances the Keeper may rule that there is no chance
+first against Mechanical Repair and then against Electrical      of success and that no roll is allowed.
+Repair, the chance of succeeding in both would be 1%.
+     The Keeper must decide whether a situation calls for
+sequential skill rolls or a combined skill roll.
+                                                                      Brian’s investigator is trying to intimidate a cultist
+                                                                      into revealing the name of the cult’s contact in the
+    A deranged cultist suddenly moves to draw a gun on                police force. The cultist is a doctor by profession, and
+    Harvey. A successful Spot Hidden roll would allow                 the Keeper decides that the doctor’s Intimidation
+    Harvey to see the cultist’s hand moving towards the               and Psychology skills are below 50%. The difficulty
+    gun, while a successful Psychology would allow him                level therefore begins as Regular. Of course the cultist
+    to anticipate the action through the cultist’s demean-            strongly desires not to reveal his contact, and so the
+    or. The Keeper asks for a combined Spot Hidden and                Keeper increases the difficulty level by two steps to
+    Psychology roll for Harvey. A success on either skill             Extreme.
+    will allow Harvey to anticipate the attacker’s action,                 Brian fails the skill roll. Brian seeks to push the
+    and perhaps give Harvey a chance to act first.                    roll by threatening violence. He pulls out a crowbar,
+        Later, Harvey attempts to repair an electric                  swings it near the doctor’s head and then looks
+    turbine. The item is both mechanical and electrical,              the doctor straight in the eye to make sure that he
+    so the Keeper asks for a combined Mechanical Repair               understands the implied threat. The Keeper lowers
+    and Electrical Repair roll. One roll is made and the              the difficulty level to Hard. Brian fails the pushed
+    result is compared to both skills—in this case both               roll, and the Keeper tells how Brian gets carried
+    must be successful to achieve the task.                           away and, in his frustration, hits the doctor’s head
+                                                                      with the crowbar, causing a nasty injury. Brian did
+                                                                      not intend this—it was the consequence of failing the
+Charm, Fast Talk, Intimidate, and                                     pushed roll. Things don’t always go as intended! If
+Persuade Skills: Difficulty Levels                                    the player had succeeded in the Intimidation roll, the
+                                                                      Keeper would be compelled to give up the name of
+An investigator may have a Charm skill of 75%, but this does
+                                                                      the contact (as it was the player’s goal), but as the roll
+not mean that he or she can charm anyone and everyone
+                                                                      was failed, it is now entirely up to the Keeper whether
+75% of the time. The difficulty level is based on the opposing
+                                                                      the doctor is forthcoming, regardless of any further
+factor; in this case the matching social skill (either Charm,
+                                                                      action the investigators may take against him.
+Fast Talk, Intimidate, or Persuade) or Psychology skill
+
+                                                                                                                                      93
+                                                    Call of Cthulhu
+
+
+
+
+                                                  "I'm beginning to lose my patience with you"
+
+     Rewards of Experience:
+                                                                                If the player rolls higher than the current skill number,
+                                                                            or the result is over 95, then the investigator improves in that
+
+     The Investigator
+                                                                            skill: roll 1D10 and immediately add the result to the current
+                                                                            skill points. Skills may rise above 100% by this method.
+
+     Development Phase
+                                                                                If the player rolls equal to or less than the investigator’s
+                                                                            skill level, then the investigator hasn’t learned from the
+                                                                            experience and the skill amount does not change.
+     When an investigator successfully uses a skill in play, the player
+                                                                                Repeat the procedure for all the skills that been checked,
+     should check the box beside that skill on the investigator sheet.
+                                                                            then erase all skill checks on the investigator sheet. Skills can
+     This gives the investigator a chance to learn from experience.
+                                                                            be checked again during the next game session as they are
+     No tick is earned if the roll used a bonus die. In the case of an
+                                                                            used successfully.
+     opposed roll, both sides may achieve a level of success, but only
+                                                                                Note: The Cthulhu Mythos and Credit Rating skills
+     one will win, and only the winner may tick their skill.
+                                                                            never receive a skill check, and no box for such a check exists
+         Typically the investigator development phase occurs at
+                                                                            on the investigator sheet. Not improving a skill has no other
+     the end of a scenario, or if playing through a campaign, at
+                                                                            consequence.
+     the conclusion of a chapter. This may be after one session of
+     play or several sessions. If a story continues beyond that, the
+     Keeper should look for a pause in the narrative to allow for               A game has finished after a couple of sessions of play,
+     an investigator development phase.                                         and Harvey has checks against several skills. Harvey’s
+         Once an investigator development phase has been called,                player rolls against his Stealth skill of 20%. She rolls
+     examine the investigator sheet to see which skills have been               08, and so Harvey does not improve in this ability. She
+     checked as successes. No matter how many times a skill is                  then rolls Library Use (55%) for a result of 68—Har-
+     used successfully in play, only one check per skill can be                 vey’s skill has improved. 1D10 is rolled, giving a result
+     made to see if the investigator improves.                                  of 3. Harvey’s Library Use rises to 58%.
+         For each skill check the player rolls 1D100.
+         Succeeding at something you are not good at is difficult;
+     however, successfully using the skill probably means that the
+     investigator learns from the experience. Conversely, being
+                                                                            Skills of 90% or More
+                                                                            When an investigator attains 90% or more ability in a skill
+     expert at something guarantees success most of the time,
+                                                                            during an investigator development phase, add 2D6 points
+     yet that high skill means the investigator is unlikely to learn
+                                                                            to their current Sanity. This reward represents the discipline
+     further. It gets progressively harder to add percentiles to a skill.
+                                                                            and self-esteem gained in mastering a skill.
+94
+                                    chapter 5: game system
+
+                                                                 Day-to-Day Expenses
+    Cecil has a Sword skill of 85%. Having success-              and General Living Standards
+    fully employed the skill in play, a check is made for        There is no requirement to make any account of accommodation,
+    improvement in the skill during the investigator de-         food, or incidental travel expenses, so long as an investigator’s
+    velopment phase. Cecil’s player rolls 97, and so rolls       expenditure falls within the bounds of his or her living standard
+    1D10, adding 8 points to the skill. Cecil is now a true      (see Credit Rating, page 61). In addition, a character can spend
+    expert swordsman and gains 2D6 Sanity points.                up to his or her Spending Level on any given day.
+                                                                     It is likely that money will only occasionally become an
+                                                                 issue in play, when large amounts are being spent. This may
+Other Activities During the                                      include preparing for a major trip, purchasing expensive
+Investigator Development Phase                                   items such as a vehicle or rare book, or hiring extra staff.
+During the investigator development phase, the player also           The combination of being allowed to spend freely within
+has the opportunity to:                                          the bounds of their living standard and the freedom of
+  T Gain Sanity points through their investigator spend-         not being required to record expenditure below a certain
+       ing time with an aspect from their own backstory          spending level is intended to minimize bookkeeping. The
+       (see Self-help, page 167).                                use of this system may to lead to areas of uncertainty as to
+  T Check their Credit Rating and review their finances          exactly what is within the bounds of an individual’s living
+       (see Investigator Development Phase: Employ-              standard and whether an investigator has exceeded their
+       ment and Credit Rating, page 96).                         spending level. As always, the Keeper is the arbiter of such
+                                                                 matters and is advised to intervene only when an investigator
+  T Reduce all sanity limits by one (see Getting used to         has clearly exceeded their spending level.
+       the Awfulness, page 169).
+
+                                                                     Harvey begins the game with a Credit Rating of 41
+Altering an Investigator’s Backstory                                 (Average). This affords him an average living stan-
+A player is free to alter or add background entries on their
+                                                                     dard; he may stay in moderately priced hotels, eat
+investigator sheet as and when they please, subject to certain
+                                                                     out (economically) and take the occasional taxi. In
+limitations. The player may not erase or alter entries listed
+                                                                     addition, he may spend up to $10 per day. None of
+under Injuries and Scars, Phobias and Manias, Encounters
+                                                                     this requires any bookkeeping on the player’s part.
+with Strange Entities, or anything that has been amended or
+                                                                         Harvey spends a couple of sessions of play carrying
+added by the Keeper without the Keeper’s permission.
+                                                                     out investigations in Boston, travelling around by bus
+    Phobias and manias may only be erased through the use
+                                                                     and taxi, visiting libraries, interviewing people, and
+of treatment (see Psychotherapy, page 167).
+                                                                     all the usual things a Call of Cthulhu investigator
+    The investigator’s key connection (see page 45) may be
+                                                                     might get up to. This is all within his living standard
+altered only during the investigator development phase, and
+                                                                     and spending limit. No bookkeeping is required.
+only by the player. Guidance on using, losing, and replacing a
+key connection can be found under Self-help (see page 167).
+
+                                                                 Spending Beyond
+Credit Rating and                                                One’s Spending Limit
+Investigator Expenditure                                         When an investigator spends an amount beyond their
+                                                                 spending limit, the player must reduce their cash by the full
+Attempting to track personal finances in a manner similar        amount spent. If cash is insufficient, the investigator may
+to real life within the game would introduce unnecessary         seek to use their assets. Converting assets into cash can take
+complexity. However, using a slightly abstracted method,         time; how long is up to the Keeper. Mortgaging a property,
+a gauge of an investigator’s living standard and spending        selling antiques, gaining loans, and so on all take time. If the
+power becomes possible.                                          investigator is away from their hometown, this is likely to
+    An investigator’s starting Credit Rating (CR) is             take even longer.
+determined during character creation, based upon the                 If multiple purchases of less than the investigator’s
+investigator’s chosen profession (see Sample Occupations         spending threshold are made on the same day, the Keeper
+pages 40-41).                                                    may insist on combining the total purchases for comparison
+                                                                 with the investigator’s spending level, and demand that a
+                                                                 cash spend is deducted if the spending limit is exceeded.
+
+
+
+
+                                                                                                                                     95
+                                                  Call of Cthulhu
+
+
+         Harvey wants to buy a 12-gauge shotgun, costing
+         $40. This being above his $10 spending limit, he
+         reduces his cash by $40 (from $82 to $42).
+             Later, Harvey wishes to take a trip to England,
+         choosing to travel by sea, first class, costing $120.
+         This is beyond Harvey’s available cash. Harvey has
+         $1665 tied up in assets, and seeks to realize some
+         of that capital by getting a loan from the bank. The
+         Keeper agrees to this and decides that it might take a
+         week to get the money. Harvey transfers $245 from
+         his assets to his cash. From the $245, he spends $120
+         on the ticket, leaving $125, which he adds to his
+         remaining cash of $42. His cash is now $167, and his
+         assets $1400. When he gets to England, his finances
+         will function just as they did back home (average
+         living standards and a $10 per day spending limit).
+
+
+
+
+                   S p e n d in g
+                 M o n e y in C a ll
+                  o f C th u lh u                                                    Harvey has gone on a shopping spree.
+
+                                         rs travel                       Going into Debt
+                 If your characte                                        How debt is taken on and repaid is all part of your story.
+                              wi  th   a  lower
+                 to a place
+                        of liv ing  th en   they                         Perhaps the investigator’s car must be sold, or money must
+                 cost
+                                          mo  ney                        be sought from a loan shark. While financial transactions
+                 should find their
+                              .  Fo r  ex  am ple, if                    are not intended to be the focus of play, the steady decline of
+                 buys more
+                                         to rural
+                 Harvey journeyed                                        a character’s Sanity may well go hand-in-hand with physical
+                                        fin d he
+                  India, he would                                        and material decline.
+                                 ly  ric h  an d that
+                  was relative
+                                           fo rd a
+                  he was   ab le   to  af
+                                            e his                        Investigator Development Phase:
+                  living standard abov                                   Employment and Credit Rating
+                  usual one.                                             Ill-health (physical or mental) or continued absence from
+                                                                         work may lead to loss of employment and a fall in income.
+                                                                         Some professions do not require the investigator to be
+         Harvey has a spending limit of $10 per day. One                 actively employed to derive an income (such as Dilettante),
+         day he makes numerous spends; a camera, a short                 and so are not prone to loss of employment. However a stock
+         international telegram, and taking a contact out to             market crash will have a major effect on such an individual’s
+         dinner at a plush restaurant. He then wishes to at-             finances, and events should be dealt with at the Keeper’s
+         tend a show at the music hall. At this point the Keeper         discretion (perhaps using Luck rolls). Conversely, Credit
+         decides that Harvey has spent $15 (exceeding his $10            Rating might be raised when an investigator acquires a
+         spending limit). Harvey reduces his cash by $15.                higher-paying job.
+                                                                             A person can be rich one day and on the street the next,
+                                                                         but a gradual decline is more common. If an investigator
+     Money Coming In                                                     loses their employment, they lose their income, and their
+     During the game a character may receive a large sum of              Credit Rating will fall. A loss of assets does not necessarily
+     money, perhaps as a reward. Such a sum can be added to cash         indicate a loss of Credit Rating if one still has a reliable
+     in the short term or be invested in time as part of their assets.   income.
+                                                                             Where an investigator’s financial situation has undergone
+                                                                         a significant change, the Keeper should decide on one of the
+                                                                         following options. The following list of conditions ranges
+                                                                         from good to bad, and should generally be applied during
+                                                                         the investigator development phase.
+
+96
+                                     chapter 5: game system
+
+I’m rich! When an investigator comes into money, they               if sufficient, also alter their Credit Rating score. The Keeper
+should check to see if their assets are equal to those of a         should use the advice above to change the Credit Rating
+higher living standard bracket. If this is the case, the player     and Asset Value of each investigator in a way that feels
+should increase their investigator’s Credit Rating in steps of      appropriate to events in the story. Continuing with the status
+1D10 until their Credit Rating is within the new bracket.           quo is of course the default, and Keepers should only seek to
+                                                                    make changes when they are warranted.
+
+    If Harvey (starting in the ‘average income’ bracket)
+                                                                        At the end of the adventure in England, Harvey re-
+    came into money such that his assets increased to
+                                                                        turns to Boston. His finances have been depleted by
+    $30,000, this would bring him within the ‘wealthy’
+                                                                        the trip but he has a great story to publish. Harvey has
+    bracket for the 1920s ($25,000–$44,500). His Credit
+                                                                        $80 cash and only $50 in assets remaining. The Keeper
+    Rating was previously 41 (average). His player rolls a
+                                                                        agrees that Harvey still has his job and, while he had
+    1D10—resulting in a 4—and 4 is added to Harvey’s
+                                                                        to sell his house and move into rented accommoda-
+    Credit Rating, raising it to 45. Another two rolls are
+                                                                        tion, he may remain in the Average income bracket.
+    made, a 3 raises his Credit Rating to 48, then a 9
+                                                                        The Keeper feels this best fits ‘Sold the family silver’
+    raises it to 57. Credit Rating 57 is within the ‘wealthy’
+                                                                        (his combined wealth is now a little more than that of
+    income bracket, so no more rolls are added.
+                                                                        ‘Poor’), and so insists on a decrease in Credit Rating
+                                                                        of 1D10. Harvey’s player rolls 7, so Harvey’s Credit
+Things are looking up: if the investigator has been promot-             Rating drops from 41 to 34. Referring to the Cash and
+ed, their Credit Rating should rise accordingly (add 1D6                Assets chart, a Credit Rating of 34 gets $68 cash, so this
+                                                                        is added to his remaining money, giving Harvey a total
+Credit Rating).
+                                                                        of $148 in cash. Harvey’s assets remain at $50.
+Life goes on as usual: if nothing much has changed to affect
+the investigator’s income, their Credit Rating will not alter.
+
+Tightening one’s belt: the investigator is demoted or takes
+                                                                    Contacts
+a period of unpaid leave. Decrease Credit Rating by 1D10.           During the game, investigators may wish to make use of
+                                                                    their personal and professional contacts. The Keeper can
+Sold the family silver: the investigator has spent the vast         either simply allow for the existence of a contact or ask for a
+majority of their assets. If the investigator’s total worth (cash   dice roll. Players can make rolls to establish contacts for their
+plus assets) now equals the asset value of a lower income           investigators using whichever skill or characteristic seems
+level, decrease Credit Rating by 1D10.                              most appropriate: Chemistry to know a chemist, Medicine
+                                                                    to know a surgeon, and so on.
+Bad luck and troubles: the investigator loses their main source          A successful roll when establishing a contact means that
+of income, usually their job. Decrease Credit Rating by 2D10        either the non-player character has heard of the investigator
+with each following investigator development phase. If there is     (by reputation) or that the investigator has previously met
+a state safety net, the minimum Credit Rating will be 1D10-1.       the contact. Apply modifiers to the roll as appropriate.
+                                                                    Location is a big factor—being far from home or in a
+Crash! The sudden loss of all income and/or all debts being         sparsely populated area would increase the difficulty level. If
+called in (such as in a stock market crash) lead to a dramatic      the investigator is on his or her home ground and trying to
+decline in the character's fortunes. The investigator must          contact someone of the same profession, the Keeper should
+reduce his or her Credit Rating by 1D100. If an investigator’s      lower the difficulty level.
+Credit Rating withstands the loss, it indicates that either              Establishing a contact does not automatically mean
+investigator is offered another job immediately or that they        that the contact will do as the investigator wishes; some
+secreted money away somewhere safe (note the lowest Cred-           persuasion, fast talk, charm, or intimidation may be
+it Rating is zero—negative numbers are ignored).                    required, and should be roleplayed.
+    During the investigator development phase, following                 If the player wishes to push the roll to establish a contact,
+the review of Credit Rating, the investigator’s cash should         the Keeper should make the pushed roll out of the player’s
+be refreshed, adding the amount of cash indicated on the            sight (a concealed dice roll), so the player does not know the
+chart for their present Credit Rating to any remaining cash         outcome. A suggested consequence for failing the pushed roll
+they possess. Assets can change in one of two ways. First,          is to allow the investigator to unwittingly meet an antagonistic
+the investigator’s Credit Rating can rise or fall (as a result of   or unreliable contact. Such a contact may appear helpful to the
+a change in employment, for example), in which case their           investigator, but will double-cross or deceive the investigator
+asset value should be recalculated to fit the revised Credit        in some manner. A concealed roll is used in this instance,
+Rating score. Second, an investigator can spend or accrue           since knowledge of the outcome of the dice roll would inform
+a large sum of money that will affect their asset value and,        the player as to the contact’s disposition.
+                                                                                                                                         97
+                                                    Call of Cthulhu
+
+
+         Harvey has traveled to London and wants to go
+                                                                            Aging
+         through the archives of The Times for unpublished                  There are various modifiers applied during investigator
+         evidence linked to his investigation. He is refused ac-            creation to reflect the investigator’s age. In the rare instances
+         cess to The Times’ archives, and so seeks to establish             that an investigator ages significantly in play, modifiers
+         a contact among the local press who might be able                  should be applied to reflect the change in age. This is
+         to vouch for him and gain him access. There is no                  unlikely to be a factor in many games, but may come in to
+         journalism skill, so the Keeper suggests either Pho-               play in a campaign, or when jumping decades and picking
+         tography (Harvey may know a fellow photographer)                   up an investigator’s story later in life. Aging may also occur
+         or Own Language (as the skill most associated with                 suddenly as a result of a spell or magical gate; such aging
+         being a journalist). The Keeper raises the difficultly             may inflict the negative physical effects without the gain in
+         level to Hard, as Harvey is a long way from home.                  education.
+         Harvey has Own Language 84% and half of this or                        The aging effects are cumulative, so if aging two decades
+         less must be rolled to establish a contact. Harvey fails           from thirties to fifties, apply modifiers for turning both forty
+         the roll, and can find no contacts. He persists with               and fifty.
+         trawling every minor publication, and the Keeper
+                                                                            Turning 20: Make an improvement check for EDU. Add 5
+         grants a pushed roll, rolling the dice out of the player’s
+                                                                            points among STR and SIZ.
+         view (concealed roll). The roll is failed again and
+         the Keeper informs the player that Harvey contacts
+                                                                            Turning 40: Make an improvement check for EDU. Deduct
+         Martyn Lace, publisher of The Camden Enquirer,
+                                                                            5 points among STR, CON or DEX, and reduce APP by 5.
+         who claims to know of Harvey’s reputation as a
+                                                                            Reduce MOV by 1.
+         photographer. Lace is curious about Harvey, and will
+         appear helpful while trying to find out about Harvey’s
+                                                                            Turning 50: Make an improvement check for EDU. Deduct
+         investigation for his own gain. Perhaps he will warn
+                                                                            5 points among STR, CON or DEX, and reduce APP by 5.
+         Harvey’s enemies (for a reward) or publish the story
+                                                                            Reduce MOV by 1.
+         himself, thus exposing Harvey’s careful work.
+                                                                            Turning 60: Make an improvement check for EDU. Deduct
+                                                                            10 points among STR, CON or DEX, and reduce APP by 5.
+
+     Training
+                                                                            Reduce MOV by 1.
+
+                                                                            Turning 70: Deduct 20 points among STR, CON or DEX,
+     Given enough money, someone will teach anything. The
+                                                                            and reduce APP by 5. Reduce MOV by 1.
+     existence of training makes game sense only in campaigns,
+     where the same investigators meet regularly to engage in an
+                                                                            Turning 80: Deduct 40 points among STR, CON or DEX,
+     ongoing mystery.
+                                                                            and reduce APP by 5. Reduce MOV by 1.
+         One should not go to school and learn more than 1D10
+     points in a skill per four months of game time without good
+                                                                            Each decade thereafter: Deduct 80 points among STR,
+     reason. The Keeper decides if multiple courses can be taken
+                                                                            CON or DEX. Reduce MOV by 1.
+     and how to judge if the investigator’s class participation is
+     satisfactory. An experience check comes automatically upon
+     successfully completing a segment of training; however too
+     many adventures in a semester will invalidate classroom
+     work or practice for that term.                                            Harvey plays a few 1920s stories, after which the
+         At the Keeper’s option, the learning rate for a skill might be         Keeper wishes to play a scenario set in the 1930s. This
+     increased or the learning interval shortened if the investigator           finds Harvey 10 years older (now aged 52) and so the
+     has access to a renowned teacher. Such access should come as               aging effects are applied. A dice roll of 98 grants Har-
+     a reward for an outstanding deed, or after great perseverance,             vey 1D10 improvement to his EDU, adding 9 points
+     since many compete for the favor of the famous.                            for an EDU of 93. The player then reduces Harvey’s
+         Player and Keeper may arrange self-study of any academic               CON and APP by 5 points each. Harvey is still a hand-
+     subject. The investigator must study for four months, after                some fellow (APP 75). His hit points are decreased by 1
+     which the player rolls as if for a skill check (tick) in that skill        to 14 as a result of his drop in Constitution. His MOV
+     (attempting to roll above their current skill level on 1D100               drops from 6 to 5, he’s not as fast as he used to be, but
+     and gaining 1D10 skill points if successful).                              all in all, Harvey is aging pretty well!
+         Combat skill specialisms, such as Sword, are so little used that
+     schools and personal trainers represent the only way to learn.
+
+
+98
+

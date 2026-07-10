@@ -1,0 +1,424 @@
+
+===== PDF page index 287 (rulebook p.287) =====
+
+===== PDF page index 288 (rulebook p.288) =====
+
+===== PDF page index 289 (rulebook p.289) =====
+278 
+Call of Cthulhu
+his chapter provides a selection of monsters, 
+beasts, and alien beings for use within Call 
+of Cthulhu . The chapter is divided into four 
+sections, each focusing on a specific monster 
+type: Cthulhu Mythos entities, Cthulhu 
+Mythos gods, classic monsters, and beasts. The selection 
+of monsters across the sections is not exhaustive—every 
+horror fan can probably think of some terror not present. 
+The ones here are those found in the most important stories, 
+frequently appear in scenarios, or are commonly referred to. 
+Many more can be found in the Call of Cthulhu supplement 
+Malleus Monstrorum, also from Chaosium.
+About the Entries
+Most monsters and entities have characteristics including 
+STR, CON, SIZ, POW , INT, and DEX. However many do not 
+have an APP or EDU, since these qualities are meaningless 
+in such alien and horrific creatures. Keepers have full reign 
+to alter, modify, and rethink these entries. Lovecraft did not 
+codify the monsters in his stories, so neither should you if 
+you wish to present dramatically different versions.
+These are creatures of nightmare, and individual 
+monsters may vary from one encounter to the next in their 
+characteristics and abilities. The characteristic values given for 
+each monster are those of an average specimen. As Keeper, 
+you have the option to roll an individual monster’s statistics, 
+or choose to create a lesser or greater specimen using the dice 
+ranges as a guide to generating characteristic values.
+Only full characteristic values ( i.e. no halves and fifths) 
+are listed for monsters. Non-player character and monster 
+characteristics are primarily used to set the difficulty level 
+of players’ skill rolls. As Keeper, you may occasionally need 
+to figure out one-half or one-fifth of a particular monster’s 
+characteristic value, but this will be unusual.
+Monster Sizes
+Certain monsters are staggeringly huge when compared to the 
+human scale, just take a look at the diagram below!
+Size Comparison 
+Charts
+The diagrams below illustrate 
+various denizens of the Cthulhu 
+Mythos, providing some idea of 
+the relative size of these  creatures. Note the various 
+unfortunate investigators  splattered about the monsters. 
+Some of these creatures,  notably Cthulhu, are able to 
+alter their mass and size at will; 
+the illustration shows only one 
+version of such images.
+===== PDF page index 290 (rulebook p.290) =====
+279 
+chapter 14: monsters , beasts , and alien gods
+Builds
+Along with the characteristic of SIZ, 
+each monster, character, and vehicle has 
+a build value. This figure provides an at a 
+glance guide to scale. The average human 
+has a Build of 0, with the full range 
+extending from –2 (children and small 
+persons) to 2 (heavyweight boxers for 
+example). The build scale is not linear; 
+combining 5 motorcycles would not 
+create something larger than a truck. 
+When considering what a being can 
+lift or throw, use a standard human as 
+a guide. The average human of Build 0 
+could lift someone of equal build off the 
+floor, perhaps carrying them over their 
+shoulder. Something of 1 build smaller 
+could easily be lifted, and a thing of 2 
+builds smaller could be thrown. With a 
+strain, a human of Build 0 might just lift 
+a person of Build 1. The most a person 
+of Build 0 might do to a person of Build 
+2 is to unbalance them or disarm them.
+Using this as a guide, it becomes 
+simple to figure the relative capability of 
+a monster to lift and throw things—for 
+example, whether a monster is large 
+enough to throw a car.
+Table XV: Comparative Builds
+Build Natural World Mythos Inanimate
+– 2 Child, fruit bat Fire vampire
+– 1 Large dog
+0 Average human  
+adult, wolf
+Servant of Gla'aki
+1 Deep one Light motorcycle
+2 Large human, Lion Byakhee
+3 Black bear, gorilla Formless spawn Heavy motorcycle
+4 Cape buffalo, horse Elder things Economy car
+5 Dark Y oung Standard car
+6 Adult Chthonian Pickup truck
+7 African elephant Dagon 6 ton truck
+9 Shoggoth 18-wheeler truck
+11 Star-spawn of 
+Cthulhu
+22 Blue Whale Great Cthulhu
+65 Dhole Battleship
+
+===== PDF page index 291 (rulebook p.291) =====
+280 
+Call of Cthulhu
+Quick-reference Build comparison:
+i If a target is 2 builds smaller: it can be thrown.
+i If a target is 1 build smaller: it can be lifted with ease.
+i If a target is of equal build: it can be carried for a 
+short time.
+i If a target is 1 build larger: it can barely be lifted.
+i If a target is 2 builds larger: it cannot be lifted, but 
+might be unbalanced or disarmed.
+Playing Monsters  
+Effectively
+Monsters are, for the most part, not mindless animals. Many 
+are of equal or greater intelligence than the investigators, with 
+motivations and concerns beyond the scope of the average 
+human’s understanding. Monsters will not automatically seek 
+combat and, if they do, they will not necessarily seek to kill 
+the investigators. The more intelligent monsters may take the 
+investigators captive, either to use as slaves or sacrifices, or 
+perhaps for experimental purposes. Not every encounter has 
+to be a fight; hiding or fleeing may be the wisest option.
+When involved in combat, consider the monster’s 
+objective. If its aim is to kill the investigator, it should fight back 
+rather than dodge. If it wants to escape from the investigators, 
+it may choose to dodge in order to gain an opportunity to flee. 
+Many Mythos monsters can use spells, casting them as any 
+other spell caster would. In some cases a monster’s spell may 
+be portrayed as a manifestation of that monster’s innate power. 
+Monsters may not have skills listed, though most or 
+all might have a few skills such as Listen, Stealth, or Spot 
+Hidden. Keepers should add skills as required, using 
+comparative beings as a guide.
+Mythos gods and some Mythos monsters are 
+multidimensional, existing in our plane of reality as well as 
+others beyond our reasoning, and thus cannot be truly slain. 
+While hit points are given, should such a creature as an Outer 
+God or Great Old One be somehow reduced to 0 or negative 
+hit points, the thing is not killed or rendered unconscious, 
+but is dispelled or forced back from whence it came. Mere 
+damage will not destroy or even harm these powers. If they 
+are forced or persuaded to leave, they can return.
+Monsters and Investigators—  
+a Comparison
+It is quite possible for the investigators to beat some monsters in 
+combat. Against others, their only chance of survival is generally 
+to flee or hide. Deep ones, byakhee, dimensional shamblers, 
+fire vampires, ghasts, ghouls, servants of Gla'aki, mi-go, 
+moon-beasts, nightgaunts, rat-things, sand-dwellers, serpent 
+people, insects from Shagghai, tcho-tcho, and of course human 
+cultists can all be "taken on" in combat by several investigators 
+with some hope of success. This is the reason that so many 
+scenarios feature cultists, deep ones, mi-go, and ghouls—they 
+make approximately human-scale adversaries. Such Mythos 
+entities can, on first reflection, appear human-like in terms of 
+their vulnerability and relative size; yet beware of humanizing 
+such monsters. As stated, their goals, knowledge, and abilities 
+should be difficult, if not impossible, to fathom. They will act in 
+unexpected ways and the mere sight of them can draw madness 
+down upon the inquisitive investigator. 
+Lovecraft developed unpronounceable 
+names for his monsters to drive home 
+their alien quality.These are not official, 
+but it’s how we say them. 
+Entity   Pronunciation
+Abhoth  AB-hauth
+Atlach-Nacha  AT-lach NACH-ah
+Azathoth  AZ-uh-thoth
+Bast   BAST
+Bokrug   BOE-kruhg
+Byakhee  b’YAHK-ee
+Chaugnar Faugn SHAHG-ner FAHN
+Chthonian kuh-THOEN-ee-un
+Cthugha  kuh-THOOG-hah
+Cthulhu  kuh-THOO-loo
+Cyaegha  sigh-AE-guh
+Dagon  DAE-gaun
+Daoloth   DAE-oe-lauth
+Dhole  DOEL
+Eihort  IGH-hort
+Ghast   GAST
+Ghatanothoa gah-tahn-oe-THOE-ah
+Gla'aki   GLAH-ah-kee
+Gnoph-Keh nauf-KAE
+Hastur  has-TOOR
+Hydra  HIGH-drah
+Hypnos  HIP-noes
+Ithaqua   ITH-uh-kwah
+Lloigor  LOI-goer
+Mi-Go   MEE-goe
+Nodens   NOE-denz
+Nyarlathotep NIGH-ar-LAT-hoe-tep
+Nyogtha  nee-AUG-thah
+Quachil Uttaus  KWAH-chil oo-TAUS
+Rhan-Tegoth ran-TEE-gauth
+Shaggai   shah-GIGH
+Shantak   SHAN-tak
+Shoggoth SHOE-gauth
+Shub-Niggurath shub-NIG-er-ath
+Shudde M’ell  shood-ih-MEL
+Tcho-Tcho   Choe-choe
+Tindalos  TIN-dah-loes
+Tsathoggua   tsah-THAUG-wah
+Tulzscha  TUHLZ-chuh
+Ubbo Sathla  OO-boe SATH-lah
+Xiclotl   ZIGH-klaut’l
+Y’golonac  ee-GOE-laun-ahk
+Yibb-Tstll  yib-TIS-tuhl
+Yig   YIG
+Yog-Sothoth  YOG-sau-thauth
+Yuggoth  YUG-gauth
+Zhar   ZAR
+Chaosium Pronunciations of Mythos Names
+===== PDF page index 292 (rulebook p.292) =====
+281 
+chapter 14: monsters , beasts , and alien gods
+Combat
+By default, every monster (with a few exceptions), has the 
+Fighting skill—a generic combat skill covering all manner 
+of strikes, kicks, claws, teeth, tentacles, elbows, head butts, 
+etc. If the being is able to use melee weapons, the Fighting 
+skill should be used for those as well. Be creative in how 
+you use and portray these attacks. Each entry describes 
+how the monster would normally attack, and key words, 
+such as bite or kick, are provided to give Keepers ideas on 
+how best to describe differing attacks. The environment can 
+also be added to the description of attacks and damage: an 
+investigator could be crushed between an elephant and a 
+tree; a ghoul could crack open an investigator’s head against 
+a gravestone; and so on. 
+While a monster’s standard attack could be used every time, 
+this can become repetitive and dull. Using the damage listed for 
+the monster’s standard Fighting attack frees the Keeper from 
+having to adjust the damage with each variation, allowing the 
+Keeper greater freedom to describe the monster’s attacks in 
+creative and imaginative ways. The Keeper is neither gaining an 
+advantage or disadvantage in varying the monster’s attacks—he 
+or she is making the story more exciting and engaging.
+Monsters and Maneuvers
+Maneuvers (mnvr) use the monster’s Fighting skill. Build is 
+an important factor for maneuvers; if the opponent is 3 Build 
+points above that of an attacker, a maneuver is ineffective. 
+Any monster of Build 2 or greater is never going to have 
+penalty dice when using a maneuver against a human being. 
+The largest opponent a human (maximum Build 2) could 
+take on with a maneuver would be Build 4 (horse, elder 
+thing, etc.)—even then, the largest of humans would attack 
+with 2 penalty dice due to the difference in Build. 
+In combat, monsters can use the same range of maneuvers 
+open to humans. The Keeper should visualize the monster 
+and imagine how it might take advantage of its physical form 
+in combat. If it has tentacles, hands, or pincers, it might seize 
+hold of its opponent. If it has a prominent mouth then it 
+might bite and hold onto its prey. Large creatures might 
+A deep one has the following attack listed:
+Fighting 45% (22/9), damage 1D6 + damage bonus (1D4)
+Using this skill, the Keeper could describe a 
+successful attack in any of the following ways. 
+Regardless of the manner of attack, for ease of play, 
+the same 1D6 + 1D4 damage is dealt.
+i The deep one rakes its claws across Harvey’s 
+chest, slicing through his clothes.
+i The deep one charges into Harvey, body-
+slamming him.
+i Kicking out backwards like a horse, the deep 
+one slams its foot into Harvey’s midriff.
+i The deep one grabs Harvey’s jacket, thrusting 
+Harvey’s head into the crumbling plaster of 
+the wall in the Gilman House Hotel.
+A dark young is fighting a group of investigators. 
+The dark young may initiate five separate attacks on 
+its turn in the DEX order, one of which may be its 
+trample attack. 
+First attack: The dark young raises one of its 
+many hooves to stamp on a hapless investigator. The 
+investigator’s player rolls a failure on the attempt to 
+dodge the attack, while the Keeper rolls a Regular 
+success on the dark young’s Fighting skill, and deals 
+damage equal to damage bonus (4D6), for 11 damage. 
+Second attack: This time the dark young lashes 
+out with a tentacle to attempt to grasp an investigator. 
+This uses a fighting maneuver; of course the dark 
+young has a larger build than any investigator, so 
+does not take any penalty dice on the maneuver. The 
+Keeper rolls an Extreme success. The investigator fails 
+to dodge and is seized and lifted high in the air, being 
+drained of 12 points of Strength. The dark young will 
+keep the investigator held until the poor unfortunate 
+has been completely drained.
+Third attack: Two of the investigators are getting 
+into their pickup truck. Remember that the dark young 
+has an INT of 70, as much as most investigators, so 
+it may well know what a pickup truck is. It uses its 
+trample attack on the pickup. At present, the vehicle 
+is static and so the Keeper allows an automatic 
+success, but makes the attack roll in case of a fumble 
+or Extreme success. The attack would normally have 
+failed but was not a fumble, so in this case the attack 
+against a stationary object is successful. This deals 
+(6D6) 17 damage. Each 10 full points of damage 
+reduces the build of a vehicle by 1 point. 
+Fourth attack: Annoyed at how tough the pickup 
+truck proved to be, the Keeper decides that the dark 
+young will attempt to flip the vehicle. The pickup has 
+a build of 6 (it has 1 point of damage, but its listed 
+build is still 6), 1 higher than the dark young’s build; 
+the dark young can use its fighting maneuver but 
+must apply 1 penalty die. Again, the car is not moving 
+so unless the Keeper rolls a fumble, the attack will be 
+successful. The Keeper rolls 24 or 14 (with the penalty 
+die) which, taking the higher roll, still gives a Hard 
+success. Builds (see page 279)  states that a being is 
+just able to lift something that is of 1 build larger than 
+itself. The dark young manages to tip the pickup truck 
+over onto its side, with a crash.
+For its final attack the dark young simply lashes 
+out with a kick at a nearby investigator, and the 
+Keeper rolls a Hard success. The player rolls a Hard 
+success to dodge, so the investigator avoids the blow.
+===== PDF page index 293 (rulebook p.293) =====
+282 
+Call of Cthulhu
+simply trap their opponents with their bulk, crushing the life 
+out of them. Opponents that are seized or grabbed are held 
+until they succeed in an opposed STR roll or maneuver of 
+their own to free themselves.
+With a successful maneuver, a monster could:
+i Knock an investigator to the floor, gaining a bonus 
+die on its next attack if the investigator is still prone.
+i Push an investigator out of a window or over a cliff.
+i Disarm an investigator, knocking that annoying 
+"boom-stick" out of his or her hands.
+i Grasp hold of an investigator with a tentacle, gaining 
+a bonus die to cause harm by constriction or pum -
+meling the held investigator against a wall on the 
+next attack.
+i If the monster is large enough, it could seize an 
+investigator and carry him or her off next round, 
+perhaps flying away or carrying the held investigator 
+aloft with a writhing tentacle.
+i A standard car has Build 5, so any monster with 
+Build 3+ has the potential to damage vehicles. 
+Larger monsters might even seize hold of a vehicle 
+containing the investigators, much like an angry 
+child throwing a cereal box.
+Monsters and Fighting Back
+Unless a monster is trying to escape or being especially crafty, 
+you should respond to investigator attacks by fighting back 
+rather than dodging. When fighting back, a monster should 
+generally use its basic Fighting skill. A monster that has more 
+than one attack per round may also dodge or fight back that 
+number of times before its enemies are granted a bonus die 
+for outnumbering it (see Outnumbered, page 108). Thus a 
+ghoul with three attacks can fight back three times before 
+its attackers gain a bonus die to their attacks. Some Mythos 
+entities can never be outnumbered by investigators.
+Killing Monsters
+Rather than declaring that a monster or opponent is dead, 
+the Keeper is encouraged to describe what the investigators 
+can see—the monster has stopped moving, it appears to be 
+melting, a thick green fluid is welling up from a hole in the 
+side of its body, and so on. Remember that these monsters are 
+strange and alien beings; determining death should not be 
+simple. Some monsters (when reduced to unconsciousness 
+or zero hit points) may appear to be dead, only to rise again 
+moments or hours later to inflict a grisly revenge on their 
+attackers. Only a successful First Aid or Medicine roll will 
+determine for sure whether a being is alive or dead.
+Monster Spells
+The higher a monster’s POW and INT, the more likely it is 
+to know spells. As a guide, those with POW and INT of 50 
+to 100 might know 1D6 spells. In choosing spells, consider 
+the purpose and the nature of the creature. Keepers are 
+encouraged to manipulate and alter spells to better suit 
+particular Mythos monsters. No casting roll is required for 
+the initial casting of a spell by a monster. Expend magic 
+points as required by the spell cost, but disregard any SAN 
+costs or Sanity rolls. 
+Suitable spells for each monster are suggested, although 
+others may be known if the Keeper wishes.
+In many cases, the Mythos monsters described here 
+worship one or more of the Outer Gods or Great Old Ones, 
+and it should be assumed that they would know at least one 
+spell to contact, call, or summon their masters. 
+Chapter 12: Grimoire  details many suitable spells, 
+however Keepers are encouraged to adjust spells and use the 
+deeper magic versions; after all, these beings are not some 
+fumbling human wizard seeking the mysteries of magic, but 
+rather the very embodiment of the Mythos in all of its horrific 
+splendor. 
+Section One:  
+Mythos Monsters
+This section details the abominations of the Cthulhu 
+Mythos—creatures of this world and from beyond. The 
+monsters described here are, in the main, repugnant to 
+humanity in their visage and aspect, being a threat to both 
+an investigator’s mind and body.
+Keepers are reminded that these embodiments of the 
+Mythos are not uniform in their appearance, and distinctions 
+can be made between creatures of the same race. 
+When portraying a Mythos monster, the Keeper should 
+avoid only illustrating the visual aspect to the players. Smell 
+and sound are important signifiers, so too is the otherworldly 
+atmosphere such creatures create. As the Necronomicon 
+states, “ …as a foulness shall ye shall know Them. ” 
+Byakhee
+There flapped rhythmically a horde of tame, trained, 
+hybrid winged things…not altogether crows, nor moles, nor 
+buzzards, nor ants, nor decomposed human beings, but 
+something I cannot and must not recall.
+—H.P . Lovecraft, The Festival
+This interstellar race often serves Hastur the Unnamable, 
+and may be summoned to partake in rituals. Composed 
+of conventional matter, they are vulnerable to ordinary 
+weapons, such as pistols. 
+Dwelling in interstellar space, byakhee do not have bases 
+on Earth, but may be summoned to perform deeds or to 
+serve as steeds, carrying riders through interstellar space.
