@@ -113,6 +113,24 @@ def test_parse_runner_response_accepts_valid_intent_class():
     assert parsed["intent_class"] == "investigate"
 
 
+def test_parse_runner_response_preserves_observed_model_and_response_mode():
+    adapter = _load_adapter()
+    parsed = adapter.parse_runner_response(
+        {
+            "ok": True,
+            "player_text": "我检查门锁。",
+            "model_identity": {"provider": "openai", "id": "gpt-evidence"},
+            "response_mode": "tool",
+        }
+    )
+
+    assert parsed["model_identity"] == {
+        "provider": "openai",
+        "id": "gpt-evidence",
+    }
+    assert parsed["response_mode"] == "tool"
+
+
 def test_parse_runner_response_rejects_invalid_intent_class():
     adapter = _load_adapter()
     with pytest.raises(RuntimeError, match="intent_class"):
@@ -252,5 +270,8 @@ def test_run_player_turn_mjs_is_real_bridge_not_placeholder():
     assert "@earendil-works/pi-coding-agent" in source
     assert "placeholder" not in source.lower()
     assert "player_missing_tool_use" in source
+    assert "session.model" in source
+    assert "model_identity" in source
+    assert "response_mode" in source
     pkg = json.loads((PLAYER_DIR / "package.json").read_text(encoding="utf-8"))
     assert pkg["dependencies"]["@earendil-works/pi-coding-agent"] == "0.79.9"

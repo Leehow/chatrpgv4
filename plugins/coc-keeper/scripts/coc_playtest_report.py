@@ -2345,9 +2345,45 @@ def _evidence_report_lines(receipt: dict[str, Any], play_language: str) -> list[
     ]
 
 
+def _evidence_sensitive_metadata(
+    receipt: dict[str, Any], metadata: dict[str, Any]
+) -> dict[str, str]:
+    if receipt.get("eligible_as_gameplay_evidence") is True:
+        return {
+            "audit_profile": "evidence_grade_player_bridge_match",
+            "simulation_method": "attested_external_model_playtest",
+            "player_profile": "attested_external_model_bridge",
+        }
+    values = {
+        "audit_profile": str(metadata.get("audit_profile") or "baseline"),
+        "simulation_method": str(metadata.get("simulation_method") or "not recorded"),
+        "player_profile": str(metadata.get("player_profile") or "unknown"),
+    }
+    if values["audit_profile"] in {
+        "evidence_grade_player_bridge_match",
+        "live_llm_player_match",
+    }:
+        values["audit_profile"] = "player_bridge_match"
+    if values["simulation_method"] in {
+        "attested_external_model_playtest",
+        "live_llm_player_vs_kp",
+    }:
+        values["simulation_method"] = "unattested_runner_match_not_gameplay_evidence"
+    if values["player_profile"] in {
+        "attested_external_model_bridge",
+        "external_llm_bridge",
+    }:
+        values["player_profile"] = "unattested_runner"
+    return values
+
+
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
     evidence_receipt = read_evidence_receipt(run_dir)
+    display_metadata = {
+        **metadata,
+        **_evidence_sensitive_metadata(evidence_receipt, metadata),
+    }
     localized_terms = _localized_terms(metadata)
     context = _load_campaign_context(run_dir, metadata)
     campaign = context["campaign"]
@@ -2567,12 +2603,12 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_field("Campaign", _localize_text(campaign_title, localized_terms), language_profile),
         _report_field(
             "Audit Profile",
-            _localized_report_value(metadata.get("audit_profile", "baseline"), language_profile, localized_terms),
+            _localized_report_value(display_metadata["audit_profile"], language_profile, localized_terms),
             language_profile,
         ),
         _report_field(
             "Simulation Method",
-            _localized_report_value(metadata.get("simulation_method", "not recorded"), language_profile, localized_terms),
+            _localized_report_value(display_metadata["simulation_method"], language_profile, localized_terms),
             language_profile,
         ),
         _report_field("Era", era, language_profile),
@@ -2591,7 +2627,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_field("Localized Terms", _format_localized_terms_summary(localized_terms, language_profile), language_profile),
         _report_field(
             "Player Profile",
-            _localized_player_profile_display(metadata, language_profile, localized_terms),
+            _localized_player_profile_display(display_metadata, language_profile, localized_terms),
             language_profile,
         ),
         "",
@@ -2690,6 +2726,11 @@ def generate_battle_report(run_dir: Path) -> Path:
 
 def generate_evaluation_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
+    evidence_receipt = read_evidence_receipt(run_dir)
+    display_metadata = {
+        **metadata,
+        **_evidence_sensitive_metadata(evidence_receipt, metadata),
+    }
     notes = _read_jsonl(run_dir / "evaluator-notes.jsonl")
     output = _artifacts_dir(run_dir) / "evaluation-report.md"
 
@@ -2753,8 +2794,8 @@ def generate_evaluation_report(run_dir: Path) -> Path:
         "",
         "## Playtest Profile",
         f"- Run ID: {metadata.get('run_id', 'unknown')}",
-        f"- Audit Profile: {metadata.get('audit_profile', 'baseline')}",
-        f"- Player Profile: {metadata.get('player_profile', 'unknown')}",
+        f"- Audit Profile: {display_metadata['audit_profile']}",
+        f"- Player Profile: {display_metadata['player_profile']}",
         f"- Module Coverage: {_format_csv(metadata.get('module_coverage', []))}",
         f"- Subsystems Covered: {_format_csv(metadata.get('subsystems_covered', []))}",
         "",

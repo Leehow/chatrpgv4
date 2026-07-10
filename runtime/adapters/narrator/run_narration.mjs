@@ -284,6 +284,26 @@ function extractAssistantProse(messages) {
   return "";
 }
 
+function selectedModelIdentity(session) {
+  const model = session && session.model;
+  if (
+    !model ||
+    typeof model.provider !== "string" ||
+    !model.provider.trim() ||
+    typeof model.id !== "string" ||
+    !model.id.trim()
+  ) {
+    return undefined;
+  }
+  return { provider: model.provider.trim(), id: model.id.trim() };
+}
+
+function withRuntimeProvenance(result, modelIdentity, responseMode) {
+  const enriched = { ...result, response_mode: responseMode };
+  if (modelIdentity) enriched.model_identity = modelIdentity;
+  return enriched;
+}
+
 function buildNarrationTool(capture) {
   return defineTool({
     name: "coc_keeper_narration",
@@ -396,6 +416,8 @@ async function runNarration(request) {
     sessionManager: SessionManager.inMemory(cwd),
   });
 
+  let modelIdentity;
+
   try {
     session.subscribe((event) => {
       if (event && event.type === "message_end" && event.message) {
@@ -417,13 +439,14 @@ async function runNarration(request) {
     if (!capture.assistantProse) {
       capture.assistantProse = extractAssistantProse(session.messages);
     }
+    modelIdentity = selectedModelIdentity(session);
   } finally {
     session.dispose();
   }
 
   if (capture.usedTool) {
     if (capture.result && capture.result.ok) {
-      return capture.result;
+      return withRuntimeProvenance(capture.result, modelIdentity, "tool");
     }
     return {
       ok: false,
@@ -433,11 +456,11 @@ async function runNarration(request) {
 
   const prose = (capture.assistantProse || "").trim();
   if (prose) {
-    return {
+    return withRuntimeProvenance({
       ok: true,
       final_text: prose,
       notes: PROSE_DEGRADE_NOTE,
-    };
+    }, modelIdentity, "prose_fallback");
   }
 
   return {

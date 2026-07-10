@@ -111,6 +111,24 @@ def test_parse_runner_response_accepts_prose_degraded_shape():
     assert "narrator_missing_tool_use" in parsed["notes"]
 
 
+def test_parse_runner_response_preserves_observed_model_and_response_mode():
+    adapter = _load_adapter()
+    parsed = adapter.parse_runner_response(
+        {
+            "ok": True,
+            "final_text": "雨声压低了门后的脚步。",
+            "model_identity": {"provider": "anthropic", "id": "claude-evidence"},
+            "response_mode": "tool",
+        }
+    )
+
+    assert parsed["model_identity"] == {
+        "provider": "anthropic",
+        "id": "claude-evidence",
+    }
+    assert parsed["response_mode"] == "tool"
+
+
 def test_narrator_send_turn_round_trip_strips_rationale(tmp_path):
     adapter = _load_adapter()
     runner = tmp_path / "fake_narrator"
@@ -151,6 +169,9 @@ def test_run_narration_mjs_is_real_bridge_not_placeholder():
     assert "coc_keeper_narration" in source
     assert "@earendil-works/pi-coding-agent" in source
     assert "narrator_missing_tool_use" in source
+    assert "session.model" in source
+    assert "model_identity" in source
+    assert "response_mode" in source
     assert "placeholder" not in source.lower()
     pkg = json.loads((NARRATOR_DIR / "package.json").read_text(encoding="utf-8"))
     assert pkg["dependencies"]["@earendil-works/pi-coding-agent"] == "0.79.9"

@@ -282,6 +282,83 @@ def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _invocation_row(
+    *,
+    run_dir: Path,
+    role: str,
+    runner_path: Path | None,
+    attempt: int,
+    outcome: str,
+    model_identity: Any,
+    response_mode: Any,
+    fallback_kind: str | None,
+) -> dict[str, Any]:
+    observed = playtest_evidence.observe_runner(run_dir, role, runner_path)
+    return {
+        "schema_version": 1,
+        "role": role,
+        "attempt": attempt,
+        "transcript_turn": None,
+        "runner_kind": observed.get("kind"),
+        "runner_identity": observed.get("identity"),
+        "runner_path": observed.get("path"),
+        "runner_sha256": observed.get("sha256"),
+        "model_identity": model_identity,
+        "outcome": outcome,
+        "response_mode": response_mode,
+        "fallback_kind": fallback_kind,
+    }
+
+
+def _read_jsonl_rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path.is_file():
+        return rows
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _write_invocation_ledger(run_dir: Path, rows: list[dict[str, Any]]) -> Path:
+    transcript = _read_jsonl_rows(run_dir / "transcript.jsonl")
+    turns_by_role = {
+        "player": [
+            row.get("turn")
+            for row in transcript
+            if row.get("role") == "player_simulator"
+        ],
+        "narrator": [
+            row.get("turn")
+            for row in transcript
+            if row.get("role") == "keeper_under_test"
+        ],
+    }
+    role_offsets = {"player": 0, "narrator": 0}
+    for row in rows:
+        role = row.get("role")
+        available = turns_by_role.get(str(role), [])
+        offset = role_offsets.get(str(role), 0)
+        if offset < len(available):
+            row["transcript_turn"] = available[offset]
+        role_offsets[str(role)] = offset + 1
+    output = run_dir / "runner-invocations.jsonl"
+    output.write_text(
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+            for row in rows
+        ),
+        encoding="utf-8",
+    )
+    return output
+
+
 def _enrich_transcript_with_player_notes(
     run_dir: Path,
     player_turns: list[dict[str, Any]],
@@ -357,13 +434,18 @@ def _apply_narrator_or_template(
     recent_narrations: list[str],
     narrator_runner: Path | None,
     timeout_s: float,
-) -> tuple[str, str, dict[str, Any] | None]:
-    """Return (keeper_text, method, fallback_event_or_none).
+) -> tuple[str, str, dict[str, Any] | None, dict[str, Any]]:
+    """Return text, method, fallback event, and structured runner outcome.
 
     Fallback ladder: narrator error/timeout → template text + narrator_fallback.
     """
     if narrator_runner is None:
-        return template_text, "template", None
+        return template_text, "template", None, {
+            "outcome": "template",
+            "fallback_kind": "template",
+            "model_identity": None,
+            "response_mode": "template",
+        }
 
     envelope = (
         projected.get("narration_envelope")
@@ -388,7 +470,12 @@ def _apply_narrator_or_template(
             "error": str(exc),
             "decision_id": projected.get("decision_id") or live_turn.get("decision_id"),
         }
-        return template_text, "template", fallback
+        return template_text, "template", fallback, {
+            "outcome": "template_fallback",
+            "fallback_kind": "template",
+            "model_identity": None,
+            "response_mode": "runner_failure",
+        }
 
     final_text = str(result.get("final_text") or "").strip()
     if not final_text:
@@ -397,7 +484,12 @@ def _apply_narrator_or_template(
             "error": "narrator returned empty final_text",
             "decision_id": projected.get("decision_id") or live_turn.get("decision_id"),
         }
-        return template_text, "template", fallback
+        return template_text, "template", fallback, {
+            "outcome": "template_fallback",
+            "fallback_kind": "template",
+            "model_identity": None,
+            "response_mode": "runner_failure",
+        }
 
     audit = narration_contract.audit_final_text(
         final_text,
@@ -418,7 +510,15 @@ def _apply_narrator_or_template(
     notes = result.get("notes")
     if notes:
         projected["narrator_notes"] = notes
-    return final_text, "llm_narrator", None
+    response_mode = result.get("response_mode")
+    return final_text, "llm_narrator", None, {
+        "outcome": "external_success",
+        "fallback_kind": (
+            "prose_degradation" if response_mode == "prose_fallback" else None
+        ),
+        "model_identity": result.get("model_identity"),
+        "response_mode": response_mode,
+    }
 
 
 def run_live_match(
@@ -474,6 +574,7 @@ def run_live_match(
     player_choices: list[dict[str, Any]] = []
     transcript_tail: list[dict[str, Any]] = []
     recent_narrations: list[str] = []
+    invocation_rows: list[dict[str, Any]] = []
     tension_curve: list[Any] = []
     scene_path: list[str] = []
     stop_reason = "max_turns_reached"
@@ -482,7 +583,6 @@ def run_live_match(
     previous_affordance_ids: list[str] | None = None
     fallback_turns = 0
     used_llm_narrator = False
-    narrator_model_turns = 0
 
     campaign_meta = _read_json(camp / "campaign.json", {})
     module_meta = _read_json(camp / "scenario" / "module-meta.json", {})
@@ -520,6 +620,23 @@ def run_live_match(
             request,
             runner_path=runner,
             timeout_s=timeout_s,
+        )
+        player_response_mode = player_result.get("response_mode")
+        invocation_rows.append(
+            _invocation_row(
+                run_dir=out,
+                role="player",
+                runner_path=runner,
+                attempt=len([r for r in invocation_rows if r.get("role") == "player"]) + 1,
+                outcome="external_success",
+                model_identity=player_result.get("model_identity"),
+                response_mode=player_response_mode,
+                fallback_kind=(
+                    "prose_degradation"
+                    if player_response_mode == "prose_fallback"
+                    else None
+                ),
+            )
         )
         player_text = player_result["player_text"]
         player_notes = player_result.get("player_notes")
@@ -578,7 +695,7 @@ def run_live_match(
                 play_language=play_language,
                 previous_affordance_ids=previous_affordance_ids,
             )
-            keeper_text, method, fallback = _apply_narrator_or_template(
+            keeper_text, method, fallback, narrator_outcome = _apply_narrator_or_template(
                 template_text=template_text,
                 projected=projected,
                 live_turn=live_turn if isinstance(live_turn, dict) else {},
@@ -589,9 +706,23 @@ def run_live_match(
                 narrator_runner=narrator_path,
                 timeout_s=timeout_s,
             )
+            invocation_rows.append(
+                _invocation_row(
+                    run_dir=out,
+                    role="narrator",
+                    runner_path=narrator_path,
+                    attempt=len(
+                        [r for r in invocation_rows if r.get("role") == "narrator"]
+                    )
+                    + 1,
+                    outcome=str(narrator_outcome.get("outcome")),
+                    model_identity=narrator_outcome.get("model_identity"),
+                    response_mode=narrator_outcome.get("response_mode"),
+                    fallback_kind=narrator_outcome.get("fallback_kind"),
+                )
+            )
             if method == "llm_narrator":
                 used_llm_narrator = True
-                narrator_model_turns += 1
             if fallback is not None:
                 fallback_turns += 1
                 projected["narrator_fallback"] = fallback
@@ -740,21 +871,10 @@ def run_live_match(
         generate_report=False,
     )
     _enrich_transcript_with_player_notes(out, player_turns)
-
-    supplied_provenance = (
-        dict(evidence_provenance) if isinstance(evidence_provenance, dict) else {}
-    )
-    player_provenance = dict(supplied_provenance.get("player_runner") or {})
-    player_provenance["path"] = str(runner.resolve())
-    player_provenance["turn_count"] = len(player_turns)
-    player_provenance.setdefault("kind", "unknown")
-    narrator_provenance = dict(supplied_provenance.get("narrator_runner") or {})
-    if narrator_path is None:
-        narrator_provenance.update({"kind": "absent", "path": None, "turn_count": 0})
-    else:
-        narrator_provenance["path"] = str(narrator_path.resolve())
-        narrator_provenance["turn_count"] = narrator_model_turns
-        narrator_provenance.setdefault("kind", "unknown")
+    # Caller evidence_provenance is deliberately non-authoritative.  Trust,
+    # identities, observed model use, and counts come only from this ledger.
+    _ = evidence_provenance
+    invocation_ledger_path = _write_invocation_ledger(out, invocation_rows)
     target_log_dir = (
         out / "sandbox" / ".coc" / "campaigns" / campaign_id / "logs"
     )
@@ -769,10 +889,8 @@ def run_live_match(
             "started_at": started_at,
             "ended_at": _utc_timestamp(),
             "user_claimed_live": bool(live),
-            "player_runner": player_provenance,
-            "narrator_runner": narrator_provenance,
-            "fallback_turns": fallback_turns,
             "transcript_path": "transcript.jsonl",
+            "invocation_ledger_path": invocation_ledger_path.name,
             "event_log_paths": event_log_paths,
         },
     )
@@ -782,6 +900,7 @@ def run_live_match(
     receipt_player = receipt_runners.get("player") or {}
     receipt_narrator = receipt_runners.get("narrator") or {}
     eligible = evidence_receipt.get("eligible_as_gameplay_evidence") is True
+    fallback_turns = int(evidence_receipt.get("fallback_turns") or 0)
     metadata.update(
         {
             "runner_kind": receipt_player.get("kind") or "unknown",
@@ -789,6 +908,7 @@ def run_live_match(
             "eligible_as_gameplay_evidence": eligible,
             "evidence_reasons": list(evidence_receipt.get("evidence_reasons") or []),
             "external_model_turns": evidence_receipt.get("external_model_turns", 0),
+            "fallback_turns": fallback_turns,
         }
     )
     if eligible:

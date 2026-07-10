@@ -254,6 +254,26 @@ function extractAssistantProse(messages) {
   return "";
 }
 
+function selectedModelIdentity(session) {
+  const model = session && session.model;
+  if (
+    !model ||
+    typeof model.provider !== "string" ||
+    !model.provider.trim() ||
+    typeof model.id !== "string" ||
+    !model.id.trim()
+  ) {
+    return undefined;
+  }
+  return { provider: model.provider.trim(), id: model.id.trim() };
+}
+
+function withRuntimeProvenance(result, modelIdentity, responseMode) {
+  const enriched = { ...result, response_mode: responseMode };
+  if (modelIdentity) enriched.model_identity = modelIdentity;
+  return enriched;
+}
+
 function normalizeIntentClass(value) {
   if (typeof value !== "string") return undefined;
   return INTENT_CLASSES.includes(value) ? value : undefined;
@@ -386,6 +406,8 @@ async function runPlayerTurn(request) {
     sessionManager: SessionManager.inMemory(cwd),
   });
 
+  let modelIdentity;
+
   try {
     session.subscribe((event) => {
       if (event && event.type === "message_end" && event.message) {
@@ -407,13 +429,14 @@ async function runPlayerTurn(request) {
     if (!capture.assistantProse) {
       capture.assistantProse = extractAssistantProse(session.messages);
     }
+    modelIdentity = selectedModelIdentity(session);
   } finally {
     session.dispose();
   }
 
   if (capture.usedTool) {
     if (capture.result && capture.result.ok) {
-      return capture.result;
+      return withRuntimeProvenance(capture.result, modelIdentity, "tool");
     }
     return {
       ok: false,
@@ -424,11 +447,11 @@ async function runPlayerTurn(request) {
   // Prose degradation: usable player_text, marked in player_notes.
   const prose = (capture.assistantProse || "").trim();
   if (prose) {
-    return {
+    return withRuntimeProvenance({
       ok: true,
       player_text: prose,
       player_notes: PROSE_DEGRADE_NOTE,
-    };
+    }, modelIdentity, "prose_fallback");
   }
 
   return {

@@ -14,6 +14,13 @@ EVIDENCE_SCRIPT = (
     REPO / "plugins" / "coc-keeper" / "scripts" / "coc_playtest_evidence.py"
 )
 REPORT_SCRIPT = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_playtest_report.py"
+TRUSTED_RUNNER_REGISTRY = (
+    REPO / "plugins" / "coc-keeper" / "references" / "trusted-playtest-runners.json"
+)
+CANONICAL_RUNNERS = {
+    "player": REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs",
+    "narrator": REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs",
+}
 
 
 def _load(name: str, path: Path):
@@ -39,52 +46,128 @@ def _write_bytes(path: Path, data: bytes) -> None:
     path.write_bytes(data)
 
 
-def _attested_runner(
-    run_dir: Path,
-    role: str,
-    *,
-    turns: int = 2,
-    kind: str = "external_model_bridge",
-) -> dict:
-    identity = f"fixture-{role}-bridge@1.0.0"
-    relative_path = Path("runners") / f"{role}.bridge"
-    runner_bytes = f"trusted {role} bridge bytes\n".encode()
-    _write_bytes(run_dir / relative_path, runner_bytes)
-    digest = _sha256(runner_bytes)
-    return {
-        "kind": kind,
-        "identity": identity,
-        "path": relative_path.as_posix(),
-        "model_identity": {
-            "provider": "fixture-provider",
-            "model": f"fixture-{role}-model",
-        },
-        "turn_count": turns,
-        "attestation": {
-            "method": "runner_sha256",
-            "subject_identity": identity,
-            "runner_sha256": digest,
-        },
-    }
-
-
 def _complete_provenance(run_dir: Path) -> dict:
-    transcript = b'{"turn":1,"role":"player_simulator","text":"look"}\n'
+    registry = json.loads(TRUSTED_RUNNER_REGISTRY.read_text(encoding="utf-8"))[
+        "runners"
+    ]
+    transcript = (
+        b'{"turn":1,"role":"player_simulator","text":"look"}\n'
+        b'{"turn":2,"role":"keeper_under_test","text":"rain"}\n'
+    )
     events = b'{"event_type":"clue_reveal","clue_id":"c1"}\n'
     rolls = b'{"type":"roll","payload":{"roll":42}}\n'
     _write_bytes(run_dir / "transcript.jsonl", transcript)
     _write_bytes(run_dir / "logs" / "events.jsonl", events)
     _write_bytes(run_dir / "logs" / "rolls.jsonl", rolls)
+    ledger_rows = []
+    for attempt, (role, transcript_turn) in enumerate(
+        (("player", 1), ("narrator", 2)), start=1
+    ):
+        entry = registry[role]
+        ledger_rows.append(
+            {
+                "schema_version": 1,
+                "role": role,
+                "attempt": attempt,
+                "transcript_turn": transcript_turn,
+                "runner_kind": entry["kind"],
+                "runner_identity": entry["identity"],
+                "runner_path": str(CANONICAL_RUNNERS[role].resolve()),
+                "runner_sha256": entry["sha256"],
+                "model_identity": {
+                    "provider": "fixture-provider",
+                    "id": f"fixture-{role}-model",
+                },
+                "outcome": "external_success",
+                "response_mode": "tool",
+                "fallback_kind": None,
+            }
+        )
+    (run_dir / "runner-invocations.jsonl").write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in ledger_rows),
+        encoding="utf-8",
+    )
     return {
         "started_at": "2026-07-10T01:02:03Z",
         "ended_at": "2026-07-10T01:03:04Z",
         "user_claimed_live": True,
-        "player_runner": _attested_runner(run_dir, "player", turns=2),
-        "narrator_runner": _attested_runner(run_dir, "narrator", turns=2),
-        "fallback_turns": 0,
         "transcript_path": "transcript.jsonl",
+        "invocation_ledger_path": "runner-invocations.jsonl",
         "event_log_paths": ["logs/events.jsonl", "logs/rolls.jsonl"],
     }
+
+
+def _rewrite_ledger(run_dir: Path, mutate) -> None:
+    path = run_dir / "runner-invocations.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line]
+    mutate(rows)
+    path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def test_trusted_runner_registry_pins_canonical_entrypoints_and_hashes():
+    assert TRUSTED_RUNNER_REGISTRY.is_file()
+    registry = json.loads(TRUSTED_RUNNER_REGISTRY.read_text(encoding="utf-8"))
+    assert registry["schema_version"] == 1
+    assert set(registry["runners"]) == {"player", "narrator"}
+    for role, expected_path in {
+        "player": "runtime/adapters/player/run_player_turn.mjs",
+        "narrator": "runtime/adapters/narrator/run_narration.mjs",
+    }.items():
+        entry = registry["runners"][role]
+        assert entry["role"] == role
+        assert entry["path"] == expected_path
+        assert entry["kind"] == "external_model_bridge"
+        assert entry["identity"]
+        assert entry["sha256"] == _sha256((REPO / expected_path).read_bytes())
+
+
+@pytest.mark.parametrize("attack", ["self_sha", "invented_package"])
+def test_arbitrary_runner_cannot_self_attest_as_trusted(tmp_path, evidence, attack):
+    provenance = _complete_provenance(tmp_path)
+    fake = tmp_path / "fake-runner"
+    fake.write_bytes(b"fake runner bytes\n")
+    digest = _sha256(fake.read_bytes())
+
+    def forge(rows):
+        player = next(row for row in rows if row["role"] == "player")
+        player.update(
+            {
+                "runner_kind": "external_model_bridge",
+                "runner_identity": "forged-player@999",
+                "runner_path": str(fake),
+                "runner_sha256": digest,
+                "model_identity": {"provider": "forged", "id": "fake-model"},
+                "attestation": {"runner_sha256": digest},
+            }
+        )
+        if attack == "invented_package":
+            player["package_identity"] = {
+                "name": "invented-trusted-package",
+                "version": "999.0.0",
+            }
+
+    _rewrite_ledger(tmp_path, forge)
+
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert "untrusted_player_runner_used" in receipt["evidence_reasons"]
+
+
+def test_provenance_turn_counts_cannot_create_999_external_turns(tmp_path, evidence):
+    provenance = _complete_provenance(tmp_path)
+    provenance["player_runner"] = {"turn_count": 999, "kind": "external_model_bridge"}
+    provenance["narrator_runner"] = {"turn_count": 999}
+    provenance["external_model_turns"] = 999
+
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+
+    assert receipt["eligible_as_gameplay_evidence"] is True
+    assert receipt["external_model_turns"] != 999
+    assert receipt["external_model_turns"] == 2
 
 
 def test_complete_attested_receipt_qualifies_and_hashes_actual_bytes(tmp_path, evidence):
@@ -96,13 +179,13 @@ def test_complete_attested_receipt_qualifies_and_hashes_actual_bytes(tmp_path, e
     assert receipt["started_at"] == provenance["started_at"]
     assert receipt["ended_at"] == provenance["ended_at"]
     assert receipt["user_claimed_live"] is True
-    assert receipt["external_model_turns"] == 4
+    assert receipt["external_model_turns"] == 2
     assert receipt["fallback_turns"] == 0
     assert receipt["runners"]["player"]["sha256"] == _sha256(
-        (tmp_path / "runners" / "player.bridge").read_bytes()
+        CANONICAL_RUNNERS["player"].read_bytes()
     )
     assert receipt["runners"]["narrator"]["sha256"] == _sha256(
-        (tmp_path / "runners" / "narrator.bridge").read_bytes()
+        CANONICAL_RUNNERS["narrator"].read_bytes()
     )
     assert receipt["artifacts"]["transcript"]["sha256"] == _sha256(
         (tmp_path / "transcript.jsonl").read_bytes()
@@ -111,14 +194,21 @@ def test_complete_attested_receipt_qualifies_and_hashes_actual_bytes(tmp_path, e
         _sha256((tmp_path / "logs" / "events.jsonl").read_bytes()),
         _sha256((tmp_path / "logs" / "rolls.jsonl").read_bytes()),
     ]
+    assert receipt["artifacts"]["invocation_ledger"]["sha256"] == _sha256(
+        (tmp_path / "runner-invocations.jsonl").read_bytes()
+    )
     assert receipt["validation_findings"] == []
     assert receipt["evidence_reasons"] == []
     assert receipt["eligible_as_gameplay_evidence"] is True
 
 
-def test_live_claim_and_caller_booleans_cannot_attest_a_fake_runner(tmp_path, evidence):
+def test_caller_runner_claims_cannot_override_trusted_ledger(tmp_path, evidence):
     provenance = _complete_provenance(tmp_path)
-    provenance["player_runner"]["kind"] = "scripted_fake"
+    provenance["player_runner"] = {
+        "kind": "scripted_fake",
+        "runner_attested": False,
+        "turn_count": 999,
+    }
     provenance["live"] = True
     provenance["runner_attested"] = True
     provenance["eligible_as_gameplay_evidence"] = True
@@ -126,40 +216,63 @@ def test_live_claim_and_caller_booleans_cannot_attest_a_fake_runner(tmp_path, ev
     receipt = evidence.build_evidence_receipt(tmp_path, provenance)
 
     assert receipt["user_claimed_live"] is True
-    assert receipt["runners"]["player"]["kind"] == "scripted_fake"
-    assert receipt["eligible_as_gameplay_evidence"] is False
-    assert "runner_not_attested" in receipt["evidence_reasons"]
-    assert "runner_kind_ineligible" in receipt["evidence_reasons"]
+    assert receipt["runners"]["player"]["kind"] == "external_model_bridge"
+    assert receipt["external_model_turns"] == 2
+    assert receipt["eligible_as_gameplay_evidence"] is True
 
 
 @pytest.mark.parametrize(
-    ("mutation", "reason"),
+    ("case", "reason"),
     [
-        (lambda p: p.pop("player_runner"), "runner_missing"),
-        (lambda p: p["player_runner"].update(kind="unknown"), "runner_kind_unknown"),
-        (lambda p: p["player_runner"].pop("attestation"), "runner_not_attested"),
-        (lambda p: p["player_runner"].pop("model_identity"), "model_identity_missing"),
-        (
-            lambda p: p["player_runner"].update(turn_count="2"),
-            "external_model_turns_malformed",
-        ),
-        (
-            lambda p: (
-                p["player_runner"].update(turn_count=0),
-                p["narrator_runner"].update(turn_count=0),
-            ),
-            "no_external_model_turns",
-        ),
-        (lambda p: p.update(fallback_turns="0"), "fallback_turns_malformed"),
-        (lambda p: p.update(transcript_path="missing.jsonl"), "transcript_hash_missing"),
-        (lambda p: p.update(event_log_paths=[]), "event_log_hash_missing"),
+        ("ledger_missing", "invocation_ledger_missing"),
+        ("model_missing", "model_identity_missing"),
+        ("untrusted_player", "untrusted_player_runner_used"),
+        ("ledger_malformed", "invocation_ledger_malformed"),
+        ("no_external_player", "no_external_model_turns"),
+        ("transcript_missing", "transcript_hash_missing"),
+        ("event_logs_missing", "event_log_hash_missing"),
     ],
 )
 def test_receipt_fails_closed_for_incomplete_or_malformed_provenance(
-    tmp_path, evidence, mutation, reason
+    tmp_path, evidence, case, reason
 ):
     provenance = _complete_provenance(tmp_path)
-    mutation(provenance)
+    if case == "ledger_missing":
+        provenance["invocation_ledger_path"] = "missing.jsonl"
+    elif case == "model_missing":
+        _rewrite_ledger(
+            tmp_path,
+            lambda rows: next(row for row in rows if row["role"] == "player").pop(
+                "model_identity"
+            ),
+        )
+    elif case == "untrusted_player":
+        fake = tmp_path / "untrusted-player"
+        fake.write_bytes(b"untrusted\n")
+        _rewrite_ledger(
+            tmp_path,
+            lambda rows: next(row for row in rows if row["role"] == "player").update(
+                runner_path=str(fake),
+                runner_sha256=_sha256(fake.read_bytes()),
+            ),
+        )
+    elif case == "ledger_malformed":
+        _rewrite_ledger(
+            tmp_path,
+            lambda rows: rows[0].update(attempt="999"),
+        )
+    elif case == "no_external_player":
+        _rewrite_ledger(
+            tmp_path,
+            lambda rows: next(row for row in rows if row["role"] == "player").update(
+                outcome="runner_failure",
+                model_identity=None,
+            ),
+        )
+    elif case == "transcript_missing":
+        provenance["transcript_path"] = "missing.jsonl"
+    elif case == "event_logs_missing":
+        provenance["event_log_paths"] = []
 
     receipt = evidence.build_evidence_receipt(tmp_path, provenance)
 
@@ -186,7 +299,7 @@ def test_receipt_does_not_hash_artifact_paths_outside_run_dir(tmp_path, evidence
     [
         ("transcript.jsonl", "transcript_hash_mismatch"),
         ("logs/events.jsonl", "event_log_hash_mismatch"),
-        ("runners/player.bridge", "runner_hash_mismatch"),
+        ("runner-invocations.jsonl", "invocation_ledger_hash_mismatch"),
     ],
 )
 def test_validated_receipt_detects_on_disk_tamper(
@@ -272,3 +385,35 @@ def test_report_fails_closed_when_metadata_claims_live_but_receipt_is_absent(tmp
 
     assert "evidence-eligibility: ineligible" in text
     assert "evidence_receipt_missing" in text
+
+
+def test_tampered_receipt_downgrades_evidence_sensitive_report_metadata(
+    tmp_path, evidence
+):
+    provenance = _complete_provenance(tmp_path)
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+    evidence.write_evidence_receipt(tmp_path, receipt)
+    (tmp_path / "playtest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "stale-attested-metadata",
+                "campaign_id": "stale-attested-metadata",
+                "audit_profile": "evidence_grade_player_bridge_match",
+                "simulation_method": "attested_external_model_playtest",
+                "player_profile": "attested_external_model_bridge",
+                "play_language": "en-US",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with (tmp_path / "transcript.jsonl").open("ab") as handle:
+        handle.write(b'{"turn":99,"role":"system","text":"tampered"}\n')
+    report = _load("coc_playtest_report_stale_metadata_test", REPORT_SCRIPT)
+
+    text = report.generate_battle_report(tmp_path).read_text(encoding="utf-8")
+
+    assert "evidence-eligibility: ineligible" in text
+    assert "Simulation Method: unattested_runner_match_not_gameplay_evidence" in text
+    assert "Player Profile: unattested_runner" in text
+    assert "Audit Profile: player_bridge_match" in text
+    assert "attested_external_model_playtest" not in text

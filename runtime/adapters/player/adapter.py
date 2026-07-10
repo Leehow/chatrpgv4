@@ -155,6 +155,25 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
                 f"intent class (bridge contract violation)"
             )
         result["intent_class"] = intent_class
+    model_identity = raw.get("model_identity")
+    if model_identity is not None:
+        if not (
+            isinstance(model_identity, dict)
+            and isinstance(model_identity.get("provider"), str)
+            and model_identity["provider"].strip()
+            and isinstance(model_identity.get("id"), str)
+            and model_identity["id"].strip()
+        ):
+            raise RuntimeError("model_identity must contain non-empty provider and id")
+        result["model_identity"] = {
+            "provider": model_identity["provider"].strip(),
+            "id": model_identity["id"].strip(),
+        }
+    response_mode = raw.get("response_mode")
+    if response_mode is not None:
+        if response_mode not in {"tool", "prose_fallback"}:
+            raise RuntimeError("response_mode must be tool or prose_fallback")
+        result["response_mode"] = response_mode
     return result
 
 

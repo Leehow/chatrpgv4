@@ -1,6 +1,7 @@
 """Tests for coc_live_match: bridged player LLM vs KP match harness (N5)."""
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import stat
@@ -10,6 +11,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_live_match.py"
+CANONICAL_PLAYER_RUNNER = REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
+CANONICAL_NARRATOR_RUNNER = REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
 
 # Distinct keeper-side prose that must never appear in player-brain requests.
 SECRET_PROSE_FRAGMENTS = [
@@ -36,6 +39,8 @@ def _write_scripted_player_runner(
     lines: list[str],
     *,
     intent_classes: list[str] | None = None,
+    model_identity: dict | None = None,
+    response_mode: str | None = None,
 ) -> None:
     """Stateful fake runner: emit scripted player_text lines in order.
 
@@ -44,12 +49,16 @@ def _write_scripted_player_runner(
     """
     lines_literal = json.dumps(lines, ensure_ascii=False)
     intents_repr = repr(intent_classes)
+    model_repr = repr(model_identity)
+    response_mode_repr = repr(response_mode)
     script = f"""#!/usr/bin/env python3
 import json, sys
 from pathlib import Path
 state_path = Path(__file__).with_suffix(".state")
 lines = {lines_literal}
 intent_classes = {intents_repr}
+model_identity = {model_repr}
+response_mode = {response_mode_repr}
 idx = int(state_path.read_text()) if state_path.exists() else 0
 req = json.loads(sys.stdin.read())
 assert "public_state" in req and "character_card" in req
@@ -58,6 +67,10 @@ state_path.write_text(str(idx + 1))
 out = {{"ok": True, "player_text": text, "player_notes": f"note-for-turn-{{idx+1}}"}}
 if intent_classes is not None:
     out["intent_class"] = intent_classes[min(idx, len(intent_classes) - 1)]
+if model_identity is not None:
+    out["model_identity"] = model_identity
+if response_mode is not None:
+    out["response_mode"] = response_mode
 sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\\n")
 """
     path.write_text(script, encoding="utf-8")
@@ -392,7 +405,7 @@ def test_live_flag_cannot_make_scripted_runner_evidence_eligible(tmp_path):
     assert meta["user_claimed_live"] is True
     assert "live" not in meta
     assert meta["eligible_as_gameplay_evidence"] is False
-    assert "runner_not_attested" in meta["evidence_reasons"]
+    assert "untrusted_player_runner_used" in meta["evidence_reasons"]
     assert meta["runner_kind"] == "unknown"
 
 
@@ -423,6 +436,213 @@ def test_evidence_receipt_exists_before_battle_report_generation(tmp_path, monke
     )
 
     assert observed == [Path(result["run_dir"]) / "evidence.json"]
+
+
+def _patch_observed_canonical_player(monkeypatch):
+    def send_turn(_request, *, runner_path, timeout_s):
+        assert Path(runner_path).resolve() == CANONICAL_PLAYER_RUNNER.resolve()
+        return {
+            "ok": True,
+            "player_text": "我检查眼前最明显的痕迹。",
+            "intent_class": "investigate",
+            "model_identity": {"provider": "fixture", "id": "trusted-player-model"},
+            "response_mode": "tool",
+        }
+
+    monkeypatch.setattr(match.player_adapter, "player_send_turn", send_turn)
+
+
+def _run_canonical_player_match(
+    tmp_path,
+    monkeypatch,
+    *,
+    max_turns=1,
+    narrator_runner=None,
+    evidence_provenance=None,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    _patch_observed_canonical_player(monkeypatch)
+    return match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=CANONICAL_PLAYER_RUNNER,
+        narrator_runner=narrator_runner,
+        max_turns=max_turns,
+        rng_seed=23,
+        live=True,
+        intent_class=None,
+        evidence_provenance=evidence_provenance,
+    )
+
+
+@pytest.mark.parametrize("attack", ["self_sha", "invented_package"])
+def test_fake_runner_cannot_forge_trust_end_to_end(tmp_path, attack):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    runner = tmp_path / "forged_external_player"
+    _write_scripted_player_runner(
+        runner,
+        ["我假装调用了外部模型。"],
+        model_identity={"provider": "forged", "id": "fake-model"},
+        response_mode="tool",
+    )
+    digest = hashlib.sha256(runner.read_bytes()).hexdigest()
+    forged = {
+        "kind": "external_model_bridge",
+        "identity": "forged-player@999",
+        "model_identity": {"provider": "forged", "model": "fake-model"},
+        "turn_count": 999,
+        "attestation": {
+            "method": "runner_sha256",
+            "subject_identity": "forged-player@999",
+            "runner_sha256": digest,
+        },
+    }
+    if attack == "invented_package":
+        package = {"name": "invented-trusted-package", "version": "999.0.0"}
+        forged["package_identity"] = package
+        forged["attestation"] = {
+            "method": "package_identity",
+            "subject_identity": "forged-player@999",
+            "package_identity": package,
+        }
+
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=runner,
+        max_turns=1,
+        rng_seed=7,
+        live=True,
+        intent_class="investigate",
+        evidence_provenance={"player_runner": forged},
+    )
+
+    assert result["metadata"]["eligible_as_gameplay_evidence"] is False
+    assert "untrusted_player_runner_used" in result["metadata"]["evidence_reasons"]
+    assert result["evidence"]["external_model_turns"] == 0
+
+
+def test_canonical_player_with_absent_template_narrator_is_eligible(
+    tmp_path, monkeypatch
+):
+    result = _run_canonical_player_match(tmp_path, monkeypatch)
+
+    assert result["metadata"]["eligible_as_gameplay_evidence"] is True
+    assert result["evidence"]["runners"]["narrator"]["kind"] == "absent"
+    assert result["evidence"]["external_model_turns"] == 1
+    assert result["evidence"]["fallback_turns"] >= 1
+    assert Path(result["run_dir"], "runner-invocations.jsonl").is_file()
+
+
+def test_canonical_narrator_mixed_fallback_remains_eligible(tmp_path, monkeypatch):
+    calls = 0
+
+    def narrate(_request, *, runner_path, timeout_s):
+        nonlocal calls
+        assert Path(runner_path).resolve() == CANONICAL_NARRATOR_RUNNER.resolve()
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("fixture narrator failure")
+        return {
+            "ok": True,
+            "final_text": "雨里传来一声短促的木响。",
+            "model_identity": {"provider": "fixture", "id": "trusted-narrator-model"},
+            "response_mode": "tool",
+        }
+
+    monkeypatch.setattr(match.narrator_adapter, "narrator_send_turn", narrate)
+    result = _run_canonical_player_match(
+        tmp_path,
+        monkeypatch,
+        max_turns=2,
+        narrator_runner=CANONICAL_NARRATOR_RUNNER,
+    )
+
+    assert result["metadata"]["eligible_as_gameplay_evidence"] is True
+    assert result["evidence"]["fallback_turns"] == 1
+    assert result["evidence"]["external_model_turns"] >= 3
+
+
+def test_canonical_narrator_all_fallback_can_remain_eligible(tmp_path, monkeypatch):
+    def fail(_request, *, runner_path, timeout_s):
+        raise RuntimeError("fixture narrator failure")
+
+    monkeypatch.setattr(match.narrator_adapter, "narrator_send_turn", fail)
+    result = _run_canonical_player_match(
+        tmp_path,
+        monkeypatch,
+        narrator_runner=CANONICAL_NARRATOR_RUNNER,
+    )
+
+    assert result["metadata"]["eligible_as_gameplay_evidence"] is True
+    assert result["evidence"]["external_model_turns"] == 1
+    assert result["evidence"]["fallback_turns"] >= 1
+
+
+def test_untrusted_narrator_output_disqualifies_evidence(tmp_path, monkeypatch):
+    narrator = tmp_path / "forged_narrator"
+    _write_scripted_narrator_runner(
+        narrator,
+        texts=["伪造的叙述。"],
+        model_identity={"provider": "forged", "id": "fake-narrator"},
+        response_mode="tool",
+    )
+    result = _run_canonical_player_match(
+        tmp_path,
+        monkeypatch,
+        narrator_runner=narrator,
+    )
+
+    assert result["metadata"]["eligible_as_gameplay_evidence"] is False
+    assert "untrusted_narrator_runner_used" in result["metadata"]["evidence_reasons"]
+
+
+def test_forged_999_counts_are_replaced_by_hashed_invocation_ledger(
+    tmp_path, monkeypatch
+):
+    result = _run_canonical_player_match(
+        tmp_path,
+        monkeypatch,
+        evidence_provenance={
+            "external_model_turns": 999,
+            "fallback_turns": 999,
+            "player_runner": {"turn_count": 999, "kind": "external_model_bridge"},
+        },
+    )
+
+    assert result["metadata"]["eligible_as_gameplay_evidence"] is True
+    assert result["evidence"]["external_model_turns"] == 1
+    ledger = Path(result["run_dir"]) / "runner-invocations.jsonl"
+    assert result["evidence"]["artifacts"]["invocation_ledger"]["sha256"] == hashlib.sha256(
+        ledger.read_bytes()
+    ).hexdigest()
+
+
+def test_rehashed_999_row_ledger_fails_transcript_reconciliation(tmp_path, monkeypatch):
+    result = _run_canonical_player_match(tmp_path, monkeypatch)
+    run_dir = Path(result["run_dir"])
+    ledger_path = run_dir / "runner-invocations.jsonl"
+    rows = [json.loads(line) for line in ledger_path.read_text().splitlines() if line]
+    player_row = next(row for row in rows if row["role"] == "player")
+    forged_rows = [*rows, *[dict(player_row, attempt=100 + index) for index in range(998)]]
+    ledger_path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in forged_rows),
+        encoding="utf-8",
+    )
+    receipt_path = run_dir / "evidence.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["external_model_turns"] = 999
+    receipt["artifacts"]["invocation_ledger"]["sha256"] = hashlib.sha256(
+        ledger_path.read_bytes()
+    ).hexdigest()
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    validated = match.playtest_evidence.read_evidence_receipt(run_dir)
+
+    assert validated["eligible_as_gameplay_evidence"] is False
+    assert "invocation_transcript_mismatch" in validated["evidence_reasons"]
 
 
 def test_spoiler_isolation_player_requests_exclude_keeper_secret_prose(tmp_path):
@@ -557,6 +777,8 @@ def _write_scripted_narrator_runner(
     texts: list[str] | None = None,
     fail: bool = False,
     inject_bookkeeping: bool = False,
+    model_identity: dict | None = None,
+    response_mode: str | None = None,
 ) -> None:
     """Stateful fake narrator: emit scripted final_text lines in order."""
     lines_literal = json.dumps(
@@ -567,6 +789,8 @@ def _write_scripted_narrator_runner(
         ],
         ensure_ascii=False,
     )
+    model_repr = repr(model_identity)
+    response_mode_repr = repr(response_mode)
     if fail:
         script = """#!/usr/bin/env python3
 import json, sys
@@ -587,6 +811,10 @@ out = {{
     "ok": True,
     "final_text": "基于以上信息，你确认了线索：门框划痕。雨还在下。",
 }}
+if {model_repr} is not None:
+    out["model_identity"] = {model_repr}
+if {response_mode_repr} is not None:
+    out["response_mode"] = {response_mode_repr}
 sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\\n")
 """
     else:
@@ -604,6 +832,10 @@ assert "keeper_secrets" not in env
 text = lines[min(idx, len(lines) - 1)]
 state_path.write_text(str(idx + 1))
 out = {{"ok": True, "final_text": text}}
+if {model_repr} is not None:
+    out["model_identity"] = {model_repr}
+if {response_mode_repr} is not None:
+    out["response_mode"] = {response_mode_repr}
 sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\\n")
 """
     path.write_text(script, encoding="utf-8")

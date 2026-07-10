@@ -1,30 +1,41 @@
 #!/usr/bin/env python3
-"""Build and validate provenance receipts for evidence-grade playtests.
-
-Eligibility is derived from structured runner attestations and hashes of the
-actual files on disk.  Caller-supplied ``live`` / eligibility booleans are not
-part of the trust decision.
-"""
+"""Build and revalidate evidence-grade COC playtest provenance receipts."""
 from __future__ import annotations
 
 import copy
 import hashlib
 import json
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 
 EVIDENCE_SCHEMA_VERSION = 1
-ELIGIBLE_RUNNER_KINDS = frozenset({"external_model_bridge"})
+SCRIPT_DIR = Path(__file__).resolve().parent
+PLUGIN_DIR = SCRIPT_DIR.parent
+REPO_ROOT = PLUGIN_DIR.parents[1]
+TRUSTED_RUNNER_REGISTRY_PATH = (
+    PLUGIN_DIR / "references" / "trusted-playtest-runners.json"
+)
+LEDGER_OUTCOMES = frozenset(
+    {"external_success", "template", "template_fallback", "runner_failure"}
+)
+FALLBACK_KINDS = frozenset({"template", "prose_degradation"})
 
 
-def _sha256_file(path: Path) -> str:
+def sha256_path(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
+    with Path(path).open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _finding(findings: list[dict[str, str]], code: str, field: str) -> None:
+    item = {"code": code, "field": field, "severity": "error"}
+    if item not in findings:
+        findings.append(item)
 
 
 def _inside_run_dir(run_dir: Path, path: Path) -> bool:
@@ -47,86 +58,16 @@ def _artifact_path(run_dir: Path, raw_path: Any) -> tuple[Path | None, str | Non
     return resolved, resolved.relative_to(run_dir.resolve()).as_posix()
 
 
-def _runner_path(run_dir: Path, raw_path: Any) -> tuple[Path | None, str | None]:
-    if not isinstance(raw_path, (str, Path)) or not str(raw_path).strip():
-        return None, None
-    candidate = Path(raw_path)
-    if not candidate.is_absolute():
-        candidate = run_dir / candidate
-    resolved = candidate.resolve()
-    if _inside_run_dir(run_dir, resolved):
-        return resolved, resolved.relative_to(run_dir.resolve()).as_posix()
-    # Runner executables may live outside a run directory.  Unlike receipt
-    # artifacts, their path is allowed, but it is always hashed from disk.
-    return resolved, str(resolved)
-
-
-def _valid_package_identity(value: Any) -> bool:
-    return (
-        isinstance(value, dict)
-        and isinstance(value.get("name"), str)
-        and bool(value["name"].strip())
-        and isinstance(value.get("version"), str)
-        and bool(value["version"].strip())
-    )
-
-
-def _normalize_model_identity(value: Any) -> Any:
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    if (
-        isinstance(value, dict)
-        and isinstance(value.get("provider"), str)
-        and value["provider"].strip()
-        and isinstance(value.get("model"), str)
-        and value["model"].strip()
-    ):
-        return copy.deepcopy(value)
-    return None
-
-
-def _build_runner(run_dir: Path, source: Any) -> dict[str, Any] | None:
-    if not isinstance(source, dict):
-        return None
-    resolved, stored_path = _runner_path(run_dir, source.get("path"))
-    digest = _sha256_file(resolved) if resolved is not None and resolved.is_file() else None
-    package_identity = source.get("package_identity")
-    return {
-        "kind": str(source.get("kind") or "unknown"),
-        "identity": (
-            source.get("identity").strip()
-            if isinstance(source.get("identity"), str) and source["identity"].strip()
-            else None
-        ),
-        "path": stored_path,
-        "sha256": digest,
-        "package_identity": (
-            copy.deepcopy(package_identity) if _valid_package_identity(package_identity) else None
-        ),
-        "model_identity": _normalize_model_identity(source.get("model_identity")),
-        "turn_count": source.get("turn_count"),
-        "attestation": (
-            copy.deepcopy(source.get("attestation"))
-            if isinstance(source.get("attestation"), dict)
-            else None
-        ),
-    }
-
-
 def _build_artifact(run_dir: Path, raw_path: Any) -> dict[str, Any]:
     resolved, stored_path = _artifact_path(run_dir, raw_path)
     digest = (
-        _sha256_file(resolved)
-        if resolved is not None and _inside_run_dir(run_dir, resolved) and resolved.is_file()
+        sha256_path(resolved)
+        if resolved is not None
+        and _inside_run_dir(run_dir, resolved)
+        and resolved.is_file()
         else None
     )
     return {"path": stored_path, "sha256": digest}
-
-
-def _finding(findings: list[dict[str, str]], code: str, field: str) -> None:
-    item = {"code": code, "field": field, "severity": "error"}
-    if item not in findings:
-        findings.append(item)
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
@@ -153,83 +94,87 @@ def _validate_timestamps(receipt: dict[str, Any], findings: list[dict[str, str]]
         _finding(findings, "timestamp_order_invalid", "ended_at")
 
 
-def _attestation_matches(runner: dict[str, Any], actual_sha256: str | None) -> bool:
-    attestation = runner.get("attestation")
-    if not isinstance(attestation, dict):
-        return False
-    if attestation.get("subject_identity") != runner.get("identity"):
-        return False
-    method = attestation.get("method")
-    if method == "runner_sha256":
-        expected = attestation.get("runner_sha256")
-        return (
-            isinstance(expected, str)
-            and len(expected) == 64
-            and actual_sha256 is not None
-            and expected == actual_sha256
-        )
-    if method == "package_identity":
-        package_identity = runner.get("package_identity")
-        return (
-            _valid_package_identity(package_identity)
-            and attestation.get("package_identity") == package_identity
-        )
-    return False
+def _normalize_model_identity(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    provider = value.get("provider")
+    model_id = value.get("id", value.get("model"))
+    if not (
+        isinstance(provider, str)
+        and provider.strip()
+        and isinstance(model_id, str)
+        and model_id.strip()
+    ):
+        return None
+    return {"provider": provider.strip(), "id": model_id.strip()}
 
 
-def _validate_runner(
-    run_dir: Path,
-    role: str,
-    runner: Any,
+def _load_trusted_registry(
     findings: list[dict[str, str]],
-) -> int:
-    field = f"runners.{role}"
-    if not isinstance(runner, dict):
-        _finding(findings, "runner_missing", field)
-        _finding(findings, "runner_not_attested", field)
-        return 0
+) -> dict[str, dict[str, Any]]:
+    try:
+        payload = json.loads(TRUSTED_RUNNER_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        _finding(findings, "trusted_runner_registry_invalid", "trusted_runner_registry")
+        return {}
+    runners = payload.get("runners") if isinstance(payload, dict) else None
+    if payload.get("schema_version") != 1 or not isinstance(runners, dict):
+        _finding(findings, "trusted_runner_registry_invalid", "trusted_runner_registry")
+        return {}
+    valid: dict[str, dict[str, Any]] = {}
+    for role in ("player", "narrator"):
+        entry = runners.get(role)
+        if not isinstance(entry, dict):
+            _finding(findings, "trusted_runner_registry_invalid", f"registry.{role}")
+            continue
+        canonical = (REPO_ROOT / str(entry.get("path") or "")).resolve()
+        expected = entry.get("sha256")
+        if (
+            entry.get("role") != role
+            or entry.get("kind") != "external_model_bridge"
+            or not isinstance(entry.get("identity"), str)
+            or not entry["identity"].strip()
+            or not canonical.is_file()
+            or not isinstance(expected, str)
+            or sha256_path(canonical) != expected
+        ):
+            _finding(findings, "trusted_runner_registry_mismatch", f"registry.{role}")
+            continue
+        valid[role] = {**copy.deepcopy(entry), "resolved_path": str(canonical)}
+    return valid
 
-    kind = runner.get("kind")
-    kind_eligible = kind in ELIGIBLE_RUNNER_KINDS
-    if kind in (None, "", "absent"):
-        _finding(findings, "runner_missing", f"{field}.kind")
-    elif kind == "unknown":
-        _finding(findings, "runner_kind_unknown", f"{field}.kind")
-    elif not kind_eligible:
-        _finding(findings, "runner_kind_ineligible", f"{field}.kind")
 
-    identity = runner.get("identity")
-    if not isinstance(identity, str) or not identity.strip():
-        _finding(findings, "runner_identity_missing", f"{field}.identity")
-
-    if _normalize_model_identity(runner.get("model_identity")) is None:
-        _finding(findings, "model_identity_missing", f"{field}.model_identity")
-
-    actual_sha256: str | None = None
-    stored_sha256 = runner.get("sha256")
-    raw_path = runner.get("path")
-    if isinstance(raw_path, str) and raw_path.strip():
-        resolved, _stored = _runner_path(run_dir, raw_path)
-        if resolved is not None and resolved.is_file():
-            actual_sha256 = _sha256_file(resolved)
-            if not isinstance(stored_sha256, str) or not stored_sha256:
-                _finding(findings, "runner_hash_missing", f"{field}.sha256")
-            elif actual_sha256 != stored_sha256:
-                _finding(findings, "runner_hash_mismatch", f"{field}.sha256")
-        else:
-            _finding(findings, "runner_hash_missing", f"{field}.sha256")
-    elif not _valid_package_identity(runner.get("package_identity")):
-        _finding(findings, "runner_hash_missing", f"{field}.sha256")
-
-    attested = kind_eligible and _attestation_matches(runner, actual_sha256)
-    if not attested:
-        _finding(findings, "runner_not_attested", f"{field}.attestation")
-
-    turns = runner.get("turn_count")
-    if isinstance(turns, bool) or not isinstance(turns, int) or turns < 0:
-        _finding(findings, "external_model_turns_malformed", f"{field}.turn_count")
-        return 0
-    return turns if attested else 0
+def observe_runner(run_dir: Path, role: str, runner_path: Path | str | None) -> dict[str, Any]:
+    """Describe an observed path using repository-owned trust data only."""
+    findings: list[dict[str, str]] = []
+    registry = _load_trusted_registry(findings)
+    if runner_path is None:
+        return {
+            "role": role,
+            "trusted": role == "narrator",
+            "kind": "absent" if role == "narrator" else "missing",
+            "identity": "deterministic_template" if role == "narrator" else None,
+            "path": None,
+            "sha256": None,
+            "package_identity": None,
+        }
+    resolved = Path(runner_path).resolve()
+    digest = sha256_path(resolved) if resolved.is_file() else None
+    entry = registry.get(role)
+    trusted = bool(
+        entry
+        and str(resolved) == entry.get("resolved_path")
+        and digest == entry.get("sha256")
+    )
+    return {
+        "role": role,
+        "trusted": trusted,
+        "kind": entry["kind"] if trusted else "unknown",
+        "identity": entry["identity"] if trusted else None,
+        "path": str(resolved),
+        "sha256": digest,
+        "package_identity": copy.deepcopy(entry.get("package_identity")) if trusted else None,
+    }
 
 
 def _validate_artifact(
@@ -240,60 +185,220 @@ def _validate_artifact(
     field: str,
     missing_code: str,
     mismatch_code: str,
-) -> None:
+) -> Path | None:
     if not isinstance(artifact, dict):
         _finding(findings, missing_code, field)
-        return
+        return None
     resolved, _stored = _artifact_path(run_dir, artifact.get("path"))
     if resolved is not None and not _inside_run_dir(run_dir, resolved):
         _finding(findings, "artifact_path_outside_run_dir", f"{field}.path")
         _finding(findings, missing_code, f"{field}.sha256")
-        return
+        return None
     stored_hash = artifact.get("sha256")
     if resolved is None or not resolved.is_file() or not isinstance(stored_hash, str):
         _finding(findings, missing_code, f"{field}.sha256")
-        return
-    if _sha256_file(resolved) != stored_hash:
+        return None
+    if sha256_path(resolved) != stored_hash:
         _finding(findings, mismatch_code, f"{field}.sha256")
+        return None
+    return resolved
+
+
+def _read_jsonl(path: Path | None, findings: list[dict[str, str]], code: str) -> list[dict[str, Any]]:
+    if path is None:
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        _finding(findings, code, path.name)
+        return []
+    for index, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            _finding(findings, code, f"{path.name}.{index}")
+            continue
+        if not isinstance(row, dict):
+            _finding(findings, code, f"{path.name}.{index}")
+            continue
+        rows.append(row)
+    return rows
+
+
+def _runner_descriptor(
+    role: str,
+    registry: dict[str, dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if role == "narrator" and rows and all(row.get("runner_path") is None for row in rows):
+        return {
+            "kind": "absent",
+            "identity": "deterministic_template",
+            "sha256": None,
+            "package_identity": None,
+            "model_identities": [],
+        }
+    entry = registry.get(role)
+    trusted_rows = [row for row in rows if _row_matches_registry(row, entry)]
+    models: list[dict[str, str]] = []
+    for row in trusted_rows:
+        model = _normalize_model_identity(row.get("model_identity"))
+        if model is not None and model not in models:
+            models.append(model)
+    if not trusted_rows or entry is None:
+        return {
+            "kind": "unknown" if rows else ("absent" if role == "narrator" else "missing"),
+            "identity": None,
+            "sha256": None,
+            "package_identity": None,
+            "model_identities": models,
+        }
+    return {
+        "kind": entry["kind"],
+        "identity": entry["identity"],
+        "sha256": entry["sha256"],
+        "package_identity": copy.deepcopy(entry.get("package_identity")),
+        "model_identities": models,
+    }
+
+
+def _row_matches_registry(row: dict[str, Any], entry: dict[str, Any] | None) -> bool:
+    if entry is None:
+        return False
+    raw_path = row.get("runner_path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return False
+    resolved = Path(raw_path).resolve()
+    if not resolved.is_file():
+        return False
+    actual = sha256_path(resolved)
+    return (
+        str(resolved) == entry.get("resolved_path")
+        and actual == entry.get("sha256")
+        and row.get("runner_sha256") == actual
+        and row.get("runner_identity") == entry.get("identity")
+    )
+
+
+def _evaluate_ledger(
+    ledger_rows: list[dict[str, Any]],
+    transcript_rows: list[dict[str, Any]],
+    registry: dict[str, dict[str, Any]],
+    findings: list[dict[str, str]],
+) -> tuple[dict[str, Any], int, int]:
+    role_rows: dict[str, list[dict[str, Any]]] = {"player": [], "narrator": []}
+    external_model_turns = 0
+    external_player_turns = 0
+    fallback_turns = 0
+    ledger_shape_invalid = False
+    for index, row in enumerate(ledger_rows):
+        field = f"invocation_ledger.{index}"
+        role = row.get("role")
+        outcome = row.get("outcome")
+        attempt = row.get("attempt")
+        transcript_turn = row.get("transcript_turn")
+        if (
+            role not in role_rows
+            or outcome not in LEDGER_OUTCOMES
+            or isinstance(attempt, bool)
+            or not isinstance(attempt, int)
+            or attempt < 1
+            or isinstance(transcript_turn, bool)
+            or not isinstance(transcript_turn, int)
+            or transcript_turn < 1
+        ):
+            _finding(findings, "invocation_ledger_malformed", field)
+            ledger_shape_invalid = True
+            continue
+        fallback_kind = row.get("fallback_kind")
+        if fallback_kind is not None and fallback_kind not in FALLBACK_KINDS:
+            _finding(findings, "invocation_ledger_malformed", f"{field}.fallback_kind")
+            ledger_shape_invalid = True
+            continue
+        role_rows[role].append(row)
+        if fallback_kind in FALLBACK_KINDS:
+            fallback_turns += 1
+        if outcome != "external_success":
+            continue
+        trusted = _row_matches_registry(row, registry.get(role))
+        model = _normalize_model_identity(row.get("model_identity"))
+        if not trusted:
+            _finding(
+                findings,
+                f"untrusted_{role}_runner_used",
+                f"{field}.runner_path",
+            )
+            continue
+        if model is None:
+            _finding(findings, "model_identity_missing", f"{field}.model_identity")
+            continue
+        external_model_turns += 1
+        if role == "player":
+            external_player_turns += 1
+
+    expected_player = Counter(
+        row.get("turn")
+        for row in transcript_rows
+        if row.get("role") == "player_simulator" and isinstance(row.get("turn"), int)
+    )
+    expected_narrator = Counter(
+        row.get("turn")
+        for row in transcript_rows
+        if row.get("role") == "keeper_under_test" and isinstance(row.get("turn"), int)
+    )
+    observed_player = Counter(row.get("transcript_turn") for row in role_rows["player"])
+    observed_narrator = Counter(row.get("transcript_turn") for row in role_rows["narrator"])
+    if not ledger_shape_invalid and (
+        observed_player != expected_player or observed_narrator != expected_narrator
+    ):
+        _finding(findings, "invocation_transcript_mismatch", "invocation_ledger")
+
+    if external_player_turns < 1:
+        _finding(findings, "no_external_player_turns", "external_model_turns.player")
+        _finding(findings, "no_external_model_turns", "external_model_turns")
+    runners = {
+        role: _runner_descriptor(role, registry, role_rows[role])
+        for role in ("player", "narrator")
+    }
+    if not role_rows["player"]:
+        _finding(findings, "runner_not_trusted", "runners.player")
+    return runners, external_model_turns, fallback_turns
 
 
 def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[str, Any]:
-    """Recompute all trust decisions and current on-disk hash matches."""
+    """Recompute trust, counts, and current artifact hashes from the ledger."""
     root = Path(run_dir)
     validated = copy.deepcopy(receipt) if isinstance(receipt, dict) else {}
     findings: list[dict[str, str]] = []
-    if validated.get("schema_version") != EVIDENCE_SCHEMA_VERSION:
+    if (
+        isinstance(validated.get("schema_version"), bool)
+        or validated.get("schema_version") != EVIDENCE_SCHEMA_VERSION
+    ):
         _finding(findings, "evidence_schema_invalid", "schema_version")
     _validate_timestamps(validated, findings)
-
-    runners = validated.get("runners")
-    if not isinstance(runners, dict):
-        runners = {}
-    external_model_turns = sum(
-        _validate_runner(root, role, runners.get(role), findings)
-        for role in ("player", "narrator")
-    )
-    if external_model_turns < 1:
-        _finding(findings, "no_external_model_turns", "external_model_turns")
-
-    fallback_turns = validated.get("fallback_turns")
-    if (
-        isinstance(fallback_turns, bool)
-        or not isinstance(fallback_turns, int)
-        or fallback_turns < 0
-    ):
-        _finding(findings, "fallback_turns_malformed", "fallback_turns")
+    registry = _load_trusted_registry(findings)
 
     artifacts = validated.get("artifacts")
     if not isinstance(artifacts, dict):
         artifacts = {}
-    _validate_artifact(
+    transcript_path = _validate_artifact(
         root,
         artifacts.get("transcript"),
         findings,
         field="artifacts.transcript",
         missing_code="transcript_hash_missing",
         mismatch_code="transcript_hash_mismatch",
+    )
+    ledger_path = _validate_artifact(
+        root,
+        artifacts.get("invocation_ledger"),
+        findings,
+        field="artifacts.invocation_ledger",
+        missing_code="invocation_ledger_missing",
+        mismatch_code="invocation_ledger_hash_mismatch",
     )
     event_logs = artifacts.get("event_logs")
     if not isinstance(event_logs, list) or not event_logs:
@@ -309,8 +414,18 @@ def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[st
                 mismatch_code="event_log_hash_mismatch",
             )
 
+    transcript_rows = _read_jsonl(transcript_path, findings, "transcript_malformed")
+    ledger_rows = _read_jsonl(ledger_path, findings, "invocation_ledger_malformed")
+    runners, external_model_turns, fallback_turns = _evaluate_ledger(
+        ledger_rows,
+        transcript_rows,
+        registry,
+        findings,
+    )
     reasons = list(dict.fromkeys(item["code"] for item in findings))
+    validated["runners"] = runners
     validated["external_model_turns"] = external_model_turns
+    validated["fallback_turns"] = fallback_turns
     validated["validation_findings"] = findings
     validated["evidence_reasons"] = reasons
     validated["eligible_as_gameplay_evidence"] = not reasons
@@ -321,24 +436,24 @@ def build_evidence_receipt(
     run_dir: Path,
     provenance: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build a canonical receipt from structured provenance and disk bytes."""
+    """Build from non-authoritative observations and repository-owned trust."""
     root = Path(run_dir)
     source = provenance if isinstance(provenance, dict) else {}
-    raw_event_paths = source.get("event_log_paths")
-    event_paths = raw_event_paths if isinstance(raw_event_paths, list) else []
+    event_paths = source.get("event_log_paths")
+    event_paths = event_paths if isinstance(event_paths, list) else []
     receipt: dict[str, Any] = {
         "schema_version": EVIDENCE_SCHEMA_VERSION,
         "started_at": source.get("started_at"),
         "ended_at": source.get("ended_at"),
         "user_claimed_live": source.get("user_claimed_live") is True,
-        "runners": {
-            "player": _build_runner(root, source.get("player_runner")),
-            "narrator": _build_runner(root, source.get("narrator_runner")),
-        },
+        "runners": {},
         "external_model_turns": 0,
-        "fallback_turns": source.get("fallback_turns"),
+        "fallback_turns": 0,
         "artifacts": {
             "transcript": _build_artifact(root, source.get("transcript_path")),
+            "invocation_ledger": _build_artifact(
+                root, source.get("invocation_ledger_path")
+            ),
             "event_logs": [_build_artifact(root, path) for path in event_paths],
         },
         "validation_findings": [],
@@ -347,20 +462,24 @@ def build_evidence_receipt(
     }
     return validate_evidence_receipt(root, receipt)
 
+
 def _invalid_receipt(code: str) -> dict[str, Any]:
     finding = {"code": code, "field": "evidence.json", "severity": "error"}
     return {
         "schema_version": EVIDENCE_SCHEMA_VERSION,
+        "runners": {
+            "player": {"kind": "missing", "identity": None, "model_identities": []},
+            "narrator": {"kind": "absent", "identity": "deterministic_template", "model_identities": []},
+        },
         "validation_findings": [finding],
         "evidence_reasons": [code],
         "eligible_as_gameplay_evidence": False,
         "external_model_turns": 0,
-        "fallback_turns": None,
+        "fallback_turns": 0,
     }
 
 
 def write_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> Path:
-    """Validate and write exactly ``run_dir/evidence.json``."""
     root = Path(run_dir)
     root.mkdir(parents=True, exist_ok=True)
     validated = validate_evidence_receipt(root, receipt)
@@ -373,7 +492,6 @@ def write_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> Path:
 
 
 def read_evidence_receipt(run_dir: Path) -> dict[str, Any]:
-    """Read and revalidate a receipt, failing closed when absent/malformed."""
     root = Path(run_dir)
     path = root / "evidence.json"
     if not path.is_file():
