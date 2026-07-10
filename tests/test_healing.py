@@ -193,19 +193,66 @@ def test_weekly_recovery_capped_at_max():
     assert ev["hp_gained"] == 1
 
 
-def test_weekly_recovery_major_wound_con_roll():
-    """Major wound: rate determined by daily CON roll (reg=1D3, extreme=2D3, fail=0)."""
+def test_weekly_recovery_with_major_wound_defers_to_weekly_con_roll():
+    """Major wound: natural rest alone no longer heals per-day; the weekly
+    CON recovery roll (major_wound_recovery_roll) is the only path (p.121)."""
     rng = random.Random(42)
     sess = coc_healing.HealingSession(
         "inv1", hp_max=12, con_value=70, current_hp=2,
         conditions=["major_wound"], rng=rng)
     ev = sess.weekly_recovery(days_of_rest=3)
     assert ev["had_major_wound"] is True
-    assert ev["con_rolls"] is not None
-    assert len(ev["con_rolls"]) == 3
-    # total gained must be a plausible sum of 0/1D3/2D3 over 3 days (0..18)
-    assert 0 <= ev["hp_gained"] <= 18
-    assert sess.current_hp == 2 + ev["hp_gained"]
+    assert ev["hp_gained"] == 0
+    assert ev["major_wound_recovery_required"] is True
+    assert sess.current_hp == 2
+
+
+# --------------------------------------------------------------------------- #
+# Major wound recovery — weekly CON roll (p.121)
+# --------------------------------------------------------------------------- #
+def _wounded_session(con: int = 50, seed: int = 3) -> "coc_healing.HealingSession":
+    return coc_healing.HealingSession(
+        "h", hp_max=15, con_value=con, rng=random.Random(seed),
+        current_hp=4, conditions=["major_wound"])
+
+
+def test_major_wound_recovery_is_weekly_con_roll():
+    sess = _wounded_session(con=99)
+    ev = sess.major_wound_recovery_roll(roll_result=_roll("regular"))
+    assert ev["event_type"] == "major_wound_recovery"
+    assert 1 <= ev["hp_gained"] <= 3
+
+
+def test_major_wound_recovery_failure_heals_nothing():
+    sess = _wounded_session()
+    ev = sess.major_wound_recovery_roll(roll_result=_roll("failure"))
+    assert ev["hp_gained"] == 0
+    assert "major_wound" in sess.conditions
+
+
+def test_recovery_bonus_dice_from_rest_and_care():
+    sess = _wounded_session()
+    ev = sess.major_wound_recovery_roll(complete_rest=True, medical_care_success=True)
+    assert ev["bonus_dice"] == 2 and ev["penalty_dice"] == 0
+
+
+def test_recovery_penalty_die_from_poor_environment():
+    sess = _wounded_session()
+    ev = sess.major_wound_recovery_roll(poor_environment=True)
+    assert ev["penalty_dice"] == 1
+
+
+def test_recovery_extreme_success_clears_major_wound():
+    sess = _wounded_session(con=99)
+    ev = sess.major_wound_recovery_roll(roll_result=_roll("extreme"))
+    assert 2 <= ev["hp_gained"] <= 6
+    assert "major_wound" not in sess.conditions
+
+
+def test_recovery_fumble_emits_lasting_injury():
+    sess = _wounded_session(con=10)
+    sess.major_wound_recovery_roll(roll_result=_roll("fumble"))
+    assert any(e["event_type"] == "lasting_injury" for e in sess.events)
 
 
 def test_weekly_recovery_zero_days_is_noop():

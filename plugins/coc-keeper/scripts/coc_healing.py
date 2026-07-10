@@ -308,11 +308,12 @@ class HealingSession:
     # Weekly/daily recovery (p.121)
     # ------------------------------------------------------------------ #
     def weekly_recovery(self, days_of_rest: int) -> dict[str, Any]:
-        """Natural recovery over days of rest (p.122).
+        """Natural recovery over days of rest (p.121).
 
         - Without a major wound: restore 1 HP per day of rest.
-        - With a major wound: a CON roll at the end of each day determines
-          the rate: failure = 0 HP, regular = 1D3 HP, extreme = 2D3 HP.
+        - With a major wound: natural rest alone does not heal — recovery is
+          resolved by the *weekly* CON roll (``major_wound_recovery_roll``);
+          this method only flags that the weekly roll is required.
 
         Returns the event record (aggregate over the rest period).
         """
@@ -322,41 +323,79 @@ class HealingSession:
                 "summary": f"{self.investigator_id} no rest taken.",
             })
         hp_before = self.current_hp
-        total_gained = 0
-        rolls: list[dict[str, Any]] = []
         had_major_wound = self.has_major_wound
         if had_major_wound:
-            for day in range(days_of_rest):
-                con_res = coc_roll.percentile_check(self.con_value, rng=self._rng)
-                outcome = con_res.get("outcome")
-                if outcome == "extreme":
-                    dice = coc_roll.roll_expression("2D3", rng=self._rng)
-                    gained = self._heal(int(dice.get("total", 0)))
-                elif outcome in ("regular", "hard", "critical"):
-                    dice = coc_roll.roll_expression("1D3", rng=self._rng)
-                    gained = self._heal(int(dice.get("total", 0)))
-                else:  # failure / fumble
-                    gained = 0
-                total_gained += gained
-                rolls.append({"day": day + 1, "con_outcome": outcome, "hp_gained": gained})
-        else:
-            # No major wound: 1 HP/day of rest
-            total_gained = self._heal(days_of_rest)
-        event = self._event("weekly_recovery", {
+            return self._event("weekly_recovery", {
+                "days_of_rest": days_of_rest,
+                "had_major_wound": True,
+                "hp_before": hp_before,
+                "hp_gained": 0,
+                "hp_after": self.current_hp,
+                "major_wound_recovery_required": True,
+                "rule_ref": "core.combat.major_wound_recovery",
+                "summary": (f"{self.investigator_id} rested {days_of_rest} day(s) "
+                            "with a major wound: healing requires the weekly "
+                            "CON recovery roll (p.121)."),
+            })
+        total_gained = self._heal(days_of_rest)
+        return self._event("weekly_recovery", {
             "days_of_rest": days_of_rest,
-            "had_major_wound": had_major_wound,
+            "had_major_wound": False,
             "hp_before": hp_before,
             "hp_gained": total_gained,
             "hp_after": self.current_hp,
-            "con_rolls": rolls if had_major_wound else None,
-            "summary": (
-                f"{self.investigator_id} recovered {total_gained} HP over "
-                f"{days_of_rest} day(s) of rest"
-                + (" (major wound: CON rolls)" if rolls else "")
-                + "."
-            ),
+            "summary": (f"{self.investigator_id} recovered {total_gained} HP over "
+                        f"{days_of_rest} day(s) of rest."),
         })
-        return event
+
+    def major_wound_recovery_roll(self, *, complete_rest: bool = False,
+                                  medical_care_success: bool | None = None,
+                                  poor_environment: bool = False,
+                                  medicine_fumbled: bool = False,
+                                  roll_result: dict | None = None) -> dict[str, Any]:
+        """p.121: a CON roll at the end of each week the Major Wound box is
+        ticked.
+
+        - Failure: no recovery that week. Success: +1D3 HP. Extreme: +2D3 HP
+          and the major wound is healed (marker erased).
+        - +1 bonus die for complete rest in a comfortable environment; +1
+          bonus die for effective medical care (weekly Medicine roll success).
+        - +1 penalty die for a poor environment / insufficient rest, or when
+          the carer's Medicine roll fumbled.
+        - Fumble: a lasting injury or complication — the Keeper picks one tied
+          to the wound and records it in the backstory (Wounds & Scars).
+        """
+        bonus = int(bool(complete_rest)) + int(bool(medical_care_success))
+        penalty = int(bool(poor_environment) or bool(medicine_fumbled))
+        res = roll_result or coc_roll.percentile_check(
+            self.con_value, bonus=bonus, penalty=penalty, rng=self._rng)
+        outcome = res.get("outcome")
+        hp_before = self.current_hp
+        gained = 0
+        if outcome == "extreme":
+            gained = self._heal(int(coc_roll.roll_expression("2D3", rng=self._rng)["total"]))
+            if "major_wound" in self.conditions:
+                self.conditions.remove("major_wound")
+        elif outcome in ("regular", "hard", "critical"):
+            gained = self._heal(int(coc_roll.roll_expression("1D3", rng=self._rng)["total"]))
+        elif outcome == "fumble":
+            self._event("lasting_injury", {
+                "rule_ref": "core.combat.major_wound_recovery_fumble",
+                "keeper_note": ("Pick a lasting injury/complication tied to the "
+                                "nature of the wound (permanent limp, lost "
+                                "fingers, scarred face ...) and record it in the "
+                                "backstory under Wounds & Scars (p.121)."),
+                "summary": f"{self.investigator_id} recovery fumble: lasting injury.",
+            })
+        # HP >= half max also clears the major wound (second path, p.121) —
+        # handled by _heal.
+        return self._event("major_wound_recovery", {
+            "outcome": outcome, "bonus_dice": bonus, "penalty_dice": penalty,
+            "hp_before": hp_before, "hp_gained": gained, "hp_after": self.current_hp,
+            "rule_ref": "core.combat.major_wound_recovery",
+            "summary": (f"{self.investigator_id} weekly recovery CON ({outcome}): "
+                        f"+{gained} HP."),
+        })
 
     # ------------------------------------------------------------------ #
     # Daily reset (called by coc_time end-of-day / anchor)
@@ -445,8 +484,13 @@ def handle_time_trigger(
     # A sleep_night (>=6h = 360 min) counts as one day of rest recovery.
     if delta_minutes >= 360:
         days = max(1, delta_minutes // 480)  # ~8h per full day of rest
-        days = min(days, 7)  # cap weekly_recovery per call to a week
-        sess.weekly_recovery(days)
+        days = min(days, 7)  # cap recovery per call to a week
+        if sess.has_major_wound:
+            # p.121: major wounds heal via a weekly CON roll, not per-day rest.
+            for _ in range(days // 7):
+                sess.major_wound_recovery_roll(complete_rest=True)
+        else:
+            sess.weekly_recovery(days)
     # Reset daily trackers for the new day.
     sess.reset_daily_treatments()
     gained = sess.current_hp - HealingSession.load(
