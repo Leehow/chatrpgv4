@@ -154,3 +154,17 @@ def test_run_narration_mjs_is_real_bridge_not_placeholder():
     assert "placeholder" not in source.lower()
     pkg = json.loads((NARRATOR_DIR / "package.json").read_text(encoding="utf-8"))
     assert pkg["dependencies"]["@earendil-works/pi-coding-agent"] == "0.79.9"
+
+
+def test_run_narration_mjs_surfaces_grounded_envelope_fields():
+    """Bridge prompt must call out clue bodies, rule results, scene, npc seeds."""
+    source = (NARRATOR_DIR / "run_narration.mjs").read_text(encoding="utf-8")
+    for needle in (
+        "approved_reveals",
+        "player_safe_summary",
+        "rule_results",
+        "scene_anchor",
+        "dialogue_seed",
+        "sensory",
+    ):
+        assert needle in source, f"run_narration.mjs should surface {needle!r}"

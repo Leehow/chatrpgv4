@@ -92,6 +92,95 @@ function summarizeEnvelope(envelope) {
   }
 }
 
+function formatClueSummaries(envelope) {
+  const reveals = envelope && envelope.approved_reveals;
+  if (!reveals || typeof reveals !== "object") return "(none)";
+  const clues = Array.isArray(reveals.clues) ? reveals.clues : [];
+  const lines = clues
+    .map((c) => {
+      if (!c || typeof c !== "object") return "";
+      const id = c.clue_id || "";
+      const summary = String(c.player_safe_summary || "").trim();
+      if (!summary) return id ? `- ${id}` : "";
+      return id ? `- ${id}: ${summary}` : `- ${summary}`;
+    })
+    .filter(Boolean);
+  const must = Array.isArray(reveals.must_include) ? reveals.must_include : [];
+  for (const item of must) {
+    const text =
+      typeof item === "string"
+        ? item.trim()
+        : item && typeof item === "object"
+          ? String(item.cue || item.text || item.summary || "").trim()
+          : "";
+    if (text) lines.push(`- must_include: ${text}`);
+  }
+  return lines.length ? lines.join("\n") : "(none)";
+}
+
+function formatRuleResults(envelope) {
+  const results = envelope && Array.isArray(envelope.rule_results)
+    ? envelope.rule_results
+    : [];
+  if (!results.length) return "(none — no settled rolls this turn)";
+  return results
+    .map((r, i) => {
+      if (!r || typeof r !== "object") return "";
+      const who = r.investigator_display_name || "investigator";
+      const skill = r.skill || "check";
+      const outcome = r.outcome || (r.success ? "success" : "failure");
+      const parts = [`[${i + 1}] ${who} · ${skill} → ${outcome}`];
+      if (r.player_visible_cost) {
+        parts.push(`cost: ${r.player_visible_cost}`);
+      }
+      if (r.bonus_reveal) {
+        parts.push(`bonus: ${r.bonus_reveal}`);
+      }
+      if (r.san_loss != null) {
+        parts.push(`SAN loss: ${r.san_loss}`);
+      }
+      return parts.join(" | ");
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatSceneAnchor(envelope) {
+  const anchor = envelope && envelope.scene_anchor;
+  if (!anchor || typeof anchor !== "object") return "(none)";
+  const lines = [];
+  if (anchor.display_name) lines.push(`Location: ${anchor.display_name}`);
+  if (anchor.scene_id) lines.push(`scene_id: ${anchor.scene_id}`);
+  const sensory = Array.isArray(anchor.sensory_anchors)
+    ? anchor.sensory_anchors.filter(Boolean)
+    : [];
+  if (sensory.length) lines.push(`Sensory anchors: ${sensory.join("; ")}`);
+  const tags = Array.isArray(anchor.location_tags)
+    ? anchor.location_tags.filter(Boolean)
+    : [];
+  if (tags.length) lines.push(`Location tags: ${tags.join(", ")}`);
+  return lines.length ? lines.join("\n") : "(none)";
+}
+
+function formatNpcSeeds(envelope) {
+  const moves = envelope && Array.isArray(envelope.npc_moves)
+    ? envelope.npc_moves
+    : [];
+  if (!moves.length) return "(none)";
+  return moves
+    .map((m) => {
+      if (!m || typeof m !== "object") return "";
+      const name = m.display_name || m.npc_id || "NPC";
+      const seed = String(m.dialogue_seed || m.emotional_tone || "").trim();
+      const secretNote = m.has_secret ? " (has unspoken secret — do not reveal)" : "";
+      return seed
+        ? `- ${name}${secretNote}: ${seed}`
+        : `- ${name}${secretNote}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 function formatRecent(recent) {
   if (!Array.isArray(recent) || recent.length === 0) {
     return "(none)";
@@ -105,14 +194,27 @@ function formatRecent(recent) {
 
 function buildPromptText(request) {
   const playLanguage = request.play_language || "zh-Hans";
+  const envelope = request.narration_envelope || {};
   const sections = [
     `Play language for final_text: ${playLanguage}`,
     "",
     "## Last player action",
     String(request.last_player_text ?? "(none)"),
     "",
+    "## Scene anchor (location + sensory)",
+    formatSceneAnchor(envelope),
+    "",
+    "## Approved clue reveals (weave player_safe_summary into prose)",
+    formatClueSummaries(envelope),
+    "",
+    "## Settled rule_results (narrate fictional consequences; no dice math)",
+    formatRuleResults(envelope),
+    "",
+    "## NPC dialogue seeds (keep character voice; do not reveal secrets)",
+    formatNpcSeeds(envelope),
+    "",
     "## Narration envelope (player-safe; do not invent beyond this)",
-    summarizeEnvelope(request.narration_envelope),
+    summarizeEnvelope(envelope),
     "",
     "## Recent narrations (vary wording; do not repeat)",
     formatRecent(request.recent_narrations),
