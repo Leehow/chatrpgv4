@@ -337,13 +337,16 @@ def run_live_match(
         )
         player_text = player_result["player_text"]
         player_notes = player_result.get("player_notes")
+        # Per-turn structured intent from the player brain takes precedence over
+        # the match-level CLI override (Semantic Matcher: structured evidence).
+        turn_intent_class = player_result.get("intent_class") or intent_class
 
         live_result = live_turn_runner.run_live_turn(
             camp,
             char_path,
             investigator_id,
             player_text,
-            intent_class=intent_class,
+            intent_class=turn_intent_class,
             player_intent_rich=player_intent_rich,
             max_auto_advance=1,
             auto_advance_low_agency=False,
@@ -357,7 +360,7 @@ def run_live_match(
             "text": player_text,
             "player_text": player_text,
             "player_notes": player_notes,
-            "intent_class": intent_class,
+            "intent_class": turn_intent_class,
         }
         player_choices.append(choice_record)
         player_turns.append(

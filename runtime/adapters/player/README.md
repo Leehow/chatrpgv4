@@ -11,7 +11,7 @@ for the Keeper). The player adapter is a separate match-harness bridge.
 
 | File | Role |
 |------|------|
-| `adapter.py` | Python wrapper: `player_send_turn(request) -> {player_text, player_notes?}` |
+| `adapter.py` | Python wrapper: `player_send_turn(request) -> {player_text, player_notes?, intent_class?}` |
 | `run_player_turn.mjs` | Placeholder Node stub (real bridge wiring is environment-specific) |
 
 ## Request / response
@@ -31,10 +31,23 @@ for the Keeper). The player adapter is a separate match-harness bridge.
 **Response:**
 
 ```json
-{ "ok": true, "player_text": "...", "player_notes": "optional in-character reasoning" }
+{
+  "ok": true,
+  "player_text": "...",
+  "player_notes": "optional in-character reasoning",
+  "intent_class": "optional canonical intent enum value"
+}
 ```
 
 `player_notes` are stored for the battle report and must never be fed back into KP.
+
+Optional `intent_class` is structured semantic evidence from the player brain
+(not keyword scanning). Allowed values mirror
+`plugins/coc-keeper/scripts/coc_intent_router.py` `_PRIMARY_INTENT_ENUM`:
+`investigate`, `social`, `move`, `combat`, `flee`, `meta`, `stuck`, `idle`,
+`ambiguous`, `montage`, `cast`. Invalid values raise `RuntimeError` (bridge
+contract violation). When present, `coc_live_match` passes it through to
+`run_live_turn`'s caller-intent parameter.
 
 ## Fake runners (tests)
 

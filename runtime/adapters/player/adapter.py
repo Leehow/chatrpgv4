@@ -14,6 +14,26 @@ PLAYER_REQUEST_KEYS = (
     "pending_choice",
 )
 
+# Mirrored from plugins/coc-keeper/scripts/coc_intent_router.py
+# ``_PRIMARY_INTENT_ENUM`` (source of truth). Runtime must not import plugin
+# scripts (Runtime Track); keep this frozenset in sync via
+# tests/test_intent_router.py::test_player_adapter_intent_class_enum_stays_in_sync_with_router.
+CANONICAL_INTENT_CLASSES = frozenset(
+    {
+        "investigate",
+        "social",
+        "move",
+        "combat",
+        "flee",
+        "meta",
+        "stuck",
+        "idle",
+        "ambiguous",
+        "montage",
+        "cast",
+    }
+)
+
 
 def _player_dir() -> Path:
     return Path(__file__).resolve().parent
@@ -31,7 +51,11 @@ def _runner_cmd(runner_path: Path) -> list[str]:
 
 
 def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
-    """Validate runner JSON envelope and return player_text (+ optional notes)."""
+    """Validate runner JSON envelope and return player_text (+ optional fields).
+
+    Optional ``intent_class`` is structured semantic evidence from the player
+    brain (canonical enum). Invalid values are a bridge contract violation.
+    """
     if not isinstance(raw, dict):
         raise RuntimeError("player runner response must be a JSON object")
     if raw.get("ok") is not True:
@@ -46,6 +70,14 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(notes, str):
             raise RuntimeError("player_notes must be a string when present")
         result["player_notes"] = notes
+    if "intent_class" in raw and raw.get("intent_class") is not None:
+        intent_class = raw.get("intent_class")
+        if not isinstance(intent_class, str) or intent_class not in CANONICAL_INTENT_CLASSES:
+            raise RuntimeError(
+                f"player runner intent_class {intent_class!r} is not a canonical "
+                f"intent class (bridge contract violation)"
+            )
+        result["intent_class"] = intent_class
     return result
 
 

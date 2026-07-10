@@ -31,20 +31,33 @@ def _load(name: str, path: Path):
 match = _load("coc_live_match", SCRIPT)
 
 
-def _write_scripted_player_runner(path: Path, lines: list[str]) -> None:
-    """Stateful fake runner: emit scripted player_text lines in order."""
+def _write_scripted_player_runner(
+    path: Path,
+    lines: list[str],
+    *,
+    intent_classes: list[str] | None = None,
+) -> None:
+    """Stateful fake runner: emit scripted player_text lines in order.
+
+    When ``intent_classes`` is provided, each turn's response includes that
+    structured ``intent_class`` (player-brain semantic evidence).
+    """
     lines_literal = json.dumps(lines, ensure_ascii=False)
+    intents_repr = repr(intent_classes)
     script = f"""#!/usr/bin/env python3
 import json, sys
 from pathlib import Path
 state_path = Path(__file__).with_suffix(".state")
 lines = {lines_literal}
+intent_classes = {intents_repr}
 idx = int(state_path.read_text()) if state_path.exists() else 0
 req = json.loads(sys.stdin.read())
 assert "public_state" in req and "character_card" in req
 text = lines[min(idx, len(lines) - 1)]
 state_path.write_text(str(idx + 1))
 out = {{"ok": True, "player_text": text, "player_notes": f"note-for-turn-{{idx+1}}"}}
+if intent_classes is not None:
+    out["intent_class"] = intent_classes[min(idx, len(intent_classes) - 1)]
 sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\\n")
 """
     path.write_text(script, encoding="utf-8")
@@ -407,3 +420,38 @@ def test_spoiler_isolation_player_requests_exclude_keeper_secret_prose(tmp_path)
         assert "npc_agendas" not in req
         assert "director_plan" not in req
         assert "narrative_directives" not in req
+
+
+def test_scripted_match_passes_runner_intent_class_into_turn(tmp_path):
+    """Structured intent_class from the player envelope reaches turn records."""
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    runner = tmp_path / "scripted_player_intent"
+    _write_scripted_player_runner(
+        runner,
+        ["我仔细搜查现场寻找线索。"],
+        intent_classes=["investigate"],
+    )
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=runner,
+        max_turns=1,
+        rng_seed=42,
+        live=False,
+        # No match-level intent_class — envelope must supply it.
+        intent_class=None,
+    )
+    assert result["player_choices"], "expected player_choices"
+    assert result["player_choices"][0]["intent_class"] == "investigate"
+    pacing = json.loads(
+        (
+            workspace
+            / ".coc"
+            / "campaigns"
+            / campaign_id
+            / "save"
+            / "pacing-state.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert "investigate" in pacing.get("recent_intent_classes", [])

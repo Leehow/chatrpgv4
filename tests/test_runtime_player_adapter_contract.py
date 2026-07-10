@@ -101,6 +101,30 @@ def test_parse_runner_response_rejects_non_string_player_text():
         adapter.parse_runner_response({"ok": True, "player_text": 42})
 
 
+def test_parse_runner_response_accepts_valid_intent_class():
+    adapter = _load_adapter()
+    parsed = adapter.parse_runner_response(
+        {
+            "ok": True,
+            "player_text": "我仔细搜查现场。",
+            "intent_class": "investigate",
+        }
+    )
+    assert parsed["intent_class"] == "investigate"
+
+
+def test_parse_runner_response_rejects_invalid_intent_class():
+    adapter = _load_adapter()
+    with pytest.raises(RuntimeError, match="intent_class"):
+        adapter.parse_runner_response(
+            {
+                "ok": True,
+                "player_text": "我仔细搜查现场。",
+                "intent_class": "flirting",
+            }
+        )
+
+
 def test_player_send_turn_round_trip_with_fake_runner(tmp_path):
     adapter = _load_adapter()
     runner = tmp_path / "fake_player_runner"
