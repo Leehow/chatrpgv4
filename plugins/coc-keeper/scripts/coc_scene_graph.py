@@ -327,10 +327,19 @@ def record_scene_enter(
     ts: str | None = None,
     mark_previous_exhausted: str | None = None,
 ) -> None:
-    """Update visited/history (and optionally mark prior scene exhausted)."""
+    """Update visited/history (and optionally mark prior scene exhausted).
+
+    When departing a scene, the departed id is recorded in ``visited_scene_ids``
+    before the arrival id so leave/enter both persist. History appends the
+    arrival entry ``{scene_id, entered_at_decision_id?, ts?}``.
+    """
     ensure_world_scene_fields(world)
     sid = str(scene_id)
     visited = list(world.get("visited_scene_ids") or [])
+    if mark_previous_exhausted:
+        prev = str(mark_previous_exhausted)
+        if prev and prev not in visited:
+            visited.append(prev)
     if sid not in visited:
         visited.append(sid)
     world["visited_scene_ids"] = visited
@@ -342,6 +351,7 @@ def record_scene_enter(
     entry: dict[str, Any] = {"scene_id": sid}
     if decision_id:
         entry["entered_at_decision_id"] = decision_id
+        entry["decision_id"] = decision_id
     if ts:
         entry["ts"] = ts
     history.append(entry)

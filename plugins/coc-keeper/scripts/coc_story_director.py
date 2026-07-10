@@ -801,6 +801,29 @@ def _bridge_transition_override(ctx: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _move_transition_override(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    """Force CUT when structured move intent has an unlocked reachable target.
+
+    Beats structure-weight demotion of CUT (e.g. hub_sandbox 0.7) so CHARACTER
+    cannot trap the party in the start scene after R-3 unlock.
+    """
+    if str(ctx.get("player_intent_class") or "") != "move":
+        return None
+    scene = ctx.get("active_scene") or {}
+    candidates = coc_scene_graph.transition_candidates(
+        ctx.get("active_scene_id") or scene.get("scene_id"),
+        ctx.get("story_graph"),
+        ctx.get("world_state") or {},
+    )
+    if not candidates:
+        return None
+    return {
+        "scene_action": "CUT",
+        "handoff": "narration",
+        "rationale": "structured move intent with unlocked reachable scene; commit transition",
+    }
+
+
 def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     try:
         parsed = int(value)
@@ -1193,6 +1216,8 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
     if action == "CUT":
         # dramatic question answered OR exit condition met — but only when
         # at least one unlocked, non-exhausted edge target exists (R-3).
+        # Structured move intent strongly favors transition when a legal
+        # target is already unlocked (acceptance: never prose-scan).
         candidates = coc_scene_graph.transition_candidates(
             ctx.get("active_scene_id") or scene.get("scene_id"),
             ctx.get("story_graph"),
@@ -1200,8 +1225,17 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         )
         if not candidates:
             return 0.0
+        if intent == "move":
+            return 1.0
         exit_met = any(_eval_exit(e, ctx) for e in scene.get("exit_conditions", []))
-        return 0.8 if exit_met else 0.0
+        if exit_met:
+            return 0.8
+        # Existing stalled_turns pacing raises transition pressure when a
+        # reachable unlocked target already exists (no new keyword system).
+        stalled = int(sig.get("stalled_turns", 0) or 0)
+        if stalled >= 2:
+            return min(0.85, 0.45 + 0.15 * stalled)
+        return 0.0
 
     if action == "MONTAGE":
         return 0.6 if intent == "montage" else 0.0
@@ -1286,6 +1320,9 @@ def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
     bridge_override = _bridge_transition_override(ctx)
     if bridge_override is not None:
         return bridge_override
+    move_override = _move_transition_override(ctx)
+    if move_override is not None:
+        return move_override
     if sig.get("low_agency_continue_count", 0) >= 2 and sig.get("scene_pressure_available", False):
         return {"scene_action": "PRESSURE", "handoff": "narration",
                 "rationale": "repeated low-agency continuation yields initiative to authored scene pressure"}

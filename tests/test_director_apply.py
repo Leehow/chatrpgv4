@@ -1906,3 +1906,64 @@ def test_apply_fair_warning_idempotent_per_decision_id(tmp_path):
     assert any(e.get("skipped") == "duplicate_decision_id" for e in events2)
     pacing2 = json.loads((camp / "save" / "pacing-state.json").read_text())
     assert pacing2["lethal_chances_used"] == 1
+
+
+def test_apply_cut_records_departed_visited_and_scene_history(tmp_path):
+    """On CUT transition, departed scene lands in visited; history appends enter."""
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "mission-briefing"
+    world["unlocked_scene_ids"] = ["mission-briefing", "crossing-saddle"]
+    world["visited_scene_ids"] = []
+    world["exhausted_scene_ids"] = []
+    world["scene_history"] = []
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {
+        "scenes": [
+            {
+                "scene_id": "mission-briefing",
+                "available_clues": ["clue-briefing"],
+                "dramatic_question": "q1",
+                "entry_conditions": [],
+                "exit_conditions": ["orders_received"],
+            },
+            {
+                "scene_id": "crossing-saddle",
+                "available_clues": ["clue-saddle"],
+                "dramatic_question": "q2",
+                "entry_conditions": [],
+                "exit_conditions": [],
+            },
+        ]
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {
+        "decision_id": "d-move-cut",
+        "scene_action": "CUT",
+        "transition_to": "crossing-saddle",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+        "turn_input": {
+            "player_intent_class": "move",
+            "active_scene_id": "mission-briefing",
+        },
+    }
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "crossing-saddle"
+    assert "mission-briefing" in world2["visited_scene_ids"]
+    assert "crossing-saddle" in world2["visited_scene_ids"]
+    assert any(
+        h.get("scene_id") == "crossing-saddle"
+        and (h.get("entered_at_decision_id") == "d-move-cut" or h.get("decision_id") == "d-move-cut")
+        for h in world2["scene_history"]
+    )
+    assert any(
+        e.get("event_type") == "scene_transition"
+        and e.get("from_scene") == "mission-briefing"
+        and e.get("to_scene") == "crossing-saddle"
+        for e in events
+    )

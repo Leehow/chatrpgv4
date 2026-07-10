@@ -2363,3 +2363,103 @@ def test_believer_false_does_not_inject_mythos_bleak(tmp_path):
     )
     plan = coc_story_director.generate_director_plan(ctx, "believer-false-tone")
     assert "mythos_bleak" not in plan["narrative_directives"]["tone"]
+
+
+def test_move_intent_with_unlocked_reachable_target_selects_cut(tmp_path):
+    """Acceptance defect: move + unlocked edge target must propose CUT/transition.
+
+    Narrative exit_conditions alone must not block a structured move intent when
+    transition_candidates is non-empty (R-3 unlock already landed).
+    """
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = {
+        "scenes": [
+            {
+                "scene_id": "mission-briefing",
+                "scene_type": "social",
+                "dramatic_question": "Will they accept?",
+                "entry_conditions": [],
+                "exit_conditions": ["orders_received", "patrol_armed_and_briefed"],
+                "available_clues": ["clue-briefing"],
+                "npc_ids": ["npc-commander"],
+                "pressure_moves": [],
+                "tone": ["cold"],
+                "allowed_improvisation": [],
+            },
+            {
+                "scene_id": "crossing-saddle",
+                "scene_type": "exploration",
+                "dramatic_question": "Can they cross?",
+                "entry_conditions": [],
+                "exit_conditions": [],
+                "available_clues": ["clue-saddle"],
+                "npc_ids": [],
+                "pressure_moves": [],
+                "tone": ["tense"],
+                "allowed_improvisation": [],
+            },
+        ]
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [{"npc_id": "npc-commander", "agenda": "withhold the true objective", "desire": "keep order"}]
+    }))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "mission-briefing"
+    world["discovered_clue_ids"] = ["clue-briefing"]
+    world["unlocked_scene_ids"] = ["mission-briefing", "crossing-saddle"]
+    world["visited_scene_ids"] = []
+    world["exhausted_scene_ids"] = []
+    world["scene_history"] = []
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我们沿鞍部侧脊推进。",
+        player_intent_class="move",
+        rng=random.Random(42),
+    )
+    score = coc_story_director._base_score("CUT", ctx)
+    assert score >= 0.9
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="move-cut-1")
+    assert plan["scene_action"] == "CUT"
+    assert plan.get("transition_to") == "crossing-saddle"
+
+
+def test_stalled_turns_raise_cut_score_when_transition_candidates_exist(tmp_path):
+    """Existing stalled_turns pacing should raise CUT pressure when a target is open."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"].append({
+        "scene_id": "scene-2",
+        "scene_type": "investigation",
+        "dramatic_question": "next?",
+        "entry_conditions": [],
+        "exit_conditions": [],
+        "available_clues": ["clue-2"],
+        "npc_ids": [],
+        "pressure_moves": [],
+        "tone": ["tense"],
+        "allowed_improvisation": [],
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["unlocked_scene_ids"] = ["scene-1", "scene-2"]
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["idle", "idle"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="……",
+        player_intent_class="idle",
+        rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["stalled_turns"] >= 2
+    score = coc_story_director._base_score("CUT", ctx)
+    assert score > 0.0

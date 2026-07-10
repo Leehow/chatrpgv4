@@ -455,3 +455,63 @@ def test_scripted_match_passes_runner_intent_class_into_turn(tmp_path):
         ).read_text(encoding="utf-8")
     )
     assert "investigate" in pacing.get("recent_intent_classes", [])
+
+
+def test_scripted_match_move_crosses_into_unlocked_scene(tmp_path):
+    """Integration: after unlock, a move-intent turn must leave the start scene."""
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    camp = workspace / ".coc" / "campaigns" / campaign_id
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text(encoding="utf-8"))
+    # Narrative exits block clue-exhaustion auto-advance (acceptance shape).
+    story["scenes"][0]["exit_conditions"] = ["orders_received"]
+    story["scenes"][0]["npc_ids"] = ["npc-commander"]
+    (camp / "scenario" / "story-graph.json").write_text(
+        json.dumps(story), encoding="utf-8"
+    )
+    (camp / "scenario" / "npc-agendas.json").write_text(
+        json.dumps(
+            {
+                "npcs": [
+                    {
+                        "npc_id": "npc-commander",
+                        "agenda": "withhold the true objective",
+                        "desire": "keep order",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    world = json.loads((camp / "save" / "world-state.json").read_text(encoding="utf-8"))
+    world["unlocked_scene_ids"] = ["scene-1", "scene-2"]
+    world["visited_scene_ids"] = []
+    world["scene_history"] = []
+    (camp / "save" / "world-state.json").write_text(json.dumps(world), encoding="utf-8")
+
+    runner = tmp_path / "scripted_move_player"
+    _write_scripted_player_runner(
+        runner,
+        [
+            "我向指挥官确认任务细节。",
+            "我们沿鞍部侧脊隐蔽推进。",
+        ],
+        intent_classes=["social", "move"],
+    )
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=runner,
+        max_turns=2,
+        rng_seed=42,
+        live=False,
+        intent_class=None,
+    )
+    world2 = json.loads((camp / "save" / "world-state.json").read_text(encoding="utf-8"))
+    assert world2["active_scene_id"] == "scene-2"
+    assert "scene-1" in world2["visited_scene_ids"]
+    assert any(h.get("scene_id") == "scene-2" for h in world2.get("scene_history") or [])
+    actions = [t.get("action") for t in result["turns"]]
+    assert "CUT" in actions or any(
+        t.get("scene_transition") for t in result["turns"]
+    )
