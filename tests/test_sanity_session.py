@@ -267,6 +267,32 @@ def test_day_start_san_survives_save_load(tmp_path):
     assert loaded.day_start_san == 40
 
 
+def test_summary_bout_carries_backstory_amend_suggestion():
+    """W1-2 (p.157): a bout of madness suggests corrupting a backstory entry.
+    Summary bouts end immediately, so the suggestion rides the bout event."""
+    s = _make_session(seed=3)
+    bout = s._start_bout("ghoul", alone=True, module_bout_override=None)
+    suggestion = bout.get("backstory_amend_suggestion")
+    assert suggestion is not None
+    assert suggestion["mode"] in ("corrupt_existing", "add_irrational")
+    assert suggestion["backstory_field"] in coc_sanity.BACKSTORY_FIELDS
+    assert suggestion["keeper_note"]
+    ev = [e for e in s.events if e["type"] == "bout_of_madness"][-1]
+    assert ev["payload"]["backstory_amend_suggestion"] == suggestion
+
+
+def test_realtime_bout_end_event_carries_backstory_amend_suggestion():
+    """W1-2: for real-time bouts the suggestion is surfaced again on the
+    bout_ended event, when control returns to the player."""
+    s = _make_session(seed=3)
+    s._start_bout("ghoul", alone=False, module_bout_override=None)
+    s.end_bout()
+    ev = [e for e in s.events if e["type"] == "bout_ended"][-1]
+    suggestion = ev["payload"].get("backstory_amend_suggestion")
+    assert suggestion is not None
+    assert suggestion["backstory_field"] in coc_sanity.BACKSTORY_FIELDS
+
+
 def test_load_restores_phobia_mania_awfulness_and_conditions(tmp_path):
     """W0-7: reloading a session must not amnesia away phobia/mania/awfulness
     caps/conditions/bout history."""

@@ -57,6 +57,21 @@ INVOLUNTARY_KINDS = {
 # Bout of madness modes.
 BOUT_MODES = {"real_time", "summary"}
 
+# The nine investigator backstory categories (Keeper Rulebook p.157). Bout
+# backstory-amendment suggestions and personal-horror hooks reference these
+# structured field names; runtime never scans backstory prose.
+BACKSTORY_FIELDS = (
+    "personal_description",
+    "ideology_beliefs",
+    "significant_people",
+    "meaningful_locations",
+    "treasured_possessions",
+    "traits",
+    "injuries_scars",
+    "phobias_manias",
+    "encounters",
+)
+
 # Phobia / mania table loader (references/rules-json/{phobias,manias}.json).
 RULES_DIR = Path(__file__).resolve().parent.parent / "references" / "rules-json"
 
@@ -361,12 +376,32 @@ class SanitySession:
             if mania_name:
                 bout["mania"] = mania_name
 
+        bout["backstory_amend_suggestion"] = self._backstory_amend_suggestion()
+
         self._event("bout_of_madness", {
             **bout,
             "summary": f"{self.investigator_id} bout of madness ({mode}): roll {bout_roll}, "
                        f"duration {duration_hours}h. {bout_result_text}",
         })
         return bout
+
+    def _backstory_amend_suggestion(self) -> dict[str, Any]:
+        """Structured backstory-amendment suggestion for a bout (p.157).
+
+        The rulebook prefers corrupting an existing backstory entry over
+        adding a fresh irrational one, so corruption is weighted 3:1. The
+        Keeper (LLM) negotiates the actual wording with the player at the
+        narrative layer; the runtime only records structured evidence.
+        """
+        mode = "corrupt_existing" if self._rng.randint(1, 4) <= 3 else "add_irrational"
+        field = self._rng.choice(BACKSTORY_FIELDS)
+        keeper_note = (
+            "Tie the madness to this investigator's own story: "
+            f"{'twist an existing entry in' if mode == 'corrupt_existing' else 'add a new irrational entry to'} "
+            f"the '{field}' backstory category, binding it to what just caused the bout. "
+            "Negotiate the wording with the player (p.157)."
+        )
+        return {"mode": mode, "backstory_field": field, "keeper_note": keeper_note}
 
     def tick_bout_round(self) -> dict[str, Any]:
         """Advance a real-time bout by one combat round (p.157: 1D10 rounds).
@@ -389,10 +424,17 @@ class SanitySession:
             return
         self.bout_active = False
         self.bout_rounds_remaining = 0
-        self._event("bout_ended", {
+        payload: dict[str, Any] = {
             "summary": (f"{self.investigator_id} bout of madness ends; control "
                         "returns to the player (underlying insanity continues)."),
-        })
+        }
+        # Surface the bout's backstory-amendment suggestion again at the
+        # moment control returns to the player (p.157).
+        if self.bouts_of_madness:
+            suggestion = self.bouts_of_madness[-1].get("backstory_amend_suggestion")
+            if suggestion:
+                payload["backstory_amend_suggestion"] = suggestion
+        self._event("bout_ended", payload)
 
     def _trigger_indefinite_insanity(self) -> None:
         """p.168: 1/5+ SAN lost in one day → indefinite insanity.

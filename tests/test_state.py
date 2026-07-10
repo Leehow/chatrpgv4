@@ -336,6 +336,58 @@ def test_prepare_character_creation_draft_archives_stale_active_draft(tmp_path):
     assert json.loads(archive_path.read_text(encoding="utf-8"))["investigator_id"] == "old-investigator"
 
 
+def test_personal_horror_hooks_add_and_weave(tmp_path):
+    """W1-2: structured personal-horror hooks live in investigator-state."""
+    coc_state.create_campaign(tmp_path, "case-1", "Case 1")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+
+    coc_state.add_personal_horror_hook(
+        campaign_dir, "ada",
+        hook_id="hook-sister",
+        backstory_field="significant_people",
+        summary="Her sister vanished in 1918; letters keep arriving.",
+    )
+    coc_state.mark_hook_woven(campaign_dir, "ada", "hook-sister")
+
+    inv = json.loads(
+        (campaign_dir / "save" / "investigator-state" / "ada.json").read_text(encoding="utf-8"))
+    hooks = inv["personal_horror_hooks"]
+    assert hooks[0]["hook_id"] == "hook-sister"
+    assert hooks[0]["backstory_field"] == "significant_people"
+    assert hooks[0]["woven"] is True
+
+
+def test_add_personal_horror_hook_rejects_unknown_field(tmp_path):
+    coc_state.create_campaign(tmp_path, "case-1", "Case 1")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+    try:
+        coc_state.add_personal_horror_hook(
+            campaign_dir, "ada", hook_id="h1",
+            backstory_field="favourite_color", summary="x")
+    except ValueError as exc:
+        assert "backstory_field" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for unknown backstory_field")
+
+
+def test_add_backstory_corruption_records_entry(tmp_path):
+    coc_state.create_campaign(tmp_path, "case-1", "Case 1")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+
+    coc_state.add_backstory_corruption(
+        campaign_dir, "ada",
+        mode="corrupt_existing",
+        backstory_field="treasured_possessions",
+        keeper_note="The pocket watch now ticks backwards in her mind.",
+    )
+
+    inv = json.loads(
+        (campaign_dir / "save" / "investigator-state" / "ada.json").read_text(encoding="utf-8"))
+    entry = inv["backstory_corruptions"][0]
+    assert entry["mode"] == "corrupt_existing"
+    assert entry["backstory_field"] == "treasured_possessions"
+
+
 def test_apply_luck_spend_updates_investigator_and_pacing(tmp_path):
     """W1-1: after spend_luck the new current_luck must land in
     investigator-state and pacing-state.luck_spent_last must be set."""

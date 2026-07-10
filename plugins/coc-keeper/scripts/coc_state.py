@@ -210,6 +210,89 @@ def apply_luck_recovery(campaign_dir: Path, investigator_id: str, *,
     return inv_path
 
 
+# The nine backstory categories (Keeper Rulebook p.157); mirrors
+# coc_sanity.BACKSTORY_FIELDS. Hooks/corruptions must reference one of these
+# structured field names so downstream consumers never scan backstory prose.
+BACKSTORY_FIELDS = (
+    "personal_description",
+    "ideology_beliefs",
+    "significant_people",
+    "meaningful_locations",
+    "treasured_possessions",
+    "traits",
+    "injuries_scars",
+    "phobias_manias",
+    "encounters",
+)
+
+
+def _investigator_state_path(campaign_dir: Path, investigator_id: str) -> Path:
+    return campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+
+
+def add_personal_horror_hook(campaign_dir: Path, investigator_id: str, *,
+                             hook_id: str, backstory_field: str,
+                             summary: str) -> Path:
+    """Record a structured personal-horror hook on investigator-state (W1-2).
+
+    Hooks tie scenario horror to the investigator's own backstory (p.193-194).
+    The Story Director weaves unwoven hooks on CHARACTER beats and echoes
+    woven ones on PAYOFF.
+    """
+    if backstory_field not in BACKSTORY_FIELDS:
+        raise ValueError(
+            f"backstory_field must be one of {BACKSTORY_FIELDS}, got {backstory_field!r}")
+    inv_path = _investigator_state_path(campaign_dir, investigator_id)
+    data = _read_json_object(inv_path, {})
+    hooks = list(data.get("personal_horror_hooks") or [])
+    hooks.append({
+        "hook_id": str(hook_id),
+        "backstory_field": backstory_field,
+        "summary": str(summary),
+        "woven": False,
+    })
+    data["personal_horror_hooks"] = hooks
+    write_json_atomic(inv_path, data)
+    return inv_path
+
+
+def mark_hook_woven(campaign_dir: Path, investigator_id: str, hook_id: str) -> Path:
+    """Flag a personal-horror hook as woven into play."""
+    inv_path = _investigator_state_path(campaign_dir, investigator_id)
+    data = _read_json_object(inv_path, {})
+    for hook in data.get("personal_horror_hooks") or []:
+        if hook.get("hook_id") == hook_id:
+            hook["woven"] = True
+    write_json_atomic(inv_path, data)
+    return inv_path
+
+
+def add_backstory_corruption(campaign_dir: Path, investigator_id: str, *,
+                             mode: str, backstory_field: str,
+                             keeper_note: str) -> Path:
+    """Record an accepted bout backstory amendment (p.157).
+
+    ``mode`` is ``corrupt_existing`` or ``add_irrational``, matching the
+    ``backstory_amend_suggestion`` emitted by ``coc_sanity`` at bout end.
+    """
+    if backstory_field not in BACKSTORY_FIELDS:
+        raise ValueError(
+            f"backstory_field must be one of {BACKSTORY_FIELDS}, got {backstory_field!r}")
+    if mode not in ("corrupt_existing", "add_irrational"):
+        raise ValueError(f"mode must be corrupt_existing or add_irrational, got {mode!r}")
+    inv_path = _investigator_state_path(campaign_dir, investigator_id)
+    data = _read_json_object(inv_path, {})
+    corruptions = list(data.get("backstory_corruptions") or [])
+    corruptions.append({
+        "mode": mode,
+        "backstory_field": backstory_field,
+        "keeper_note": str(keeper_note),
+    })
+    data["backstory_corruptions"] = corruptions
+    write_json_atomic(inv_path, data)
+    return inv_path
+
+
 def _safe_file_stem(value: str) -> str:
     stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")
     return stem or "draft"

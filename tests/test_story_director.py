@@ -1818,3 +1818,61 @@ def test_low_agency_count_back_compat_without_tags_param():
         ["investigate", "move"], ctx)
     # current 'move' counts (1); walking back: 'move' counts (+1), 'investigate' stops
     assert count == 2
+
+
+# --------------------------------------------------------------------------- #
+# W1-2: personal horror hooks (p.157, p.193-194)
+# --------------------------------------------------------------------------- #
+
+def test_build_director_context_exposes_personal_horror_hooks(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv["personal_horror_hooks"] = [
+        {"hook_id": "hook-sister", "backstory_field": "significant_people",
+         "summary": "Her sister vanished in 1918.", "woven": False},
+    ]
+    inv_path.write_text(json.dumps(inv))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="我和教授聊聊", player_intent_class="social",
+        rng=random.Random(42),
+    )
+    assert ctx["personal_horror_hooks"][0]["hook_id"] == "hook-sister"
+
+
+def test_character_action_weaves_unwoven_hook_first():
+    hooks = [
+        {"hook_id": "h-old", "backstory_field": "traits",
+         "summary": "already used", "woven": True},
+        {"hook_id": "h-new", "backstory_field": "significant_people",
+         "summary": "sister vanished", "woven": False},
+    ]
+    directive = coc_story_director._personal_horror_directive(
+        {"personal_horror_hooks": hooks}, "CHARACTER")
+    assert directive["hook_id"] == "h-new"
+    assert directive["use"] == "weave"
+    assert directive["backstory_field"] == "significant_people"
+
+
+def test_payoff_action_echoes_woven_hook():
+    hooks = [
+        {"hook_id": "h-old", "backstory_field": "treasured_possessions",
+         "summary": "the watch", "woven": True},
+        {"hook_id": "h-new", "backstory_field": "traits",
+         "summary": "unused", "woven": False},
+    ]
+    directive = coc_story_director._personal_horror_directive(
+        {"personal_horror_hooks": hooks}, "PAYOFF")
+    assert directive["hook_id"] == "h-old"
+    assert directive["use"] == "echo"
+
+
+def test_personal_horror_directive_absent_for_other_actions_or_no_hooks():
+    hooks = [{"hook_id": "h", "backstory_field": "traits",
+              "summary": "s", "woven": False}]
+    assert coc_story_director._personal_horror_directive(
+        {"personal_horror_hooks": hooks}, "PRESSURE") is None
+    assert coc_story_director._personal_horror_directive(
+        {"personal_horror_hooks": []}, "CHARACTER") is None

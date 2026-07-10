@@ -35,6 +35,13 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   `--html never` for Markdown-only environments.
 - Import: validate JSON before linking it to a campaign.
 - Development: write permanent changes back to investigator history only at explicit development or campaign-ending moments.
+- Personal horror hooks: at the end of creation, once backstory is confirmed,
+  derive 1-2 initial hooks from the strongest backstory entries (a missing
+  significant person, an heirloom possession, a haunted meaningful location…)
+  and record them with `coc_state.add_personal_horror_hook(campaign_dir,
+  investigator_id, hook_id=..., backstory_field=..., summary=...)`. The
+  `backstory_field` must be one of the nine p.157 categories. These hooks are
+  what the Story Director weaves into CHARACTER beats and pays off later.
 
 ## Player-Facing Localization
 

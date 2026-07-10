@@ -35,6 +35,29 @@ bug hunts only. The runner defaults to fast/background recording and handles
 compressed low-agency continuation before returning narration material.
 Verify runner usage via the `logs/live-turn-runtime.jsonl` receipt.
 
+## Personal Horror Weaving
+
+Horror lands hardest when it is *this investigator's* horror (p.193-194).
+
+- Session opening protocol: read the character sheet's backstory, pick 1-2
+  entries (significant people, treasured possessions, meaningful locations,
+  ideology…), and ask the player 3-5 short weaving questions about them
+  before the first scene. Record each chosen entry as a structured hook via
+  `coc_state.add_personal_horror_hook(...)` (field must be one of the nine
+  backstory categories; never scan backstory prose at runtime).
+- When a DirectorPlan carries `narrative_directives.personal_horror_hook`
+  with `use: "weave"`, bind the scene's horror or an NPC beat to that hook's
+  backstory entry, then persist it with `coc_state.mark_hook_woven(...)`.
+  With `use: "echo"`, call back to the already-woven hook as payoff.
+- Bout-of-madness events carry a `backstory_amend_suggestion`
+  (`corrupt_existing` or `add_irrational` + a backstory field). After the
+  bout, propose the amendment to the player in-fiction, negotiate wording
+  together, and record acceptance with
+  `coc_state.add_backstory_corruption(...)`. Prefer corrupting an existing
+  entry over inventing a new one (p.157).
+- Bout table results that reference a Significant Person or Ideology must
+  quote the investigator's actual backstory entry, not a generic stand-in.
+
 ## Recording Modes
 
 Live play defaults to `recording_mode: fast` and

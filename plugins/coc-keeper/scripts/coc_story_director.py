@@ -540,6 +540,9 @@ def build_director_context(
         # translation on the actual Language skill value without re-reading
         # the character sheet. Slim dict only; the full sheet stays private.
         "investigator_skills": char_skills,
+        # W1-2: structured personal-horror hooks (p.193-194). CHARACTER beats
+        # weave unwoven hooks; PAYOFF echoes woven ones.
+        "personal_horror_hooks": list(inv_state.get("personal_horror_hooks") or []),
         "active_scene_id": active_scene_id,
         "active_scene": active_scene,
         "structure_type": module_meta.get("structure_type", "branching_investigation"),
@@ -1609,6 +1612,34 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
     return moves
 
 
+def _personal_horror_directive(ctx: dict[str, Any], action: str) -> dict[str, Any] | None:
+    """W1-2 (p.193-194): pick a personal-horror hook for the narrator.
+
+    CHARACTER beats weave the first unwoven hook into the scene; PAYOFF beats
+    echo an already-woven hook as a callback. Hooks are structured records on
+    investigator-state — no backstory prose is scanned here.
+    """
+    hooks = [h for h in (ctx.get("personal_horror_hooks") or []) if isinstance(h, dict)]
+    if not hooks:
+        return None
+    if action == "CHARACTER":
+        pick = next((h for h in hooks if not h.get("woven")), None)
+        use = "weave"
+    elif action == "PAYOFF":
+        pick = next((h for h in hooks if h.get("woven")), None)
+        use = "echo"
+    else:
+        return None
+    if pick is None:
+        return None
+    return {
+        "hook_id": pick.get("hook_id"),
+        "backstory_field": pick.get("backstory_field"),
+        "summary": pick.get("summary", ""),
+        "use": use,
+    }
+
+
 def _build_scene_pressure_move(ctx: dict[str, Any]) -> dict[str, Any] | None:
     scene = ctx.get("active_scene") or {}
     pressure_moves = [move for move in _as_list(scene.get("pressure_moves")) if move]
@@ -1911,6 +1942,8 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     else:
         pressure_moves = _build_pressure_moves(ctx, action)
 
+    personal_horror = _personal_horror_directive(ctx, action)
+
     narrative_directives = {
         "tone": scene.get("tone", []),
         "must_include": _collect_anchors(
@@ -1923,6 +1956,8 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "content_constraints": ctx.get("module_meta", {}).get("content_flags", []),
         "player_facing_style": _player_facing_style(),
     }
+    if personal_horror is not None:
+        narrative_directives["personal_horror_hook"] = personal_horror
     if overrides and isinstance(overrides.get("scene_progress"), dict):
         narrative_directives["scene_progress"] = overrides["scene_progress"]
     dramatic_progress = _dramatic_progress_directive(
