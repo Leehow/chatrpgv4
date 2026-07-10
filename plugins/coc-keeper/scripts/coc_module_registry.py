@@ -21,7 +21,15 @@ Identity matching (Semantic Matcher Constitution)
 Runtime never scans free text or fuzzy-matches titles. The compiling LLM
 emits a structured ``module_identity`` block; this module only does exact
 comparisons on ``canonical_module_id`` and orthographically normalized
-alias keys (lowercase + strip punctuation/whitespace + edition).
+alias keys (lowercase + strip punctuation/whitespace + **rules_edition**).
+
+Edition fields
+--------------
+- ``module_edition``: the published book/product edition (e.g. Masks "5th").
+- ``rules_edition``: the CoC rules edition used to play (e.g. "7e").
+- Legacy ``edition`` alone is treated as ``rules_edition`` via
+  ``normalize_module_identity`` (structured migration; no free-text guessing).
+  Alias index keys always use ``rules_edition``.
 """
 from __future__ import annotations
 
@@ -50,6 +58,26 @@ IDENTITY_SCHEMA_VERSION = 1
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _WS_RE = re.compile(r"\s+", re.UNICODE)
 
+LICENSE_NOTE_FILENAME = "LICENSE-note.md"
+LICENSE_NOTE_TEXT = """# Product Identity / License Boundary
+
+This library entry stores a **compiled structured index** (JSON story/clue
+graphs and related machine-readable fields) for private play reuse under
+`.coc/module-library/`.
+
+- **Allowed here:** structured IDs, tags, enums, mechanical fields,
+  player-safe summaries authored for play, and `source_refs` (path + printed
+  page numbers).
+- **Must not be committed to git as source prose:** verbatim module text,
+  handout copy lifted from the book, or keeper-secret narrative paragraphs
+  taken from the PDF. Chaosium (and other publishers') Product Identity
+  remains outside the repository; keep source PDFs local and consult the
+  publisher's license before any redistribution.
+
+Compiled JSON under this entry is a play index, not a substitute for owning
+the published module.
+"""
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -71,12 +99,38 @@ def module_dir(coc_root: Path, canonical_module_id: str) -> Path:
     return library_root(coc_root) / canonical_module_id
 
 
-def normalize_alias_key(title: str, edition: str | None = None) -> str:
-    """Orthographic normalization for alias index keys (not semantic matching)."""
+def normalize_module_identity(identity: dict[str, Any]) -> dict[str, Any]:
+    """Structured migration: legacy ``edition`` → ``rules_edition`` when absent.
+
+    Does not guess from free text. If ``rules_edition`` is already set, leave
+    ``edition`` untouched for backward-compatible readers.
+    """
+    out = dict(identity or {})
+    rules = out.get("rules_edition")
+    if not (isinstance(rules, str) and rules.strip()):
+        legacy = out.get("edition")
+        if isinstance(legacy, str) and legacy.strip():
+            out["rules_edition"] = legacy.strip()
+    return out
+
+
+def _rules_edition_value(identity: dict[str, Any]) -> str | None:
+    normalized = normalize_module_identity(identity)
+    rules = normalized.get("rules_edition")
+    if isinstance(rules, str) and rules.strip():
+        return rules.strip()
+    return None
+
+
+def normalize_alias_key(title: str, rules_edition: str | None = None) -> str:
+    """Orthographic normalization for alias index keys (not semantic matching).
+
+    The second argument is ``rules_edition`` (CoC rules), never ``module_edition``.
+    """
     text = str(title or "").lower()
     text = _PUNCT_RE.sub("", text)
     text = _WS_RE.sub("", text)
-    ed = str(edition or "").lower().strip()
+    ed = str(rules_edition or "").lower().strip()
     ed = _PUNCT_RE.sub("", ed)
     ed = _WS_RE.sub("", ed)
     return f"{text}|{ed}" if ed else text
@@ -144,11 +198,16 @@ def _summary_for(
     *,
     alias_keys: list[str],
 ) -> dict[str, Any]:
+    identity = normalize_module_identity(identity)
     return {
         "canonical_module_id": identity["canonical_module_id"],
         "canonical_title": identity["canonical_title"],
         "publisher": identity.get("publisher"),
         "edition": identity.get("edition"),
+        "module_edition": identity.get("module_edition"),
+        "rules_edition": identity.get("rules_edition"),
+        "parent_module_id": identity.get("parent_module_id"),
+        "chapter": identity.get("chapter"),
         "chapters": identity.get("chapters") or [],
         "alias_keys": alias_keys,
         "compiled_at": identity.get("compiled_at"),
@@ -164,12 +223,13 @@ def _rebuild_alias_index(registry: dict[str, Any]) -> None:
 
 
 def _collect_alias_keys(identity: dict[str, Any]) -> list[str]:
-    edition = identity.get("edition")
+    identity = normalize_module_identity(identity)
+    rules_edition = _rules_edition_value(identity)
     keys: list[str] = []
     seen: set[str] = set()
 
     def _add(title: str) -> None:
-        key = normalize_alias_key(title, edition if isinstance(edition, str) else None)
+        key = normalize_alias_key(title, rules_edition)
         if key and key not in seen:
             seen.add(key)
             keys.append(key)
@@ -208,6 +268,11 @@ def _copy_scenario_atomic(src: Path, dest: Path) -> None:
             shutil.rmtree(staging, ignore_errors=True)
 
 
+def _write_license_note(entry_dir: Path) -> None:
+    path = entry_dir / LICENSE_NOTE_FILENAME
+    path.write_text(LICENSE_NOTE_TEXT, encoding="utf-8")
+
+
 def register_module(
     coc_root: Path,
     scenario_dir: Path,
@@ -215,7 +280,7 @@ def register_module(
 ) -> dict[str, Any]:
     """Validate scenario, write library entry + registry index, return entry."""
     scenario_dir = Path(scenario_dir)
-    identity = dict(identity)
+    identity = normalize_module_identity(dict(identity))
     cid = _require_identity_fields(identity)
 
     result = coc_scenario_compile.validate_scenario(scenario_dir)
@@ -255,6 +320,7 @@ def register_module(
         ensure_ascii=False,
         trailing_newline=True,
     )
+    _write_license_note(entry_dir)
 
     registry["modules"][cid] = _summary_for(identity, alias_keys=alias_keys)
     _rebuild_alias_index(registry)
@@ -270,8 +336,8 @@ def register_module(
 
 
 def lookup_module(coc_root: Path, identity: dict[str, Any]) -> dict[str, Any] | None:
-    """Exact match on canonical_module_id, else normalized alias title+edition."""
-    identity = identity or {}
+    """Exact match on canonical_module_id, else normalized alias title+rules_edition."""
+    identity = normalize_module_identity(identity or {})
     registry = load_registry(coc_root)
 
     cid = identity.get("canonical_module_id")
@@ -284,11 +350,8 @@ def lookup_module(coc_root: Path, identity: dict[str, Any]) -> dict[str, Any] | 
     title = identity.get("canonical_title") or identity.get("title")
     if not isinstance(title, str) or not title.strip():
         return None
-    edition = identity.get("edition")
-    key = normalize_alias_key(
-        title.strip(),
-        edition if isinstance(edition, str) else None,
-    )
+    rules_edition = _rules_edition_value(identity)
+    key = normalize_alias_key(title.strip(), rules_edition)
     owner = (registry.get("alias_index") or {}).get(key)
     if not owner:
         return None
@@ -300,7 +363,9 @@ def _load_entry(coc_root: Path, canonical_module_id: str) -> dict[str, Any] | No
     identity_path = entry_dir / "identity.json"
     if not identity_path.is_file():
         return None
-    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    identity = normalize_module_identity(
+        json.loads(identity_path.read_text(encoding="utf-8"))
+    )
     registry = load_registry(coc_root)
     summary = (registry.get("modules") or {}).get(canonical_module_id) or {}
     return {
@@ -326,18 +391,18 @@ def add_alias(
     if not title:
         raise ValueError("alias.title is required")
 
-    identity = dict(entry["identity"])
+    identity = normalize_module_identity(dict(entry["identity"]))
     aliases = list(identity.get("aliases") or [])
-    # Exact structured dedupe on title+locale+edition context.
+    # Exact structured dedupe on title+locale+rules_edition context.
     locale = alias.get("locale")
-    edition = identity.get("edition")
-    new_key = normalize_alias_key(title, edition if isinstance(edition, str) else None)
+    rules_edition = _rules_edition_value(identity)
+    new_key = normalize_alias_key(title, rules_edition)
     for existing in aliases:
         if not isinstance(existing, dict):
             continue
         if normalize_alias_key(
             str(existing.get("title") or ""),
-            edition if isinstance(edition, str) else None,
+            rules_edition,
         ) == new_key and existing.get("locale") == locale:
             # Already present; still ensure index is current.
             break
@@ -379,6 +444,18 @@ def list_modules(coc_root: Path) -> list[dict[str, Any]]:
     out = []
     for cid, summary in sorted((registry.get("modules") or {}).items()):
         out.append(dict(summary))
+    return out
+
+
+def list_family(coc_root: Path, parent_module_id: str) -> list[dict[str, Any]]:
+    """List sibling chapter entries that share the same ``parent_module_id``."""
+    parent = str(parent_module_id or "").strip()
+    if not parent:
+        raise ValueError("parent_module_id is required")
+    out: list[dict[str, Any]] = []
+    for summary in list_modules(coc_root):
+        if str(summary.get("parent_module_id") or "").strip() == parent:
+            out.append(dict(summary))
     return out
 
 
@@ -465,6 +542,16 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("list", help="list registered modules")
 
+    family = sub.add_parser(
+        "list-family",
+        help="list sibling chapters sharing a parent_module_id",
+    )
+    family.add_argument(
+        "--parent",
+        required=True,
+        help="parent_module_id (e.g. masks-of-nyarlathotep)",
+    )
+
     look = sub.add_parser("lookup", help="lookup by identity JSON")
     look.add_argument(
         "--identity",
@@ -494,6 +581,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.cmd == "list":
             return _emit({"modules": list_modules(root)})
+        if args.cmd == "list-family":
+            return _emit(
+                {
+                    "parent_module_id": args.parent,
+                    "modules": list_family(root, args.parent),
+                }
+            )
         if args.cmd == "lookup":
             identity = json.loads(args.identity)
             entry = lookup_module(root, identity)

@@ -60,11 +60,12 @@ summary, and source page instead.
 当用户要"编译模组"/"生成剧情图"/"为 <模组> 准备 director"时：
 
 0. **先识别模组身份（强制）**：只读扉页/TOC，产出结构化 `module_identity`
-   `{canonical_module_id, canonical_title, publisher, edition, locale, chapter?}`
-   （巨章按章给 id，如 `masks-of-nyarlathotep-ch-peru`）。用
+   `{canonical_module_id, canonical_title, publisher, module_edition?, rules_edition, locale, chapter?, parent_module_id?}`
+   （巨章按章给 id，如 `masks-of-nyarlathotep-ch-peru`，并填 `parent_module_id`）。
+   遗留字段 `edition` 单独出现时视为 `rules_edition`。用
    `scripts/coc_module_registry.py lookup --identity '<json>'` 查
    `.coc/module-library/`：**命中则 `install` 到战役并 STOP**（不重解析 PDF）；
-   未命中再全文编译。身份匹配只走结构化 id / 规范化 alias，禁止模糊标题扫描。
+   未命中再全文编译。身份匹配只走结构化 id / 规范化 alias（title + rules_edition），禁止模糊标题扫描。
 1. 读模组 PDF（用 read/grep；中文模组直接读；巨章只抽本章页）。
 2. 判定 structure_type（参考 references/compile-protocol.md 的 7 种原型判定）。
 3. 按顺序产出 7 个 JSON 到 campaigns/<id>/scenario/（schema 见 references/story-graph-schema.md）：
@@ -78,3 +79,11 @@ summary, and source page instead.
 8. `coc_module_registry.py register` 写入模块库，并把当前 title/locale 记为 alias。
 
 关键约束：每个 critical conclusion 至少 3 条线索路径；keeper_secrets 与 player-safe 物理隔离。
+
+## Product Identity 存储边界
+
+`.coc/module-library/` 可缓存**编译后的结构化索引**（7 文件 JSON 图、identity、LICENSE-note），供同模组异名 PDF / 译本二次命中时跳过解析。
+
+- **可入库 / 可缓存：** 结构化 ID、标签、枚举、机制字段、为游玩撰写的 player-safe 摘要、`source_refs`（path + **印刷页**）。
+- **不得提交到 git 的源散文：** 从 PDF 原样抄录的模组正文、handout 全文、keeper-secret 叙事段落。Chaosium 等出版社的 Product Identity 留在本地 PDF；registry 注册时会在每个库条目写入 `LICENSE-note.md` 提醒此边界。
+- 源 PDF 路径只作本地引用，不要把受版权保护的模组文件推进仓库。

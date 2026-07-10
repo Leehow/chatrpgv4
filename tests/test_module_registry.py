@@ -395,3 +395,258 @@ def test_cli_list_lookup_register_install(tmp_path: Path):
         check=False,
     )
     assert installed.returncode == 0, installed.stderr or installed.stdout
+
+
+def test_normalize_identity_maps_edition_to_rules_edition():
+    """Legacy ``edition`` alone becomes ``rules_edition`` (no free-text guessing)."""
+    out = coc_module_registry.normalize_module_identity(
+        {
+            "canonical_module_id": "demo-module",
+            "canonical_title": "Demo Module",
+            "edition": "7e",
+        }
+    )
+    assert out["rules_edition"] == "7e"
+    assert out["edition"] == "7e"  # preserved for readers of old fields
+    # Explicit rules_edition wins; edition left alone.
+    out2 = coc_module_registry.normalize_module_identity(
+        {
+            "canonical_module_id": "demo-module",
+            "canonical_title": "Demo Module",
+            "edition": "legacy-label",
+            "rules_edition": "7e",
+            "module_edition": "5th",
+        }
+    )
+    assert out2["rules_edition"] == "7e"
+    assert out2["module_edition"] == "5th"
+    assert out2["edition"] == "legacy-label"
+
+
+def test_alias_keys_use_rules_edition_not_module_edition(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    sc = _make_valid_scenario(tmp_path)
+    coc_module_registry.register_module(
+        root,
+        sc,
+        {
+            "canonical_module_id": "masks-of-nyarlathotep-ch-peru",
+            "canonical_title": "Masks of Nyarlathotep",
+            "module_edition": "5th",
+            "rules_edition": "7e",
+            "parent_module_id": "masks-of-nyarlathotep",
+            "chapter": "peru",
+            "locale": "en",
+            "publisher": "Chaosium",
+        },
+    )
+    key_rules = coc_module_registry.normalize_alias_key("Masks of Nyarlathotep", "7e")
+    key_module = coc_module_registry.normalize_alias_key("Masks of Nyarlathotep", "5th")
+    registry = json.loads(
+        (root / "module-library" / "registry.json").read_text(encoding="utf-8")
+    )
+    assert registry["alias_index"][key_rules] == "masks-of-nyarlathotep-ch-peru"
+    assert key_module not in registry["alias_index"]
+    summary = registry["modules"]["masks-of-nyarlathotep-ch-peru"]
+    assert summary["rules_edition"] == "7e"
+    assert summary["module_edition"] == "5th"
+    assert summary["parent_module_id"] == "masks-of-nyarlathotep"
+
+
+def test_lookup_by_legacy_edition_and_rules_edition(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    sc = _make_valid_scenario(tmp_path)
+    coc_module_registry.register_module(
+        root,
+        sc,
+        {
+            "canonical_module_id": "demo-module",
+            "canonical_title": "Demo Module",
+            "edition": "7e",  # legacy-only identity
+        },
+    )
+    hit_legacy = coc_module_registry.lookup_module(
+        root, {"canonical_title": "Demo Module", "edition": "7e"}
+    )
+    hit_rules = coc_module_registry.lookup_module(
+        root, {"canonical_title": "Demo Module", "rules_edition": "7e"}
+    )
+    assert hit_legacy is not None
+    assert hit_rules is not None
+    assert hit_legacy["canonical_module_id"] == "demo-module"
+
+
+def test_list_family_by_parent_module_id(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    sc = _make_valid_scenario(tmp_path)
+    for chapter, cid, title in (
+        ("peru", "masks-of-nyarlathotep-ch-peru", "Masks of Nyarlathotep — Peru"),
+        ("america", "masks-of-nyarlathotep-ch-america", "Masks of Nyarlathotep — America"),
+    ):
+        # Distinct scenario_id / identity / title per chapter (shared book title
+        # would collide on alias keys; chapter entries use chapter-scoped titles).
+        meta = json.loads((sc / "module-meta.json").read_text(encoding="utf-8"))
+        meta["scenario_id"] = cid
+        meta["module_identity"] = {
+            "canonical_module_id": cid,
+            "canonical_title": title,
+            "rules_edition": "7e",
+            "module_edition": "5th",
+            "parent_module_id": "masks-of-nyarlathotep",
+            "chapter": chapter,
+        }
+        (sc / "module-meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        coc_module_registry.register_module(
+            root,
+            sc,
+            {
+                "canonical_module_id": cid,
+                "canonical_title": title,
+                "rules_edition": "7e",
+                "module_edition": "5th",
+                "parent_module_id": "masks-of-nyarlathotep",
+                "chapter": chapter,
+            },
+        )
+    family = coc_module_registry.list_family(root, "masks-of-nyarlathotep")
+    assert {m["canonical_module_id"] for m in family} == {
+        "masks-of-nyarlathotep-ch-peru",
+        "masks-of-nyarlathotep-ch-america",
+    }
+    assert coc_module_registry.list_family(root, "unknown-parent") == []
+
+
+def test_register_writes_license_note(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    sc = _make_valid_scenario(tmp_path)
+    coc_module_registry.register_module(
+        root,
+        sc,
+        {
+            "canonical_module_id": "demo-module",
+            "canonical_title": "Demo Module",
+            "rules_edition": "7e",
+        },
+    )
+    note = root / "module-library" / "demo-module" / "LICENSE-note.md"
+    assert note.is_file()
+    text = note.read_text(encoding="utf-8")
+    assert "Product Identity" in text
+    assert "structured" in text.lower()
+    assert "prose" in text.lower()
+
+
+def test_cli_list_family(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    sc = _make_valid_scenario(tmp_path)
+    script = str(SCRIPTS / "coc_module_registry.py")
+    identity = json.dumps(
+        {
+            "canonical_module_id": "masks-of-nyarlathotep-ch-peru",
+            "canonical_title": "Masks of Nyarlathotep",
+            "rules_edition": "7e",
+            "parent_module_id": "masks-of-nyarlathotep",
+            "chapter": "peru",
+        }
+    )
+    reg = subprocess.run(
+        [
+            sys.executable,
+            script,
+            "--root",
+            str(root),
+            "register",
+            "--scenario-dir",
+            str(sc),
+            "--identity",
+            identity,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert reg.returncode == 0, reg.stderr or reg.stdout
+    listed = subprocess.run(
+        [
+            sys.executable,
+            script,
+            "--root",
+            str(root),
+            "list-family",
+            "--parent",
+            "masks-of-nyarlathotep",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert listed.returncode == 0, listed.stderr or listed.stdout
+    payload = json.loads(listed.stdout)
+    assert any(
+        m.get("canonical_module_id") == "masks-of-nyarlathotep-ch-peru"
+        for m in payload.get("modules") or []
+    )
+
+
+def test_validate_accepts_split_editions_and_parent(tmp_path: Path):
+    sc = _make_valid_scenario(tmp_path)
+    meta = json.loads((sc / "module-meta.json").read_text(encoding="utf-8"))
+    meta["module_identity"] = {
+        "canonical_module_id": "masks-of-nyarlathotep-ch-peru",
+        "canonical_title": "Masks of Nyarlathotep",
+        "module_edition": "5th",
+        "rules_edition": "7e",
+        "parent_module_id": "masks-of-nyarlathotep",
+        "chapter": "peru",
+        "locale": "en",
+        "publisher": "Chaosium",
+    }
+    (sc / "module-meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+    assert not any("module_identity" in w and "must be" in w for w in result["warnings"])
+
+
+def test_validate_warns_on_bad_parent_module_id(tmp_path: Path):
+    sc = _make_valid_scenario(tmp_path)
+    meta = json.loads((sc / "module-meta.json").read_text(encoding="utf-8"))
+    meta["module_identity"] = {
+        "canonical_module_id": "demo-module",
+        "canonical_title": "Demo Module",
+        "rules_edition": "7e",
+        "parent_module_id": "Not A Slug!!!",
+    }
+    (sc / "module-meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("parent_module_id" in w for w in result["warnings"])
+
+
+def test_validate_warns_on_invalid_page_kind(tmp_path: Path):
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc / "clue-graph.json").read_text(encoding="utf-8"))
+    g["conclusions"][0]["clues"][0]["source_refs"] = [
+        {"path": "pdf/foo.pdf", "page": 47, "page_kind": "offset_guess"}
+    ]
+    (sc / "clue-graph.json").write_text(json.dumps(g), encoding="utf-8")
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("page_kind" in w for w in result["warnings"])
+
+
+def test_validate_accepts_printed_and_pdf_index_page_kind(tmp_path: Path):
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc / "clue-graph.json").read_text(encoding="utf-8"))
+    g["conclusions"][0]["clues"][0]["delivery_kind"] = "handout"
+    g["conclusions"][0]["clues"][0]["source_refs"] = [
+        {"path": "pdf/foo.pdf", "page": 47, "page_kind": "printed"},
+        {"path": "pdf/foo.pdf", "page": 49, "page_kind": "pdf_index"},
+    ]
+    (sc / "clue-graph.json").write_text(json.dumps(g), encoding="utf-8")
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+    assert not any("page_kind" in w for w in result["warnings"])
+    assert not any("source_ref" in w for w in result["warnings"])

@@ -36,6 +36,7 @@ NON_FRAGILE_DELIVERY_KINDS = {
     "direct",
 }
 VALID_ORIGINS = frozenset({"source", "inferred", "improvised"})
+VALID_PAGE_KINDS = frozenset({"printed", "pdf_index"})
 DOCTOR_RULES_JSON_FILES = (
     "structure-weights.json",
     "rule-index.json",
@@ -805,7 +806,7 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             warnings.append(
                 "module-meta.module_identity.canonical_module_id must be a non-empty kebab-case slug"
             )
-        for field in ("canonical_title", "edition"):
+        for field in ("canonical_title", "edition", "module_edition", "rules_edition"):
             val = identity.get(field)
             if val is not None and (not isinstance(val, str) or not val.strip()):
                 warnings.append(
@@ -816,6 +817,16 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             if val is not None and not isinstance(val, str):
                 warnings.append(
                     f"module-meta.module_identity.{field} must be a string when present"
+                )
+        parent = identity.get("parent_module_id")
+        if parent is not None:
+            if (
+                not isinstance(parent, str)
+                or not parent.strip()
+                or not all(c.isalnum() or c == "-" for c in parent)
+            ):
+                warnings.append(
+                    "module-meta.module_identity.parent_module_id must be a non-empty kebab-case slug"
                 )
         aliases = identity.get("aliases")
         if aliases is not None:
@@ -921,30 +932,37 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
     # These are warnings (not errors) so old clue-graphs without the new
     # delivery_kind / source_refs fields still validate cleanly. Only flag
     # scenarios that opt into the structured fields but fill them in malformed.
+    # page convention: integer page is a PRINTED page number by default;
+    # optional page_kind may be "printed" (default) or "pdf_index" — never guess.
+    def _warn_source_refs(refs: Any, owner_label: str) -> None:
+        for ref in refs or []:
+            if not isinstance(ref, dict):
+                continue
+            if not ref.get("path") or not isinstance(ref.get("page"), int):
+                warnings.append(f"{owner_label} source_ref missing path or integer page")
+            page_kind = ref.get("page_kind")
+            if page_kind is not None and page_kind not in VALID_PAGE_KINDS:
+                warnings.append(
+                    f"{owner_label} source_ref page_kind must be "
+                    f"'printed' or 'pdf_index' (got {page_kind!r})"
+                )
+
     for concl in clue_graph.get("conclusions", []):
         for clue in concl.get("clues", []):
             dk = clue.get("delivery_kind")
             if dk == "skill_check" and not clue.get("skill"):
                 warnings.append(f"clue '{clue.get('clue_id')}' has delivery_kind=skill_check but no skill")
-            for ref in clue.get("source_refs", []) or []:
-                if not ref.get("path") or not isinstance(ref.get("page"), int):
-                    warnings.append(f"clue '{clue.get('clue_id')}' source_ref missing path or integer page")
+            _warn_source_refs(clue.get("source_refs"), f"clue '{clue.get('clue_id')}'")
             if "bonus" in clue:
                 errors.extend(_check_clue_bonus(clue))
 
     # source_refs warnings on scenes/npcs/fronts
     for scene in story.get("scenes", []):
-        for ref in scene.get("source_refs", []) or []:
-            if not ref.get("path") or not isinstance(ref.get("page"), int):
-                warnings.append(f"scene '{scene.get('scene_id')}' source_ref missing path or integer page")
+        _warn_source_refs(scene.get("source_refs"), f"scene '{scene.get('scene_id')}'")
     for npc in npcs.get("npcs", []):
-        for ref in npc.get("source_refs", []) or []:
-            if not ref.get("path") or not isinstance(ref.get("page"), int):
-                warnings.append(f"npc '{npc.get('npc_id')}' source_ref missing path or integer page")
+        _warn_source_refs(npc.get("source_refs"), f"npc '{npc.get('npc_id')}'")
     for front in fronts_data.get("fronts", []):
-        for ref in front.get("source_refs", []) or []:
-            if not ref.get("path") or not isinstance(ref.get("page"), int):
-                warnings.append(f"front '{front.get('front_id')}' source_ref missing path or integer page")
+        _warn_source_refs(front.get("source_refs"), f"front '{front.get('front_id')}'")
 
     # horror_stage monotonicity check on pacing-map.pacing_curve.
     # Stages should broadly advance ordinary->wrongness->pattern->revelation.
