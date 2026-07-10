@@ -1967,3 +1967,101 @@ def test_apply_cut_records_departed_visited_and_scene_history(tmp_path):
         and e.get("to_scene") == "crossing-saddle"
         for e in events
     )
+
+
+def _bonus_plan(clue_id="clue-A", on_fail_cost="time"):
+    return {
+        "decision_id": "d-bonus",
+        "scene_action": "REVEAL",
+        "clue_policy": {
+            "reveal": [clue_id],
+            "clue_type": "obvious",
+            "bonus": {
+                "skill": "Spot Hidden",
+                "difficulty": "regular",
+                "extra_summary": "A faint chalk mark under the sill.",
+                "on_fail_cost": on_fail_cost,
+            },
+        },
+        "rules_requests": [{
+            "kind": "skill_check",
+            "skill": "Spot Hidden",
+            "reason": "clue bonus detail",
+            "difficulty": "regular",
+            "bonus_penalty_dice": 0,
+            "clue_bonus": True,
+            "clue_id": clue_id,
+            "roll_contract": {
+                "schema_version": 1,
+                "goal": "gain extra investigative detail",
+                "success_effect": "attach bonus_reveal without gating the core clue",
+                "failure_effect": "core clue still lands; pay time or pressure cost",
+                "failure_outcome_mode": "bonus_with_cost",
+                "roll_density_group": f"clue-bonus:{clue_id}",
+                "must_not": ["do not withhold the core clue on bonus failure"],
+            },
+        }],
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {
+            "must_include": ["Core clue summary stays visible."],
+        },
+    }
+
+
+def test_backfill_bonus_success_attaches_bonus_reveal_keeps_core_clue():
+    plan = _bonus_plan()
+    resolved = coc_director_apply.backfill_rule_results(plan, [{
+        "kind": "skill_check",
+        "skill": "Spot Hidden",
+        "success": True,
+        "outcome": "regular_success",
+        "roll_contract": plan["rules_requests"][0]["roll_contract"],
+    }])
+    assert resolved["clue_policy"]["bonus_reveal"] == "A faint chalk mark under the sill."
+    assert "bonus_cost" not in resolved["clue_policy"]
+    assert "A faint chalk mark under the sill." in (
+        resolved.get("narrative_directives") or {}
+    ).get("must_include", [])
+    assert resolved["resolved_clue_policy"]["committed_reveals"] == ["clue-A"]
+
+
+def test_backfill_bonus_failure_attaches_cost_without_withholding_core():
+    plan = _bonus_plan(on_fail_cost="pressure")
+    resolved = coc_director_apply.backfill_rule_results(plan, [{
+        "kind": "skill_check",
+        "skill": "Spot Hidden",
+        "success": False,
+        "outcome": "failure",
+        "roll_contract": plan["rules_requests"][0]["roll_contract"],
+    }])
+    assert resolved["clue_policy"]["bonus_cost"] == "pressure"
+    assert "bonus_reveal" not in resolved["clue_policy"]
+    assert resolved["resolved_clue_policy"]["committed_reveals"] == ["clue-A"]
+    assert "Core clue summary stays visible." in (
+        resolved.get("narrative_directives") or {}
+    ).get("must_include", [])
+
+
+def test_apply_bonus_failure_keeps_core_clue_and_adds_pressure(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = _bonus_plan(on_fail_cost="pressure")
+    events = coc_director_apply.apply_plan(
+        camp,
+        plan,
+        investigator_id="inv1",
+        rules_results=[{
+            "kind": "skill_check",
+            "skill": "Spot Hidden",
+            "success": False,
+            "outcome": "failure",
+            "roll_contract": plan["rules_requests"][0]["roll_contract"],
+        }],
+    )
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert "clue-A" in world["discovered_clue_ids"]
+    assert any(e.get("event_type") == "clue_reveal" for e in events)
+    assert any(e.get("event_type") == "clue_bonus_cost" for e in events)
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing["tension_level"] in {"medium", "high", "climax"} or pacing.get("turn_number", 0) >= 1

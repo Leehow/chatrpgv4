@@ -16,12 +16,32 @@
           "origin": "source",
           "player_safe_summary": "An 1866 obituary notes a lawsuit to stop Corbitt being buried in his own basement as his will required.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 437, "grep_anchor": "buried in his basement"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "buried in his basement"
+            }
           ],
           "affordance": {
-            "target_entities": ["walter-corbitt", "corbitt-house"],
-            "verbs": ["research", "read", "trace"],
-            "skills": ["Library Use", "History"]
+            "target_entities": [
+              "walter-corbitt",
+              "corbitt-house"
+            ],
+            "verbs": [
+              "research",
+              "read",
+              "trace"
+            ],
+            "skills": [
+              "Library Use",
+              "History"
+            ]
+          },
+          "bonus": {
+            "skill": "Library Use",
+            "difficulty": "regular",
+            "extra_summary": "The 1866 docket margin names Pastor Michael Thomas as the will's loudest defender.",
+            "on_fail_cost": "time"
           }
         },
         {
@@ -32,12 +52,31 @@
           "origin": "source",
           "player_safe_summary": "Corbitt's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later closed in 1912.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Reverend Michael Thomas"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "Reverend Michael Thomas"
+            }
           ],
           "affordance": {
-            "target_entities": ["chapel-of-contemplation", "walter-corbitt"],
-            "verbs": ["research", "trace"],
-            "skills": ["Library Use", "Law"]
+            "target_entities": [
+              "chapel-of-contemplation",
+              "walter-corbitt"
+            ],
+            "verbs": [
+              "research",
+              "trace"
+            ],
+            "skills": [
+              "Library Use",
+              "Law"
+            ]
+          },
+          "bonus": {
+            "skill": "Library Use",
+            "difficulty": "regular",
+            "extra_summary": "A clerk's cross-index ties the executor file to the 1912 Chapel of Contemplation closure register.",
+            "on_fail_cost": "time"
           }
         },
         {
@@ -48,7 +87,11 @@
           "origin": "source",
           "player_safe_summary": "A moldering cult journal records that Walter Corbitt was buried in his basement 'in accordance with his wishes and with the wishes of that one who waits in the dark'.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 439, "grep_anchor": "buried in the basement of his house"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 439,
+              "grep_anchor": "buried in the basement of his house"
+            }
           ]
         },
         {
@@ -59,7 +102,11 @@
           "origin": "source",
           "player_safe_summary": "Behind the boards lies a wizened, seemingly dead figure on a pallet — saucer eyes, knife-blade nose, a chain at the throat, and a sweet rotten-corn reek.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 445, "grep_anchor": "Lying motionless"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 445,
+              "grep_anchor": "Lying motionless"
+            }
           ]
         }
       ]
@@ -80,12 +127,31 @@
           "origin": "source",
           "player_safe_summary": "An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Macarios fled under mysterious circumstances.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 437, "grep_anchor": "Unpublished Story"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "Unpublished Story"
+            }
           ],
           "affordance": {
-            "target_entities": ["corbitt-house", "macario-family"],
-            "verbs": ["research", "read"],
-            "skills": ["Library Use", "Persuade"]
+            "target_entities": [
+              "corbitt-house",
+              "macario-family"
+            ],
+            "verbs": [
+              "research",
+              "read"
+            ],
+            "skills": [
+              "Library Use",
+              "Persuade"
+            ]
+          },
+          "bonus": {
+            "skill": "Library Use",
+            "difficulty": "regular",
+            "extra_summary": "A penciled editor note flags the Macario flight as \"not for print — landlord pressure\".",
+            "on_fail_cost": "time"
           }
         },
         {
@@ -96,8 +162,18 @@
           "origin": "source",
           "player_safe_summary": "Dooley says the Macario father went violently mad after an accident, babbling about a haunting form with burning eyes; Mrs. Macario followed him into Roxbury Sanitarium.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "burning eyes"}
-          ]
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "burning eyes"
+            }
+          ],
+          "bonus": {
+            "skill": "Psychology",
+            "difficulty": "regular",
+            "extra_summary": "Dooley lowers his voice and glances at the Corbitt windows before finishing the story.",
+            "on_fail_cost": "time"
+          }
         },
         {
           "clue_id": "clue-gabriela-night-visitor",
@@ -107,7 +183,11 @@
           "origin": "source",
           "player_safe_summary": "Gabriela describes waking to find 'it' leaning over her; when angry it hurled dishes, and it hated Vittorio most of all.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "evil presence"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "evil presence"
+            }
           ]
         },
         {
@@ -118,8 +198,18 @@
           "origin": "source",
           "player_safe_summary": "In Corbitt's old room a bed can fly of its own accord hard enough to hurl someone through a window — accompanied by a Mythos reek.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 443, "grep_anchor": "bed fly across the room"}
-          ]
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 443,
+              "grep_anchor": "bed fly across the room"
+            }
+          ],
+          "bonus": {
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+            "extra_summary": "Gouges in the floorboards show the bed has slammed the same arc more than once.",
+            "on_fail_cost": "pressure"
+          }
         },
         {
           "clue_id": "clue-upstairs-disturbance",
@@ -129,8 +219,18 @@
           "origin": "source",
           "player_safe_summary": "Thumps and scrapes answer from the upper floor when investigators linger — something wants attention upstairs.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 442, "grep_anchor": "noise might be heard upstairs"}
-          ]
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 442,
+              "grep_anchor": "noise might be heard upstairs"
+            }
+          ],
+          "bonus": {
+            "skill": "Listen",
+            "difficulty": "regular",
+            "extra_summary": "The scrapes answer in a slow, deliberate rhythm — not settling timber.",
+            "on_fail_cost": "pressure"
+          }
         }
       ]
     },
@@ -150,12 +250,32 @@
           "origin": "source",
           "player_safe_summary": "Three bound diaries of W. Corbitt describe occult experiments, an unearthly summoning, and a spell to call forth an Opener of Ways.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 442, "grep_anchor": "Corbitt Diaries"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 442,
+              "grep_anchor": "Corbitt Diaries"
+            }
           ],
           "affordance": {
-            "target_entities": ["walter-corbitt", "diaries"],
-            "verbs": ["search", "read", "force"],
-            "skills": ["Spot Hidden", "Occult"]
+            "target_entities": [
+              "walter-corbitt",
+              "diaries"
+            ],
+            "verbs": [
+              "search",
+              "read",
+              "force"
+            ],
+            "skills": [
+              "Spot Hidden",
+              "Occult"
+            ]
+          },
+          "bonus": {
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+            "extra_summary": "Between diary leaves, a pressed scrap sketches a boarded niche behind the basement wall.",
+            "on_fail_cost": "time"
           }
         },
         {
@@ -166,7 +286,11 @@
           "origin": "source",
           "player_safe_summary": "A 1912 raid on the Chapel of Contemplation killed police and cultists; Pastor Thomas later escaped prison — the cult's residue still stains the case.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Chapel of Contemplation"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "Chapel of Contemplation"
+            }
           ]
         },
         {
@@ -177,7 +301,11 @@
           "origin": "source",
           "player_safe_summary": "The 'corpse' spends Magic Points, wards its flesh, and strikes — it is an undead sorcerer animating its own body.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 435, "grep_anchor": "animate his body after death"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 435,
+              "grep_anchor": "animate his body after death"
+            }
           ]
         },
         {
@@ -188,7 +316,11 @@
           "origin": "source",
           "player_safe_summary": "A horrible smell manifests whenever Corbitt forces a psychic deed — a sure sign this is no parlor haunting.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 443, "grep_anchor": "horrible smell"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 443,
+              "grep_anchor": "horrible smell"
+            }
           ]
         }
       ]
@@ -209,7 +341,11 @@
           "origin": "source",
           "player_safe_summary": "Vittorio points to a bible passage that is not scripture: 'By his own weapon is the devil worsted!'",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "By his own weapon"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "By his own weapon"
+            }
           ]
         },
         {
@@ -220,7 +356,11 @@
           "origin": "source",
           "player_safe_summary": "The ornate, blood-rusted knife in the basement is Corbitt's magic dagger — dangerous in his will, decisive in yours.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 444, "grep_anchor": "Floating Knife"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 444,
+              "grep_anchor": "Floating Knife"
+            }
           ]
         },
         {
@@ -231,7 +371,11 @@
           "origin": "source",
           "player_safe_summary": "Struck with his own dagger, Corbitt's wards fail and he turns to ashes and dust.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 449, "grep_anchor": "own dagger"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 449,
+              "grep_anchor": "own dagger"
+            }
           ]
         }
       ]
@@ -252,8 +396,18 @@
           "origin": "source",
           "player_safe_summary": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and restore the property's name.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 435, "grep_anchor": "Mr. Knott"}
-          ]
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 435,
+              "grep_anchor": "Mr. Knott"
+            }
+          ],
+          "bonus": {
+            "skill": "Psychology",
+            "difficulty": "regular",
+            "extra_summary": "Knott's smile tightens whenever the Macario name comes up — he is more afraid than greedy.",
+            "on_fail_cost": "time"
+          }
         },
         {
           "clue_id": "clue-knott-research-leads",
@@ -263,7 +417,11 @@
           "origin": "source",
           "player_safe_summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 435, "grep_anchor": "Boston Globe"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 435,
+              "grep_anchor": "Boston Globe"
+            }
           ]
         },
         {
@@ -274,7 +432,11 @@
           "origin": "source",
           "player_safe_summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 435, "grep_anchor": "gives you the keys"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 435,
+              "grep_anchor": "gives you the keys"
+            }
           ]
         },
         {
@@ -285,7 +447,11 @@
           "origin": "source",
           "player_safe_summary": "The Macario family rented in 1918 and left almost immediately under mysterious circumstances; they are now linked to Roxbury Sanitarium.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 437, "grep_anchor": "Macarios"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "Macarios"
+            }
           ]
         },
         {
@@ -296,7 +462,11 @@
           "origin": "source",
           "player_safe_summary": "Globe files go back no further than a fire in 1878 — earlier Corbitt House mentions are not here.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 437, "grep_anchor": "fire in 1878"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "fire in 1878"
+            }
           ]
         },
         {
@@ -307,7 +477,11 @@
           "origin": "source",
           "player_safe_summary": "The register of churches notes the Chapel of Contemplation closed in 1912.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "closure of the Chapel"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "closure of the Chapel"
+            }
           ]
         },
         {
@@ -318,7 +492,11 @@
           "origin": "source",
           "player_safe_summary": "Witnesses speak of a strange man with burning eyes haunting dreams and mad rants alike.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "burning eyes"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "burning eyes"
+            }
           ]
         },
         {
@@ -329,7 +507,11 @@
           "origin": "source",
           "player_safe_summary": "Dooley can point out where the Chapel of Contemplation stood a few blocks away — now rubble and painted signs.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Chapel of Contemplation"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "Chapel of Contemplation"
+            }
           ]
         },
         {
@@ -340,7 +522,11 @@
           "origin": "source",
           "player_safe_summary": "The Macario boys had nightmares of a strange man with burning eyes in their former home.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "nightmares"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "nightmares"
+            }
           ]
         },
         {
@@ -351,7 +537,11 @@
           "origin": "source",
           "player_safe_summary": "Unusual quantities of crosses, Virgin images, rosaries and candles litter the Macario rooms — wards against something they feared.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 442, "grep_anchor": "Catholic artifacts"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 442,
+              "grep_anchor": "Catholic artifacts"
+            }
           ]
         },
         {
@@ -362,7 +552,11 @@
           "origin": "source",
           "player_safe_summary": "Ground-floor windows are nailed shut from inside; the side door carries three bolts and two locks.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 440, "grep_anchor": "nailed shut"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 440,
+              "grep_anchor": "nailed shut"
+            }
           ]
         },
         {
@@ -373,7 +567,11 @@
           "origin": "source",
           "player_safe_summary": "Corbitt can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 443, "grep_anchor": "pool of blood"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 443,
+              "grep_anchor": "pool of blood"
+            }
           ]
         },
         {
@@ -384,7 +582,11 @@
           "origin": "source",
           "player_safe_summary": "An old knife with an ornate hilt can float and stab under Corbitt's will, costing him Magic Points each round.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 444, "grep_anchor": "knife floats"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 444,
+              "grep_anchor": "knife floats"
+            }
           ]
         },
         {
@@ -395,7 +597,11 @@
           "origin": "source",
           "player_safe_summary": "Closely fitted boards line the basement; a cursory check reveals hollow spaces behind them.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 444, "grep_anchor": "hollow areas"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 444,
+              "grep_anchor": "hollow areas"
+            }
           ]
         },
         {
@@ -408,7 +614,11 @@
           "origin": "source",
           "player_safe_summary": "Blows that should bite seem blunted — Corbitt has warded his flesh with spent Magic Points.",
           "source_refs": [
-            {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 448, "grep_anchor": "Flesh Ward"}
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 448,
+              "grep_anchor": "Flesh Ward"
+            }
           ]
         }
       ]

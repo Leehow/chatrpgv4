@@ -2651,3 +2651,111 @@ def test_move_intent_zero_match_falls_back_to_candidate_order(tmp_path):
     assert plan["scene_action"] == "CUT"
     assert plan.get("transition_to") == "hall-of-records"
     assert "matched_target" not in plan
+
+
+def test_director_emits_clue_bonus_skill_check_on_investigate_reveal(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
+    clue_graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "handout",
+        "player_safe_summary": "A civil file names the chapel executor.",
+        "bonus": {
+            "skill": "Library Use",
+            "difficulty": "regular",
+            "extra_summary": "A marginal note lists the chapel's 1912 closure date.",
+            "on_fail_cost": "time",
+        },
+    })
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我在档案厅翻查民事卷宗",
+        player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    # Force REVEAL path with the bonus-bearing clue selected.
+    ctx["player_intent_class"] = "investigate"
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="bonus-investigate")
+    if plan["scene_action"] != "REVEAL":
+        # Direct unit path when Layer-2 picks another action under this fixture.
+        policy = coc_story_director._select_clue_policy(ctx, "REVEAL")
+        requests = coc_story_director._build_rules_requests(ctx, "REVEAL", policy)
+    else:
+        policy = plan["clue_policy"]
+        requests = plan["rules_requests"]
+
+    assert policy.get("reveal") == ["clue-1"]
+    assert policy.get("clue_type") == "obvious"
+    assert isinstance(policy.get("bonus"), dict)
+    bonus_req = next(
+        r for r in requests
+        if isinstance(r, dict)
+        and (r.get("roll_contract") or {}).get("roll_density_group") == "clue-bonus:clue-1"
+    )
+    assert bonus_req["kind"] == "skill_check"
+    assert bonus_req["skill"] == "Library Use"
+    assert bonus_req["difficulty"] == "regular"
+    assert bonus_req["roll_contract"]["failure_outcome_mode"] != "clue_with_cost"
+
+
+def test_director_skips_clue_bonus_for_non_investigate_intent(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
+    clue_graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "handout",
+        "player_safe_summary": "A civil file names the chapel executor.",
+        "bonus": {
+            "skill": "Library Use",
+            "difficulty": "regular",
+            "extra_summary": "A marginal note lists the chapel's 1912 closure date.",
+            "on_fail_cost": "time",
+        },
+    })
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我和档案员闲聊天气",
+        player_intent_class="social",
+        rng=random.Random(7),
+    )
+    ctx["player_intent_class"] = "social"
+    policy = coc_story_director._select_clue_policy(ctx, "REVEAL")
+    requests = coc_story_director._build_rules_requests(ctx, "REVEAL", policy)
+    assert not any(
+        (r.get("roll_contract") or {}).get("roll_density_group", "").startswith("clue-bonus:")
+        for r in requests
+        if isinstance(r, dict)
+    )
+
+
+def test_director_still_emits_skill_check_delivery_kind_unchanged(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
+    clue_graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "skill_check",
+        "skill": "Spot Hidden",
+        "difficulty": "regular",
+        "player_safe_summary": "Scratches on the doorframe.",
+    })
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我搜查门框",
+        player_intent_class="investigate",
+        rng=random.Random(3),
+    )
+    policy = coc_story_director._select_clue_policy(ctx, "REVEAL")
+    requests = coc_story_director._build_rules_requests(ctx, "REVEAL", policy)
+    gate = next(r for r in requests if r.get("reason") == "obscured clue in scene")
+    assert gate["skill"] == "Spot Hidden"
+    assert gate["roll_contract"]["failure_outcome_mode"] == "clue_with_cost"
+    assert gate["roll_contract"]["roll_density_group"] == "clue:clue-1"

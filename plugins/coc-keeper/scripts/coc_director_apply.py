@@ -823,8 +823,14 @@ def _first_failed_contract_result(
                 if request.get("skill") == result.get("skill") and isinstance(request.get("roll_contract"), dict):
                     contract = request["roll_contract"]
                     break
-        if isinstance(contract, dict):
-            return result, contract
+        if not isinstance(contract, dict):
+            continue
+        # Clue-bonus failures are handled via clue_policy.bonus_cost; do not
+        # treat them as generic goal failures that overshadow the core reveal.
+        group = str(contract.get("roll_density_group") or "")
+        if contract.get("failure_outcome_mode") == "bonus_with_cost" or group.startswith("clue-bonus:"):
+            continue
+        return result, contract
     return None
 
 
@@ -862,6 +868,107 @@ def _idea_roll_result(
             # Request present but no result yet.
             return None
     return None
+
+
+def _clue_bonus_request(plan: dict[str, Any]) -> dict[str, Any] | None:
+    for request in plan.get("rules_requests", []) or []:
+        if not isinstance(request, dict):
+            continue
+        contract = request.get("roll_contract") or {}
+        group = str(contract.get("roll_density_group") or "")
+        if request.get("clue_bonus") or group.startswith("clue-bonus:"):
+            return request
+    return None
+
+
+def _clue_bonus_rule_result(
+    plan: dict[str, Any],
+    rules_results: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    request = _clue_bonus_request(plan)
+    if request is None:
+        return None
+    expected_group = str((request.get("roll_contract") or {}).get("roll_density_group") or "")
+    for result in rules_results or []:
+        if not isinstance(result, dict):
+            continue
+        contract = result.get("roll_contract") or {}
+        group = str(contract.get("roll_density_group") or "")
+        if expected_group and group == expected_group:
+            return result
+        if result.get("clue_bonus") or (
+            result.get("skill") == request.get("skill")
+            and str(contract.get("failure_outcome_mode") or "") == "bonus_with_cost"
+        ):
+            return result
+    return None
+
+
+def _apply_clue_bonus_resolution(
+    plan: dict[str, Any],
+    rules_results: list[dict[str, Any]] | None,
+    *,
+    ts: str = "",
+    investigator_id: str = "",
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Resolve non-gating clue bonus rolls into events + optional pressure.
+
+    Returns (events, extra_pressure_moves). Never withholds the core clue.
+    """
+    events: list[dict[str, Any]] = []
+    pressure: list[dict[str, Any]] = []
+    request = _clue_bonus_request(plan)
+    if request is None:
+        return events, pressure
+    bonus = (plan.get("clue_policy") or {}).get("bonus") or request.get("bonus") or {}
+    if not isinstance(bonus, dict):
+        bonus = {}
+    result = _clue_bonus_rule_result(plan, rules_results)
+    success = _rule_result_success(result)
+    decision_id = plan.get("decision_id", "unknown")
+    clue_id = request.get("clue_id") or ((plan.get("clue_policy") or {}).get("reveal") or [None])[0]
+    if success is None:
+        events.append({
+            "event_type": "clue_bonus_pending",
+            "decision_id": decision_id,
+            "clue_id": clue_id,
+            "investigator_id": investigator_id,
+            "summary": "clue bonus roll held until rule result is backfilled",
+            "ts": ts,
+        })
+        return events, pressure
+    if success is True:
+        extra = str(bonus.get("extra_summary") or "").strip()
+        events.append({
+            "event_type": "clue_bonus_reveal",
+            "decision_id": decision_id,
+            "clue_id": clue_id,
+            "bonus_reveal": extra,
+            "investigator_id": investigator_id,
+            "summary": extra or "clue bonus detail revealed",
+            "ts": ts,
+        })
+        return events, pressure
+
+    cost = str(bonus.get("on_fail_cost") or "time")
+    if cost not in {"time", "pressure"}:
+        cost = "time"
+    symptom = (
+        "the extra detail slips away and the search costs time"
+        if cost == "time"
+        else "the failed probe raises the room's tension without hiding the core find"
+    )
+    pressure.append(_synthetic_pressure_move("clue_bonus_fail_cost", symptom))
+    events.append({
+        "event_type": "clue_bonus_cost",
+        "decision_id": decision_id,
+        "clue_id": clue_id,
+        "bonus_cost": cost,
+        "investigator_id": investigator_id,
+        "summary": f"clue bonus failed; core clue kept; cost={cost}",
+        "ts": ts,
+    })
+    return events, pressure
 
 
 def _resolve_committed_clues(
@@ -927,6 +1034,11 @@ def _resolve_committed_clues(
                 ),
                 "ts": ts,
             })
+            bonus_events, bonus_pressure = _apply_clue_bonus_resolution(
+                plan, rules_results, ts=ts, investigator_id=investigator_id
+            )
+            events.extend(bonus_events)
+            pressure.extend(bonus_pressure)
             return [fallback_ids[0]], events, pressure
 
         # Failed Idea Roll: still surface the lead, but in a worse position.
@@ -944,16 +1056,32 @@ def _resolve_committed_clues(
             "summary": "Idea Roll failure surfaces the lead in the thick of it",
             "ts": ts,
         })
+        bonus_events, bonus_pressure = _apply_clue_bonus_resolution(
+            plan, rules_results, ts=ts, investigator_id=investigator_id
+        )
+        events.extend(bonus_events)
+        pressure.extend(bonus_pressure)
         return [fallback_ids[0]], events, pressure
 
     # Obvious/direct clues remain immediate. Obscured clues with a rules_request
     # must wait for the actual roll result.
     if not _obscured_reveal_requires_result(plan):
-        return reveal_ids, events, pressure
+        committed = reveal_ids
+        bonus_events, bonus_pressure = _apply_clue_bonus_resolution(
+            plan, rules_results, ts=ts, investigator_id=investigator_id
+        )
+        events.extend(bonus_events)
+        pressure.extend(bonus_pressure)
+        return committed, events, pressure
 
     result = _clue_gate_rule_result(plan, rules_results)
     success = _rule_result_success(result)
     if success is True:
+        bonus_events, bonus_pressure = _apply_clue_bonus_resolution(
+            plan, rules_results, ts=ts, investigator_id=investigator_id
+        )
+        events.extend(bonus_events)
+        pressure.extend(bonus_pressure)
         return reveal_ids, events, pressure
 
     if success is None:
@@ -1022,6 +1150,8 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
     failure_event: dict[str, Any] | None = None
     recovery_event: dict[str, Any] | None = None
     clean_recovery_event: dict[str, Any] | None = None
+    bonus_reveal: str | None = None
+    bonus_cost: str | None = None
     for event in resolution_events:
         etype = event.get("event_type")
         if etype == "clue_withheld":
@@ -1036,6 +1166,18 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
             clue_id = event.get("clue_id")
             recovered = [clue_id] if clue_id else []
             clean_recovery_event = event
+        elif etype == "clue_bonus_reveal":
+            bonus_reveal = str(event.get("bonus_reveal") or event.get("summary") or "")
+        elif etype == "clue_bonus_cost":
+            bonus_cost = str(event.get("bonus_cost") or "time")
+
+    policy = resolved_plan.setdefault("clue_policy", {})
+    if bonus_reveal:
+        policy["bonus_reveal"] = bonus_reveal
+        policy.pop("bonus_cost", None)
+    if bonus_cost:
+        policy["bonus_cost"] = bonus_cost
+        policy.pop("bonus_reveal", None)
 
     resolved_plan["resolved_clue_policy"] = {
         "planned_reveals": planned_reveals,
@@ -1044,9 +1186,16 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
         "fallback_recovered": recovered,
         "pending_rule_result": any(e.get("event_type") == "clue_pending_rule_result" for e in resolution_events),
         "extra_pressure_moves": extra_pressure,
+        "bonus_reveal": bonus_reveal,
+        "bonus_cost": bonus_cost,
     }
 
     directives = resolved_plan.setdefault("narrative_directives", {})
+    if bonus_reveal:
+        must_include = list(directives.get("must_include") or [])
+        if bonus_reveal not in must_include:
+            must_include.append(bonus_reveal)
+        directives["must_include"] = must_include
     if failure_event is not None:
         # Prevent the narrator from including the exact clue anchor that was only
         # valid on success. The next beat may still surface a fallback route.

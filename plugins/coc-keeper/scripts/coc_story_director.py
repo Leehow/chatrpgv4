@@ -1619,7 +1619,41 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     # discovery feel earned (structured entities/verbs/skills only, no prose).
     if selected_clue_id and selected_clue_id in hit_by_clue:
         policy["matched_affordance"] = hit_by_clue[selected_clue_id]
+    # Optional non-gating bonus block (dice texture). Shape is validated lightly
+    # here; full schema validation belongs to the scenario compiler owner.
+    bonus_source_id = selected_clue_id
+    if not bonus_source_id and action == "RECOVER" and fallback:
+        bonus_source_id = fallback[0]
+    if bonus_source_id:
+        bonus_clue = _find_clue(bonus_source_id, clue_graph)
+        bonus = (bonus_clue or {}).get("bonus") if isinstance(bonus_clue, dict) else None
+        if isinstance(bonus, dict) and bonus.get("skill"):
+            policy["bonus"] = {
+                "skill": str(bonus.get("skill")),
+                "difficulty": str(bonus.get("difficulty") or "regular"),
+                "extra_summary": str(bonus.get("extra_summary") or ""),
+                "on_fail_cost": str(bonus.get("on_fail_cost") or "time"),
+            }
     return policy
+
+
+def _clue_bonus_eligible(ctx: dict[str, Any], clue_policy: dict[str, Any] | None) -> bool:
+    """Offer a non-gating bonus roll on investigate intent or affordance skill hit."""
+    if not isinstance(clue_policy, dict) or not isinstance(clue_policy.get("bonus"), dict):
+        return False
+    intent = str(ctx.get("player_intent_class") or "").strip().lower()
+    if intent == "investigate":
+        return True
+    matched = clue_policy.get("matched_affordance") or {}
+    matched_skills = set()
+    if isinstance(matched, dict):
+        matched_skills = {
+            str(s).strip().lower()
+            for s in ((matched.get("matched") or {}).get("skills") or [])
+            if s
+        }
+    bonus_skill = str((clue_policy.get("bonus") or {}).get("skill") or "").strip().lower()
+    return bool(bonus_skill and bonus_skill in matched_skills)
 
 
 def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[str]:
@@ -2293,6 +2327,45 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                              "do not reveal exact withheld clue on failure",
                          ],
                      )})
+    if action in ("REVEAL", "RECOVER") and _clue_bonus_eligible(ctx, clue_policy):
+        # Non-gating dice texture: core clue still lands; bonus success adds
+        # extra_summary, failure costs time/pressure. Density group keeps
+        # enrichment from merging unrelated rolls into this axis.
+        bonus = (clue_policy or {}).get("bonus") or {}
+        clue_id = ((clue_policy or {}).get("reveal") or (clue_policy or {}).get("fallback_routes") or ["clue"])[0]
+        density_group = f"clue-bonus:{clue_id}"
+        already = any(
+            isinstance(req, dict)
+            and ((req.get("roll_contract") or {}).get("roll_density_group") == density_group)
+            for req in requests
+        )
+        if not already and bonus.get("skill"):
+            on_fail = str(bonus.get("on_fail_cost") or "time")
+            requests.append({
+                "kind": "skill_check",
+                "skill": bonus.get("skill"),
+                "reason": "clue bonus detail",
+                "difficulty": bonus.get("difficulty") or "regular",
+                "bonus_penalty_dice": 0,
+                "clue_bonus": True,
+                "clue_id": clue_id,
+                "bonus": bonus,
+                "roll_contract": _roll_contract(
+                    goal="gain extra investigative detail without gating the core clue",
+                    success_effect="attach bonus_reveal (extra_summary) alongside the core clue",
+                    failure_effect=(
+                        "core clue still lands; spend time"
+                        if on_fail == "time"
+                        else "core clue still lands; pressure rises"
+                    ),
+                    failure_outcome_mode="bonus_with_cost",
+                    roll_density_group=density_group,
+                    must_not=[
+                        "do not withhold the core clue on bonus failure",
+                        "do not narrate no progress on ordinary failure",
+                    ],
+                ),
+            })
     if action == "RECOVER":
         # Idea Roll recovery valve (Keeper Rulebook ~p.199). Never-signposted
         # leads are given free; mentioned → Regular; obvious-but-missed → Extreme.
