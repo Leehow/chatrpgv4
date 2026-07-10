@@ -1,0 +1,18 @@
+{
+  "name": "coc-keeper",
+  "version": "0.2.0-alpha",
+  "description": "Call of Cthulhu Keeper mode plugin with structured rules, persistent campaign state, and playtest reporting. Skills live under ./skills/ (single-track with Codex/Cursor).",
+  "author": {
+    "name": "Leehow"
+  },
+  "homepage": "https://github.com/Leehow/chatrpgv4",
+  "repository": "https://github.com/Leehow/chatrpgv4",
+  "license": "Apache-2.0",
+  "keywords": [
+    "call-of-cthulhu",
+    "coc",
+    "trpg",
+    "keeper",
+    "skills"
+  ]
+}

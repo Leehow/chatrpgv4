@@ -2,13 +2,15 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-COC Keeper 是一个给 Codex 使用的《克苏鲁的呼唤》第 7 版守秘人插件。它让 AI 在跑团时不只是“即兴讲故事”，而是能按照一套结构化流程处理调查、线索、理智、追逐、战斗、角色卡、剧本导入、持久化存档和自动化 playtest。
+COC Keeper 是一个《克苏鲁的呼唤》第 7 版守秘人插件，可安装到 **Codex**、**Claude Code** 和 **Cursor**。三宿主共用同一套 `plugins/coc-keeper/skills/`（单轨法）；它让 AI 在跑团时不只是“即兴讲故事”，而是能按照一套结构化流程处理调查、线索、理智、追逐、战斗、角色卡、剧本导入、持久化存档和自动化 playtest。
 
-English: COC Keeper is a local Call of Cthulhu 7th edition Keeper-mode plugin for Codex. It provides structured rules, persistent campaign state, investigator tools, scenario import, subsystem handling, and automated playtest reporting.
+English: COC Keeper is a local Call of Cthulhu 7th edition Keeper-mode plugin for Codex, Claude Code, and Cursor. One skills tree under `plugins/coc-keeper/`; thin host manifests only. It provides structured rules, persistent campaign state, investigator tools, scenario import, subsystem handling, and automated playtest reporting.
 
-## 快速安装 / Quick Install
+## 快速安装 / Quick Install (三宿主)
 
-Codex 用户可以直接把这个 GitHub 仓库添加为插件 marketplace：
+所有宿主都指向同一 canonical 插件目录 `plugins/coc-keeper/`。**不要**复制第二套 skills 树。调查员立绘生成仅 Codex 可用；Claude Code / Cursor 跳过该能力。
+
+### Codex
 
 ```bash
 codex plugin marketplace add Leehow/chatrpgv4 --ref main
@@ -34,6 +36,29 @@ codex plugin marketplace add Leehow/chatrpgv4 --ref main
 
 安装后也可以直接用中文说“进入 COC 模式”“创建调查员”“导入这个模组”“跑一次 playtest”。
 
+### Claude Code
+
+仓库根目录提供 Claude Code marketplace 入口：`.claude-plugin/marketplace.json` → `./plugins/coc-keeper`（插件 manifest：`plugins/coc-keeper/.claude-plugin/plugin.json`）。Skills 由 Claude Code 自动发现 `plugins/coc-keeper/skills/`。
+
+本地 checkout：
+
+```bash
+git clone https://github.com/Leehow/chatrpgv4.git
+cd chatrpgv4
+claude plugin marketplace add "$(pwd)"
+```
+
+然后在 Claude Code 中安装 `coc-keeper`，新开会话后说 `Activate COC mode.` / `进入 COC 模式。`  
+无 imagegen 时跳过立绘，继续角色创建其余步骤。
+
+### Cursor
+
+两种薄入口（均不复制 skills）：
+
+1. **项目内 Agent Skill（本仓库）**：`.cursor/skills/coc-keeper/SKILL.md` 路由到 `plugins/coc-keeper/skills/`。打开本仓库即可；显式激活 COC 模式后再加载 keeper skills。
+2. **Cursor 插件 manifest**：`plugins/coc-keeper/.cursor-plugin/plugin.json` 声明 `"skills": "./skills/"`，与 Codex/Claude 共用同一树。
+
+无 imagegen 时跳过立绘。被动激活规则见 `plugins/coc-keeper/references/AGENTS-coc-mode-template.md`。
 ## 这是什么 / What It Does
 
 COC Keeper 的目标是把 Codex 变成一个更可靠的 COC 守秘人工具。它适合这些场景：
@@ -78,21 +103,15 @@ Run a COC playtest with the haunting-module profile.
 用 haunting-module profile 跑一次自动 playtest。
 ```
 
-## Codex 安装细节 / Codex Installation
+## 安装细节 / Installation Details
 
-这个仓库包含 repo-scoped Codex marketplace 配置：
+| 宿主 | Marketplace / 入口 | 插件 manifest | Skills |
+|---|---|---|---|
+| Codex | `.agents/plugins/marketplace.json` | `plugins/coc-keeper/.codex-plugin/plugin.json` | `./skills/` |
+| Claude Code | `.claude-plugin/marketplace.json` | `plugins/coc-keeper/.claude-plugin/plugin.json` | 自动发现 `./skills/` |
+| Cursor | `.cursor/skills/coc-keeper/SKILL.md`（项目薄入口） | `plugins/coc-keeper/.cursor-plugin/plugin.json` | `./skills/` |
 
-```text
-.agents/plugins/marketplace.json
-```
-
-它会把 Codex 指向：
-
-```text
-plugins/coc-keeper/
-```
-
-如果你使用 fork 或本地开发 checkout：
+本地 Codex checkout：
 
 ```bash
 git clone https://github.com/Leehow/chatrpgv4.git
@@ -100,28 +119,32 @@ cd chatrpgv4
 codex plugin marketplace add "$(pwd)"
 ```
 
-更新已安装插件：
+更新已安装 Codex 插件：
 
 ```bash
 git pull
 codex plugin marketplace upgrade
 ```
 
-更新后重新打开需要使用插件的 Codex 线程。
+更新后重新打开需要使用插件的 Codex 线程。Claude Code / Cursor 同样 `git pull` 后重开会话即可。
 
 ## 仓库结构 / Repository Layout
 
 ```text
 .
 ├── .agents/plugins/              # Codex repo marketplace metadata
+├── .claude-plugin/               # Claude Code repo marketplace metadata
+├── .cursor/skills/coc-keeper/    # Cursor thin skill entry (routes to plugins/)
 ├── checks/                       # rulebook validator and checklists
 ├── docs/superpowers/specs/       # design notes and implementation specs
 ├── plugins/
-│   └── coc-keeper/               # Codex plugin
-│       ├── .codex-plugin/
+│   └── coc-keeper/               # single-track plugin (all hosts)
+│       ├── .claude-plugin/       # Claude Code plugin manifest
+│       ├── .codex-plugin/        # Codex plugin manifest
+│       ├── .cursor-plugin/       # Cursor plugin manifest
 │       ├── references/           # structured reference docs and rules JSON
 │       ├── scripts/              # Python runtime, reports, harnesses, helpers
-│       └── skills/               # Codex skill entrypoints
+│       └── skills/               # canonical skill entrypoints (one tree)
 ├── scripts/                      # maintenance helpers
 └── tests/                        # pytest suite
 ```
@@ -158,9 +181,10 @@ python3 plugins/coc-keeper/scripts/coc_playtest_audit.py .coc/playtests/my-run
 python3 checks/exhaustive_rulebook_validator.py .coc/playtests <run-id>
 ```
 
-## Codex 插件维护规则
+## 插件维护规则 / Plugin Maintenance
 
-`plugins/coc-keeper/` 是唯一插件实现。提交插件相关改动前，至少运行：
+`plugins/coc-keeper/` 是唯一插件实现（COC Plugin Single-Track Law）。Claude Code /
+Cursor 只允许薄 manifest 或入口文件指向该树。提交插件相关改动前，至少运行：
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
@@ -169,7 +193,6 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p 
 调查员立绘生成是 Codex-only 能力，保留在
 `plugins/coc-keeper/skills/coc-character/SKILL.md` 的 `CODEX_ONLY_IMAGEGEN`
 标记块内。非 Codex 宿主应跳过该能力，而不是再维护第二套插件树。
-
 ## 规则书 PDF / Rulebook PDF
 
 规则书 PDF 不包含在仓库中，也不会被 Git 跟踪。如果你要使用规则书页码查找、PDF ingest 或剧本导入相关能力，请把你合法拥有的 PDF 放到：

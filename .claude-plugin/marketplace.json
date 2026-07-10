@@ -1,0 +1,29 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "coc-keeper",
+  "description": "COC Keeper plugins for Claude Code (thin marketplace entry over plugins/coc-keeper)",
+  "owner": {
+    "name": "Leehow"
+  },
+  "plugins": [
+    {
+      "name": "coc-keeper",
+      "description": "Call of Cthulhu Keeper mode — structured rules, campaign state, and playtest reporting. Portrait generation is Codex-only; Claude Code skips that capability.",
+      "version": "0.2.0-alpha",
+      "source": "./plugins/coc-keeper",
+      "author": {
+        "name": "Leehow"
+      },
+      "homepage": "https://github.com/Leehow/chatrpgv4",
+      "repository": "https://github.com/Leehow/chatrpgv4",
+      "license": "Apache-2.0",
+      "keywords": [
+        "call-of-cthulhu",
+        "coc",
+        "trpg",
+        "keeper"
+      ],
+      "category": "productivity"
+    }
+  ]
+}

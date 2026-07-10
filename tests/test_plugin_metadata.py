@@ -52,6 +52,130 @@ def test_repo_marketplace_exposes_coc_keeper_plugin():
     ]
 
 
+def test_claude_plugin_manifest_points_at_canonical_plugin():
+    manifest_path = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+    assert manifest_path.exists()
+
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["name"] == "coc-keeper"
+    assert manifest["version"] == "0.2.0-alpha"
+    assert "Call of Cthulhu" in manifest["description"]
+    assert (PLUGIN_ROOT / "skills").is_dir()
+    assert any((PLUGIN_ROOT / "skills").glob("*/SKILL.md"))
+
+
+def test_claude_marketplace_exposes_coc_keeper_plugin():
+    marketplace_path = Path(".claude-plugin") / "marketplace.json"
+    assert marketplace_path.exists()
+
+    marketplace = json.loads(marketplace_path.read_text())
+    assert marketplace["name"] == "coc-keeper"
+    assert marketplace["plugins"]
+    plugin = marketplace["plugins"][0]
+    assert plugin["name"] == "coc-keeper"
+    assert plugin["version"] == "0.2.0-alpha"
+    assert plugin["source"] == "./plugins/coc-keeper"
+    assert Path(plugin["source"]).resolve() == PLUGIN_ROOT.resolve()
+    assert "Codex-only" in plugin["description"] or "skip" in plugin["description"].lower()
+
+
+def test_cursor_plugin_manifest_points_at_canonical_skills():
+    manifest_path = PLUGIN_ROOT / ".cursor-plugin" / "plugin.json"
+    assert manifest_path.exists()
+
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["name"] == "coc-keeper"
+    assert manifest["version"] == "0.2.0-alpha"
+    assert manifest["skills"] == "./skills/"
+    skills_dir = (PLUGIN_ROOT / manifest["skills"]).resolve()
+    assert skills_dir == (PLUGIN_ROOT / "skills").resolve()
+    assert skills_dir.is_dir()
+    assert "Codex-only" in manifest["description"] or "skip" in manifest["description"].lower()
+
+
+def test_cursor_thin_skill_entry_routes_to_canonical_tree():
+    entry = Path(".cursor/skills/coc-keeper/SKILL.md")
+    assert entry.exists()
+    assert not entry.is_symlink()
+
+    text = entry.read_text()
+    assert text.startswith("---\n")
+    assert "plugins/coc-keeper/skills/" in text
+    assert "CODEX_ONLY_IMAGEGEN" in text
+    assert "skip" in text.lower()
+    assert "Do not create a parallel skill copy" in text
+    assert "coc-main" in text
+
+
+def test_single_track_no_duplicate_skill_trees():
+    """Only plugins/coc-keeper/skills/ may hold the full skill tree.
+
+    Allowed outside that tree: the Cursor thin entry at
+    .cursor/skills/coc-keeper/SKILL.md, and symlinks that resolve into the
+    canonical skills directory. node_modules / tmp are ignored.
+    """
+    canonical_skills = (PLUGIN_ROOT / "skills").resolve()
+    thin_entry = Path(".cursor/skills/coc-keeper/SKILL.md").resolve()
+    forbidden = []
+
+    for path in Path(".").rglob("SKILL.md"):
+        if any(part in {"node_modules", "tmp", ".git", ".venv", ".venv311"} for part in path.parts):
+            continue
+        resolved = path.resolve()
+        if canonical_skills in resolved.parents or resolved.parent == canonical_skills:
+            continue
+        if path.is_symlink():
+            link_target = path.resolve()
+            if canonical_skills in link_target.parents or link_target.parent == canonical_skills:
+                continue
+        if resolved == thin_entry:
+            # Thin adapter must not be a second full tree: only one SKILL.md
+            # under .cursor/skills/, and it must not duplicate skill package dirs.
+            continue
+        forbidden.append(str(path))
+
+    assert forbidden == [], f"extra SKILL.md trees outside single-track: {forbidden}"
+
+    cursor_skill_dirs = [
+        p for p in Path(".cursor/skills").iterdir() if p.is_dir()
+    ] if Path(".cursor/skills").is_dir() else []
+    assert [p.name for p in cursor_skill_dirs] == ["coc-keeper"]
+
+    parallel_plugin_roots = [
+        p
+        for p in Path("plugins").iterdir()
+        if p.is_dir() and p.name != "coc-keeper" and (p / "skills").is_dir()
+    ] if Path("plugins").is_dir() else []
+    assert parallel_plugin_roots == []
+
+
+def test_codex_only_imagegen_markers_intact():
+    skill = (PLUGIN_ROOT / "skills" / "coc-character" / "SKILL.md").read_text()
+    assert "<!-- CODEX_ONLY_IMAGEGEN_START -->" in skill
+    assert "<!-- CODEX_ONLY_IMAGEGEN_END -->" in skill
+    start = skill.index("<!-- CODEX_ONLY_IMAGEGEN_START -->")
+    end = skill.index("<!-- CODEX_ONLY_IMAGEGEN_END -->")
+    assert start < end
+    block = skill[start:end]
+    assert "Portrait generation is available only in Codex" in block
+    assert "skip portrait generation" in block
+
+
+def test_install_docs_cover_three_hosts_and_imagegen_skip():
+    readme = Path("README.md").read_text()
+    for term in [
+        "Claude Code",
+        "Cursor",
+        "Codex",
+        ".claude-plugin/marketplace.json",
+        ".cursor/skills/coc-keeper/SKILL.md",
+        ".cursor-plugin/plugin.json",
+        "CODEX_ONLY_IMAGEGEN",
+        "跳过",
+    ]:
+        assert term in readme, f"README missing install term: {term}"
+
+
 def test_validate_rules_script_accepts_seed_rules():
     import importlib.util
 
