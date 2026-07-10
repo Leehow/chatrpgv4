@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +10,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = SCRIPT_DIR.parent
 RULES_DIR = PLUGIN_ROOT / "references" / "rules-json"
 
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import coc_cache  # noqa: E402
+
 
 def rules_dir() -> Path:
     return RULES_DIR
@@ -17,8 +22,7 @@ def rules_dir() -> Path:
 
 def load_rule_table(name: str) -> Any:
     path = RULES_DIR / f"{name}.json"
-    with path.open(encoding="utf-8") as handle:
-        return json.load(handle)
+    return coc_cache.load_json_cached(path)
 
 
 def load_rule_index() -> dict[str, Any]:

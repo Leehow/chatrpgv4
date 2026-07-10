@@ -19,12 +19,18 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 def _load_sibling(name: str, filename: str):
     import importlib.util
+    import sys
+    existing = sys.modules.get(name)
+    if existing is not None and getattr(existing, "__file__", None):
+        return existing
     spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / filename)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
+coc_cache = _load_sibling("coc_cache", "coc_cache.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_mythos = _load_sibling("coc_mythos", "coc_mythos.py")
 coc_narration_style = _load_sibling("coc_narration_style", "coc_narration_style.py")
@@ -626,7 +632,10 @@ RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"
 
 
 def _load_structure_weights() -> dict[str, Any]:
-    return _read_json(RULES_DIR / "structure-weights.json", {"weights": {}, "tiebreak_order": []})
+    path = RULES_DIR / "structure-weights.json"
+    if not path.exists():
+        return {"weights": {}, "tiebreak_order": []}
+    return coc_cache.load_json_cached(path)
 
 
 ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]
@@ -1873,7 +1882,10 @@ def _early_horror_trope_boosts(horror_stage: str, action: str) -> dict[str, floa
 
 
 def _load_monsters_table() -> dict[str, Any]:
-    data = _read_json(RULES_DIR / "monsters.json", {"monsters": {}})
+    path = RULES_DIR / "monsters.json"
+    if not path.exists():
+        return {}
+    data = coc_cache.load_json_cached(path)
     monsters = data.get("monsters") if isinstance(data, dict) else {}
     return monsters if isinstance(monsters, dict) else {}
 

@@ -28,6 +28,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import coc_cache
 import coc_fileio
 
 RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"
@@ -82,7 +83,7 @@ def load_storylet_library(path: Path | None = None) -> dict[str, Any]:
     lib_path = path or (RULES_DIR / "storylet-library.json")
     if not lib_path.exists():
         return {"schema_version": _SCHEMA_VERSION, "storylets": []}
-    return json.loads(lib_path.read_text(encoding="utf-8"))
+    return coc_cache.load_json_cached(lib_path)
 
 
 def normalize_storylet_ledger(ledger: dict[str, Any] | None) -> dict[str, Any]:
