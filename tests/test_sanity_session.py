@@ -199,6 +199,29 @@ def test_fumbled_san_roll_loses_maximum_san():
         assert s.san_current == san_before - 8
 
 
+def test_indefinite_insanity_threshold_uses_day_start_current_san():
+    """p.168: the 1/5 threshold is against *current* SAN at the start of the
+    day, not max SAN. san_max=99 but day starts at 25 → losing 5 triggers."""
+    s = _make_session(san=99, seed=1)
+    s.san_current = 25
+    s.end_day()  # anchor day_start_san = 25
+    s.daily_san_lost = 0
+    s.sanity_check("shock", san_loss_success=5, san_loss_fail_expr="5",
+                   involuntary_kind="freeze")
+    assert s.daily_san_lost >= 5
+    assert s.indefinite_insane is True
+
+
+def test_day_start_san_survives_save_load(tmp_path):
+    s = coc_sanity.SanitySession("ada", san_max=99, int_value=50,
+                                 rng=random.Random(1), campaign_dir=tmp_path)
+    s.san_current = 40
+    s.end_day()
+    s.save(tmp_path)
+    loaded = coc_sanity.SanitySession.load(tmp_path, "ada")
+    assert loaded.day_start_san == 40
+
+
 def test_critical_success_on_san_roll_is_best_outcome():
     """Critical (roll=01) on SAN roll = success (lose success amount only)."""
     # Very high SAN so roll=1 always succeeds (it always does — critical is

@@ -124,6 +124,9 @@ class SanitySession:
         self.permanently_insane: bool = False
         self.bouts_of_madness: list[dict[str, Any]] = []
         self.daily_san_lost: int = 0  # resets at "end of day" (Keeper-defined)
+        # p.156: the indefinite-insanity threshold is a fifth of *current* SAN
+        # as the game day starts (re-anchored by end_day()).
+        self.day_start_san: int = self.san_current
         self.involuntary_actions: list[dict[str, Any]] = []
         # Phobia / mania (p.159, p.171 bout table IX/X).
         # Set when a bout-of-madness result is 9 (phobia) or 10 (mania).
@@ -235,8 +238,10 @@ class SanitySession:
         if lost >= 5:
             self._check_temporary_insanity(source, alone, module_bout_override)
 
-        # p.168: 1/5+ current SAN lost in one day → indefinite insanity.
-        if self.daily_san_lost >= self.san_max // 5 and not self.indefinite_insane:
+        # p.168: losing a fifth or more of *current* SAN (as of day start) in
+        # one game day → indefinite insanity.
+        if (self.daily_san_lost >= max(1, self.day_start_san // 5)
+                and not self.indefinite_insane):
             self._trigger_indefinite_insanity()
 
         # p.168: SAN = 0 → permanent insanity.
@@ -340,7 +345,7 @@ class SanitySession:
         self._event("indefinite_insanity", {
             "summary": f"{self.investigator_id} lost >=1/5 SAN in one day → indefinite insanity.",
             "daily_san_lost": self.daily_san_lost,
-            "threshold": self.san_max // 5,
+            "threshold": max(1, self.day_start_san // 5),
         })
         self._schedule_weekly_treatment_trigger()
 
@@ -566,6 +571,7 @@ class SanitySession:
         compute 1/5-SAN-per-day indefinite-insanity thresholds).
         """
         self.daily_san_lost = 0
+        self.day_start_san = self.san_current  # re-anchor threshold (p.156)
         if not self._time_layer_ready():
             return
         state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
@@ -621,6 +627,7 @@ class SanitySession:
             "indefinite_insane": self.indefinite_insane,
             "permanently_insane": self.permanently_insane,
             "daily_san_lost": self.daily_san_lost,
+            "day_start_san": self.day_start_san,
             "bouts_of_madness": list(self.bouts_of_madness),
             "involuntary_actions": list(self.involuntary_actions),
             "phobia": self.phobia,
@@ -693,6 +700,7 @@ class SanitySession:
         sess.indefinite_insane = bool(snap.get("indefinite_insane", False))
         sess.permanently_insane = bool(snap.get("permanently_insane", False))
         sess.daily_san_lost = int(snap.get("daily_san_lost", 0))
+        sess.day_start_san = int(snap.get("day_start_san", sess.san_current))
         saved_events = snap.get("events") or []
         sess.events = list(saved_events)
         sess._event_counter = len(saved_events)
