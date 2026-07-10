@@ -1578,7 +1578,7 @@ def test_apply_plan_duplicate_result_safe_for_runner_consumption(tmp_path):
 
 
 def test_write_json_is_atomic_via_replace(tmp_path, monkeypatch):
-    """_write_json must use tmp-file + os.replace (not bare write_text)."""
+    """_write_json must use coc_fileio atomic write (tmp + os.replace)."""
     target = tmp_path / "out.json"
     calls = []
     real_replace = os.replace
@@ -1587,7 +1587,7 @@ def test_write_json_is_atomic_via_replace(tmp_path, monkeypatch):
         calls.append((str(src), str(dst)))
         return real_replace(src, dst)
 
-    monkeypatch.setattr(coc_director_apply.os, "replace", tracking_replace)
+    monkeypatch.setattr(coc_director_apply.coc_fileio.os, "replace", tracking_replace)
     coc_director_apply._write_json(target, {"ok": True})
     assert target.exists()
     assert json.loads(target.read_text()) == {"ok": True}

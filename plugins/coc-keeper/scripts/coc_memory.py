@@ -12,8 +12,15 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import coc_fileio
 
 PRIVACY_DIRS = {
     "player_safe": "player-safe",
@@ -229,5 +236,10 @@ def update_memory_index(campaign_dir: Path) -> None:
                 "reactivation_cues": meta.get("reactivation_cues", []),
             })
     index_path = campaign_dir / "memory" / "index.json"
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    index_path.write_text(json.dumps({"schema_version": 1, "cards": cards_meta}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    coc_fileio.write_json_atomic(
+        index_path,
+        {"schema_version": 1, "cards": cards_meta},
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )

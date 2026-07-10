@@ -20,10 +20,16 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import sys
 from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import coc_fileio
+
 RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"
 _SCHEMA_VERSION = 1
 
@@ -115,10 +121,8 @@ def start_new_session(campaign_dir: Path) -> dict[str, Any]:
     except (TypeError, ValueError):
         current = 1
     ledger["session_number"] = current + 1
-    ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    ledger_path.write_text(
-        json.dumps(ledger, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    coc_fileio.write_json_atomic(
+        ledger_path, ledger, indent=2, ensure_ascii=False, trailing_newline=True
     )
     return ledger
 

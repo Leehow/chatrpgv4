@@ -26,6 +26,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 PLUGIN_ROOT = SCRIPT_DIR.parent
 STARTER_DIR = PLUGIN_ROOT / "references" / "starter-scenarios"
+import coc_fileio
 import coc_state
 import coc_character_creation_briefing
 
@@ -129,8 +130,8 @@ def _activate_scenario(campaign_dir: Path, scenario_dir: Path, scenario_id: str)
     if first_scene:
         world["active_scene_id"] = first_scene
     world["updated_at"] = _now_iso()
-    world_path.write_text(
-        json.dumps(world, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    coc_fileio.write_json_atomic(
+        world_path, world, indent=2, ensure_ascii=False, trailing_newline=True
     )
 
 
@@ -162,9 +163,8 @@ def _update_campaign_json(campaign_dir: Path, scenario_id: str) -> None:
     else:
         meta = {}
     campaign["updated_at"] = _now_iso()
-    campaign_path.write_text(
-        json.dumps(campaign, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    coc_fileio.write_json_atomic(
+        campaign_path, campaign, indent=2, ensure_ascii=False, trailing_newline=True
     )
     coc_state.reset_campaign_time_state(
         campaign_dir,

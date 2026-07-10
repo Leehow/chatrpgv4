@@ -7,7 +7,7 @@ import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -15,6 +15,18 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from coc_fileio import write_json_atomic as _fileio_write_json_atomic
 from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
+
+
+# Per-kind current schema versions. Migrations are registered in MIGRATIONS as
+# {kind: {from_version: fn}} where fn(data) -> data with schema_version bumped.
+CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
+    "campaign": 1,
+    "world": 1,
+    "pacing": 1,
+    "investigator": 1,
+}
+
+MIGRATIONS: dict[str, dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {}
 
 
 TOP_LEVEL_DIRS = (
@@ -158,18 +170,197 @@ def _relative_to_root(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def _read_json_object(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
+def migrate_state(data: dict[str, Any], kind: str) -> dict[str, Any]:
+    """Apply chained schema migrations for ``kind`` until current version.
+
+    Empty ``MIGRATIONS`` registry → identity when ``schema_version`` already
+    matches ``CURRENT_SCHEMA_VERSIONS[kind]`` (default 1). Over-version raises.
+    """
+    if not isinstance(data, dict):
+        raise TypeError(f"migrate_state expects dict, got {type(data).__name__}")
+    current = int(CURRENT_SCHEMA_VERSIONS.get(kind, 1))
+    try:
+        version = int(data.get("schema_version", 1) or 1)
+    except (TypeError, ValueError):
+        version = 1
+    if version > current:
+        raise ValueError(
+            f"schema_version {version} for kind={kind!r} exceeds current {current}"
+        )
+    out = data
+    while version < current:
+        migrator = MIGRATIONS.get(kind, {}).get(version)
+        if migrator is None:
+            raise ValueError(
+                f"no migration registered for kind={kind!r} from_version={version}"
+            )
+        out = migrator(out)
+        if not isinstance(out, dict):
+            raise TypeError(
+                f"migration {kind}:{version} returned {type(out).__name__}, expected dict"
+            )
+        try:
+            next_version = int(out.get("schema_version", version + 1) or (version + 1))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"migration {kind}:{version} produced invalid schema_version"
+            ) from exc
+        if next_version <= version:
+            raise ValueError(
+                f"migration {kind}:{version} did not advance schema_version"
+            )
+        version = next_version
+    return out
+
+
+def _campaign_logs_dir_for(path: Path) -> Path | None:
+    """Best-effort locate ``campaign/logs`` from a save or campaign JSON path."""
+    path = Path(path)
+    for parent in (path.parent, *path.parents):
+        if parent.name == "save" and (parent.parent / "logs").is_dir():
+            return parent.parent / "logs"
+        if (parent / "logs").is_dir() and (parent / "campaign.json").exists():
+            return parent / "logs"
+        if parent.name == "campaigns":
+            break
+    sibling_logs = path.parent / "logs"
+    if sibling_logs.is_dir():
+        return sibling_logs
+    return None
+
+
+def _emit_corrupt_save_warning(
+    path: Path,
+    *,
+    backup_path: Path,
+    reason: str,
+) -> None:
+    warning = {
+        "event_type": "corrupt_save_backup",
+        "schema_version": 1,
+        "path": str(path),
+        "backup_path": str(backup_path),
+        "reason": reason,
+        "ts": now_iso(),
+    }
+    logs_dir = _campaign_logs_dir_for(path)
+    if logs_dir is None:
+        logs_dir = path.parent / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+    warn_path = logs_dir / "state-warnings.jsonl"
+    warn_path.parent.mkdir(parents=True, exist_ok=True)
+    with warn_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(warning, ensure_ascii=False) + "\n")
+
+
+def _backup_corrupt_save(path: Path, *, reason: str) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    backup_path = path.with_name(f"{path.name}.corrupt-{stamp}")
+    try:
+        shutil.copy2(path, backup_path)
+    except OSError:
+        backup_path.write_bytes(path.read_bytes())
+    _emit_corrupt_save_warning(path, backup_path=backup_path, reason=reason)
+    return backup_path
+
+
+def load_state_object(
+    path: Path,
+    kind: str,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Load a typed state JSON object with corrupt-backup + schema migration.
+
+    On missing file / decode failure / non-object payload: back up when a file
+    exists, emit a structured warning, then return a copy of ``fallback``.
+    When ``schema_version`` is below current for ``kind``, run chained
+    migrations and atomically write the migrated payload back.
+    """
+    path = Path(path)
+    if fallback is None:
+        fallback = {"schema_version": int(CURRENT_SCHEMA_VERSIONS.get(kind, 1))}
+    if not path.exists():
+        return dict(fallback)
+
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+        payload = json.loads(raw_text)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        _backup_corrupt_save(path, reason="json_decode_error")
+        return dict(fallback)
+
+    if not isinstance(payload, dict):
+        _backup_corrupt_save(path, reason="non_object_json")
+        return dict(fallback)
+
+    before_version = payload.get("schema_version", 1)
+    migrated = migrate_state(payload, kind)
+    if migrated.get("schema_version") != before_version:
+        write_json_atomic(path, migrated)
+    return migrated
+
+
+def _read_json_object(
+    path: Path,
+    fallback: dict[str, Any],
+    *,
+    kind: str | None = None,
+) -> dict[str, Any]:
+    if kind is not None:
+        return load_state_object(path, kind, fallback=fallback)
     if not path.exists():
         return fallback
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        _backup_corrupt_save(path, reason="json_decode_error")
+        return dict(fallback)
     if not isinstance(payload, dict):
-        return fallback
+        _backup_corrupt_save(path, reason="non_object_json")
+        return dict(fallback)
     return payload
+
+
+def load_campaign_state(campaign_dir: Path) -> dict[str, Any]:
+    """Load ``campaign.json`` with migration + corrupt-save safety."""
+    campaign_dir = Path(campaign_dir)
+    return load_state_object(
+        campaign_dir / "campaign.json",
+        "campaign",
+        fallback={"schema_version": 1, "campaign_id": campaign_dir.name},
+    )
+
+
+def load_world_state(campaign_dir: Path) -> dict[str, Any]:
+    """Load ``save/world-state.json`` with migration + corrupt-save safety."""
+    return load_state_object(
+        Path(campaign_dir) / "save" / "world-state.json",
+        "world",
+        fallback={"schema_version": 1},
+    )
+
+
+def load_pacing_state(campaign_dir: Path) -> dict[str, Any]:
+    """Load ``save/pacing-state.json`` with migration + corrupt-save safety."""
+    return load_state_object(
+        Path(campaign_dir) / "save" / "pacing-state.json",
+        "pacing",
+        fallback={"schema_version": 1},
+    )
+
+
+def load_investigator_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
+    """Load investigator save state with migration + corrupt-save safety."""
+    return load_state_object(
+        Path(campaign_dir) / "save" / "investigator-state" / f"{investigator_id}.json",
+        "investigator",
+        fallback={"schema_version": 1, "investigator_id": investigator_id},
+    )
 
 
 def _merge_current_luck(campaign_dir: Path, investigator_id: str, current_luck: int) -> Path:
     inv_path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
-    data = _read_json_object(inv_path, {})
+    data = load_investigator_state(campaign_dir, investigator_id)
     data["current_luck"] = int(current_luck)
     write_json_atomic(inv_path, data)
     return inv_path
@@ -177,7 +368,7 @@ def _merge_current_luck(campaign_dir: Path, investigator_id: str, current_luck: 
 
 def _set_luck_spent_last(campaign_dir: Path, points: int) -> None:
     pacing_path = campaign_dir / "save" / "pacing-state.json"
-    pacing = _read_json_object(pacing_path, {"schema_version": 1})
+    pacing = load_pacing_state(campaign_dir)
     pacing["luck_spent_last"] = int(points)
     write_json_atomic(pacing_path, pacing)
 
@@ -237,7 +428,7 @@ def add_personal_horror_hook(campaign_dir: Path, investigator_id: str, *,
         raise ValueError(
             f"backstory_field must be one of {BACKSTORY_FIELDS}, got {backstory_field!r}")
     inv_path = _investigator_state_path(campaign_dir, investigator_id)
-    data = _read_json_object(inv_path, {})
+    data = load_investigator_state(campaign_dir, investigator_id)
     hooks = list(data.get("personal_horror_hooks") or [])
     hooks.append({
         "hook_id": str(hook_id),
@@ -253,7 +444,7 @@ def add_personal_horror_hook(campaign_dir: Path, investigator_id: str, *,
 def mark_hook_woven(campaign_dir: Path, investigator_id: str, hook_id: str) -> Path:
     """Flag a personal-horror hook as woven into play."""
     inv_path = _investigator_state_path(campaign_dir, investigator_id)
-    data = _read_json_object(inv_path, {})
+    data = load_investigator_state(campaign_dir, investigator_id)
     for hook in data.get("personal_horror_hooks") or []:
         if hook.get("hook_id") == hook_id:
             hook["woven"] = True
@@ -275,7 +466,7 @@ def add_backstory_corruption(campaign_dir: Path, investigator_id: str, *,
     if mode not in ("corrupt_existing", "add_irrational"):
         raise ValueError(f"mode must be corrupt_existing or add_irrational, got {mode!r}")
     inv_path = _investigator_state_path(campaign_dir, investigator_id)
-    data = _read_json_object(inv_path, {})
+    data = load_investigator_state(campaign_dir, investigator_id)
     corruptions = list(data.get("backstory_corruptions") or [])
     corruptions.append({
         "mode": mode,
@@ -351,8 +542,8 @@ def _campaign_index_entry(root: Path, campaign_id: str, campaign: dict[str, Any]
 
 
 def _upsert_campaign_index(root: Path, campaign_id: str) -> None:
-    campaign_path = coc_root(root) / "campaigns" / campaign_id / "campaign.json"
-    campaign = _read_json_object(campaign_path, {"campaign_id": campaign_id})
+    campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    campaign = load_campaign_state(campaign_dir)
     _upsert_index_entry(
         root,
         "campaigns.json",
@@ -537,7 +728,7 @@ def prepare_character_creation_draft(
     write_json_atomic(active_path, payload)
 
     campaign_path = campaign_dir / "campaign.json"
-    campaign = _read_json_object(campaign_path, {"campaign_id": campaign_id})
+    campaign = load_campaign_state(campaign_dir)
     campaign["character_creation"] = {
         **(campaign.get("character_creation") if isinstance(campaign.get("character_creation"), dict) else {}),
         "active_draft_path": _relative_to_root(root, active_path),

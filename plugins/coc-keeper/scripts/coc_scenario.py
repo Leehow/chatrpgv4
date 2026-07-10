@@ -2,10 +2,17 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 from pypdf import PdfReader
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import coc_fileio
 
 
 EMPTY_SCENARIO_LISTS = (
@@ -19,8 +26,9 @@ EMPTY_SCENARIO_LISTS = (
 
 
 def _write_json(path: Path, payload: dict[str, Any] | list[Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    coc_fileio.write_json_atomic(
+        path, payload, indent=2, ensure_ascii=True, trailing_newline=True
+    )
 
 
 def load_handout_assets(campaign_dir: Path) -> dict[str, dict[str, Any]]:

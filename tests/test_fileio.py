@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -75,3 +76,48 @@ def test_replace_failure_leaves_original_intact(tmp_path, fileio, monkeypatch):
 
     assert target.read_text(encoding="utf-8") == before
     assert json.loads(before) == original
+
+
+def test_campaign_lock_exclusive(tmp_path, fileio):
+    campaign_dir = tmp_path / "campaigns" / "c1"
+    campaign_dir.mkdir(parents=True)
+
+    with fileio.campaign_lock(campaign_dir, stale_minutes=30):
+        lock_path = campaign_dir / ".campaign.lock"
+        assert lock_path.exists()
+        with pytest.raises(fileio.CampaignLockError, match="held"):
+            with fileio.campaign_lock(campaign_dir, stale_minutes=30):
+                pass
+
+    assert not (campaign_dir / ".campaign.lock").exists()
+
+
+def test_campaign_lock_clears_stale_dead_pid(tmp_path, fileio, monkeypatch):
+    campaign_dir = tmp_path / "campaigns" / "c1"
+    campaign_dir.mkdir(parents=True)
+    lock_path = campaign_dir / ".campaign.lock"
+    # PID 2^31-1 is almost certainly not alive on this host.
+    dead_pid = 2_147_483_647
+    lock_path.write_text(
+        json.dumps({"pid": dead_pid, "acquired_at": time.time() - 10}),
+        encoding="utf-8",
+    )
+
+    with fileio.campaign_lock(campaign_dir, stale_minutes=30):
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+        assert payload["pid"] == os.getpid()
+
+
+def test_campaign_lock_clears_stale_by_age(tmp_path, fileio, monkeypatch):
+    campaign_dir = tmp_path / "campaigns" / "c1"
+    campaign_dir.mkdir(parents=True)
+    lock_path = campaign_dir / ".campaign.lock"
+    lock_path.write_text(
+        json.dumps({"pid": os.getpid(), "acquired_at": time.time() - 3600}),
+        encoding="utf-8",
+    )
+
+    with fileio.campaign_lock(campaign_dir, stale_minutes=1):
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+        assert payload["pid"] == os.getpid()
+        assert payload["acquired_at"] > time.time() - 60

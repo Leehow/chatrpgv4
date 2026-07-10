@@ -15,10 +15,16 @@ import json
 import os
 import re
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import coc_fileio
 
 LANGUAGE_SHEET_SUFFIX = {
     "zh-Hans": "zh",
@@ -35,7 +41,9 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    coc_fileio.write_json_atomic(
+        path, data, indent=2, ensure_ascii=False, trailing_newline=True
+    )
 
 
 def detect_playwright_available(codex_home: Path | None = None) -> bool:

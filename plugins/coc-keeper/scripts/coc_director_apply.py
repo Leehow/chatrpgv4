@@ -29,7 +29,6 @@ Spec: docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -49,6 +48,7 @@ def _load_sibling(name: str, filename: str):
     return module
 
 
+coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
@@ -194,23 +194,10 @@ def _read_json(path: Path, fallback: Any) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    """Atomic JSON write via tmp-file + os.replace.
-
-    Local implementation (not coc_fileio) to avoid a concurrent-agent file
-    dependency race; can be unified with coc_fileio.write_json_atomic later.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
-    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        tmp_path.write_text(text, encoding="utf-8")
-        os.replace(tmp_path, path)
-    finally:
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
+    """Atomic JSON write via coc_fileio (fsync + os.replace)."""
+    coc_fileio.write_json_atomic(
+        path, payload, indent=2, ensure_ascii=False, trailing_newline=True
+    )
 
 
 def _resolve_scenario_id(campaign_dir: Path, world: dict[str, Any]) -> str | None:

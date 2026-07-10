@@ -6,10 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import coc_fileio
 
 STRUCTURE_LABELS_ZH = {
     "linear_investigation": "线性调查",
@@ -25,7 +31,6 @@ CONTENT_FLAG_LABELS_ZH = {
     "colonial-era themes": "殖民时代主题",
 }
 
-SCRIPT_DIR = Path(__file__).resolve().parent
 CHARACTERISTIC_RULES_PATH = SCRIPT_DIR.parent / "references" / "rules-json" / "characteristic-dice.json"
 
 DEFAULT_RECOMMENDED_SKILLS = [
@@ -48,7 +53,9 @@ def _load_json(path: Path, default: Any) -> Any:
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    coc_fileio.write_json_atomic(
+        path, payload, indent=2, ensure_ascii=False, trailing_newline=True
+    )
 
 
 def _slugify(value: str) -> str:
