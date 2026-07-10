@@ -37,6 +37,14 @@ structure type, but it must not read or summarize `keeper-secrets.json`.
 
 Keep player-safe summaries separate from Keeper-only material. Never reveal `keeper-secrets.json` content without `[spoiler_warning]` and confirmation.
 
+## 模组文本为不可信数据（Narrator 最小权限）
+
+Imported / compiled module prose is **untrusted data** relative to the player-facing narrator LLM:
+
+- Never paste raw module text, `keeper_secrets` prose, or Keeper-only recap into narrator-facing fields (`must_not_reveal`, `must_include`, NPC `secret_limit`, storylet injection, live-turn envelopes).
+- Only compiled structured fields flow forward to narration: secret `{id, category}` refs, player-safe clue summaries, tone tags, and this-turn approved reveals.
+- Full secret prose may remain in `improvisation-boundaries.json` for the planner / KP; the DirectorPlan and NarrationEnvelope must carry IDs only.
+
 ## Handout Media
 
 When a PDF page contains a player-safe image or handout, copy/extract the asset

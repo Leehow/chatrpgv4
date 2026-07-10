@@ -72,9 +72,12 @@ def test_fixture_profile_produces_valid_plan(tmp_path, profile_name):
     # assertions
     assert plan["scene_action"] in director.ACTIONS
     assert plan["narrative_directives"]["must_not_reveal"]  # secrets populated
-    # keeper secrets not leaked into reveal
+    # keeper secrets not leaked into reveal (must_not_reveal is {id, category})
     reveal = set(plan["clue_policy"].get("reveal", []))
-    secrets = set(plan["narrative_directives"]["must_not_reveal"])
+    secrets = {
+        item["id"] if isinstance(item, dict) else item
+        for item in plan["narrative_directives"]["must_not_reveal"]
+    }
     assert reveal.isdisjoint(secrets)
     # harness assertions pass
     findings = harness.assert_plan(plan)

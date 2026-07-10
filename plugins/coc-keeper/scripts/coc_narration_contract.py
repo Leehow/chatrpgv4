@@ -40,15 +40,134 @@ def _read_json(path: Path, fallback: Any = None) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _secret_id(secret: str) -> str:
-    """Extract the id prefix from a 'id: description' keeper_secret entry.
+def _looks_like_secret_id(token: str) -> bool:
+    """True when token is a compact structured id, not free-form secret prose.
 
-    Scenario keeper_secrets are stored as 'corbitt-buried-in-basement: Walter
-    Corbitt's body...'. The narrator must compare against clue_policy.reveal
-    ids (e.g. 'clue-knott-job-briefing'), so we strip the description. If a
-    secret has no ': ' separator, treat the whole string as the id.
+    Position-based fallback ids (secret_001) and authored ids
+    (secret-polyp-horror-full-stat-block) qualify. Long prose without an
+    id:description split does not — those get secret_NNN at normalize time.
     """
-    return secret.split(": ", 1)[0] if ": " in secret else secret
+    if not token or " " in token or "\n" in token:
+        return False
+    if len(token) > 80:
+        return False
+    return True
+
+
+def _secret_id(secret: Any, *, index: int | None = None) -> str:
+    """Extract a stable secret id from a keeper_secrets entry.
+
+    Accepts:
+    - structured {id, ...} refs (preferred narrator-facing form)
+    - 'id: description' strings (prose stays planner-side only)
+    - bare id tokens
+    - bare prose → secret_NNN by position (no prose classification)
+    """
+    if isinstance(secret, dict):
+        sid = str(secret.get("id") or "").strip()
+        if sid:
+            return sid
+        if index is not None:
+            return f"secret_{index + 1:03d}"
+        return ""
+    text = str(secret or "").strip()
+    if not text:
+        if index is not None:
+            return f"secret_{index + 1:03d}"
+        return ""
+    if ": " in text:
+        prefix = text.split(": ", 1)[0].strip()
+        if _looks_like_secret_id(prefix):
+            return prefix
+    if _looks_like_secret_id(text):
+        return text
+    if index is not None:
+        return f"secret_{index + 1:03d}"
+    return text
+
+
+def normalize_keeper_secret_refs(secrets: Any) -> list[dict[str, str]]:
+    """Normalize keeper_secrets to narrator-safe {id, category} refs.
+
+    Prose bodies stay in improvisation-boundaries (planner-side). Narrator-
+    facing plans and envelopes must only carry these refs — never the prose.
+    Does not classify meaning by scanning secret text (Semantic Matcher
+    Constitution); bare prose entries get stable positional ids.
+    """
+    if not isinstance(secrets, list):
+        return []
+    refs: list[dict[str, str]] = []
+    for index, secret in enumerate(secrets):
+        if isinstance(secret, dict):
+            sid = _secret_id(secret, index=index)
+            category = str(secret.get("category") or "keeper_secret").strip() or "keeper_secret"
+        else:
+            sid = _secret_id(secret, index=index)
+            category = "keeper_secret"
+        if not sid:
+            continue
+        refs.append({"id": sid, "category": category})
+    return refs
+
+
+def secret_ref_ids(secrets: Any) -> list[str]:
+    """Return ordered secret ids from raw or normalized keeper_secrets."""
+    return [ref["id"] for ref in normalize_keeper_secret_refs(secrets)]
+
+
+def build_narration_envelope(plan: dict[str, Any]) -> dict[str, Any]:
+    """Build the minimum-privilege narrator payload from a DirectorPlan.
+
+    Includes this-turn approved reveals (full player-safe text ok), tone,
+    constraints, and must_not_reveal as {id, category} only. Keeper secret
+    prose must never appear in the serialized envelope.
+    """
+    directives = plan.get("narrative_directives") or {}
+    clue_policy = plan.get("clue_policy") or {}
+    mnr_refs = normalize_keeper_secret_refs(directives.get("must_not_reveal") or [])
+    npc_moves = []
+    for move in plan.get("npc_moves") or []:
+        if not isinstance(move, dict):
+            continue
+        safe_move = {
+            "npc_id": move.get("npc_id"),
+            "agenda": move.get("agenda"),
+            "emotional_tone": move.get("emotional_tone"),
+            "has_secret": bool(move.get("has_secret")),
+            "secret_limit": move.get("secret_limit") or "",
+            "disposition_source": move.get("disposition_source"),
+            "relationship_to_investigators": move.get("relationship_to_investigators"),
+            "social_role": move.get("social_role"),
+            "persona": move.get("persona"),
+            "agency_moves": move.get("agency_moves") or [],
+        }
+        if move.get("secret_id"):
+            safe_move["secret_id"] = move["secret_id"]
+        npc_moves.append(safe_move)
+    return {
+        "decision_id": plan.get("decision_id"),
+        "scene_action": plan.get("scene_action"),
+        "dramatic_question": plan.get("dramatic_question"),
+        "handoff": plan.get("handoff"),
+        "approved_reveals": {
+            "clue_ids": list(clue_policy.get("reveal") or []),
+            "must_include": list(directives.get("must_include") or []),
+            "leads": list(clue_policy.get("leads") or []),
+            "fallback_routes": list(clue_policy.get("fallback_routes") or []),
+        },
+        "tone": list(directives.get("tone") or []),
+        "must_not_reveal": mnr_refs,
+        "improvisation_allowed": list(directives.get("improvisation_allowed") or []),
+        "horror_escalation_stage": directives.get("horror_escalation_stage"),
+        "content_constraints": list(directives.get("content_constraints") or []),
+        "player_facing_style": directives.get("player_facing_style"),
+        "npc_moves": npc_moves,
+        "pressure_moves": list(plan.get("pressure_moves") or []),
+        "storylet_moves": list(plan.get("storylet_moves") or []),
+        "choice_frame": plan.get("choice_frame") or {},
+        "rules_requests": list(plan.get("rules_requests") or []),
+        "rationale": plan.get("rationale"),
+    }
 
 
 def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str, dict[str, Any]]:
@@ -61,7 +180,7 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
     directives = plan.get("narrative_directives", {}) or {}
     boundaries = _read_json(scenario_dir / "improvisation-boundaries.json", {})
     keeper_secrets = boundaries.get("keeper_secrets", []) or []
-    keeper_secret_ids = {_secret_id(s) for s in keeper_secrets}
+    keeper_secret_ids = set(secret_ref_ids(keeper_secrets))
 
     # 1. tone_present -------------------------------------------------------
     tone = directives.get("tone", [])
@@ -73,8 +192,8 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
 
     # 2. must_not_reveal_populated -----------------------------------------
     mnr = directives.get("must_not_reveal", []) or []
-    mnr_set = {_secret_id(s) for s in mnr}
-    secrets_set = {_secret_id(s) for s in keeper_secrets}
+    mnr_set = set(secret_ref_ids(mnr))
+    secrets_set = set(secret_ref_ids(keeper_secrets))
     populated = len(mnr) > 0
     superset = secrets_set.issubset(mnr_set)
     missing = sorted(secrets_set - mnr_set)
@@ -236,6 +355,30 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
     findings["clue_policy_no_secret_leak"] = {
         "passed": len(leaked) == 0,
         "detail": f"reveal={reveal} leaked_secrets={leaked}",
+    }
+
+    # 6b. must_not_reveal_has_no_secret_prose ------------------------------
+    # Narrator-facing must_not_reveal must be {id, category} (or bare ids),
+    # never the full keeper_secrets prose from improvisation-boundaries.
+    prose_bodies: list[str] = []
+    for secret in keeper_secrets:
+        if isinstance(secret, dict):
+            body = str(secret.get("prose") or secret.get("text") or "").strip()
+            if body:
+                prose_bodies.append(body)
+            continue
+        text = str(secret or "").strip()
+        if ": " in text:
+            prefix, _, rest = text.partition(": ")
+            if _looks_like_secret_id(prefix.strip()) and rest.strip():
+                prose_bodies.append(rest.strip())
+        elif text and not _looks_like_secret_id(text):
+            prose_bodies.append(text)
+    mnr_blob = json.dumps(mnr, ensure_ascii=False)
+    prose_hits = [body for body in prose_bodies if body and body in mnr_blob]
+    findings["must_not_reveal_has_no_secret_prose"] = {
+        "passed": len(prose_hits) == 0,
+        "detail": f"prose_hits={len(prose_hits)}",
     }
 
     # 7. scene_action_narratable -------------------------------------------

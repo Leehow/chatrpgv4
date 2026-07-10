@@ -28,6 +28,7 @@ def _load_sibling(name: str, filename: str):
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_mythos = _load_sibling("coc_mythos", "coc_mythos.py")
 coc_narration_style = _load_sibling("coc_narration_style", "coc_narration_style.py")
+coc_narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
 coc_npc_persona = _load_sibling("coc_npc_persona", "coc_npc_persona.py")
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 
@@ -1455,7 +1456,9 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     scene = ctx.get("active_scene") or {}
     discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
     available = _available_reveal_clues(ctx)
-    secrets = ctx.get("improvisation_boundaries", {}).get("keeper_secrets", [])
+    secret_ids = coc_narration_contract.secret_ref_ids(
+        ctx.get("improvisation_boundaries", {}).get("keeper_secrets", [])
+    )
     clue_graph = ctx.get("clue_graph", {})
 
     # REVEAL: rank eligible clues by route_priority (desc) and take the top one.
@@ -1512,7 +1515,7 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
         ranked = sorted(available, key=lambda cid: _clue_route_priority(cid, clue_graph), reverse=True)
         leads = ranked[:2]
 
-    return {"reveal": reveal, "withhold": list(secrets), "fallback_routes": fallback,
+    return {"reveal": reveal, "withhold": list(secret_ids), "fallback_routes": fallback,
             "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff,
             "leads": leads, "delivery_warnings": delivery_warnings}
 
@@ -2256,13 +2259,18 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     if ctx.get("believer") is True and "mythos_bleak" not in tone:
         tone.append("mythos_bleak")
 
+    # R-2: narrator-facing must_not_reveal carries {id, category} only.
+    # Full keeper_secrets prose stays in improvisation-boundaries (planner-side).
+    secret_refs = coc_narration_contract.normalize_keeper_secret_refs(
+        ctx.get("improvisation_boundaries", {}).get("keeper_secrets", [])
+    )
     narrative_directives = {
         "tone": tone,
         "must_include": _collect_anchors(
             clue_policy.get("reveal", []) + clue_policy.get("fallback_routes", []),
             ctx.get("clue_graph", {}),
         ),
-        "must_not_reveal": ctx.get("improvisation_boundaries", {}).get("keeper_secrets", []),
+        "must_not_reveal": secret_refs,
         "improvisation_allowed": ctx.get("improvisation_boundaries", {}).get("invent_allowed", []),
         "horror_escalation_stage": horror_stage,
         "content_constraints": ctx.get("module_meta", {}).get("content_flags", []),

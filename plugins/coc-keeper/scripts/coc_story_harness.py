@@ -25,12 +25,27 @@ def assert_plan(plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "passed": (action == "PRESSURE") if signals.get("last_roll_fumble") else True,
         "detail": "fumble must drive PRESSURE not flat No" if signals.get("last_roll_fumble") else "no fumble",
     }
-    # keeper secrets isolated
-    secrets = set(directives.get("must_not_reveal", []))
+    # keeper secrets isolated (must_not_reveal is {id, category} or legacy strings)
+    def _mnr_ids(items: Any) -> set[str]:
+        ids: set[str] = set()
+        for item in items or []:
+            if isinstance(item, dict):
+                sid = str(item.get("id") or "").strip()
+                if sid:
+                    ids.add(sid)
+            else:
+                text = str(item or "").strip()
+                if ": " in text:
+                    text = text.split(": ", 1)[0].strip()
+                if text:
+                    ids.add(text)
+        return ids
+
+    secrets = _mnr_ids(directives.get("must_not_reveal", []))
     reveal = set(plan.get("clue_policy", {}).get("reveal", []))
     findings["safety_keeper_secret_isolated"] = {
         "passed": secrets.isdisjoint(reveal),
-        "detail": f"secrets={secrets} reveal={reveal}",
+        "detail": f"secrets={sorted(secrets)} reveal={sorted(reveal)}",
     }
     # --- clue_robustness ---
     fallback = plan.get("clue_policy", {}).get("fallback_routes", [])

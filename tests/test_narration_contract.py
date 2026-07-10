@@ -34,8 +34,11 @@ def _make_scenario(tmp_path, secrets=None):
 
 
 def _good_plan(secrets=None):
-    """A well-formed DirectorPlan that passes all 8 narration checks."""
+    """A well-formed DirectorPlan that passes all narration checks."""
     secrets = ["secret-1: a hidden truth", "secret-2: another secret"] if secrets is None else secrets
+    # R-2: plan carries {id, category} refs only — prose stays in boundaries.
+    secret_refs = cnc.normalize_keeper_secret_refs(secrets)
+    secret_ids = [ref["id"] for ref in secret_refs]
     return {
         "decision_id": "d1",
         "scene_action": "REVEAL",
@@ -43,12 +46,12 @@ def _good_plan(secrets=None):
         "narrative_directives": {
             "tone": ["eerie", "oppressive"],
             "must_include": [],
-            "must_not_reveal": list(secrets),
+            "must_not_reveal": secret_refs,
             "improvisation_allowed": [],
             "horror_escalation_stage": "wrongness",
             "player_facing_style": cnc.player_facing_style_contract("zh-Hans"),
         },
-        "clue_policy": {"reveal": ["clue-public-1"], "withhold": list(secrets),
+        "clue_policy": {"reveal": ["clue-public-1"], "withhold": secret_ids,
                         "fallback_routes": [], "clue_type": "obscured"},
         "rules_requests": [{"kind": "skill_check", "skill": "Spot Hidden",
                             "reason": "obscured clue", "difficulty": "regular",
@@ -68,6 +71,7 @@ def test_well_formed_plan_passes_all_checks(tmp_path):
     assert set(findings.keys()) == {
         "tone_present", "must_not_reveal_populated", "dramatic_question_present",
         "horror_stage_valid", "handoff_consistency", "clue_policy_no_secret_leak",
+        "must_not_reveal_has_no_secret_prose",
         "scene_action_narratable", "rationale_present",
         "content_constraints_passed_through", "player_facing_style_present",
     }
@@ -216,6 +220,16 @@ def test_secret_id_extraction_handles_id_description_format(tmp_path):
     findings = cnc.assert_narration_ready(plan, scenario_dir)
     assert findings["clue_policy_no_secret_leak"]["passed"] is False
     assert "corbitt-buried-in-basement" in findings["clue_policy_no_secret_leak"]["detail"]
+
+
+def test_must_not_reveal_with_secret_prose_fails_isolation_check(tmp_path):
+    """Legacy plan that copies full keeper_secrets prose into must_not_reveal fails."""
+    secrets = ["corbitt-buried-in-basement: body is under the house"]
+    scenario_dir = _make_scenario(tmp_path, secrets=secrets)
+    plan = _good_plan(secrets=secrets)
+    plan["narrative_directives"]["must_not_reveal"] = list(secrets)
+    findings = cnc.assert_narration_ready(plan, scenario_dir)
+    assert findings["must_not_reveal_has_no_secret_prose"]["passed"] is False
 
 
 def test_cli_passes_on_good_plan(tmp_path, capsys):

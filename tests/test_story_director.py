@@ -1577,7 +1577,15 @@ def test_generate_plan_reveal_includes_clue_policy(tmp_path):
     plan = coc_story_director.generate_director_plan(ctx, decision_id="d1")
     assert plan["scene_action"] == "REVEAL"
     assert len(plan["clue_policy"]["reveal"]) >= 1
-    assert "secret-1" in plan["narrative_directives"]["must_not_reveal"]
+    mnr_ids = {
+        item["id"] if isinstance(item, dict) else item
+        for item in plan["narrative_directives"]["must_not_reveal"]
+    }
+    assert "secret-1" in mnr_ids
+    assert all(
+        isinstance(item, dict) and set(item.keys()) == {"id", "category"}
+        for item in plan["narrative_directives"]["must_not_reveal"]
+    )
 
 
 def test_generate_plan_has_required_fields(tmp_path):

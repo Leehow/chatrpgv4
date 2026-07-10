@@ -37,6 +37,7 @@ def _load_sibling(name: str, filename: str):
 director = _load_sibling("coc_story_director", "coc_story_director.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 narrative_enrichment = _load_sibling("coc_narrative_enrichment", "coc_narrative_enrichment.py")
+narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
 playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
 coc_async_recorder = _load_sibling("coc_async_recorder", "coc_async_recorder.py")
 coc_intent_router = _load_sibling("coc_intent_router", "coc_intent_router.py")
@@ -553,6 +554,8 @@ def _run_one_turn(
     world = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {})
     pacing = apply_mod._read_json(campaign_dir / "save" / "pacing-state.json", {})
     directives = resolved_plan.get("narrative_directives") or {}
+    # R-2: narrator-facing envelope — approved reveals + secret IDs, never prose.
+    narration_envelope = narration_contract.build_narration_envelope(resolved_plan)
     event_types = [event.get("event_type") for event in events if isinstance(event, dict)]
     return {
         "decision_id": decision_id,
@@ -576,6 +579,7 @@ def _run_one_turn(
         "storylet_moves": resolved_plan.get("storylet_moves", []),
         "narrative_enrichment": resolved_plan.get("narrative_enrichment", {}),
         "narrative_directives": directives,
+        "narration_envelope": narration_envelope,
         "scene_transition": any(event_type == "scene_transition" for event_type in event_types),
         "active_scene_after": world.get("active_scene_id"),
         "tension_after": pacing.get("tension_level"),
