@@ -100,7 +100,9 @@ def player_send_turn(
         if key not in request:
             raise ValueError(f"player_send_turn request missing {key!r}")
 
-    runner = Path(runner_path) if runner_path is not None else _default_runner()
+    # Resolve against the caller's cwd *before* spawning: the subprocess runs
+    # with cwd=_player_dir(), which would silently re-anchor relative paths.
+    runner = Path(runner_path).resolve() if runner_path is not None else _default_runner()
     if not runner.exists():
         raise RuntimeError(f"player runner not found: {runner}")
 
