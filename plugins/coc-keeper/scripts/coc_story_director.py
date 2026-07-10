@@ -815,22 +815,40 @@ def _move_transition_override(ctx: dict[str, Any]) -> dict[str, Any] | None:
 
     Beats structure-weight demotion of CUT (e.g. hub_sandbox 0.7) so CHARACTER
     cannot trap the party in the start scene after R-3 unlock.
+
+    When ``player_intent_rich.target_entities`` uniquely intersects a
+    candidate's ``location_tags`` / ``scene_id``, that scene becomes
+    ``transition_to`` and ``matched_target`` evidence is attached. Zero
+    matches or ties keep the existing deterministic candidate order.
     """
     if str(ctx.get("player_intent_class") or "") != "move":
         return None
     scene = ctx.get("active_scene") or {}
+    story_graph = ctx.get("story_graph")
     candidates = coc_scene_graph.transition_candidates(
         ctx.get("active_scene_id") or scene.get("scene_id"),
-        ctx.get("story_graph"),
+        story_graph,
         ctx.get("world_state") or {},
     )
     if not candidates:
         return None
-    return {
+    rich = ctx.get("player_intent_rich") or {}
+    target_entities = rich.get("target_entities") if isinstance(rich, dict) else None
+    chosen, matched = coc_scene_graph.rank_move_targets(
+        candidates, story_graph, target_entities if isinstance(target_entities, list) else None
+    )
+    result: dict[str, Any] = {
         "scene_action": "CUT",
         "handoff": "narration",
         "rationale": "structured move intent with unlocked reachable scene; commit transition",
+        "transition_to": chosen or candidates[0],
     }
+    if matched is not None:
+        result["matched_target"] = matched
+        result["rationale"] = (
+            "structured move intent matched unlocked scene via location_tags; commit transition"
+        )
+    return result
 
 
 def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
@@ -2474,6 +2492,14 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
             ctx.get("world_state") or {},
         )
         if candidates:
-            plan["transition_to"] = candidates[0]
+            override_target = None
+            if overrides and isinstance(overrides.get("transition_to"), str):
+                override_target = overrides["transition_to"]
+            if override_target in candidates:
+                plan["transition_to"] = override_target
+            else:
+                plan["transition_to"] = candidates[0]
             plan["transition_candidates"] = candidates
+            if overrides and isinstance(overrides.get("matched_target"), dict):
+                plan["matched_target"] = overrides["matched_target"]
     return plan

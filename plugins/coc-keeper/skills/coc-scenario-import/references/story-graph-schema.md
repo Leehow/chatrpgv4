@@ -73,6 +73,7 @@
     - 终局判定：`is_final` / `scene_type == "resolution"` / 无出边；无 `scene_edges` 的遗留图仍把数组最后一项视为终局。
   - `is_start` (bool, optional)：开场场景；缺省时运行时把数组第一项当作 start 并默认解锁。
   - `is_final` (bool, optional)：终局场景标记。
+  - `location_tags` (string[], optional)：场景地点匹配标签（大小写不敏感的结构化 ID/短语）。导演在 `intent_class=move` 时用意图路由器的 `target_entities` 与这些标签（外加精确 `scene_id`）做集合交集，唯一命中则优先 CUT 到该场景；零命中或并列回退出边确定性顺序。标签是编译期数据，不是运行时关键词扫描（Semantic Matcher Constitution）。双语模组应同时收录玩家可能说出的中英标签。缺省合法；形状须为非空字符串列表（R-5 `invalid_location_tags` warning）。
   - `available_clues` (string[])：该场景可交付的 clue_id 列表（引用 clue-graph.json）。
   - `affordances` (object[], optional)：该场景自然露出的可行动线（diegetic routes，非玩家菜单）。开场与多分叉场景应至少 2 条，让玩家有选择权、不被线性推向单一出口。每条含 `id`（route 标识）、`cue`（可行动的感官/叙事提示）、可选 `route_type`（**固定枚举**，选最贴切的：`tenant_history` 前租客/房史、`reward_scope` 报酬范围、`direct_entry` 直接进入、`npc_question` 向 NPC 追问、`environment` 环境调查、`investigative_lead` 调查线索、`scene_affordance` 场景通用——运行时 focus 提取按此枚举匹配玩家结构化意图）、可选 `status`（`open`/`suggested`/`exhausted`/`locked`，缺省视为 `open`）。引擎据此结构化计算 `is_real_fork`（≥2 条 open route），仅在真分叉时才把选择交给玩家。
   - `storylet_tags` (string[], optional)：该场景在进入时可触发的 storylet 语义标签（如 `opening_briefing`/`arrival`/`first_contact`）。当玩家首次进入该场景（source_event_type 为 `scene_transition`/`scene_enter`）时，引擎会触发 `storylet_tags` 匹配的 storylet beat（storylet 端用其 `scene_tags` 字段匹配）。调查/社交开场场景宜标 1-2 个，让开场不只靠骰子事件也能调度剧情片段。
@@ -93,6 +94,7 @@
     {
       "scene_id": "archive-research",
       "is_start": true,
+      "location_tags": ["archive", "public records", "档案", "报馆"],
       "scene_type": "investigation",
       "dramatic_question": "玩家能否把公开记录和隐藏邪教联系起来？",
       "entry_conditions": ["player asks about public records", "director uses fallback clue after stalled investigation"],

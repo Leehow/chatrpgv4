@@ -286,6 +286,80 @@ def transition_candidates(
     return out
 
 
+def _norm_location_tag(value: Any) -> str | None:
+    """Case-normalize a location tag / entity for set comparison."""
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    return text or None
+
+
+def _norm_location_tag_set(values: Any) -> set[str]:
+    if not isinstance(values, list):
+        return set()
+    out: set[str] = set()
+    for item in values:
+        tag = _norm_location_tag(item)
+        if tag is not None:
+            out.add(tag)
+    return out
+
+
+def scene_move_match_surface(scene: dict[str, Any] | None) -> set[str]:
+    """Structured match surface: ``location_tags`` ∪ exact ``scene_id``.
+
+    Tags are compile-time data consumed by set intersection — never prose
+    scanning (Semantic Matcher Constitution).
+    """
+    if not isinstance(scene, dict):
+        return set()
+    surface = _norm_location_tag_set(scene.get("location_tags"))
+    sid = _norm_location_tag(scene.get("scene_id"))
+    if sid is not None:
+        surface.add(sid)
+    return surface
+
+
+def rank_move_targets(
+    candidates: list[str],
+    story_graph: dict[str, Any] | None,
+    target_entities: list[str] | None,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Rank unlocked reachable candidates by structured location match.
+
+    Intersection of case-normalized ``target_entities`` with each candidate's
+    ``location_tags`` plus exact ``scene_id``. A unique positive top score
+    selects that scene and returns ``matched_target`` evidence. Zero matches
+    or a tie for the top score keep the existing deterministic order
+    (``candidates[0]``) with no evidence.
+    """
+    if not candidates:
+        return None, None
+    entities = _norm_location_tag_set(target_entities)
+    if not entities:
+        return candidates[0], None
+
+    scored: list[tuple[int, str, list[str]]] = []
+    for sid in candidates:
+        scene = _scene_by_id(story_graph, sid)
+        surface = scene_move_match_surface(scene)
+        matched = sorted(entities & surface)
+        scored.append((len(matched), str(sid), matched))
+
+    best = max(s[0] for s in scored)
+    if best <= 0:
+        return candidates[0], None
+    winners = [s for s in scored if s[0] == best]
+    if len(winners) != 1:
+        return candidates[0], None
+    score, chosen, matched_entities = winners[0]
+    return chosen, {
+        "scene_id": chosen,
+        "matched_entities": matched_entities,
+        "score": score,
+    }
+
+
 def pick_transition_target(
     from_scene_id: str | None,
     story_graph: dict[str, Any] | None,
@@ -404,6 +478,8 @@ __all__ = [
     "evaluate_unlocks",
     "apply_unlocks_to_world",
     "transition_candidates",
+    "scene_move_match_surface",
+    "rank_move_targets",
     "pick_transition_target",
     "record_scene_enter",
     "is_terminal_scene",

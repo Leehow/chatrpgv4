@@ -2,6 +2,12 @@
   "scenes": [
     {
       "scene_id": "mission-briefing",
+      "location_tags": [
+        "briefing",
+        "commander",
+        "简报",
+        "指挥部"
+      ],
       "scene_type": "social",
       "dramatic_question": "Will the patrol accept a reconnaissance mission whose true nature is being kept from them?",
       "entry_conditions": [
@@ -57,6 +63,12 @@
     },
     {
       "scene_id": "crossing-saddle",
+      "location_tags": [
+        "saddle",
+        "crossing",
+        "鞍部",
+        "山口"
+      ],
       "scene_type": "exploration",
       "storylet_tags": [
         "arrival"
@@ -89,6 +101,12 @@
     },
     {
       "scene_id": "austrian-positions",
+      "location_tags": [
+        "austrian positions",
+        "austrian",
+        "奥军阵地",
+        "阵地"
+      ],
       "scene_type": "investigation",
       "storylet_tags": [
         "arrival"
@@ -137,6 +155,12 @@
     },
     {
       "scene_id": "glacier-tunnels",
+      "location_tags": [
+        "glacier",
+        "tunnels",
+        "冰川",
+        "隧道"
+      ],
       "scene_type": "exploration",
       "dramatic_question": "How deep does this honeycomb go, and what drove the Austrians out?",
       "entry_conditions": [
@@ -166,6 +190,12 @@
     },
     {
       "scene_id": "blast-chamber",
+      "location_tags": [
+        "blast chamber",
+        "shaft",
+        "爆破室",
+        "竖井"
+      ],
       "scene_type": "investigation",
       "storylet_tags": [
         "first_contact"
@@ -234,6 +264,12 @@
     },
     {
       "scene_id": "whistle-approaches",
+      "location_tags": [
+        "whistle",
+        "approaches",
+        "哨声",
+        "逼近"
+      ],
       "scene_type": "exploration",
       "storylet_tags": [
         "first_contact"
@@ -269,6 +305,12 @@
     },
     {
       "scene_id": "blizzard-withdrawal",
+      "location_tags": [
+        "blizzard",
+        "withdrawal",
+        "暴风雪",
+        "撤退"
+      ],
       "scene_type": "combat",
       "dramatic_question": "Can the patrol outrun an unnatural gale across the open saddle?",
       "entry_conditions": [
@@ -316,6 +358,12 @@
     },
     {
       "scene_id": "via-ferrata-climb",
+      "location_tags": [
+        "via ferrata",
+        "climb",
+        "铁索",
+        "攀爬"
+      ],
       "scene_type": "exploration",
       "dramatic_question": "Can the exhausted patrol scale the rock chimney to safety before the snow overhang gives way?",
       "entry_conditions": [
@@ -343,6 +391,12 @@
     },
     {
       "scene_id": "shelter-night-siege",
+      "location_tags": [
+        "shelter",
+        "siege",
+        "庇护所",
+        "围困"
+      ],
       "scene_type": "combat",
       "dramatic_question": "Can the patrol hold the shelter through the night against something that wants to examine them?",
       "entry_conditions": [
@@ -394,6 +448,12 @@
     },
     {
       "scene_id": "dawn-counterstroke",
+      "location_tags": [
+        "dawn",
+        "counterstroke",
+        "黎明",
+        "反击"
+      ],
       "scene_type": "combat",
       "dramatic_question": "At dawn, with the entity weakened by daylight, can the patrol seize a way out?",
       "entry_conditions": [
@@ -440,6 +500,12 @@
     },
     {
       "scene_id": "aftermath-white-friday",
+      "location_tags": [
+        "aftermath",
+        "white friday",
+        "余波",
+        "白色星期五"
+      ],
       "scene_type": "resolution",
       "dramatic_question": "Did the patrol's choices save them — or doom ten thousand men to the White Friday avalanches?",
       "entry_conditions": [

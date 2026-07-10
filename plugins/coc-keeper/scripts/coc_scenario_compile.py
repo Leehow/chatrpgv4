@@ -532,6 +532,29 @@ def _check_clue_affordances(compiled: dict[str, Any]) -> list[dict[str, str]]:
     return findings
 
 
+def _check_location_tags(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    """R-5: shape-check optional scene ``location_tags`` (warnings only).
+
+    A well-formed value is a list of non-empty strings. Absent is fine.
+    """
+    findings: list[dict[str, str]] = []
+    for i, scene in enumerate((compiled.get("story_graph") or {}).get("scenes") or []):
+        if not isinstance(scene, dict) or "location_tags" not in scene:
+            continue
+        path = f"story_graph.scenes[{scene.get('scene_id') or i}]"
+        tags = scene.get("location_tags")
+        if not isinstance(tags, list) or any(
+            not isinstance(t, str) or not str(t).strip() for t in tags
+        ):
+            findings.append(_finding(
+                "invalid_location_tags",
+                "warning",
+                "location_tags must be a list of non-empty strings",
+                path=path,
+            ))
+    return findings
+
+
 def _check_provenance(compiled: dict[str, Any]) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
 
@@ -642,6 +665,7 @@ def validate_compiled_scenario(
     findings.extend(_check_source_refs(compiled, source_segments))
     findings.extend(_check_provenance(compiled))
     findings.extend(_check_clue_affordances(compiled))
+    findings.extend(_check_location_tags(compiled))
     return findings
 
 

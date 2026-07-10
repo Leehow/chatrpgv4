@@ -655,3 +655,86 @@ def test_legacy_linear_cut_still_advances(tmp_path):
     coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
     world2 = json.loads((camp / "save" / "world-state.json").read_text())
     assert world2["active_scene_id"] == "scene-2"
+
+
+# ---------------------------------------------------------------------------
+# Move-intent location_tags matching
+# ---------------------------------------------------------------------------
+
+
+def test_rank_move_targets_prefers_location_tag_match():
+    """Structured target_entities ∩ location_tags picks the named scene."""
+    sg = {
+        "scenes": [
+            {
+                "scene_id": "hall-of-records",
+                "location_tags": ["hall of records", "archives", "档案厅"],
+            },
+            {
+                "scene_id": "corbitt-house-ground",
+                "location_tags": ["corbitt house", "old house", "科比特老宅", "house"],
+            },
+        ]
+    }
+    candidates = ["hall-of-records", "corbitt-house-ground"]
+    chosen, evidence = coc_scene_graph.rank_move_targets(
+        candidates, sg, ["corbitt house"]
+    )
+    assert chosen == "corbitt-house-ground"
+    assert evidence is not None
+    assert evidence["scene_id"] == "corbitt-house-ground"
+    assert "corbitt house" in evidence["matched_entities"]
+    assert evidence["score"] >= 1
+
+
+def test_rank_move_targets_exact_scene_id_match():
+    sg = {
+        "scenes": [
+            {"scene_id": "hall-of-records", "location_tags": ["archives"]},
+            {"scene_id": "corbitt-house-ground", "location_tags": ["house"]},
+        ]
+    }
+    chosen, evidence = coc_scene_graph.rank_move_targets(
+        ["hall-of-records", "corbitt-house-ground"],
+        sg,
+        ["Corbitt-House-Ground"],
+    )
+    assert chosen == "corbitt-house-ground"
+    assert evidence is not None
+    assert evidence["score"] >= 1
+
+
+def test_rank_move_targets_zero_match_keeps_candidate_order():
+    sg = {
+        "scenes": [
+            {"scene_id": "hall-of-records", "location_tags": ["archives"]},
+            {"scene_id": "corbitt-house-ground", "location_tags": ["house"]},
+        ]
+    }
+    candidates = ["hall-of-records", "corbitt-house-ground"]
+    chosen, evidence = coc_scene_graph.rank_move_targets(
+        candidates, sg, ["newspaper morgue"]
+    )
+    assert chosen == "hall-of-records"
+    assert evidence is None
+
+
+def test_rank_move_targets_tie_keeps_candidate_order():
+    sg = {
+        "scenes": [
+            {
+                "scene_id": "hall-of-records",
+                "location_tags": ["records", "house"],
+            },
+            {
+                "scene_id": "corbitt-house-ground",
+                "location_tags": ["corbitt house", "house"],
+            },
+        ]
+    }
+    candidates = ["hall-of-records", "corbitt-house-ground"]
+    chosen, evidence = coc_scene_graph.rank_move_targets(
+        candidates, sg, ["house"]
+    )
+    assert chosen == "hall-of-records"
+    assert evidence is None

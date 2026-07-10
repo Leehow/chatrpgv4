@@ -2463,3 +2463,191 @@ def test_stalled_turns_raise_cut_score_when_transition_candidates_exist(tmp_path
     assert ctx["rule_signals"]["stalled_turns"] >= 2
     score = coc_story_director._base_score("CUT", ctx)
     assert score > 0.0
+
+
+def test_move_intent_target_entities_route_to_matched_scene(tmp_path):
+    """Acceptance: target_entities ['corbitt house'] must beat default edge order."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = {
+        "scenes": [
+            {
+                "scene_id": "commission-briefing",
+                "is_start": True,
+                "scene_type": "social",
+                "dramatic_question": "Accept?",
+                "entry_conditions": [],
+                "exit_conditions": [{"kind": "narrative", "description": "leave"}],
+                "available_clues": ["clue-leads"],
+                "npc_ids": ["npc-knott"],
+                "pressure_moves": [],
+                "tone": ["daylight"],
+                "allowed_improvisation": [],
+                "location_tags": ["briefing", "knott", "委托"],
+                "scene_edges": [
+                    {
+                        "to": "hall-of-records",
+                        "kind": "unlock",
+                        "when": {"kind": "clue_discovered", "clue_id": "clue-leads"},
+                    },
+                    {
+                        "to": "corbitt-house-ground",
+                        "kind": "unlock",
+                        "when": {"kind": "clue_discovered", "clue_id": "clue-keys"},
+                    },
+                ],
+            },
+            {
+                "scene_id": "hall-of-records",
+                "scene_type": "investigation",
+                "dramatic_question": "Records?",
+                "entry_conditions": [],
+                "exit_conditions": [],
+                "available_clues": ["clue-lawsuit"],
+                "npc_ids": [],
+                "pressure_moves": [],
+                "tone": ["dusty"],
+                "allowed_improvisation": [],
+                "location_tags": ["hall of records", "archives", "档案厅", "records"],
+            },
+            {
+                "scene_id": "corbitt-house-ground",
+                "scene_type": "investigation",
+                "dramatic_question": "House?",
+                "entry_conditions": [],
+                "exit_conditions": [],
+                "available_clues": ["clue-diaries"],
+                "npc_ids": [],
+                "pressure_moves": [],
+                "tone": ["abandoned"],
+                "allowed_improvisation": [],
+                "location_tags": [
+                    "corbitt house", "old house", "boarding house", "科比特老宅", "house"
+                ],
+            },
+        ]
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [{"npc_id": "npc-knott", "agenda": "hire investigators"}]
+    }))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "commission-briefing"
+    world["discovered_clue_ids"] = ["clue-leads", "clue-keys"]
+    world["unlocked_scene_ids"] = [
+        "commission-briefing", "hall-of-records", "corbitt-house-ground"
+    ]
+    world["visited_scene_ids"] = []
+    world["exhausted_scene_ids"] = []
+    world["scene_history"] = []
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="去科比特老宅",
+        player_intent_class="move",
+        player_intent_rich={
+            "primary_intent": "move",
+            "secondary_intents": [],
+            "target_entities": ["corbitt house"],
+            "risk_posture": "neutral",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+        },
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="move-match-1")
+    assert plan["scene_action"] == "CUT"
+    assert plan.get("transition_to") == "corbitt-house-ground"
+    assert plan.get("matched_target", {}).get("scene_id") == "corbitt-house-ground"
+    assert "corbitt house" in plan["matched_target"]["matched_entities"]
+
+
+def test_move_intent_zero_match_falls_back_to_candidate_order(tmp_path):
+    """No location_tags hit → keep deterministic first unlocked candidate."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = {
+        "scenes": [
+            {
+                "scene_id": "commission-briefing",
+                "is_start": True,
+                "scene_type": "social",
+                "dramatic_question": "Accept?",
+                "entry_conditions": [],
+                "exit_conditions": [{"kind": "narrative", "description": "leave"}],
+                "available_clues": ["clue-leads"],
+                "npc_ids": [],
+                "pressure_moves": [],
+                "tone": [],
+                "allowed_improvisation": [],
+                "location_tags": ["briefing"],
+                "scene_edges": [
+                    {
+                        "to": "hall-of-records",
+                        "kind": "unlock",
+                        "when": {"kind": "always"},
+                    },
+                    {
+                        "to": "corbitt-house-ground",
+                        "kind": "unlock",
+                        "when": {"kind": "always"},
+                    },
+                ],
+            },
+            {
+                "scene_id": "hall-of-records",
+                "scene_type": "investigation",
+                "dramatic_question": "Records?",
+                "entry_conditions": [],
+                "exit_conditions": [],
+                "available_clues": [],
+                "npc_ids": [],
+                "pressure_moves": [],
+                "tone": [],
+                "allowed_improvisation": [],
+                "location_tags": ["hall of records", "archives"],
+            },
+            {
+                "scene_id": "corbitt-house-ground",
+                "scene_type": "investigation",
+                "dramatic_question": "House?",
+                "entry_conditions": [],
+                "exit_conditions": [],
+                "available_clues": [],
+                "npc_ids": [],
+                "pressure_moves": [],
+                "tone": [],
+                "allowed_improvisation": [],
+                "location_tags": ["corbitt house", "house"],
+            },
+        ]
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "commission-briefing"
+    world["unlocked_scene_ids"] = [
+        "commission-briefing", "hall-of-records", "corbitt-house-ground"
+    ]
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我们走吧",
+        player_intent_class="move",
+        player_intent_rich={
+            "primary_intent": "move",
+            "secondary_intents": [],
+            "target_entities": ["somewhere else"],
+            "risk_posture": "neutral",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+        },
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="move-fallback-1")
+    assert plan["scene_action"] == "CUT"
+    assert plan.get("transition_to") == "hall-of-records"
+    assert "matched_target" not in plan

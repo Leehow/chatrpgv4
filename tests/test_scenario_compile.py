@@ -614,3 +614,36 @@ def test_validate_compiled_scene_edges_reachability():
     findings = coc_scenario_compile.validate_compiled_scenario(compiled)
     orphans = _findings_by_code(findings, "unreachable_scene")
     assert any("orphan" in f["message"] for f in orphans)
+
+
+def test_validate_compiled_location_tags_shape_ok():
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][0]["location_tags"] = [
+        "corbitt house", "old house", "科比特老宅"
+    ]
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert not [f for f in findings if f["code"] == "invalid_location_tags"]
+
+
+def test_validate_compiled_location_tags_rejects_non_list():
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][0]["location_tags"] = "corbitt house"
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    bad = [f for f in findings if f["code"] == "invalid_location_tags"]
+    assert bad
+    assert "location_tags" in bad[0]["message"]
+
+
+def test_validate_compiled_location_tags_rejects_empty_string():
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][0]["location_tags"] = ["ok", ""]
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    bad = [f for f in findings if f["code"] == "invalid_location_tags"]
+    assert bad
+
+
+def test_validate_compiled_location_tags_absent_is_ok():
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][0].pop("location_tags", None)
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert not [f for f in findings if f["code"] == "invalid_location_tags"]
