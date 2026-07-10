@@ -692,10 +692,39 @@ def test_recover_plan_includes_idea_roll_contract(tmp_path):
     assert idea["difficulty"] is None  # never signposted → free delivery, no roll
     assert "target_characteristic" not in idea
     assert "missed_conclusion_id" not in idea
-    assert "failure_delivery" not in idea
     assert "do not present this as table-level advice" in idea["must_not"]
     # Free recovery still advances via fallback; no idea_roll request.
     assert not any(req.get("kind") == "idea_roll" for req in plan.get("rules_requests", []))
+
+
+def test_idea_roll_failure_delivers_info_the_worst_way(tmp_path):
+    """p.199: Idea Roll failure still advances, but delivers info the worst way."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["recent_intent_classes"] = ["idle", "idle", "idle"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["clue_signposts"] = {"clue-1": "mentioned"}
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="不知道该干嘛",
+        player_intent_class="idle",
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="idea-worst")
+    idea = plan["narrative_directives"]["idea_roll_plan"]
+    assert idea["failure_delivery"] == "worst_possible_way"
+    assert isinstance(idea.get("directive"), dict)
+    assert idea["directive"]["mode"] == "worst_possible_way"
+    # Structured cost channels for narration (cost / exposure / alert).
+    channels = set(idea["directive"].get("channels") or [])
+    assert {"cost", "exposure", "alert"} <= channels
+    assert idea["difficulty"] == "regular"  # mentioned → roll required
 
 
 def test_idea_roll_difficulty_follows_signpost_level(tmp_path):

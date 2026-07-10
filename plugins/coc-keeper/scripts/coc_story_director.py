@@ -994,6 +994,8 @@ def _idea_roll_plan(
                 break
     signpost_level = _clue_signpost_level(ctx, missed_clue_id)
     difficulty = _idea_roll_difficulty_for_signpost(signpost_level)
+    # p.199: success and failure both advance the lead; failure delivers it
+    # in the worst possible way (cost / exposure / alert) via structured fields.
     return {
         "schema_version": 1,
         "missed_clue_id": missed_clue_id,
@@ -1002,6 +1004,15 @@ def _idea_roll_plan(
         "difficulty": difficulty,
         "success_delivery": "surface a clean in-world inference or overlooked lead",
         "failure_delivery_with_cost": "surface the lead in a worse position",
+        "failure_delivery": "worst_possible_way",
+        "directive": {
+            "mode": "worst_possible_way",
+            "channels": ["cost", "exposure", "alert"],
+            "instruction": (
+                "on Idea Roll failure, deliver the same lead with immediate "
+                "cost, exposure, or alert — never as a clean free insight"
+            ),
+        },
         "costs": ["time_pressure"] if difficulty is not None else [],
         "must_not": [
             "do not present this as table-level advice",
