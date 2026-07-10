@@ -26,6 +26,26 @@ def _make_session(san=65, int_val=60, seed=42):
                                     rng=random.Random(seed))
 
 
+@pytest.mark.parametrize("expression", ["1", "7", "1D6", "2d10+3"])
+def test_validate_san_loss_expression_accepts_runtime_grammar(expression):
+    coc_sanity.validate_san_loss_expression(expression)
+
+
+@pytest.mark.parametrize("expression", ["", "0", "-1", "0D6", "1D0", "not-dice"])
+def test_validate_san_loss_expression_rejects_unsafe_bounds(expression):
+    with pytest.raises(ValueError):
+        coc_sanity.validate_san_loss_expression(expression)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    ["101D6", "1D1001", "1D6+100001", "100D1000+1", "100001"],
+)
+def test_validate_san_loss_expression_rejects_oversized_work(expression):
+    with pytest.raises(ValueError):
+        coc_sanity.validate_san_loss_expression(expression)
+
+
 def test_sanity_session_initial_state():
     s = _make_session(san=50)
     assert s.san_current == 50

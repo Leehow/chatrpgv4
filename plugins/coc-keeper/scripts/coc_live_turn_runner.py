@@ -565,7 +565,7 @@ def _run_one_turn(
         append_jsonl=append_jsonl,
     )
     rule_results = subsystem_executor.flatten_result_events(subsystem_results)
-    pending_choice = subsystem_executor.current_pending_choice(subsystem_results)
+    pending_choice = subsystem_executor.get_current_pending_choice(campaign_dir)
     rules_pending = _commit_rules_recorder(rules_recorder)
 
     resolved_plan = apply_mod.backfill_rule_results(plan, rule_results)
@@ -738,6 +738,143 @@ def run_live_turn(
         )
 
 
+def _pending_choice_blocked_result(
+    campaign: Path,
+    investigator_id: str,
+    player_text: str,
+    pending_choice: dict[str, Any],
+    *,
+    max_auto_advance: int,
+    auto_advance_low_agency: bool,
+    recording_mode: str,
+    recording_flush: str,
+    state_patch: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build a no-side-effect turn while canonical subsystem input is owed."""
+    mode = coc_async_recorder.normalize_recording_mode(recording_mode)
+    flush_policy = coc_async_recorder.normalize_flush_policy(recording_flush)
+    world = _read_json(campaign / "save" / "world-state.json", {})
+    pacing = _read_json(campaign / "save" / "pacing-state.json", {})
+    active_scene = _read_json(campaign / "save" / "active-scene.json", {})
+    decision_id = f"turn-{_next_live_decision_number(campaign):03d}"
+    pending = _copy_jsonable(pending_choice)
+    scene_id = (
+        world.get("active_scene_id") if isinstance(world, dict) else None
+    ) or (
+        active_scene.get("scene_id") if isinstance(active_scene, dict) else None
+    )
+    tension = pacing.get("tension_level") if isinstance(pacing, dict) else None
+    turn = {
+        "decision_id": decision_id,
+        "turn_number": pacing.get("turn_number") if isinstance(pacing, dict) else None,
+        "scene_id": scene_id,
+        "action": "PENDING_SUBSYSTEM_CHOICE",
+        "validation_warnings": [],
+        "auto_advanced": False,
+        "apply_path": None,
+        "pipeline": "run_live_turn",
+        "recording_mode": mode,
+        "recording_flush": flush_policy,
+        "rules_pending_batch": None,
+        "pending_batches_before_apply": _pending_record_count(campaign),
+        "pending_batches_after_apply": _pending_record_count(campaign),
+        "clue_revealed": [],
+        "event_types": [],
+        "events_count": 0,
+        "rule_results": [],
+        "subsystem_results": [],
+        "pending_choice": pending,
+        "blocked_by_pending_choice": True,
+        "rules_requests": [],
+        "resolved_clue_policy": {},
+        "failure_consequence": None,
+        "choice_frame": {},
+        "proposal_transform": None,
+        "scene_exit_pressure": None,
+        "idea_roll_plan": None,
+        "roll_density_decisions": [],
+        "npc_moves": [],
+        "storylet_moves": [],
+        "incident_moves": [],
+        "narrative_enrichment": {},
+        "narrative_directives": {},
+        "narration_envelope": {},
+        "dramatic_question": (
+            active_scene.get("dramatic_question", "")
+            if isinstance(active_scene, dict)
+            else ""
+        ),
+        "horror_stage": None,
+        "scene_transition": False,
+        "active_scene_after": scene_id,
+        "tension": tension,
+        "tension_after": tension,
+        "narration_audit": {"findings": 0},
+        "narration": {},
+    }
+    pending_batches = _pending_record_count(campaign)
+    stop_actionability = {
+        "schema_version": 1,
+        "immediate_handles": [{
+            "kind": "pending_subsystem_choice",
+            "choice_id": pending.get("choice_id"),
+            "choice_kind": pending.get("kind"),
+        }],
+        "must_surface_handles": True,
+    }
+    return {
+        "schema_version": 1,
+        "campaign_dir": str(campaign),
+        "investigator_id": investigator_id,
+        "player_text": player_text,
+        "intent_resolution": {
+            "source": "blocked_by_pending_choice",
+            "intent_class": None,
+        },
+        "turns": [turn],
+        "subsystem_results": [],
+        "pending_choice": pending,
+        "auto_advance": {
+            "enabled": bool(auto_advance_low_agency),
+            "turns_run": 1,
+            "stop_reason": "pending_subsystem_choice",
+            "max_turns": max(1, int(max_auto_advance or 1)),
+        },
+        "recording": {
+            "mode": mode,
+            "flush_policy": flush_policy,
+            "pending_batches_before_flush": pending_batches,
+            "background_flush_started": False,
+            "background_flush_result": None,
+            "completion_required_before_narration": False,
+            "background_work": {
+                "status": "blocked_by_pending_choice",
+                "worker": "local_recorder_process",
+                "pending_batches": pending_batches,
+                "completion_required_before_narration": False,
+            },
+        },
+        "foreground": {
+            "narration_can_return_before_flush": True,
+            "waited_for_background_flush": False,
+            "sync_state_writes_completed": True,
+            "deferred_pending_batches": pending_batches if mode != "sync" else 0,
+        },
+        "state_patch": {
+            "applied": False,
+            "blocked_by_pending_choice": True,
+            "requested": bool(state_patch),
+        },
+        "stop_actionability": stop_actionability,
+        "narration_audit": {"findings": 0},
+        "final_state": {
+            "active_scene": scene_id,
+            "tension": tension,
+            "turn_number": pacing.get("turn_number") if isinstance(pacing, dict) else None,
+        },
+    }
+
+
 def _run_live_turn_impl(
     campaign_dir: Path | str,
     character_path: Path | str,
@@ -760,6 +897,19 @@ def _run_live_turn_impl(
 ) -> dict[str, Any]:
     """Inner live-turn body; caller must already hold ``campaign_lock``."""
     campaign = Path(campaign_dir)
+    pending_choice = subsystem_executor.get_current_pending_choice(campaign)
+    if pending_choice is not None:
+        return _pending_choice_blocked_result(
+            campaign,
+            investigator_id,
+            player_text,
+            pending_choice,
+            max_auto_advance=max_auto_advance,
+            auto_advance_low_agency=auto_advance_low_agency,
+            recording_mode=recording_mode,
+            recording_flush=recording_flush,
+            state_patch=state_patch,
+        )
     character = Path(character_path)
     mode = coc_async_recorder.normalize_recording_mode(recording_mode)
     flush_policy = coc_async_recorder.normalize_flush_policy(recording_flush)
@@ -940,14 +1090,7 @@ def _run_live_turn_impl(
             for subsystem_result in (turn.get("subsystem_results") or [])
             if isinstance(subsystem_result, dict)
         ],
-        "pending_choice": next(
-            (
-                turn.get("pending_choice")
-                for turn in reversed(turns)
-                if isinstance(turn, dict) and isinstance(turn.get("pending_choice"), dict)
-            ),
-            None,
-        ),
+        "pending_choice": subsystem_executor.get_current_pending_choice(campaign),
         "auto_advance": {
             "enabled": bool(auto_advance_low_agency),
             "turns_run": len(turns),

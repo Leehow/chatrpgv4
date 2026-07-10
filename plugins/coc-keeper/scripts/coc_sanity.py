@@ -76,6 +76,59 @@ BACKSTORY_FIELDS = (
 # Phobia / mania table loader (references/rules-json/{phobias,manias}.json).
 RULES_DIR = Path(__file__).resolve().parent.parent / "references" / "rules-json"
 
+_SAN_LOSS_DICE = re.compile(
+    r"^(?P<count>\d+)D(?P<sides>\d+)(?:\+(?P<modifier>\d+))?$",
+    re.IGNORECASE,
+)
+SAN_LOSS_MAX_DICE_COUNT = 100
+SAN_LOSS_MAX_DIE_SIDES = 1_000
+SAN_LOSS_MAX_MODIFIER = 100_000
+SAN_LOSS_MAX_TOTAL = 100_000
+
+
+def validate_san_loss_expression(expression: str) -> dict[str, int | str]:
+    """Parse the one canonical SAN-loss grammar without consuming RNG.
+
+    A failure loss is either a positive integer constant or ``nDsides`` with
+    an optional non-negative ``+modifier``. Dice count and side count must be
+    positive. Callers that need strict preflight can use this directly; the
+    session's legacy helpers retain their historical safe fallback behavior.
+    """
+    if not isinstance(expression, str):
+        raise ValueError("SAN loss expression must be a string")
+    normalized = expression.strip()
+    if len(normalized) > 32:
+        raise ValueError("SAN loss expression is too long")
+    if normalized.isdigit():
+        value = int(normalized)
+        if value <= 0:
+            raise ValueError("SAN loss constant must be positive")
+        if value > SAN_LOSS_MAX_TOTAL:
+            raise ValueError("SAN loss constant exceeds the supported maximum")
+        return {"kind": "constant", "value": value}
+    match = _SAN_LOSS_DICE.fullmatch(normalized)
+    if match is None:
+        raise ValueError("invalid SAN loss expression")
+    count = int(match.group("count"))
+    sides = int(match.group("sides"))
+    modifier = int(match.group("modifier") or 0)
+    if count <= 0 or sides <= 0:
+        raise ValueError("SAN loss dice count and sides must be positive")
+    if count > SAN_LOSS_MAX_DICE_COUNT:
+        raise ValueError("SAN loss dice count exceeds the supported maximum")
+    if sides > SAN_LOSS_MAX_DIE_SIDES:
+        raise ValueError("SAN loss die sides exceed the supported maximum")
+    if modifier > SAN_LOSS_MAX_MODIFIER:
+        raise ValueError("SAN loss modifier exceeds the supported maximum")
+    if count * sides + modifier > SAN_LOSS_MAX_TOTAL:
+        raise ValueError("SAN loss maximum exceeds the supported total")
+    return {
+        "kind": "dice",
+        "count": count,
+        "sides": sides,
+        "modifier": modifier,
+    }
+
 
 def _load_phobia_mania_table(name: str) -> dict[str, Any]:
     """Load phobias.json or manias.json as a flat {Name: {trigger,...}} dict.
@@ -895,7 +948,7 @@ class SanitySession:
             "events": list(self.events),
         }
 
-    def save(self, campaign_dir: Path) -> Path:
+    def save(self, campaign_dir: Path, *, strict_mirror: bool = False) -> Path:
         save_dir = campaign_dir / "save"
         save_dir.mkdir(parents=True, exist_ok=True)
         path = save_dir / "sanity.json"
@@ -905,10 +958,15 @@ class SanitySession:
         # Mirror the player-facing fields the Story Director reads into
         # investigator-state, so build_director_context can see the live SAN
         # and indefinite-insanity flag without parsing the sanity snapshot.
-        self._sync_to_investigator_state(campaign_dir)
+        self._sync_to_investigator_state(campaign_dir, strict=strict_mirror)
         return path
 
-    def _sync_to_investigator_state(self, campaign_dir: Path) -> None:
+    def _sync_to_investigator_state(
+        self,
+        campaign_dir: Path,
+        *,
+        strict: bool = False,
+    ) -> None:
         """Merge ``current_san`` + ``indefinite_insane`` into investigator-state.
 
         The director reads these top-level fields from
@@ -936,8 +994,9 @@ class SanitySession:
             coc_fileio.write_json_atomic(
                 inv_path, data, indent=2, ensure_ascii=False, trailing_newline=False
             )
-        except (OSError, ValueError):
-            pass
+        except (OSError, UnicodeError, ValueError, TypeError):
+            if strict:
+                raise
 
     @classmethod
     def load(cls, campaign_dir: Path, investigator_id: str,
@@ -1017,25 +1076,28 @@ class SanitySession:
 
     def _roll_dice(self, expr: str) -> int:
         """Roll a dice expression like '1D6', '1D4+1', '2D10+1'."""
-        m = re.fullmatch(r"(\d+)D(\d+)(\+(\d+))?", expr.strip())
-        if m:
-            n, sides = int(m.group(1)), int(m.group(2))
-            mod = int(m.group(4)) if m.group(4) else 0
-            return sum(self._rng.randint(1, sides) for _ in range(n)) + mod
         try:
-            return int(expr)
+            parsed = validate_san_loss_expression(expr)
         except ValueError:
             return 1  # safe fallback
+        if parsed["kind"] == "constant":
+            return int(parsed["value"])
+        count = int(parsed["count"])
+        sides = int(parsed["sides"])
+        modifier = int(parsed["modifier"])
+        return sum(self._rng.randint(1, sides) for _ in range(count)) + modifier
 
     def _max_dice(self, expr: str) -> int:
         """Maximum possible value of a dice expression. Used for fumbled SAN rolls
         (p.166: 'losing the maximum Sanity points for that situation')."""
-        m = re.fullmatch(r"(\d+)D(\d+)(\+(\d+))?", expr.strip())
-        if m:
-            n, sides = int(m.group(1)), int(m.group(2))
-            mod = int(m.group(4)) if m.group(4) else 0
-            return n * sides + mod
         try:
-            return int(expr)
+            parsed = validate_san_loss_expression(expr)
         except ValueError:
             return 1
+        if parsed["kind"] == "constant":
+            return int(parsed["value"])
+        return (
+            int(parsed["count"])
+            * int(parsed["sides"])
+            + int(parsed["modifier"])
+        )

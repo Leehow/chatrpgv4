@@ -1556,7 +1556,10 @@ def apply_plan(
     global _ACTIVE_JSONL_RECORDER
 
     decision_id = str(plan.get("decision_id", "unknown"))
-    settled_rule_results = coc_subsystem_executor.normalize_rule_results(rules_results)
+    settled_rule_results = coc_subsystem_executor.normalize_rule_results(
+        rules_results,
+        campaign_dir=campaign_dir,
+    )
     save_dir = Path(campaign_dir) / "save"
     if _decision_already_applied(save_dir, decision_id):
         return [{

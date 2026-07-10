@@ -555,6 +555,7 @@ def _project_driver_turn(live_turn: dict[str, Any], turn_num: int) -> dict[str, 
         "rule_results": live_turn.get("rule_results") or [],
         "subsystem_results": live_turn.get("subsystem_results") or [],
         "pending_choice": live_turn.get("pending_choice"),
+        "blocked_by_pending_choice": bool(live_turn.get("blocked_by_pending_choice")),
         "resolved_clue_policy": live_turn.get("resolved_clue_policy") or {},
         "failure_consequence": live_turn.get("failure_consequence"),
         "choice_frame": live_turn.get("choice_frame") or {},
@@ -646,6 +647,9 @@ def run_full_session(
             tension = projected.get("tension") or "low"
             tension_curve.append(tension)
 
+        if subsystem_executor.get_current_pending_choice(campaign_dir) is not None:
+            break
+
         world = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {})
         turn_terminal = coc_scene_graph.terminal_evidence(story, world, live_result)
         if turn_terminal["session_ending"]:
@@ -664,14 +668,7 @@ def run_full_session(
             for subsystem_result in (turn.get("subsystem_results") or [])
             if isinstance(subsystem_result, dict)
         ],
-        "pending_choice": next(
-            (
-                turn.get("pending_choice")
-                for turn in reversed(turns)
-                if isinstance(turn.get("pending_choice"), dict)
-            ),
-            None,
-        ),
+        "pending_choice": subsystem_executor.get_current_pending_choice(campaign_dir),
         "final_state": {
             "active_scene": world_final.get("active_scene_id"),
             "discovered_clues": discovered_final,

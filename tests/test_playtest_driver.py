@@ -1,6 +1,7 @@
 """Tests for coc_playtest_driver: multi-turn session runner."""
 import importlib.util
 import json
+import random
 import shutil
 from pathlib import Path
 
@@ -89,6 +90,35 @@ def test_driver_projection_preserves_live_subsystem_result_without_reexecution()
     assert projected["subsystem_results"] == [subsystem_result]
     assert projected["pending_choice"] is None
     assert projected["rule_results"] == subsystem_result["events"]
+
+
+def test_driver_stops_on_canonical_persisted_pending_choice(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    offered = driver.subsystem_executor.execute_commands(
+        camp,
+        char_path,
+        "inv1",
+        [{
+            "command_id": "driver-persisted-push",
+            "kind": "push_offer",
+            "phase": "offer",
+            "payload": {},
+        }],
+        rng=random.Random(116),
+    )[0]
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "search", "intent_class": "investigate"}] * 3,
+        max_turns=3,
+        rng_seed=117,
+    )
+
+    assert result["pending_choice"] == offered["pending_choice"]
+    assert len(result["turns"]) == 1
+    assert result["turns"][0]["blocked_by_pending_choice"] is True
 
 
 def test_driver_advances_through_scenes(tmp_path):

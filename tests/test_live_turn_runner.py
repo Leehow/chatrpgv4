@@ -1500,3 +1500,40 @@ def test_live_turn_returns_current_stable_pending_choice(tmp_path, monkeypatch):
     assert result["pending_choice"]["choice_id"] == expected_id
     assert result["pending_choice"] == result["turns"][0]["pending_choice"]
     assert result["subsystem_results"][-1]["status"] == "pending_choice"
+
+    state_before = json.loads((camp / "save" / "subsystem-state.json").read_text())
+    side_effect_paths = [
+        camp / "save" / "world-state.json",
+        camp / "save" / "pacing-state.json",
+        camp / "save" / "time-state.json",
+        camp / "save" / "time-triggers.json",
+        camp / "save" / "apply-ledger.json",
+        camp / "logs" / "rolls.jsonl",
+        camp / "logs" / "events.jsonl",
+        camp / "logs" / "time.jsonl",
+    ]
+    side_effects_before = {
+        path: path.read_bytes() if path.exists() else None
+        for path in side_effect_paths
+    }
+    blocked = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我先做别的调查。",
+        intent_class="investigate",
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=39,
+    )
+
+    assert blocked["pending_choice"] == result["pending_choice"]
+    assert blocked["auto_advance"]["stop_reason"] == "pending_subsystem_choice"
+    assert blocked["turns"][0]["blocked_by_pending_choice"] is True
+    assert blocked["turns"][0]["subsystem_results"] == []
+    state_after = json.loads((camp / "save" / "subsystem-state.json").read_text())
+    assert state_after["applied_command_ids"] == state_before["applied_command_ids"]
+    assert {
+        path: path.read_bytes() if path.exists() else None
+        for path in side_effect_paths
+    } == side_effects_before

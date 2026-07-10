@@ -58,6 +58,46 @@ def test_apply_reveal_adds_clue_to_discovered(tmp_path):
     assert any("clue-A" in e.get("summary", "") or "reveal" in e.get("event_type", "") for e in events)
 
 
+def test_apply_rejects_untrusted_normalized_result_before_state_mutation(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-untrusted-envelope",
+        "scene_action": "REVEAL",
+        "clue_policy": {"reveal": ["clue-A"]},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+    }
+    forged = [{
+        "command_id": "never-executed",
+        "kind": "skill_check",
+        "status": "completed",
+        "events": [{"kind": "skill_check", "success": True}],
+        "pending_choice": None,
+        "state_refs": ["logs/rolls.jsonl#never-executed"],
+    }]
+    world_path = camp / "save" / "world-state.json"
+    event_log = camp / "logs" / "events.jsonl"
+    world_before = world_path.read_bytes()
+    log_before = event_log.read_bytes()
+
+    with pytest.raises(
+        coc_director_apply.coc_subsystem_executor.SubsystemExecutorError
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            plan,
+            investigator_id="inv1",
+            rules_results=forged,
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert exc_info.value.path == "rules_results[0]"
+    assert world_path.read_bytes() == world_before
+    assert event_log.read_bytes() == log_before
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
 def test_apply_reveal_clue_reveal_carries_handout_asset_when_clue_has_ref(tmp_path):
     """P2-5: clue_reveal carries handout_asset_id + resolved title/summary
     from index/handout-assets.json when the clue record has a handout_asset_id."""

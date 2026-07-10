@@ -46,6 +46,10 @@ EXPECTED_PHASE = {
     **{kind: "resolve" for kind in ROLL_COMMAND_KINDS},
     "push_offer": "offer",
 }
+RESULT_STATUSES_BY_KIND = {
+    **{kind: frozenset({"completed"}) for kind in ROLL_COMMAND_KINDS},
+    "push_offer": frozenset({"pending_choice"}),
+}
 SUCCESS_OUTCOMES = frozenset({
     "critical",
     "extreme",
@@ -111,6 +115,20 @@ def _json_copy(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
 
 
+def _json_deep_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's bool/int equality aliasing."""
+    try:
+        options = {
+            "ensure_ascii": False,
+            "sort_keys": True,
+            "separators": (",", ":"),
+            "allow_nan": False,
+        }
+        return json.dumps(left, **options) == json.dumps(right, **options)
+    except (TypeError, ValueError):
+        return False
+
+
 def _validate_json_value(value: Any, path: str) -> None:
     if value is None or isinstance(value, (str, bool, int)):
         return
@@ -146,6 +164,27 @@ def _canonical_command_hash(command: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _push_choice_id(command_id: str) -> str:
+    """Return a stable safe push-choice ID for every valid command ID."""
+    legacy = f"{command_id}:confirm"
+    if _SAFE_ID.fullmatch(legacy):
+        return legacy
+    digest = hashlib.sha256(command_id.encode("utf-8")).hexdigest()
+    return f"push:{digest}:confirm"
+
+
+# Pending-kind behavior is registered per result kind so Task 6 can add a
+# second lifecycle without weakening or duplicating the push contract.
+PENDING_CHOICE_CONTRACTS: dict[str, dict[str, Any]] = {
+    "push_offer": {
+        "status": "pending_choice",
+        "choice_kind": "push_confirm",
+        "choice_id": _push_choice_id,
+        "scope": "global",
+    },
+}
+
+
 def _default_state() -> dict[str, Any]:
     return {
         "schema_version": STATE_SCHEMA_VERSION,
@@ -157,8 +196,36 @@ def _default_state() -> dict[str, Any]:
     }
 
 
+def _unsafe_state_path(message: str) -> SubsystemExecutorError:
+    return _error(
+        "unsafe_subsystem_state_path",
+        STATE_RELATIVE_PATH.as_posix(),
+        message,
+    )
+
+
 def _state_path(campaign_dir: Path) -> Path:
-    return Path(campaign_dir) / STATE_RELATIVE_PATH
+    """Return the canonical executor state path after containment checks."""
+    try:
+        campaign = Path(campaign_dir).resolve()
+    except (OSError, RuntimeError) as exc:
+        raise _unsafe_state_path("campaign root could not be resolved safely") from exc
+    save_dir = campaign / "save"
+    if save_dir.is_symlink():
+        raise _unsafe_state_path("save directory must not be a symlink")
+    try:
+        save_dir.resolve().relative_to(campaign)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise _unsafe_state_path("save directory escapes campaign root") from exc
+
+    path = campaign / STATE_RELATIVE_PATH
+    if path.is_symlink():
+        raise _unsafe_state_path("executor state file must not be a symlink")
+    try:
+        path.resolve().relative_to(campaign)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise _unsafe_state_path("executor state file escapes campaign root") from exc
+    return path
 
 
 def _state_error(message: str) -> SubsystemExecutorError:
@@ -169,19 +236,75 @@ def _state_error(message: str) -> SubsystemExecutorError:
     )
 
 
+def _validate_pending_choice_contract(
+    command_id: str,
+    result_kind: str,
+    status: str,
+    pending: Any,
+) -> None:
+    contract = PENDING_CHOICE_CONTRACTS.get(result_kind)
+    if contract is None:
+        if pending is not None:
+            raise _state_error(
+                f"result snapshot {command_id!r} cannot carry a pending choice"
+            )
+        return
+    if status != contract["status"] or not isinstance(pending, dict):
+        raise _state_error(
+            f"result snapshot {command_id!r} has an invalid pending status/choice"
+        )
+    expected_choice_id = contract["choice_id"](command_id)
+    if pending.get("choice_id") != expected_choice_id:
+        raise _state_error(
+            f"result snapshot {command_id!r} has an invalid pending choice_id"
+        )
+    if pending.get("kind") != contract["choice_kind"]:
+        raise _state_error(
+            f"result snapshot {command_id!r} has an invalid pending choice kind"
+        )
+    if pending.get("command_id") != command_id:
+        raise _state_error(
+            f"result snapshot {command_id!r} has a mismatched pending command_id"
+        )
+
+
+def _pending_scope_key(
+    result_kind: str,
+    *,
+    pending_choice: dict[str, Any] | None = None,
+    command: dict[str, Any] | None = None,
+) -> str:
+    contract = PENDING_CHOICE_CONTRACTS[result_kind]
+    resolver = contract.get("scope", "global")
+    if callable(resolver):
+        return str(
+            resolver(
+                result_kind=result_kind,
+                pending_choice=pending_choice,
+                command=command,
+            )
+        )
+    return str(resolver)
+
+
 def _validate_result_snapshot(command_id: str, result: Any) -> None:
     if not isinstance(result, dict) or set(result) != RESULT_KEYS:
         raise _state_error(f"result snapshot {command_id!r} has an invalid contract")
     if result.get("command_id") != command_id:
         raise _state_error(f"result snapshot {command_id!r} has a mismatched command_id")
-    if not isinstance(result.get("kind"), str) or not isinstance(result.get("status"), str):
+    kind = result.get("kind")
+    status = result.get("status")
+    if not isinstance(kind, str) or not isinstance(status, str):
         raise _state_error(f"result snapshot {command_id!r} has invalid kind/status")
+    if kind not in RESULT_STATUSES_BY_KIND or status not in RESULT_STATUSES_BY_KIND[kind]:
+        raise _state_error(f"result snapshot {command_id!r} has unsupported kind/status")
     events = result.get("events")
     if not isinstance(events, list) or not all(isinstance(item, dict) for item in events):
         raise _state_error(f"result snapshot {command_id!r} has invalid events")
     pending = result.get("pending_choice")
     if pending is not None and not isinstance(pending, dict):
         raise _state_error(f"result snapshot {command_id!r} has invalid pending_choice")
+    _validate_pending_choice_contract(command_id, kind, status, pending)
     refs = result.get("state_refs")
     if not isinstance(refs, list) or not all(isinstance(item, str) for item in refs):
         raise _state_error(f"result snapshot {command_id!r} has invalid state_refs")
@@ -288,6 +411,7 @@ def _validate_state(state: Any) -> dict[str, Any]:
         raise _state_error("command_hashes must contain SHA-256 hex digests")
     for command_id, result in snapshots.items():
         _validate_result_snapshot(command_id, result)
+    pending_scopes: dict[str, str] = {}
     for choice_id, choice in pending.items():
         if not isinstance(choice_id, str) or not _SAFE_ID.fullmatch(choice_id):
             raise _state_error("pending choice keys must be stable IDs")
@@ -295,6 +419,29 @@ def _validate_state(state: Any) -> dict[str, Any]:
             raise _state_error(f"pending choice {choice_id!r} has an invalid contract")
         if not isinstance(choice.get("kind"), str) or not isinstance(choice.get("command_id"), str):
             raise _state_error(f"pending choice {choice_id!r} is missing stable identifiers")
+        command_id = choice["command_id"]
+        if command_id not in applied_ids:
+            raise _state_error(
+                f"pending choice {choice_id!r} references an unapplied command"
+            )
+        snapshot = snapshots[command_id]
+        if not _json_deep_equal(snapshot.get("pending_choice"), choice):
+            raise _state_error(
+                f"pending choice {choice_id!r} does not match its result snapshot"
+            )
+        _validate_pending_choice_contract(
+            command_id,
+            snapshot["kind"],
+            snapshot["status"],
+            choice,
+        )
+        scope = _pending_scope_key(snapshot["kind"], pending_choice=choice)
+        if scope in pending_scopes:
+            raise _state_error(
+                f"pending choices {pending_scopes[scope]!r} and {choice_id!r} "
+                f"share blocking scope {scope!r}"
+            )
+        pending_scopes[scope] = choice_id
         try:
             _validate_json_value(choice, f"pending_choices.{choice_id}")
         except SubsystemExecutorError as exc:
@@ -535,18 +682,33 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                 "bonus_penalty_dice must be an integer",
             )
     if command["kind"] == "sanity_check" and "san_loss_fail_expr" in payload:
-        if not isinstance(payload.get("san_loss_fail_expr"), str):
+        expression = payload.get("san_loss_fail_expr")
+        if not isinstance(expression, str):
             raise _error(
                 "invalid_command_payload",
                 f"{base}.san_loss_fail_expr",
                 "san_loss_fail_expr must be a string",
             )
+        try:
+            coc_sanity.validate_san_loss_expression(expression)
+        except ValueError as exc:
+            raise _error(
+                "invalid_command_payload",
+                f"{base}.san_loss_fail_expr",
+                str(exc),
+            ) from exc
+    if command["kind"] == "sanity_check" and "san_loss_success" in payload:
         loss = payload.get("san_loss_success", 0)
-        if isinstance(loss, bool) or not isinstance(loss, int) or loss < 0:
+        if (
+            isinstance(loss, bool)
+            or not isinstance(loss, int)
+            or loss < 0
+            or loss > coc_sanity.SAN_LOSS_MAX_TOTAL
+        ):
             raise _error(
                 "invalid_command_payload",
                 f"{base}.san_loss_success",
-                "san_loss_success must be a non-negative integer",
+                "san_loss_success must be a bounded non-negative integer",
             )
 
 
@@ -703,11 +865,64 @@ def flatten_result_events(results: list[dict[str, Any]] | None) -> list[dict[str
     return events
 
 
-def normalize_rule_results(results: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    """Accept legacy rows or normalized results and return legacy rule rows."""
+def _looks_like_result_envelope(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    keys = set(row)
+    envelope_only = {"status", "events", "pending_choice", "state_refs"}
+    if keys & {"events", "pending_choice", "state_refs"}:
+        return True
+    if "command_id" in keys and "status" in keys:
+        return True
+    return len(keys & RESULT_KEYS) >= 3 and bool(keys & envelope_only)
+
+
+def normalize_rule_results(
+    results: list[dict[str, Any]] | None,
+    *,
+    campaign_dir: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    """Return legacy rows, unwrapping only persisted executor envelopes."""
     rows = list(results or [])
-    if rows and all(isinstance(row, dict) and set(row) == RESULT_KEYS for row in rows):
+    exact_envelopes = [
+        isinstance(row, dict) and set(row) == RESULT_KEYS
+        for row in rows
+    ]
+    if rows and all(exact_envelopes):
+        if campaign_dir is None:
+            raise _error(
+                "untrusted_subsystem_result",
+                "rules_results",
+                "campaign_dir is required to verify normalized results",
+            )
+        campaign = Path(campaign_dir)
+        state = _recover_inflight(campaign, _load_state(campaign))
+        seen_command_ids: set[str] = set()
+        for index, row in enumerate(rows):
+            assert isinstance(row, dict)
+            command_id = row.get("command_id")
+            if not isinstance(command_id, str) or command_id in seen_command_ids:
+                raise _error(
+                    "untrusted_subsystem_result",
+                    f"rules_results[{index}]",
+                    "normalized results must contain unique persisted command IDs",
+                )
+            seen_command_ids.add(command_id)
+            snapshot = state["result_snapshots"].get(command_id)
+            if not _json_deep_equal(snapshot, row):
+                raise _error(
+                    "untrusted_subsystem_result",
+                    f"rules_results[{index}]",
+                    "normalized result does not match a persisted executor snapshot",
+                )
         return flatten_result_events(rows)
+    for index, row in enumerate(rows):
+        if _looks_like_result_envelope(row):
+            raise _error(
+                "untrusted_subsystem_result",
+                f"rules_results[{index}]",
+                "partial or mixed subsystem result envelopes are not trusted",
+            )
     # Legacy apply_plan callers observe in-place push-gate demotion. Preserve
     # their row identity; only persisted normalized snapshots are unwrapped as
     # defensive copies above.
@@ -719,6 +934,31 @@ def current_pending_choice(results: list[dict[str, Any]] | None) -> dict[str, An
         if isinstance(result, dict) and isinstance(result.get("pending_choice"), dict):
             return _json_copy(result["pending_choice"])
     return None
+
+
+def get_current_pending_choices(
+    campaign_dir: Path | str,
+) -> list[dict[str, Any]]:
+    """Read unresolved choices from the validated canonical executor state."""
+    campaign = Path(campaign_dir)
+    state = _recover_inflight(campaign, _load_state(campaign))
+    return [_json_copy(choice) for choice in state["pending_choices"].values()]
+
+
+def get_current_pending_choice(
+    campaign_dir: Path | str,
+) -> dict[str, Any] | None:
+    """Return the sole canonical unresolved choice, if one exists."""
+    choices = get_current_pending_choices(campaign_dir)
+    if not choices:
+        return None
+    if len(choices) > 1:
+        raise _error(
+            "ambiguous_pending_choice",
+            "save/subsystem-state.json#pending_choices",
+            "multiple unresolved subsystem choices require an explicit selector",
+        )
+    return choices[0]
 
 
 def _target_for_payload(character: dict[str, Any], kind: str, payload: dict[str, Any]) -> int:
@@ -786,7 +1026,7 @@ def _settle_sanity_check(
         ),
         {},
     )
-    session.save(Path(campaign_dir))
+    session.save(Path(campaign_dir), strict_mirror=True)
     san_before = int(event_payload.get("san_before", san_roll.get("san_before", session.san_current)))
     san_loss = int(event_payload.get("san_loss", san_roll.get("san_loss", 0)))
     san_after = int(event_payload.get("san_after", session.san_current))
@@ -924,7 +1164,7 @@ def _dispatch(
     command_id = command["command_id"]
     kind = command["kind"]
     if kind == "push_offer":
-        choice_id = f"{command_id}:confirm"
+        choice_id = _push_choice_id(command_id)
         choice = {
             "choice_id": choice_id,
             "kind": "push_confirm",
@@ -984,6 +1224,26 @@ def _append_roll_event(
         os.fsync(handle.fileno())
 
 
+def _preflight_new_pending_capacity(
+    commands_with_hashes: list[tuple[dict[str, Any], str]],
+) -> None:
+    scopes: dict[str, str] = {}
+    for command, _command_hash in commands_with_hashes:
+        kind = command["kind"]
+        if kind not in PENDING_CHOICE_CONTRACTS:
+            continue
+        scope = _pending_scope_key(kind, command=command)
+        previous = scopes.get(scope)
+        if previous is not None:
+            raise _error(
+                "multiple_pending_choices",
+                "commands",
+                f"commands {previous!r} and {command['command_id']!r} "
+                f"would create blocking choices in scope {scope!r}",
+            )
+        scopes[scope] = command["command_id"]
+
+
 def execute_commands(
     campaign_dir: Path | str,
     character_path: Path | str,
@@ -1011,16 +1271,49 @@ def execute_commands(
     # random draw, handler call, log append, or state write occurs before this.
     for index, (command, command_hash) in enumerate(zip(validated, hashes)):
         command_id = command["command_id"]
-        if command_id in applied and state["command_hashes"][command_id] != command_hash:
+        if command_id not in applied:
+            continue
+        if state["command_hashes"][command_id] != command_hash:
             raise _error(
                 "command_conflict",
                 f"commands[{index}].command_id",
                 f"command_id {command_id!r} was already applied with different content",
             )
+        snapshot = state["result_snapshots"][command_id]
+        if (
+            snapshot.get("kind") != command["kind"]
+            or snapshot.get("status") not in RESULT_STATUSES_BY_KIND[command["kind"]]
+        ):
+            raise _error(
+                "replay_snapshot_mismatch",
+                f"commands[{index}]",
+                "persisted result kind/status does not match the submitted command",
+            )
+
+    new_commands_with_hashes = [
+        (command, command_hash)
+        for command, command_hash in zip(validated, hashes)
+        if command["command_id"] not in applied
+    ]
+    if state["pending_choices"] and new_commands_with_hashes:
+        raise _error(
+            "blocked_by_pending_choice",
+            "commands",
+            "resolve the current subsystem choice before submitting new commands",
+        )
+    _preflight_new_pending_capacity(new_commands_with_hashes)
+
+    if not validated:
+        return []
+    if not new_commands_with_hashes:
+        return [
+            _json_copy(state["result_snapshots"][command["command_id"]])
+            for command in validated
+        ]
 
     needs_character = any(
-        command["command_id"] not in applied and command["kind"] in ROLL_COMMAND_KINDS
-        for command in validated
+        command["kind"] in ROLL_COMMAND_KINDS
+        for command, _command_hash in new_commands_with_hashes
     )
     character = _load_character(character_file) if needs_character else None
     _preflight_rule_targets(validated, state, character)
@@ -1031,20 +1324,6 @@ def execute_commands(
         character,
         investigator_id,
     )
-
-    if not validated:
-        return []
-
-    new_commands_with_hashes = [
-        (command, command_hash)
-        for command, command_hash in zip(validated, hashes)
-        if command["command_id"] not in applied
-    ]
-    if not new_commands_with_hashes:
-        return [
-            _json_copy(state["result_snapshots"][command["command_id"]])
-            for command in validated
-        ]
 
     try:
         rng_state = rng.getstate()
@@ -1130,5 +1409,7 @@ __all__ = [
     "current_pending_choice",
     "execute_commands",
     "flatten_result_events",
+    "get_current_pending_choice",
+    "get_current_pending_choices",
     "normalize_rule_results",
 ]
