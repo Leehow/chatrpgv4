@@ -1,0 +1,51 @@
+{
+  "invent_allowed": [
+    "café or office color for Knott's meeting",
+    "desk clerks, press-room noise, and filing quirks at research sites",
+    "Dooley's exaggerations and salesman banter",
+    "which investigator stands nearest a dangerous window or stair",
+    "rat-pack timing and mundane Macario household clutter",
+    "epilogue details for survivors after Corbitt is destroyed or the house is resealed"
+  ],
+  "never_invent": [
+    "that Knott already knows Corbitt is an undead sorcerer",
+    "pre-1878 Boston Globe clippings about the Corbitt House",
+    "that Corbitt was legally buried in a public cemetery instead of the basement",
+    "a second basement entrance that skips the sealed boards",
+    "that ordinary prayer or holy water alone permanently destroys Corbitt",
+    "a peaceful bargain that leaves Corbitt safely dormant forever without cost",
+    "that Vittorio can give a clear tactical briefing beyond the bible gesture"
+  ],
+  "keeper_secrets": [
+    {
+      "id": "secret-corbitt-buried-alive-will",
+      "category": "keeper_secret",
+      "prose": "Walter Corbitt's body is interred in a sealed basement lair behind boarded walls; his mind still lives and haunts the house."
+    },
+    {
+      "id": "secret-corbitt-undead-sorcerer",
+      "category": "keeper_secret",
+      "prose": "Corbitt preserved his identity with Mythos magic and animates his own corpse; stats/presentation under monsters.json 'Walter Corbitt' (STR 90 CON 115 POW 90, Dominate, Flesh Ward, claws)."
+    },
+    {
+      "id": "secret-own-dagger-bypass",
+      "category": "keeper_secret",
+      "prose": "Corbitt's ritual dagger bypasses Flesh Ward and spells; a successful hit turns him to ashes and dust (the-haunting.json corbitt_own_dagger)."
+    },
+    {
+      "id": "secret-floating-knife-mp",
+      "category": "keeper_secret",
+      "prose": "The floating knife costs Corbitt 1 Magic Point per combat round and attacks once per round; opposed STR vs POW to keep hold."
+    },
+    {
+      "id": "secret-mislead-then-murder",
+      "category": "keeper_secret",
+      "prose": "Corbitt first misleads and scares (upstairs poltergeist as false center); if investigators persist toward the basement secret, he switches to murder."
+    },
+    {
+      "id": "secret-chapel-cult-link",
+      "category": "keeper_secret",
+      "prose": "Pastor Michael Thomas of the Chapel of Contemplation executed Corbitt's will; the 1912 raid and Thomas's 1917 escape are cult residue, not required for the climax."
+    }
+  ]
+}

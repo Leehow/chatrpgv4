@@ -1,0 +1,690 @@
+{
+  "scenes": [
+    {
+      "scene_id": "commission-briefing",
+      "is_start": true,
+      "scene_type": "social",
+      "origin": "source",
+      "dramatic_question": "Will the investigators accept Knott's commission and choose where to dig first?",
+      "entry_conditions": ["campaign_active", "no_prior_scene"],
+      "exit_conditions": [
+        {"kind": "clue_discovered", "clue_id": "clue-knott-research-leads"}
+      ],
+      "available_clues": [
+        "clue-knott-commission",
+        "clue-knott-research-leads",
+        "clue-knott-keys"
+      ],
+      "npc_ids": ["npc-steven-knott"],
+      "pressure_moves": [
+        "Knott glances at his watch — every empty day costs him rent",
+        "He slides the house keys across the table and waits for a decision"
+      ],
+      "storylet_tags": ["opening_briefing"],
+      "affordances": [
+        {
+          "id": "accept-commission",
+          "cue": "接受委托，确认日薪、钥匙与地址。",
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "ask-research-options",
+          "cue": "追问还能去哪里查这栋宅子的旧账——报馆、档案厅、街坊？",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "ask-macario-tragedy",
+          "cue": "打听前租客 Macario 一家究竟出了什么事。",
+          "route_type": "npc_question",
+          "status": "open"
+        }
+      ],
+      "tone": ["bureaucratic", "uneasy", "daylight"],
+      "allowed_improvisation": [
+        "invent café or office details for the meeting",
+        "never_invent that Knott already knows Corbitt is undead"
+      ],
+      "scene_edges": [
+        {
+          "to": "newspaper-morgue",
+          "kind": "unlock",
+          "when": {"kind": "clue_discovered", "clue_id": "clue-knott-research-leads"}
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "unlock",
+          "when": {"kind": "clue_discovered", "clue_id": "clue-knott-research-leads"}
+        },
+        {
+          "to": "neighborhood-gossip",
+          "kind": "unlock",
+          "when": {"kind": "clue_discovered", "clue_id": "clue-knott-research-leads"}
+        },
+        {
+          "to": "previous-tenants",
+          "kind": "unlock",
+          "when": {"kind": "clue_discovered", "clue_id": "clue-knott-research-leads"}
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "unlock",
+          "when": {"kind": "clue_discovered", "clue_id": "clue-knott-keys"}
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 435,
+          "grep_anchor": "A landlord, Mr. Knott"
+        }
+      ]
+    },
+    {
+      "scene_id": "newspaper-morgue",
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "Can the investigators persuade the Globe staff and pull the Corbitt House clippings?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-globe-unpublished-story",
+        "clue-macario-tragedy",
+        "clue-globe-fire-cutoff"
+      ],
+      "npc_ids": ["npc-arty-wilmot", "npc-ruth-blake"],
+      "pressure_moves": [
+        "Arty Wilmot enjoys denying access and makes them work for every courtesy",
+        "Knott telephones if research stretches past a day — time is money"
+      ],
+      "storylet_tags": ["research"],
+      "affordances": [
+        {
+          "id": "persuade-arty",
+          "cue": "用说服、恐吓、魅力或花言巧语拿下编辑 Arty，进入剪报库。",
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "search-clippings",
+          "cue": "在地下室剪报库按街道地址翻找 Corbitt 宅相关稿件。",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "befriend-ruth",
+          "cue": "与档案员 Ruth Blake 套近乎，打听剪报库的年代上限。",
+          "route_type": "npc_question",
+          "status": "open"
+        }
+      ],
+      "tone": ["musty", "bureaucratic", "ink-and-heat"],
+      "allowed_improvisation": [
+        "invent desk clerks and press-room noise",
+        "never_invent pre-1878 Globe clippings about the house"
+      ],
+      "scene_edges": [
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "neighborhood-gossip",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "previous-tenants",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "commission-briefing",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 436,
+          "grep_anchor": "Boston Globe"
+        }
+      ]
+    },
+    {
+      "scene_id": "hall-of-records",
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "What do civil and church registers reveal about Walter Corbitt's will and burial?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-will-executor-chapel",
+        "clue-chapel-closed-1912",
+        "clue-basement-burial-lawsuit",
+        "clue-police-raid-chapel",
+        "clue-chapel-journal-burial"
+      ],
+      "npc_ids": ["npc-records-clerk"],
+      "pressure_moves": [
+        "Serious crime files are not here — the clerk hints at county or police holdings",
+        "A courteous investigator gets more help than a rude one"
+      ],
+      "storylet_tags": ["research"],
+      "affordances": [
+        {
+          "id": "library-use-civil",
+          "cue": "用图书馆使用技能翻查民事法庭与遗嘱登记。",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "trace-chapel-register",
+          "cue": "在教堂登记册里追查「默想礼拜堂」的下落。",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "ask-clerk-redirect",
+          "cue": "礼貌询问书记员：重罪卷宗该去哪一级法院或警局。",
+          "route_type": "npc_question",
+          "status": "open"
+        }
+      ],
+      "tone": ["dusty", "formal", "paper-labyrinth"],
+      "allowed_improvisation": [
+        "invent minor clerks and filing quirks",
+        "never_invent that Corbitt's body was legally buried in a public cemetery"
+      ],
+      "scene_edges": [
+        {
+          "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "neighborhood-gossip",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "previous-tenants",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 438,
+          "grep_anchor": "Hall of Records"
+        }
+      ]
+    },
+    {
+      "scene_id": "neighborhood-gossip",
+      "scene_type": "social",
+      "origin": "source",
+      "dramatic_question": "What will the last old-timers admit about the Corbitt House and the vanished chapel?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-dooley-macario-madness",
+        "clue-burning-eyes-form",
+        "clue-chapel-ruins-location"
+      ],
+      "npc_ids": ["npc-dooley"],
+      "pressure_moves": [
+        "Dooley sizes them up by appearance and credit before he gossips",
+        "Newer offices have replaced the old homes — the Corbitt House stands alone"
+      ],
+      "storylet_tags": ["research"],
+      "affordances": [
+        {
+          "id": "chat-dooley",
+          "cue": "向卖雪茄报纸的 Dooley 打听这栋宅子与 Macario 一家。",
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "ask-chapel",
+          "cue": "追问几条街外那座被烧掉的礼拜堂废墟。",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "walk-the-block",
+          "cue": "绕着街区观察：为何只剩这一栋私人住宅还杵在办公楼中间。",
+          "route_type": "environment",
+          "status": "open"
+        }
+      ],
+      "tone": ["street", "gossip", "overgrown"],
+      "allowed_improvisation": [
+        "invent Dooley's banter and exaggerations",
+        "never_invent a living neighbor who has seen Corbitt's body"
+      ],
+      "scene_edges": [
+        {
+          "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "previous-tenants",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 438,
+          "grep_anchor": "Mr. Dooley"
+        }
+      ]
+    },
+    {
+      "scene_id": "previous-tenants",
+      "scene_type": "social",
+      "origin": "source",
+      "dramatic_question": "What can the shattered Macarios still tell about the presence in the house?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-vittorio-bible-weapon",
+        "clue-gabriela-night-visitor",
+        "clue-boys-burning-eyes"
+      ],
+      "npc_ids": ["npc-gabriela-macario", "npc-vittorio-macario"],
+      "pressure_moves": [
+        "Staff cut the interview short when questions upset Gabriela",
+        "Vittorio only opens the bible and points — he will not explain"
+      ],
+      "storylet_tags": ["research"],
+      "affordances": [
+        {
+          "id": "interview-gabriela",
+          "cue": "温和询问 Gabriela：夜里那东西如何俯身、如何迁怒她丈夫。",
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "observe-vittorio",
+          "cue": "观察 Vittorio 紧抱的圣经与他突然指出的那句「伪经」。",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "ask-staff-boys",
+          "cue": "向院方打听两个孩子被亲戚接走前说过什么噩梦。",
+          "route_type": "npc_question",
+          "status": "open"
+        }
+      ],
+      "tone": ["clinical", "fragile", "pity"],
+      "allowed_improvisation": [
+        "invent sanitarium corridor details",
+        "never_invent that Vittorio can give a clear tactical briefing"
+      ],
+      "scene_edges": [
+        {
+          "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "neighborhood-gossip",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 438,
+          "grep_anchor": "Roxbury Sanitarium"
+        }
+      ]
+    },
+    {
+      "scene_id": "corbitt-house-ground",
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "What does the abandoned ground floor still hide about its former master?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-corbitt-diaries",
+        "clue-upstairs-disturbance",
+        "clue-catholic-wards",
+        "clue-nailed-windows"
+      ],
+      "npc_ids": [],
+      "pressure_moves": [
+        "A thump answers from upstairs when they linger too long",
+        "The house seems to withdraw into the shadows of flanking offices"
+      ],
+      "storylet_tags": ["arrival", "first_contact"],
+      "affordances": [
+        {
+          "id": "force-cupboard",
+          "cue": "撬开储藏室被钉死的橱柜，查看里面的旧书。",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "survey-locks-bolts",
+          "cue": "检查侧门多重门闩与钉死的一楼窗户——谁在防什么。",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "listen-upstairs",
+          "cue": "站在客厅听楼上传来的敲击与刮擦。",
+          "route_type": "investigative_lead",
+          "status": "open"
+        }
+      ],
+      "tone": ["abandoned", "catholic-wards", "listening"],
+      "allowed_improvisation": [
+        "invent mundane Macario household clutter",
+        "never_invent a second basement entrance that skips the sealed boards"
+      ],
+      "scene_edges": [
+        {
+          "to": "upper-floor-bedroom",
+          "kind": "unlock",
+          "when": {"kind": "clue_discovered", "clue_id": "clue-upstairs-disturbance"}
+        },
+        {
+          "to": "basement-rites",
+          "kind": "unlock",
+          "when": {"kind": "clue_discovered", "clue_id": "clue-corbitt-diaries"}
+        },
+        {
+          "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "neighborhood-gossip",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "previous-tenants",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 440,
+          "grep_anchor": "The Old Corbitt Place"
+        }
+      ]
+    },
+    {
+      "scene_id": "upper-floor-bedroom",
+      "scene_type": "exploration",
+      "origin": "source",
+      "dramatic_question": "Can the investigators survive Corbitt's poltergeist show without being thrown through a window?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-poltergeist-bed",
+        "clue-blood-pool-manifest",
+        "clue-mythos-reek"
+      ],
+      "npc_ids": [],
+      "pressure_moves": [
+        "The spare bedroom reeks when Corbitt wills a deed",
+        "A bed can fly; blood can pool; knocks answer from inside the walls"
+      ],
+      "storylet_tags": ["first_contact"],
+      "affordances": [
+        {
+          "id": "inspect-spare-window",
+          "cue": "去检查那扇自己咔咔作响的备用卧室窗户。",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "document-phenomena",
+          "cue": "记录血泊、敲击与恶臭出现的时机与位置。",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "retreat-downstairs",
+          "cue": "撤回一楼，重新考虑是否该查地下室。",
+          "route_type": "environment",
+          "status": "open"
+        }
+      ],
+      "tone": ["poltergeist", "reek", "violence-imminent"],
+      "allowed_improvisation": [
+        "invent which investigator is nearest the window",
+        "never_invent that ordinary prayer alone destroys Corbitt"
+      ],
+      "on_enter": {
+        "san_triggers": [
+          {
+            "trigger_id": "bed-moves",
+            "source": "witnessing the bed move of its own accord",
+            "san_loss_success": 1,
+            "san_loss_fail_expr": "1D4",
+            "tag": "unnatural"
+          }
+        ]
+      },
+      "scene_edges": [
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "basement-rites",
+          "kind": "unlock",
+          "when": {"kind": "clue_discovered", "clue_id": "clue-poltergeist-bed"}
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 443,
+          "grep_anchor": "Bed Attack"
+        }
+      ]
+    },
+    {
+      "scene_id": "basement-rites",
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "Can the investigators force the sealed boards and find what Corbitt buried beneath the house?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-floating-knife",
+        "clue-hollow-boards",
+        "clue-corbitt-body-found",
+        "clue-ritual-dagger-is-his"
+      ],
+      "npc_ids": [],
+      "pressure_moves": [
+        "The basement stairs shift underfoot; lights die at the fuse box",
+        "A rust-caked knife may float and strike if they dig too close"
+      ],
+      "storylet_tags": ["revelation"],
+      "affordances": [
+        {
+          "id": "descend-stairs",
+          "cue": "小心走下失修的地下室楼梯（DEX/Climb）。",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "search-tool-pile",
+          "cue": "在杂物堆里 Spot Hidden，寻找那把锈迹怪异的旧刀。",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "tear-boards",
+          "cue": "拆开贴墙木板，探入恶臭的夹层与更深处的密室。",
+          "route_type": "environment",
+          "status": "open"
+        }
+      ],
+      "tone": ["claustrophobic", "foul", "threshold"],
+      "allowed_improvisation": [
+        "invent rat-pack timing and tool-pile clutter",
+        "never_invent that Corbitt's body is empty of will"
+      ],
+      "on_enter": {
+        "clock_ticks": [
+          {
+            "clock_id": "corbitt-awareness",
+            "reason": "Corbitt feels them enter his buried domain"
+          }
+        ]
+      },
+      "scene_edges": [
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        },
+        {
+          "to": "corbitt-confrontation",
+          "kind": "unlock",
+          "when": {"kind": "clue_discovered", "clue_id": "clue-corbitt-body-found"}
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 444,
+          "grep_anchor": "The Basement"
+        }
+      ]
+    },
+    {
+      "scene_id": "corbitt-confrontation",
+      "is_final": true,
+      "scene_type": "resolution",
+      "origin": "source",
+      "dramatic_question": "Can the investigators destroy Walter Corbitt before he murders them in his lair?",
+      "entry_conditions": [],
+      "exit_conditions": [
+        {"kind": "narrative", "description": "Corbitt destroyed or investigators flee/defeated"}
+      ],
+      "available_clues": [
+        "clue-corbitt-animates",
+        "clue-own-dagger-ends-him",
+        "clue-flesh-ward-active"
+      ],
+      "npc_ids": ["npc-walter-corbitt"],
+      "pressure_moves": [
+        "The wizened figure on the pallet opens saucer eyes and spends Magic Points",
+        "Flesh Ward and Dominate buy him rounds; the floating knife still answers"
+      ],
+      "storylet_tags": ["climax"],
+      "affordances": [
+        {
+          "id": "strike-with-his-dagger",
+          "cue": "若已持有仪式匕首，用它直取 Corbitt——据说可破其法术。",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "conventional-assault",
+          "cue": "用枪械或肉搏强攻，并提防 Flesh Ward 与支配。",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "flee-and-seal",
+          "cue": "撤出并重新封死夹墙，把问题留给下一任倒霉蛋——或房东。",
+          "route_type": "environment",
+          "status": "open"
+        }
+      ],
+      "tone": ["climactic", "undead", "final"],
+      "allowed_improvisation": [
+        "invent the exact beat of ash or retreat",
+        "never_invent a peaceful bargain that leaves Corbitt safely dormant forever without cost"
+      ],
+      "on_enter": {
+        "san_triggers": [
+          {
+            "trigger_id": "see-corbitt-body",
+            "source": "seeing Walter Corbitt's animated corpse",
+            "san_loss_success": 1,
+            "san_loss_fail_expr": "1D8",
+            "creature_type": "Walter Corbitt"
+          }
+        ],
+        "danger_attacks": [
+          {
+            "danger_id": "walter-corbitt",
+            "attack_name": "claws"
+          },
+          {
+            "danger_id": "floating-knife",
+            "attack_name": "stab"
+          }
+        ]
+      },
+      "scene_edges": [],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 445,
+          "grep_anchor": "Corbitt's Hiding Place"
+        }
+      ]
+    }
+  ]
+}

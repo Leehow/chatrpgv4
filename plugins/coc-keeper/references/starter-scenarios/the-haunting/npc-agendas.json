@@ -1,0 +1,204 @@
+{
+  "npcs": [
+    {
+      "npc_id": "npc-steven-knott",
+      "name": "Steven Knott",
+      "origin": "source",
+      "agenda": "Clear the Corbitt House's reputation so he can rent or sell the inherited property and stop losing money.",
+      "fear": "Being stuck with a worthless haunted white elephant that ruins his credit.",
+      "secret": "He knows only rumor and the Macario tragedy — nothing of Corbitt's undead nature — and will not believe Mythos explanations without hard proof.",
+      "voice": "Practical, impatient, money-minded. Speaks in short offers and deadlines.",
+      "relationship_to_investigators": "employer",
+      "keeper_note": "Pays $20/day plus keys and address. Pressures them if research exceeds a day. If an investigator dies, may be brought in as a replacement PC vehicle.",
+      "social_role": {
+        "authority_scope": ["scene_safety"],
+        "responsibility_domains": ["group_survival"],
+        "chain_of_command": {"to_pc": "none", "to_group": "none"},
+        "duty_pressure": [],
+        "initiative_style": "decisive",
+        "delegation_policy": {
+          "keeps": ["scene_safety"],
+          "delegates": ["specialist_care", "specialist_interpretation"]
+        }
+      },
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 435, "grep_anchor": "Mr. Steven Knott"}
+      ]
+    },
+    {
+      "npc_id": "npc-arty-wilmot",
+      "name": "Arty Wilmot",
+      "origin": "source",
+      "agenda": "Guard access to the Globe clippings morgue and enjoy the little power of saying no.",
+      "fear": "Looking weak in front of the newsroom if he caves too easily.",
+      "secret": "He is not professionally skilled at social resistance — Regular difficulty social skills can move him; he just starts unhelpful by policy.",
+      "voice": "Pompous, clipped, editorial. Loves denying 'the general public'.",
+      "relationship_to_investigators": "gatekeeper",
+      "keeper_note": "Use Charm / Intimidate / Persuade / Fast Talk as appropriate to the approach. Pushed failures escalate (backup muscle, offence, ejection).",
+      "social_role": {
+        "authority_scope": ["specialist_knowledge"],
+        "responsibility_domains": ["truth_claims"],
+        "chain_of_command": {"to_pc": "none", "to_group": "none"},
+        "duty_pressure": [],
+        "initiative_style": "commanding",
+        "delegation_policy": {
+          "keeps": ["specialist_interpretation"],
+          "delegates": ["scene_safety"]
+        }
+      },
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 436, "grep_anchor": "Arty Wilmot"}
+      ]
+    },
+    {
+      "npc_id": "npc-ruth-blake",
+      "name": "Ruth Blake",
+      "origin": "source",
+      "agenda": "Do her job in the clippings basement and be treated like a person.",
+      "fear": "Getting in trouble with Arty for letting strangers linger.",
+      "secret": "Friendly investigators learn the 1878 fire cutoff without a roll — the information is color, not the critical clue.",
+      "voice": "Quiet, practical, basement-warm. Speaks in asides while filing.",
+      "relationship_to_investigators": "helpful_staff",
+      "keeper_note": "Escort into the morgue after Arty relents. Flirting/friendship yields the fire cutoff remark.",
+      "social_role": {
+        "authority_scope": ["specialist_knowledge"],
+        "responsibility_domains": ["specialist_advice"],
+        "chain_of_command": {"to_pc": "none", "to_group": "none"},
+        "duty_pressure": [],
+        "initiative_style": "consultative",
+        "delegation_policy": {
+          "keeps": ["specialist_interpretation"],
+          "delegates": ["scene_safety"]
+        }
+      },
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 437, "grep_anchor": "Ruth Blake"}
+      ]
+    },
+    {
+      "npc_id": "npc-records-clerk",
+      "name": "the Hall of Records clerk",
+      "origin": "source",
+      "agenda": "Keep the stacks orderly and point courteous researchers toward the right jurisdiction.",
+      "fear": "Being blamed for missing felony files that were never held here.",
+      "secret": "City civil files stop short; serious crimes live in county/commonwealth/federal or Central Police holdings.",
+      "voice": "Dry, procedural, slightly helpful if thanked.",
+      "relationship_to_investigators": "bureaucrat",
+      "keeper_note": "Library Use for Handout 7; courtesy unlocks the redirect about higher courts and police.",
+      "social_role": {
+        "authority_scope": ["specialist_knowledge"],
+        "responsibility_domains": ["truth_claims", "specialist_advice"],
+        "chain_of_command": {"to_pc": "none", "to_group": "none"},
+        "duty_pressure": [],
+        "initiative_style": "consultative",
+        "delegation_policy": {
+          "keeps": ["specialist_interpretation"],
+          "delegates": ["scene_safety"]
+        }
+      },
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Hall of Records"}
+      ]
+    },
+    {
+      "npc_id": "npc-dooley",
+      "name": "Mr. Dooley",
+      "origin": "source",
+      "agenda": "Sell papers and cigars, gossip for sport, and size people up before sharing.",
+      "fear": "Wasting breath on snobs who look down on street vendors.",
+      "secret": "He exaggerates; not every line is true. He can still point to the chapel ruins and name the house 'the Corbitt House'.",
+      "voice": "Salesman banter, neighborhood Irish-Boston color, enjoys a listener.",
+      "relationship_to_investigators": "informant",
+      "keeper_note": "Reaction via APP/Credit Rating; failed reaction allows Charm/Fast Talk/Persuade/Intimidate from another investigator.",
+      "social_role": {
+        "authority_scope": ["specialist_knowledge"],
+        "responsibility_domains": ["truth_claims"],
+        "chain_of_command": {"to_pc": "none", "to_group": "none"},
+        "duty_pressure": [],
+        "initiative_style": "consultative",
+        "delegation_policy": {
+          "keeps": ["specialist_interpretation"],
+          "delegates": ["scene_safety"]
+        }
+      },
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Mr. Dooley"}
+      ]
+    },
+    {
+      "npc_id": "npc-gabriela-macario",
+      "name": "Gabriela Macario",
+      "origin": "source",
+      "agenda": "Survive the interview without reliving every night; warn others that something evil lives in that house.",
+      "fear": "The presence returning; questions that drag her back into the bedrooms.",
+      "secret": "She can describe night visits and poltergeist anger but cannot give tactical specifics or Corbitt's name.",
+      "voice": "Fragile, soft, cuts off when pressed. Speaks of 'it', not a man with a biography.",
+      "relationship_to_investigators": "victim",
+      "keeper_note": "End the interview quickly when she becomes upset. Boys are with relatives in Baltimore.",
+      "social_role": {
+        "authority_scope": ["specialist_knowledge"],
+        "responsibility_domains": ["truth_claims"],
+        "chain_of_command": {"to_pc": "none", "to_group": "none"},
+        "duty_pressure": [],
+        "initiative_style": "consultative",
+        "delegation_policy": {
+          "keeps": ["specialist_interpretation"],
+          "delegates": ["scene_safety"]
+        }
+      },
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Gabriela Macario"}
+      ]
+    },
+    {
+      "npc_id": "npc-vittorio-macario",
+      "name": "Vittorio Macario",
+      "origin": "source",
+      "agenda": "Clutch the bible and point at the false quotation — he cannot otherwise communicate usefully.",
+      "fear": "The burning-eyed form; being left without the book.",
+      "secret": "His pointed line 'By his own weapon is the devil worsted!' is the dagger hint — do not overplay it.",
+      "voice": "Mostly silent. Sudden finger on a page. Occasional babble.",
+      "relationship_to_investigators": "victim",
+      "keeper_note": "Quite mad. One useful clue only. Nothing more can be gleaned.",
+      "social_role": {
+        "authority_scope": ["specialist_knowledge"],
+        "responsibility_domains": ["truth_claims"],
+        "chain_of_command": {"to_pc": "none", "to_group": "none"},
+        "duty_pressure": [],
+        "initiative_style": "commanding",
+        "delegation_policy": {
+          "keeps": ["specialist_interpretation"],
+          "delegates": ["scene_safety"]
+        }
+      },
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Vittorio Macario"}
+      ]
+    },
+    {
+      "npc_id": "npc-walter-corbitt",
+      "name": "Walter Corbitt",
+      "origin": "source",
+      "agenda": "Mislead and frighten intruders away from his buried body; failing that, murder them and resume feeding on residents.",
+      "fear": "His own ritual dagger in an enemy's hand; prolonged daylight exposure of his lair; being reduced below the point where Flesh Ward and Dominate can buy rounds.",
+      "secret": "He is an undead sorcerer animating his own corpse in the sealed basement; presentation data lives under monsters.json 'Walter Corbitt'.",
+      "voice": "Rarely speaks. Acts through knocks, blood, flying furniture, floating knife, and finally claws.",
+      "relationship_to_investigators": "adversary",
+      "keeper_note": "Threat front primary danger. Uses Dominate / Flesh Ward / floating knife per the-haunting.json. Own dagger bypasses spells and turns him to ash. See monsters.json presentation sensory_signature.",
+      "social_role": {
+        "authority_scope": ["scene_safety"],
+        "responsibility_domains": ["group_survival"],
+        "chain_of_command": {"to_pc": "none", "to_group": "none"},
+        "duty_pressure": [],
+        "initiative_style": "decisive",
+        "delegation_policy": {
+          "keeps": ["scene_safety"],
+          "delegates": []
+        }
+      },
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 435, "grep_anchor": "Walter Corbitt"}
+      ]
+    }
+  ]
+}

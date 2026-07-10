@@ -1,0 +1,100 @@
+{
+  "fronts": [
+    {
+      "front_id": "corbitt-haunting",
+      "scope": "scenario",
+      "origin": "source",
+      "description": "Walter Corbitt's undead will haunts the house: misdirection upstairs, then lethal force in the basement.",
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 435, "grep_anchor": "He haunts the place"}
+      ],
+      "dangers": [
+        {
+          "id": "walter-corbitt",
+          "impulse": "to drive out or slay those who learn his secret",
+          "monster_ref": "Walter Corbitt",
+          "moves": [
+            "poltergeist show in the spare bedroom (blood, knocks, flying bed)",
+            "kill the basement lights at the fuse box and shift the stairs",
+            "Dominate a lone investigator",
+            "spend Magic Points on Flesh Ward",
+            "claw attack once animated (1D3+1D4+infection)"
+          ],
+          "attack_profiles": [
+            {
+              "name": "claws",
+              "attack_skill": "Fighting",
+              "attack_target_percent": 50,
+              "resist_skill": "Dodge",
+              "damage": "1D3+1D4",
+              "lethality": null,
+              "ignores_armor": false
+            }
+          ]
+        },
+        {
+          "id": "floating-knife",
+          "impulse": "to stab whoever digs toward the sealed boards",
+          "moves": [
+            "float and stab for 1 MP per round (1D4+2; Extreme may impale)",
+            "wrench itself free of a holder via opposed STR vs Corbitt POW",
+            "pursue the last person on the basement stairs if they flee"
+          ],
+          "attack_profiles": [
+            {
+              "name": "stab",
+              "attack_skill": "Fighting",
+              "attack_target_percent": 45,
+              "resist_skill": "Dodge",
+              "damage": "1D4+2",
+              "lethality": null,
+              "ignores_armor": false
+            }
+          ]
+        }
+      ],
+      "clocks": [
+        {
+          "clock_id": "corbitt-awareness",
+          "segments": 4,
+          "on_tick_visible": [
+            "a answering knock from inside the walls",
+            "the reek thickens on the stair",
+            "something heavy shifts upstairs"
+          ],
+          "on_full": "Corbitt commits to murder rather than mere fright — bed attack or floating knife becomes likely on the next intrusion"
+        },
+        {
+          "clock_id": "landlord-impatience",
+          "segments": 3,
+          "on_tick_visible": [
+            "Knott telephones for a progress report",
+            "Knott hints the daily rate may stop",
+            "Knott threatens to hire someone cheaper"
+          ],
+          "on_full": "Knott arrives at the house demanding results, becoming a complication or replacement PC vehicle"
+        }
+      ]
+    },
+    {
+      "front_id": "cult-residue",
+      "scope": "scenario",
+      "origin": "source",
+      "description": "The Chapel of Contemplation's burned residue and Pastor Thomas's escape still stain the paper trail — color and optional danger, not the main fight.",
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Chapel of Contemplation"}
+      ],
+      "dangers": [
+        {
+          "id": "chapel-ruins",
+          "impulse": "to injure the careless who poke the weakened floor",
+          "moves": [
+            "Luck then Jump or fall 10 feet into a sealed basement (1D6)",
+            "painted Y-triangle eye signs that tingle the forehead while near"
+          ]
+        }
+      ],
+      "clocks": []
+    }
+  ]
+}

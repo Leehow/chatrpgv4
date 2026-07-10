@@ -127,3 +127,76 @@ def test_ww1_era_registered_in_state_clocks():
         mod.create_campaign(root, "era-test", "Test", era="ww1")
         ts = json.loads((root / "campaigns" / "era-test" / "save" / "time-state.json").read_text("utf-8"))
         assert ts["clock"]["local_datetime"].startswith("1916-12"), f"ww1 era 时钟未指向 1916-12: {ts['clock']['local_datetime']}"
+
+
+# ---------------------------------------------------------------------------
+# N2: the-haunting starter
+# ---------------------------------------------------------------------------
+
+
+def test_list_starter_scenarios_includes_the_haunting():
+    starters = coc_starter.list_starter_scenarios()
+    assert len(starters) >= 2
+    haunting = next(s for s in starters if s["scenario_id"] == "the-haunting")
+    assert haunting["title"] == "The Haunting"
+    assert haunting["structure_type"] == "branching_investigation"
+    assert haunting["era"] == "1920s"
+    assert haunting["one_liner"]
+
+
+def test_install_starter_the_haunting_copies_scenario_files(tmp_path):
+    root = tmp_path / ".coc"
+    import coc_state  # noqa: E402
+
+    coc_state.ensure_workspace(root)
+    coc_state.create_campaign(root, "haunt-camp", "Haunting Test", era="1920s")
+
+    scenario_dir = coc_starter.install_starter(root, "haunt-camp", "the-haunting")
+    for fname in coc_starter.STARTER_SCENARIO_FILES:
+        assert (scenario_dir / fname).exists(), f"{fname} 未拷贝"
+
+    campaign = json.loads((root / "campaigns" / "haunt-camp" / "campaign.json").read_text("utf-8"))
+    assert campaign["active_scenario_id"] == "the-haunting"
+    assert campaign["era"] == "1920s"
+
+    story = json.loads((scenario_dir / "story-graph.json").read_text("utf-8"))
+    assert any(s.get("is_start") for s in story["scenes"])
+    assert any("scene_edges" in s for s in story["scenes"])
+    starts = [s for s in story["scenes"] if s.get("is_start")]
+    assert len(starts) == 1
+    assert starts[0]["scene_edges"], "start scene must declare real scene_edges"
+
+
+def test_the_haunting_passes_r5_validator_with_zero_errors():
+    import coc_scenario_compile  # noqa: E402
+
+    scenario_dir = (
+        PLUGIN_ROOT / "references" / "starter-scenarios" / "the-haunting"
+    )
+    compiled = coc_scenario_compile.load_compiled_from_dir(scenario_dir)
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    errors = [f for f in findings if f.get("severity") == "error"]
+    assert errors == [], f"R-5 errors: {errors}"
+
+    legacy = coc_scenario_compile.validate_scenario(scenario_dir)
+    assert legacy["errors"] == [], f"legacy validate errors: {legacy['errors']}"
+
+
+def test_the_haunting_critical_conclusions_have_multi_routes():
+    clue_graph = json.loads(
+        (
+            PLUGIN_ROOT
+            / "references"
+            / "starter-scenarios"
+            / "the-haunting"
+            / "clue-graph.json"
+        ).read_text("utf-8")
+    )
+    critical = [c for c in clue_graph["conclusions"] if c.get("importance") == "critical"]
+    assert len(critical) >= 2
+    for concl in critical:
+        min_routes = int(concl.get("minimum_routes") or 3)
+        distinct = {c["clue_id"] for c in concl.get("clues") or [] if c.get("clue_id")}
+        assert len(distinct) >= min_routes, (
+            f"{concl.get('conclusion_id')} has {len(distinct)} routes, need >={min_routes}"
+        )

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "scenario_id": "the-haunting",
+  "title": "The Haunting",
+  "one_liner": "1920 年波士顿，房东委托你调查恶名昭彰的 Corbitt 宅——前租客疯了，邻居说闹鬼，地下室里埋着不该被埋葬的人。开箱即玩，无需剧本 PDF。",
+  "structure_type": "branching_investigation",
+  "era": "1920s",
+  "content_flags": ["supernatural_horror", "haunting", "undead", "cult_residue"],
+  "win_condition": "调查员查明 Corbitt 宅异象的真相，在地下室对峙中摧毁 Walter Corbitt 的不死躯体（理想结局：用其仪式匕首将其化为灰烬），并让房东能重新处置房产。",
+  "source_pdf": null,
+  "source_pdf_pages": null,
+  "start_clock": {
+    "calendar_mode": "gregorian",
+    "local_datetime": "1920-10-12T10:00:00",
+    "timezone": "America/New_York",
+    "display": "1920-10-12 10:00"
+  },
+  "summary": "An original derivative introductory investigation set in 1920s Boston. A landlord hires the investigators to clear the reputation of a house whose tenants have suffered accidents, illness, and madness. Research routes (newspaper morgue, hall of records, neighbors, previous tenants) converge on the Corbitt house, where an undead sorcerer still animates his buried corpse in the sealed basement.",
+  "player_safe_summary": "1920 年秋，波士顿房东 Steven Knott 继承了一栋租不出去的老宅。前租客 Macario 一家出事进了疗养院，街坊称它为「Corbitt 宅」。Knott 按日薪雇你查清异象、洗清恶名——你可以先查报馆、档案厅、邻居与前租客，也可以直接拿钥匙上门。",
+  "keeper_secret_summary": "Walter Corbitt 的尸体埋在宅邸地下室夹墙后；其心智仍存，以神话魔法维持身份并驱动尸身。他会误导、恐吓、最终谋杀闯入者。仪式匕首可绕过其法术将其化为灰烬。",
+  "license": "Apache-2.0",
+  "author": "Original classic scenario structure: Sandy Petersen / Chaosium. Narrative pack adaptation: chatrpgv4 contributors (original derivative prose; does not reproduce Chaosium Product Identity text).",
+  "attribution": "Scenario structure inspired by the classic Call of Cthulhu introductory investigation 'The Haunting'. Scene names, NPC dialogue, and narrative prose in this pack are an original derivative work by the chatrpgv4 contributors. Numeric creature data for Walter Corbitt is referenced from rules-json/monsters.json.",
+  "copyright_notice": [
+    "Call of Cthulhu is a trademark of Chaosium Inc.",
+    "This starter pack does not reproduce Chaosium Product Identity (plots, dialogue, maps, or boxed read-aloud text from the Keeper Rulebook).",
+    "Open game / rules data for Walter Corbitt presentation lives in references/rules-json/monsters.json and the-haunting.json."
+  ],
+  "open_content_note": "Narrative scenes, clue wording, and NPC agendas here are original derivative work. Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with references/rules-json/the-haunting.json."
+}
