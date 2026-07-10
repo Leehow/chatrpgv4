@@ -48,6 +48,18 @@ def _structured_rolls(turn: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _narration_texts(turn: dict[str, Any]) -> list[str]:
     texts: list[str] = []
+    # Prefer the rendered player-visible final_text attached by live_match /
+    # headless callers. Runtime must not invent prose from director fields.
+    narration = turn.get("narration")
+    if isinstance(narration, dict):
+        final = narration.get("final_text")
+        if isinstance(final, str) and final.strip():
+            texts.append(final.strip())
+            return texts
+    elif isinstance(narration, str) and narration.strip():
+        texts.append(narration.strip())
+        return texts
+
     directives = turn.get("narrative_directives")
     if not isinstance(directives, dict):
         return texts

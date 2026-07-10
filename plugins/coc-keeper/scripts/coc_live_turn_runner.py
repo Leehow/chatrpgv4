@@ -612,6 +612,9 @@ def _run_one_turn(
     for record in audit.get("records") or []:
         _append_jsonl_sync(campaign_dir / "logs" / "narration-audit.jsonl", record)
     turn_record["narration_audit"] = {"findings": int(audit.get("findings_count") or 0)}
+    # Slot for player-visible final prose (filled by live_match narrator /
+    # template path). Mapper reads narration.final_text first.
+    turn_record["narration"] = dict(turn_record.get("narration") or {})
     if audit.get("blocking"):
         raise narration_contract.NarrationGuardBlockedError(
             f"player-visible narration guard blocked decision_id={decision_id} "

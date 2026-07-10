@@ -515,3 +515,150 @@ def test_scripted_match_move_crosses_into_unlocked_scene(tmp_path):
     assert "CUT" in actions or any(
         t.get("scene_transition") for t in result["turns"]
     )
+
+
+def _write_scripted_narrator_runner(
+    path: Path,
+    *,
+    texts: list[str] | None = None,
+    fail: bool = False,
+    inject_bookkeeping: bool = False,
+) -> None:
+    """Stateful fake narrator: emit scripted final_text lines in order."""
+    lines_literal = json.dumps(
+        texts
+        or [
+            "你接过钥匙，金属还带着体温；诺特的目光在门廊阴影里停了一拍。",
+            "报馆纸页沙沙作响，你翻到那则未刊出的剪报。",
+        ],
+        ensure_ascii=False,
+    )
+    if fail:
+        script = """#!/usr/bin/env python3
+import json, sys
+sys.stdout.write(json.dumps({"ok": False, "error": "narrator boom"}) + "\\n")
+sys.exit(1)
+"""
+    elif inject_bookkeeping:
+        script = f"""#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+state_path = Path(__file__).with_suffix(".state")
+idx = int(state_path.read_text()) if state_path.exists() else 0
+req = json.loads(sys.stdin.read())
+assert "rationale" not in json.dumps(req.get("narration_envelope") or {{}})
+state_path.write_text(str(idx + 1))
+# Deliberately include a bookkeeping phrase so the guard rewrite path fires.
+out = {{
+    "ok": True,
+    "final_text": "基于以上信息，你确认了线索：门框划痕。雨还在下。",
+}}
+sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\\n")
+"""
+    else:
+        script = f"""#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+state_path = Path(__file__).with_suffix(".state")
+lines = {lines_literal}
+idx = int(state_path.read_text()) if state_path.exists() else 0
+req = json.loads(sys.stdin.read())
+assert "narration_envelope" in req
+env = req["narration_envelope"]
+assert "rationale" not in env
+assert "keeper_secrets" not in env
+text = lines[min(idx, len(lines) - 1)]
+state_path.write_text(str(idx + 1))
+out = {{"ok": True, "final_text": text}}
+sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\\n")
+"""
+    path.write_text(script, encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def test_narrator_runner_uses_narrated_text_in_transcript(tmp_path):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "scripted_player"
+    narrator = tmp_path / "scripted_narrator"
+    narrated = "你接过钥匙，金属还带着体温；诺特没再多说。"
+    _write_scripted_player_runner(player, ["我接受委托并收下钥匙。"])
+    _write_scripted_narrator_runner(narrator, texts=[narrated])
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        narrator_runner=narrator,
+        max_turns=1,
+        rng_seed=42,
+        live=False,
+        intent_class="investigate",
+    )
+    assert result["narration_method"] == "llm_narrator"
+    assert result["fallback_turns"] == 0
+    assert result["metadata"]["narration_method"] == "llm_narrator"
+    battle = Path(result["battle_report_path"]).read_text(encoding="utf-8")
+    assert narrated in battle
+    assert any(
+        (t.get("narration") or {}).get("final_text") == narrated for t in result["turns"]
+    )
+
+
+def test_narrator_fallback_on_runner_failure_keeps_playing(tmp_path):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "scripted_player"
+    narrator = tmp_path / "failing_narrator"
+    _write_scripted_player_runner(player, ["我环顾四周。", "我继续调查。"])
+    _write_scripted_narrator_runner(narrator, fail=True)
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        narrator_runner=narrator,
+        max_turns=2,
+        rng_seed=7,
+        live=False,
+        intent_class="investigate",
+    )
+    assert result["fallback_turns"] >= 1
+    assert result["narration_method"] == "template"
+    assert any(t.get("narrator_fallback") for t in result["turns"])
+    assert len(result["turns"]) >= 1
+
+
+def test_narrator_guard_rewrite_and_final_text_audit(tmp_path):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "scripted_player"
+    narrator = tmp_path / "bookkeeping_narrator"
+    _write_scripted_player_runner(player, ["我检查门框。"])
+    _write_scripted_narrator_runner(narrator, inject_bookkeeping=True)
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        narrator_runner=narrator,
+        max_turns=1,
+        rng_seed=3,
+        live=False,
+        intent_class="investigate",
+    )
+    assert result["narration_method"] == "llm_narrator"
+    final = (result["turns"][0].get("narration") or {}).get("final_text") or ""
+    assert "基于以上信息" not in final
+    audit_path = (
+        workspace
+        / ".coc"
+        / "campaigns"
+        / campaign_id
+        / "logs"
+        / "narration-audit.jsonl"
+    )
+    assert audit_path.exists()
+    lines = [
+        json.loads(line)
+        for line in audit_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert any(row.get("field") == "final_text" for row in lines)

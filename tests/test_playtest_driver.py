@@ -507,8 +507,9 @@ def test_keeper_turn_text_dedupes_unchanged_affordance_cues():
     turn2 = {"choice_frame": frame, "clue_revealed": [], "storylet_moves": [], "npc_moves": []}
     text1 = driver._keeper_turn_text(turn1, {}, {}, previous_affordance_ids=["__none__"])
     text2 = driver._keeper_turn_text(turn2, {}, {}, previous_affordance_ids=["a", "b"])
-    assert "可行动" in text1
-    assert "可行动" not in text2
+    assert "你留意到" in text1
+    assert "现场同时露出这些可行动线索" not in text1
+    assert "你留意到" not in text2
 
 
 def test_transcript_omits_repeated_affordance_block(tmp_path):
@@ -531,5 +532,59 @@ def test_transcript_omits_repeated_affordance_block(tmp_path):
     assert all(t.get("scene_id") == "scene-1" for t in result["turns"])
     transcript = driver._transcript_from_driver_result(result, choices, camp)
     keeper_texts = [row["text"] for row in transcript if row.get("role") == "keeper_under_test"]
-    affordance_hits = sum(1 for t in keeper_texts if "可行动" in t)
+    affordance_hits = sum(1 for t in keeper_texts if "你留意到" in t)
     assert affordance_hits <= 1
+    assert all("现场同时露出这些可行动线索" not in t for t in keeper_texts)
+
+
+def test_keeper_turn_text_never_leaks_raw_clue_id():
+    text = driver._keeper_turn_text(
+        {"clue_revealed": ["clue-raw-id-xyz"], "choice_frame": {}, "storylet_moves": [], "npc_moves": []},
+        {},
+        {},
+    )
+    assert "clue-raw-id-xyz" not in text
+    assert "你注意到一条新的线索" in text
+    assert "你确认了线索" not in text
+
+
+def test_keeper_turn_text_uses_player_safe_summary_not_id():
+    text = driver._keeper_turn_text(
+        {"clue_revealed": ["c1"], "choice_frame": {}, "storylet_moves": [], "npc_moves": []},
+        {"c1": "门框边缘有新鲜划痕"},
+        {},
+    )
+    assert "门框边缘有新鲜划痕" in text
+    assert "c1" not in text
+    assert "你确认了线索" not in text
+
+
+def test_keeper_turn_text_rotates_filler_by_turn_number():
+    empty = {"clue_revealed": [], "choice_frame": {}, "storylet_moves": [], "npc_moves": []}
+    lines = {
+        driver._keeper_turn_text({**empty, "turn": n}, {}, {})
+        for n in range(6)
+    }
+    assert len(lines) >= 2
+    transition_lines = {
+        driver._keeper_turn_text({**empty, "scene_transition": True, "turn": n}, {}, {})
+        for n in range(6)
+    }
+    assert len(transition_lines) >= 2
+
+
+def test_choice_frame_prose_never_menu_dumps():
+    prose = driver._choice_frame_prose(
+        {
+            "routes": [
+                {"id": "a", "cue": "追问钥匙"},
+                {"id": "b", "cue": "查看信箱"},
+                {"id": "c", "cue": "敲门"},
+            ]
+        }
+    )
+    blob = "".join(prose)
+    assert "现场同时露出这些可行动线索" not in blob
+    assert "你留意到" in blob
+    assert "敲门" not in blob  # only first two cues woven
+

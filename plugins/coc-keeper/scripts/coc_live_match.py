@@ -43,12 +43,16 @@ def _load_runtime_module(name: str, rel: str):
 
 playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
 live_turn_runner = _load_sibling("coc_live_turn_runner", "coc_live_turn_runner.py")
+narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 public_state_mod = _load_runtime_module(
     "runtime_public_state", "runtime/engine/public_state.py"
 )
 player_adapter = _load_runtime_module(
     "runtime_player_adapter", "runtime/adapters/player/adapter.py"
+)
+narrator_adapter = _load_runtime_module(
+    "runtime_narrator_adapter", "runtime/adapters/narrator/adapter.py"
 )
 
 NON_LIVE_EVIDENCE_DISCLAIMER = (
@@ -267,6 +271,97 @@ def _enrich_transcript_with_player_notes(
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def build_narrator_request(
+    *,
+    narration_envelope: dict[str, Any],
+    last_player_text: str,
+    play_language: str,
+    recent_narrations: list[str],
+) -> dict[str, Any]:
+    """Assemble a narrator-brain request (envelope already player-safe)."""
+    return {
+        "narration_envelope": dict(narration_envelope or {}),
+        "last_player_text": str(last_player_text or ""),
+        "play_language": str(play_language or "zh-Hans"),
+        "recent_narrations": list(recent_narrations or [])[-2:],
+    }
+
+
+def _apply_narrator_or_template(
+    *,
+    template_text: str,
+    projected: dict[str, Any],
+    live_turn: dict[str, Any],
+    campaign_dir: Path,
+    last_player_text: str,
+    play_language: str,
+    recent_narrations: list[str],
+    narrator_runner: Path | None,
+    timeout_s: float,
+) -> tuple[str, str, dict[str, Any] | None]:
+    """Return (keeper_text, method, fallback_event_or_none).
+
+    Fallback ladder: narrator error/timeout → template text + narrator_fallback.
+    """
+    if narrator_runner is None:
+        return template_text, "template", None
+
+    envelope = (
+        projected.get("narration_envelope")
+        or live_turn.get("narration_envelope")
+        or {}
+    )
+    request = build_narrator_request(
+        narration_envelope=envelope if isinstance(envelope, dict) else {},
+        last_player_text=last_player_text,
+        play_language=play_language,
+        recent_narrations=recent_narrations,
+    )
+    try:
+        result = narrator_adapter.narrator_send_turn(
+            request,
+            runner_path=narrator_runner,
+            timeout_s=timeout_s,
+        )
+    except Exception as exc:  # noqa: BLE001 — fallback ladder must catch all runner failures
+        fallback = {
+            "event": "narrator_fallback",
+            "error": str(exc),
+            "decision_id": projected.get("decision_id") or live_turn.get("decision_id"),
+        }
+        return template_text, "template", fallback
+
+    final_text = str(result.get("final_text") or "").strip()
+    if not final_text:
+        fallback = {
+            "event": "narrator_fallback",
+            "error": "narrator returned empty final_text",
+            "decision_id": projected.get("decision_id") or live_turn.get("decision_id"),
+        }
+        return template_text, "template", fallback
+
+    audit = narration_contract.audit_final_text(
+        final_text,
+        decision_id=str(projected.get("decision_id") or live_turn.get("decision_id") or ""),
+        language=play_language,
+    )
+    guarded = audit.get("guarded") or {}
+    findings = guarded.get("findings") or []
+    has_rewrite = any(
+        isinstance(f, dict) and str(f.get("severity") or "") == "rewrite"
+        for f in findings
+    )
+    if guarded.get("changed") and has_rewrite:
+        final_text = str(guarded.get("final_text") or final_text).strip()
+    narration_contract.append_narration_audit_records(
+        campaign_dir, audit.get("records") or []
+    )
+    notes = result.get("notes")
+    if notes:
+        projected["narrator_notes"] = notes
+    return final_text, "llm_narrator", None
+
+
 def run_live_match(
     workspace: Path | str,
     campaign_id: str,
@@ -282,12 +377,15 @@ def run_live_match(
     player_intent_rich: dict[str, Any] | None = None,
     timeout_s: float = 300,
     transcript_tail_limit: int = 6,
+    narrator_runner: Path | str | None = None,
 ) -> dict[str, Any]:
     """Run a multi-turn match: external player brain ↔ KP ``run_live_turn``.
 
     When ``live=False`` (default; all tests), metadata uses a non-live
     ``simulation_method`` and stamps the AGENTS.md evidence disclaimer.
     Only ``live=True`` may claim ``live_llm_player_vs_kp`` / ``external_llm_bridge``.
+    When ``narrator_runner`` is set, KP prose goes through the narrator bridge
+    with a template fallback ladder.
     """
     ws = Path(workspace)
     camp = _campaign_dir(ws, campaign_id)
@@ -300,6 +398,7 @@ def run_live_match(
     character_card = load_character_card(char_path)
     rng = random.Random(rng_seed if rng_seed is not None else f"{campaign_id}|{time.time_ns()}")
     runner = Path(player_runner)
+    narrator_path = Path(narrator_runner) if narrator_runner is not None else None
 
     if run_dir is None:
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -313,11 +412,14 @@ def run_live_match(
     player_requests: list[dict[str, Any]] = []
     player_choices: list[dict[str, Any]] = []
     transcript_tail: list[dict[str, Any]] = []
+    recent_narrations: list[str] = []
     tension_curve: list[Any] = []
     scene_path: list[str] = []
     stop_reason = "max_turns_reached"
     last_turn: dict[str, Any] | None = None
     previous_affordance_ids: list[str] | None = None
+    fallback_turns = 0
+    used_llm_narrator = False
 
     campaign_meta = _read_json(camp / "campaign.json", {})
     play_language = str(
@@ -394,8 +496,6 @@ def run_live_match(
             decision_id = str(live_turn.get("decision_id") or "")
             turn_num = playtest_driver._decision_turn_number(decision_id) or (len(turns) + 1)
             projected = playtest_driver._project_driver_turn(live_turn, turn_num)
-            turns.append(projected)
-            last_turn = projected
             current_scene = projected.get("scene_id") or "?"
             if not scene_path or scene_path[-1] != current_scene:
                 scene_path.append(str(current_scene))
@@ -403,15 +503,46 @@ def run_live_match(
             current_ids = playtest_driver._choice_frame_route_ids(
                 projected.get("choice_frame", {}) or {}
             )
-            keeper_text = player_visible_narration(
+            template_text = player_visible_narration(
                 projected,
                 camp,
                 play_language=play_language,
                 previous_affordance_ids=previous_affordance_ids,
             )
+            keeper_text, method, fallback = _apply_narrator_or_template(
+                template_text=template_text,
+                projected=projected,
+                live_turn=live_turn if isinstance(live_turn, dict) else {},
+                campaign_dir=camp,
+                last_player_text=player_text,
+                play_language=play_language,
+                recent_narrations=recent_narrations,
+                narrator_runner=narrator_path,
+                timeout_s=timeout_s,
+            )
+            if method == "llm_narrator":
+                used_llm_narrator = True
+            if fallback is not None:
+                fallback_turns += 1
+                projected["narrator_fallback"] = fallback
+            narration_block = dict(projected.get("narration") or {})
+            narration_block["final_text"] = keeper_text
+            narration_block["method"] = method
+            projected["narration"] = narration_block
+            # Keep live_turn in sync for any runtime mapper consumers.
+            if isinstance(live_turn, dict):
+                live_narration = dict(live_turn.get("narration") or {})
+                live_narration["final_text"] = keeper_text
+                live_narration["method"] = method
+                live_turn["narration"] = live_narration
+            turns.append(projected)
+            last_turn = projected
             if current_ids:
                 previous_affordance_ids = current_ids
             transcript_tail.append({"role": "keeper", "text": keeper_text})
+            recent_narrations.append(keeper_text)
+            if len(recent_narrations) > 2:
+                recent_narrations = recent_narrations[-2:]
 
         if _result_has_session_ending(live_result):
             stop_reason = "session_ending"
@@ -461,6 +592,12 @@ def run_live_match(
         "player_turn_count": len(player_turns),
     }
 
+    # Narration method: llm_narrator when at least one turn used the bridge.
+    if narrator_path is not None and used_llm_narrator:
+        narration_method = "llm_narrator"
+    else:
+        narration_method = "template"
+
     metadata = _match_metadata(
         live=live,
         campaign_id=campaign_id,
@@ -475,6 +612,9 @@ def run_live_match(
             if isinstance(campaign_meta, dict)
             else campaign_id,
             "play_language": play_language,
+            "narration_method": narration_method,
+            "fallback_turns": fallback_turns,
+            "narrator_configured": narrator_path is not None,
         },
     )
     # Force honest simulation_method / player_profile (do not let defaults overwrite).
@@ -505,6 +645,8 @@ def run_live_match(
             "simulation_method": metadata["simulation_method"],
             "evidence_disclaimer": metadata["evidence_disclaimer"],
             "stop_reason": stop_reason,
+            "narration_method": narration_method,
+            "fallback_turns": fallback_turns,
         }
     )
     playtest_path.write_text(
@@ -521,6 +663,8 @@ def run_live_match(
                 "simulation_method": metadata["simulation_method"],
                 "runner_kind": metadata["runner_kind"],
                 "live": live,
+                "narration_method": narration_method,
+                "fallback_turns": fallback_turns,
             },
             ensure_ascii=False,
             indent=2,
@@ -539,6 +683,8 @@ def run_live_match(
         "metadata": metadata,
         "result": session_result,
         "stop_reason": stop_reason,
+        "narration_method": narration_method,
+        "fallback_turns": fallback_turns,
     }
 
 
@@ -550,6 +696,11 @@ def _main() -> int:
     ap.add_argument("--campaign", required=True, dest="campaign_id")
     ap.add_argument("--investigator", default="inv1", dest="investigator_id")
     ap.add_argument("--runner", required=True, help="player-brain runner executable or .mjs")
+    ap.add_argument(
+        "--narrator-runner",
+        default=None,
+        help="optional KP narrator runner (.mjs or fake executable)",
+    )
     ap.add_argument("--max-turns", type=int, default=20)
     ap.add_argument("--rng-seed", default=None)
     ap.add_argument(
@@ -582,12 +733,15 @@ def _main() -> int:
         run_dir=args.run_dir,
         intent_class=args.intent_class,
         timeout_s=args.timeout,
+        narrator_runner=args.narrator_runner,
     )
     print(f"stop_reason: {result['stop_reason']}")
     print(f"player_turns: {len(result['player_turns'])}")
     print(f"kp_turns: {len(result['turns'])}")
     print(f"battle_report: {result['battle_report_path']}")
     print(f"simulation_method: {result['metadata']['simulation_method']}")
+    print(f"narration_method: {result.get('narration_method')}")
+    print(f"fallback_turns: {result.get('fallback_turns')}")
     return 0
 
 

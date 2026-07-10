@@ -184,6 +184,57 @@ def audit_player_visible_fields(
         "ts": stamp,
     }
 
+
+def append_narration_audit_records(
+    campaign_dir: Path | str,
+    records: list[dict[str, Any]],
+) -> None:
+    """Append structured audit records to ``logs/narration-audit.jsonl``."""
+    if not records:
+        return
+    path = Path(campaign_dir) / "logs" / "narration-audit.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def audit_final_text(
+    text: str,
+    *,
+    decision_id: str | None = None,
+    language: str = "zh-Hans",
+    ts: str | None = None,
+) -> dict[str, Any]:
+    """Guard ``final_text`` and return audit records with ``field=final_text``.
+
+    Callers should apply ``guarded["final_text"]`` when ``changed`` is true and
+    rewrite-severity findings are present, then append ``records`` via
+    ``append_narration_audit_records``.
+    """
+    stamp = ts or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    guarded = guard_player_visible_text(text, language=language)
+    records: list[dict[str, Any]] = []
+    for finding in guarded.get("findings") or []:
+        if not isinstance(finding, dict):
+            continue
+        severity = str(finding.get("severity") or "rewrite")
+        records.append({
+            "decision_id": decision_id,
+            "ts": stamp,
+            "field": "final_text",
+            "finding_code": finding.get("rule_id"),
+            "severity": severity,
+        })
+    return {
+        "guarded": guarded,
+        "records": records,
+        "findings_count": len(records),
+        "decision_id": decision_id,
+        "ts": stamp,
+    }
+
+
 ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT",
            "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]
 HORROR_STAGES = {"ordinary", "wrongness", "pattern", "revelation"}

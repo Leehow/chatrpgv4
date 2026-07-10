@@ -361,14 +361,54 @@ def _clue_lookup(campaign_dir: Path) -> dict[str, str]:
             if not isinstance(clue, dict):
                 continue
             clue_id = clue.get("clue_id") or clue.get("id")
-            if clue_id:
-                lookup[str(clue_id)] = str(
-                    clue.get("summary")
-                    or clue.get("delivery")
-                    or clue.get("title")
-                    or clue_id
-                )
+            if not clue_id:
+                continue
+            # Prefer player-safe prose; never fall back to the raw id here —
+            # callers treat a missing/empty lookup as a generic reveal line.
+            label = (
+                clue.get("player_safe_summary")
+                or clue.get("summary")
+                or clue.get("delivery")
+                or clue.get("title")
+                or ""
+            )
+            label = str(label).strip()
+            if label and label != str(clue_id):
+                lookup[str(clue_id)] = label
     return lookup
+
+
+_SCENE_TRANSITION_LINES = (
+    "这足以推动场景进入下一处可调查地点。",
+    "眼前的路通向另一处可查的地方。",
+    "调查的重心移向下一处现场。",
+)
+
+_NO_NEW_CLUE_LINES = (
+    "现场暂时没有新的发现，气氛却并未放松。",
+    "这一轮没有新的可见收获，你仍站在可调查的现场。",
+    "场景在推进，但还没有露出新的可确认细节。",
+)
+
+
+def _rotated_line(lines: tuple[str, ...] | list[str], turn_number: Any) -> str:
+    """Deterministic filler rotation by turn number (stable across reruns)."""
+    if not lines:
+        return ""
+    try:
+        idx = int(turn_number or 0)
+    except (TypeError, ValueError):
+        idx = 0
+    return lines[idx % len(lines)]
+
+
+def _clue_reveal_prose(clue_id: Any, clue_names: dict[str, str]) -> str:
+    """Player-facing clue reveal without raw ids or bookkeeping phrasing."""
+    cid = str(clue_id or "").strip()
+    label = clue_names.get(cid, "").strip() if cid else ""
+    if not label or label == cid:
+        return "你注意到一条新的线索。"
+    return f"你注意到：{label}。"
 
 
 def _storylet_prose(move: dict[str, Any]) -> list[str]:
@@ -434,7 +474,11 @@ def _choice_frame_prose(
     current_ids = _choice_frame_route_ids(choice_frame)
     if previous_affordance_ids is not None and current_ids and current_ids == list(previous_affordance_ids):
         return []
-    return ["现场同时露出这些可行动线索：" + "；".join(cues) + "。"]
+    # Weave at most two affordances as in-fiction perception (no menu dump).
+    woven = cues[:2]
+    if len(woven) == 1:
+        return [f"你留意到{woven[0]}。"]
+    return [f"你留意到{woven[0]}；{woven[1]}也许也值得一看。"]
 
 
 def _keeper_turn_text(
@@ -444,6 +488,12 @@ def _keeper_turn_text(
     *,
     previous_affordance_ids: list[str] | None = None,
 ) -> str:
+    narration = turn.get("narration")
+    if isinstance(narration, dict):
+        final = narration.get("final_text")
+        if isinstance(final, str) and final.strip():
+            return final.strip()
+
     parts: list[str] = []
     parts.extend(
         _choice_frame_prose(
@@ -452,8 +502,7 @@ def _keeper_turn_text(
         )
     )
     for clue_id in turn.get("clue_revealed", []):
-        clue_name = clue_names.get(str(clue_id), str(clue_id))
-        parts.append(f"你确认了线索：{clue_name}。")
+        parts.append(_clue_reveal_prose(clue_id, clue_names))
     for move in turn.get("storylet_moves", []):
         if isinstance(move, dict):
             parts.extend(_storylet_prose(move))
@@ -472,10 +521,11 @@ def _keeper_turn_text(
             result.get("reason") or result.get("skill") or "行动",
         )
         parts.append(f"{reason}没有完全成功，压力仍留在场内。")
+    turn_number = turn.get("turn") or turn.get("turn_number") or 0
     if turn.get("scene_transition"):
-        parts.append("这足以推动场景进入下一处可调查地点。")
+        parts.append(_rotated_line(_SCENE_TRANSITION_LINES, turn_number))
     if not parts:
-        parts.append("KP 根据当前场景推进叙事，但没有新增可见线索。")
+        parts.append(_rotated_line(_NO_NEW_CLUE_LINES, turn_number))
     return "".join(_ensure_sentence(part) for part in parts)
 
 
@@ -725,7 +775,9 @@ def _project_driver_turn(live_turn: dict[str, Any], turn_num: int) -> dict[str, 
         "rules_requests": live_turn.get("rules_requests") or [],
         "npc_moves": live_turn.get("npc_moves") or [],
         "narration_envelope": envelope,
-        "narration": envelope,
+        # Player-visible final prose lives under narration.final_text (filled by
+        # live_match / callers). Do not alias the envelope here.
+        "narration": dict(live_turn.get("narration") or {}),
         "tension": live_turn.get("tension") or live_turn.get("tension_after"),
         "horror_stage": live_turn.get("horror_stage") or directives.get("horror_escalation_stage"),
         "events_count": live_turn.get("events_count", 0),

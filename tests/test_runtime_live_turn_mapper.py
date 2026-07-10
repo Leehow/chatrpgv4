@@ -155,6 +155,26 @@ def test_maps_choice_frame_and_stop_reason():
     assert len(choice["payload"]["options"]) == 2
 
 
+def test_maps_narration_final_text_first():
+    mapper = _load("live_turn_mapper", "runtime/engine/live_turn_mapper.py")
+    events_mod = _load("runtime_events", "runtime/engine/events.py")
+    result = {
+        "turns": [{
+            "decision_id": "turn-final",
+            "narration": {"final_text": "你摸到门框上的细痕。"},
+            "narrative_directives": {
+                "narration": "directive fallback should not win",
+            },
+        }],
+    }
+    events = mapper.map_live_turn_result(result)
+    for ev in events:
+        events_mod.validate_event(ev)
+    narrations = [e for e in events if e["type"] == "narration"]
+    assert len(narrations) == 1
+    assert narrations[0]["payload"]["text"] == "你摸到门框上的细痕。"
+
+
 def test_rule_results_without_roll_do_not_emit_roll_event():
     mapper = _load("live_turn_mapper", "runtime/engine/live_turn_mapper.py")
     events_mod = _load("runtime_events", "runtime/engine/events.py")
