@@ -1736,3 +1736,99 @@ def test_apply_pushed_success_with_gate_does_not_set_pending(tmp_path):
     pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
     assert pacing.get("pushed_fail_pending") is not True
     assert not any(e.get("event_type") == "push_gate_violation" for e in events)
+
+
+# =============================================================================
+# W2-2: auto skill-tick recording on rules_results landing
+# =============================================================================
+
+def _campaign_with_dev_investigator(tmp_path):
+    """Campaign under .coc/ so development.jsonl resolves beside investigators/."""
+    root = tmp_path / ".coc"
+    camp = root / "campaigns" / "test"
+    (camp / "save" / "investigator-state").mkdir(parents=True)
+    (camp / "scenario").mkdir(parents=True)
+    (camp / "logs").mkdir(parents=True)
+    (camp / "memory" / "cards" / "player-safe").mkdir(parents=True)
+    (camp / "save" / "world-state.json").write_text(json.dumps({
+        "schema_version": 1, "campaign_id": "test", "discovered_clue_ids": [],
+        "active_scene_id": "scene-1"}))
+    (camp / "save" / "pacing-state.json").write_text(json.dumps({
+        "schema_version": 1, "tension_level": "low", "lethal_chances_used": 0,
+        "recent_intent_classes": [], "turn_number": 0, "luck_spent_last": 0}))
+    (camp / "logs" / "events.jsonl").write_text("")
+    inv_dir = root / "investigators" / "inv1"
+    inv_dir.mkdir(parents=True)
+    (inv_dir / "character.json").write_text(json.dumps({
+        "id": "inv1", "skills": {"Spot Hidden": 55, "Credit Rating": 40},
+    }))
+    (inv_dir / "development.jsonl").write_text("")
+    return camp
+
+
+def test_apply_auto_records_skill_tick_on_qualifying_success(tmp_path):
+    """W2-2: qualifying skill success lands a development tick + skill_check_earned event."""
+    camp = _campaign_with_dev_investigator(tmp_path)
+    plan = {
+        "decision_id": "d-tick-ok",
+        "scene_action": "DEEPEN",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1",
+        rules_results=[{
+            "skill": "Spot Hidden",
+            "outcome": "regular_success",
+            "success": True,
+            "roll": 18,
+            "kind": "skill_check",
+        }],
+    )
+    tick_events = [e for e in events if e.get("event_type") == "skill_check_earned"
+                   or e.get("skill_check_earned") is True]
+    assert tick_events, "expected skill_check_earned event from apply"
+    assert any(e.get("skill") == "Spot Hidden" for e in tick_events)
+
+    tick_path = camp.parents[1] / "investigators" / "inv1" / "development.jsonl"
+    rows = [json.loads(line) for line in tick_path.read_text().splitlines() if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["skill"] == "Spot Hidden"
+    assert rows[0]["roll"] == 18
+
+
+def test_apply_does_not_tick_excluded_or_failed_rolls(tmp_path):
+    camp = _campaign_with_dev_investigator(tmp_path)
+    plan = {
+        "decision_id": "d-tick-skip",
+        "scene_action": "DEEPEN",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1",
+        rules_results=[
+            {"skill": "Spot Hidden", "outcome": "failure", "success": False, "roll": 90},
+            {"skill": "Credit Rating", "outcome": "regular_success", "success": True, "roll": 10},
+            {
+                "skill": "Spot Hidden",
+                "outcome": "regular_success",
+                "success": True,
+                "roll": 12,
+                "improvement_tick_eligible": False,
+                "luck_spent": 3,
+            },
+        ],
+    )
+    assert not any(
+        e.get("event_type") == "skill_check_earned" or e.get("skill_check_earned") is True
+        for e in events
+    )
+    tick_path = camp.parents[1] / "investigators" / "inv1" / "development.jsonl"
+    assert tick_path.read_text().strip() == ""

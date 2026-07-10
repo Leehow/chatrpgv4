@@ -48,6 +48,7 @@ def _load_sibling(name: str, filename: str):
 
 
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
+coc_development = _load_sibling("coc_development", "coc_development.py")
 
 coc_memory = None
 try:
@@ -1170,6 +1171,46 @@ def _process_push_roll_gates(
     return events, pushed_fail_pending
 
 
+def _record_development_ticks(
+    campaign_dir: Path,
+    rules_results: list[dict[str, Any]] | None,
+    *,
+    investigator_id: str,
+    decision_id: str,
+    ts: str,
+) -> list[dict[str, Any]]:
+    """W2-2: land qualifying skill successes as development ticks (p.94).
+
+    Aligns with playtest ``skill_check_earned`` payload shape so report/audit
+    consumers see the same structured flag on apply-layer events.
+    """
+    events: list[dict[str, Any]] = []
+    for result in rules_results or []:
+        if not isinstance(result, dict):
+            continue
+        skill = str(result.get("skill") or "").strip()
+        if not skill:
+            continue
+        tick = coc_development.record_skill_tick(
+            campaign_dir, investigator_id, skill, result
+        )
+        if tick is None:
+            continue
+        # Mirror playtest roll payload: skill_check_earned boolean + skill/roll.
+        result["skill_check_earned"] = True
+        events.append({
+            "event_type": "skill_check_earned",
+            "skill_check_earned": True,
+            "skill": skill,
+            "roll": tick.get("roll", result.get("roll")),
+            "decision_id": decision_id,
+            "investigator_id": investigator_id,
+            "summary": f"skill check earned: {skill}",
+            "ts": ts,
+        })
+    return events
+
+
 def apply_plan(
     campaign_dir: Path,
     plan: dict[str, Any],
@@ -1258,6 +1299,18 @@ def _apply_plan_impl(
         ts=ts,
     )
     for ev in push_events:
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
+
+    # 0b. development ticks (Keeper Rulebook p.94) — after push demotion so
+    # luck/push bookkeeping on the result is settled before tick eligibility.
+    for ev in _record_development_ticks(
+        campaign_dir,
+        rules_results,
+        investigator_id=investigator_id,
+        decision_id=decision_id,
+        ts=ts,
+    ):
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)
 
