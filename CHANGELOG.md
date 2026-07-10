@@ -4,11 +4,15 @@
 格式参考 Keep a Changelog；发布边界以 Git tag 和
 `plugins/coc-keeper/.codex-plugin/plugin.json` 为准。历史执行细节仍保留在
 `docs/superpowers/` 与 `.superpowers/sdd/`，但不再要求读者从这些文件拼接版本变化。
+唯一实时状态来源是 `docs/status/CURRENT.md`。
 
-## [Unreleased]
+## [Unreleased] — manifest `0.16.0-alpha.1`
 
 ### 已提交（`v0.2a` 之后）
 
+- 恢复单调 SemVer：Codex、Claude Code、Cursor manifests 与 Claude marketplace
+  统一为 `0.16.0-alpha.1`；加入内容权利清单、四类 CI job、当前状态单一来源，
+  并停止跟踪本地规则书提取缓存。
 - 新增开放的 headless runtime：项目级 `debug` / `pi` brain 选择、结构化
   Event/PublicState 协议、Python session SDK、debug adapter 与受约束的 Pi
   bridge；同时补上 roll 事件结构校验和 Pi 工具失败显式上报
@@ -22,11 +26,11 @@
   `obvious` signpost 阶梯选择免费提示、Regular INT 或 Extreme INT；失败仍
   推进调查，但让调查员处于更差位置（`ff6ce36`）。
 - 完成 P0-P2 波次 0-5 的 plan/commit 对账，并发布 N1-N8 下一阶段优化审计
-  （`2fea227`、`f03e50a`）。N1-N8 是待排期 backlog，不是已完成功能。
+  （`2fea227`、`f03e50a`）；其后 Wave 4 已落实 N1-N8，原审计现为历史材料。
 
-### 当前工作树（已做定向验证，尚未提交）
+### 后续已提交变更
 
-> 本节只描述当前 checkout 中的在途实现，不代表已发布或已落地 commit。
+> 下列实现均已进入 `v0.2a` 之后的提交历史，但尚未形成新的发布 tag。
 
 - 场景退出条件统一为结构化 `clue_discovered` / `clock_reaches` /
   `narrative` 对象；director 与 apply 层共用 `coc_exit_conditions.py`，旧字符串
@@ -40,19 +44,13 @@
   说明，并补全 campaign 状态、runtime receipt 和 fast/background 日志目录约定。
 - README 的 Python 最低版本从 3.10+ 修正为 3.11+，与代码对标准库
   `tomllib` 的实际依赖一致。
-- 定向验证：
-  `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_exit_conditions.py tests/test_story_director.py tests/test_director_apply.py tests/test_live_turn_runner.py tests/test_playtest_driver.py tests/test_plugin_metadata.py -q -p no:cacheprovider`
-  → **197 passed**（2026-07-10）。
-- 完整验证：Python 3.13 下 `python -m pytest tests/ -q -p no:cacheprovider`
-  → **1162 passed**（2026-07-10）。
-
 ### Known Issues
 
 - 极寒场景中的普通 `REVEAL` / 环境观察仍会继承通用
   `single_room_search` 20 分钟推进，可能放大寒冷暴露；该问题仍在
   `docs/live-playtest-notes.md` 中保持 Open，尚未修复。
 - 当前自动 playtest driver 不是 live LLM-vs-KP；已有 suite/completion 产物不能
-  替代项目要求的真实战报证据。后续工作见 N5 优化审计。
+  替代项目要求的真实战报证据。外部模型证据状态见 `docs/status/CURRENT.md`。
 
 ## [0.2.0-alpha] - 2026-07-09
 

@@ -1,5 +1,7 @@
 # 下一阶段优化盘点（Post-P0/P1/P2 Audit）
 
+> **HISTORICAL — DO NOT EXECUTE.** Current status lives in `docs/status/CURRENT.md`.
+
 **Date:** 2026-07-10
 **Status:** 已核实（每条含 file:line 证据），待排期
 **前提:** 缺陷蓝图（2026-07-08）波次 0-5 全部落地；Idea Roll signpost 阶梯已提交（`ff6ce36`）。本文只列"下一阶段"，不重复已修项。

@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 PLUGIN_ROOT = Path("plugins/coc-keeper")
+EXPECTED_PLUGIN_VERSION = "0.16.0-alpha.1"
 
 
 def test_plugin_manifest_declares_coc_keeper_skill_plugin():
@@ -13,7 +14,7 @@ def test_plugin_manifest_declares_coc_keeper_skill_plugin():
 
     manifest = json.loads(manifest_path.read_text())
     assert manifest["name"] == "coc-keeper"
-    assert manifest["version"] == "0.2.0-alpha"
+    assert manifest["version"] == EXPECTED_PLUGIN_VERSION
     assert manifest["skills"] == "./skills/"
     assert manifest["interface"]["displayName"] == "COC Keeper"
     assert "Call of Cthulhu" in manifest["description"]
@@ -58,7 +59,7 @@ def test_claude_plugin_manifest_points_at_canonical_plugin():
 
     manifest = json.loads(manifest_path.read_text())
     assert manifest["name"] == "coc-keeper"
-    assert manifest["version"] == "0.2.0-alpha"
+    assert manifest["version"] == EXPECTED_PLUGIN_VERSION
     assert "Call of Cthulhu" in manifest["description"]
     assert (PLUGIN_ROOT / "skills").is_dir()
     assert any((PLUGIN_ROOT / "skills").glob("*/SKILL.md"))
@@ -73,7 +74,7 @@ def test_claude_marketplace_exposes_coc_keeper_plugin():
     assert marketplace["plugins"]
     plugin = marketplace["plugins"][0]
     assert plugin["name"] == "coc-keeper"
-    assert plugin["version"] == "0.2.0-alpha"
+    assert plugin["version"] == EXPECTED_PLUGIN_VERSION
     assert plugin["source"] == "./plugins/coc-keeper"
     assert Path(plugin["source"]).resolve() == PLUGIN_ROOT.resolve()
     assert "Codex-only" in plugin["description"] or "skip" in plugin["description"].lower()
@@ -85,7 +86,7 @@ def test_cursor_plugin_manifest_points_at_canonical_skills():
 
     manifest = json.loads(manifest_path.read_text())
     assert manifest["name"] == "coc-keeper"
-    assert manifest["version"] == "0.2.0-alpha"
+    assert manifest["version"] == EXPECTED_PLUGIN_VERSION
     assert manifest["skills"] == "./skills/"
     skills_dir = (PLUGIN_ROOT / manifest["skills"]).resolve()
     assert skills_dir == (PLUGIN_ROOT / "skills").resolve()

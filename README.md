@@ -6,6 +6,8 @@ COC Keeper 是一个《克苏鲁的呼唤》第 7 版守秘人插件，可安装
 
 English: COC Keeper is a local Call of Cthulhu 7th edition Keeper-mode plugin for Codex, Claude Code, and Cursor. One skills tree under `plugins/coc-keeper/`; thin host manifests only. It provides structured rules, persistent campaign state, investigator tools, scenario import, subsystem handling, and automated playtest reporting.
 
+当前 manifest 版本为 **`0.16.0-alpha.1`**；它尚未对应新的 Git tag。发布候选进度、已知限制与验证入口统一记录在 [当前状态](docs/status/CURRENT.md)。
+
 ## 快速安装 / Quick Install (三宿主)
 
 所有宿主都指向同一 canonical 插件目录 `plugins/coc-keeper/`。**不要**复制第二套 skills 树。调查员立绘生成仅 Codex 可用；Claude Code / Cursor 跳过该能力。
@@ -135,7 +137,7 @@ codex plugin marketplace upgrade
 ├── .agents/plugins/              # Codex repo marketplace metadata
 ├── .claude-plugin/               # Claude Code repo marketplace metadata
 ├── .cursor/skills/coc-keeper/    # Cursor thin skill entry (routes to plugins/)
-├── checks/                       # rulebook validator and checklists
+├── checks/                       # rulebook validators; generated extracts stay local/ignored
 ├── docs/superpowers/specs/       # design notes and implementation specs
 ├── plugins/
 │   └── coc-keeper/               # single-track plugin (all hosts)
@@ -153,6 +155,8 @@ codex plugin marketplace upgrade
 
 版本发布、tag 之后的已提交更新和明确标注的在途变更，统一记录在
 [CHANGELOG.md](CHANGELOG.md)。
+唯一实时状态来源是 [docs/status/CURRENT.md](docs/status/CURRENT.md)；历史 plan
+和 audit 只保留设计与审计上下文，不代表当前执行状态。
 
 需要 Python 3.11+（`coc_completion_audit.py` 使用标准库 `tomllib`）。
 
@@ -209,11 +213,14 @@ This project is an unofficial fan/developer tool. It is not affiliated with, end
 
 The repository contains code, plugin instructions, tests, structured helper data, and development tooling. It does not include copyrighted rulebook PDFs or adventure PDFs.
 
-### Built-in Starter Scenarios (OGL)
+### Built-in Starter Scenarios
 
-This repository ships one built-in, play-ready starter scenario — **The White War** — adapted under the Open Gaming License v1.0a from the OGC game data of "The White War" by Paul StJohn Mackintosh (Cthulhu Reborn Publishing, 2023). The numeric game data and creature statistics (Open Game Content per the source's OGL declaration) are reproduced faithfully in `plugins/coc-keeper/references/rules-json/the-white-war.json`; the scenario's narrative, scene names, NPC names, and dialogue are an original derivative work (the source's Product Identity — plots, locations, characters — is NOT reproduced).
+This repository ships two built-in, play-ready starter scenarios:
 
-A full copy of the OGL and the complete Section 15 COPYRIGHT NOTICE are included with the scenario at `plugins/coc-keeper/references/starter-scenarios/the-white-war/`. This built-in scenario does not include any copyrighted rulebook or adventure PDF; it lets new players start playing with zero PDF preparation.
+- **The White War** — `plugins/coc-keeper/references/starter-scenarios/the-white-war/` is adapted under the Open Gaming License v1.0a from the OGC game data of "The White War" by Paul StJohn Mackintosh (Cthulhu Reborn Publishing, 2023). The bundled directory includes the OGL and complete Section 15 notice; no source PDF is included.
+- **The Haunting** — `plugins/coc-keeper/references/starter-scenarios/the-haunting/` is an original derivative pack inspired by the classic introductory structure. Its redistribution basis has not received an external rights review and remains **UNVERIFIED** before stable release.
+
+Neither starter includes a rulebook or adventure PDF. See [CONTENT_LICENSES.md](CONTENT_LICENSES.md) for the repository-wide content inventory and evidence status; that inventory records repository evidence and is not a legal opinion.
 
 ## License
 
