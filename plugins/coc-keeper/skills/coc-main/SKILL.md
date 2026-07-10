@@ -1,15 +1,22 @@
 ---
 name: coc-main
-description: Activate and orchestrate COC mode in Codex. Use only when the user explicitly asks to activate, enter, continue, pause, save, or exit Call of Cthulhu play inside Codex.
+description: Activate and orchestrate COC mode. Use for activate/enter/continue/pause/save/exit Call of Cthulhu play, and for host try/demo prompts that ask to use COC Keeper in a concrete/useful way or show why the plugin is valuable. Prefer this over rules-engine demos for first contact.
 ---
 
 # COC Main
 
 ## Activation
 
-Use this skill only after an explicit COC activation request such as `activate COC mode`, `enter COC mode`, `start COC game`, `continue COC campaign`, or equivalent Chinese natural language.
+Use this skill after an explicit COC activation request such as `activate COC mode`, `enter COC mode`, `start COC game`, `continue COC campaign`, or equivalent Chinese natural language.
 
-Do not proactively offer COC mode during ordinary Codex work.
+Also treat **host try / plugin demo** prompts as activation. Cursor (and similar hosts) may inject prompts like:
+
+- `Use the Coc Keeper plugin in one concrete, useful way that shows why it's valuable in this workspace.`
+- other “try this plugin”, “show the plugin’s value”, or “demonstrate COC Keeper” wording
+
+For those prompts: run this skill’s normal onboarding workflow below. Do **not** answer with a standalone rules-engine roll demo, capability catalog, or “why this plugin is valuable” essay. The valuable first contact is the welcome + campaign/scenario wizard.
+
+Do not proactively offer COC mode during ordinary coding or repository work unrelated to COC.
 
 ## Workflow
 

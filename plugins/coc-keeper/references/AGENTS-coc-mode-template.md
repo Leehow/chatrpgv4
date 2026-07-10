@@ -12,6 +12,11 @@ COC mode is passive. Use it only after explicit activation from the user, such a
 - `continue COC campaign`
 - equivalent Chinese natural language such as `激活 COC 模式`
 
+Also treat host try / plugin demo prompts as activation (for example Cursor’s
+“use the plugin in one concrete, useful way…” / “show why it’s valuable”).
+Route those through `coc-main` onboarding — welcome + campaign/scenario wizard —
+not a standalone rules-engine demo or capability catalog.
+
 Do not proactively offer COC mode during ordinary coding, chat, or repository work.
 
 After activation, stay in COC mode until the user asks to pause, exit, or save and exit.

@@ -10,7 +10,13 @@ COC mode is passive. Activate it only after explicit user intent such as:
 - `continue COC campaign`
 - equivalent natural-language Chinese requests
 
-Do not ask about COC mode during unrelated Codex work.
+Also activate for **host try / plugin demo** prompts (for example Cursor’s
+“use the plugin in one concrete, useful way…” / “show why it’s valuable”
+injection). Those prompts are first-contact activation: follow `coc-main`
+onboarding (welcome + campaign/scenario wizard). Do not answer them with a
+standalone rules-engine demo or a plugin capability brochure.
+
+Do not ask about COC mode during unrelated coding or repository work.
 
 ## Language
 

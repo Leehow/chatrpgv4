@@ -2,9 +2,11 @@
 name: coc-keeper
 description: >-
   Thin Cursor entry for COC Keeper. Use after the user explicitly activates COC
-  mode (e.g. "Activate COC mode", "进入 COC 模式"). Routes to the canonical
-  skills under plugins/coc-keeper/skills/ — do not copy or fork that tree.
-  Portrait generation is Codex-only; skip imagegen on Cursor.
+  mode (e.g. "Activate COC mode", "进入 COC 模式"), or when a Cursor try/demo
+  prompt asks to use the plugin in a concrete/useful way or show why it is
+  valuable. Routes to coc-main onboarding — not a rules-engine demo. Canonical
+  skills live under plugins/coc-keeper/skills/. Portrait generation is
+  Codex-only; skip imagegen on Cursor.
 ---
 
 # COC Keeper (Cursor thin entry)
@@ -20,8 +22,14 @@ Do not create a parallel skill copy under `.cursor/skills/` or elsewhere.
 
 ## Passive activation
 
-COC mode is passive. Load keeper skills only after explicit user activation.
-See `plugins/coc-keeper/references/AGENTS-coc-mode-template.md`.
+COC mode is passive. Load keeper skills only after explicit user activation, or
+after a host try / plugin demo prompt (Cursor’s “use the plugin in one
+concrete, useful way…” / “show why it’s valuable”). See
+`plugins/coc-keeper/references/AGENTS-coc-mode-template.md`.
+
+For try/demo prompts: open `coc-main` onboarding (welcome + campaign/scenario
+wizard). Do not answer with a standalone rules-engine roll demo or a plugin
+capability brochure.
 
 ## Skill routing
 

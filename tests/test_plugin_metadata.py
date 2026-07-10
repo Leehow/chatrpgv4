@@ -417,6 +417,24 @@ def test_agents_coc_mode_template_documents_passive_activation():
         assert marker not in text
 
 
+def test_host_try_demo_prompts_route_to_coc_main_onboarding():
+    """Cursor try/demo injections must open the wizard, not a rules demo."""
+    main = (PLUGIN_ROOT / "skills" / "coc-main" / "SKILL.md").read_text()
+    rules = (PLUGIN_ROOT / "skills" / "coc-rules-engine" / "SKILL.md").read_text()
+    protocol = (PLUGIN_ROOT / "references" / "mode-protocol.md").read_text()
+    template = (PLUGIN_ROOT / "references" / "AGENTS-coc-mode-template.md").read_text()
+    thin = Path(".cursor/skills/coc-keeper/SKILL.md").read_text()
+
+    for text in (main, protocol, template, thin):
+        assert "concrete, useful" in text or "concrete/useful" in text
+        assert "valuable" in text
+        assert "onboarding" in text.lower() or "wizard" in text.lower()
+        assert "rules-engine" in text.lower() or "rules engine" in text.lower()
+
+    assert "Do not use for host try/demo" in rules or "Do not use this skill to answer host try" in rules
+    assert "coc-main" in rules
+
+
 def test_rules_json_guide_documents_rule_index_traceability():
     guide_text = (PLUGIN_ROOT / "references" / "rules-json-guide.md").read_text()
     spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()

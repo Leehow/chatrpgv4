@@ -1,9 +1,17 @@
 ---
 name: coc-rules-engine
-description: Resolve structured Call of Cthulhu rules in Codex. Use for skill checks, success levels, half/fifth values, bonus or penalty dice, damage bonus, build, sanity thresholds, and rules parameter inspection.
+description: Resolve structured Call of Cthulhu rules for skill checks, success levels, half/fifth values, bonus or penalty dice, damage bonus, build, sanity thresholds, and rules parameter inspection. Do not use for host try/demo or “show why the plugin is valuable” prompts — those go to coc-main onboarding instead.
 ---
 
 # COC Rules Engine
+
+## First contact
+
+Do not use this skill to answer host try / plugin demo prompts (for example
+Cursor’s “use the plugin in one concrete, useful way…”). Route those to
+`coc-main` onboarding. Use this skill only for in-play checks or explicit
+rules questions after COC mode is active (or when the user asks a pure rules
+question out of play).
 
 ## Rule Authority
 
