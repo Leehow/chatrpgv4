@@ -42,3 +42,27 @@ monster is in play:
 Lookup is by structured monster id only (`monster_ids` / `monster_id` on the
 active scene or threat fronts). Never infer a creature's identity by scanning
 player-facing prose.
+
+## Tome Reading
+
+When an investigator studies a Mythos tome (Keeper Rulebook Ch11 p.217-226),
+drive the mechanical phases through `coc_tomes.TomeSession` (`skim` →
+`initial` → `full` → `research`). Route returned `san_loss_expr` through
+SanitySession; merge returned CM gains into the character sheet. Do not invent
+study weeks, CMI/CMF, or Mythos Rating — read them from `tomes.json`.
+
+**Sensory description (p.224-226).** Present the physical book before its
+contents: binding, smell, weight, ink that seems wrong, pages that resist or
+invite the eye. Early contact is atmosphere and table-of-contents level
+(`skim`); deeper phases unlock structured Mythos insight, not a lore dump.
+
+**Book as personality.** Treat a major tome as a presence with temperament —
+jealous, seductive, pedantic, hostile — that colors how knowledge arrives.
+The book's "voice" is Keeper framing; mechanical outcomes still come from the
+engine (CM, SAN expression, weeks, research roll contract).
+
+**Plot-critical tomes must not dead-end (p.211-212).** Language and other
+failure gates may block ordinary study, but when the scenario requires the
+tome (`plot_critical=True`), skip the hard stop and continue with
+`keeper_note: skip_failure_gate`. Never strand the investigation on a failed
+Own Language / Other Language check for a book the plot needs open.
