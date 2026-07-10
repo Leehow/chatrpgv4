@@ -13,6 +13,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from coc_language import BASE_REPORT_LABELS
 from coc_language import language_profile as build_language_profile
+from coc_playtest_evidence import read_evidence_receipt
 from coc_roll import format_percentile_result
 
 
@@ -2317,8 +2318,36 @@ def _render_narrative_adherence_section(adherence: Any) -> list[str]:
     return lines
 
 
+def _evidence_report_lines(receipt: dict[str, Any], play_language: str) -> list[str]:
+    eligible = receipt.get("eligible_as_gameplay_evidence") is True
+    reasons = receipt.get("evidence_reasons")
+    reason_codes = [str(code) for code in reasons] if isinstance(reasons, list) else []
+    status_anchor = "eligible" if eligible else "ineligible"
+    if play_language == "zh-Hans":
+        heading = "## 实玩证据 <!-- report-anchor: Gameplay Evidence -->"
+        status = "符合" if eligible else "不符合"
+        labels = ("资格", "外部模型回合", "降级回合")
+    elif play_language == "ja-JP":
+        heading = "## 実プレイ証拠 <!-- report-anchor: Gameplay Evidence -->"
+        status = "適格" if eligible else "不適格"
+        labels = ("適格性", "外部モデルターン", "フォールバックターン")
+    else:
+        heading = "## Gameplay Evidence"
+        status = "eligible" if eligible else "not eligible"
+        labels = ("Eligibility", "External Model Turns", "Fallback Turns")
+    return [
+        heading,
+        f"<!-- evidence-eligibility: {status_anchor} -->",
+        f"<!-- evidence-reasons: {','.join(reason_codes) or 'none'} -->",
+        f"- {labels[0]}: {status}",
+        f"- {labels[1]}: {receipt.get('external_model_turns', 0)}",
+        f"- {labels[2]}: {receipt.get('fallback_turns', 'unknown')}",
+    ]
+
+
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
+    evidence_receipt = read_evidence_receipt(run_dir)
     localized_terms = _localized_terms(metadata)
     context = _load_campaign_context(run_dir, metadata)
     campaign = context["campaign"]
@@ -2565,6 +2594,8 @@ def generate_battle_report(run_dir: Path) -> Path:
             _localized_player_profile_display(metadata, language_profile, localized_terms),
             language_profile,
         ),
+        "",
+        *_evidence_report_lines(evidence_receipt, str(play_language)),
         "",
         _report_heading(2, "Module", language_profile),
         _report_field("Scenario", _localize_text(scenario_title, localized_terms), language_profile),

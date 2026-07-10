@@ -50,9 +50,10 @@ python3 plugins/coc-keeper/scripts/coc_live_match.py \
   --max-turns 8
 ```
 
-Only `--live` matches may claim LLM narration as gameplay evidence
-(AGENTS.md evidence standard). Scripted / fake narrator runners must omit
-`--live`.
+`--live` records a user claim only. `evidence.json` must independently attest
+the narrator runner/model and verify the run artifacts before the match can be
+eligible as gameplay evidence. Scripted, fake, unknown, or unattested narrator
+runners remain ineligible even when `--live` is present.
 
 ## Request / response
 

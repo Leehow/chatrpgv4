@@ -688,6 +688,8 @@ def write_playtest_artifacts(
     player_choices: list[dict[str, Any]],
     result: dict[str, Any],
     metadata: dict[str, Any] | None = None,
+    *,
+    generate_report: bool = True,
 ) -> Path:
     """Write a reportable driver playtest artifact and return battle-report.md.
 
@@ -746,7 +748,9 @@ def write_playtest_artifacts(
     }])
     _write_json(run_dir / "playtest.json", metadata)
     _write_json(run_dir / "driver-result.json", result)
-    return playtest_report.generate_battle_report(run_dir)
+    if generate_report:
+        return playtest_report.generate_battle_report(run_dir)
+    return run_dir / "artifacts" / "battle-report.md"
 
 
 def _project_driver_turn(live_turn: dict[str, Any], turn_num: int) -> dict[str, Any]:

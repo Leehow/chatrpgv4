@@ -43,7 +43,7 @@ cd runtime/adapters/player && npm install
 
 # 2) Ensure Pi auth is configured (same as KP pi adapter)
 
-# 3) Run a live match — --live marks evidence-eligible metadata
+# 3) Run a match — --live records only the user's live-play claim
 python3 plugins/coc-keeper/scripts/coc_live_match.py \
   --workspace /path/to/workspace \
   --campaign <campaign_id> \
@@ -57,8 +57,10 @@ Any stdin/stdout-JSON runner still works for other hosts (pass `--runner` to a
 custom executable). Non-`.mjs` / non-`.js` paths are executed directly so tests
 and alternate hosts can supply a tiny Python fake without Node.
 
-Only `--live` may stamp `simulation_method=live_llm_player_vs_kp`. Scripted /
-fake runners must omit `--live` (AGENTS.md evidence standard).
+`--live` records `user_claimed_live` only. Gameplay-evidence eligibility comes
+from `evidence.json`: structured runner/model attestations, actual turn counts,
+and verified transcript/event-log hashes. Scripted, fake, unknown, or
+unattested runners remain ineligible even when `--live` is present.
 
 ## Request / response
 

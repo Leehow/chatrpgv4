@@ -334,8 +334,8 @@ def test_scripted_match_runs_three_plus_turns_end_to_end(tmp_path):
         intent_class="investigate",
     )
     assert len(result["turns"]) >= 3
-    assert result["metadata"]["runner_kind"] == "scripted_fake"
-    assert result["metadata"]["simulation_method"] == "bridged_scripted_player_not_live_llm"
+    assert result["metadata"]["runner_kind"] == "unknown"
+    assert result["metadata"]["simulation_method"] == "unattested_runner_match_not_gameplay_evidence"
     assert result["battle_report_path"]
     battle = Path(result["battle_report_path"]).read_text(encoding="utf-8")
     assert "我搜查场景一的痕迹" in battle or "实际跑团" in battle
@@ -358,19 +358,23 @@ def test_metadata_honesty_live_false_is_not_gameplay_evidence(tmp_path):
         intent_class="investigate",
     )
     meta = result["metadata"]
-    assert meta["live"] is False
-    assert meta["runner_kind"] == "scripted_fake"
-    assert meta["simulation_method"] == "bridged_scripted_player_not_live_llm"
+    assert meta["user_claimed_live"] is False
+    assert "live" not in meta
+    assert meta["runner_kind"] == "unknown"
+    assert meta["simulation_method"] == "unattested_runner_match_not_gameplay_evidence"
     assert meta["player_profile"] != "external_llm_bridge"
     assert "never gameplay evidence" in meta["evidence_disclaimer"].lower()
+    assert meta["eligible_as_gameplay_evidence"] is False
     playtest = json.loads(
         (Path(result["run_dir"]) / "playtest.json").read_text(encoding="utf-8")
     )
-    assert playtest["simulation_method"] == "bridged_scripted_player_not_live_llm"
-    assert playtest["runner_kind"] == "scripted_fake"
+    assert playtest["simulation_method"] == "unattested_runner_match_not_gameplay_evidence"
+    assert playtest["runner_kind"] == "unknown"
+    assert playtest["eligible_as_gameplay_evidence"] is False
+    assert (Path(result["run_dir"]) / "evidence.json").is_file()
 
 
-def test_metadata_honesty_live_true_marks_external_bridge(tmp_path):
+def test_live_flag_cannot_make_scripted_runner_evidence_eligible(tmp_path):
     workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
     runner = tmp_path / "scripted_player"
     _write_scripted_player_runner(runner, ["我环顾四周。"])
@@ -385,10 +389,40 @@ def test_metadata_honesty_live_true_marks_external_bridge(tmp_path):
         intent_class="investigate",
     )
     meta = result["metadata"]
-    assert meta["live"] is True
-    assert meta["runner_kind"] == "live_bridge"
-    assert meta["simulation_method"] == "live_llm_player_vs_kp"
-    assert meta["player_profile"] == "external_llm_bridge"
+    assert meta["user_claimed_live"] is True
+    assert "live" not in meta
+    assert meta["eligible_as_gameplay_evidence"] is False
+    assert "runner_not_attested" in meta["evidence_reasons"]
+    assert meta["runner_kind"] == "unknown"
+
+
+def test_evidence_receipt_exists_before_battle_report_generation(tmp_path, monkeypatch):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    runner = tmp_path / "scripted_player"
+    _write_scripted_player_runner(runner, ["我环顾四周。"])
+    assert hasattr(match, "playtest_report"), "live match must expose its report generator"
+    original = match.playtest_report.generate_battle_report
+    observed = []
+
+    def guarded_generate(run_dir):
+        evidence_path = Path(run_dir) / "evidence.json"
+        assert evidence_path.is_file()
+        observed.append(evidence_path)
+        return original(run_dir)
+
+    monkeypatch.setattr(match.playtest_report, "generate_battle_report", guarded_generate)
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=runner,
+        max_turns=1,
+        rng_seed=7,
+        live=True,
+        intent_class="investigate",
+    )
+
+    assert observed == [Path(result["run_dir"]) / "evidence.json"]
 
 
 def test_spoiler_isolation_player_requests_exclude_keeper_secret_prose(tmp_path):

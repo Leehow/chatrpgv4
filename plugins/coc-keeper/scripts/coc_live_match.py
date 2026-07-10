@@ -12,6 +12,7 @@ import json
 import random
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,8 @@ def _load_runtime_module(name: str, rel: str):
 
 
 playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
+playtest_evidence = _load_sibling("coc_playtest_evidence", "coc_playtest_evidence.py")
+playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
 live_turn_runner = _load_sibling("coc_live_turn_runner", "coc_live_turn_runner.py")
 narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
@@ -235,12 +238,23 @@ def _playability_stop_reason(playability: dict[str, Any]) -> str | None:
     return None
 
 
-def _match_metadata(*, live: bool, campaign_id: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+def _match_metadata(
+    *,
+    user_claimed_live: bool,
+    campaign_id: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     meta: dict[str, Any] = {
         "campaign_id": campaign_id,
-        "live": bool(live),
-        "audit_profile": "live_llm_player_match",
+        "user_claimed_live": bool(user_claimed_live),
+        "audit_profile": "player_bridge_match",
         "play_language": "zh-Hans",
+        "runner_kind": "unknown",
+        "player_profile": "unattested_runner",
+        "simulation_method": "unattested_runner_match_not_gameplay_evidence",
+        "evidence_disclaimer": NON_LIVE_EVIDENCE_DISCLAIMER,
+        "eligible_as_gameplay_evidence": False,
+        "evidence_reasons": ["evidence_receipt_pending"],
         "subsystems_covered": [
             "investigation",
             "rules",
@@ -255,27 +269,17 @@ def _match_metadata(*, live: bool, campaign_id: str, extra: dict[str, Any] | Non
             "storylet_events",
         ],
         "failed_test_cases": [],
+        "future_enhancements": [
+            "Provide structured runner/model attestations for evidence-grade gameplay receipts."
+        ],
     }
-    if live:
-        meta["runner_kind"] = "live_bridge"
-        meta["player_profile"] = "external_llm_bridge"
-        meta["simulation_method"] = "live_llm_player_vs_kp"
-        meta["evidence_disclaimer"] = (
-            "Live external player bridge — eligible as gameplay evidence when "
-            "the run completes with a real LLM player."
-        )
-        meta["future_enhancements"] = []
-    else:
-        meta["runner_kind"] = "scripted_fake"
-        meta["player_profile"] = "bridged_scripted_player"
-        meta["simulation_method"] = "bridged_scripted_player_not_live_llm"
-        meta["evidence_disclaimer"] = NON_LIVE_EVIDENCE_DISCLAIMER
-        meta["future_enhancements"] = [
-            "Pass --live with a real external player LLM bridge for evidence-grade battle reports."
-        ]
     if extra:
         meta.update(extra)
     return meta
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _enrich_transcript_with_player_notes(
@@ -433,15 +437,17 @@ def run_live_match(
     timeout_s: float = 300,
     transcript_tail_limit: int = 6,
     narrator_runner: Path | str | None = None,
+    evidence_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a multi-turn match: external player brain ↔ KP ``run_live_turn``.
 
-    When ``live=False`` (default; all tests), metadata uses a non-live
-    ``simulation_method`` and stamps the AGENTS.md evidence disclaimer.
-    Only ``live=True`` may claim ``live_llm_player_vs_kp`` / ``external_llm_bridge``.
+    ``live`` is recorded only as ``user_claimed_live``.  Evidence eligibility,
+    runner kind, and model identity are derived from ``evidence.json`` and its
+    structured provenance; the flag itself carries no attestation authority.
     When ``narrator_runner`` is set, KP prose goes through the narrator bridge
     with a template fallback ladder.
     """
+    started_at = _utc_timestamp()
     ws = Path(workspace)
     camp = _campaign_dir(ws, campaign_id)
     if not camp.is_dir():
@@ -476,6 +482,7 @@ def run_live_match(
     previous_affordance_ids: list[str] | None = None
     fallback_turns = 0
     used_llm_narrator = False
+    narrator_model_turns = 0
 
     campaign_meta = _read_json(camp / "campaign.json", {})
     module_meta = _read_json(camp / "scenario" / "module-meta.json", {})
@@ -584,6 +591,7 @@ def run_live_match(
             )
             if method == "llm_narrator":
                 used_llm_narrator = True
+                narrator_model_turns += 1
             if fallback is not None:
                 fallback_turns += 1
                 projected["narrator_fallback"] = fallback
@@ -715,11 +723,12 @@ def run_live_match(
         metadata_extra["narrative_adherence"] = narrative_adherence
 
     metadata = _match_metadata(
-        live=live,
+        user_claimed_live=live,
         campaign_id=campaign_id,
         extra=metadata_extra,
     )
-    # Force honest simulation_method / player_profile (do not let defaults overwrite).
+    # Package the run without rendering yet: evidence.json must exist before the
+    # first battle-report readout consumes these artifacts.
     battle_path = playtest_driver.write_playtest_artifacts(
         out,
         camp,
@@ -728,24 +737,80 @@ def run_live_match(
         player_choices,
         session_result,
         metadata=metadata,
+        generate_report=False,
     )
     _enrich_transcript_with_player_notes(out, player_turns)
-    # Regenerate so battle-report.md picks up player_notes in transcript text.
-    playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
-    battle_path = playtest_report.generate_battle_report(out)
+
+    supplied_provenance = (
+        dict(evidence_provenance) if isinstance(evidence_provenance, dict) else {}
+    )
+    player_provenance = dict(supplied_provenance.get("player_runner") or {})
+    player_provenance["path"] = str(runner.resolve())
+    player_provenance["turn_count"] = len(player_turns)
+    player_provenance.setdefault("kind", "unknown")
+    narrator_provenance = dict(supplied_provenance.get("narrator_runner") or {})
+    if narrator_path is None:
+        narrator_provenance.update({"kind": "absent", "path": None, "turn_count": 0})
+    else:
+        narrator_provenance["path"] = str(narrator_path.resolve())
+        narrator_provenance["turn_count"] = narrator_model_turns
+        narrator_provenance.setdefault("kind", "unknown")
+    target_log_dir = (
+        out / "sandbox" / ".coc" / "campaigns" / campaign_id / "logs"
+    )
+    event_log_paths = [
+        path.resolve().relative_to(out.resolve()).as_posix()
+        for path in sorted(target_log_dir.glob("*.jsonl"))
+        if path.is_file()
+    ]
+    evidence_receipt = playtest_evidence.build_evidence_receipt(
+        out,
+        {
+            "started_at": started_at,
+            "ended_at": _utc_timestamp(),
+            "user_claimed_live": bool(live),
+            "player_runner": player_provenance,
+            "narrator_runner": narrator_provenance,
+            "fallback_turns": fallback_turns,
+            "transcript_path": "transcript.jsonl",
+            "event_log_paths": event_log_paths,
+        },
+    )
+    evidence_path = playtest_evidence.write_evidence_receipt(out, evidence_receipt)
+    evidence_receipt = playtest_evidence.read_evidence_receipt(out)
+    receipt_runners = evidence_receipt.get("runners") or {}
+    receipt_player = receipt_runners.get("player") or {}
+    receipt_narrator = receipt_runners.get("narrator") or {}
+    eligible = evidence_receipt.get("eligible_as_gameplay_evidence") is True
+    metadata.update(
+        {
+            "runner_kind": receipt_player.get("kind") or "unknown",
+            "narrator_runner_kind": receipt_narrator.get("kind") or "absent",
+            "eligible_as_gameplay_evidence": eligible,
+            "evidence_reasons": list(evidence_receipt.get("evidence_reasons") or []),
+            "external_model_turns": evidence_receipt.get("external_model_turns", 0),
+        }
+    )
+    if eligible:
+        metadata.update(
+            {
+                "audit_profile": "evidence_grade_player_bridge_match",
+                "player_profile": "attested_external_model_bridge",
+                "simulation_method": "attested_external_model_playtest",
+                "evidence_disclaimer": "Gameplay evidence eligibility verified from evidence.json.",
+                "future_enhancements": [],
+            }
+        )
 
     # Re-stamp playtest.json in case write_playtest_artifacts setdefault'd differently.
     playtest_path = out / "playtest.json"
     stamped = _read_json(playtest_path, {})
     if not isinstance(stamped, dict):
         stamped = {}
+    stamped.pop("live", None)
+    stamped.update(metadata)
     stamped.update(
         {
-            "live": metadata["live"],
-            "runner_kind": metadata["runner_kind"],
-            "player_profile": metadata["player_profile"],
-            "simulation_method": metadata["simulation_method"],
-            "evidence_disclaimer": metadata["evidence_disclaimer"],
             "stop_reason": stop_reason,
             "investigator_playability": current_playability,
             "pending_resolution": pending_resolution,
@@ -770,7 +835,9 @@ def run_live_match(
                 **session_result,
                 "simulation_method": metadata["simulation_method"],
                 "runner_kind": metadata["runner_kind"],
-                "live": live,
+                "user_claimed_live": bool(live),
+                "eligible_as_gameplay_evidence": eligible,
+                "evidence_reasons": metadata["evidence_reasons"],
                 "narration_method": narration_method,
                 "fallback_turns": fallback_turns,
             },
@@ -780,10 +847,14 @@ def run_live_match(
         + "\n",
         encoding="utf-8",
     )
+    # This is deliberately the first report generation for the run.
+    battle_path = playtest_report.generate_battle_report(out)
 
     return {
         "run_dir": str(out),
         "battle_report_path": str(battle_path),
+        "evidence_path": str(evidence_path),
+        "evidence": evidence_receipt,
         "turns": turns,
         "player_turns": player_turns,
         "player_requests": player_requests,
@@ -817,7 +888,7 @@ def _main() -> int:
     ap.add_argument(
         "--live",
         action="store_true",
-        help="mark metadata as live external bridge (evidence-eligible)",
+        help="record a user claim that this is live; does not attest evidence eligibility",
     )
     ap.add_argument("--character", default=None, help="override character.json path")
     ap.add_argument("--run-dir", default=None, help="output playtest directory")
@@ -853,6 +924,11 @@ def _main() -> int:
     print(f"simulation_method: {result['metadata']['simulation_method']}")
     print(f"narration_method: {result.get('narration_method')}")
     print(f"fallback_turns: {result.get('fallback_turns')}")
+    print(
+        "eligible_as_gameplay_evidence: "
+        f"{result['metadata']['eligible_as_gameplay_evidence']}"
+    )
+    print(f"evidence: {result['evidence_path']}")
     return 0
 
 
