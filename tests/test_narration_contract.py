@@ -523,6 +523,59 @@ def test_envelope_scene_anchor_from_player_safe_scene_fields():
     assert "do not invent new cult fact" not in blob
 
 
+def test_envelope_drops_agenda_prose_for_secret_bearing_npcs():
+    """has_secret=True gates the keeper-facing agenda prose out of the envelope."""
+    secret_agenda = (
+        "Mislead and frighten intruders away from his buried body; failing "
+        "that, murder them and resume feeding on residents."
+    )
+    plan = _good_plan()
+    plan["handoff"] = "narration"
+    plan["rules_requests"] = []
+    plan["npc_moves"] = [
+        {
+            "npc_id": "npc-walter-corbitt",
+            "display_name": "Walter Corbitt",
+            "agenda": secret_agenda,
+            "emotional_tone": "hostile",
+            "has_secret": True,
+            "secret_id": "secret-corbitt-undead",
+            "secret_limit": "do not reveal this NPC's secret",
+            "voice": "Rarely speaks. Acts through knocks and flying furniture.",
+            "agency_moves": [
+                {"move_id": "stalk", "visibility": "keeper_only",
+                 "agency_directive": secret_agenda},
+                {"move_id": "knock", "visibility": "player_visible",
+                 "reason": "structured"},
+            ],
+            "persona": {
+                "tags": ["temperament.secretive"],
+                "surface_cues": ["空气骤冷"],
+                "keeper_note": secret_agenda,
+            },
+        },
+        {
+            "npc_id": "npc-knott",
+            "display_name": "Steven Knott",
+            "agenda": "wants the house rented",
+            "emotional_tone": "warm and cooperative",
+            "has_secret": False,
+        },
+    ]
+    envelope = cnc.build_narration_envelope(plan)
+    blob = json.dumps(envelope, ensure_ascii=False)
+    assert secret_agenda not in blob
+    corbitt, knott = envelope["npc_moves"]
+    assert "agenda" not in corbitt
+    assert corbitt["has_secret"] is True
+    assert corbitt["secret_id"] == "secret-corbitt-undead"
+    # keeper-only agency moves and non-whitelisted persona keys are stripped
+    assert [m["move_id"] for m in corbitt["agency_moves"]] == ["knock"]
+    assert set(corbitt["persona"].keys()) <= {"tags", "surface_cues"}
+    # non-secret NPC keeps its surface agenda
+    assert knott["agenda"] == "wants the house rented"
+
+
 def test_envelope_npc_moves_keep_display_name_and_dialogue_seed():
     plan = _good_plan()
     plan["handoff"] = "narration"

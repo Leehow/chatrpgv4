@@ -603,22 +603,59 @@ def _npc_display_name(move: dict[str, Any]) -> str:
     return str(move.get("npc_id") or "").strip()
 
 
+def _sanitize_persona(persona: Any) -> dict[str, Any]:
+    """Whitelist persona to structured tags + player-safe surface cues."""
+    if not isinstance(persona, dict):
+        return {}
+    safe: dict[str, Any] = {}
+    tags = [str(t) for t in (persona.get("tags") or []) if str(t or "").strip()]
+    if tags:
+        safe["tags"] = tags
+    cues = [str(c) for c in (persona.get("surface_cues") or []) if str(c or "").strip()]
+    if cues:
+        safe["surface_cues"] = cues
+    return safe
+
+
+def _sanitize_agency_moves(agency_moves: Any) -> list[dict[str, Any]]:
+    """Keep only agency moves whose structured visibility is player-visible."""
+    safe: list[dict[str, Any]] = []
+    for move in agency_moves or []:
+        if not isinstance(move, dict):
+            continue
+        visibility = str(move.get("visibility") or "player_visible").strip().lower()
+        if visibility not in {"player_visible", "player-safe", "public"}:
+            continue
+        safe.append(move)
+    return safe
+
+
 def _sanitize_npc_move(move: dict[str, Any]) -> dict[str, Any]:
-    """Minimum-privilege NPC move for the narrator (no secret prose)."""
+    """Minimum-privilege NPC move for the narrator (no secret prose).
+
+    Structured gate (Semantic Matcher Constitution): when ``has_secret`` is
+    true, the raw ``agenda`` prose is keeper-facing (it often IS the secret,
+    e.g. an undead NPC's true motive) and is dropped from the envelope. The
+    narrator still gets emotional_tone / relationship / dialogue_seed for
+    surface behavior. NPCs without a secret keep their agenda, which by
+    construction describes observable surface wants.
+    """
+    has_secret = bool(move.get("has_secret"))
     safe_move: dict[str, Any] = {
         "npc_id": move.get("npc_id"),
         "display_name": _npc_display_name(move),
         "dialogue_seed": _npc_dialogue_seed(move),
-        "agenda": move.get("agenda"),
         "emotional_tone": move.get("emotional_tone"),
-        "has_secret": bool(move.get("has_secret")),
+        "has_secret": has_secret,
         "secret_limit": move.get("secret_limit") or "",
         "disposition_source": move.get("disposition_source"),
         "relationship_to_investigators": move.get("relationship_to_investigators"),
         "social_role": move.get("social_role"),
-        "persona": move.get("persona"),
-        "agency_moves": move.get("agency_moves") or [],
+        "persona": _sanitize_persona(move.get("persona")),
+        "agency_moves": _sanitize_agency_moves(move.get("agency_moves")),
     }
+    if not has_secret:
+        safe_move["agenda"] = move.get("agenda")
     if move.get("secret_id"):
         safe_move["secret_id"] = move["secret_id"]
     return safe_move
