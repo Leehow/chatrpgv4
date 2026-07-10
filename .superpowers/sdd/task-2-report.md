@@ -86,3 +86,25 @@ Independent review found two Important issues, both corrected with test-first re
 - `af15780b9294749c04a79f2bf50a805c3c3ec05c` — `fix(playtest): align bout and payoff terminal semantics`
 
 Revision scope is limited to the two Task 2 production callers and their two Task 2 test files. The integration test uses genuine `run_live_turn` behavior from a nonterminal start scene, records `scene_transition`, executes `PAYOFF` on the terminal resolution, and observes persisted `session_ending`; it does not use `_StaticLiveRunner` or pre-position the world on the terminal scene.
+
+## Second Review Revision: Condition-Form Active Bout
+
+Second review found one remaining Important issue: `investigator_playability(...)` recognized top-level `bout_active: true` but not the canonical structured condition form `conditions: ["bout_active"]` already consumed by the Story Director.
+
+The classifier now treats either structured representation as temporarily unplayable/nonterminal and pauses the current live match. This is an exact condition-set check; no prose or keyword semantic inference was introduced.
+
+### Second Review TDD and Verification
+
+- RED regression: **1 failed in 0.63s**; condition-form bout was incorrectly active/playable.
+- GREEN regression: **1 passed in 0.12s**.
+- Focused Task 2: **66 passed in 6.83s**.
+- Sanity/director/apply/rule-signal contracts: **250 passed in 0.96s**.
+- Plugin metadata minimum: **48 passed in 0.53s**.
+- Full suite: **1668 passed in 29.65s**.
+- `git diff --check`: clean.
+
+### Second Review Revision Commit
+
+- `25bc3a2c0c5c077f0235a845e0e0592a04ebc78a` — `fix(playtest): recognize condition-form active bouts`
+
+Revision scope is exactly `plugins/coc-keeper/scripts/coc_live_match.py` and `tests/test_live_match.py`, plus this required report append.
