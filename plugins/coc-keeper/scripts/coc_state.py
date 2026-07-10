@@ -173,6 +173,43 @@ def _read_json_object(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _merge_current_luck(campaign_dir: Path, investigator_id: str, current_luck: int) -> Path:
+    inv_path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    data = _read_json_object(inv_path, {})
+    data["current_luck"] = int(current_luck)
+    write_json_atomic(inv_path, data)
+    return inv_path
+
+
+def _set_luck_spent_last(campaign_dir: Path, points: int) -> None:
+    pacing_path = campaign_dir / "save" / "pacing-state.json"
+    pacing = _read_json_object(pacing_path, {"schema_version": 1})
+    pacing["luck_spent_last"] = int(points)
+    write_json_atomic(pacing_path, pacing)
+
+
+def apply_luck_spend(campaign_dir: Path, investigator_id: str, *,
+                     points: int, luck_remaining: int) -> Path:
+    """Persist a ``coc_roll.spend_luck`` outcome (Keeper Rulebook p.99).
+
+    Merges ``current_luck`` into ``save/investigator-state/<id>.json`` and
+    sets ``pacing-state.luck_spent_last`` so the Story Director's luck signal
+    sees the spend on the next turn.
+    """
+    inv_path = _merge_current_luck(campaign_dir, investigator_id, luck_remaining)
+    _set_luck_spent_last(campaign_dir, points)
+    return inv_path
+
+
+def apply_luck_recovery(campaign_dir: Path, investigator_id: str, *,
+                        luck_after: int) -> Path:
+    """Persist a session-end ``coc_roll.recover_luck`` outcome and clear
+    ``luck_spent_last``."""
+    inv_path = _merge_current_luck(campaign_dir, investigator_id, luck_after)
+    _set_luck_spent_last(campaign_dir, 0)
+    return inv_path
+
+
 def _safe_file_stem(value: str) -> str:
     stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")
     return stem or "draft"

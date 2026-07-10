@@ -294,3 +294,133 @@ def test_public_api_index_lists_aliases_and_formatters():
     assert "roll_percentile" in api["percentile_check"]["aliases"]
     assert "format_percentile_result" in api
     assert api["format_percentile_result"]["returns"] == "player-facing roll summary"
+
+
+# --------------------------------------------------------------------------- #
+# W1-1: spend_luck / recover_luck (Keeper Rulebook p.99, optional rule)
+# --------------------------------------------------------------------------- #
+
+def _failed_result(roll=55, target=50):
+    return {
+        "target": target,
+        "effective_target": target,
+        "difficulty": "regular",
+        "roll": roll,
+        "outcome": "failure",
+    }
+
+
+def test_spend_luck_converts_failure_to_success():
+    out = coc_roll.spend_luck(_failed_result(roll=55, target=50), 5, 40)
+
+    assert out["roll"] == 50
+    assert out["outcome"] == "regular"
+    assert out["luck_spent"] == 5
+    assert out["luck_remaining"] == 35
+    assert out["improvement_tick_eligible"] is False
+    assert out["rule_ref"] == "core.optional.spending_luck"
+
+
+def test_spend_luck_can_reach_hard_success():
+    out = coc_roll.spend_luck(_failed_result(roll=30, target=50), 5, 20)
+
+    assert out["roll"] == 25
+    assert out["outcome"] == "hard"
+
+
+def test_spend_luck_forbidden_roll_kinds():
+    for kind, constraint in [
+        ("luck", "luck_may_not_be_spent_on_luck_rolls"),
+        ("damage", "luck_may_not_be_spent_on_damage_rolls"),
+        ("sanity", "luck_may_not_be_spent_on_sanity_rolls"),
+        ("sanity_loss", "luck_may_not_be_spent_on_sanity_loss_amount_rolls"),
+    ]:
+        try:
+            coc_roll.spend_luck(_failed_result(), 5, 40, roll_kind=kind)
+        except ValueError as exc:
+            assert constraint in str(exc)
+        else:
+            raise AssertionError(f"expected ValueError for roll_kind={kind}")
+
+
+def test_spend_luck_rejects_pushed_roll():
+    result = _failed_result()
+    result["pushed"] = True
+    try:
+        coc_roll.spend_luck(result, 5, 40)
+    except ValueError as exc:
+        assert "luck_may_not_alter_a_pushed_roll" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for pushed roll")
+
+
+def test_spend_luck_cannot_buy_off_fumble_or_critical():
+    fumble = _failed_result(roll=100)
+    fumble["outcome"] = "fumble"
+    critical = _failed_result(roll=1)
+    critical["outcome"] = "critical"
+    for result in (fumble, critical):
+        try:
+            coc_roll.spend_luck(result, 5, 40)
+        except ValueError as exc:
+            assert "criticals_fumbles_malfunctions_cannot_be_bought_off" in str(exc)
+        else:
+            raise AssertionError("expected ValueError for critical/fumble")
+
+
+def test_spend_luck_cannot_buy_a_critical():
+    # Spending down to a roll of 01 would fabricate a critical.
+    try:
+        coc_roll.spend_luck(_failed_result(roll=6, target=5), 5, 40)
+    except ValueError as exc:
+        assert "criticals_fumbles_malfunctions_cannot_be_bought_off" in str(exc)
+    else:
+        raise AssertionError("expected ValueError when buying down to 01")
+
+
+def test_spend_luck_requires_enough_luck():
+    try:
+        coc_roll.spend_luck(_failed_result(), 5, 3)
+    except ValueError as exc:
+        assert "insufficient_luck" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for insufficient luck")
+
+
+def test_spend_luck_rejects_non_positive_points():
+    try:
+        coc_roll.spend_luck(_failed_result(), 0, 40)
+    except ValueError as exc:
+        assert "points" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for zero points")
+
+
+def test_recover_luck_success_gains_1d10():
+    rng = SequenceRandom([80, 7])  # 1D100=80 > 30, then 1D10=7
+
+    out = coc_roll.recover_luck(30, rng=rng)
+
+    assert out["success"] is True
+    assert out["gained"] == 7
+    assert out["luck_before"] == 30
+    assert out["luck_after"] == 37
+
+
+def test_recover_luck_failure_gains_nothing():
+    rng = SequenceRandom([20])  # 1D100=20 <= 30
+
+    out = coc_roll.recover_luck(30, rng=rng)
+
+    assert out["success"] is False
+    assert out["gained"] == 0
+    assert out["luck_after"] == 30
+
+
+def test_recover_luck_caps_at_99():
+    rng = SequenceRandom([99, 10])
+
+    out = coc_roll.recover_luck(95, rng=rng)
+
+    assert out["success"] is True
+    assert out["luck_after"] == 99

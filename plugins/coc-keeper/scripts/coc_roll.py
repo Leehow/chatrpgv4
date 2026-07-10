@@ -160,6 +160,69 @@ def roll_percentile(
     )
 
 
+_LUCK_FORBIDDEN_KINDS = {
+    "luck": "luck_may_not_be_spent_on_luck_rolls",
+    "damage": "luck_may_not_be_spent_on_damage_rolls",
+    "sanity": "luck_may_not_be_spent_on_sanity_rolls",
+    "sanity_loss": "luck_may_not_be_spent_on_sanity_loss_amount_rolls",
+}
+
+
+def spend_luck(result: dict[str, Any], points: int, current_luck: int,
+               *, roll_kind: str = "skill") -> dict[str, Any]:
+    """Spend Luck points to lower a percentile roll (Keeper Rulebook p.99).
+
+    Returns a new result dict with the outcome recomputed at the reduced
+    roll, plus ``luck_spent`` / ``luck_remaining`` bookkeeping. Spending Luck
+    forfeits the improvement tick (``improvement_tick_eligible: False``) and
+    is mutually exclusive with pushing the roll. Raises ``ValueError`` naming
+    the violated constraint from ``luck.json`` when the spend is illegal.
+    """
+    if roll_kind in _LUCK_FORBIDDEN_KINDS:
+        raise ValueError(_LUCK_FORBIDDEN_KINDS[roll_kind])
+    if result.get("pushed"):
+        raise ValueError("luck_may_not_alter_a_pushed_roll")
+    outcome = str(result.get("outcome", ""))
+    if outcome in ("critical", "fumble"):
+        raise ValueError("criticals_fumbles_malfunctions_cannot_be_bought_off")
+    if points <= 0:
+        raise ValueError("points_must_be_positive")
+    if points > current_luck:
+        raise ValueError("insufficient_luck")
+
+    new_roll = int(result["roll"]) - int(points)
+    if new_roll <= 1:
+        # Buying the roll down to 01 would fabricate a critical.
+        raise ValueError("criticals_fumbles_malfunctions_cannot_be_bought_off")
+
+    effective_target = int(result.get("effective_target", result.get("target", 0)))
+    out = dict(result)
+    out["roll"] = new_roll
+    out["outcome"] = coc_rules.success_level(new_roll, effective_target)
+    out["luck_spent"] = int(points)
+    out["luck_remaining"] = int(current_luck) - int(points)
+    out["improvement_tick_eligible"] = False
+    out["rule_ref"] = "core.optional.spending_luck"
+    return out
+
+
+def recover_luck(current_luck: int, rng: random.Random | None = None) -> dict[str, Any]:
+    """Session-end Luck recovery roll: 1D100 > current Luck -> +1D10, cap 99 (p.99)."""
+    rng = rng or random.Random()
+    roll = rng.randint(1, 100)
+    success = roll > int(current_luck)
+    gained = rng.randint(1, 10) if success else 0
+    luck_after = min(99, int(current_luck) + gained)
+    return {
+        "roll": roll,
+        "success": success,
+        "gained": luck_after - int(current_luck) if success else 0,
+        "luck_before": int(current_luck),
+        "luck_after": luck_after,
+        "rule_ref": "core.optional.luck_recovery",
+    }
+
+
 def _outcome_label(outcome: str, language: str) -> str:
     if language == "zh-Hans":
         return OUTCOME_LABELS_ZH.get(outcome, outcome)
@@ -243,6 +306,16 @@ def public_api_index() -> dict[str, dict[str, Any]]:
             "aliases": [],
             "signature": "format_percentile_result(result, language='zh-Hans', compact=False)",
             "returns": "player-facing roll summary",
+        },
+        "spend_luck": {
+            "aliases": [],
+            "signature": "spend_luck(result, points, current_luck, roll_kind='skill')",
+            "returns": "recomputed result after spending Luck (p.99)",
+        },
+        "recover_luck": {
+            "aliases": [],
+            "signature": "recover_luck(current_luck, rng=None)",
+            "returns": "session-end Luck recovery roll result (p.99)",
         },
     }
 

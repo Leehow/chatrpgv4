@@ -7,30 +7,33 @@ description: Run immersive Call of Cthulhu play after COC mode is active. Use fo
 
 ## Loop
 
-For ordinary live play, call `scripts/coc_live_turn_runner.py`
-(`run_live_turn(...)`) as the hard turn entrypoint. Do not manually stitch
-director, enrichment, rules, apply, and JSONL writes during normal table play;
-manual stitching is only for isolated bug hunts. The runner defaults to
-fast/background recording and handles compressed low-agency continuation before
-returning narration material.
+For ordinary live play there is exactly ONE turn entrypoint:
+`scripts/coc_live_turn_runner.py` (`run_live_turn(...)`). Each player input:
 
-1. Read player input + campaign state + scenario story-graph.
-   - For manual/live campaigns with missing `story-graph.json`, the live-story
-     bridge in `build_director_context` must derive a runtime scene from
-     `save/active-scene.json`; the turn must still run through `build_director_context`
-     before narration.
-2. Call `coc-story-director` (scripts/coc_story_director.py) to generate a DirectorPlan.
-3. Apply the narrative enrichment pass (scripts/coc_narrative_enrichment.py) when available:
-   - turn scene affordances / clue leads into a hidden `choice_frame`;
-   - turn semantically parsed `player_intent_rich.action_atoms` into chained `rules_requests`;
-   - activate NPC `reaction_triggers`, relationship clocks, voice seeds, desire/fear/leverage;
-   - infer the current story need, select matching storylet decks, then roll `storylet_moves`
-     from the deterministic storylet engine with conflict-level pacing;
-   - surface optional `incident_moves` only as legacy side beats that reinforce the main tension.
-4. If the enriched DirectorPlan.handoff == "rules": resolve mechanics via coc-roll/combat/chase/sanity.
-5. Backfill rule results into the plan.
-6. Narrate consequences per DirectorPlan.narrative_directives (immersive, in play_language).
-7. Update save, logs, and pacing-state.
+1. Judge the player's semantic intent yourself (you are the semantic
+   evaluator) and pass it as `intent_class` and/or `player_intent_rich`.
+   Never classify intent by keyword hits; judge what the text means. If you
+   cannot supply intent, the runner routes through
+   `coc_intent_router.parse_intent` and, with no semantic evidence, degrades
+   to `ambiguous` (recorded in `intent_resolution`) — it never silently
+   assumes `investigate`.
+2. Call `run_live_turn(...)` with the player text, intent, and any
+   `state_patch` for the next-turn visible scene contract.
+3. Render the returned narration material: honor
+   `narrative_directives` / `must_include`, surface `stop_actionability`
+   handles, keep it immersive in `play_language`.
+4. If the returned turn handed off to a rules subsystem (combat/chase/sanity
+   session), continue in that subsystem's skill, then come back to the loop.
+
+Do not manually stitch director, enrichment, rules, apply, and JSONL writes
+during normal table play. The internal pipeline the runner executes (director
+→ enrichment → rules → backfill → apply, for manual campaigns via the
+live-story bridge in `build_director_context` when `story-graph.json` is
+missing — the turn must still run through `build_director_context`) is
+documented in `../../references/live-turn-internals.md` and is for isolated
+bug hunts only. The runner defaults to fast/background recording and handles
+compressed low-agency continuation before returning narration material.
+Verify runner usage via the `logs/live-turn-runtime.jsonl` receipt.
 
 ## Recording Modes
 
@@ -92,9 +95,11 @@ render the player-facing scene text immediately. Do not poll
 Flush pending batches only during maintenance, formal report generation,
 explicit debugging, or before final archival.
 
-Use `recording_mode: sync` for bug hunts, replay-sensitive tests, and final
-verification. Sync mode is the default and preserves the legacy behavior of
-writing each JSONL audit record immediately.
+Use `recording_mode: sync` only for bug hunts, replay-sensitive tests, and
+final verification. Live play defaults to `fast` + `background` (see above);
+sync mode is the non-default legacy behavior that writes each JSONL audit
+record immediately, and lower-level `apply_plan(...)` calls that bypass the
+runner still start from sync unless told otherwise.
 
 When storylet scheduling runs, preserve its audit trail. The apply layer writes
 one JSONL record per turn to `logs/storylet-scheduler.jsonl` when an enriched
@@ -211,6 +216,14 @@ diegetic cues: mention the letter on the desk, the clerk watching the lobby,
 the street noise from the nearby bar, the weight of the hidden pistol, or the
 open time before an appointment. Then ask for an open-ended action in the play
 language.
+
+At life-or-death moments — a failed roll whose consequence is death, dying,
+permanent maiming, or losing a plot-critical chance — remind the player they
+may spend Luck (optional rule): report the exact cost in points (roll minus
+effective target), their current Luck, and what would remain after spending.
+Also state the alternative of pushing the roll and its announced worse
+consequence, then let the player choose one or accept the failure. Do not
+volunteer this reminder for routine low-stakes checks.
 
 Treat `pending_choices` and similar state fields as Keeper-facing resume aids,
 not player-visible menus. Surface them only when the player asks for options,

@@ -22,6 +22,30 @@ Use these scripts for deterministic rule work:
   player-facing bonus/penalty dice summaries.
 - `../../scripts/coc_validate.py`
 
+## Failed Roll: Push XOR Spend Luck
+
+After a failed skill roll (not fumble), the player has at most one recovery
+option, never both:
+
+1. **Push the roll** — the player must describe a changed approach or extra
+   effort. Before rolling, the Keeper must state the concrete worse
+   consequence that a pushed failure will bring. A pushed roll cannot be
+   altered with Luck afterwards.
+2. **Spend Luck** (optional rule, p.99) — call
+   `coc_roll.spend_luck(result, points, current_luck)`. It enforces the
+   `luck.json` constraints: no Luck on Luck/damage/Sanity/SAN-loss rolls, no
+   altering pushed rolls, criticals and fumbles cannot be bought off, and a
+   roll improved by Luck earns no improvement tick.
+
+Offer the choice explicitly when the stakes justify it: state the failure,
+what pushing would risk, and how many Luck points a success would cost
+(roll minus effective target) alongside the player's current Luck. Then let
+the player decide. After a spend, persist the new `current_luck` via the
+campaign-state helpers and note `luck_spent_last` for the director.
+
+At session end run `coc_roll.recover_luck(current_luck)` per investigator
+(1D100 > current Luck gains 1D10, capped at 99).
+
 ## Output
 
 For in-game narration, keep mechanical details short. For `[meta]` answers, show:

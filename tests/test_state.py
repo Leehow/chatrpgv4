@@ -334,3 +334,34 @@ def test_prepare_character_creation_draft_archives_stale_active_draft(tmp_path):
     assert active["generation_method"] == "point_buy_460"
     assert archive_path.exists()
     assert json.loads(archive_path.read_text(encoding="utf-8"))["investigator_id"] == "old-investigator"
+
+
+def test_apply_luck_spend_updates_investigator_and_pacing(tmp_path):
+    """W1-1: after spend_luck the new current_luck must land in
+    investigator-state and pacing-state.luck_spent_last must be set."""
+    coc_state.create_campaign(tmp_path, "case-1", "Case 1")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+    inv_path = campaign_dir / "save" / "investigator-state" / "ada.json"
+    inv_path.parent.mkdir(parents=True, exist_ok=True)
+    inv_path.write_text(json.dumps({"current_luck": 40, "current_hp": 9}), encoding="utf-8")
+
+    coc_state.apply_luck_spend(campaign_dir, "ada", points=5, luck_remaining=35)
+
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    pacing = json.loads((campaign_dir / "save" / "pacing-state.json").read_text(encoding="utf-8"))
+    assert inv["current_luck"] == 35
+    assert inv["current_hp"] == 9  # untouched fields preserved
+    assert pacing["luck_spent_last"] == 5
+
+
+def test_apply_luck_recovery_updates_investigator_state(tmp_path):
+    coc_state.create_campaign(tmp_path, "case-1", "Case 1")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+
+    coc_state.apply_luck_recovery(campaign_dir, "ada", luck_after=48)
+
+    inv_path = campaign_dir / "save" / "investigator-state" / "ada.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    pacing = json.loads((campaign_dir / "save" / "pacing-state.json").read_text(encoding="utf-8"))
+    assert inv["current_luck"] == 48
+    assert pacing["luck_spent_last"] == 0
