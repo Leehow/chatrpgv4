@@ -57,6 +57,8 @@ Campaigns store temporary and scenario-specific state:
 │   ├── pacing-state.json           # turn number, tension level, recent intent classes/tags
 │   ├── threat-state.json           # threat-front clock segments
 │   ├── npc-state.json              # persisted NPC persona cards + stat promotions
+│   │                               # + "psych" namespace: per-NPC trust/fear/suspicion,
+│   │                               #   known_facts / lies_told / promises (coc_npc_state)
 │   ├── storylet-ledger.json        # storylet anti-repeat signatures + usage ledger
 │   ├── time-state.json             # in-fiction world clock
 │   ├── time-triggers.json          # scheduled time-based triggers

@@ -30,6 +30,7 @@ coc_mythos = _load_sibling("coc_mythos", "coc_mythos.py")
 coc_narration_style = _load_sibling("coc_narration_style", "coc_narration_style.py")
 coc_narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
 coc_npc_persona = _load_sibling("coc_npc_persona", "coc_npc_persona.py")
+coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 
@@ -1635,6 +1636,14 @@ def _disposition_to_tone(disposition: str) -> str:
             "hostile": "cold and suspicious"}.get(disposition, "neutral")
 
 
+def _stance_to_tone(stance: str) -> str:
+    """G3: persisted psych stance -> narrator emotional tone (structured map)."""
+    return {"hostile": "cold and suspicious",
+            "wary": "guarded but civil",
+            "neutral": "guarded but civil",
+            "warm": "warm and cooperative"}.get(stance, "guarded but civil")
+
+
 def _npc_is_forced_adversary(agenda: dict[str, Any]) -> bool:
     # Only trust structured/semantic fields produced upstream. Do not infer
     # hostility from free-text agenda wording here; that belongs in semantic
@@ -1679,16 +1688,28 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
     )
     ctx["npc_state_writes"] = agency_bundle.get("npc_state_writes", [])
     agency_by_npc = agency_bundle.get("by_npc", {})
+    psych = (ctx.get("npc_state") or {}).get("psych") or {}
     moves = []
     for npc_id in scene.get("npc_ids", []):
         agenda = next((n for n in agendas if n["npc_id"] == npc_id), None)
         if not agenda:
             continue
+        # G3: persisted psychological state (trust/fear/suspicion accumulated
+        # across turns) drives disposition ahead of a fresh per-turn reaction
+        # roll — structured numeric thresholds only, never agenda prose. Forced
+        # adversaries (structured relationship field) stay on the legacy path.
+        psych_entry = psych.get(npc_id) if isinstance(psych, dict) else None
+        disposition = None
+        if (
+            not _npc_is_forced_adversary(agenda)
+            and coc_npc_state.has_signal(psych_entry)
+        ):
+            disposition = coc_npc_state.npc_disposition(psych_entry)
         reaction = coc_rule_signals.roll_npc_reaction(
             app=ctx["rule_signals"].get("app", 50),
             credit_rating=ctx["rule_signals"].get("credit_rating", 50),
             rng=ctx["rng"],
-        ) if _should_roll_npc_reaction(action, agenda) else None
+        ) if disposition is None and _should_roll_npc_reaction(action, agenda) else None
         if reaction is not None and ctx["rule_signals"].get("npc_reaction_roll") is None:
             # Hold the FIRST rolled NPC reaction on the shared rule_signal so the
             # emitted plan reflects at least one reaction (generate_director_plan
@@ -1701,18 +1722,30 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
             or (isinstance(agenda.get("secret"), str) and agenda.get("secret").strip())
             or agenda.get("secret")
         )
+        if disposition is not None:
+            emotional_tone = _stance_to_tone(disposition["stance"])
+            disposition_source = "npc_state:psych"
+        elif reaction is not None:
+            emotional_tone = _disposition_to_tone(reaction["disposition"])
+            disposition_source = "rule_signal:npc_reaction_roll"
+        else:
+            emotional_tone = _npc_default_tone(agenda)
+            disposition_source = None
         move: dict[str, Any] = {
             "npc_id": npc_id,
             "agenda": agenda.get("agenda", ""),
-            "emotional_tone": _disposition_to_tone(reaction["disposition"]) if reaction else _npc_default_tone(agenda),
+            "emotional_tone": emotional_tone,
             "has_secret": has_secret,
             "secret_limit": "do not reveal this NPC's secret" if has_secret else "",
-            "disposition_source": "rule_signal:npc_reaction_roll" if reaction else None,
+            "disposition_source": disposition_source,
+            "psych_stance": disposition["stance"] if disposition else None,
             "relationship_to_investigators": agenda.get("relationship_to_investigators"),
             "social_role": (agency_by_npc.get(npc_id) or {}).get("persona_card", {}).get("social_role"),
             "persona": (agency_by_npc.get(npc_id) or {}).get("persona_card", {}).get("persona"),
             "agency_moves": (agency_by_npc.get(npc_id) or {}).get("agency_moves", []),
         }
+        if disposition is not None:
+            move["stance_drivers"] = disposition["drivers"]
         secret_id = agenda.get("secret_id")
         if secret_id:
             move["secret_id"] = secret_id

@@ -53,6 +53,7 @@ coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
+coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
 
 coc_memory = None
 try:
@@ -524,6 +525,69 @@ def _apply_npc_state_and_agency(
             events.append(record)
             _append_jsonl(logs / "npc-agency.jsonl", record)
             _append_jsonl(logs / "events.jsonl", record)
+    return events
+
+
+def _apply_npc_effects(
+    campaign_dir: Path,
+    plan: dict[str, Any],
+    investigator_id: str,
+    ts: str,
+) -> list[dict[str, Any]]:
+    """G3: land structured plan ``npc_effects`` on persistent NPC psych state.
+
+    Effect shapes (structured only — Semantic Matcher Constitution):
+    - {npc_id, field: trust|fear|suspicion, delta: int}       (numeric adjust)
+    - {npc_id, kind: "record_fact", fact_id}
+    - {npc_id, kind: "record_lie", lie_id, about?}
+    - {npc_id, kind: "record_promise", promise_id, kept?}
+
+    Idempotency comes from apply_plan's decision_id ledger (duplicate plans
+    never reach this function).
+    """
+    logs = campaign_dir / "logs"
+    events: list[dict[str, Any]] = []
+    for effect in plan.get("npc_effects", []) or []:
+        if not isinstance(effect, dict):
+            continue
+        npc_id = effect.get("npc_id")
+        if not npc_id:
+            continue
+        kind = effect.get("kind") or "adjust"
+        applied: dict[str, Any] | None = None
+        if kind == "adjust" and effect.get("field") in coc_npc_state.NUMERIC_FIELDS:
+            new_value = coc_npc_state.adjust(
+                campaign_dir, str(npc_id), str(effect["field"]), int(effect.get("delta", 0) or 0)
+            )
+            applied = {"field": effect["field"], "delta": effect.get("delta"),
+                       "new_value": new_value}
+        elif kind == "record_fact" and effect.get("fact_id"):
+            coc_npc_state.record_fact(campaign_dir, str(npc_id), str(effect["fact_id"]))
+            applied = {"fact_id": effect["fact_id"]}
+        elif kind == "record_lie" and effect.get("lie_id"):
+            coc_npc_state.record_lie(
+                campaign_dir, str(npc_id), str(effect["lie_id"]), about=effect.get("about")
+            )
+            applied = {"lie_id": effect["lie_id"], "about": effect.get("about")}
+        elif kind == "record_promise" and effect.get("promise_id"):
+            coc_npc_state.record_promise(
+                campaign_dir, str(npc_id), str(effect["promise_id"]), kept=effect.get("kept")
+            )
+            applied = {"promise_id": effect["promise_id"], "kept": effect.get("kept")}
+        if applied is None:
+            continue
+        record = {
+            "schema_version": 1,
+            "event_type": "npc_effect",
+            "decision_id": plan.get("decision_id"),
+            "npc_id": str(npc_id),
+            "kind": kind,
+            "effect": applied,
+            "investigator_id": investigator_id,
+            "ts": ts,
+        }
+        events.append(record)
+        _append_jsonl(logs / "events.jsonl", record)
     return events
 
 
@@ -1522,6 +1586,9 @@ def _apply_plan_impl(
     # 2. NPC state writes + agency audit
     npc_events = _apply_npc_state_and_agency(campaign_dir, plan, investigator_id, ts)
     events.extend(npc_events)
+
+    # 2b. G3: structured npc_effects -> persistent NPC psychological state
+    events.extend(_apply_npc_effects(campaign_dir, plan, investigator_id, ts))
 
     # 3. pressure moves -> pacing state + events
     pacing_path = save / "pacing-state.json"
