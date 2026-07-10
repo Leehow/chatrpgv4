@@ -1309,6 +1309,52 @@ def test_apply_payoff_on_non_final_scene_does_not_emit_session_ending(tmp_path):
     )
 
 
+def test_apply_session_ending_bumps_storylet_ledger_session_number(tmp_path):
+    """session_ending during apply must call start_new_session (bump ledger)."""
+    camp = _campaign(tmp_path)
+    (camp / "campaign.json").write_text(json.dumps({
+        "campaign_id": "test",
+        "scenario_id": "the-haunting",
+        "title": "Test Campaign",
+    }), encoding="utf-8")
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "aftermath"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "house-entry", "available_clues": ["clue-A"],
+         "dramatic_question": "q1", "entry_conditions": [], "exit_conditions": [],
+         "scene_type": "investigation"},
+        {"scene_id": "aftermath", "available_clues": [],
+         "dramatic_question": "how does the story close?",
+         "entry_conditions": [], "exit_conditions": [],
+         "scene_type": "resolution", "is_final": True},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    ledger_path = camp / "save" / "storylet-ledger.json"
+    ledger_path.write_text(json.dumps({
+        "session_number": 1,
+        "used_storylets": [],
+        "used_families": [],
+        "used_tropes": [],
+        "recent_families": [],
+        "recent_tropes": [],
+        "used_targets": [],
+        "turn_number": 0,
+    }), encoding="utf-8")
+
+    plan = {"decision_id": "d-end-rollover", "scene_action": "PAYOFF",
+            "clue_policy": {"reveal": []}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    assert any(
+        e.get("type") == "session_ending" or e.get("event_type") == "session_ending"
+        for e in events
+    )
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    assert ledger["session_number"] == 2
+
+
 # ---------------------------------------------------------------------------
 # R1-Y: structured exit eval, bidirectional tension, idempotent apply, atomic writes
 # ---------------------------------------------------------------------------

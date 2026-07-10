@@ -1470,6 +1470,12 @@ def _apply_plan_impl(
     if ending_ev is not None:
         events.append(ending_ev)
         _append_jsonl(logs / "events.jsonl", ending_ev)
+        # R1-Z E5: bump storylet ledger session_number so max_per_session resets.
+        try:
+            coc_storylets = _load_sibling("coc_storylets", "coc_storylets.py")
+            coc_storylets.start_new_session(campaign_dir)
+        except Exception:
+            pass
 
     # 8. always emit a turn event if nothing else did
     if not events:

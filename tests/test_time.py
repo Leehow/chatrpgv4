@@ -152,6 +152,28 @@ def test_time_cost_clamping(campaign):
     assert "time_validation_warning" in log
 
 
+def test_investigation_recovery_category_clamps_to_bounds():
+    """RECOVER uses investigation_recovery; category must exist and clamp [5, 60]."""
+    costs = coc_time._load_time_costs()
+    cat = costs.get("categories", {}).get("investigation_recovery")
+    assert cat is not None
+    assert cat["min"] == 5
+    assert cat["default"] == 30
+    assert cat["max"] == 60
+
+    low, warn_lo = coc_time.validate_and_clamp_delta(1, "investigation_recovery")
+    assert low == 5
+    assert warn_lo is not None
+
+    high, warn_hi = coc_time.validate_and_clamp_delta(120, "investigation_recovery")
+    assert high == 60
+    assert warn_hi is not None
+
+    mid, warn_mid = coc_time.validate_and_clamp_delta(30, "investigation_recovery")
+    assert mid == 30
+    assert warn_mid is None
+
+
 def test_trigger_scheduling_and_peek(campaign):
     """Schedule a trigger and peek at due triggers."""
     trig_id = coc_time.schedule_trigger(campaign, {
