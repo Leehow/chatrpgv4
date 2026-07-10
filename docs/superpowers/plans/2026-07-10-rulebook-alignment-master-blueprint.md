@@ -860,7 +860,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 
 > 事实与验收标准见 `docs/superpowers/specs/2026-07-10-next-phase-optimization-audit.md`，此处只登记防遗忘。
 
-- [x] **N5 真 LLM 玩家 vs KP harness**（审计标尺）：`runtime/adapters/player/` + `coc_live_match.py`；玩家 LLM 只看 `build_public_state` 等 player-safe 字段；`live=False` 的 `simulation_method` 永不算 gameplay 证据；仅 `--live` 可标 `live_llm_player_vs_kp`。
+- [x] **N5 真 LLM 玩家 vs KP harness**（审计标尺）：`runtime/adapters/player/` + `coc_live_match.py`；玩家 LLM 只看 `build_public_state` 等 player-safe 字段；`live=False` 的 `simulation_method` 永不算 gameplay 证据；仅 `--live` 可标 `live_llm_player_vs_kp`。**Live player bridge 已落地**：`run_player_turn.mjs` 为真实 pi-coding-agent 桥（与 KP `run_turn.mjs` 同骨架；AI coding tool LLM 扮调查员；`coc_player_action` 单工具；散文无工具时降级为可用 `player_text`）。
 - [x] **N6 存档工程化**：apply 热路径统一 `write_json_atomic`（coc_director_apply.py:177 等非原子点）、轻量文件锁、schema_version 迁移钩子。
 - [x] **N1 多宿主安装**：`.claude-plugin/` manifest + Cursor 入口薄适配层指向同一 skills 树（单轨法）；立绘保持 `CODEX_ONLY_IMAGEGEN` 门控。
 - [x] **N2+N7 内容与快速开玩**：The Haunting 叙事包（story-graph/clue-graph/npc-agendas）或第二短 starter；预生成调查员 + 一句话开玩入口。

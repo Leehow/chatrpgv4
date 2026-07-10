@@ -172,3 +172,54 @@ def test_player_request_schema_documents_required_keys():
         "transcript_tail",
         "pending_choice",
     }
+
+
+def test_parse_runner_response_accepts_prose_degraded_shape():
+    """Prose-without-tool degradation is a valid ok envelope (usable player_text)."""
+    adapter = _load_adapter()
+    parsed = adapter.parse_runner_response(
+        {
+            "ok": True,
+            "player_text": "我蹲下仔细查看门廊上的脚印。",
+            "player_notes": (
+                "player_missing_tool_use: model returned prose without coc_player_action"
+            ),
+        }
+    )
+    assert parsed["player_text"].startswith("我蹲下")
+    assert "player_missing_tool_use" in parsed["player_notes"]
+    assert "intent_class" not in parsed
+
+
+def test_player_send_turn_accepts_prose_degraded_fake_runner(tmp_path):
+    """Fake runner emitting prose-degraded shape must round-trip through adapter."""
+    adapter = _load_adapter()
+    runner = tmp_path / "fake_prose_degraded"
+    _write_fake_runner(
+        runner,
+        stdout=json.dumps(
+            {
+                "ok": True,
+                "player_text": "我推开侧门往里看一眼。",
+                "player_notes": (
+                    "player_missing_tool_use: model returned prose without coc_player_action"
+                ),
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+    )
+    result = adapter.player_send_turn(_sample_request(), runner_path=runner)
+    assert result["player_text"] == "我推开侧门往里看一眼。"
+    assert result["player_notes"].startswith("player_missing_tool_use:")
+
+
+def test_run_player_turn_mjs_is_real_bridge_not_placeholder():
+    """Sanity: committed runner is the real Pi bridge, not the N5 placeholder stub."""
+    source = (PLAYER_DIR / "run_player_turn.mjs").read_text(encoding="utf-8")
+    assert "coc_player_action" in source
+    assert "@earendil-works/pi-coding-agent" in source
+    assert "placeholder" not in source.lower()
+    assert "player_missing_tool_use" in source
+    pkg = json.loads((PLAYER_DIR / "package.json").read_text(encoding="utf-8"))
+    assert pkg["dependencies"]["@earendil-works/pi-coding-agent"] == "0.79.9"

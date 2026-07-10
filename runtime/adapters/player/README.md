@@ -7,12 +7,58 @@ against the KP pipeline. Used by `plugins/coc-keeper/scripts/coc_live_match.py`
 This is **not** a session `brain` in `.coc/runtime.json` (those are `debug` | `pi`
 for the Keeper). The player adapter is a separate match-harness bridge.
 
+**Key insight:** this repo is an AI-coding plugin, so the live “player LLM” is
+the same class of brain as the KP — the AI coding tool’s own LLM via
+[Pi Coding Agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
+(`@earendil-works/pi-coding-agent@0.79.9`), one process per turn, single
+allowlisted custom tool, auth via Pi’s normal discovery.
+
+## Install
+
+```bash
+cd runtime/adapters/player && npm install
+```
+
+Pins `@earendil-works/pi-coding-agent@0.79.9`. Do not commit `node_modules/`.
+
+## Auth / model
+
+Same as the Pi KP adapter (`runtime/adapters/pi/`): use Pi’s normal auth
+discovery (`~/.pi/agent` or environment variables). Do not commit secrets or
+API keys.
+
 ## Layout
 
 | File | Role |
 |------|------|
 | `adapter.py` | Python wrapper: `player_send_turn(request) -> {player_text, player_notes?, intent_class?}` |
-| `run_player_turn.mjs` | Placeholder Node stub (real bridge wiring is environment-specific) |
+| `run_player_turn.mjs` | Real Pi bridge: stdin JSON → stdout `{ok, player_text\|error}` |
+| `package.json` | Node dependency pin |
+
+## Live match (AI coding tool LLM as investigator)
+
+```bash
+# 1) Install player-bridge deps (once)
+cd runtime/adapters/player && npm install
+
+# 2) Ensure Pi auth is configured (same as KP pi adapter)
+
+# 3) Run a live match — --live marks evidence-eligible metadata
+python3 plugins/coc-keeper/scripts/coc_live_match.py \
+  --workspace /path/to/workspace \
+  --campaign <campaign_id> \
+  --investigator inv1 \
+  --runner runtime/adapters/player/run_player_turn.mjs \
+  --live \
+  --max-turns 20
+```
+
+Any stdin/stdout-JSON runner still works for other hosts (pass `--runner` to a
+custom executable). Non-`.mjs` / non-`.js` paths are executed directly so tests
+and alternate hosts can supply a tiny Python fake without Node.
+
+Only `--live` may stamp `simulation_method=live_llm_player_vs_kp`. Scripted /
+fake runners must omit `--live` (AGENTS.md evidence standard).
 
 ## Request / response
 
@@ -28,13 +74,17 @@ for the Keeper). The player adapter is a separate match-harness bridge.
 }
 ```
 
+The Node bridge renders this envelope into the model prompt (narration verbatim;
+character card summarized; `pending_choice` surfaced as an explicit question).
+It does not add fields to the request.
+
 **Response:**
 
 ```json
 {
   "ok": true,
   "player_text": "...",
-  "player_notes": "optional in-character reasoning",
+  "player_notes": "optional out-of-character reasoning",
   "intent_class": "optional canonical intent enum value"
 }
 ```
@@ -48,6 +98,16 @@ Optional `intent_class` is structured semantic evidence from the player brain
 `ambiguous`, `montage`, `cast`. Invalid values raise `RuntimeError` (bridge
 contract violation). When present, `coc_live_match` passes it through to
 `run_live_turn`'s caller-intent parameter.
+
+## V1 behavior
+
+- One process invocation per turn (no Pi session file continuity).
+- Only custom tool `coc_player_action` is allowlisted (no unconstrained edit/write).
+- **Prose degradation:** if the model returns free text without the tool, the
+  bridge still returns `ok: true` with that prose as `player_text` and
+  `player_notes` set to `player_missing_tool_use: ...` (unlike the KP bridge’s
+  `pi_missing_tool_use` error event — a player prose answer is usable).
+- If neither tool nor usable prose is produced, stdout is `{ok: false, error}`.
 
 ## Fake runners (tests)
 
