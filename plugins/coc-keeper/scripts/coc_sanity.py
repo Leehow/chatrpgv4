@@ -766,6 +766,13 @@ class SanitySession:
         sess.bout_rounds_remaining = int(snap.get("bout_rounds_remaining", 0))
         sess.daily_san_lost = int(snap.get("daily_san_lost", 0))
         sess.day_start_san = int(snap.get("day_start_san", sess.san_current))
+        sess.awfulness_caps = {str(k): int(v)
+                               for k, v in (snap.get("awfulness_caps") or {}).items()}
+        sess.phobia = snap.get("phobia")
+        sess.mania = snap.get("mania")
+        sess.conditions = list(snap.get("conditions") or [])
+        sess.bouts_of_madness = list(snap.get("bouts_of_madness") or [])
+        sess.involuntary_actions = list(snap.get("involuntary_actions") or [])
         saved_events = snap.get("events") or []
         sess.events = list(saved_events)
         sess._event_counter = len(saved_events)

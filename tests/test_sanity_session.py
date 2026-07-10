@@ -267,6 +267,27 @@ def test_day_start_san_survives_save_load(tmp_path):
     assert loaded.day_start_san == 40
 
 
+def test_load_restores_phobia_mania_awfulness_and_conditions(tmp_path):
+    """W0-7: reloading a session must not amnesia away phobia/mania/awfulness
+    caps/conditions/bout history."""
+    s = coc_sanity.SanitySession("ada", san_max=60, int_value=50,
+                                 rng=random.Random(9), campaign_dir=tmp_path)
+    s.phobia = "Arachnophobia"
+    s.mania = "Ablutomania"
+    s.conditions = ["phobia:Arachnophobia", "mania:Ablutomania"]
+    s.awfulness_caps = {"ghoul": 7}
+    s.bouts_of_madness = [{"mode": "summary", "bout_roll": 3}]
+    s.involuntary_actions = [{"kind": "freeze", "summary": "froze"}]
+    s.save(tmp_path)
+    loaded = coc_sanity.SanitySession.load(tmp_path, "ada")
+    assert loaded.phobia == "Arachnophobia"
+    assert loaded.mania == "Ablutomania"
+    assert loaded.awfulness_caps == {"ghoul": 7}
+    assert "phobia:Arachnophobia" in loaded.conditions
+    assert loaded.bouts_of_madness == [{"mode": "summary", "bout_roll": 3}]
+    assert loaded.involuntary_actions == [{"kind": "freeze", "summary": "froze"}]
+
+
 def test_critical_success_on_san_roll_is_best_outcome():
     """Critical (roll=01) on SAN roll = success (lose success amount only)."""
     # Very high SAN so roll=1 always succeeds (it always does — critical is
