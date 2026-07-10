@@ -27,11 +27,15 @@ Spec: docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+_APPLY_LEDGER_FILENAME = "apply-ledger.json"
+_APPLY_LEDGER_CAP = 200
 
 
 def _load_sibling(name: str, filename: str):
@@ -42,6 +46,8 @@ def _load_sibling(name: str, filename: str):
     spec.loader.exec_module(module)
     return module
 
+
+coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 
 coc_memory = None
 try:
@@ -182,8 +188,23 @@ def _read_json(path: Path, fallback: Any) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
+    """Atomic JSON write via tmp-file + os.replace.
+
+    Local implementation (not coc_fileio) to avoid a concurrent-agent file
+    dependency race; can be unified with coc_fileio.write_json_atomic later.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp_path.write_text(text, encoding="utf-8")
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
 def _resolve_scenario_id(campaign_dir: Path, world: dict[str, Any]) -> str | None:
@@ -564,6 +585,39 @@ def _bump_tension(current: str, delta: int) -> str:
     idx = _TENSION_LADDER.index(current) + delta
     idx = max(0, min(len(_TENSION_LADDER) - 1, idx))
     return _TENSION_LADDER[idx]
+
+
+def _resolve_tension_steps(
+    plan: dict[str, Any],
+    pressure_moves: list[dict[str, Any]],
+    action: str,
+) -> int:
+    """Resolve pacing tension steps for this apply.
+
+    Primary signal is ``plan["tension_delta"]`` (director emits +/−). Ladder:
+    low → medium → high → climax, clamped at both ends.
+
+    - Negative plan delta cools and is never cancelled by pressure ticks.
+    - Non-negative plan delta may gain extra escalation from pressure ticks.
+    - Absent plan delta: legacy derive from pressure ticks / PRESSURE|SUBSYSTEM.
+    """
+    pressure_ticks = sum(int(m.get("tick", 0) or 0) for m in pressure_moves)
+    if "tension_delta" in plan and plan.get("tension_delta") is not None:
+        try:
+            steps = int(plan["tension_delta"])
+        except (TypeError, ValueError):
+            steps = 0
+        if steps < 0:
+            return steps
+        if pressure_ticks > 0:
+            return steps + pressure_ticks
+        if steps == 0 and action in ("PRESSURE", "SUBSYSTEM"):
+            return 1
+        return steps
+    # Legacy path: no plan tension_delta — derive from pressure / action.
+    if pressure_ticks or action in ("PRESSURE", "SUBSYSTEM"):
+        return max(1, pressure_ticks)
+    return 0
 
 
 def _first_rule_result(rules_results: list[dict[str, Any]] | None) -> dict[str, Any] | None:
@@ -969,39 +1023,62 @@ def flush_pending_records(campaign_dir: Path, *, limit: int | None = None) -> di
 
 
 def _director_exit_eval(condition, discovered, campaign_dir, save_dir):
-    """Machine-checkable subset of an exit_condition for the apply-layer
-    auto-advance decision.
+    """Evaluate a scene exit_condition for apply-layer auto-advance.
 
-    Mirrors coc_story_director._eval_exit but only knows the two *machine-
-    checkable* families — "X discovered" and "pressure clock reaches N" — using
-    the state the apply layer has on hand (discovered clue set + threat-state
-    clocks). Narrative exit_conditions (e.g. "investigators accept the job")
-    match neither family and therefore return False, which is what blocks the
-    clue-reveal auto-advance: such scenes must wait for an explicit CUT /
-    force_transition.
+    Delegates to ``coc_exit_conditions`` with the same semantics as
+    ``coc_story_director._eval_exit``:
+
+    - ``clue_discovered`` — clue id in the discovered set
+    - ``clock_reaches`` — any (or named) threat clock's persisted
+      ``current_segments`` >= threshold
+    - ``narrative`` — always False (wait for CUT / force_transition)
+
+    Legacy string DSL forms are normalized inside coc_exit_conditions.
     """
-    if not isinstance(condition, str):
-        return False
-    if "discovered" in condition:
-        clue_id = condition.split()[0]
-        return clue_id in discovered
-    if "pressure clock reaches" in condition:
-        try:
-            n = int(condition.split("reaches")[-1].strip())
-        except (ValueError, IndexError):
-            return False
+    discovered_set = {str(c) for c in discovered}
+
+    def clock_reached(clock_id: str | None, threshold: int) -> bool:
         if coc_threat_state is None or campaign_dir is None or save_dir is None:
             return False
-        # any tracked clock that has reached N satisfies the condition
         fronts_path = campaign_dir / "scenario" / "threat-fronts.json"
         fronts = _read_json(fronts_path, {}).get("fronts", [])
         for front in fronts:
             for clock in front.get("clocks", []):
-                cid = clock.get("clock_id")
-                if cid and coc_threat_state.get_clock_segments(save_dir, cid) >= n:
+                cid = str(clock.get("clock_id") or "")
+                if not cid:
+                    continue
+                if clock_id and cid != str(clock_id):
+                    continue
+                if coc_threat_state.get_clock_segments(save_dir, cid) >= threshold:
                     return True
         return False
-    return False
+
+    return coc_exit_conditions.evaluate_exit_condition(
+        condition,
+        discovered_clue_ids=discovered_set,
+        clock_reached=clock_reached,
+    )
+
+
+def _apply_ledger_path(save_dir: Path) -> Path:
+    return save_dir / _APPLY_LEDGER_FILENAME
+
+
+def _decision_already_applied(save_dir: Path, decision_id: str) -> bool:
+    ledger = _read_json(_apply_ledger_path(save_dir), {"applied_decision_ids": []})
+    ids = ledger.get("applied_decision_ids") or []
+    return isinstance(ids, list) and decision_id in ids
+
+
+def _record_applied_decision(save_dir: Path, decision_id: str) -> None:
+    path = _apply_ledger_path(save_dir)
+    ledger = _read_json(path, {"applied_decision_ids": []})
+    ids = list(ledger.get("applied_decision_ids") or [])
+    if decision_id not in ids:
+        ids.append(decision_id)
+    if len(ids) > _APPLY_LEDGER_CAP:
+        ids = ids[-_APPLY_LEDGER_CAP:]
+    _write_json(path, {"applied_decision_ids": ids})
 
 
 def apply_plan(
@@ -1011,14 +1088,27 @@ def apply_plan(
     rules_results: list[dict[str, Any]] | None = None,
     recording_mode: str | None = None,
     recording_flush: str | None = None,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | dict[str, Any]:
     """Apply a DirectorPlan with sync or fast queued JSONL recording.
 
     Default sync mode preserves legacy behavior. Fast/minimal mode keeps save
     state updates synchronous but queues verbose JSONL records under
     logs/pending-turns for a recorder worker or later flush.
+
+    Re-applying the same ``plan["decision_id"]`` is a structured no-op
+    (``{"skipped": "duplicate_decision_id", ...}``) so damage/SAN/clock ticks
+    are not double-applied.
     """
     global _ACTIVE_JSONL_RECORDER
+
+    decision_id = str(plan.get("decision_id", "unknown"))
+    save_dir = Path(campaign_dir) / "save"
+    if _decision_already_applied(save_dir, decision_id):
+        return {
+            "skipped": "duplicate_decision_id",
+            "decision_id": decision_id,
+            "events": [],
+        }
 
     mode = "sync"
     flush_policy = "manual"
@@ -1030,7 +1120,7 @@ def apply_plan(
             recorder = coc_async_recorder.JsonlRecorder(
                 campaign_dir,
                 mode=mode,
-                decision_id=str(plan.get("decision_id", "unknown")),
+                decision_id=decision_id,
             )
 
     previous_recorder = _ACTIVE_JSONL_RECORDER
@@ -1064,7 +1154,7 @@ def _apply_plan_impl(
     save = campaign_dir / "save"
     logs = campaign_dir / "logs"
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    decision_id = plan.get("decision_id", "unknown")
+    decision_id = str(plan.get("decision_id", "unknown"))
     action = plan.get("scene_action", "")
 
     # 1. clue reveal / fail-forward resolution
@@ -1177,9 +1267,11 @@ def _apply_plan_impl(
     pacing_path = save / "pacing-state.json"
     pacing = _read_json(pacing_path, {"tension_level": "low", "turn_number": 0})
     pressure_moves = [*plan.get("pressure_moves", []), *extra_pressure]
-    tension_delta = sum(int(m.get("tick", 0)) for m in pressure_moves)
-    if tension_delta or action in ("PRESSURE", "SUBSYSTEM"):
-        pacing["tension_level"] = _bump_tension(pacing.get("tension_level", "low"), max(1, tension_delta))
+    tension_steps = _resolve_tension_steps(plan, pressure_moves, action)
+    if tension_steps:
+        pacing["tension_level"] = _bump_tension(
+            pacing.get("tension_level", "low"), tension_steps
+        )
     pacing["turn_number"] = int(pacing.get("turn_number", 0)) + 1
     # track recent intent classes for stall detection (capped at last 5)
     recent = list(pacing.get("recent_intent_classes", []))
@@ -1383,5 +1475,8 @@ def _apply_plan_impl(
               "investigator_id": investigator_id, "ts": ts}
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)
+
+    # 9. idempotency ledger — record after a successful apply so retries no-op.
+    _record_applied_decision(save, decision_id)
 
     return events

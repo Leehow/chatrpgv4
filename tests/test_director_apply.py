@@ -1,6 +1,7 @@
 """Tests for coc_director_apply: persists DirectorPlan effects to save/logs/memory."""
 import importlib.util
 import json
+import os
 import time
 from pathlib import Path
 
@@ -1306,3 +1307,209 @@ def test_apply_payoff_on_non_final_scene_does_not_emit_session_ending(tmp_path):
         e.get("type") == "session_ending" or e.get("event_type") == "session_ending"
         for e in events
     )
+
+
+# ---------------------------------------------------------------------------
+# R1-Y: structured exit eval, bidirectional tension, idempotent apply, atomic writes
+# ---------------------------------------------------------------------------
+
+
+def test_apply_structured_clue_discovered_exit_auto_advances(tmp_path):
+    """Structured exit_conditions objects must satisfy in the apply layer (not only director)."""
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "scene-1"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "scene-1", "available_clues": ["clue-A"],
+         "dramatic_question": "q1", "entry_conditions": [],
+         "exit_conditions": [{"kind": "clue_discovered", "clue_id": "clue-A"}]},
+        {"scene_id": "scene-2", "available_clues": ["clue-B"],
+         "dramatic_question": "q2", "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {"decision_id": "d-struct-clue", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-A"]}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "scene-2"
+
+
+def test_apply_structured_narrative_exit_blocks_auto_advance(tmp_path):
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "briefing"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "briefing", "available_clues": ["clue-briefing"],
+         "dramatic_question": "q1", "entry_conditions": [],
+         "exit_conditions": [{"kind": "narrative", "description": "investigators accept the job"}]},
+        {"scene_id": "archive", "available_clues": ["clue-newspaper"],
+         "dramatic_question": "q2", "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {"decision_id": "d-struct-narr", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": ["clue-briefing"]}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "briefing"
+
+
+def test_apply_structured_clock_reaches_exit_auto_advances(tmp_path):
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "scene-1"
+    world["discovered_clue_ids"] = ["clue-A"]
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"front_id": "f1", "clocks": [
+            {"clock_id": "cult-alert", "segments": 6, "on_full": "raid"},
+        ]}],
+    }))
+    (camp / "save" / "threat-state.json").write_text(json.dumps({
+        "schema_version": 1,
+        "clocks": {"cult-alert": {"current_segments": 3, "full": False}},
+    }))
+    sg = {"scenes": [
+        {"scene_id": "scene-1", "available_clues": ["clue-A"],
+         "dramatic_question": "q1", "entry_conditions": [],
+         "exit_conditions": [{"kind": "clock_reaches", "clock_id": "cult-alert", "threshold": 3}]},
+        {"scene_id": "scene-2", "available_clues": ["clue-B"],
+         "dramatic_question": "q2", "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    # Clues already exhausted; REVEAL with empty reveal still runs exit eval.
+    plan = {"decision_id": "d-struct-clock", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": []}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "scene-2"
+
+
+def test_apply_tension_delta_cools_from_high_to_medium(tmp_path):
+    """plan.tension_delta must be able to lower tension (RECOVER/MONTAGE/AFTERMATH)."""
+    camp = _campaign(tmp_path)
+    (camp / "save" / "pacing-state.json").write_text(json.dumps({
+        "schema_version": 1, "tension_level": "high", "lethal_chances_used": 0,
+        "recent_intent_classes": [], "turn_number": 3, "luck_spent_last": 0,
+    }))
+    plan = {
+        "decision_id": "d-cool",
+        "scene_action": "MONTAGE",
+        "tension_delta": -1,
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing["tension_level"] == "medium"
+
+
+def test_apply_tension_delta_cooling_not_blocked_by_pressure_ticks(tmp_path):
+    camp = _campaign(tmp_path)
+    (camp / "save" / "pacing-state.json").write_text(json.dumps({
+        "schema_version": 1, "tension_level": "climax", "lethal_chances_used": 0,
+        "recent_intent_classes": [], "turn_number": 5, "luck_spent_last": 0,
+    }))
+    plan = {
+        "decision_id": "d-cool-pressure",
+        "scene_action": "AFTERMATH",
+        "tension_delta": -1,
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [{"clock_id": "cult-alert", "tick": 1, "visible_symptom": "echo"}],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing["tension_level"] == "high"
+
+
+def test_apply_tension_delta_escalates_and_clamps_at_climax(tmp_path):
+    camp = _campaign(tmp_path)
+    (camp / "save" / "pacing-state.json").write_text(json.dumps({
+        "schema_version": 1, "tension_level": "high", "lethal_chances_used": 0,
+        "recent_intent_classes": [], "turn_number": 2, "luck_spent_last": 0,
+    }))
+    plan = {
+        "decision_id": "d-escalate",
+        "scene_action": "PRESSURE",
+        "tension_delta": 1,
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [{"clock_id": "cult-alert", "tick": 1}],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing["tension_level"] == "climax"
+    # second escalate stays clamped
+    plan2 = {**plan, "decision_id": "d-escalate-2", "tension_delta": 1}
+    coc_director_apply.apply_plan(camp, plan2, investigator_id="inv1")
+    pacing2 = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing2["tension_level"] == "climax"
+
+
+def test_apply_plan_idempotent_skips_duplicate_decision_id(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-once",
+        "scene_action": "REVEAL",
+        "clue_policy": {"reveal": ["clue-A"]},
+        "pressure_moves": [{"clock_id": "cult-alert", "tick": 1}],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    events1 = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    assert any(e.get("event_type") == "clue_reveal" for e in events1)
+    world1 = json.loads((camp / "save" / "world-state.json").read_text())
+    pacing1 = json.loads((camp / "save" / "pacing-state.json").read_text())
+    events_path = camp / "logs" / "events.jsonl"
+    lines1 = [ln for ln in events_path.read_text().splitlines() if ln.strip()]
+
+    result2 = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    # Structured no-op: dict or single-element list carrying skipped marker.
+    if isinstance(result2, dict):
+        assert result2.get("skipped") == "duplicate_decision_id"
+        assert result2.get("decision_id") == "d-once"
+    else:
+        assert result2
+        assert result2[0].get("skipped") == "duplicate_decision_id"
+
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    pacing2 = json.loads((camp / "save" / "pacing-state.json").read_text())
+    lines2 = [ln for ln in events_path.read_text().splitlines() if ln.strip()]
+    assert world2 == world1
+    assert pacing2["turn_number"] == pacing1["turn_number"]
+    assert pacing2["tension_level"] == pacing1["tension_level"]
+    assert lines2 == lines1
+
+    ledger = json.loads((camp / "save" / "apply-ledger.json").read_text())
+    assert "d-once" in ledger.get("applied_decision_ids", [])
+
+
+def test_write_json_is_atomic_via_replace(tmp_path, monkeypatch):
+    """_write_json must use tmp-file + os.replace (not bare write_text)."""
+    target = tmp_path / "out.json"
+    calls = []
+    real_replace = os.replace
+
+    def tracking_replace(src, dst):
+        calls.append((str(src), str(dst)))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(coc_director_apply.os, "replace", tracking_replace)
+    coc_director_apply._write_json(target, {"ok": True})
+    assert target.exists()
+    assert json.loads(target.read_text()) == {"ok": True}
+    assert calls, "expected os.replace to be used for atomic write"
+    assert any(str(target) == dst for _src, dst in calls)
