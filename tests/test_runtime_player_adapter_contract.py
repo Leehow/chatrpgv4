@@ -191,6 +191,37 @@ def test_parse_runner_response_accepts_prose_degraded_shape():
     assert "intent_class" not in parsed
 
 
+def test_parse_runner_response_recovers_tool_scaffolding_from_prose():
+    """Glued coc_player_action field labels must not leak into player_text."""
+    adapter = _load_adapter()
+    blob = (
+        "coc_player_actionplayer_text: 海斯没有去碰那个话题。"
+        "他把身体往椅背一靠。intent_class: socialplayer_notes: "
+        "海斯注意到签名，选择不直接揭穿。"
+    )
+    parsed = adapter.parse_runner_response(
+        {
+            "ok": True,
+            "player_text": blob,
+            "player_notes": (
+                "player_missing_tool_use: model returned prose without coc_player_action"
+            ),
+        }
+    )
+    assert parsed["player_text"].startswith("海斯没有去碰那个话题")
+    assert "coc_player_action" not in parsed["player_text"]
+    assert "intent_class:" not in parsed["player_text"]
+    assert "player_notes:" not in parsed["player_text"]
+    assert parsed["intent_class"] == "social"
+    assert parsed["player_notes"].startswith("海斯注意到签名")
+
+
+def test_recover_player_action_scaffolding_leaves_ordinary_prose_alone():
+    adapter = _load_adapter()
+    assert adapter.recover_player_action_scaffolding("我推开侧门往里看一眼。") is None
+    assert adapter.recover_player_action_scaffolding("") is None
+
+
 def test_player_send_turn_accepts_prose_degraded_fake_runner(tmp_path):
     """Fake runner emitting prose-degraded shape must round-trip through adapter."""
     adapter = _load_adapter()

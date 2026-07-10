@@ -34,6 +34,70 @@ CANONICAL_INTENT_CLASSES = frozenset(
     }
 )
 
+# Fixed protocol markers from coc_player_action — format recovery only, not
+# semantic keyword matching (Semantic Matcher Constitution).
+_PLAYER_ACTION_TOOL = "coc_player_action"
+_PLAYER_PROTOCOL_LABELS = ("player_text:", "intent_class:", "player_notes:")
+
+
+def recover_player_action_scaffolding(text: str) -> dict[str, str] | None:
+    """Extract coc_player_action field values from prose that embeds our labels.
+
+    Models sometimes emit the tool call as concatenated prose, e.g.
+    ``coc_player_actionplayer_text: ...intent_class: socialplayer_notes: ...``.
+    When those fixed protocol markers are present, recover the real fields
+    instead of treating the whole blob as in-character player_text.
+    """
+    if not isinstance(text, str):
+        return None
+    raw = text.strip()
+    if not raw:
+        return None
+    if _PLAYER_ACTION_TOOL not in raw and "player_text:" not in raw:
+        return None
+    # Require at least one field label — otherwise leave ordinary prose alone.
+    if "player_text:" not in raw:
+        return None
+
+    work = raw
+    tool_idx = work.find(_PLAYER_ACTION_TOOL)
+    if tool_idx >= 0:
+        # Drop a leading tool-name glue prefix when present.
+        after_tool = work[tool_idx + len(_PLAYER_ACTION_TOOL) :]
+        if "player_text:" in after_tool:
+            work = after_tool.lstrip()
+
+    markers: list[tuple[int, str]] = []
+    for label in _PLAYER_PROTOCOL_LABELS:
+        idx = work.find(label)
+        if idx >= 0:
+            markers.append((idx, label))
+    if not markers:
+        return None
+    markers.sort(key=lambda item: item[0])
+    if markers[0][1] != "player_text:":
+        # player_text must be the first recoverable field.
+        pt_idx = work.find("player_text:")
+        if pt_idx < 0:
+            return None
+        markers = [(pt_idx, "player_text:")] + [
+            m for m in markers if m[1] != "player_text:" and m[0] > pt_idx
+        ]
+
+    fields: dict[str, str] = {}
+    for i, (idx, label) in enumerate(markers):
+        start = idx + len(label)
+        end = markers[i + 1][0] if i + 1 < len(markers) else len(work)
+        value = work[start:end].strip()
+        key = label[:-1]  # strip trailing colon
+        if value:
+            fields[key] = value
+
+    player_text = fields.get("player_text")
+    if not player_text:
+        return None
+    return fields
+
 
 def _player_dir() -> Path:
     return Path(__file__).resolve().parent
@@ -55,6 +119,10 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
 
     Optional ``intent_class`` is structured semantic evidence from the player
     brain (canonical enum). Invalid values are a bridge contract violation.
+
+    When ``player_text`` embeds our own ``coc_player_action`` protocol markers
+    (prose-degradation of a tool-shaped reply), recover the real field values
+    before returning.
     """
     if not isinstance(raw, dict):
         raise RuntimeError("player runner response must be a JSON object")
@@ -64,14 +132,23 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
     player_text = raw.get("player_text")
     if not isinstance(player_text, str) or not player_text.strip():
         raise RuntimeError("player runner response missing non-empty player_text string")
-    result: dict[str, Any] = {"ok": True, "player_text": player_text}
+
     notes = raw.get("player_notes")
+    intent_class = raw.get("intent_class") if "intent_class" in raw else None
+    recovered = recover_player_action_scaffolding(player_text)
+    if recovered:
+        player_text = recovered["player_text"]
+        if recovered.get("player_notes"):
+            notes = recovered["player_notes"]
+        if recovered.get("intent_class") and intent_class is None:
+            intent_class = recovered["intent_class"]
+
+    result: dict[str, Any] = {"ok": True, "player_text": player_text}
     if notes is not None:
         if not isinstance(notes, str):
             raise RuntimeError("player_notes must be a string when present")
         result["player_notes"] = notes
-    if "intent_class" in raw and raw.get("intent_class") is not None:
-        intent_class = raw.get("intent_class")
+    if intent_class is not None:
         if not isinstance(intent_class, str) or intent_class not in CANONICAL_INTENT_CLASSES:
             raise RuntimeError(
                 f"player runner intent_class {intent_class!r} is not a canonical "
