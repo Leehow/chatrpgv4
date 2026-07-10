@@ -893,3 +893,187 @@ def test_zero_hp_with_major_wound_is_dying():
     assert p["hp_current"] == 0
     assert "dying" in p["conditions"]
     assert "unconscious" in p["conditions"]
+
+
+# --------------------------------------------------------------------------- #
+# W3-2 Firearms depth: aiming, multi-shot, reload, full-auto, suppression
+# --------------------------------------------------------------------------- #
+def test_parse_uses_per_round_handgun_and_full_auto():
+    """weapons.json uses_per_round strings decode into structured limits."""
+    assert coc_combat.parse_uses_per_round("1 (3)") == {
+        "max_shots": 3, "allows_full_auto": False, "rounds_per_use": 1,
+    }
+    assert coc_combat.parse_uses_per_round("1(3)")["max_shots"] == 3
+    parsed = coc_combat.parse_uses_per_round("1 (2) or full auto")
+    assert parsed["max_shots"] == 2
+    assert parsed["allows_full_auto"] is True
+    assert coc_combat.parse_uses_per_round("Full auto")["allows_full_auto"] is True
+    assert coc_combat.parse_uses_per_round("1/2")["rounds_per_use"] == 2
+
+
+def test_aiming_grants_bonus_die_on_next_shot():
+    """p.113 Aiming: spend a round aiming → +1 bonus die on the next shot."""
+    rng = random.Random(201)
+    s = coc_combat.CombatSession("aim-test", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=60, build=0, hp_max=12,
+                      firearms_skill=60, has_ready_firearm=True,
+                      weapons=["revolver_38"])
+    s.add_participant("foe", "monster", dex=40, combat_skill=40, build=0, hp_max=12)
+    s.begin_round()
+    aim = s.declare_and_resolve_turn("hero", "take careful aim",
+                                     resolution_hint="aim", weapon_id="revolver_38")
+    assert aim["outcome"] == "aiming"
+    assert s.participants["hero"].get("_aiming") is True
+    s.begin_round()
+    shot = s.declare_and_resolve_turn(
+        "hero", "fire the aimed shot", "attack",
+        target_actor_id="foe", defense_kind="none", weapon_id="revolver_38")
+    assert shot["attack_modifiers"]["bonus"] >= 1
+    assert shot["attack_modifiers"].get("aimed") is True
+    assert s.participants["hero"].get("_aiming") is False
+
+
+def test_aiming_lost_when_damaged():
+    """p.113: if the aiming character takes damage, aiming advantage is lost."""
+    rng = random.Random(202)
+    s = coc_combat.CombatSession("aim-lost", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=60, build=0, hp_max=12,
+                      firearms_skill=60, weapons=["revolver_38"])
+    s.add_participant("foe", "monster", dex=80, combat_skill=99, build=0, hp_max=12,
+                      weapons=[{"weapon_id": "club", "skill": "Fighting (Brawl)",
+                                "damage": "1D8", "adds_damage_bonus": False}])
+    s.begin_round()
+    s.declare_and_resolve_turn("hero", "aim", resolution_hint="aim", weapon_id="revolver_38")
+    assert s.participants["hero"]["_aiming"] is True
+    # Force damage onto the aimer (rulebook: taking damage loses aim).
+    s._damage_roll("1D8", "foe", "hero", "club", "forced-hit")
+    assert s.participants["hero"].get("_aiming") is False
+
+
+def test_handgun_multi_shot_applies_one_penalty_die_to_each():
+    """p.113 Handguns Multiple Shots: 2+ shots → each shot gets one penalty die."""
+    rng = random.Random(203)
+    s = coc_combat.CombatSession("multi-shot", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=70, build=0, hp_max=12,
+                      firearms_skill=70, weapons=["revolver_38"])
+    s.add_participant("foe", "monster", dex=40, combat_skill=40, build=0, hp_max=30)
+    s.begin_round()
+    t = s.declare_and_resolve_turn(
+        "hero", "empty three rounds", "attack",
+        target_actor_id="foe", defense_kind="none", weapon_id="revolver_38",
+        shots=3)
+    assert t["outcome"] in ("multi_shot_resolved", "hit", "miss")
+    shots = t.get("shots") or []
+    assert len(shots) == 3
+    for shot in shots:
+        assert shot["attack_modifiers"]["penalty"] >= 1
+        assert shot["attack_modifiers"].get("multi_shot") is True
+
+
+def test_handgun_multi_shot_respects_uses_per_round():
+    """uses_per_round from weapons.json caps shots (revolver_38 = 1 (3))."""
+    rng = random.Random(204)
+    s = coc_combat.CombatSession("upr", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=70, build=0, hp_max=12,
+                      firearms_skill=70, weapons=["revolver_38"])
+    s.add_participant("foe", "monster", dex=40, combat_skill=40, build=0, hp_max=12)
+    s.begin_round()
+    try:
+        s.declare_and_resolve_turn(
+            "hero", "fire four", "attack",
+            target_actor_id="foe", defense_kind="none", weapon_id="revolver_38",
+            shots=4)
+        assert False, "expected ValueError for shots > uses_per_round max"
+    except ValueError as exc:
+        assert "uses_per_round" in str(exc) or "shots" in str(exc).lower()
+
+
+def test_reload_costs_rounds_and_restores_ammo():
+    """p.113 Reloading: clip/shell reload costs combat rounds; restores magazine."""
+    rng = random.Random(205)
+    s = coc_combat.CombatSession("reload", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=60, build=0, hp_max=12,
+                      firearms_skill=60, weapons=["revolver_38"])
+    s.add_participant("foe", "monster", dex=40, combat_skill=40, build=0, hp_max=12)
+    # Empty the cylinder.
+    s.set_ammo("hero", "revolver_38", 0)
+    assert s.get_ammo("hero", "revolver_38") == 0
+    s.begin_round()
+    empty = s.declare_and_resolve_turn(
+        "hero", "click", "attack",
+        target_actor_id="foe", defense_kind="none", weapon_id="revolver_38")
+    assert empty["outcome"] == "out_of_ammo"
+    reload_t = s.declare_and_resolve_turn(
+        "hero", "reload the revolver", resolution_hint="reload", weapon_id="revolver_38")
+    assert reload_t["outcome"] in ("reload_complete", "reload_in_progress")
+    # revolver_38 reload_rounds defaults to 1 → complete same declaration.
+    if reload_t["outcome"] == "reload_complete":
+        assert s.get_ammo("hero", "revolver_38") == 6  # magazine
+
+
+def test_load_and_fire_same_round_adds_penalty():
+    """p.113: load one round and fire same round → one penalty die."""
+    rng = random.Random(206)
+    s = coc_combat.CombatSession("loadfire", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=60, build=0, hp_max=12,
+                      firearms_skill=60, weapons=["revolver_38"])
+    s.add_participant("foe", "monster", dex=40, combat_skill=40, build=0, hp_max=12)
+    s.set_ammo("hero", "revolver_38", 0)
+    s.begin_round()
+    t = s.declare_and_resolve_turn(
+        "hero", "load one and fire", "attack",
+        target_actor_id="foe", defense_kind="none", weapon_id="revolver_38",
+        load_and_fire=True)
+    assert t["attack_modifiers"]["penalty"] >= 1
+    assert t["attack_modifiers"].get("load_and_fire") is True
+
+
+def test_full_auto_volley_size_is_skill_div_10_min_3():
+    """p.114: volley size = skill/10 (tens digit), never fewer than 3."""
+    assert coc_combat.full_auto_volley_size(47) == 4
+    assert coc_combat.full_auto_volley_size(63) == 6
+    assert coc_combat.full_auto_volley_size(20) == 3  # floor at 3
+    assert coc_combat.full_auto_volley_size(9) == 3
+
+
+def test_full_auto_volleys_escalate_penalty():
+    """p.114-116: first volley normal; each subsequent +1 penalty; 3rd→2 penalty."""
+    rng = random.Random(207)
+    s = coc_combat.CombatSession("fullauto", "test", 1, rng=rng)
+    s.add_participant("gunner", "npc", dex=50, combat_skill=60, build=0, hp_max=13,
+                      firearms_skill=60, weapons=["thompson"])
+    s.add_participant("foe", "investigator", dex=55, combat_skill=25, build=0, hp_max=15)
+    s.begin_round()
+    # skill 60 → volley size 6; fire 18 rounds = 3 volleys
+    t = s.declare_and_resolve_turn(
+        "gunner", "full auto on foe", "attack",
+        target_actor_id="foe", defense_kind="none", weapon_id="thompson",
+        fire_mode="full_auto", rounds_fired=18)
+    volleys = t.get("volleys") or []
+    assert len(volleys) == 3
+    assert volleys[0]["attack_modifiers"]["penalty"] == 0
+    assert volleys[1]["attack_modifiers"]["penalty"] == 1
+    assert volleys[2]["attack_modifiers"]["penalty"] == 2
+    assert all(v["bullets"] == 6 for v in volleys)
+
+
+def test_suppressive_fire_offers_dive_for_cover():
+    """p.126 Suppressing Fire: group may dive for cover; then random targets resolved."""
+    rng = random.Random(208)
+    s = coc_combat.CombatSession("suppress", "test", 1, rng=rng)
+    s.add_participant("gunner", "npc", dex=50, combat_skill=40, build=0, hp_max=13,
+                      firearms_skill=40, weapons=["thompson"])
+    s.add_participant("a", "investigator", dex=55, combat_skill=25, build=0, hp_max=15,
+                      dodge_skill=50)
+    s.add_participant("b", "investigator", dex=60, combat_skill=30, build=0, hp_max=14,
+                      dodge_skill=40)
+    s.begin_round()
+    t = s.declare_and_resolve_turn(
+        "gunner", "suppressive fire on the room",
+        resolution_hint="firearm_attack", weapon_id="thompson",
+        fire_mode="suppressive",
+        suppress_targets=["a", "b"],
+        dive_for_cover_actors=["a"])
+    assert t["outcome"] == "suppressive_fire"
+    assert "a" in (t.get("dived_for_cover") or [])
+    assert t.get("suppression_targets")

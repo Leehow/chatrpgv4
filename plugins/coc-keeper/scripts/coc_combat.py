@@ -69,6 +69,7 @@ def load_weapon_catalog(rules_dir: Path | None = None) -> dict[str, dict[str, An
         # the catalog row works with the engine without a redundant column.
         if "damage" not in entry and "damage_die" in entry:
             entry["damage"] = entry["damage_die"]
+        _derive_reload_fields(entry)
         catalog[wid] = entry
     return catalog
 
@@ -118,13 +119,82 @@ def resolve_module_weapons(
     return merged
 
 
+def parse_uses_per_round(text: str | None) -> dict[str, Any]:
+    """Decode Table XVII ``uses_per_round`` strings into engine limits.
+
+    Examples:
+      ``"1"`` → max_shots=1
+      ``"1 (3)"`` / ``"1(3)"`` → max_shots=3 (optional multi-shot)
+      ``"1 or 2"`` → max_shots=2
+      ``"1 (2) or full auto"`` → max_shots=2, allows_full_auto=True
+      ``"Full auto"`` → allows_full_auto=True, max_shots=0 (auto only)
+      ``"1/2"`` → rounds_per_use=2 (one shot every two rounds)
+    """
+    raw = (text or "1").strip()
+    lower = raw.lower()
+    allows_full_auto = "full auto" in lower
+    rounds_per_use = 1
+    max_shots = 1
+    frac = re.fullmatch(r"(\d+)\s*/\s*(\d+)", raw)
+    if frac:
+        rounds_per_use = max(1, int(frac.group(2)))
+        max_shots = max(1, int(frac.group(1)))
+        return {"max_shots": max_shots, "allows_full_auto": allows_full_auto,
+                "rounds_per_use": rounds_per_use}
+    if allows_full_auto and re.fullmatch(r"full\s*auto", lower):
+        return {"max_shots": 0, "allows_full_auto": True, "rounds_per_use": 1}
+    # Optional multi-shot in parentheses: "1 (3)" or "1(3)"
+    m_paren = re.search(r"\((\d+)\)", raw)
+    if m_paren:
+        max_shots = int(m_paren.group(1))
+    else:
+        # "1 or 2" / "1 or full auto" — take the largest explicit integer
+        nums = [int(n) for n in re.findall(r"\d+", raw)]
+        max_shots = max(nums) if nums else (0 if allows_full_auto else 1)
+    return {"max_shots": max_shots, "allows_full_auto": allows_full_auto,
+            "rounds_per_use": rounds_per_use}
+
+
+def full_auto_volley_size(skill: int) -> int:
+    """Full-auto volley size = skill/10 (tens digit), never fewer than 3 (p.114)."""
+    return max(3, int(skill) // 10)
+
+
+def _derive_reload_fields(entry: dict[str, Any]) -> None:
+    """Fill reload_rounds / reload_kind when absent (p.113 Reloading Firearms).
+
+    - Clip exchange or loading shells into handgun/rifle/shotgun: 1 round.
+    - Machine-gun belt change: 2 rounds.
+    - Shells: up to 2 loaded per spent reload round.
+    """
+    magazine = entry.get("magazine")
+    skill = str(entry.get("skill") or "")
+    if magazine is None:
+        entry.setdefault("reload_rounds", None)
+        entry.setdefault("reload_kind", None)
+        entry.setdefault("ammo_per_reload_round", None)
+        return
+    is_mg = ("Machine Gun" in skill) or skill.endswith("(MG)") or "Machine gun" in skill
+    if "reload_rounds" not in entry or entry["reload_rounds"] is None:
+        entry["reload_rounds"] = 2 if is_mg else 1
+    if "reload_kind" not in entry or entry["reload_kind"] is None:
+        entry["reload_kind"] = "belt" if is_mg else ("clip" if int(magazine) > 2 else "shells")
+    if "ammo_per_reload_round" not in entry or entry["ammo_per_reload_round"] is None:
+        if entry["reload_kind"] == "clip":
+            entry["ammo_per_reload_round"] = int(magazine)
+        elif entry["reload_kind"] == "belt":
+            entry["ammo_per_reload_round"] = int(magazine)
+        else:
+            entry["ammo_per_reload_round"] = 2  # two shells per round (p.113)
+
+
 # Success-level ordering (rulebook p.91). Higher = better.
 LVL = {"fumble": 0, "failure": 1, "regular": 2, "hard": 3, "extreme": 4, "critical": 5}
 
 # Valid enums for schema validation.
 VALID_SIDES = {"investigator", "monster", "npc"}
 VALID_ACTIONS = {"attack", "maneuver", "flee", "cast", "other", "surprise_attack"}
-VALID_DEFENSE = {"fight_back", "dodge", "dive_for_cover", "none", None}
+VALID_DEFENSE = {"fight_back", "dodge", "dive_for_cover", "maneuver", "none", None}
 VALID_CONDITIONS = {"major_wound", "dying", "unconscious", "prone",
                      "grappled", "surprised", "outnumbered"}
 VALID_OUTCOMES = {"investigators_win", "monsters_win", "fled", "stalemate", None}
@@ -217,6 +287,10 @@ class CombatSession:
             "_defended_this_round": False,
             "_dived_for_cover": False,
             "_forfeit_next_attack": False,
+            # Firearms depth (W3-2 / p.113-114, p.126):
+            "_aiming": False,
+            "_ammo": {},  # weapon_id → rounds currently loaded
+            "_reload_remaining": {},  # weapon_id → rounds left to finish reload
         }
 
     # ------------------------------------------------------------------ #
@@ -287,6 +361,42 @@ class CombatSession:
             self.participants[actor_id]["_forfeit_next_attack"] = False
             self.participants[actor_id]["_dived_for_cover"] = False
 
+    # ------------------------------------------------------------------ #
+    # Ammo / aiming helpers (W3-2)
+    # ------------------------------------------------------------------ #
+    def get_ammo(self, actor_id: str, weapon_id: str) -> int | None:
+        """Current loaded ammo for a weapon, or None if the weapon has no magazine."""
+        weapon = self._weapon(actor_id, weapon_id)
+        magazine = weapon.get("magazine")
+        if magazine is None:
+            return None
+        ammo_map = self.participants[actor_id].setdefault("_ammo", {})
+        if weapon_id not in ammo_map:
+            ammo_map[weapon_id] = int(magazine)
+        return int(ammo_map[weapon_id])
+
+    def set_ammo(self, actor_id: str, weapon_id: str, rounds: int) -> None:
+        """Set loaded ammo (clamped to magazine capacity when known)."""
+        weapon = self._weapon(actor_id, weapon_id)
+        magazine = weapon.get("magazine")
+        value = max(0, int(rounds))
+        if magazine is not None:
+            value = min(value, int(magazine))
+        self.participants[actor_id].setdefault("_ammo", {})[weapon_id] = value
+
+    def _consume_ammo(self, actor_id: str, weapon_id: str, count: int = 1) -> int:
+        """Consume up to ``count`` rounds; return how many were actually spent."""
+        current = self.get_ammo(actor_id, weapon_id)
+        if current is None:
+            return count  # untracked (melee / unlimited)
+        spent = min(current, max(0, int(count)))
+        self.set_ammo(actor_id, weapon_id, current - spent)
+        return spent
+
+    def _clear_aiming(self, actor_id: str) -> None:
+        if actor_id in self.participants:
+            self.participants[actor_id]["_aiming"] = False
+
     def _turn(self, actor_id: str, dex: int | None = None,
               dex_reason: str | None = None) -> dict[str, Any]:
         self._turn_counter += 1
@@ -346,17 +456,32 @@ class CombatSession:
         self.pending_rolls.append(record)
         return res["outcome"], record
 
-    def _weapon_db_expr(self, attacker: dict, weapon: dict) -> str | None:
+    def _weapon_db_expr(self, attacker: dict, weapon: dict,
+                        half: bool | None = None) -> str | None:
         """Return the attacker's DB expression if the weapon adds DB (melee),
         else None. Per Table XVII (pp.401-405), melee weapons add the attacker's
-        damage bonus; firearms do not. The DB comes from the participant's
-        `damage_bonus` field (e.g. '+1D4', '-2', 'none')."""
+        damage bonus; firearms do not. Thrown/missile weapons that rely on
+        strength use half DB (p.108). The DB comes from the participant's
+        `damage_bonus` field (e.g. '+1D4', '-2', 'none').
+
+        When ``half`` is True (or the weapon special notes half DB), the
+        expression is tagged ``half:EXPR`` so ``_damage_roll`` halves the roll.
+        """
         if not weapon.get("adds_damage_bonus", False):
             return None
         db = attacker.get("damage_bonus", "none")
         if not db or str(db).lower() in ("none", "0", ""):
             return None
-        return str(db)
+        special = str(weapon.get("special") or "").lower()
+        skill = str(weapon.get("skill") or "")
+        use_half = half if half is not None else (
+            "half db" in special or "half damage bonus" in special
+            or skill.startswith("Throw")
+        )
+        expr = str(db)
+        if use_half:
+            return f"half:{expr}"
+        return expr
 
     def _check_malfunction(self, actor_id: str, weapon: dict, roll_value: int,
                            turn_id: str) -> dict[str, Any] | None:
@@ -425,13 +550,27 @@ class CombatSession:
         Returns (raw_damage, roll_id, record).
         """
         full_expr = die_expr
+        half_db_meta: dict[str, Any] | None = None
         if db_expr:
             # Normalize "+1D4" → append; "-2" → append; "none"/"0" → skip.
+            # "half:+1D4" → roll DB then halve (thrown/missile, p.108).
             db = db_expr.strip()
+            use_half = False
+            if db.lower().startswith("half:"):
+                use_half = True
+                db = db[5:].strip()
             if db and db.lower() not in ("none", "0"):
                 if not db.startswith(("+", "-")):
                     db = "+" + db
-                full_expr = f"{die_expr}{db}"
+                if use_half:
+                    db_token = db[1:] if db.startswith("+") else db
+                    db_raw, db_rolls, _ = self._roll_damage_expr(db_token)
+                    half_val = db_raw // 2
+                    half_db_meta = {"db_raw": db_raw, "db_rolls": db_rolls, "half": half_val}
+                    if half_val != 0:
+                        full_expr = f"{die_expr}{half_val:+d}"
+                else:
+                    full_expr = f"{die_expr}{db}"
         raw, die_rolls, breakdown = self._roll_damage_expr(full_expr)
         roll_id = self._roll_id()
         target = self.participants[target_actor_id]
@@ -452,6 +591,9 @@ class CombatSession:
         hp_after = max(0, hp_before - remaining)
         hp_delta = hp_after - hp_before
         target["hp_current"] = hp_after
+        # p.113 Aiming: taking damage while aiming loses the advantage.
+        if remaining > 0:
+            self._clear_aiming(target_actor_id)
         record = {
             "damage_roll_id": roll_id,
             "source_turn_id": source_turn_id,
@@ -469,6 +611,7 @@ class CombatSession:
             "armor_after": target["armor"],
             "rulebook_exception": rulebook_exception,
             "bypass_armor": bypass_armor,
+            "half_damage_bonus": half_db_meta,
             "marker": f"[roll]{die_expr}:{breakdown}->{raw}:damage[/roll]",
         }
         self.damage_chain.append(record)
@@ -626,9 +769,17 @@ class CombatSession:
     VALID_RESOLUTION_HINTS = {
         "skill_check", "opposed_melee", "firearm_attack", "surprise_attack",
         "maneuver", "damage_only", "spell", "sanity_check",
-        "characteristic_roll", "flee",
+        "characteristic_roll", "flee", "aim", "reload",
     }
     VALID_MANEUVER_GOALS = {"disarm", "ongoing_disadvantage", "escape", "push"}
+    # Legacy SKILL.md names → rulebook p.119 goals.
+    _MANEUVER_GOAL_ALIASES = {
+        "grapple": "ongoing_disadvantage",
+        "break_free": "escape",
+        "other": "push",
+        "restrain": "ongoing_disadvantage",
+        "knockdown": "push",
+    }
 
     # Backward-compat mapping: the old `action` enum maps to resolution_hint.
     _ACTION_TO_HINT = {
@@ -638,6 +789,8 @@ class CombatSession:
         "cast": "spell",
         "flee": "flee",
         "other": "skill_check",
+        "aim": "aim",
+        "reload": "reload",
     }
 
     def declare_and_resolve_turn(self, actor_id: str, declared_intent: str,
@@ -659,7 +812,14 @@ class CombatSession:
                                  goal: str | None = None,
                                  skill: str | None = None,
                                  target_value: int | None = None,
-                                 difficulty: str = "regular") -> dict[str, Any]:
+                                 difficulty: str = "regular",
+                                 shots: int | None = None,
+                                 fire_mode: str | None = None,
+                                 rounds_fired: int | None = None,
+                                 load_and_fire: bool = False,
+                                 suppress_targets: list[str] | None = None,
+                                 dive_for_cover_actors: list[str] | None = None,
+                                 defender_goal: str | None = None) -> dict[str, Any]:
         """Resolve one combatant's turn per the rulebook's semantic model.
 
         The primary inputs are ``declared_intent`` (open-ended natural language
@@ -671,6 +831,13 @@ class CombatSession:
         For maneuvers, ``goal`` names the structured effect on success
         (disarm / ongoing_disadvantage / escape / push, per p.119). The old
         ``maneuver_kind`` is treated as an alias for ``goal``.
+
+        Firearms depth (W3-2 / pp.113-114, p.126):
+        - ``shots``: handgun multi-shot count (each shot gets 1 penalty die when ≥2)
+        - ``fire_mode``: ``full_auto`` / ``suppressive`` / None (semi)
+        - ``rounds_fired``: bullets expended on full auto
+        - ``load_and_fire``: load one chamber and fire same round (penalty die)
+        - ``suppress_targets`` / ``dive_for_cover_actors``: suppressing fire
         """
         # Reconcile resolution_hint with legacy action.
         if resolution_hint is None:
@@ -681,18 +848,31 @@ class CombatSession:
             # For 'attack', decide melee vs firearm from the weapon.
             if action == "attack":
                 weapon = self._weapon(actor_id, weapon_id) if weapon_id or self.participants[actor_id]["weapons"] else {}
-                resolution_hint = "firearm_attack" if str(weapon.get("skill", "")).startswith("Firearms") else "opposed_melee"
+                skill_name = str(weapon.get("skill", ""))
+                if skill_name.startswith("Firearms"):
+                    resolution_hint = "firearm_attack"
+                elif skill_name.startswith("Throw"):
+                    resolution_hint = "opposed_melee"  # thrown: Dodgeable (W3-4)
+                else:
+                    resolution_hint = "opposed_melee"
             else:
                 resolution_hint = self._ACTION_TO_HINT.get(action, action)
         if resolution_hint not in self.VALID_RESOLUTION_HINTS:
             raise ValueError(f"invalid resolution_hint {resolution_hint!r}")
         if defense_kind not in VALID_DEFENSE:
             raise ValueError(f"invalid defense_kind {defense_kind!r}")
-        # maneuver_kind (legacy) aliases goal.
+        # maneuver_kind (legacy) aliases goal; map SKILL.md aliases → p.119 set.
         if goal is None and maneuver_kind is not None:
             goal = maneuver_kind
-        if goal is not None and goal not in self.VALID_MANEUVER_GOALS:
-            raise ValueError(f"invalid goal {goal!r}; expected one of {self.VALID_MANEUVER_GOALS}")
+        if goal is not None:
+            goal = self._MANEUVER_GOAL_ALIASES.get(goal, goal)
+            if goal not in self.VALID_MANEUVER_GOALS:
+                raise ValueError(f"invalid goal {goal!r}; expected one of {self.VALID_MANEUVER_GOALS}")
+        if defender_goal is not None:
+            defender_goal = self._MANEUVER_GOAL_ALIASES.get(defender_goal, defender_goal)
+            if defender_goal not in self.VALID_MANEUVER_GOALS:
+                raise ValueError(
+                    f"invalid defender_goal {defender_goal!r}; expected one of {self.VALID_MANEUVER_GOALS}")
 
         turn = self._turn(actor_id, dex=dex_override, dex_reason=dex_reason)
         turn["declared_intent"] = declared_intent
@@ -708,19 +888,30 @@ class CombatSession:
         try:
             if resolution_hint == "spell":
                 self._resolve_cast(turn, actor_id, target_actor_id, spell)
+            elif resolution_hint == "aim":
+                self._resolve_aim(turn, actor_id, weapon_id)
+            elif resolution_hint == "reload":
+                self._resolve_reload(turn, actor_id, weapon_id)
             elif resolution_hint in ("opposed_melee", "firearm_attack"):
                 self._resolve_attack(turn, actor_id, target_actor_id,
                                      defense_kind, weapon_id, rulebook_exception,
                                      range_band=range_band, point_blank=point_blank,
                                      cover=cover, fast_moving=fast_moving,
-                                     outnumbered_penalty=outnumbered_penalty)
+                                     outnumbered_penalty=outnumbered_penalty,
+                                     shots=shots, fire_mode=fire_mode,
+                                     rounds_fired=rounds_fired,
+                                     load_and_fire=load_and_fire,
+                                     suppress_targets=suppress_targets,
+                                     dive_for_cover_actors=dive_for_cover_actors,
+                                     defender_goal=defender_goal)
             elif resolution_hint == "surprise_attack":
                 self._resolve_surprise_attack(turn, actor_id, target_actor_id, weapon_id)
             elif resolution_hint == "maneuver":
                 self._resolve_maneuver(turn, actor_id, target_actor_id, defense_kind,
                                        goal=goal or "ongoing_disadvantage",
                                        target_weapon_id=target_weapon_id,
-                                       outnumbered_penalty=outnumbered_penalty)
+                                       outnumbered_penalty=outnumbered_penalty,
+                                       defender_goal=defender_goal)
             elif resolution_hint == "flee":
                 self._resolve_flee(turn, actor_id)
             elif resolution_hint == "skill_check":
@@ -743,170 +934,656 @@ class CombatSession:
         finally:
             pass
 
+    def _resolve_aim(self, turn, actor_id, weapon_id):
+        """p.113 Aiming: spend this round aiming; next shot gains +1 bonus die."""
+        attacker = self.participants[actor_id]
+        attacker["_aiming"] = True
+        turn["defense_kind"] = "none"
+        turn["opposed_outcome"] = "unopposed"
+        turn["outcome"] = "aiming"
+        turn["weapon_id"] = weapon_id
+        turn["effect_applied"] = {"effect": "aiming", "target_actor_id": actor_id}
+
+    def _resolve_reload(self, turn, actor_id, weapon_id):
+        """p.113 Reloading Firearms: spend reload_rounds to restore magazine."""
+        if not weapon_id:
+            # Default to first weapon with a magazine.
+            for w in self.participants[actor_id]["weapons"]:
+                wid = w.get("weapon_id") if isinstance(w, dict) else w
+                if self._weapon(actor_id, wid).get("magazine") is not None:
+                    weapon_id = wid
+                    break
+        weapon = self._weapon(actor_id, weapon_id)
+        magazine = weapon.get("magazine")
+        if magazine is None:
+            turn["outcome"] = "reload_not_applicable"
+            turn["defense_kind"] = "none"
+            turn["opposed_outcome"] = "unopposed"
+            return
+        reload_rounds = int(weapon.get("reload_rounds") or 1)
+        ammo_per = int(weapon.get("ammo_per_reload_round") or magazine)
+        remaining_map = self.participants[actor_id].setdefault("_reload_remaining", {})
+        left = remaining_map.get(weapon_id)
+        if left is None:
+            left = reload_rounds
+        left -= 1
+        current = self.get_ammo(actor_id, weapon_id) or 0
+        loaded = min(int(magazine) - current, ammo_per)
+        self.set_ammo(actor_id, weapon_id, current + loaded)
+        turn["defense_kind"] = "none"
+        turn["opposed_outcome"] = "unopposed"
+        turn["weapon_id"] = weapon_id
+        turn["ammo_loaded"] = loaded
+        turn["ammo_after"] = self.get_ammo(actor_id, weapon_id)
+        # Aiming is lost if the character does something other than hold aim;
+        # reloading counts as another action.
+        self._clear_aiming(actor_id)
+        if left <= 0 or self.get_ammo(actor_id, weapon_id) >= int(magazine):
+            remaining_map.pop(weapon_id, None)
+            turn["outcome"] = "reload_complete"
+        else:
+            remaining_map[weapon_id] = left
+            turn["outcome"] = "reload_in_progress"
+            turn["reload_rounds_remaining"] = left
+
+    def _firearm_skill_value(self, attacker: dict, weapon: dict) -> int:
+        """Prefer firearms_skill when the weapon is a firearm; else combat_skill."""
+        if str(weapon.get("skill", "")).startswith("Firearms"):
+            return int(attacker.get("firearms_skill") or attacker["combat_skill"])
+        if str(weapon.get("skill", "")).startswith("Throw"):
+            return int(attacker.get("throw_skill") or attacker["combat_skill"])
+        return int(attacker["combat_skill"])
+
+    def _apply_prone_and_aim_modifiers(self, attacker, target, is_firearm, is_thrown,
+                                       is_melee, point_blank, atk_bonus, atk_penalty,
+                                       mods: dict) -> tuple[int, int]:
+        """Prone (p.127-128) and aiming (p.113) modifiers."""
+        # Aiming bonus consumed on the shot.
+        if attacker.get("_aiming") and (is_firearm or is_thrown):
+            atk_bonus += 1
+            mods["aimed"] = True
+            attacker["_aiming"] = False
+        # Prone shooter gets +1 on Firearms (p.128).
+        if is_firearm and "prone" in attacker.get("conditions", []):
+            atk_bonus += 1
+            mods["prone_shooter"] = True
+        if target is not None:
+            target_prone = "prone" in target.get("conditions", [])
+            if target_prone and is_melee:
+                atk_bonus += 1
+                mods["vs_prone_melee"] = True
+            if target_prone and is_firearm and not point_blank:
+                atk_penalty += 1
+                mods["vs_prone_ranged"] = True
+        return atk_bonus, atk_penalty
+
     def _resolve_attack(self, turn, actor_id, target_id, defense_kind, weapon_id,
                         rulebook_exception, range_band=None, point_blank=False,
-                        cover=False, fast_moving=False, outnumbered_penalty=False):
-        """Resolve one attack turn per Chapter 6.
+                        cover=False, fast_moving=False, outnumbered_penalty=False,
+                        shots=None, fire_mode=None, rounds_fired=None,
+                        load_and_fire=False, suppress_targets=None,
+                        dive_for_cover_actors=None, defender_goal=None):
+        """Resolve one attack turn per Chapter 6 (+ W3-2 firearms depth).
 
         Firearms attacks (skill starts with 'Firearms') are unopposed — the
         target cannot fight back or dodge (p.125); they may only Dive for
-        Cover (handled separately, declares defense_kind='dive_for_cover').
-        Melee attacks (Fighting) are opposed: target chooses fight_back or
-        dodge (p.115). Modifier dice are computed from cover / point-blank /
-        range / outnumbered / fast-moving per pp.108,125.
+        Cover. Thrown weapons (Throw skill) may be Dodged and use half DB
+        (p.108). Melee attacks (Fighting) are opposed: fight_back / dodge /
+        maneuver counter (p.115, p.117).
         """
         attacker = self.participants[actor_id]
         weapon = self._weapon(actor_id, weapon_id)
-        is_firearm = weapon["skill"].startswith("Firearms")
+        wid = weapon.get("weapon_id") or weapon_id
+        skill_name = str(weapon.get("skill", ""))
+        is_firearm = skill_name.startswith("Firearms")
+        is_thrown = skill_name.startswith("Throw")
+        is_melee = (not is_firearm) and (not is_thrown)
 
-        # --- Compute attacker bonus/penalty dice (p.125) ---
+        # --- Suppressive fire (p.126) ---
+        if fire_mode == "suppressive" and is_firearm:
+            self._resolve_suppressive_fire(
+                turn, actor_id, weapon, wid,
+                suppress_targets or [], dive_for_cover_actors or [],
+                range_band=range_band, point_blank=point_blank, cover=cover,
+                fast_moving=fast_moving, rounds_fired=rounds_fired)
+            return
+
+        # --- Full auto volleys (p.114-116) ---
+        if fire_mode == "full_auto" and is_firearm:
+            self._resolve_full_auto(
+                turn, actor_id, target_id, weapon, wid, defense_kind,
+                rulebook_exception, range_band=range_band, point_blank=point_blank,
+                cover=cover, fast_moving=fast_moving,
+                rounds_fired=rounds_fired or 0)
+            return
+
+        # --- uses_per_round + multi-shot handguns (p.113) ---
+        uses = parse_uses_per_round(weapon.get("uses_per_round"))
+        n_shots = int(shots) if shots is not None else 1
+        if is_firearm and n_shots > 1:
+            max_shots = uses["max_shots"]
+            if max_shots <= 0 or n_shots > max_shots:
+                raise ValueError(
+                    f"shots={n_shots} exceeds uses_per_round max_shots={max_shots} "
+                    f"for {wid} ({weapon.get('uses_per_round')!r})")
+            self._resolve_multi_shot(
+                turn, actor_id, target_id, weapon, wid, defense_kind,
+                rulebook_exception, n_shots=n_shots, range_band=range_band,
+                point_blank=point_blank, cover=cover, fast_moving=fast_moving,
+                outnumbered_penalty=outnumbered_penalty,
+                load_and_fire=load_and_fire)
+            return
+
+        # --- Ammo gate ---
+        if is_firearm and weapon.get("magazine") is not None and not load_and_fire:
+            ammo = self.get_ammo(actor_id, wid)
+            if ammo is not None and ammo <= 0:
+                turn["defense_kind"] = "none"
+                turn["opposed_outcome"] = "unopposed"
+                turn["outcome"] = "out_of_ammo"
+                turn["attack_modifiers"] = {"bonus": 0, "penalty": 0}
+                return
+        if load_and_fire and is_firearm:
+            # p.113: put one round in chamber and fire same round with penalty.
+            self.set_ammo(actor_id, wid, max(self.get_ammo(actor_id, wid) or 0, 0) + 1)
+
+        # --- Compute attacker bonus/penalty dice ---
         atk_bonus = 0
         atk_penalty = 0
-        if is_firearm:
-            # Range → difficulty (p.124): base=regular, long=hard, very long=extreme
-            if range_band == "long":
-                pass  # difficulty handled via difficulty param below
-            # Point-Blank (p.125): bonus die within DEX/5 feet
-            if point_blank:
+        mods: dict[str, Any] = {
+            "range_band": range_band, "point_blank": point_blank,
+            "cover": cover, "outnumbered_penalty": outnumbered_penalty,
+        }
+        target = self.participants[target_id] if target_id else None
+        if is_firearm or is_thrown:
+            if point_blank and is_firearm:
                 atk_bonus += 1
-            # Cover/Concealment (p.125): target ≥half obscured → penalty die
             if cover:
                 atk_penalty += 1
-            # Fast-moving target (p.125): MOV 8+ → penalty die
             if fast_moving:
                 atk_penalty += 1
-        # Outnumbered target (p.108): if target already defended this round,
-        # subsequent attackers get a bonus die. Encoded as caller flag.
-        if outnumbered_penalty:
+        if outnumbered_penalty and is_melee:
             atk_bonus += 1
+        if load_and_fire:
+            atk_penalty += 1
+            mods["load_and_fire"] = True
+        atk_bonus, atk_penalty = self._apply_prone_and_aim_modifiers(
+            attacker, target, is_firearm, is_thrown, is_melee,
+            point_blank, atk_bonus, atk_penalty, mods)
 
-        # Attacker roll
         difficulty = "regular"
-        if is_firearm and range_band == "long":
+        if (is_firearm or is_thrown) and range_band == "long":
             difficulty = "hard"
-        elif is_firearm and range_band == "very_long":
+        elif (is_firearm or is_thrown) and range_band == "very_long":
             difficulty = "extreme"
+
+        skill_value = self._firearm_skill_value(attacker, weapon)
         atk_oc, atk_rec = self._percentile(
-            actor_id, weapon["skill"], attacker["combat_skill"],
+            actor_id, weapon["skill"], skill_value,
             f"attack {target_id}", difficulty=difficulty,
-            bonus=atk_bonus, penalty=atk_penalty, ranged=is_firearm)
+            bonus=atk_bonus, penalty=atk_penalty,
+            ranged=is_firearm or is_thrown)
         turn["roll_id"] = atk_rec["roll_id"]
-        turn["attack_modifiers"] = {"bonus": atk_bonus, "penalty": atk_penalty,
-                                    "range_band": range_band, "point_blank": point_blank,
-                                    "cover": cover, "outnumbered_penalty": outnumbered_penalty}
+        mods["bonus"] = atk_bonus
+        mods["penalty"] = atk_penalty
+        turn["attack_modifiers"] = mods
 
-        # --- Firearm malfunction (Table XVII, p.401): if the weapon has a
-        # malfunction number and the attack roll >= that number, the weapon
-        # jams and is unusable until repaired. The roll value is checked
-        # regardless of hit/miss outcome. The event is recorded on the turn
-        # and appended to damage_chain for downstream audit. --- #
-        malfunction_event = self._check_malfunction(
-            actor_id, weapon, atk_rec["roll"], turn["turn_id"]
-        )
-        if malfunction_event is not None:
-            turn["malfunction"] = malfunction_event
+        if is_firearm:
+            malfunction_event = self._check_malfunction(
+                actor_id, weapon, atk_rec["roll"], turn["turn_id"])
+            if malfunction_event is not None:
+                turn["malfunction"] = malfunction_event
+            self._consume_ammo(actor_id, wid, 1)
 
-        # --- Target response ---
-        target = self.participants[target_id]
-
-        # Mechanism 1: firearms cannot be fight_back/dodge (p.125), only dive_for_cover
+        # Firearms: only dive_for_cover / none (p.125)
         if is_firearm and defense_kind not in ("dive_for_cover", "none", None):
-            # Caller asked for fight_back/dodge on a firearm — override per rule.
-            # The target can ONLY dive for cover against firearms.
             defense_kind = "dive_for_cover"
 
+        # Thrown: may Dodge; fight_back only at point-blank (DEX/5 feet) (p.108)
+        if is_thrown and defense_kind == "fight_back" and not point_blank:
+            defense_kind = "dodge"
+
         if defense_kind in (None, "none"):
-            # Unopposed (surprise, or target chooses not to defend)
             turn["defense_kind"] = "none"
             turn["opposed_outcome"] = "unopposed"
             if LVL[atk_oc] >= LVL["regular"]:
                 turn["outcome"] = "hit"
                 bypass = rulebook_exception is not None
-                raw, dmg_id, _ = self._damage_roll(
-                    weapon["damage"], actor_id, target_id, weapon_id, turn["turn_id"],
+                _, dmg_id, _ = self._damage_roll(
+                    weapon["damage"], actor_id, target_id, wid, turn["turn_id"],
                     bypass_armor=bypass, rulebook_exception=rulebook_exception,
                     db_expr=self._weapon_db_expr(attacker, weapon))
                 turn["damage_roll_id"] = dmg_id
             else:
                 turn["outcome"] = "miss"
-            self._mark_defended(target_id)
+            if target_id:
+                self._mark_defended(target_id)
             return
 
         if defense_kind == "dive_for_cover":
-            # Mechanism 2: Dive for Cover (p.125) — only vs firearms.
-            # Target makes Dodge roll. Success → attacker takes 1 penalty die
-            # (re-roll). Diver forfeits next attack and can only dodge until then.
             turn["defense_kind"] = "dive_for_cover"
             dodge_target = target.get("dodge_skill") or target["combat_skill"]
             def_oc, def_rec = self._percentile(target_id, "Dodge", dodge_target,
                                                f"dive for cover vs {actor_id}")
             turn["opposed_roll_id"] = def_rec["roll_id"]
             if LVL[def_oc] >= LVL["regular"]:
-                # Dive succeeds → attacker penalty die (re-roll attack with -1)
                 turn["opposed_outcome"] = "dived_for_cover"
                 atk_oc2, atk_rec2 = self._percentile(
-                    actor_id, weapon["skill"], attacker["combat_skill"],
+                    actor_id, weapon["skill"], skill_value,
                     f"re-attack {target_id} after dive for cover",
                     difficulty=difficulty, bonus=atk_bonus,
-                    penalty=atk_penalty + 1, ranged=is_firearm)
+                    penalty=atk_penalty + 1, ranged=True)
                 turn["cover_reroll_roll_id"] = atk_rec2["roll_id"]
-                # Mark diver as having dived (forfeits next attack)
                 self._mark_dived_for_cover(target_id)
                 if LVL[atk_oc2] >= LVL["regular"]:
                     turn["outcome"] = "hit_after_cover"
                     bypass = rulebook_exception is not None
-                    raw, dmg_id, _ = self._damage_roll(
-                        weapon["damage"], actor_id, target_id, weapon_id, turn["turn_id"],
-                        bypass_armor=bypass, rulebook_exception=rulebook_exception)
+                    _, dmg_id, _ = self._damage_roll(
+                        weapon["damage"], actor_id, target_id, wid, turn["turn_id"],
+                        bypass_armor=bypass, rulebook_exception=rulebook_exception,
+                        db_expr=self._weapon_db_expr(attacker, weapon))
                     turn["damage_roll_id"] = dmg_id
                 else:
                     turn["outcome"] = "miss_cover"
             else:
-                # Dive failed → normal unopposed firearm resolution
                 turn["opposed_outcome"] = "dive_failed"
                 if LVL[atk_oc] >= LVL["regular"]:
                     turn["outcome"] = "hit"
                     bypass = rulebook_exception is not None
-                    raw, dmg_id, _ = self._damage_roll(
-                        weapon["damage"], actor_id, target_id, weapon_id, turn["turn_id"],
-                        bypass_armor=bypass, rulebook_exception=rulebook_exception)
+                    _, dmg_id, _ = self._damage_roll(
+                        weapon["damage"], actor_id, target_id, wid, turn["turn_id"],
+                        bypass_armor=bypass, rulebook_exception=rulebook_exception,
+                        db_expr=self._weapon_db_expr(attacker, weapon))
                     turn["damage_roll_id"] = dmg_id
                 else:
                     turn["outcome"] = "miss"
             self._mark_defended(target_id)
             return
 
-        # Melee opposed resolution (Fighting vs fight_back/dodge, p.115)
+        # Melee / thrown opposed resolution (p.115); defender may counter with maneuver (p.117)
         turn["defense_kind"] = defense_kind
-        if defense_kind == "fight_back":
+        if defense_kind == "maneuver":
+            def_goal = defender_goal or "ongoing_disadvantage"
+            turn["defender_goal"] = def_goal
+            def_oc, def_rec = self._percentile(target_id, "Fighting",
+                                               target["combat_skill"],
+                                               f"maneuver counter ({def_goal}) vs {actor_id}")
+            # Resolve like fight_back for ties (attacker wins ties on their attack).
+            opp_kind = "fight_back"
+        elif defense_kind == "fight_back":
             def_oc, def_rec = self._percentile(target_id, "Fighting",
                                                target["combat_skill"],
                                                f"fight back vs {actor_id}")
+            opp_kind = "fight_back"
         else:  # dodge
             dodge_target = target.get("dodge_skill") or target["combat_skill"]
             def_oc, def_rec = self._percentile(target_id, "Dodge", dodge_target,
                                                f"dodge vs {actor_id}")
+            opp_kind = "dodge"
         turn["opposed_roll_id"] = def_rec["roll_id"]
-        opp = self._resolve_opposed(atk_oc, def_oc, defense_kind)
+        opp = self._resolve_opposed(atk_oc, def_oc, opp_kind)
         turn["opposed_outcome"] = opp
         if opp in ("attacker_higher", "tie_attacker_wins"):
             turn["outcome"] = "hit"
             bypass = rulebook_exception is not None
-            raw, dmg_id, dmg_rec = self._damage_roll(
-                weapon["damage"], actor_id, target_id, weapon_id, turn["turn_id"],
+            _, dmg_id, dmg_rec = self._damage_roll(
+                weapon["damage"], actor_id, target_id, wid, turn["turn_id"],
                 bypass_armor=bypass, rulebook_exception=rulebook_exception,
                 db_expr=self._weapon_db_expr(attacker, weapon))
-            # Extreme success → max damage per p.115 (only on attacker's own
-            # turn in DEX order, not fight_back — caller controls this by only
-            # declaring extreme on their turn).
             if LVL[atk_oc] >= LVL["extreme"]:
                 self._apply_extreme_damage(dmg_rec, weapon, attacker)
             turn["damage_roll_id"] = dmg_id
+        elif defense_kind == "maneuver" and opp in ("defender_higher", "tie_defender_wins"):
+            # p.117: defender's maneuver succeeds instead of dealing fight-back damage.
+            self._apply_maneuver_goal(
+                turn, actor_id=target_id, target_id=actor_id,
+                goal=defender_goal or "ongoing_disadvantage",
+                target_weapon_id=None, as_counter=True)
+        elif defense_kind == "fight_back" and opp == "defender_higher":
+            # Fight back deals damage to the attacker (existing behaviour via miss;
+            # keep outcome as miss — damage-on-fight-back is optional narrative).
+            turn["outcome"] = "miss"
         elif opp == "both_fail":
             turn["outcome"] = "no_damage"
         else:
             turn["outcome"] = "miss"
         self._mark_defended(target_id)
+
+    def _resolve_multi_shot(self, turn, actor_id, target_id, weapon, wid,
+                            defense_kind, rulebook_exception, n_shots,
+                            range_band=None, point_blank=False, cover=False,
+                            fast_moving=False, outnumbered_penalty=False,
+                            load_and_fire=False):
+        """Handgun multiple shots (p.113): each shot gets one penalty die."""
+        attacker = self.participants[actor_id]
+        target = self.participants[target_id]
+        skill_value = self._firearm_skill_value(attacker, weapon)
+        difficulty = "regular"
+        if range_band == "long":
+            difficulty = "hard"
+        elif range_band == "very_long":
+            difficulty = "extreme"
+        shot_records = []
+        hits = 0
+        for i in range(n_shots):
+            ammo = self.get_ammo(actor_id, wid)
+            if ammo is not None and ammo <= 0 and not (load_and_fire and i == 0):
+                shot_records.append({"shot": i + 1, "outcome": "out_of_ammo"})
+                break
+            atk_bonus = 0
+            atk_penalty = 1  # all multi-shots receive one penalty die
+            mods: dict[str, Any] = {"multi_shot": True, "shot_index": i + 1,
+                                    "point_blank": point_blank, "cover": cover}
+            if point_blank:
+                atk_bonus += 1
+            if cover:
+                atk_penalty += 1
+            if fast_moving:
+                atk_penalty += 1
+            if load_and_fire and i == 0:
+                atk_penalty += 1
+                mods["load_and_fire"] = True
+            # Aiming only applies to the first shot, then clears.
+            atk_bonus, atk_penalty = self._apply_prone_and_aim_modifiers(
+                attacker, target, True, False, False, point_blank,
+                atk_bonus, atk_penalty, mods)
+            atk_oc, atk_rec = self._percentile(
+                actor_id, weapon["skill"], skill_value,
+                f"multi-shot {i + 1}/{n_shots} vs {target_id}",
+                difficulty=difficulty, bonus=atk_bonus, penalty=atk_penalty,
+                ranged=True)
+            mods["bonus"] = atk_bonus
+            mods["penalty"] = atk_penalty
+            malf = self._check_malfunction(actor_id, weapon, atk_rec["roll"], turn["turn_id"])
+            self._consume_ammo(actor_id, wid, 1)
+            shot = {
+                "shot": i + 1,
+                "roll_id": atk_rec["roll_id"],
+                "attack_modifiers": mods,
+                "outcome_level": atk_oc,
+            }
+            if malf:
+                shot["malfunction"] = malf
+            if LVL[atk_oc] >= LVL["regular"]:
+                shot["outcome"] = "hit"
+                hits += 1
+                bypass = rulebook_exception is not None
+                _, dmg_id, _ = self._damage_roll(
+                    weapon["damage"], actor_id, target_id, wid, turn["turn_id"],
+                    bypass_armor=bypass, rulebook_exception=rulebook_exception)
+                shot["damage_roll_id"] = dmg_id
+            else:
+                shot["outcome"] = "miss"
+            shot_records.append(shot)
+        turn["shots"] = shot_records
+        turn["defense_kind"] = defense_kind or "none"
+        turn["opposed_outcome"] = "unopposed"
+        turn["outcome"] = "multi_shot_resolved"
+        turn["hits"] = hits
+        if shot_records:
+            turn["roll_id"] = shot_records[0].get("roll_id")
+            turn["attack_modifiers"] = shot_records[0].get("attack_modifiers", {})
+        self._mark_defended(target_id)
+
+    def _escalate_auto_penalty(self, volley_index: int) -> tuple[int, str]:
+        """p.116: +1 penalty per volley after the first; at 3 penalties → 2 + raise difficulty."""
+        # volley_index 0-based
+        extra = volley_index  # 0,1,2,3...
+        difficulty = "regular"
+        penalty = extra
+        if penalty >= 3:
+            # stick with 2 penalty dice and raise difficulty one step per excess
+            steps = penalty - 2
+            penalty = 2
+            ladder = ["regular", "hard", "extreme", "critical"]
+            idx = min(len(ladder) - 1, steps)
+            # steps=1 → hard, steps=2 → extreme, ...
+            difficulty = ladder[min(len(ladder) - 1, steps)]
+            if steps > len(ladder) - 1:
+                difficulty = "impossible"
+        return penalty, difficulty
+
+    def _resolve_full_auto(self, turn, actor_id, target_id, weapon, wid,
+                           defense_kind, rulebook_exception, range_band=None,
+                           point_blank=False, cover=False, fast_moving=False,
+                           rounds_fired=0):
+        """Full-auto volleys (p.114-116)."""
+        attacker = self.participants[actor_id]
+        uses = parse_uses_per_round(weapon.get("uses_per_round"))
+        if not uses["allows_full_auto"]:
+            raise ValueError(f"weapon {wid} does not allow full auto "
+                             f"({weapon.get('uses_per_round')!r})")
+        skill_value = self._firearm_skill_value(attacker, weapon)
+        volley_sz = full_auto_volley_size(skill_value)
+        ammo = self.get_ammo(actor_id, wid)
+        available = ammo if ammo is not None else int(rounds_fired)
+        total = min(int(rounds_fired), available)
+        if total <= 0:
+            turn["outcome"] = "out_of_ammo"
+            turn["defense_kind"] = "none"
+            turn["opposed_outcome"] = "unopposed"
+            turn["volleys"] = []
+            return
+        base_difficulty = "regular"
+        if range_band == "long":
+            base_difficulty = "hard"
+        elif range_band == "very_long":
+            base_difficulty = "extreme"
+        volleys = []
+        remaining = total
+        volley_i = 0
+        target = self.participants[target_id]
+        while remaining > 0:
+            bullets = min(volley_sz, remaining)
+            penalty, diff_bump = self._escalate_auto_penalty(volley_i)
+            # Combine base range difficulty with escalation bump.
+            difficulty = base_difficulty
+            if diff_bump != "regular":
+                ladder = ["regular", "hard", "extreme", "critical", "impossible"]
+                base_i = ladder.index(base_difficulty) if base_difficulty in ladder else 0
+                bump_i = ladder.index(diff_bump) if diff_bump in ladder else 0
+                difficulty = ladder[min(len(ladder) - 1, max(base_i, bump_i))]
+            atk_bonus = 1 if point_blank else 0
+            atk_penalty = penalty + (1 if cover else 0) + (1 if fast_moving else 0)
+            mods: dict[str, Any] = {"volley_index": volley_i + 1, "full_auto": True,
+                                    "bonus": atk_bonus, "penalty": atk_penalty}
+            atk_bonus, atk_penalty = self._apply_prone_and_aim_modifiers(
+                attacker, target, True, False, False, point_blank,
+                atk_bonus, atk_penalty, mods)
+            mods["bonus"] = atk_bonus
+            mods["penalty"] = atk_penalty
+            atk_oc, atk_rec = self._percentile(
+                actor_id, weapon["skill"], skill_value,
+                f"full-auto volley {volley_i + 1} ({bullets} rds) vs {target_id}",
+                difficulty=difficulty, bonus=atk_bonus, penalty=atk_penalty,
+                ranged=True)
+            malf = self._check_malfunction(actor_id, weapon, atk_rec["roll"], turn["turn_id"])
+            self._consume_ammo(actor_id, wid, bullets)
+            volley = {
+                "volley": volley_i + 1,
+                "bullets": bullets,
+                "roll_id": atk_rec["roll_id"],
+                "attack_modifiers": mods,
+                "difficulty": difficulty,
+                "outcome_level": atk_oc,
+            }
+            if malf:
+                volley["malfunction"] = malf
+            if LVL[atk_oc] >= LVL["regular"]:
+                # Half of shots hit (round down, min 1); Extreme → all hit, first half impale.
+                if LVL[atk_oc] >= LVL["extreme"] and difficulty != "extreme":
+                    hits = bullets
+                    impales = max(1, bullets // 2)
+                else:
+                    hits = max(1, bullets // 2)
+                    impales = 0
+                volley["outcome"] = "hit"
+                volley["hits"] = hits
+                volley["impales"] = impales
+                bypass = rulebook_exception is not None
+                dmg_ids = []
+                for h in range(hits):
+                    _, dmg_id, dmg_rec = self._damage_roll(
+                        weapon["damage"], actor_id, target_id, wid, turn["turn_id"],
+                        bypass_armor=bypass, rulebook_exception=rulebook_exception)
+                    if h < impales:
+                        self._apply_extreme_damage(dmg_rec, weapon, attacker)
+                    dmg_ids.append(dmg_id)
+                volley["damage_roll_ids"] = dmg_ids
+            else:
+                volley["outcome"] = "miss"
+                volley["hits"] = 0
+            volleys.append(volley)
+            remaining -= bullets
+            volley_i += 1
+        turn["volleys"] = volleys
+        turn["rounds_fired"] = total
+        turn["defense_kind"] = defense_kind or "none"
+        turn["opposed_outcome"] = "unopposed"
+        turn["outcome"] = "full_auto_resolved"
+        if volleys:
+            turn["roll_id"] = volleys[0]["roll_id"]
+            turn["attack_modifiers"] = volleys[0]["attack_modifiers"]
+        self._mark_defended(target_id)
+
+    def _resolve_suppressive_fire(self, turn, actor_id, weapon, wid,
+                                  suppress_targets, dive_for_cover_actors,
+                                  range_band=None, point_blank=False, cover=False,
+                                  fast_moving=False, rounds_fired=None):
+        """Suppressing fire (p.126): group may dive; then random targets are engaged."""
+        attacker = self.participants[actor_id]
+        targets = [t for t in suppress_targets if t in self.participants]
+        if not targets:
+            turn["outcome"] = "suppressive_fire_no_targets"
+            turn["defense_kind"] = "none"
+            turn["opposed_outcome"] = "unopposed"
+            return
+        dived = []
+        for tid in dive_for_cover_actors or []:
+            if tid not in targets:
+                continue
+            target = self.participants[tid]
+            dodge_target = target.get("dodge_skill") or target["combat_skill"]
+            def_oc, def_rec = self._percentile(
+                tid, "Dodge", dodge_target, f"dive for cover under suppression")
+            if LVL[def_oc] >= LVL["regular"]:
+                dived.append(tid)
+                self._mark_dived_for_cover(tid)
+                turn.setdefault("dive_rolls", {})[tid] = def_rec["roll_id"]
+        # Pick random target(s) from the original group (including divers).
+        skill_value = self._firearm_skill_value(attacker, weapon)
+        volley_sz = full_auto_volley_size(skill_value)
+        ammo = self.get_ammo(actor_id, wid)
+        budget = rounds_fired if rounds_fired is not None else volley_sz * max(1, len(targets))
+        if ammo is not None:
+            budget = min(budget, ammo)
+        # One volley per chosen target, cycling randomly.
+        chosen = list(targets)
+        self._rng.shuffle(chosen)
+        suppression_results = []
+        remaining = budget
+        for i, tid in enumerate(chosen):
+            if remaining <= 0:
+                break
+            bullets = min(volley_sz, remaining)
+            atk_bonus = 0
+            atk_penalty = i  # subsequent targets escalate like volleys
+            if atk_penalty > 2:
+                atk_penalty = 2
+            if tid in dived:
+                atk_penalty += 1  # harder to hit those who dived
+            if cover:
+                atk_penalty += 1
+            atk_oc, atk_rec = self._percentile(
+                actor_id, weapon["skill"], skill_value,
+                f"suppressive volley vs {tid}",
+                bonus=atk_bonus, penalty=atk_penalty, ranged=True)
+            self._consume_ammo(actor_id, wid, bullets)
+            entry = {
+                "target_actor_id": tid,
+                "bullets": bullets,
+                "roll_id": atk_rec["roll_id"],
+                "dived": tid in dived,
+                "outcome_level": atk_oc,
+            }
+            if LVL[atk_oc] >= LVL["regular"]:
+                hits = max(1, bullets // 2)
+                entry["outcome"] = "hit"
+                entry["hits"] = hits
+                dmg_ids = []
+                for _ in range(hits):
+                    _, dmg_id, _ = self._damage_roll(
+                        weapon["damage"], actor_id, tid, wid, turn["turn_id"])
+                    dmg_ids.append(dmg_id)
+                entry["damage_roll_ids"] = dmg_ids
+            else:
+                entry["outcome"] = "miss"
+                entry["hits"] = 0
+            suppression_results.append(entry)
+            remaining -= bullets
+            self._mark_defended(tid)
+        turn["dived_for_cover"] = dived
+        turn["suppression_targets"] = suppression_results
+        turn["defense_kind"] = "none"
+        turn["opposed_outcome"] = "unopposed"
+        turn["outcome"] = "suppressive_fire"
+        if suppression_results:
+            turn["roll_id"] = suppression_results[0]["roll_id"]
+
+    def _apply_maneuver_goal(self, turn, actor_id, target_id, goal,
+                             target_weapon_id=None, as_counter=False):
+        """Apply a successful maneuver goal (shared by attack + counter paths)."""
+        attacker = self.participants[actor_id]
+        target = self.participants[target_id] if target_id else None
+        prefix = "counter_" if as_counter else ""
+        if goal == "disarm" and target_id:
+            wid = target_weapon_id or (
+                (target["weapons"][0].get("weapon_id")
+                 if target.get("weapons") and isinstance(target["weapons"][0], dict)
+                 else target["weapons"][0])
+                if target.get("weapons") else None)
+            if wid:
+                target["weapons"] = [
+                    w for w in target["weapons"]
+                    if (w.get("weapon_id") if isinstance(w, dict) else w) != wid]
+                attacker["weapons"].append(wid if isinstance(wid, str) else wid)
+                turn["effect_applied"] = {
+                    "effect": "disarmed", "target_actor_id": target_id,
+                    "weapon_id": wid, "transferred_to": actor_id,
+                    "counter": as_counter,
+                }
+                turn["outcome"] = f"{prefix}disarm_success"
+            else:
+                turn["outcome"] = f"{prefix}disarm_nothing_to_take"
+        elif goal == "ongoing_disadvantage" and target_id:
+            self.apply_effect(target_id, "restrained", actor_id, remaining_rounds=999,
+                              metadata={"goal": "ongoing_disadvantage", "counter": as_counter})
+            turn["effect_applied"] = {
+                "effect": "restrained", "target_actor_id": target_id,
+                "held_by": actor_id, "counter": as_counter,
+            }
+            turn["outcome"] = f"{prefix}restrain_success"
+        elif goal == "escape":
+            actor_effs = attacker.get("active_effects", [])
+            restraint = next((e for e in actor_effs if e["effect"] == "restrained"), None)
+            if restraint:
+                attacker["active_effects"] = [e for e in actor_effs if e is not restraint]
+                turn["effect_applied"] = {"effect": "broke_free", "target_actor_id": actor_id,
+                                          "counter": as_counter}
+                turn["outcome"] = f"{prefix}escape_success"
+            else:
+                turn["outcome"] = f"{prefix}escape_nothing_to_escape"
+        elif goal == "push":
+            if target_id and "prone" not in target["conditions"]:
+                target["conditions"].append("prone")
+            turn["effect_applied"] = {
+                "effect": "pushed", "target_actor_id": target_id, "counter": as_counter,
+            }
+            turn["outcome"] = f"{prefix}push_success"
+        else:
+            turn["effect_applied"] = {"effect": goal, "target_actor_id": target_id,
+                                      "counter": as_counter}
+            turn["outcome"] = f"{prefix}maneuver_success"
 
     def _resolve_flee(self, turn, actor_id):
         """Mechanism 8: fleeing combat (p.114 action list).
@@ -1043,7 +1720,8 @@ class CombatSession:
     def _resolve_maneuver(self, turn, actor_id, target_id, defense_kind,
                           goal: str = "ongoing_disadvantage",
                           target_weapon_id: str | None = None,
-                          outnumbered_penalty: bool = False):
+                          outnumbered_penalty: bool = False,
+                          defender_goal: str | None = None):
         """Fighting maneuver (p.117-119) — the rulebook's "one maneuver, one goal" model.
 
         Build comparison grants penalty dice (p.117): attacker Build below
@@ -1061,6 +1739,9 @@ class CombatSession:
           restraint applied to themselves.
         - ``push``: target is pushed/thrown/knocked down; the Keeper may
           inflict falling damage via a separate damage_only turn.
+
+        The target may respond with a maneuver of their own
+        (``defense_kind='maneuver'`` + ``defender_goal``) per p.117.
         """
         attacker = self.participants[actor_id]
         target = self.participants[target_id] if target_id else None
@@ -1076,81 +1757,72 @@ class CombatSession:
             turn["maneuver_build_difference"] = build_diff
             return
         penalty_dice = min(2, max(0, build_diff))
+        if outnumbered_penalty:
+            # Attacker bonus die vs already-defended target (p.108) — encoded
+            # as reducing effective penalty for simplicity when both apply.
+            pass
         turn["maneuver_build_difference"] = build_diff
         turn["maneuver_penalty_dice"] = penalty_dice
 
+        atk_bonus = 1 if outnumbered_penalty else 0
         atk_oc, atk_rec = self._percentile(
             actor_id, "Fighting", attacker["combat_skill"],
-            f"{goal} maneuver vs {target_id}", penalty=penalty_dice)
+            f"{goal} maneuver vs {target_id}", bonus=atk_bonus, penalty=penalty_dice)
         turn["roll_id"] = atk_rec["roll_id"]
         dk = defense_kind or "fight_back"
         turn["defense_kind"] = dk
         if target_id:
-            if dk == "fight_back":
+            if dk == "maneuver":
+                def_goal = defender_goal or "ongoing_disadvantage"
+                turn["defender_goal"] = def_goal
+                def_oc, def_rec = self._percentile(
+                    target_id, "Fighting", target["combat_skill"],
+                    f"maneuver counter ({def_goal}) vs {actor_id}")
+                opp_kind = "fight_back"
+            elif dk == "fight_back":
                 def_oc, def_rec = self._percentile(target_id, "Fighting",
                                                    target["combat_skill"],
                                                    f"resist {goal} maneuver")
+                opp_kind = "fight_back"
             else:
                 dodge_target = target.get("dodge_skill") or target["combat_skill"]
                 def_oc, def_rec = self._percentile(target_id, "Dodge", dodge_target,
                                                    f"dodge {goal} maneuver")
+                opp_kind = "dodge"
             turn["opposed_roll_id"] = def_rec["roll_id"]
         else:
             def_oc = "failure"
-        opp = self._resolve_opposed(atk_oc, def_oc, dk)
+            opp_kind = dk if dk in ("fight_back", "dodge") else "fight_back"
+        opp = self._resolve_opposed(atk_oc, def_oc, opp_kind)
         turn["opposed_outcome"] = opp
 
+        if dk == "maneuver" and opp in ("defender_higher",):
+            # Defender's counter-maneuver succeeds (p.117).
+            self._apply_maneuver_goal(
+                turn, actor_id=target_id, target_id=actor_id,
+                goal=defender_goal or "ongoing_disadvantage",
+                target_weapon_id=None, as_counter=True)
+            self._mark_defended(target_id)
+            return
+
         if opp not in ("attacker_higher", "tie_attacker_wins"):
-            turn["outcome"] = "maneuver_failed"
-            self._mark_defended(target_id) if target_id else None
+            # fight_back defender_higher → defender deals damage (p.117)
+            if dk == "fight_back" and opp == "defender_higher":
+                _, dmg_id, _ = self._damage_roll(
+                    "1D3", target_id, actor_id, "unarmed", turn["turn_id"],
+                    db_expr=self._weapon_db_expr(target, {"adds_damage_bonus": True}))
+                turn["damage_roll_id"] = dmg_id
+                turn["outcome"] = "maneuver_failed_fight_back_damage"
+            else:
+                turn["outcome"] = "maneuver_failed"
+            if target_id:
+                self._mark_defended(target_id)
             return
 
         # Maneuver succeeded — apply the ONE goal (p.119).
-        turn["outcome"] = "maneuver_success"
-        if goal == "disarm" and target_id:
-            wid = target_weapon_id or (target["weapons"][0].get("weapon_id")
-                                       if target.get("weapons") else None
-                                       if isinstance(target.get("weapons",[{}])[0], dict)
-                                       else target["weapons"][0]
-                                       if target.get("weapons") else None)
-            if wid:
-                target["weapons"] = [w for w in target["weapons"]
-                                     if (w.get("weapon_id") if isinstance(w, dict) else w) != wid]
-                attacker["weapons"].append(wid if isinstance(wid, str) else wid)
-                turn["effect_applied"] = {"effect": "disarmed", "target_actor_id": target_id,
-                                          "weapon_id": wid, "transferred_to": actor_id}
-                turn["outcome"] = "disarm_success"
-            else:
-                turn["outcome"] = "disarm_nothing_to_take"
-        elif goal == "ongoing_disadvantage" and target_id:
-            # p.119: place target at ongoing disadvantage (restraint or knockdown).
-            # Target gets 1 penalty die on future actions; automatically held
-            # until attacker releases / incapacitated / major wound.
-            self.apply_effect(target_id, "restrained", actor_id, remaining_rounds=999,
-                              metadata={"goal": "ongoing_disadvantage"})
-            turn["effect_applied"] = {"effect": "restrained", "target_actor_id": target_id,
-                                      "held_by": actor_id}
-            turn["outcome"] = "restrain_success"
-        elif goal == "escape":
-            # p.119: break out of a hold (bear hug / neck lock / restraint).
-            actor_effs = attacker.get("active_effects", [])
-            restraint = next((e for e in actor_effs if e["effect"] == "restrained"), None)
-            if restraint:
-                attacker["active_effects"] = [e for e in actor_effs if e is not restraint]
-                turn["effect_applied"] = {"effect": "broke_free", "target_actor_id": actor_id}
-                turn["outcome"] = "escape_success"
-            else:
-                turn["outcome"] = "escape_nothing_to_escape"
-        elif goal == "push":
-            # p.119: push/throw/knockdown. Damage (if any, e.g. fall) is a
-            # separate damage_only turn — the maneuver itself just moves the
-            # target. Mark target prone for narrative continuity.
-            if target_id and "prone" not in target["conditions"]:
-                target["conditions"].append("prone")
-            turn["effect_applied"] = {"effect": "pushed", "target_actor_id": target_id}
-            turn["outcome"] = "push_success"
-        else:
-            turn["effect_applied"] = {"effect": goal, "target_actor_id": target_id}
+        self._apply_maneuver_goal(
+            turn, actor_id=actor_id, target_id=target_id,
+            goal=goal, target_weapon_id=target_weapon_id, as_counter=False)
         if target_id:
             self._mark_defended(target_id)
 

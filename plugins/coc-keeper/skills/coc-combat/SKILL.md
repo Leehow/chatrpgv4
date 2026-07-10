@@ -28,12 +28,14 @@ Each participant takes **one action per round** on their turn in DEX order:
 
 | Action | Resolves as |
 |---|---|
-| `attack` | opposed roll (melee) or unopposed roll (firearm); damage if hit |
+| `attack` | opposed roll (melee/thrown) or unopposed roll (firearm); damage if hit |
 | `surprise_attack` | unopposed (target neither fights back nor dodges, p.106) |
-| `maneuver` | opposed Fighting vs Fighting/Dodge; applies effect (disarm/prone/grapple), no damage |
+| `maneuver` | opposed Fighting vs Fighting/Dodge/maneuver-counter; applies goal effect, no damage |
+| `aim` | spend the round aiming (`resolution_hint="aim"`); next shot gains +1 bonus die (p.113) |
+| `reload` | spend reload round(s) restoring magazine (`resolution_hint="reload"`, p.113) |
 | `cast` | spell resolution (e.g. Dominate = opposed POW) |
 | `flee` | participant leaves the fight (marked `fled`, removed from subsequent initiative) |
-| `other` | any timed action (lock-picking, reloading, etc.) |
+| `other` | any timed action (lock-picking, etc.) |
 
 ## The Eight Combat Mechanisms
 
@@ -115,6 +117,19 @@ Melee weapon damage expressions in the rulebook **exclude** DB (e.g. medium knif
 - The canonical weapon catalog lives in `references/rules-json/weapons.json` (unarmed, knife_medium, knife_small, club_small, club_large, revolver_38, revolver_45, shotgun, rifle_22, claws, etc.). Each entry has `skill`, `damage` (excluding DB), `adds_damage_bonus`, `impales`, `base_range_yards`, `category`.
 
 Never write a melee weapon's damage as `1D4+2` without DB — that under-counts damage. Always let the engine append DB via `adds_damage_bonus`.
+
+## Firearms Depth (W3-2 / pp.113-114, p.126)
+
+`weapons.json` `uses_per_round` is wired into the engine via `parse_uses_per_round`. Magazines track ammo on the participant (`get_ammo` / `set_ammo`); reload metadata (`reload_rounds`, `reload_kind`, `ammo_per_reload_round`) is derived from skill/magazine when omitted.
+
+| Feature | API | Rule |
+|---|---|---|
+| Aiming | `resolution_hint="aim"` | Spend the round aiming → next shot +1 bonus die; lost if damaged/moved (p.113) |
+| Handgun multi-shot | `shots=2\|3` | Each shot gets **one** penalty die (not cumulative difficulty) (p.113); capped by `uses_per_round` |
+| Reload | `resolution_hint="reload"` | Clip/shells = 1 round; MG belt = 2 rounds; restores magazine (p.113) |
+| Load-and-fire | `load_and_fire=True` | Chamber one round and fire same round with +1 penalty die (p.113) |
+| Full auto | `fire_mode="full_auto"`, `rounds_fired=N` | Volley size = skill/10 (min 3); each subsequent volley +1 penalty; at 3 penalties stick at 2 and raise difficulty (p.114-116) |
+| Suppression | `fire_mode="suppressive"`, `suppress_targets=[...]`, `dive_for_cover_actors=[...]` | Group may dive for cover; then random targets from the group are engaged (p.126) |
 
 ## Module-Specific Weapons (extends mechanism)
 
