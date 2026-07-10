@@ -158,10 +158,12 @@ def test_driver_stalled_recover_surfaces_fallback_route(tmp_path):
     char = json.loads(char_path.read_text())
     char["characteristics"]["INT"] = 70
     char_path.write_text(json.dumps(char))
+    # Canonical apply records intent after the turn, so RECOVER (stalled>=3)
+    # needs a fourth idle input once the driver no longer pre-writes pacing.
     result = driver.run_full_session(
         camp, char_path, "inv1",
-        player_choices=[{"intent": "不知道该做什么", "intent_class": "idle"}] * 3,
-        max_turns=3,
+        player_choices=[{"intent": "不知道该做什么", "intent_class": "idle"}] * 4,
+        max_turns=4,
     )
     turn = result["turns"][-1]
     assert result["clue_coverage"]["discovered_count"] >= 1
@@ -183,8 +185,8 @@ def test_driver_stalled_recover_rolls_idea_when_signposted(tmp_path):
     (camp / "save" / "world-state.json").write_text(json.dumps(world))
     result = driver.run_full_session(
         camp, char_path, "inv1",
-        player_choices=[{"intent": "不知道该做什么", "intent_class": "idle"}] * 3,
-        max_turns=3,
+        player_choices=[{"intent": "不知道该做什么", "intent_class": "idle"}] * 4,
+        max_turns=4,
         rng_seed=7,
     )
     idea_turns = [
@@ -192,7 +194,16 @@ def test_driver_stalled_recover_rolls_idea_when_signposted(tmp_path):
         if any(r.get("kind") == "idea_roll" for r in turn.get("rule_results", []))
     ]
     assert idea_turns, "expected at least one live Idea Roll on a signposted RECOVER"
-    turn = idea_turns[0]
+    recovered = [
+        turn for turn in idea_turns
+        if turn.get("resolved_clue_policy", {}).get("fallback_recovered")
+    ]
+    assert recovered, (
+        "expected Idea Roll recovery to commit a fallback clue; "
+        f"actions={[t.get('action') for t in result['turns']]} "
+        f"policies={[t.get('resolved_clue_policy') for t in idea_turns]}"
+    )
+    turn = recovered[0]
     idea_rolls = [r for r in turn.get("rule_results", []) if r.get("kind") == "idea_roll"]
     assert len(idea_rolls) == 1
     assert idea_rolls[0]["skill"] == "INT"
@@ -203,6 +214,31 @@ def test_driver_stalled_recover_rolls_idea_when_signposted(tmp_path):
         "recover_with_cost",
     }
     assert result["clue_coverage"]["discovered_count"] >= 1
+
+
+def test_driver_turns_come_from_run_live_turn_pipeline(tmp_path):
+    """Regression: driver session turns must be produced by run_live_turn."""
+    camp, char_path = _build_mini_campaign(tmp_path)
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "search", "intent_class": "investigate"}],
+        max_turns=1,
+        rng_seed=42,
+    )
+    assert result["pipeline"] == "run_live_turn"
+    assert result["simulation_method"] == "driver_executed_virtual_table_not_live_llm"
+    turn = result["turns"][0]
+    assert turn["pipeline"] == "run_live_turn"
+    assert turn["apply_path"] == "coc_director_apply.apply_plan"
+    assert isinstance(turn.get("narration_envelope"), dict)
+    assert "approved_reveals" in turn["narration_envelope"] or "schema_version" in turn["narration_envelope"]
+    runtime_log = camp / "logs" / "live-turn-runtime.jsonl"
+    assert runtime_log.exists()
+    receipts = [json.loads(line) for line in runtime_log.read_text().splitlines() if line.strip()]
+    assert receipts
+    assert receipts[-1]["event_type"] == "live_turn_runtime"
 
 
 def test_driver_choice_leads_auto_signpost_then_recover_rolls_idea(tmp_path):
@@ -228,8 +264,9 @@ def test_driver_choice_leads_auto_signpost_then_recover_rolls_idea(tmp_path):
             {"intent": "不知道该做什么", "intent_class": "idle"},
             {"intent": "还是不知道", "intent_class": "idle"},
             {"intent": "完全卡住了", "intent_class": "idle"},
+            {"intent": "仍然卡住", "intent_class": "idle"},
         ],
-        max_turns=4,
+        max_turns=5,
         rng_seed=11,
     )
 

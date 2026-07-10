@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Multi-turn playtest driver — runs continuous player→director→rules→apply loops.
+"""Multi-turn playtest driver — scripted wrapper around run_live_turn.
 
-Drives a full play session from a sequence of player choices, advancing the
-campaign state each turn. Does NOT call an LLM for narration (the DirectorPlan's
-narrative_directives are the narrator contract; prose quality is tested separately).
-This validates: autonomous scene progression, clue coverage, fail-forward rule
-resolution, and tension curve.
+Each player choice is fed into the canonical live-turn pipeline
+(``coc_live_turn_runner.run_live_turn``): intent → director → enrich → rules →
+apply → narration envelope. This driver owns only scripted-choice feed, shared
+RNG seeding, session aggregation, and battle-report packaging. It does NOT call
+an LLM for narration and must not reimplement pipeline stages.
 
 Usage:
     python3 coc_playtest_driver.py <campaign_dir> <character_path> <investigator_id> --choices <choices.json>
@@ -33,10 +33,8 @@ def _load_sibling(name: str, filename: str):
     return m
 
 
-director = _load_sibling("coc_story_director", "coc_story_director.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
-narrative_enrichment = _load_sibling("coc_narrative_enrichment", "coc_narrative_enrichment.py")
 playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
 
 _SUCCESS_OUTCOMES = {"critical", "extreme", "hard", "regular", "success",
@@ -61,6 +59,14 @@ def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
         "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
         encoding="utf-8",
     )
+
+
+def _live_turn_runner():
+    """Lazy-load the canonical live-turn pipeline (avoids import cycle at module load)."""
+    existing = sys.modules.get("coc_live_turn_runner")
+    if existing is not None:
+        return existing
+    return _load_sibling("coc_live_turn_runner", "coc_live_turn_runner.py")
 
 
 def _decision_turn_number(value: Any) -> int | None:
@@ -95,18 +101,6 @@ def _next_decision_number(campaign_dir: Path) -> int:
                 if number is not None:
                     max_seen = max(max_seen, number)
     return max_seen + 1
-
-
-def _record_intent_class(campaign_dir: Path, intent_class: str, keep: int = 8) -> None:
-    """Persist recent intent classes so stalled_turns is meaningful in drivers."""
-    pacing_path = campaign_dir / "save" / "pacing-state.json"
-    pacing = apply_mod._read_json(pacing_path, {"tension_level": "low", "turn_number": 0})
-    recent = pacing.get("recent_intent_classes", [])
-    if not isinstance(recent, list):
-        recent = []
-    recent.append(intent_class)
-    pacing["recent_intent_classes"] = recent[-keep:]
-    _write_json(pacing_path, pacing)
 
 
 def _settle_sanity_check(
@@ -342,10 +336,6 @@ def _execute_rules_requests(
             "ts": ts,
         })
     return results
-_OUTCOME_ZH = {
-    "critical": "大成功", "extreme": "极限成功", "hard": "困难成功",
-    "regular": "常规成功", "failure": "失败", "fumble": "大失败",
-}
 _SCENE_ACTION_ZH = {
     "REVEAL": "揭示线索",
     "PRESSURE": "施加压力",
@@ -359,70 +349,6 @@ _SCENE_ACTION_ZH = {
 _RULE_REASON_ZH = {
     "obscured clue in scene": "线索检定",
 }
-
-
-def _build_narration_skeleton(
-    plan: dict[str, Any], rule_results: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Build a structured narration skeleton from the plan + roll results.
-
-    Surfaces the narrator contract (tone/beats/anchors/roll-weaving/constraints)
-    so D3 (narrative immersion) is evaluable even without LLM prose. The
-    failure_consequence field (set by backfill_rule_results) is passed through
-    separately by the caller; this helper handles the success/general case.
-    """
-    nd = plan.get("narrative_directives", {})
-    action = plan.get("scene_action", "")
-    clue_policy = plan.get("clue_policy", {}) or plan.get("resolved_clue_policy", {})
-    beats: list[str] = []
-
-    reveal = clue_policy.get("committed_reveals") or clue_policy.get("reveal", [])
-    if action == "REVEAL" and reveal:
-        anchors = nd.get("must_include", [])
-        for i, cid in enumerate(reveal):
-            anchor = anchors[i] if i < len(anchors) else ""
-            beats.append(f"揭示线索 {cid}：{anchor}" if anchor else f"揭示线索 {cid}")
-    elif action == "PRESSURE":
-        for mv in plan.get("pressure_moves", []):
-            beats.append(f"施压：{mv.get('visible_symptom', 'tension rises')}")
-    elif action == "CHARACTER":
-        for nm in plan.get("npc_moves", []):
-            beats.append(f"NPC {nm.get('npc_id', '?')}：{nm.get('agenda', '?')}，语气 {nm.get('emotional_tone', '?')}")
-    elif action == "RECOVER":
-        fallback = clue_policy.get("fallback_routes", [])
-        beats.append(f"扶手：建议方向 {fallback}" if fallback else "扶手：玩家卡住，给方向")
-    elif action == "SUBSYSTEM":
-        for req in plan.get("rules_requests", []):
-            beats.append(f"规则事件：{req.get('skill', req.get('kind', '?'))} 检定")
-    elif action == "CHOICE":
-        leads = clue_policy.get("leads", [])
-        beats.append(f"给选择：{leads}" if leads else "给玩家方向选择")
-    elif action == "CUT":
-        beats.append("转场到下一场景")
-    elif action == "DEEPEN":
-        beats.append("深化谜团但不给结论")
-
-    embedded_rolls = []
-    for r in rule_results:
-        if not isinstance(r, dict) or r.get("skipped") or "roll" not in r:
-            continue
-        embedded_rolls.append({
-            "skill": r.get("skill", "?"),
-            "roll": r["roll"],
-            "target": r.get("target"),
-            "outcome": r.get("outcome", "?"),
-            "narration_hook": f"{r.get('skill', '?')} 检定 {r['roll']}/{r.get('target', '?')} {_OUTCOME_ZH.get(r.get('outcome', ''), r.get('outcome', ''))}",
-        })
-
-    return {
-        "tone": nd.get("tone", []),
-        "beats": beats,
-        "must_include": nd.get("must_include", []),
-        "must_not_reveal_count": len(nd.get("must_not_reveal", [])),
-        "content_constraints": nd.get("content_constraints", []),
-        "horror_stage": nd.get("horror_escalation_stage", ""),
-        "embedded_rolls": embedded_rolls,
-    }
 
 
 def _clue_lookup(campaign_dir: Path) -> dict[str, str]:
@@ -732,6 +658,43 @@ def write_playtest_artifacts(
     return playtest_report.generate_battle_report(run_dir)
 
 
+def _project_driver_turn(live_turn: dict[str, Any], turn_num: int) -> dict[str, Any]:
+    """Project a run_live_turn internal turn into the driver session record shape."""
+    directives = live_turn.get("narrative_directives") or {}
+    envelope = live_turn.get("narration_envelope") or {}
+    return {
+        "turn": turn_num,
+        "decision_id": live_turn.get("decision_id"),
+        "scene_id": live_turn.get("scene_id"),
+        "action": live_turn.get("action"),
+        "pipeline": live_turn.get("pipeline") or "run_live_turn",
+        "apply_path": live_turn.get("apply_path"),
+        "clue_revealed": list(live_turn.get("clue_revealed") or []),
+        "rule_results": live_turn.get("rule_results") or [],
+        "resolved_clue_policy": live_turn.get("resolved_clue_policy") or {},
+        "failure_consequence": live_turn.get("failure_consequence"),
+        "choice_frame": live_turn.get("choice_frame") or {},
+        "proposal_transform": live_turn.get("proposal_transform"),
+        "scene_exit_pressure": live_turn.get("scene_exit_pressure"),
+        "idea_roll_plan": live_turn.get("idea_roll_plan"),
+        "roll_density_decisions": live_turn.get("roll_density_decisions") or [],
+        "storylet_moves": live_turn.get("storylet_moves") or [],
+        "incident_moves": live_turn.get("incident_moves") or [],
+        "narrative_enrichment": live_turn.get("narrative_enrichment") or {},
+        "narrative_directives": directives,
+        "rules_requests": live_turn.get("rules_requests") or [],
+        "npc_moves": live_turn.get("npc_moves") or [],
+        "narration_envelope": envelope,
+        "narration": envelope,
+        "tension": live_turn.get("tension") or live_turn.get("tension_after"),
+        "horror_stage": live_turn.get("horror_stage") or directives.get("horror_escalation_stage"),
+        "events_count": live_turn.get("events_count", 0),
+        "event_types": list(live_turn.get("event_types") or []),
+        "scene_transition": bool(live_turn.get("scene_transition")),
+        "dramatic_question": live_turn.get("dramatic_question", ""),
+    }
+
+
 def run_full_session(
     campaign_dir: Path,
     character_path: Path,
@@ -740,29 +703,20 @@ def run_full_session(
     max_turns: int = 20,
     rng_seed: int = 42,
 ) -> dict[str, Any]:
-    """Run a multi-turn session. Each turn: build context → director plan → rules → apply → record.
+    """Run a multi-turn session by wrapping ``run_live_turn`` once per choice.
 
     player_choices is a list of {intent, intent_class, signal_overrides?}. If fewer
     choices than max_turns, the last choice repeats. If more, extra are ignored.
 
-    Returns:
-        {
-            "turns": [{"turn": N, "scene_id": ..., "action": ..., "clue_revealed": ...,
-                       "rule_results": [...], "resolved_clue_policy": {...},
-                       "failure_consequence": {...}, "tension": ..., "events": [...]}],
-            "final_state": {"active_scene": ..., "discovered_clues": [...], "tension": ...},
-            "clue_coverage": {"discovered_count": N, "total_in_graph": M},
-            "tension_curve": [list of tension per turn],
-            "scene_path": [list of scene_id visited in order],
-            "reached_terminal": bool,
-        }
+    Driver-only concerns (scripted choice feed, shared RNG, report aggregation)
+    stay here. Pipeline stages live exclusively in ``run_live_turn``.
     """
+    live_runner = _live_turn_runner()
     rng = random.Random(rng_seed)
-    turns = []
-    tension_curve = []
-    scene_path = []
+    turns: list[dict[str, Any]] = []
+    tension_curve: list[Any] = []
+    scene_path: list[str] = []
 
-    # count total clues in graph for coverage stat
     story = apply_mod._read_json(campaign_dir / "scenario" / "story-graph.json", {"scenes": []})
     clue_graph = apply_mod._read_json(campaign_dir / "scenario" / "clue-graph.json", {"conclusions": []})
     total_clues = set()
@@ -771,94 +725,47 @@ def run_full_session(
             total_clues.add(cl.get("clue_id"))
     scene_ids = [s["scene_id"] for s in story.get("scenes", [])]
 
-    start_turn_num = _next_decision_number(campaign_dir)
     for offset in range(max_turns):
-        turn_num = start_turn_num + offset
         choice = player_choices[min(offset, len(player_choices) - 1)]
         player_intent_rich = choice.get("player_intent_rich")
-        intent_class = choice.get("intent_class") or (player_intent_rich or {}).get("primary_intent", "investigate")
-        _record_intent_class(campaign_dir, str(intent_class))
-        ctx = director.build_director_context(
-            campaign_dir=campaign_dir, character_path=character_path,
-            investigator_id=investigator_id,
-            player_intent=choice.get("intent", "..."),
-            player_intent_class=str(intent_class),
-            rng=rng,
+        intent_class = choice.get("intent_class") or (player_intent_rich or {}).get("primary_intent")
+        player_text = str(choice.get("intent") or choice.get("text") or choice.get("player_text") or "...")
+
+        live_result = live_runner.run_live_turn(
+            campaign_dir,
+            character_path,
+            investigator_id,
+            player_text,
+            intent_class=str(intent_class) if intent_class else None,
             player_intent_rich=player_intent_rich,
+            max_auto_advance=1,
+            auto_advance_low_agency=False,
+            recording_mode="sync",
+            recording_flush="manual",
+            rng=rng,
+            storylet_policy=choice.get("storylet_policy") if isinstance(choice.get("storylet_policy"), dict) else None,
+            storylet_library=choice.get("storylet_library") if isinstance(choice.get("storylet_library"), dict) else None,
+            incident_deck=choice.get("incident_deck") if isinstance(choice.get("incident_deck"), dict) else None,
+            signal_overrides=choice.get("signal_overrides") if isinstance(choice.get("signal_overrides"), dict) else None,
         )
-        ctx["storylet_ledger"] = apply_mod._read_json(
-            campaign_dir / "save" / "storylet-ledger.json", {}
-        )
-        if isinstance(choice.get("storylet_policy"), dict):
-            ctx["storylet_policy"] = choice["storylet_policy"]
-        if isinstance(choice.get("storylet_library"), dict):
-            ctx["storylet_library"] = choice["storylet_library"]
-        if isinstance(choice.get("incident_deck"), dict):
-            ctx["incident_deck"] = choice["incident_deck"]
-        for k, v in choice.get("signal_overrides", {}).items():
-            ctx["rule_signals"][k] = v
 
-        plan = director.generate_director_plan(ctx, decision_id=f"turn-{turn_num:03d}")
-        plan = narrative_enrichment.enrich_director_plan(plan, ctx)
-        rule_results = _execute_rules_requests(campaign_dir, character_path, investigator_id, plan, rng)
-        resolved_plan = apply_mod.backfill_rule_results(plan, rule_results)
-        if hasattr(narrative_enrichment, "enrich_storylets_after_rules"):
-            resolved_plan = narrative_enrichment.enrich_storylets_after_rules(resolved_plan, ctx)
-        events = apply_mod.apply_plan(campaign_dir, resolved_plan, investigator_id, rules_results=rule_results)
+        for live_turn in live_result.get("turns") or []:
+            decision_id = str(live_turn.get("decision_id") or "")
+            turn_num = _decision_turn_number(decision_id) or (len(turns) + 1)
+            projected = _project_driver_turn(live_turn, turn_num)
+            turns.append(projected)
 
-        # record
-        current_scene = ctx.get("active_scene_id", "?")
-        if not scene_path or scene_path[-1] != current_scene:
-            scene_path.append(current_scene)
+            current_scene = projected.get("scene_id") or "?"
+            if not scene_path or scene_path[-1] != current_scene:
+                scene_path.append(str(current_scene))
 
-        # read post-apply state
+            tension = projected.get("tension") or "low"
+            tension_curve.append(tension)
+
         world = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {})
-        pacing = apply_mod._read_json(campaign_dir / "save" / "pacing-state.json", {})
         discovered = world.get("discovered_clue_ids", [])
-        tension = pacing.get("tension_level", "low")
-        tension_curve.append(tension)
-        directives = resolved_plan.get("narrative_directives", {})
-        narration = _build_narration_skeleton(resolved_plan, rule_results)
-        # merge failure_consequence (set by backfill_rule_results) into narration
-        if directives.get("failure_consequence"):
-            narration["failure_consequence"] = directives["failure_consequence"]
-
-        turns.append({
-            "turn": turn_num,
-            "scene_id": current_scene,
-            "action": resolved_plan["scene_action"],
-            "clue_revealed": [e.get("clue_id") for e in events if e.get("event_type") == "clue_reveal"],
-            "rule_results": rule_results,
-            "resolved_clue_policy": resolved_plan.get("resolved_clue_policy", {}),
-            "failure_consequence": directives.get("failure_consequence"),
-            "choice_frame": resolved_plan.get("choice_frame", {}),
-            "proposal_transform": resolved_plan.get("proposal_transform") or directives.get("proposal_transform"),
-            "scene_exit_pressure": directives.get("scene_exit_pressure"),
-            "idea_roll_plan": directives.get("idea_roll_plan"),
-            "roll_density_decisions": (
-                resolved_plan.get("roll_density_decisions")
-                or directives.get("roll_density_decisions")
-                or []
-            ),
-            "storylet_moves": resolved_plan.get("storylet_moves", []),
-            "incident_moves": resolved_plan.get("incident_moves", []),
-            "narrative_enrichment": resolved_plan.get("narrative_enrichment", {}),
-            "narrative_directives": directives,
-            "rules_requests": resolved_plan.get("rules_requests", []),
-            "npc_moves": resolved_plan.get("npc_moves", []),
-            "narration": narration,
-            "tension": tension,
-            "horror_stage": directives.get("horror_escalation_stage"),
-            "events_count": len(events),
-            "event_types": [e.get("event_type") for e in events],
-            "scene_transition": any(e.get("event_type") == "scene_transition" for e in events),
-            "dramatic_question": resolved_plan.get("dramatic_question", ""),
-        })
-
-        # check terminal: reached last scene
         active = world.get("active_scene_id")
         if scene_ids and active == scene_ids[-1]:
-            # on last scene; if its clues exhausted or it's aftermath-type, done
             last_scene = next((s for s in story.get("scenes", []) if s["scene_id"] == active), {})
             last_clues = last_scene.get("available_clues", [])
             if not last_clues or all(c in discovered for c in last_clues):
@@ -880,6 +787,8 @@ def run_full_session(
         "tension_curve": tension_curve,
         "scene_path": scene_path,
         "reached_terminal": scene_path[-1] == scene_ids[-1] if scene_path and scene_ids else False,
+        "pipeline": "run_live_turn",
+        "simulation_method": "driver_executed_virtual_table_not_live_llm",
     }
 
 

@@ -557,6 +557,7 @@ def _run_one_turn(
     # R-2: narrator-facing envelope — approved reveals + secret IDs, never prose.
     narration_envelope = narration_contract.build_narration_envelope(resolved_plan)
     event_types = [event.get("event_type") for event in events if isinstance(event, dict)]
+    tension = pacing.get("tension_level")
     return {
         "decision_id": decision_id,
         "turn_number": (resolved_plan.get("turn_input") or {}).get("turn_number"),
@@ -564,6 +565,7 @@ def _run_one_turn(
         "action": resolved_plan.get("scene_action"),
         "auto_advanced": bool(choice.get("auto_advanced")),
         "apply_path": "coc_director_apply.apply_plan",
+        "pipeline": "run_live_turn",
         "recording_mode": recording_mode,
         "recording_flush": recording_flush,
         "rules_pending_batch": str(rules_pending) if rules_pending is not None else None,
@@ -574,15 +576,31 @@ def _run_one_turn(
         "events_count": len(events),
         "rule_results": rule_results,
         "rules_requests": resolved_plan.get("rules_requests", []),
+        "resolved_clue_policy": resolved_plan.get("resolved_clue_policy", {}),
+        "failure_consequence": directives.get("failure_consequence"),
         "choice_frame": resolved_plan.get("choice_frame", {}),
+        "proposal_transform": (
+            resolved_plan.get("proposal_transform") or directives.get("proposal_transform")
+        ),
+        "scene_exit_pressure": directives.get("scene_exit_pressure"),
+        "idea_roll_plan": directives.get("idea_roll_plan"),
+        "roll_density_decisions": (
+            resolved_plan.get("roll_density_decisions")
+            or directives.get("roll_density_decisions")
+            or []
+        ),
         "npc_moves": resolved_plan.get("npc_moves", []),
         "storylet_moves": resolved_plan.get("storylet_moves", []),
+        "incident_moves": resolved_plan.get("incident_moves", []),
         "narrative_enrichment": resolved_plan.get("narrative_enrichment", {}),
         "narrative_directives": directives,
         "narration_envelope": narration_envelope,
+        "dramatic_question": resolved_plan.get("dramatic_question", ""),
+        "horror_stage": directives.get("horror_escalation_stage"),
         "scene_transition": any(event_type == "scene_transition" for event_type in event_types),
         "active_scene_after": world.get("active_scene_id"),
-        "tension_after": pacing.get("tension_level"),
+        "tension": tension,
+        "tension_after": tension,
     }
 
 
@@ -598,8 +616,11 @@ def run_live_turn(
     auto_advance_low_agency: bool = True,
     recording_mode: str = "fast",
     recording_flush: str = "background",
+    rng: random.Random | None = None,
     rng_seed: int | str | None = None,
     storylet_policy: dict[str, Any] | None = None,
+    storylet_library: dict[str, Any] | None = None,
+    incident_deck: dict[str, Any] | None = None,
     signal_overrides: dict[str, Any] | None = None,
     state_patch: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -609,12 +630,22 @@ def run_live_turn(
     consumed by this one player input. The first turn always represents the
     player's text; later turns only occur when the director emitted a compressed
     low-agency progress directive and no interrupt has appeared yet.
+
+    Injection points for deterministic / scripted callers (playtest driver):
+    * ``intent_class`` / ``player_intent_rich`` — pre-routed semantic intent
+      (skips the intent router).
+    * ``rng`` — shared ``random.Random`` across multi-turn sessions; preferred
+      over ``rng_seed`` when the caller must advance one RNG across turns.
+    * ``storylet_policy`` / ``storylet_library`` / ``incident_deck`` /
+      ``signal_overrides`` — fixture overrides forwarded into director context.
     """
     campaign = Path(campaign_dir)
     character = Path(character_path)
     mode = coc_async_recorder.normalize_recording_mode(recording_mode)
     flush_policy = coc_async_recorder.normalize_flush_policy(recording_flush)
-    rng = random.Random(rng_seed if rng_seed is not None else f"{campaign}|{time.time_ns()}")
+    turn_rng = rng if rng is not None else random.Random(
+        rng_seed if rng_seed is not None else f"{campaign}|{time.time_ns()}"
+    )
 
     resolved_intent_class, resolved_intent_rich, intent_resolution = _resolve_turn_intent(
         campaign,
@@ -634,6 +665,10 @@ def run_live_turn(
     original_player_intent_rich = choice.get("player_intent_rich")
     if storylet_policy is not None:
         choice["storylet_policy"] = storylet_policy
+    if storylet_library is not None:
+        choice["storylet_library"] = storylet_library
+    if incident_deck is not None:
+        choice["incident_deck"] = incident_deck
     if signal_overrides is not None:
         choice["signal_overrides"] = signal_overrides
 
@@ -661,7 +696,7 @@ def run_live_turn(
             investigator_id=investigator_id,
             choice=choice,
             decision_id=decision_id,
-            rng=rng,
+            rng=turn_rng,
             recording_mode=mode,
             recording_flush=flush_policy,
         )
