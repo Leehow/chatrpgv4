@@ -818,6 +818,25 @@ def test_active_bout_is_temporarily_unplayable_and_pauses_match(tmp_path):
     assert result["result"]["reached_terminal"] is False
 
 
+def test_condition_form_active_bout_is_temporarily_unplayable_and_pauses_match(
+    tmp_path,
+):
+    result = _run_match_with_investigator_state(
+        tmp_path,
+        current_hp=8,
+        conditions=["bout_active"],
+    )
+
+    assert result["investigator_playability"] == {
+        "status": "temporarily_unplayable",
+        "playable": False,
+        "terminal": False,
+    }
+    assert result["stop_reason"] == "investigator_temporarily_unplayable"
+    assert result["result"]["player_turn_count"] == 0
+    assert result["result"]["reached_terminal"] is False
+
+
 def test_explicit_temporarily_unplayable_condition_pauses_match(tmp_path):
     result = _run_match_with_investigator_state(
         tmp_path,
