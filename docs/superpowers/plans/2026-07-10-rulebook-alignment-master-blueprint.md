@@ -887,6 +887,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 - 场景边自动编译（R-3 遗留）：编译器暂不强制为旧模组生成 `scene_edges`，新剧本按 compile-protocol 要求产出；the-white-war starter 仍是线性旧格式（无 `is_start`/`scene_edges`，structured 校验报 missing_start），待迁移
 - [x] 模组身份 schema 细化（Masks 实测暴露）：`module_identity` 需区分 `module_edition` vs `rules_edition`（MoN 5th ed 书 / CoC 7e 规则）；`source_refs.page` 统一用印刷页而非 PDF index（差约 −2）；巨册分章注册的兄弟章发现/聚合视图；Product Identity 散文不入 git 的存储边界文档化 — **done 2026-07-10**
 - [x] Narration envelope 增强（narrator 首跑暴露）：`approved_reveals` 附 `player_safe_summary` 正文（现只有 clue_ids）；envelope 加已结算 `rule_results`（成败/代价，narrator 现只见 requests）；场景感官锚点/地点显示名；`npc_moves` 消毒后保留对白种子与显示名 ☑ 2026-07-10
+- [x] **Narrative Adherence / SENNA 对齐**（论文 *Narrative Adherence in LLM-driven Games*，ChatRPG v3 / SENNA，Aalborg）：(1) DirectorPlan 结构化 `redirection` 策略（`in_world_consequences` > `npc_influence` > `more_information`，永不 `hard_denial`），经 narration envelope 透传到 narrator prompt；(2) 模组 adherence checklist（required/optional statements）+ live-match 评估 + 战报「叙事贴合 / Narrative Adherence」节 — **done 2026-07-10**
 - 叙述质量自动评估（RPA-Check 式）：narration-audit 增加 LLM-as-judge 布尔检查项（记账腔/菜单腔/重复句式/口语度），live match 出分数曲线做回归
 
 ---

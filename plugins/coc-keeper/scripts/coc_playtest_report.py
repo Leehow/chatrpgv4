@@ -2211,6 +2211,43 @@ def _format_combat_tracker(
     return lines
 
 
+def _render_narrative_adherence_section(adherence: Any) -> list[str]:
+    """Optional 叙事贴合 / Narrative Adherence section (SENNA checklist).
+
+    Emitted only when metadata carries structured adherence data. Fail-open:
+    malformed payloads yield no section.
+    """
+    if not isinstance(adherence, dict) or not adherence:
+        return []
+    statements = adherence.get("statements")
+    if not isinstance(statements, list) or not statements:
+        return []
+    try:
+        coverage = float(adherence.get("required_coverage", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        coverage = 0.0
+    pct = int(round(coverage * 100))
+    lines = [
+        "## 叙事贴合 / Narrative Adherence",
+        f"- Required coverage: {pct}% ({coverage:.2f})",
+        "",
+    ]
+    for stmt in statements:
+        if not isinstance(stmt, dict):
+            continue
+        mark = "✓" if stmt.get("satisfied") else "✗"
+        kind = str(stmt.get("kind") or "optional").strip() or "optional"
+        desc = str(stmt.get("description") or stmt.get("statement_id") or "").strip()
+        if not desc:
+            continue
+        lines.append(f"- {mark} [{kind}] {desc}")
+    if len(lines) <= 3:
+        return []
+    lines.append("")
+    return lines
+
+
+
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
     localized_terms = _localized_terms(metadata)
@@ -2527,6 +2564,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_heading(2, "Clues Found", language_profile),
         *_list_lines(clue_lines, "- No clues recorded."),
         "",
+        *_render_narrative_adherence_section(metadata.get("narrative_adherence")),
         _report_heading(2, "Session Ending", language_profile),
         *_list_lines(ending_lines, "- Session ending not recorded."),
         "",
@@ -2537,6 +2575,8 @@ def generate_battle_report(run_dir: Path) -> Path:
         *_list_lines(feedback_lines, "- No player feedback recorded."),
         "",
     ]
+    # Drop empty strings left by optional sections that emitted nothing.
+    body = [line for line in body if line is not None]
     output.write_text("\n".join(body), encoding="utf-8")
     return output
 

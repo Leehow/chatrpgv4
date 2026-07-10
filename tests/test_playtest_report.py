@@ -801,3 +801,79 @@ def test_state_changes_include_scene_unlock_and_game_time_payload(tmp_path):
     assert "game time recorded" not in battle_text
     assert "crossing-saddle" in battle_text
     assert "+30" in battle_text or "30m" in battle_text
+
+def test_battle_report_renders_narrative_adherence_section(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "adherence-run"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "adherence-run"
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / "ada-king"
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "adherence-run",
+        "title": "Adherence Fixture",
+        "scenario_id": "the-haunting",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "status": "active",
+    })
+    write_json(campaign_dir / "party.json", {"investigator_ids": ["ada-king"]})
+    write_json(campaign_dir / "scenario" / "scenario.json", {
+        "scenario_id": "the-haunting",
+        "title": "The Haunting",
+    })
+    write_json(investigator_dir / "character.json", {
+        "id": "ada-king",
+        "name": "Ada King",
+        "occupation": "Antiquarian",
+        "era": "1920s",
+        "characteristics": {"STR": 50, "CON": 50, "SIZ": 50, "DEX": 50, "APP": 50, "INT": 50, "POW": 50, "EDU": 50},
+        "derived": {"HP": 10, "MP": 10, "SAN": 50, "MOV": 8, "damage_bonus": "0", "build": 0},
+        "skills": {},
+        "backstory": {},
+    })
+    write_json(run_dir / "playtest.json", {
+        "run_id": "adherence-run",
+        "campaign_id": "adherence-run",
+        "player_profile": "balanced",
+        "narrative_adherence": {
+            "required_coverage": 0.5,
+            "statements": [
+                {
+                    "statement_id": "conclusion:c1",
+                    "kind": "required",
+                    "description": "Reach basement burial conclusion",
+                    "criterion": {"conclusion_id": "c1"},
+                    "satisfied": True,
+                },
+                {
+                    "statement_id": "terminal:end",
+                    "kind": "required",
+                    "description": "Reach final confrontation",
+                    "criterion": {"scene_id": "end"},
+                    "satisfied": False,
+                },
+                {
+                    "statement_id": "npc:npc-1",
+                    "kind": "optional",
+                    "description": "Engage Knott",
+                    "criterion": {"npc_id": "npc-1"},
+                    "satisfied": True,
+                },
+            ],
+        },
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+    (campaign_dir / "logs").mkdir(parents=True, exist_ok=True)
+    (campaign_dir / "memory").mkdir(parents=True, exist_ok=True)
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+
+    battle_path = coc_playtest_report.generate_battle_report(run_dir)
+    text = battle_path.read_text(encoding="utf-8")
+    assert "Narrative Adherence" in text or "叙事贴合" in text
+    assert "50%" in text or "0.5" in text
+    assert "✓" in text
+    assert "✗" in text
+    assert "Reach basement burial conclusion" in text
+    assert "Reach final confrontation" in text

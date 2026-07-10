@@ -45,6 +45,10 @@ playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
 live_turn_runner = _load_sibling("coc_live_turn_runner", "coc_live_turn_runner.py")
 narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
+try:
+    coc_adherence = _load_sibling("coc_adherence", "coc_adherence.py")
+except Exception:
+    coc_adherence = None
 public_state_mod = _load_runtime_module(
     "runtime_public_state", "runtime/engine/public_state.py"
 )
@@ -422,6 +426,7 @@ def run_live_match(
     used_llm_narrator = False
 
     campaign_meta = _read_json(camp / "campaign.json", {})
+    module_meta = _read_json(camp / "scenario" / "module-meta.json", {})
     play_language = str(
         campaign_meta.get("play_language") if isinstance(campaign_meta, dict) else "zh-Hans"
     ) or "zh-Hans"
@@ -592,30 +597,65 @@ def run_live_match(
         "player_turn_count": len(player_turns),
     }
 
+    # Enrich play record with structured fields adherence evaluation consumes.
+    world_final = _read_json(camp / "save" / "world-state.json", {})
+    if isinstance(world_final, dict):
+        visited = world_final.get("visited_scene_ids") or scene_path
+        session_result["visited_scene_ids"] = (
+            list(visited) if isinstance(visited, list) else list(scene_path)
+        )
+        session_result["discovered_clue_ids"] = (
+            list(discovered_final) if isinstance(discovered_final, list) else []
+        )
+    threat_state = _read_json(camp / "save" / "threat-state.json", {})
+    if isinstance(threat_state, dict) and isinstance(threat_state.get("clocks"), dict):
+        session_result["clocks"] = threat_state["clocks"]
+        session_result["threat_state"] = threat_state
+
     # Narration method: llm_narrator when at least one turn used the bridge.
     if narrator_path is not None and used_llm_narrator:
         narration_method = "llm_narrator"
     else:
         narration_method = "template"
 
+    # Fail-open narrative adherence (SENNA checklist) when scenario dir resolves.
+    narrative_adherence = None
+    scenario_dir = camp / "scenario"
+    if coc_adherence is not None and scenario_dir.is_dir():
+        try:
+            narrative_adherence = coc_adherence.compute_adherence_for_scenario(
+                scenario_dir, session_result
+            )
+        except Exception:
+            narrative_adherence = None
+
+    metadata_extra: dict[str, Any] = {
+        "run_id": out.name,
+        "stop_reason": stop_reason,
+        "module_coverage": scene_path,
+        "scenario": (
+            (module_meta.get("title") if isinstance(module_meta, dict) else None)
+            or (campaign_meta.get("title") if isinstance(campaign_meta, dict) else None)
+            or campaign_id
+        ),
+        "scenario_id": (
+            (module_meta.get("scenario_id") if isinstance(module_meta, dict) else None)
+            or (campaign_meta.get("scenario_id") if isinstance(campaign_meta, dict) else None)
+            or (campaign_meta.get("active_scenario_id") if isinstance(campaign_meta, dict) else None)
+            or campaign_id
+        ),
+        "play_language": play_language,
+        "narration_method": narration_method,
+        "fallback_turns": fallback_turns,
+        "narrator_configured": narrator_path is not None,
+    }
+    if narrative_adherence is not None:
+        metadata_extra["narrative_adherence"] = narrative_adherence
+
     metadata = _match_metadata(
         live=live,
         campaign_id=campaign_id,
-        extra={
-            "run_id": out.name,
-            "stop_reason": stop_reason,
-            "module_coverage": scene_path,
-            "scenario": campaign_meta.get("title", campaign_id)
-            if isinstance(campaign_meta, dict)
-            else campaign_id,
-            "scenario_id": campaign_meta.get("scenario_id", campaign_id)
-            if isinstance(campaign_meta, dict)
-            else campaign_id,
-            "play_language": play_language,
-            "narration_method": narration_method,
-            "fallback_turns": fallback_turns,
-            "narrator_configured": narrator_path is not None,
-        },
+        extra=metadata_extra,
     )
     # Force honest simulation_method / player_profile (do not let defaults overwrite).
     battle_path = playtest_driver.write_playtest_artifacts(
@@ -649,6 +689,8 @@ def run_live_match(
             "fallback_turns": fallback_turns,
         }
     )
+    if narrative_adherence is not None:
+        stamped["narrative_adherence"] = narrative_adherence
     playtest_path.write_text(
         json.dumps(stamped, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
