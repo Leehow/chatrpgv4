@@ -1560,7 +1560,9 @@ def test_pacing_drives_horror_stage_from_active_scene(tmp_path):
         player_intent="search", player_intent_class="investigate", rng=random.Random(42))
     plan = coc_story_director.generate_director_plan(ctx, "pacing-test")
     assert plan["narrative_directives"]["horror_escalation_stage"] == "revelation"
-    assert plan["pacing_mode"] == "high"
+    # R1-Z D4: pacing_mode stays action-derived; tension_target is its own field.
+    assert plan["pacing_mode"] == "investigation"
+    assert plan["tension_target"] == "high"
 
 
 def test_pacing_falls_back_when_no_matching_scene(tmp_path):
@@ -1575,7 +1577,8 @@ def test_pacing_falls_back_when_no_matching_scene(tmp_path):
     plan = coc_story_director.generate_director_plan(ctx, "pacing-fallback-test")
     # fallback horror stage is wrongness (v1 default), pacing_mode from action
     assert plan["narrative_directives"]["horror_escalation_stage"] == "wrongness"
-    assert plan["pacing_mode"] in ("investigation", "pressure", "social", "low", "medium", "high", "climax", "aftermath", "slow_burn")
+    assert plan["pacing_mode"] in ("investigation", "pressure", "social")
+    assert plan.get("tension_target") in (None, "", "low", "medium", "high", "climax")
 
 
 def test_payoff_scores_above_zero_when_memory_matches(tmp_path):
@@ -2038,3 +2041,92 @@ def test_mythos_presentation_directive_none_without_structured_monster():
     }
     assert coc_story_director._mythos_presentation_directive(ctx, "PRESSURE") is None
     assert coc_story_director._mythos_presentation_directive(ctx, "DEEPEN") is None
+
+
+# --- R1-Z director quick fixes ---
+
+
+def test_luck_zero_is_not_replaced_by_default(tmp_path):
+    """E1: Luck=0 must not truthiness-fallback to characteristics LUCK."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    char = json.loads(char_path.read_text())
+    char["derived"]["Luck"] = 0
+    # Leave characteristics.LUCK at 55 — the buggy `or` chain would use it.
+    char_path.write_text(json.dumps(char))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["luck_level"] == "depleted"
+
+
+def test_play_language_threads_into_player_facing_style(tmp_path):
+    """E2: campaign play_language must reach player_facing_style.language."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    (camp / "campaign.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "test",
+        "play_language": "ja-JP",
+    }))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42),
+    )
+    assert ctx["play_language"] == "ja-JP"
+    plan = coc_story_director.generate_director_plan(ctx, "lang-test")
+    assert plan["narrative_directives"]["player_facing_style"]["language"] == "ja-JP"
+
+
+def test_npc_secret_limit_never_carries_secret_prose():
+    """B1: Chinese (space-less) secret prose must not land in the plan."""
+    secret = "他其实是邪教内应并且知道地下室的真相"
+    ctx = {
+        "active_scene": {"npc_ids": ["npc-cultist"]},
+        "npc_agendas": {"npcs": [{
+            "npc_id": "npc-cultist",
+            "agenda": "mislead investigators",
+            "secret": secret,
+            "secret_id": "secret-cultist-cover",
+        }]},
+        "rule_signals": {"app": 50, "credit_rating": 50, "npc_reaction_roll": None},
+        "rng": random.Random(42),
+    }
+    moves = coc_story_director._build_npc_moves(ctx, "CHARACTER")
+    assert moves[0]["has_secret"] is True
+    assert moves[0]["secret_limit"] == "do not reveal this NPC's secret"
+    assert secret not in json.dumps(moves[0], ensure_ascii=False)
+    assert moves[0].get("secret_id") == "secret-cultist-cover"
+
+
+def test_recover_time_profile_is_short_investigation_recovery():
+    """D3: RECOVER proposes investigation recovery, not overnight sleep."""
+    profile = coc_story_director._ACTION_TIME_PROFILES["RECOVER"]
+    assert profile["mode"] == "elapsed"
+    assert profile["category"] == "investigation_recovery"
+    assert profile["delta_minutes"] == 30
+
+    advance = coc_story_director._derive_time_advance(
+        "RECOVER", {"hours_since_last_rest": 2, "time_pressure": "low"},
+    )
+    assert advance["category"] == "investigation_recovery"
+    assert advance["delta_minutes"] == 30
+    assert advance["mode"] == "elapsed"
+
+
+def test_pacing_mode_stays_action_derived_when_tension_target_present(tmp_path):
+    """D4: tension_target must not overwrite pacing_mode."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    pm = {"pacing_curve": [
+        {"scene_id": "scene-1", "tension_target": "climax", "horror_stage": "revelation"},
+    ]}
+    (camp / "scenario" / "pacing-map.json").write_text(json.dumps(pm))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "pacing-split")
+    assert plan["pacing_mode"] == "investigation"
+    assert plan["tension_target"] == "climax"
+    assert plan["pacing_mode"] not in ("low", "medium", "high", "climax")

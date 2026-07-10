@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import random
 
 
 def _load(name, rel):
@@ -59,6 +61,80 @@ def test_high_conflict_can_select_high_but_not_climax_by_default():
     assert moves
     assert moves[0]["conflict_level"] in {"medium", "high"}
     assert moves[0]["conflict_level"] != "climax"
+
+
+def test_infer_conflict_level_reads_tension_target_not_pacing_mode():
+    """R1-Z D4: climax intensity comes from tension_target, not pacing_mode."""
+    ctx = _ctx("low")
+    ctx["storylet_policy"] = {"seed": "fixed"}  # no explicit conflict_level
+    plan = _plan("REVEAL")
+    plan["pacing_mode"] = "investigation"
+    plan["tension_target"] = "climax"
+    assert storylets.infer_conflict_level(plan, ctx) == "climax"
+
+    plan2 = _plan("REVEAL")
+    plan2["pacing_mode"] = "investigation"
+    plan2["tension_target"] = "low"
+    assert storylets.infer_conflict_level(plan2, ctx) == "low"
+
+
+def test_bind_storylet_requires_explicit_true_flags():
+    """R1-Z E5a: missing/non-bool requires flags must not auto-bind."""
+    storylet = {
+        "storylet_id": "opt",
+        "requires": {"npc_id": "maybe", "unrevealed_clue": 1},
+    }
+    plan = _plan("REVEAL")
+    ctx = _ctx("low")
+    bound = storylets._bind_storylet(storylet, plan, ctx, random.Random(1))
+    assert bound["npc_id"] is None
+    assert bound["clue_id"] is None
+
+    storylet_true = {
+        "storylet_id": "req",
+        "requires": {"npc_id": True, "unrevealed_clue": True},
+    }
+    bound_true = storylets._bind_storylet(storylet_true, plan, ctx, random.Random(1))
+    assert bound_true["npc_id"] == "npc-archivist"
+    assert bound_true["clue_id"] == "clue-transfer-record"
+
+
+def test_max_per_session_resets_when_session_number_advances(tmp_path):
+    """R1-Z E5b: max_per_session is scoped to the current session_number."""
+    library = {"storylets": [{
+        "storylet_id": "once-a",
+        "family_id": "fam-a",
+        "trope_id": "trope-a",
+        "conflict_level": "low",
+        "base_weight": 10,
+        "scene_actions": ["REVEAL"],
+        "eligible_scene_types": ["investigation"],
+        "horror_stage": ["wrongness"],
+        "requires": {"unrevealed_clue": True},
+        "serves": {"mainline": True, "can_reveal_clue": True},
+        "anti_repeat": {"max_per_session": 1, "exclude_if_family_used_recently": False},
+        "cue": "once",
+        "story_functions": ["clue_delivery"],
+        "deck_tags": ["clue_delivery", "investigation"],
+    }]}
+    camp = tmp_path / "campaigns" / "sess"
+    (camp / "save").mkdir(parents=True)
+    ledger = {
+        "session_number": 1,
+        "used_storylets": [{"storylet_id": "once-a", "session_number": 1}],
+    }
+    assert storylets._repeat_penalty(library["storylets"][0], ledger) == 0.0
+
+    storylets.start_new_session(camp)
+    ledger2 = json.loads((camp / "save" / "storylet-ledger.json").read_text())
+    assert ledger2["session_number"] == 2
+    # Carry prior uses forward; new session must ignore session-1 counts.
+    ledger2["used_storylets"] = ledger["used_storylets"]
+    assert storylets._repeat_penalty(library["storylets"][0], ledger2) == 1.0
+    moves = storylets.select_storylet_moves(
+        _plan("REVEAL"), _ctx("low", ledger=ledger2), library=library, seed="sess2",
+    )
+    assert moves and moves[0]["storylet_id"] == "once-a"
 
 
 def test_recent_family_is_excluded_even_if_storylet_differs():

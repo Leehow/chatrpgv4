@@ -4,8 +4,16 @@
 A storylet is a small, reusable plot beat. It must enrich the current module
 rather than replace it: every selected beat owes the main scenario a debt by
 serving at least one clue, NPC agenda, threat front, choice, recovery valve, or
-scenario theme. This module is side-effect-free; it returns both the selected
-moves and a ledger patch that the caller may persist after narration.
+scenario theme. This module is side-effect-free for selection; it returns both
+the selected moves and a ledger patch that the caller may persist after
+narration.
+
+Session scoping (R1-Z E5): ``max_per_session`` counts only ledger uses whose
+``session_number`` matches the ledger's current ``session_number``. Call
+``start_new_session(campaign_dir)`` at a play-session boundary (e.g. after a
+``session_ending`` event) to bump ``save/storylet-ledger.json`` so once-per-
+session storylets become available again. There is no automatic session
+counter elsewhere in world-state yet.
 """
 from __future__ import annotations
 
@@ -81,7 +89,70 @@ def normalize_storylet_ledger(ledger: dict[str, Any] | None) -> dict[str, Any]:
     ledger.setdefault("recent_tropes", [])
     ledger.setdefault("used_targets", [])
     ledger.setdefault("turn_number", 0)
+    ledger.setdefault("session_number", 1)
     return ledger
+
+
+def start_new_session(campaign_dir: Path) -> dict[str, Any]:
+    """Bump storylet-ledger ``session_number`` at a play-session boundary.
+
+    Callers should invoke this when a structured session ends (e.g. after a
+    ``session_ending`` event). Prior ``used_storylets`` entries are retained
+    for history; ``max_per_session`` only counts the new session_number.
+    """
+    campaign_dir = Path(campaign_dir)
+    ledger_path = campaign_dir / "save" / "storylet-ledger.json"
+    if ledger_path.exists():
+        try:
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            ledger = {}
+    else:
+        ledger = {}
+    ledger = normalize_storylet_ledger(ledger if isinstance(ledger, dict) else {})
+    try:
+        current = int(ledger.get("session_number", 1) or 1)
+    except (TypeError, ValueError):
+        current = 1
+    ledger["session_number"] = current + 1
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text(
+        json.dumps(ledger, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return ledger
+
+
+def _session_number(ledger: dict[str, Any]) -> int:
+    try:
+        return int(ledger.get("session_number", 1) or 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _used_storylet_ids_for_session(ledger: dict[str, Any]) -> list[str]:
+    """Return storylet ids used in the ledger's current session_number.
+
+    Legacy bare-string entries (no session_number) are treated as belonging to
+    the current session so older ledgers keep their anti-repeat behaviour until
+    ``start_new_session`` advances the counter.
+    """
+    current = _session_number(ledger)
+    ids: list[str] = []
+    for entry in _as_list(ledger.get("used_storylets")):
+        if isinstance(entry, dict):
+            sid = entry.get("storylet_id") or entry.get("id")
+            if not sid:
+                continue
+            try:
+                entry_session = int(entry.get("session_number", current) or current)
+            except (TypeError, ValueError):
+                entry_session = current
+            if entry_session == current:
+                ids.append(str(sid))
+        elif entry:
+            ids.append(str(entry))
+    return ids
 
 
 def _has_pressure_tick(plan: dict[str, Any]) -> bool:
@@ -182,17 +253,20 @@ def infer_conflict_level(plan: dict[str, Any], ctx: dict[str, Any]) -> str:
 
     action = plan.get("scene_action")
     pacing_mode = plan.get("pacing_mode")
+    # D4: intensity dial is tension_target (and live tension_level), not pacing_mode.
+    tension_target = plan.get("tension_target")
     tension_level = (
-        (plan.get("rule_signals") or {}).get("tension_level")
+        tension_target
+        or (plan.get("rule_signals") or {}).get("tension_level")
         or ((plan.get("rule_signals") or {}).get("tension_clock") or {}).get("tension_level")
         or (ctx.get("world_state") or {}).get("tension_level")
         or "low"
     )
     horror_stage = ((plan.get("narrative_directives") or {}).get("horror_escalation_stage") or "wrongness")
 
-    if pacing_mode == "climax" or tension_level == "climax" or horror_stage == "revelation":
+    if tension_target == "climax" or tension_level == "climax" or horror_stage == "revelation":
         return "climax"
-    if action in ("SUBSYSTEM", "PRESSURE") or tension_level == "high":
+    if action in ("SUBSYSTEM", "PRESSURE") or tension_level == "high" or tension_target == "high":
         return "high"
     if action in ("CHARACTER", "CHOICE", "CUT") or pacing_mode in ("social", "pressure"):
         return "medium"
@@ -512,7 +586,7 @@ def _repeat_penalty(storylet: dict[str, Any], ledger: dict[str, Any]) -> float:
     sid = storylet.get("storylet_id")
     family = storylet.get("family_id")
     trope = storylet.get("trope_id")
-    used_storylets = _as_list(ledger.get("used_storylets"))
+    used_storylets = _used_storylet_ids_for_session(ledger)
     if sid and sid in used_storylets and int(anti.get("max_per_session", 1) or 1) <= used_storylets.count(sid):
         return 0.0
     if anti.get("exclude_if_family_used_recently", True) and family in _as_list(ledger.get("recent_families")):
@@ -618,8 +692,10 @@ def _bind_storylet(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[str
     used_targets = set(_as_list((ctx.get("storylet_ledger") or {}).get("used_targets")))
 
     npc_pool = [n for n in npc_ids if n not in used_targets] or npc_ids
-    bound_npc = rng.choice(npc_pool) if npc_pool and (storylet.get("requires") or {}).get("npc_id") is not False else None
-    bound_clue = rng.choice(clue_ids) if clue_ids and (storylet.get("requires") or {}).get("unrevealed_clue") is not False else None
+    # E5a: library uses explicit bools (true/false); only bind when True.
+    req = storylet.get("requires") or {}
+    bound_npc = rng.choice(npc_pool) if npc_pool and req.get("npc_id") is True else None
+    bound_clue = rng.choice(clue_ids) if clue_ids and req.get("unrevealed_clue") is True else None
     return {
         "npc_id": bound_npc,
         "clue_id": bound_clue,
@@ -647,6 +723,7 @@ def project_ledger_update(ledger: dict[str, Any], selected: dict[str, Any]) -> d
     trope = selected.get("trope_id")
     bound = selected.get("bound_entities") or {}
     target = bound.get("npc_id") or bound.get("location_id")
+    session_number = _session_number(ledger)
 
     def append_recent(values: list[Any], value: Any, limit: int = 8) -> list[Any]:
         out = [v for v in values if v != value]
@@ -654,9 +731,15 @@ def project_ledger_update(ledger: dict[str, Any], selected: dict[str, Any]) -> d
             out.append(value)
         return out[-limit:]
 
+    used_entries = list(_as_list(ledger.get("used_storylets")))
+    if sid:
+        used_entries.append({"storylet_id": sid, "session_number": session_number})
+        used_entries = used_entries[-999:]
+
     return {
         "schema_version": _SCHEMA_VERSION,
-        "used_storylets": append_recent(_as_list(ledger.get("used_storylets")), sid, limit=999),
+        "session_number": session_number,
+        "used_storylets": used_entries,
         "used_families": append_recent(_as_list(ledger.get("used_families")), family, limit=999),
         "used_tropes": append_recent(_as_list(ledger.get("used_tropes")), trope, limit=999),
         "recent_families": append_recent(_as_list(ledger.get("recent_families")), family, limit=8),

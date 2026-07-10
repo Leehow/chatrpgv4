@@ -474,7 +474,13 @@ def build_director_context(
     max_san = coc_mythos.max_san_for(cthulhu_mythos)
     credit_rating = char_skills.get("Credit Rating", 0)
     app = char_chars.get("APP", 50)
-    luck = char_derived.get("Luck") or char_chars.get("LUCK", 50)
+    # E1: Luck=0 is a legitimate depleted value — never truthiness-fallback.
+    _luck_derived = char_derived.get("Luck")
+    if _luck_derived is not None:
+        luck = _luck_derived
+    else:
+        _luck_char = char_chars.get("LUCK")
+        luck = 50 if _luck_char is None else _luck_char
 
     recent_intents = pacing.get("recent_intent_classes", [])
     recent_intent_tags = pacing.get("recent_intent_tags", [])
@@ -553,12 +559,17 @@ def build_director_context(
     if hasattr(coc_rule_signals, "read_chase_state"):
         chase_state = coc_rule_signals.read_chase_state(campaign_dir)
 
+    # E2: structured play language from campaign.json (default zh-Hans).
+    campaign_doc = _read_json(campaign_dir / "campaign.json", {})
+    play_language = campaign_doc.get("play_language") or "zh-Hans"
+
     return {
         "campaign_dir": campaign_dir,
         "investigator_id": investigator_id,
         "player_intent": player_intent,
         "player_intent_class": player_intent_class,
         "player_intent_rich": player_intent_rich,
+        "play_language": play_language,
         # P1-8: expose the investigator's structured skills so downstream
         # enrichment (dialogue_comprehension tier) can gate foreign-dialogue
         # translation on the actual Language skill value without re-reading
@@ -1299,7 +1310,7 @@ _ACTION_TIME_PROFILES: dict[str, dict[str, Any]] = {
     "CUT":      {"mode": "elapsed", "category": "local_travel",       "delta_minutes": 30},
     "MONTAGE":  {"mode": "downtime","category": "short_rest",         "delta_minutes": 120},
     "SUBSYSTEM":{"mode": "instant", "category": None, "delta_minutes": 1},
-    "RECOVER":  {"mode": "downtime","category": "sleep_night",        "delta_minutes": 480},
+    "RECOVER":  {"mode": "elapsed", "category": "investigation_recovery", "delta_minutes": 30},
     "PAYOFF":   {"mode": "instant", "category": None, "delta_minutes": 0},
 }
 
@@ -1622,17 +1633,29 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
             # emitted plan reflects at least one reaction (generate_director_plan
             # copies rule_signals verbatim). Per-NPC rolls still live in npc_moves.
             ctx["rule_signals"]["npc_reaction_roll"] = reaction
-        moves.append({
+        # B1: never interpolate secret prose into the plan (Chinese secrets have
+        # no spaces, so split()[:3] used to leak the full text to narration).
+        has_secret = bool(
+            agenda.get("secret_id")
+            or (isinstance(agenda.get("secret"), str) and agenda.get("secret").strip())
+            or agenda.get("secret")
+        )
+        move: dict[str, Any] = {
             "npc_id": npc_id,
             "agenda": agenda.get("agenda", ""),
             "emotional_tone": _disposition_to_tone(reaction["disposition"]) if reaction else _npc_default_tone(agenda),
-            "secret_limit": f"do not reveal: {', '.join(agenda.get('secret', '').split()[:3])}" if agenda.get("secret") else "",
+            "has_secret": has_secret,
+            "secret_limit": "do not reveal this NPC's secret" if has_secret else "",
             "disposition_source": "rule_signal:npc_reaction_roll" if reaction else None,
             "relationship_to_investigators": agenda.get("relationship_to_investigators"),
             "social_role": (agency_by_npc.get(npc_id) or {}).get("persona_card", {}).get("social_role"),
             "persona": (agency_by_npc.get(npc_id) or {}).get("persona_card", {}).get("persona"),
             "agency_moves": (agency_by_npc.get(npc_id) or {}).get("agency_moves", []),
-        })
+        }
+        secret_id = agenda.get("secret_id")
+        if secret_id:
+            move["secret_id"] = secret_id
+        moves.append(move)
     return moves
 
 
@@ -2073,13 +2096,15 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     # horror stage from pacing-map, validated; fallback to wrongness
     raw_horror = pacing_entry.get("horror_stage", "wrongness")
     horror_stage = raw_horror if raw_horror in VALID_HORROR_STAGES else "wrongness"
-    # pacing_mode: prefer pacing-map tension_target; fallback to action-based
-    pacing_mode = pacing_entry.get("tension_target")
-    if not pacing_mode:
-        pacing_mode = "investigation" if action in ("REVEAL", "DEEPEN") else ("pressure" if action == "PRESSURE" else "social")
+    # D4: pacing_mode is action-derived only; tension_target is a separate field.
+    pacing_mode = (
+        "investigation" if action in ("REVEAL", "DEEPEN")
+        else ("pressure" if action == "PRESSURE" else "social")
+    )
+    tension_target = pacing_entry.get("tension_target") or None
     # tension_delta: action-driven, but escalation scenes add +1
     tension_delta = 1 if action in ("PRESSURE", "SUBSYSTEM") else (0 if action in ("REVEAL", "DEEPEN", "RECOVER") else -1)
-    if pacing_entry.get("tension_target") in ("high", "climax") and action not in ("RECOVER", "MONTAGE"):
+    if tension_target in ("high", "climax") and action not in ("RECOVER", "MONTAGE"):
         tension_delta = max(tension_delta, 1)
 
     # Dying (and any future override carrying extra_pressure) forces PRESSURE
@@ -2105,7 +2130,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "improvisation_allowed": ctx.get("improvisation_boundaries", {}).get("invent_allowed", []),
         "horror_escalation_stage": horror_stage,
         "content_constraints": ctx.get("module_meta", {}).get("content_flags", []),
-        "player_facing_style": _player_facing_style(),
+        "player_facing_style": _player_facing_style(ctx.get("play_language") or "zh-Hans"),
     }
     if personal_horror is not None:
         narrative_directives["personal_horror_hook"] = personal_horror
@@ -2158,6 +2183,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "subsystem": subsystem,
         "dramatic_question": scene.get("dramatic_question", ""),
         "pacing_mode": pacing_mode,
+        "tension_target": tension_target,
         "tension_delta": tension_delta,
         "rule_signals": ctx["rule_signals"],
         "time_signals": ctx.get("time_signals", {}),
