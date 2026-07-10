@@ -10,7 +10,8 @@
   "selection_contract": [
     "Every storylet must serve at least one clue, NPC agenda, threat front, choice, recovery valve, or theme.",
     "Storylets may alter presentation, cost, pressure, or delivery route; they must not invent a new culprit, god, cult fact, or final truth.",
-    "Anti-repeat is checked at storylet_id, family_id, trope_id, and bound target levels."
+    "Anti-repeat is checked at storylet_id, family_id, trope_id, and bound target levels.",
+    "Optional setting_tags (e.g. military, domestic, urban-civilian, wilderness) restrict a storylet to scenes whose setting tags intersect; omit setting_tags for setting-neutral beats. Scene setting tags come from scene.setting_tags, scene.location_tags/tags, and module_meta.setting_tags."
   ],
   "storylets": [
     {
@@ -6711,6 +6712,9 @@
         "theme_echo",
         "social",
         "opening"
+      ],
+      "setting_tags": [
+        "military"
       ]
     },
     {
@@ -6804,6 +6808,9 @@
         "social",
         "opening",
         "npc_depth"
+      ],
+      "setting_tags": [
+        "military"
       ]
     },
     {

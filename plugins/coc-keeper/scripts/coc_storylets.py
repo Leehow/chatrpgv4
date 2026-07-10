@@ -372,11 +372,31 @@ def _scene_type(ctx: dict[str, Any]) -> str | None:
     return scene.get("scene_type") or scene.get("type")
 
 
+def _scene_setting_tags(ctx: dict[str, Any]) -> set[str]:
+    """Structured setting axis for storylet eligibility (no prose scanning).
+
+    Sources, in union:
+    - ``active_scene.setting_tags`` (optional scene override)
+    - ``active_scene.location_tags`` / ``tags`` (scene place/setting labels)
+    - ``module_meta.setting_tags`` (module-level setting, e.g. military vs urban)
+    """
+    scene = ctx.get("active_scene") or {}
+    meta = ctx.get("module_meta") or {}
+    tags: set[str] = set()
+    tags.update(_as_list(scene.get("setting_tags")))
+    tags.update(_as_list(scene.get("location_tags")))
+    tags.update(_as_list(scene.get("tags")))
+    tags.update(_as_list(meta.get("setting_tags")))
+    return {str(t) for t in tags if t}
+
+
 def _scene_tags(ctx: dict[str, Any]) -> set[str]:
     scene = ctx.get("active_scene") or {}
     tags = set(_as_list(scene.get("tags")))
     tags.update(_as_list(scene.get("tone")))
     tags.update(_as_list(scene.get("storylet_tags")))  # P0-3 wiring
+    tags.update(_as_list(scene.get("location_tags")))
+    tags.update(_scene_setting_tags(ctx))
     if scene.get("scene_type"):
         tags.add(str(scene.get("scene_type")))
     return {str(t) for t in tags if t}
@@ -555,6 +575,13 @@ def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[s
 
     required_tags = set(_as_list(storylet.get("scene_tags")))
     if required_tags and not (required_tags & _scene_tags(ctx)):
+        return False
+
+    # Setting axis: storylets that declare setting_tags are only eligible when
+    # the scene/module setting tags intersect. Empty/missing setting_tags means
+    # setting-neutral (eligible in any setting). Structured tags only.
+    required_setting = set(_as_list(storylet.get("setting_tags")))
+    if required_setting and not (required_setting & _scene_setting_tags(ctx)):
         return False
 
     intent_tags = _intent_tags(ctx)

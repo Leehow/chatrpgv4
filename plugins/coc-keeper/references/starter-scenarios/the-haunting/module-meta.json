@@ -5,6 +5,7 @@
   "one_liner": "1920 年波士顿，房东委托你调查恶名昭彰的 Corbitt 宅——前租客疯了，邻居说闹鬼，地下室里埋着不该被埋葬的人。开箱即玩，无需剧本 PDF。",
   "structure_type": "branching_investigation",
   "era": "1920s",
+  "setting_tags": ["urban-civilian", "domestic", "1920s"],
   "content_flags": ["supernatural_horror", "haunting", "undead", "cult_residue"],
   "win_condition": "调查员查明 Corbitt 宅异象的真相，在地下室对峙中摧毁 Walter Corbitt 的不死躯体（理想结局：用其仪式匕首将其化为灰烬），并让房东能重新处置房产。",
   "source_pdf": null,

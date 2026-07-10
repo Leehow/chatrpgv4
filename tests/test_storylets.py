@@ -646,7 +646,10 @@ def test_e2e_mission_briefing_summons_opening_briefing_storylet_real_data():
             "active_scene": scene,
             "world_state": {"discovered_clue_ids": []},
             "threat_fronts": {"fronts": []},
-            "module_meta": {"content_flags": []},
+            "module_meta": {
+                "content_flags": [],
+                "setting_tags": ["military", "wilderness"],
+            },
             "storylet_ledger": {},
             # The real trigger object produced by infer_storylet_trigger for a
             # storylet_tags-bearing scene entered via scene_transition.
@@ -764,3 +767,227 @@ def test_e2e_white_war_scene_entries_summon_tagged_storylets_real_data():
             f"{scene_id}: expected a '{tag}' storylet in >=4 of 5 seeds; "
             f"got {hits}/5. selected={selected}, tagged={sorted(tagged_ids)}"
         )
+
+
+def _military_opening_storylet(**overrides):
+    base = {
+        "storylet_id": "opening-briefing-tell-not-ask",
+        "title": "简报里的沉默",
+        "family_id": "opening_tension",
+        "trope_id": "withheld_mission_truth",
+        "conflict_level": "low",
+        "conflict_score": 1,
+        "base_weight": 1.0,
+        "dramatic_function": ["CHARACTER", "DEEPEN"],
+        "scene_actions": ["CHARACTER", "DEEPEN"],
+        "scope": "scene",
+        "structure_affinity": ["linear_acts", "branching_investigation"],
+        "eligible_scene_types": ["social"],
+        "horror_stage": ["ordinary", "wrongness"],
+        "scene_tags": ["opening_briefing"],
+        "setting_tags": ["military"],
+        "requires": {"npc_id": True, "unrevealed_clue": False, "active_front": False},
+        "serves": {"mainline": True, "can_deepen_npc": True, "can_surface_choice": True},
+        "anti_repeat": {
+            "cooldown_turns": 12,
+            "max_per_session": 1,
+            "exclude_if_family_used_recently": True,
+            "exclude_if_trope_used_recently": False,
+        },
+        "cue": "下达命令的人把真相咽回去半句，眼神在地图上多停了一拍。",
+        "beat": "在简报里埋下张力。",
+        "effects": {
+            "narrative_move": "在简报里埋下张力。",
+            "clue_handling": "May foreshadow a withheld clue; never reveals it.",
+            "pressure": "No automatic clock tick.",
+            "choice": "Surface as a visible doubt or dilemma.",
+        },
+        "variants": {
+            "sensory_detail_1d6": ["副官与军士交换了一个极短的眼神。"],
+            "complication_1d6": ["补给清单上少了一项关键物资。"],
+        },
+        "narration_directive": "只埋张力，不揭示被隐瞒的真相。",
+        "story_functions": ["character_beat", "theme_echo"],
+        "deck_tags": ["character_beat", "npc", "relationship", "theme_echo", "social", "opening"],
+    }
+    base.update(overrides)
+    return base
+
+
+def _neutral_opening_storylet():
+    return _military_opening_storylet(
+        storylet_id="opening-briefing-civilian-neutral",
+        setting_tags=[],
+        cue="委托人把后半句话咽了回去，手指在桌沿停了一拍。",
+        variants={
+            "sensory_detail_1d6": ["茶杯边缘的水渍还没干。"],
+            "complication_1d6": ["合同末页有一行被划掉的备注。"],
+        },
+    )
+
+
+def test_scene_tags_includes_module_and_location_setting_tags():
+    ctx = {
+        "active_scene": {
+            "scene_type": "social",
+            "storylet_tags": ["opening_briefing"],
+            "location_tags": ["briefing", "knott"],
+            "setting_tags": ["domestic"],
+        },
+        "module_meta": {"setting_tags": ["urban-civilian", "1920s"]},
+    }
+    tags = storylets._scene_tags(ctx)
+    assert "opening_briefing" in tags
+    assert "domestic" in tags
+    assert "urban-civilian" in tags
+    assert "1920s" in tags
+    assert "briefing" in tags
+
+
+def test_military_storylet_ineligible_for_haunting_commission_briefing():
+    """Military-prose opening storylets must not fire in The Haunting's
+    civilian commission-briefing even when scene_tags match opening_briefing."""
+    library = {
+        "schema_version": 1,
+        "description": "test",
+        "conflict_levels": ["low", "medium", "high", "climax"],
+        "selection_contract": [],
+        "storylets": [_military_opening_storylet(), _neutral_opening_storylet()],
+    }
+    ctx = {
+        "turn_number": 0,
+        "structure_type": "branching_investigation",
+        "storylet_policy": {
+            "conflict_level": "low",
+            "seed": "haunt-brief",
+            "ignore_story_need": True,
+            "allow_unanchored_storylets": True,
+        },
+        "active_scene": {
+            "scene_id": "commission-briefing",
+            "scene_type": "social",
+            "storylet_tags": ["opening_briefing"],
+            "location_tags": ["briefing", "knott", "委托"],
+            "npc_ids": ["npc-steven-knott"],
+            "available_clues": ["clue-knott-commission"],
+            "tone": ["daylight"],
+        },
+        "world_state": {"discovered_clue_ids": []},
+        "threat_fronts": {"fronts": []},
+        "module_meta": {
+            "content_flags": [],
+            "setting_tags": ["urban-civilian", "domestic", "1920s"],
+        },
+        "storylet_ledger": {},
+        "storylet_trigger": {
+            "triggered": True,
+            "reason": "scene_tag_beat",
+            "polarity": "neutral",
+            "storylet_tags": ["opening_briefing"],
+        },
+    }
+    plan = {
+        "decision_id": "haunt-brief",
+        "scene_action": "CHARACTER",
+        "pacing_mode": "social",
+        "clue_policy": {"reveal": [], "leads": []},
+        "narrative_directives": {"horror_escalation_stage": "ordinary"},
+        "rule_signals": {"tension_clock": {"tension_level": "low"}},
+    }
+    assert storylets._matches_context(
+        library["storylets"][0], plan, ctx, "low"
+    ) is False
+    assert storylets._matches_context(
+        library["storylets"][1], plan, ctx, "low"
+    ) is True
+    moves = storylets.select_storylet_moves(plan, ctx, library=library, seed="haunt-brief")
+    assert moves
+    assert moves[0]["storylet_id"] == "opening-briefing-civilian-neutral"
+    assert moves[0]["storylet_id"] != "opening-briefing-tell-not-ask"
+
+
+def test_military_storylet_eligible_for_white_war_mission_briefing():
+    library = {
+        "schema_version": 1,
+        "description": "test",
+        "conflict_levels": ["low", "medium", "high", "climax"],
+        "selection_contract": [],
+        "storylets": [_military_opening_storylet()],
+    }
+    ctx = {
+        "turn_number": 0,
+        "structure_type": "linear_acts",
+        "storylet_policy": {
+            "conflict_level": "low",
+            "seed": "ww-brief",
+            "ignore_story_need": True,
+        },
+        "active_scene": {
+            "scene_id": "mission-briefing",
+            "scene_type": "social",
+            "storylet_tags": ["opening_briefing"],
+            "location_tags": ["briefing", "commander", "简报"],
+            "npc_ids": ["npc-company-commander"],
+            "available_clues": [],
+            "tone": ["cold"],
+        },
+        "world_state": {"discovered_clue_ids": []},
+        "threat_fronts": {"fronts": []},
+        "module_meta": {
+            "content_flags": [],
+            "setting_tags": ["military", "wilderness"],
+        },
+        "storylet_ledger": {},
+        "storylet_trigger": {
+            "triggered": True,
+            "reason": "scene_tag_beat",
+            "polarity": "neutral",
+            "storylet_tags": ["opening_briefing"],
+        },
+    }
+    plan = {
+        "decision_id": "ww-brief",
+        "scene_action": "CHARACTER",
+        "pacing_mode": "social",
+        "clue_policy": {"reveal": [], "leads": []},
+        "narrative_directives": {"horror_escalation_stage": "ordinary"},
+        "rule_signals": {"tension_clock": {"tension_level": "low"}},
+    }
+    assert storylets._matches_context(library["storylets"][0], plan, ctx, "low") is True
+    moves = storylets.select_storylet_moves(plan, ctx, library=library, seed="ww-brief")
+    assert moves
+    assert moves[0]["storylet_id"] == "opening-briefing-tell-not-ask"
+
+
+def test_setting_neutral_storylet_eligible_without_setting_tags():
+    storylet = _military_opening_storylet(setting_tags=[])
+    ctx = {
+        "structure_type": "branching_investigation",
+        "storylet_policy": {"conflict_level": "low", "ignore_story_need": True},
+        "active_scene": {
+            "scene_type": "social",
+            "storylet_tags": ["opening_briefing"],
+            "npc_ids": ["npc-a"],
+        },
+        "module_meta": {"setting_tags": ["urban-civilian"]},
+        "world_state": {"discovered_clue_ids": []},
+        "threat_fronts": {"fronts": []},
+    }
+    plan = {
+        "scene_action": "CHARACTER",
+        "clue_policy": {"reveal": []},
+        "narrative_directives": {"horror_escalation_stage": "ordinary"},
+    }
+    assert storylets._matches_context(storylet, plan, ctx, "low") is True
+
+
+def test_shipped_military_opening_storylets_declare_setting_tags():
+    library = storylets.load_storylet_library()
+    military_ids = {
+        "opening-briefing-tell-not-ask",
+        "opening-briefing-comrade-glance",
+    }
+    found = {s["storylet_id"]: s for s in library["storylets"] if s["storylet_id"] in military_ids}
+    assert set(found) == military_ids
+    for sid, storylet in found.items():
+        assert "military" in (storylet.get("setting_tags") or []), sid

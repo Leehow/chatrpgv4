@@ -5,6 +5,7 @@
   "one_liner": "1916 年意大利阿尔卑斯前线，一支山地巡逻队调查冰川上失踪的奥军阵地，唤醒了冰封万年的远古存在。开箱即玩，无需剧本 PDF。",
   "structure_type": "linear_acts",
   "era": "ww1",
+  "setting_tags": ["military", "wilderness"],
   "content_flags": ["supernatural_horror", "graphic_violence", "madness", "warfare"],
   "win_condition": "调查员查清冰川异象的来源，在 Polyp Horror 的猎杀中幸存并返回意军防线；理想结局是逼退或消灭实体并查明 White Friday 灾难的因果。",
   "source_pdf": null,
