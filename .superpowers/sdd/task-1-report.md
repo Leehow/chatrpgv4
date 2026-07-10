@@ -159,3 +159,71 @@ not appear in Git status. No revert, reset, clean, rebase, push, deploy, tag,
 history rewrite, secret change, or unrelated edit was performed. This report
 fully replaces the stale unrelated report and is intentionally written after
 the task commit so it can record the final hash.
+
+## Independent Review Revision (2026-07-10)
+
+An independent Task 1 review returned `CHANGES_REQUIRED` with three Important
+findings. All three were addressed in one strict RED-to-GREEN revision:
+
+1. `CONTENT_LICENSES.md` now distinguishes the test-only `pytest` dependency
+   from runtime `pypdf`, documents the shipped `pymupdf4llm`/PyMuPDF (`fitz`)
+   parser path, and documents optional `pdfplumber` overlay/quality tooling.
+   Repository paths and use are explicit; upstream licensing remains
+   conservatively `UNVERIFIED` where the tree has no independent evidence.
+2. Release tests now compare the exact documented starter ID set with IDs from
+   packaged `module-meta.json` files. The same-count/wrong-ID mutation probe
+   proves a substituted ID is rejected. A05 tests also enforce the exact
+   release version, current-status links, sole-status declaration, and
+   historical-audit banner across README, CHANGELOG, CURRENT, and the audit.
+3. `docs/status/CURRENT.md` now owns the unresolved extreme-cold `REVEAL` /
+   `single_room_search` 20-minute issue. CHANGELOG and
+   `docs/live-playtest-notes.md` identify the notes as historical evidence and
+   point live status to CURRENT. No Task 4 fix is claimed.
+
+### Revision RED Evidence
+
+Command:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 /opt/miniconda3/bin/python3 -m pytest tests/test_release_consistency.py tests/test_plugin_metadata.py -q -p no:cacheprovider
+```
+
+Result before documentation fixes (exit 1):
+
+```text
+FAILED tests/test_release_consistency.py::test_content_inventory_covers_all_declared_python_dependencies
+FAILED tests/test_release_consistency.py::test_current_status_owns_extreme_cold_reveal_issue
+FAILED tests/test_release_consistency.py::test_changelog_does_not_delegate_live_status_to_playtest_notes
+FAILED tests/test_release_consistency.py::test_live_playtest_notes_are_historical_evidence_only
+4 failed, 53 passed in 0.35s
+```
+
+The first GREEN attempt exposed a line-wrapped CHANGELOG authority phrase and
+reported `1 failed, 56 passed in 0.32s`; the documentation sentence was made
+contiguous without weakening the test.
+
+### Revision GREEN and Full Verification
+
+- Revised release consistency + plugin metadata: `57 passed in 0.30s`.
+- Required Task 1 focused suite (release consistency, plugin metadata, starter
+  scenarios, runtime SDK debug): `75 passed in 1.01s`.
+- Exact in-memory identity mutation probe:
+  `identity mutation rejected: ['the-haunting', 'the-white-war'] != ['not-the-haunting', 'the-white-war']`.
+- Full repository suite:
+  `PYTHONDONTWRITEBYTECODE=1 /opt/miniconda3/bin/python3 -m pytest tests -q -p no:cacheprovider`
+  returned `1653 passed in 39.44s`.
+- `git diff --check` exited 0.
+- `git ls-files 'checks/ocr-cached/**' 'checks/py4llm-cached/**'` remained empty,
+  and both generated paths still resolved to the exact `.gitignore` entries.
+
+### Revision Commit
+
+- Commit: `59a6793803157afa40fa5388afb0bb2fff9ec4e2`
+- Message: `fix(release): close governance review gaps`
+- Files: `CONTENT_LICENSES.md`, `tests/test_release_consistency.py`,
+  `docs/status/CURRENT.md`, `CHANGELOG.md`, and
+  `docs/live-playtest-notes.md`.
+
+No unrelated file was changed by the implementation revision. The report
+update is committed separately so the implementation commit remains scoped and
+reviewable.
