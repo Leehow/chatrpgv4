@@ -302,6 +302,110 @@ def test_validate_no_warning_for_combat_scene_without_affordances(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# setting_tags + clue bonus shape checks (storylet-schema.md)
+# ---------------------------------------------------------------------------
+
+def test_validate_module_meta_setting_tags_good_shape_passes(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    m = json.loads((sc/"module-meta.json").read_text())
+    m["setting_tags"] = ["urban-civilian", "domestic", "1920s"]
+    (sc/"module-meta.json").write_text(json.dumps(m))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert result["errors"] == []
+
+
+def test_validate_module_meta_setting_tags_bad_shape_errors(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    m = json.loads((sc/"module-meta.json").read_text())
+    m["setting_tags"] = "military"  # not a list
+    (sc/"module-meta.json").write_text(json.dumps(m))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("module-meta.setting_tags" in e for e in result["errors"])
+
+
+def test_validate_module_meta_setting_tags_rejects_non_string_items(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    m = json.loads((sc/"module-meta.json").read_text())
+    m["setting_tags"] = ["military", 7, ""]
+    (sc/"module-meta.json").write_text(json.dumps(m))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("module-meta.setting_tags" in e for e in result["errors"])
+
+
+def test_validate_scene_setting_tags_good_and_bad(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    g = json.loads((sc/"story-graph.json").read_text())
+    g["scenes"][0]["setting_tags"] = ["military", "wilderness"]
+    (sc/"story-graph.json").write_text(json.dumps(g))
+    assert coc_scenario_compile.validate_scenario(sc)["errors"] == []
+
+    g["scenes"][0]["setting_tags"] = {"military": True}  # not a list
+    (sc/"story-graph.json").write_text(json.dumps(g))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("scene 's1' setting_tags" in e for e in result["errors"])
+
+
+def _set_first_clue_bonus(sc, bonus):
+    g = json.loads((sc/"clue-graph.json").read_text())
+    g["conclusions"][0]["clues"][0]["bonus"] = bonus
+    (sc/"clue-graph.json").write_text(json.dumps(g))
+
+
+def test_validate_clue_bonus_good_shape_passes(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _set_first_clue_bonus(sc, {
+        "skill": "Library Use",
+        "difficulty": "hard",
+        "extra_summary": "Extra player-safe detail.",
+        "on_fail_cost": "pressure",
+    })
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert not any("bonus" in e for e in result["errors"])
+
+
+def test_validate_clue_bonus_defaults_pass_without_optionals(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _set_first_clue_bonus(sc, {"skill": "Spot Hidden", "extra_summary": "More detail."})
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert not any("bonus" in e for e in result["errors"])
+
+
+def test_validate_clue_bonus_missing_skill_errors(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _set_first_clue_bonus(sc, {"extra_summary": "Detail."})
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("clue 'a'" in e and "bonus.skill" in e for e in result["errors"])
+
+
+def test_validate_clue_bonus_bad_difficulty_errors(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _set_first_clue_bonus(sc, {"skill": "Law", "extra_summary": "x", "difficulty": "impossible"})
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("clue 'a'" in e and "bonus.difficulty" in e for e in result["errors"])
+
+
+def test_validate_clue_bonus_bad_on_fail_cost_errors(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _set_first_clue_bonus(sc, {"skill": "Law", "extra_summary": "x", "on_fail_cost": "sanity"})
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("clue 'a'" in e and "bonus.on_fail_cost" in e for e in result["errors"])
+
+
+def test_validate_clue_bonus_non_string_extra_summary_errors(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _set_first_clue_bonus(sc, {"skill": "Law", "extra_summary": 42})
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("clue 'a'" in e and "bonus.extra_summary" in e for e in result["errors"])
+
+
+def test_validate_clue_bonus_non_object_errors(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _set_first_clue_bonus(sc, "roll Library Use")
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("clue 'a'" in e and "bonus must be an object" in e for e in result["errors"])
+
+
+# ---------------------------------------------------------------------------
 # R-5: validate_compiled_scenario — structured findings
 # ---------------------------------------------------------------------------
 

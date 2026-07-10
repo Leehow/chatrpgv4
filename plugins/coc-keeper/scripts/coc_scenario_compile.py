@@ -64,6 +64,47 @@ def _finding(
     return {"code": code, "severity": severity, "path": path, "message": message}
 
 
+VALID_BONUS_DIFFICULTIES = {"regular", "hard", "extreme"}
+VALID_BONUS_FAIL_COSTS = {"time", "pressure"}
+
+
+def _is_string_list(value: Any) -> bool:
+    """True when ``value`` is a list of non-empty strings."""
+    return isinstance(value, list) and all(
+        isinstance(item, str) and item.strip() for item in value
+    )
+
+
+def _check_clue_bonus(clue: dict[str, Any]) -> list[str]:
+    """Shape-check an optional clue ``bonus`` block (storylet-schema.md).
+
+    Non-gating dice texture: skill + extra_summary are required strings;
+    difficulty defaults to regular, on_fail_cost defaults to time.
+    """
+    cid = clue.get("clue_id")
+    bonus = clue.get("bonus")
+    if not isinstance(bonus, dict):
+        return [f"clue '{cid}' bonus must be an object"]
+    errors: list[str] = []
+    skill = bonus.get("skill")
+    if not isinstance(skill, str) or not skill.strip():
+        errors.append(f"clue '{cid}' bonus.skill must be a non-empty string")
+    difficulty = bonus.get("difficulty", "regular")
+    if difficulty not in VALID_BONUS_DIFFICULTIES:
+        errors.append(
+            f"clue '{cid}' bonus.difficulty '{difficulty}' not in {sorted(VALID_BONUS_DIFFICULTIES)}"
+        )
+    extra = bonus.get("extra_summary")
+    if not isinstance(extra, str) or not extra.strip():
+        errors.append(f"clue '{cid}' bonus.extra_summary must be a non-empty string")
+    on_fail = bonus.get("on_fail_cost", "time")
+    if on_fail not in VALID_BONUS_FAIL_COSTS:
+        errors.append(
+            f"clue '{cid}' bonus.on_fail_cost '{on_fail}' not in {sorted(VALID_BONUS_FAIL_COSTS)}"
+        )
+    return errors
+
+
 def _is_non_fragile_clue_route(clue: dict[str, Any]) -> bool:
     kind = clue.get("delivery_kind")
     if kind in NON_FRAGILE_DELIVERY_KINDS:
@@ -792,12 +833,22 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
                             f"module-meta.module_identity.aliases[{i}].title is required"
                         )
 
+    # Optional setting_tags on module-meta: structured setting axis for
+    # storylet eligibility (storylet-schema.md). Present -> must be a list of
+    # non-empty strings; bad shape is an error (runtime consumes it blindly).
+    if "setting_tags" in meta and not _is_string_list(meta.get("setting_tags")):
+        errors.append("module-meta.setting_tags must be a list of non-empty strings")
+
     story = _read(scenario_dir / "story-graph.json")
     for scene in story.get("scenes", []):
         if not scene.get("dramatic_question"):
             errors.append(f"scene '{scene.get('scene_id')}' missing dramatic_question")
         if not scene.get("scene_id"):
             errors.append("scene missing scene_id")
+        if "setting_tags" in scene and not _is_string_list(scene.get("setting_tags")):
+            errors.append(
+                f"scene '{scene.get('scene_id')}' setting_tags must be a list of non-empty strings"
+            )
         # 软警告：social/investigation 场景宜有多路线 affordances（P0-1 数据引导）
         scene_type = str(scene.get("scene_type") or "")
         if scene_type in ("social", "investigation"):
@@ -878,6 +929,8 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             for ref in clue.get("source_refs", []) or []:
                 if not ref.get("path") or not isinstance(ref.get("page"), int):
                     warnings.append(f"clue '{clue.get('clue_id')}' source_ref missing path or integer page")
+            if "bonus" in clue:
+                errors.extend(_check_clue_bonus(clue))
 
     # source_refs warnings on scenes/npcs/fronts
     for scene in story.get("scenes", []):

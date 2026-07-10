@@ -78,12 +78,35 @@ def _stable_int_seed(seed: Any, *parts: Any) -> int:
     return int(digest[:16], 16)
 
 
+def _check_library_setting_tags(library: dict[str, Any]) -> None:
+    """Shape-check optional ``setting_tags`` on library storylets.
+
+    ``setting_tags`` gates setting-specific beats (storylet-schema.md): absent
+    or empty means setting-neutral; present must be a list of non-empty
+    strings. A malformed value is an authoring bug in packaged data, so fail
+    loudly instead of silently mis-gating beats at selection time.
+    """
+    for storylet in library.get("storylets", []) or []:
+        if not isinstance(storylet, dict) or "setting_tags" not in storylet:
+            continue
+        tags = storylet.get("setting_tags")
+        if not isinstance(tags, list) or any(
+            not isinstance(t, str) or not t.strip() for t in tags
+        ):
+            raise ValueError(
+                f"storylet '{storylet.get('storylet_id')}' setting_tags must be "
+                "a list of non-empty strings"
+            )
+
+
 def load_storylet_library(path: Path | None = None) -> dict[str, Any]:
     """Load a storylet library JSON, falling back to the packaged default."""
     lib_path = path or (RULES_DIR / "storylet-library.json")
     if not lib_path.exists():
         return {"schema_version": _SCHEMA_VERSION, "storylets": []}
-    return coc_cache.load_json_cached(lib_path)
+    library = coc_cache.load_json_cached(lib_path)
+    _check_library_setting_tags(library)
+    return library
 
 
 def normalize_storylet_ledger(ledger: dict[str, Any] | None) -> dict[str, Any]:

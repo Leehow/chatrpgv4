@@ -291,6 +291,44 @@ def test_default_storylet_library_has_current_scene_anchors():
     assert offenders == []
 
 
+def test_load_storylet_library_rejects_bad_setting_tags_shape(tmp_path):
+    """Malformed setting_tags in a library file must fail loudly on load."""
+    import pytest
+
+    lib_path = tmp_path / "storylet-library.json"
+    lib_path.write_text(json.dumps({
+        "schema_version": 1,
+        "storylets": [
+            {"storylet_id": "bad-tags", "setting_tags": "military"},
+        ],
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="bad-tags.*setting_tags"):
+        storylets.load_storylet_library(lib_path)
+
+    lib_path.write_text(json.dumps({
+        "schema_version": 1,
+        "storylets": [
+            {"storylet_id": "bad-items", "setting_tags": ["military", 3, ""]},
+        ],
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="bad-items.*setting_tags"):
+        storylets.load_storylet_library(lib_path)
+
+
+def test_load_storylet_library_accepts_good_or_absent_setting_tags(tmp_path):
+    lib_path = tmp_path / "storylet-library.json"
+    lib_path.write_text(json.dumps({
+        "schema_version": 1,
+        "storylets": [
+            {"storylet_id": "neutral"},
+            {"storylet_id": "military-beat", "setting_tags": ["military", "wilderness"]},
+            {"storylet_id": "empty-ok", "setting_tags": []},
+        ],
+    }), encoding="utf-8")
+    library = storylets.load_storylet_library(lib_path)
+    assert len(library["storylets"]) == 3
+
+
 def test_default_storylet_library_declares_story_functions_and_decks():
     """Packaged storylets should be explicit deck cards, not a global table."""
     library = storylets.load_storylet_library()
