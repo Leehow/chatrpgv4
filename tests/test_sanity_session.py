@@ -6,6 +6,7 @@ success=insane), bout of madness structure, indefinite insanity threshold,
 permanent insanity at 0 SAN, recovery, and SAN gain.
 """
 import importlib.util
+import json
 import random
 
 import pytest
@@ -285,6 +286,29 @@ def test_day_start_san_survives_save_load(tmp_path):
     s.save(tmp_path)
     loaded = coc_sanity.SanitySession.load(tmp_path, "ada")
     assert loaded.day_start_san == 40
+
+
+@pytest.mark.parametrize("stored_investigator_id", [None, "inv2"])
+def test_load_fails_closed_for_missing_or_mismatched_investigator_identity(
+    tmp_path,
+    stored_investigator_id,
+):
+    snapshot = coc_sanity.SanitySession(
+        "inv2",
+        san_max=55,
+        int_value=70,
+        rng=random.Random(131),
+    ).snapshot()
+    if stored_investigator_id is None:
+        snapshot.pop("investigator_id")
+    else:
+        snapshot["investigator_id"] = stored_investigator_id
+    save_dir = tmp_path / "save"
+    save_dir.mkdir()
+    (save_dir / "sanity.json").write_text(json.dumps(snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="investigator_id"):
+        coc_sanity.SanitySession.load(tmp_path, "inv1", rng=random.Random(132))
 
 
 def test_summary_bout_carries_backstory_amend_suggestion():

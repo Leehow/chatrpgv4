@@ -16,13 +16,14 @@ import math
 import os
 import random
 import re
+import stat
 import time
 from pathlib import Path
 from typing import Any, Callable, TypedDict
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 STATE_RELATIVE_PATH = Path("save/subsystem-state.json")
 
 COMMAND_KEYS = frozenset({"command_id", "kind", "phase", "payload"})
@@ -190,6 +191,7 @@ def _default_state() -> dict[str, Any]:
         "schema_version": STATE_SCHEMA_VERSION,
         "applied_command_ids": [],
         "command_hashes": {},
+        "command_provenance": {},
         "result_snapshots": {},
         "pending_choices": {},
         "inflight": None,
@@ -204,28 +206,211 @@ def _unsafe_state_path(message: str) -> SubsystemExecutorError:
     )
 
 
-def _state_path(campaign_dir: Path) -> Path:
-    """Return the canonical executor state path after containment checks."""
-    try:
-        campaign = Path(campaign_dir).resolve()
-    except (OSError, RuntimeError) as exc:
-        raise _unsafe_state_path("campaign root could not be resolved safely") from exc
-    save_dir = campaign / "save"
-    if save_dir.is_symlink():
-        raise _unsafe_state_path("save directory must not be a symlink")
-    try:
-        save_dir.resolve().relative_to(campaign)
-    except (OSError, RuntimeError, ValueError) as exc:
-        raise _unsafe_state_path("save directory escapes campaign root") from exc
+class _ExecutorStateDirectory:
+    """Descriptor-anchored access to the executor-owned state file.
 
-    path = campaign / STATE_RELATIVE_PATH
-    if path.is_symlink():
-        raise _unsafe_state_path("executor state file must not be a symlink")
-    try:
-        path.resolve().relative_to(campaign)
-    except (OSError, RuntimeError, ValueError) as exc:
-        raise _unsafe_state_path("executor state file escapes campaign root") from exc
-    return path
+    POSIX directory descriptors keep reads, temporary creation, and replace
+    bound to the directory that was actually opened. Inode verification makes
+    namespace swaps fail closed instead of following a newly inserted symlink.
+    """
+
+    _STATE_FILENAME = "subsystem-state.json"
+
+    def __init__(self, campaign_dir: Path) -> None:
+        directory_flag = getattr(os, "O_DIRECTORY", None)
+        nofollow_flag = getattr(os, "O_NOFOLLOW", None)
+        if directory_flag is None or nofollow_flag is None:
+            raise _unsafe_state_path(
+                "runtime lacks required O_DIRECTORY/O_NOFOLLOW primitives"
+            )
+        required_dir_fd = (os.open, os.mkdir, os.stat, os.unlink)
+        if (
+            any(function not in os.supports_dir_fd for function in required_dir_fd)
+            or os.stat not in os.supports_follow_symlinks
+        ):
+            raise _unsafe_state_path(
+                "runtime lacks required dir_fd/follow_symlinks primitives"
+            )
+        try:
+            self.campaign_path = Path(campaign_dir).resolve()
+            flags = os.O_RDONLY | directory_flag | nofollow_flag | getattr(os, "O_CLOEXEC", 0)
+            self.campaign_fd = os.open(self.campaign_path, flags)
+        except (OSError, RuntimeError) as exc:
+            raise _unsafe_state_path("campaign root could not be opened safely") from exc
+        self._directory_flags = flags
+        self.save_fd: int | None = None
+        self._save_identity: tuple[int, int] | None = None
+        try:
+            self._verify_campaign_identity()
+            self._open_existing_save()
+        except Exception:
+            self.close()
+            raise
+
+    def __enter__(self) -> "_ExecutorStateDirectory":
+        return self
+
+    def __exit__(self, _exc_type, _exc, _tb) -> None:
+        self.close()
+
+    @staticmethod
+    def _identity(info: os.stat_result) -> tuple[int, int]:
+        return int(info.st_dev), int(info.st_ino)
+
+    def _verify_campaign_identity(self) -> None:
+        try:
+            opened = os.fstat(self.campaign_fd)
+            named = os.stat(self.campaign_path, follow_symlinks=False)
+        except OSError as exc:
+            raise _unsafe_state_path("campaign root identity could not be verified") from exc
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or not stat.S_ISDIR(named.st_mode)
+            or self._identity(opened) != self._identity(named)
+        ):
+            raise _unsafe_state_path("campaign root identity changed")
+
+    def _open_existing_save(self) -> None:
+        try:
+            self.save_fd = os.open(
+                "save",
+                self._directory_flags,
+                dir_fd=self.campaign_fd,
+            )
+        except FileNotFoundError:
+            self.save_fd = None
+            self._save_identity = None
+            return
+        except (OSError, TypeError) as exc:
+            raise _unsafe_state_path("save directory could not be opened without following links") from exc
+        opened = os.fstat(self.save_fd)
+        self._save_identity = self._identity(opened)
+        self.verify_parent()
+
+    def ensure_save(self) -> int:
+        if self.save_fd is not None:
+            self.verify_parent()
+            return self.save_fd
+        try:
+            os.mkdir("save", mode=0o755, dir_fd=self.campaign_fd)
+        except FileExistsError:
+            pass
+        except (OSError, TypeError) as exc:
+            raise _unsafe_state_path("save directory could not be created safely") from exc
+        self._open_existing_save()
+        if self.save_fd is None:
+            raise _unsafe_state_path("save directory disappeared during creation")
+        return self.save_fd
+
+    def verify_parent(self) -> None:
+        if self.save_fd is None or self._save_identity is None:
+            return
+        self._verify_campaign_identity()
+        try:
+            opened = os.fstat(self.save_fd)
+            named = os.stat(
+                "save",
+                dir_fd=self.campaign_fd,
+                follow_symlinks=False,
+            )
+        except (OSError, TypeError) as exc:
+            raise _unsafe_state_path("save directory identity could not be verified") from exc
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or not stat.S_ISDIR(named.st_mode)
+            or self._identity(opened) != self._save_identity
+            or self._identity(named) != self._save_identity
+        ):
+            raise _unsafe_state_path("save directory identity changed during state access")
+
+    def read_bytes(self) -> bytes | None:
+        if self.save_fd is None:
+            return None
+        self.verify_parent()
+        try:
+            state_fd = os.open(
+                self._STATE_FILENAME,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW") | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=self.save_fd,
+            )
+        except FileNotFoundError:
+            self.verify_parent()
+            return None
+        except (OSError, TypeError) as exc:
+            raise _unsafe_state_path("executor state file could not be opened safely") from exc
+        try:
+            if not stat.S_ISREG(os.fstat(state_fd).st_mode):
+                raise _unsafe_state_path("executor state target must be a regular file")
+            chunks: list[bytes] = []
+            while True:
+                chunk = os.read(state_fd, 64 * 1024)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        finally:
+            os.close(state_fd)
+        self.verify_parent()
+        return b"".join(chunks)
+
+    def write_bytes(self, payload: bytes) -> None:
+        save_fd = self.ensure_save()
+        self.verify_parent()
+        temp_name = (
+            f".subsystem-state.{os.getpid()}.{time.time_ns()}.tmp"
+        )
+        temp_fd: int | None = None
+        replaced = False
+        try:
+            temp_fd = os.open(
+                temp_name,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_NOFOLLOW")
+                | getattr(os, "O_CLOEXEC", 0),
+                0o600,
+                dir_fd=save_fd,
+            )
+            view = memoryview(payload)
+            while view:
+                written = os.write(temp_fd, view)
+                view = view[written:]
+            os.fsync(temp_fd)
+            os.close(temp_fd)
+            temp_fd = None
+            self.verify_parent()
+            os.replace(
+                temp_name,
+                self._STATE_FILENAME,
+                src_dir_fd=save_fd,
+                dst_dir_fd=save_fd,
+            )
+            replaced = True
+            os.fsync(save_fd)
+            self.verify_parent()
+        except TypeError as exc:
+            raise _unsafe_state_path(
+                "runtime lacks required dir_fd atomic replace primitives"
+            ) from exc
+        finally:
+            if temp_fd is not None:
+                os.close(temp_fd)
+            if not replaced:
+                try:
+                    os.unlink(temp_name, dir_fd=save_fd)
+                except FileNotFoundError:
+                    pass
+                except (OSError, TypeError):
+                    pass
+
+    def close(self) -> None:
+        if self.save_fd is not None:
+            os.close(self.save_fd)
+            self.save_fd = None
+        campaign_fd = getattr(self, "campaign_fd", None)
+        if campaign_fd is not None:
+            os.close(campaign_fd)
+            self.campaign_fd = None
 
 
 def _state_error(message: str) -> SubsystemExecutorError:
@@ -234,6 +419,23 @@ def _state_error(message: str) -> SubsystemExecutorError:
         STATE_RELATIVE_PATH.as_posix(),
         message,
     )
+
+
+def _command_provenance(
+    command: dict[str, Any],
+    investigator_id: str,
+    character: dict[str, Any] | None,
+) -> dict[str, Any]:
+    kind = command["kind"]
+    character_id = None
+    if kind in ROLL_COMMAND_KINDS:
+        assert character is not None
+        character_id = character["id"]
+    return {
+        "investigator_id": investigator_id,
+        "character_id": character_id,
+        "decision_id": command["payload"].get("decision_id"),
+    }
 
 
 def _validate_pending_choice_contract(
@@ -372,7 +574,10 @@ def _validate_inflight(inflight: Any) -> None:
             raise _state_error(f"invalid base64/UTF-8 preimage for {relative!r}") from exc
 
     offsets = inflight.get("log_offsets")
-    if not isinstance(offsets, dict) or set(offsets) - {"logs/rolls.jsonl"}:
+    if not isinstance(offsets, dict) or set(offsets) - {
+        "logs/rolls.jsonl",
+        "logs/time.jsonl",
+    }:
         raise _state_error("inflight.log_offsets contains an unsafe path")
     for relative, offset in offsets.items():
         if not isinstance(offset, dict) or set(offset) != {"exists", "size"}:
@@ -385,11 +590,19 @@ def _validate_inflight(inflight: Any) -> None:
 
 
 def _validate_state(state: Any) -> dict[str, Any]:
+    if not isinstance(state, dict):
+        raise _state_error("state root must be an object")
+    schema_version = state.get("schema_version")
+    if schema_version == 1:
+        raise _state_error(
+            "schema v1 cannot be migrated without command provenance; "
+            "discard the unreleased Task 5 state explicitly"
+        )
+    if schema_version != STATE_SCHEMA_VERSION:
+        raise _state_error(f"unsupported schema_version: {schema_version!r}")
     expected_keys = set(_default_state())
-    if not isinstance(state, dict) or set(state) != expected_keys:
-        raise _state_error("state root must contain exactly the schema v1 fields")
-    if state.get("schema_version") != STATE_SCHEMA_VERSION:
-        raise _state_error(f"unsupported schema_version: {state.get('schema_version')!r}")
+    if set(state) != expected_keys:
+        raise _state_error("state root must contain exactly the schema v2 fields")
 
     applied = state.get("applied_command_ids")
     if (
@@ -400,17 +613,52 @@ def _validate_state(state: Any) -> dict[str, Any]:
         raise _state_error("applied_command_ids must be unique stable IDs")
 
     hashes = state.get("command_hashes")
+    provenance = state.get("command_provenance")
     snapshots = state.get("result_snapshots")
     pending = state.get("pending_choices")
-    if not isinstance(hashes, dict) or not isinstance(snapshots, dict) or not isinstance(pending, dict):
-        raise _state_error("hash, snapshot, and pending-choice indexes must be objects")
+    if (
+        not isinstance(hashes, dict)
+        or not isinstance(provenance, dict)
+        or not isinstance(snapshots, dict)
+        or not isinstance(pending, dict)
+    ):
+        raise _state_error("hash, provenance, snapshot, and pending-choice indexes must be objects")
     applied_ids = set(applied)
-    if set(hashes) != applied_ids or set(snapshots) != applied_ids:
-        raise _state_error("applied IDs, command hashes, and result snapshots must match")
+    if set(hashes) != applied_ids or set(provenance) != applied_ids or set(snapshots) != applied_ids:
+        raise _state_error(
+            "applied IDs, command hashes, provenance, and result snapshots must match"
+        )
     if not all(isinstance(value, str) and _SHA256.fullmatch(value) for value in hashes.values()):
         raise _state_error("command_hashes must contain SHA-256 hex digests")
     for command_id, result in snapshots.items():
         _validate_result_snapshot(command_id, result)
+        command_provenance = provenance[command_id]
+        if not isinstance(command_provenance, dict) or set(command_provenance) != {
+            "investigator_id", "character_id", "decision_id",
+        }:
+            raise _state_error(f"command provenance {command_id!r} has an invalid contract")
+        stored_investigator = command_provenance.get("investigator_id")
+        if not isinstance(stored_investigator, str) or not _SAFE_ID.fullmatch(stored_investigator):
+            raise _state_error(f"command provenance {command_id!r} has an invalid investigator_id")
+        stored_decision = command_provenance.get("decision_id")
+        if stored_decision is not None and (
+            not isinstance(stored_decision, str) or not _SAFE_ID.fullmatch(stored_decision)
+        ):
+            raise _state_error(f"command provenance {command_id!r} has an invalid decision_id")
+        stored_character = command_provenance.get("character_id")
+        if result["kind"] in ROLL_COMMAND_KINDS:
+            if (
+                not isinstance(stored_character, str)
+                or not _SAFE_ID.fullmatch(stored_character)
+                or stored_character != stored_investigator
+            ):
+                raise _state_error(
+                    f"roll command provenance {command_id!r} has an invalid character identity"
+                )
+        elif stored_character is not None:
+            raise _state_error(
+                f"non-roll command provenance {command_id!r} must have null character_id"
+            )
     pending_scopes: dict[str, str] = {}
     for choice_id, choice in pending.items():
         if not isinstance(choice_id, str) or not _SAFE_ID.fullmatch(choice_id):
@@ -451,11 +699,12 @@ def _validate_state(state: Any) -> dict[str, Any]:
 
 
 def _load_state(campaign_dir: Path) -> dict[str, Any]:
-    path = _state_path(campaign_dir)
-    if not path.exists():
+    with _ExecutorStateDirectory(campaign_dir) as state_directory:
+        encoded = state_directory.read_bytes()
+    if encoded is None:
         return _default_state()
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(encoded.decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise _state_error(f"could not read valid JSON: {exc}") from exc
     return _validate_state(raw)
@@ -519,14 +768,18 @@ def _build_inflight(
         for command, _command_hash in commands_with_hashes
     )
     log_offsets: dict[str, dict[str, Any]] = {}
+    log_relatives: list[str] = []
     if has_roll_evidence:
-        relative = "logs/rolls.jsonl"
+        log_relatives.append("logs/rolls.jsonl")
+    if structured_sanity:
+        log_relatives.append("logs/time.jsonl")
+    for relative in log_relatives:
         path = _contained_target(campaign_dir, relative)
         if path.exists() and not path.is_file():
             raise _error(
                 "subsystem_transaction_preflight_failed",
                 relative,
-                "roll evidence target must be a file",
+                "transaction log target must be a file",
             )
         try:
             size = path.stat().st_size if path.exists() else 0
@@ -591,13 +844,11 @@ def _restore_inflight_targets(campaign_dir: Path, inflight: dict[str, Any]) -> N
 
 def _write_executor_state(campaign_dir: Path, state: dict[str, Any]) -> None:
     _validate_state(state)
-    coc_fileio.write_json_atomic(
-        _state_path(campaign_dir),
-        state,
-        indent=2,
-        ensure_ascii=False,
-        trailing_newline=True,
-    )
+    encoded = (
+        json.dumps(state, indent=2, ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+    with _ExecutorStateDirectory(campaign_dir) as state_directory:
+        state_directory.write_bytes(encoded)
 
 
 def _recover_inflight(campaign_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
@@ -673,13 +924,27 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
             f"{base}.difficulty",
             "difficulty must be regular, hard, or extreme",
         )
+    decision_id = payload.get("decision_id")
+    if decision_id is not None and (
+        not isinstance(decision_id, str) or not _SAFE_ID.fullmatch(decision_id)
+    ):
+        raise _error(
+            "invalid_command_payload",
+            f"{base}.decision_id",
+            "decision_id must be null or a stable safe ID",
+        )
     if "bonus_penalty_dice" in payload:
         modifier = payload["bonus_penalty_dice"]
-        if isinstance(modifier, bool) or not isinstance(modifier, int):
+        if (
+            isinstance(modifier, bool)
+            or not isinstance(modifier, int)
+            or modifier < -2
+            or modifier > 2
+        ):
             raise _error(
                 "invalid_command_payload",
                 f"{base}.bonus_penalty_dice",
-                "bonus_penalty_dice must be an integer",
+                "bonus_penalty_dice must be an integer from -2 through 2",
             )
     if command["kind"] == "sanity_check" and "san_loss_fail_expr" in payload:
         expression = payload.get("san_loss_fail_expr")
@@ -732,13 +997,26 @@ def _validate_batch(commands: Any) -> list[dict[str, Any]]:
     return validated
 
 
-def _load_character(character_path: Path) -> dict[str, Any]:
+def _load_character(character_path: Path, investigator_id: str) -> dict[str, Any]:
     try:
         character = json.loads(Path(character_path).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise _error("malformed_character", "character_path", str(exc)) from exc
     if not isinstance(character, dict):
         raise _error("malformed_character", "character_path", "character root must be an object")
+    character_id = character.get("id")
+    if not isinstance(character_id, str) or not _SAFE_ID.fullmatch(character_id):
+        raise _error(
+            "malformed_character",
+            "character_path.id",
+            "character id must be a stable safe ID",
+        )
+    if character_id != investigator_id:
+        raise _error(
+            "character_identity_mismatch",
+            "character_path.id",
+            f"character id {character_id!r} does not match investigator {investigator_id!r}",
+        )
     for field in ("skills", "characteristics", "derived"):
         value = character.get(field, {})
         if value is not None and not isinstance(value, dict):
@@ -783,7 +1061,6 @@ def _preflight_sanity_state(
     if not needs_sanity:
         return
     assert character is not None
-    sanity_path = Path(campaign_dir) / "save" / "sanity.json"
     try:
         characteristics = (
             character.get("characteristics")
@@ -798,6 +1075,12 @@ def _preflight_sanity_state(
             rng=random.Random(0),
             cm_value=int(skills.get("Cthulhu Mythos", 0)),
         )
+    except coc_sanity.SanityStateIdentityError as exc:
+        raise _error(
+            "malformed_sanity_state",
+            "save/sanity.json.investigator_id",
+            str(exc),
+        ) from exc
     except Exception as exc:
         raise _error("malformed_sanity_state", "save/sanity.json", str(exc)) from exc
 
@@ -814,6 +1097,12 @@ def _preflight_sanity_state(
             "malformed_investigator_state",
             investigator_relative,
             "root must be an object",
+        )
+    if investigator.get("investigator_id") != investigator_id:
+        raise _error(
+            "malformed_investigator_state",
+            f"{investigator_relative}.investigator_id",
+            "persisted investigator_id does not match requested investigator",
         )
     current_san = investigator.get("current_san")
     if current_san is not None and (isinstance(current_san, bool) or not isinstance(current_san, int)):
@@ -881,33 +1170,115 @@ def normalize_rule_results(
     results: list[dict[str, Any]] | None,
     *,
     campaign_dir: Path | str | None = None,
+    expected_commands: list[dict[str, Any]] | None = None,
+    investigator_id: str | None = None,
+    decision_id: str | None = None,
+    results_mode: str = "legacy",
 ) -> list[dict[str, Any]]:
-    """Return legacy rows, unwrapping only persisted executor envelopes."""
+    """Return legacy rows, unwrapping only plan-bound executor envelopes."""
     rows = list(results or [])
     exact_envelopes = [
         isinstance(row, dict) and set(row) == RESULT_KEYS
         for row in rows
     ]
-    if rows and all(exact_envelopes):
-        if campaign_dir is None:
+    if results_mode not in {"legacy", "normalized"}:
+        raise _error(
+            "invalid_rule_results_mode",
+            "rules_results_mode",
+            "expected legacy or normalized",
+        )
+    if results_mode == "normalized" and not all(exact_envelopes):
+        invalid_index = next(
+            index for index, exact in enumerate(exact_envelopes) if not exact
+        )
+        raise _error(
+            "untrusted_subsystem_result",
+            f"rules_results[{invalid_index}]",
+            "normalized mode requires complete subsystem result envelopes",
+        )
+    if results_mode == "normalized":
+        if (
+            campaign_dir is None
+            or expected_commands is None
+            or not isinstance(investigator_id, str)
+            or not _SAFE_ID.fullmatch(investigator_id)
+            or (
+                decision_id is not None
+                and (not isinstance(decision_id, str) or not _SAFE_ID.fullmatch(decision_id))
+            )
+        ):
             raise _error(
                 "untrusted_subsystem_result",
                 "rules_results",
-                "campaign_dir is required to verify normalized results",
+                "campaign, expected commands, investigator, and decision binding are required",
             )
-        campaign = Path(campaign_dir)
-        state = _recover_inflight(campaign, _load_state(campaign))
-        seen_command_ids: set[str] = set()
+        try:
+            expected = _validate_batch(expected_commands)
+        except SubsystemExecutorError as exc:
+            raise _error(
+                "untrusted_subsystem_result",
+                "rules_results",
+                f"expected command contract is invalid: {exc}",
+            ) from exc
+        supplied_ids: set[str] = set()
         for index, row in enumerate(rows):
             assert isinstance(row, dict)
-            command_id = row.get("command_id")
-            if not isinstance(command_id, str) or command_id in seen_command_ids:
+            supplied_id = row.get("command_id")
+            if not isinstance(supplied_id, str) or supplied_id in supplied_ids:
                 raise _error(
                     "untrusted_subsystem_result",
                     f"rules_results[{index}]",
                     "normalized results must contain unique persisted command IDs",
                 )
-            seen_command_ids.add(command_id)
+            supplied_ids.add(supplied_id)
+        if len(rows) != len(expected):
+            raise _error(
+                "untrusted_subsystem_result",
+                (
+                    f"rules_results[{len(expected)}]"
+                    if len(rows) > len(expected)
+                    else "rules_results"
+                ),
+                "normalized results must exactly cover current expected commands",
+            )
+        campaign = Path(campaign_dir)
+        state = _recover_inflight(campaign, _load_state(campaign))
+        for index, (row, expected_command) in enumerate(zip(rows, expected)):
+            assert isinstance(row, dict)
+            command_id = row.get("command_id")
+            assert isinstance(command_id, str)
+            if command_id != expected_command["command_id"]:
+                raise _error(
+                    "untrusted_subsystem_result",
+                    f"rules_results[{index}]",
+                    "normalized result order/command ID does not match the current plan",
+                )
+            if state["command_hashes"].get(command_id) != _canonical_command_hash(
+                expected_command
+            ):
+                raise _error(
+                    "untrusted_subsystem_result",
+                    f"rules_results[{index}]",
+                    "persisted command content does not match the current plan",
+                )
+            expected_provenance = {
+                "investigator_id": investigator_id,
+                "character_id": (
+                    investigator_id
+                    if expected_command["kind"] in ROLL_COMMAND_KINDS
+                    else None
+                ),
+                "decision_id": decision_id,
+            }
+            if not _json_deep_equal(
+                state["command_provenance"].get(command_id),
+                expected_provenance,
+            ):
+                raise _error(
+                    "untrusted_subsystem_result",
+                    f"rules_results[{index}]",
+                    "persisted result provenance does not match current actor/decision",
+                )
             snapshot = state["result_snapshots"].get(command_id)
             if not _json_deep_equal(snapshot, row):
                 raise _error(
@@ -916,6 +1287,8 @@ def normalize_rule_results(
                     "normalized result does not match a persisted executor snapshot",
                 )
         return flatten_result_events(rows)
+    # Legacy mode is an explicit compatibility path for already-flat rows.
+    # Envelope containers are never reinterpreted as legacy data.
     for index, row in enumerate(rows):
         if _looks_like_result_envelope(row):
             raise _error(
@@ -1255,7 +1628,6 @@ def execute_commands(
 ) -> list[dict[str, Any]]:
     """Validate, execute, persist, and replay a strict subsystem command batch."""
     campaign = Path(campaign_dir)
-    state = _recover_inflight(campaign, _load_state(campaign))
     if not isinstance(investigator_id, str) or not _SAFE_ID.fullmatch(investigator_id):
         raise _error(
             "invalid_investigator_id",
@@ -1265,6 +1637,23 @@ def execute_commands(
     character_file = Path(character_path)
     validated = _validate_batch(commands)
     hashes = [_canonical_command_hash(command) for command in validated]
+    try:
+        rng_state = rng.getstate()
+        if not callable(getattr(rng, "setstate", None)):
+            raise TypeError("rng must provide setstate")
+    except Exception as exc:
+        raise _error("invalid_rng", "rng", "expected a random.Random-compatible object") from exc
+
+    # These checks are deliberately state-independent. A malformed new call
+    # must not authorize rollback of a previously prepared inflight record.
+    needs_character = any(command["kind"] in ROLL_COMMAND_KINDS for command in validated)
+    character = (
+        _load_character(character_file, investigator_id)
+        if needs_character
+        else None
+    )
+
+    state = _recover_inflight(campaign, _load_state(campaign))
     applied = set(state["applied_command_ids"])
 
     # Conflict checking is part of whole-batch preflight.  No character read,
@@ -1278,6 +1667,20 @@ def execute_commands(
                 "command_conflict",
                 f"commands[{index}].command_id",
                 f"command_id {command_id!r} was already applied with different content",
+            )
+        expected_provenance = _command_provenance(
+            command,
+            investigator_id,
+            character,
+        )
+        if not _json_deep_equal(
+            state["command_provenance"][command_id],
+            expected_provenance,
+        ):
+            raise _error(
+                "command_provenance_mismatch",
+                f"commands[{index}]",
+                "persisted command actor/character/decision provenance does not match",
             )
         snapshot = state["result_snapshots"][command_id]
         if (
@@ -1311,11 +1714,6 @@ def execute_commands(
             for command in validated
         ]
 
-    needs_character = any(
-        command["kind"] in ROLL_COMMAND_KINDS
-        for command, _command_hash in new_commands_with_hashes
-    )
-    character = _load_character(character_file) if needs_character else None
     _preflight_rule_targets(validated, state, character)
     _preflight_sanity_state(
         campaign,
@@ -1324,13 +1722,6 @@ def execute_commands(
         character,
         investigator_id,
     )
-
-    try:
-        rng_state = rng.getstate()
-        if not callable(getattr(rng, "setstate", None)):
-            raise TypeError("rng must provide setstate")
-    except Exception as exc:
-        raise _error("invalid_rng", "rng", "expected a random.Random-compatible object") from exc
 
     inflight = _build_inflight(
         campaign,
@@ -1341,6 +1732,8 @@ def execute_commands(
     transaction_state["inflight"] = inflight
     try:
         _write_executor_state(campaign, transaction_state)
+    except SubsystemExecutorError:
+        raise
     except Exception as exc:
         raise _error(
             "subsystem_transaction_failed",
@@ -1363,6 +1756,11 @@ def execute_commands(
             new_results.append((command, result))
             next_state["applied_command_ids"].append(command_id)
             next_state["command_hashes"][command_id] = command_hash
+            next_state["command_provenance"][command_id] = _command_provenance(
+                command,
+                investigator_id,
+                character,
+            )
             next_state["result_snapshots"][command_id] = _json_copy(result)
             pending_choice = result.get("pending_choice")
             if isinstance(pending_choice, dict):

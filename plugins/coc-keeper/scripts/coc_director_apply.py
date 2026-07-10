@@ -1540,6 +1540,8 @@ def apply_plan(
     rules_results: list[dict[str, Any]] | None = None,
     recording_mode: str | None = None,
     recording_flush: str | None = None,
+    rules_results_mode: str = "legacy",
+    expected_subsystem_commands: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Apply a DirectorPlan with sync or fast queued JSONL recording.
 
@@ -1556,10 +1558,6 @@ def apply_plan(
     global _ACTIVE_JSONL_RECORDER
 
     decision_id = str(plan.get("decision_id", "unknown"))
-    settled_rule_results = coc_subsystem_executor.normalize_rule_results(
-        rules_results,
-        campaign_dir=campaign_dir,
-    )
     save_dir = Path(campaign_dir) / "save"
     if _decision_already_applied(save_dir, decision_id):
         return [{
@@ -1567,6 +1565,20 @@ def apply_plan(
             "skipped": "duplicate_decision_id",
             "decision_id": decision_id,
         }]
+
+    expected_commands = (
+        expected_subsystem_commands
+        if expected_subsystem_commands is not None
+        else coc_subsystem_executor.commands_from_rules_requests(plan)
+    )
+    settled_rule_results = coc_subsystem_executor.normalize_rule_results(
+        rules_results,
+        campaign_dir=campaign_dir,
+        expected_commands=expected_commands,
+        investigator_id=investigator_id,
+        decision_id=decision_id,
+        results_mode=rules_results_mode,
+    )
 
     mode = "sync"
     flush_policy = "manual"

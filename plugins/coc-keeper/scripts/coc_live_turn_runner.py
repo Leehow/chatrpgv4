@@ -579,6 +579,8 @@ def _run_one_turn(
         resolved_plan,
         investigator_id,
         rules_results=subsystem_results,
+        rules_results_mode="normalized",
+        expected_subsystem_commands=commands,
         recording_mode=recording_mode,
         recording_flush="manual" if recording_flush == "background" else recording_flush,
     )

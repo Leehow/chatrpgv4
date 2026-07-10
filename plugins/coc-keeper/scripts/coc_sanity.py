@@ -86,6 +86,10 @@ SAN_LOSS_MAX_MODIFIER = 100_000
 SAN_LOSS_MAX_TOTAL = 100_000
 
 
+class SanityStateIdentityError(ValueError):
+    """Persisted sanity state belongs to a different or unknown actor."""
+
+
 def validate_san_loss_expression(expression: str) -> dict[str, int | str]:
     """Parse the one canonical SAN-loss grammar without consuming RNG.
 
@@ -1016,6 +1020,12 @@ class SanitySession:
                        campaign_dir=campaign_dir)
             return sess
         snap = json.loads(save_path.read_text(encoding="utf-8"))
+        if not isinstance(snap, dict):
+            raise ValueError("sanity snapshot root must be an object")
+        if snap.get("investigator_id") != investigator_id:
+            raise SanityStateIdentityError(
+                "persisted sanity investigator_id does not match requested investigator_id"
+            )
         sess = cls(
             investigator_id,
             san_max=int(snap.get("san_max", 99)),

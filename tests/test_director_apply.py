@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import random
 import time
 from pathlib import Path
 
@@ -47,6 +48,48 @@ def _campaign(tmp_path):
     return camp
 
 
+def _character_file(tmp_path: Path, investigator_id: str = "inv1") -> Path:
+    path = tmp_path / "investigators" / investigator_id / "character.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "id": investigator_id,
+        "characteristics": {"INT": 70, "POW": 55},
+        "derived": {"SAN": 55},
+        "skills": {"Spot Hidden": 65, "Library Use": 60},
+    }), encoding="utf-8")
+    return path
+
+
+def _normalized_rules_plan(decision_id: str, *, count: int = 1) -> dict:
+    requests = [
+        {"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular"},
+        {"kind": "skill_check", "skill": "Library Use", "difficulty": "regular"},
+    ][:count]
+    return {
+        "decision_id": decision_id,
+        "scene_action": "PRESSURE",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "rules_requests": requests,
+        "narrative_directives": {},
+    }
+
+
+def _execute_plan_results(camp: Path, character: Path, plan: dict, *, investigator_id="inv1"):
+    executor = coc_director_apply.coc_subsystem_executor
+    commands = executor.commands_from_rules_requests(plan)
+    return executor.execute_commands(
+        camp,
+        character,
+        investigator_id,
+        commands,
+        rng=random.Random(130),
+    )
+
+
 def test_apply_reveal_adds_clue_to_discovered(tmp_path):
     camp = _campaign(tmp_path)
     plan = {"decision_id": "d1", "scene_action": "REVEAL",
@@ -89,12 +132,176 @@ def test_apply_rejects_untrusted_normalized_result_before_state_mutation(tmp_pat
             plan,
             investigator_id="inv1",
             rules_results=forged,
+            rules_results_mode="normalized",
         )
 
     assert exc_info.value.code == "untrusted_subsystem_result"
     assert exc_info.value.path == "rules_results[0]"
     assert world_path.read_bytes() == world_before
     assert event_log.read_bytes() == log_before
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
+def test_apply_rejects_authentic_result_from_an_old_decision(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    old_plan = _normalized_rules_plan("decision-old")
+    old_results = _execute_plan_results(camp, character, old_plan)
+    new_plan = _normalized_rules_plan("decision-new")
+    world_path = camp / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+
+    with pytest.raises(
+        coc_director_apply.coc_subsystem_executor.SubsystemExecutorError
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            new_plan,
+            investigator_id="inv1",
+            rules_results=old_results,
+            rules_results_mode="normalized",
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert world_path.read_bytes() == world_before
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
+def test_apply_rejects_authentic_result_for_a_different_investigator(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    plan = _normalized_rules_plan("decision-actor")
+    results = _execute_plan_results(camp, character, plan, investigator_id="inv1")
+
+    with pytest.raises(
+        coc_director_apply.coc_subsystem_executor.SubsystemExecutorError
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            plan,
+            investigator_id="inv2",
+            rules_results=results,
+            rules_results_mode="normalized",
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
+@pytest.mark.parametrize("mode", ["subset", "reordered"])
+def test_apply_requires_exact_ordered_current_command_result_set(tmp_path, mode):
+    case_root = tmp_path / mode
+    camp = _campaign(case_root)
+    character = _character_file(case_root)
+    plan = _normalized_rules_plan(f"decision-{mode}", count=2)
+    results = _execute_plan_results(camp, character, plan)
+    supplied = results[:1] if mode == "subset" else list(reversed(results))
+
+    with pytest.raises(
+        coc_director_apply.coc_subsystem_executor.SubsystemExecutorError
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            plan,
+            investigator_id="inv1",
+            rules_results=supplied,
+            rules_results_mode="normalized",
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
+def test_apply_accepts_exact_ordered_current_command_result_set(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    plan = _normalized_rules_plan("decision-current", count=2)
+    results = _execute_plan_results(camp, character, plan)
+
+    events = coc_director_apply.apply_plan(
+        camp,
+        plan,
+        investigator_id="inv1",
+        rules_results=results,
+        rules_results_mode="normalized",
+    )
+
+    assert isinstance(events, list)
+    ledger = json.loads((camp / "save" / "apply-ledger.json").read_text(encoding="utf-8"))
+    assert ledger["applied_decision_ids"] == ["decision-current"]
+
+
+def test_duplicate_apply_skips_before_mismatched_envelope_validation(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "decision-noop-first",
+        "scene_action": "PRESSURE",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    before = {
+        path.relative_to(camp).as_posix(): path.read_bytes()
+        for path in camp.rglob("*")
+        if path.is_file()
+    }
+    mismatched = [{
+        "command_id": "never-executed",
+        "kind": "skill_check",
+        "status": "completed",
+        "events": [{"kind": "skill_check", "success": True}],
+        "pending_choice": None,
+        "state_refs": [],
+    }]
+
+    events = coc_director_apply.apply_plan(
+        camp,
+        plan,
+        investigator_id="inv1",
+        rules_results=mismatched,
+        rules_results_mode="normalized",
+    )
+
+    assert events == [{
+        "event_type": "apply_skipped",
+        "skipped": "duplicate_decision_id",
+        "decision_id": "decision-noop-first",
+    }]
+    after = {
+        path.relative_to(camp).as_posix(): path.read_bytes()
+        for path in camp.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
+
+
+@pytest.mark.parametrize("missing_results", [None, []])
+def test_normalized_apply_rejects_empty_result_set_for_nonempty_commands(
+    tmp_path,
+    missing_results,
+):
+    camp = _campaign(tmp_path)
+    plan = _normalized_rules_plan("decision-missing-results")
+    world_path = camp / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+    log_before = (camp / "logs" / "events.jsonl").read_bytes()
+
+    with pytest.raises(
+        coc_director_apply.coc_subsystem_executor.SubsystemExecutorError
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            plan,
+            investigator_id="inv1",
+            rules_results=missing_results,
+            rules_results_mode="normalized",
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert world_path.read_bytes() == world_before
+    assert (camp / "logs" / "events.jsonl").read_bytes() == log_before
     assert not (camp / "save" / "apply-ledger.json").exists()
 
 

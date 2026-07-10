@@ -160,7 +160,11 @@ def _campaign_and_char_for_san(tmp_path: Path):
     (camp / "save" / "pacing-state.json").write_text(json.dumps({"tension_level": "low", "turn_number": 0}))
     # investigator-state for SanitySession sync target
     (camp / "save" / "investigator-state" / "inv1.json").write_text(json.dumps(
-        {"current_san": 80, "indefinite_insane": False}))
+        {
+            "investigator_id": "inv1",
+            "current_san": 80,
+            "indefinite_insane": False,
+        }))
     return camp, char_path
 
 

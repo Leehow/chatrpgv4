@@ -143,14 +143,15 @@ def test_unsafe_investigator_id_is_rejected_before_state_or_rng_mutation(tmp_pat
 def test_push_offer_persists_stable_choice_and_atomic_state_shape(tmp_path, monkeypatch):
     executor = _executor()
     campaign, character = _campaign_and_character(tmp_path)
-    atomic_paths: list[Path] = []
-    real_write = executor.coc_fileio.write_json_atomic
+    atomic_replaces: list[dict] = []
+    real_replace = executor.os.replace
 
-    def recording_atomic_write(path, payload, **kwargs):
-        atomic_paths.append(Path(path))
-        return real_write(path, payload, **kwargs)
+    def recording_replace(src, dst, **kwargs):
+        if str(dst) == "subsystem-state.json" or Path(dst).name == "subsystem-state.json":
+            atomic_replaces.append(dict(kwargs))
+        return real_replace(src, dst, **kwargs)
 
-    monkeypatch.setattr(executor.coc_fileio, "write_json_atomic", recording_atomic_write)
+    monkeypatch.setattr(executor.os, "replace", recording_replace)
     result = _execute(
         executor,
         campaign,
@@ -176,18 +177,28 @@ def test_push_offer_persists_stable_choice_and_atomic_state_shape(tmp_path, monk
         "schema_version",
         "applied_command_ids",
         "command_hashes",
+        "command_provenance",
         "result_snapshots",
         "pending_choices",
         "inflight",
     }
-    assert state["schema_version"] == 1
+    assert state["schema_version"] == 2
     assert state["applied_command_ids"] == ["cmd-1"]
     assert set(state["command_hashes"]) == {"cmd-1"}
     assert len(state["command_hashes"]["cmd-1"]) == hashlib.sha256().digest_size * 2
+    assert state["command_provenance"] == {
+        "cmd-1": {
+            "investigator_id": "inv1",
+            "character_id": None,
+            "decision_id": None,
+        }
+    }
     assert state["result_snapshots"]["cmd-1"] == result
     assert state["pending_choices"] == {"cmd-1:confirm": result["pending_choice"]}
     assert state["inflight"] is None
-    assert atomic_paths == [state_path, state_path]
+    assert len(atomic_replaces) == 2
+    assert all(call.get("src_dir_fd") is not None for call in atomic_replaces)
+    assert all(call.get("dst_dir_fd") is not None for call in atomic_replaces)
     assert not list((campaign / "save").glob("*.tmp"))
 
 
@@ -230,18 +241,21 @@ def test_final_ledger_failure_rolls_back_san_log_and_rng(tmp_path, monkeypatch):
     log_before = log_path.read_bytes()
     rng = random.Random(99)
     rng_before = rng.getstate()
-    real_write = executor.coc_fileio.write_json_atomic
+    real_write = executor._ExecutorStateDirectory.write_bytes
     state_writes = 0
 
-    def fail_final_ledger(path, payload, **kwargs):
+    def fail_final_ledger(state_directory, payload):
         nonlocal state_writes
-        if Path(path) == state_path:
-            state_writes += 1
-            if state_writes == 2:
-                raise OSError("injected final ledger failure")
-        return real_write(path, payload, **kwargs)
+        state_writes += 1
+        if state_writes == 2:
+            raise OSError("injected final ledger failure")
+        return real_write(state_directory, payload)
 
-    monkeypatch.setattr(executor.coc_fileio, "write_json_atomic", fail_final_ledger)
+    monkeypatch.setattr(
+        executor._ExecutorStateDirectory,
+        "write_bytes",
+        fail_final_ledger,
+    )
     with pytest.raises(executor.SubsystemExecutorError) as exc_info:
         _execute(executor, campaign, character, [_san_command("san-ledger-fail")], rng)
 
@@ -285,6 +299,7 @@ def test_log_append_failure_rolls_back_partial_bytes_and_san(tmp_path, monkeypat
 
 
 def test_reload_recovers_prepared_inflight_before_executing_again(tmp_path):
+    builder = _executor("coc_subsystem_executor_inflight_builder")
     campaign, character = _campaign_and_character(tmp_path)
     inv_path = campaign / "save" / "investigator-state" / "inv1.json"
     sanity_path = campaign / "save" / "sanity.json"
@@ -293,6 +308,9 @@ def test_reload_recovers_prepared_inflight_before_executing_again(tmp_path):
     inv_before = inv_path.read_bytes()
     log_before = b'{"baseline": true}\n'
     log_path.write_bytes(log_before)
+    time_log_path = campaign / "logs" / "time.jsonl"
+    time_log_before = b'{"time-baseline": true}\n'
+    time_log_path.write_bytes(time_log_before)
 
     def encoded_preimage(path: Path) -> dict:
         if not path.exists():
@@ -317,21 +335,18 @@ def test_reload_recovers_prepared_inflight_before_executing_again(tmp_path):
         },
         "log_offsets": {
             "logs/rolls.jsonl": {"exists": True, "size": len(log_before)},
+            "logs/time.jsonl": {"exists": True, "size": len(time_log_before)},
         },
     }
-    state = {
-        "schema_version": 1,
-        "applied_command_ids": [],
-        "command_hashes": {},
-        "result_snapshots": {},
-        "pending_choices": {},
-        "inflight": inflight,
-    }
+    state = builder._default_state()
+    state["inflight"] = inflight
     state_path.write_text(json.dumps(state), encoding="utf-8")
     inv_path.write_text(json.dumps({"current_san": 1}), encoding="utf-8")
     sanity_path.write_text(json.dumps({"san_current": 1}), encoding="utf-8")
     with log_path.open("ab") as handle:
         handle.write(b"uncommitted-tail")
+    with time_log_path.open("ab") as handle:
+        handle.write(b"uncommitted-time-tail")
 
     reloaded = _executor("coc_subsystem_executor_inflight_restart")
     result = _execute(
@@ -346,16 +361,85 @@ def test_reload_recovers_prepared_inflight_before_executing_again(tmp_path):
     assert inv_path.read_bytes() == inv_before
     assert not sanity_path.exists()
     assert log_path.read_bytes() == log_before
+    assert time_log_path.read_bytes() == time_log_before
     recovered = json.loads(state_path.read_text(encoding="utf-8"))
     assert recovered["inflight"] is None
     assert recovered["applied_command_ids"] == ["after-recovery"]
+
+
+def _prepare_uncommitted_inflight(executor, campaign: Path) -> dict[Path, bytes | None]:
+    command = _san_command("prepared-crash")
+    command_hash = executor._canonical_command_hash(command)
+    inflight = executor._build_inflight(campaign, "inv1", [(command, command_hash)])
+    state = executor._default_state()
+    state["inflight"] = inflight
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    sanity_path = campaign / "save" / "sanity.json"
+    roll_log = campaign / "logs" / "rolls.jsonl"
+    inv_path.write_text(json.dumps({"investigator_id": "inv1", "current_san": 1}), encoding="utf-8")
+    sanity_path.write_text(json.dumps({"investigator_id": "inv1", "san_current": 1}), encoding="utf-8")
+    with roll_log.open("ab") as handle:
+        handle.write(b"uncommitted-roll-tail")
+    tracked = [state_path, inv_path, sanity_path, roll_log]
+    return {path: path.read_bytes() if path.exists() else None for path in tracked}
+
+
+def test_invalid_command_is_rejected_before_prepared_inflight_recovery(tmp_path):
+    executor = _executor("coc_subsystem_executor_validate_before_recovery")
+    campaign, character = _campaign_and_character(tmp_path)
+    before = _prepare_uncommitted_inflight(executor, campaign)
+    invalid = _san_command("invalid-before-recovery")
+    invalid["payload"]["san_loss_fail_expr"] = "1D0"
+    rng = random.Random(129)
+    rng_before = rng.getstate()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [invalid], rng)
+
+    assert exc_info.value.code == "invalid_command_payload"
+    assert exc_info.value.path == "commands[0].payload.san_loss_fail_expr"
+    assert rng.getstate() == rng_before
+    assert {path: path.read_bytes() if path.exists() else None for path in before} == before
+
+
+def test_invalid_rng_is_rejected_before_prepared_inflight_recovery(tmp_path):
+    executor = _executor("coc_subsystem_executor_rng_before_recovery")
+    campaign, character = _campaign_and_character(tmp_path)
+    before = _prepare_uncommitted_inflight(executor, campaign)
+
+    class InvalidRng:
+        def getstate(self):
+            raise TypeError("no RNG state")
+
+        def setstate(self, _state):
+            raise AssertionError("setstate must not run")
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(
+            executor,
+            campaign,
+            character,
+            [_command("valid-push-after-crash", "push_offer")],
+            InvalidRng(),
+        )
+
+    assert exc_info.value.code == "invalid_rng"
+    assert exc_info.value.path == "rng"
+    assert {path: path.read_bytes() if path.exists() else None for path in before} == before
 
 
 def test_later_malformed_sanity_state_fails_batch_preflight_without_rng(tmp_path):
     executor = _executor()
     campaign, character = _campaign_and_character(tmp_path)
     (campaign / "save" / "sanity.json").write_text(
-        json.dumps({"san_current": "not-an-integer", "san_max": 55}),
+        json.dumps({
+            "investigator_id": "inv1",
+            "san_current": "not-an-integer",
+            "san_max": 55,
+        }),
         encoding="utf-8",
     )
     rng = random.Random(103)
@@ -418,6 +502,28 @@ def test_oversized_san_success_loss_is_preflighted_without_mutation(tmp_path):
     assert (campaign / "logs" / "rolls.jsonl").read_text(encoding="utf-8") == ""
 
 
+@pytest.mark.parametrize("modifier", [-1_000_000, -3, 3, 1_000_000])
+def test_bonus_penalty_dice_outside_coc_bounds_is_preflighted(tmp_path, modifier):
+    executor = _executor(f"coc_subsystem_executor_bonus_bound_{modifier}")
+    campaign, character = _campaign_and_character(tmp_path)
+    command = _command(
+        "bounded-bonus-penalty",
+        "skill_check",
+        payload={"skill": "Spot Hidden", "bonus_penalty_dice": modifier},
+    )
+    rng = random.Random(121)
+    rng_before = rng.getstate()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [command], rng)
+
+    assert exc_info.value.code == "invalid_command_payload"
+    assert exc_info.value.path == "commands[0].payload.bonus_penalty_dice"
+    assert rng.getstate() == rng_before
+    assert not (campaign / "save" / "subsystem-state.json").exists()
+    assert (campaign / "logs" / "rolls.jsonl").read_text(encoding="utf-8") == ""
+
+
 def test_subsystem_state_rejects_symlinked_save_escape(tmp_path):
     executor = _executor("coc_subsystem_executor_save_symlink")
     campaign = tmp_path / "campaign"
@@ -457,6 +563,50 @@ def test_subsystem_state_rejects_state_file_symlink_escape(tmp_path):
     assert outside_state.read_bytes() == sentinel
 
 
+def test_subsystem_state_write_is_dirfd_anchored_across_save_swap(tmp_path, monkeypatch):
+    executor = _executor("coc_subsystem_executor_state_toctou")
+    campaign, character = _campaign_and_character(tmp_path)
+    save_dir = campaign / "save"
+    displaced_save = campaign / "save-displaced"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("outside sentinel", encoding="utf-8")
+    real_replace = executor.os.replace
+    swapped = False
+
+    def swap_save_during_state_replace(src, dst, **kwargs):
+        nonlocal swapped
+        is_state_replace = str(dst) == "subsystem-state.json" or Path(dst).name == "subsystem-state.json"
+        if is_state_replace and not swapped:
+            swapped = True
+            real_replace(save_dir, displaced_save)
+            save_dir.symlink_to(outside, target_is_directory=True)
+            # Preserve the vulnerable absolute temp pathname so the legacy
+            # path-based replace demonstrably lands in the external directory.
+            if kwargs.get("src_dir_fd") is None:
+                source_name = Path(src).name
+                real_replace(displaced_save / source_name, outside / source_name)
+        return real_replace(src, dst, **kwargs)
+
+    monkeypatch.setattr(executor.os, "replace", swap_save_during_state_replace)
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(
+            executor,
+            campaign,
+            character,
+            [_command("toctou-push", "push_offer")],
+            random.Random(122),
+        )
+
+    assert swapped is True
+    assert exc_info.value.code == "unsafe_subsystem_state_path"
+    assert sentinel.read_text(encoding="utf-8") == "outside sentinel"
+    assert not (outside / "subsystem-state.json").exists()
+    assert not list(outside.glob("tmp*"))
+
+
 def test_strict_san_mirror_failure_rolls_back_every_transaction_surface(tmp_path, monkeypatch):
     executor = _executor("coc_subsystem_executor_strict_san_mirror")
     campaign, character = _campaign_and_character(tmp_path)
@@ -492,6 +642,65 @@ def test_strict_san_mirror_failure_rolls_back_every_transaction_surface(tmp_path
     assert state["inflight"] is None
 
 
+def test_bout_time_log_is_rolled_back_when_strict_san_mirror_fails(tmp_path, monkeypatch):
+    executor = _executor("coc_subsystem_executor_san_time_log_rollback")
+    campaign, character = _campaign_and_character(tmp_path)
+    sheet = json.loads(character.read_text(encoding="utf-8"))
+    sheet["characteristics"]["POW"] = 99
+    sheet["characteristics"]["INT"] = 99
+    sheet["derived"]["SAN"] = 99
+    character.write_text(json.dumps(sheet), encoding="utf-8")
+    command = _san_command("san-bout-time-log")
+    command["payload"]["san_loss_success"] = 5
+    command["payload"]["san_loss_fail_expr"] = "5"
+
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_path.write_text(
+        json.dumps(executor._default_state(), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    time_log = campaign / "logs" / "time.jsonl"
+    time_log.write_text('{"baseline": true}\n', encoding="utf-8")
+    tracked = [
+        state_path,
+        campaign / "save" / "sanity.json",
+        campaign / "save" / "investigator-state" / "inv1.json",
+        campaign / "save" / "time-state.json",
+        campaign / "save" / "time-triggers.json",
+        campaign / "logs" / "rolls.jsonl",
+        time_log,
+    ]
+    before = {path: path.read_bytes() if path.exists() else None for path in tracked}
+    rng = random.Random(1)
+    rng_before = rng.getstate()
+    scheduled = []
+    real_schedule = executor.coc_sanity.coc_time.schedule_trigger
+    real_write = executor.coc_sanity.coc_fileio.write_json_atomic
+
+    def schedule_with_audit(campaign_dir, trigger):
+        trigger_id = real_schedule(campaign_dir, trigger)
+        scheduled.append(trigger_id)
+        with time_log.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"event_type": "sanity_trigger_scheduled", "id": trigger_id}) + "\n")
+        return trigger_id
+
+    def fail_investigator_mirror(path, payload, **kwargs):
+        if Path(path) == campaign / "save" / "investigator-state" / "inv1.json":
+            raise OSError("injected strict investigator mirror failure")
+        return real_write(path, payload, **kwargs)
+
+    monkeypatch.setattr(executor.coc_sanity.coc_time, "schedule_trigger", schedule_with_audit)
+    monkeypatch.setattr(executor.coc_sanity.coc_fileio, "write_json_atomic", fail_investigator_mirror)
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [command], rng)
+
+    assert scheduled, "expected 5+ SAN loss to schedule a bout recovery trigger"
+    assert exc_info.value.code == "subsystem_transaction_failed"
+    assert rng.getstate() == rng_before
+    assert {path: path.read_bytes() if path.exists() else None for path in tracked} == before
+
+
 def test_orphan_pending_choice_index_is_rejected(tmp_path):
     executor = _executor("coc_subsystem_executor_orphan_pending")
     campaign, character = _campaign_and_character(tmp_path)
@@ -509,6 +718,29 @@ def test_orphan_pending_choice_index_is_rejected(tmp_path):
         _execute(executor, campaign, character, [], random.Random(108))
 
     assert exc_info.value.code == "malformed_subsystem_state"
+
+
+def test_unreleased_schema_v1_state_is_explicitly_rejected_not_reinterpreted(tmp_path):
+    executor = _executor("coc_subsystem_executor_schema_v1_reject")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "subsystem-state.json"
+    schema_v1 = {
+        "schema_version": 1,
+        "applied_command_ids": [],
+        "command_hashes": {},
+        "result_snapshots": {},
+        "pending_choices": {},
+        "inflight": None,
+    }
+    state_path.write_text(json.dumps(schema_v1), encoding="utf-8")
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [], random.Random(133))
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+    assert "schema v1 cannot be migrated without command provenance" in exc_info.value.message
+    assert state_path.read_bytes() == before
 
 
 def test_pending_choice_must_deep_match_its_applied_snapshot(tmp_path):
@@ -547,6 +779,113 @@ def test_replay_rejects_snapshot_kind_semantic_mismatch(tmp_path):
 
     assert exc_info.value.code == "replay_snapshot_mismatch"
     assert exc_info.value.path == "commands[0]"
+
+
+def test_roll_command_requires_character_id_to_match_investigator(tmp_path):
+    executor = _executor("coc_subsystem_executor_character_identity")
+    campaign, character = _campaign_and_character(tmp_path)
+    sheet = json.loads(character.read_text(encoding="utf-8"))
+    sheet["id"] = "inv2"
+    character.write_text(json.dumps(sheet), encoding="utf-8")
+    rng = random.Random(123)
+    rng_before = rng.getstate()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(
+            executor,
+            campaign,
+            character,
+            [_command("wrong-character", "skill_check", payload={"skill": "Spot Hidden"})],
+            rng,
+        )
+
+    assert exc_info.value.code == "character_identity_mismatch"
+    assert exc_info.value.path == "character_path.id"
+    assert rng.getstate() == rng_before
+    assert not (campaign / "save" / "subsystem-state.json").exists()
+
+
+def test_replay_is_bound_to_original_investigator_and_stable_character_id(tmp_path):
+    executor = _executor("coc_subsystem_executor_replay_actor")
+    campaign, character = _campaign_and_character(tmp_path)
+    command = _command(
+        "actor-bound-roll",
+        "skill_check",
+        payload={"decision_id": "actor-bound", "skill": "Spot Hidden"},
+    )
+    original = _execute(executor, campaign, character, [command], random.Random(124))
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_before = state_path.read_bytes()
+    log_before = (campaign / "logs" / "rolls.jsonl").read_bytes()
+
+    inv2_character = tmp_path / "investigators" / "inv2" / "character.json"
+    inv2_character.parent.mkdir(parents=True)
+    inv2_sheet = json.loads(character.read_text(encoding="utf-8"))
+    inv2_sheet["id"] = "inv2"
+    inv2_character.write_text(json.dumps(inv2_sheet), encoding="utf-8")
+    rng = random.Random(125)
+    rng_before = rng.getstate()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.execute_commands(
+            campaign,
+            inv2_character,
+            "inv2",
+            [command],
+            rng=rng,
+        )
+
+    assert exc_info.value.code == "command_provenance_mismatch"
+    assert exc_info.value.path == "commands[0]"
+    assert rng.getstate() == rng_before
+    assert state_path.read_bytes() == state_before
+    assert (campaign / "logs" / "rolls.jsonl").read_bytes() == log_before
+
+    # Mutable progression is legitimate: identity, not a whole-sheet hash,
+    # binds replay.
+    progressed = json.loads(character.read_text(encoding="utf-8"))
+    progressed["skills"]["Spot Hidden"] = 70
+    character.write_text(json.dumps(progressed), encoding="utf-8")
+    assert _execute(executor, campaign, character, [command], random.Random(126)) == original
+
+
+def test_sanity_and_investigator_state_identity_must_match_requested_actor(tmp_path):
+    executor = _executor("coc_subsystem_executor_sanity_actor")
+    campaign, character = _campaign_and_character(tmp_path)
+    sanity_path = campaign / "save" / "sanity.json"
+    wrong_session = executor.coc_sanity.SanitySession(
+        "inv2",
+        san_max=55,
+        int_value=70,
+        rng=random.Random(127),
+        campaign_dir=campaign,
+    )
+    sanity_path.write_text(json.dumps(wrong_session.snapshot()), encoding="utf-8")
+    rng = random.Random(128)
+    rng_before = rng.getstate()
+
+    with pytest.raises(executor.SubsystemExecutorError) as sanity_exc:
+        _execute(executor, campaign, character, [_san_command("san-wrong-actor")], rng)
+
+    assert sanity_exc.value.code == "malformed_sanity_state"
+    assert sanity_exc.value.path == "save/sanity.json.investigator_id"
+    assert rng.getstate() == rng_before
+    assert json.loads(sanity_path.read_text(encoding="utf-8"))["investigator_id"] == "inv2"
+    assert not (campaign / "save" / "subsystem-state.json").exists()
+
+    sanity_path.unlink()
+    investigator_path = campaign / "save" / "investigator-state" / "inv1.json"
+    investigator = json.loads(investigator_path.read_text(encoding="utf-8"))
+    investigator["investigator_id"] = "inv2"
+    investigator_path.write_text(json.dumps(investigator), encoding="utf-8")
+
+    with pytest.raises(executor.SubsystemExecutorError) as investigator_exc:
+        _execute(executor, campaign, character, [_san_command("inv-state-wrong-actor")], rng)
+
+    assert investigator_exc.value.code == "malformed_investigator_state"
+    assert investigator_exc.value.path.endswith("inv1.json.investigator_id")
+    assert rng.getstate() == rng_before
+    assert not (campaign / "save" / "subsystem-state.json").exists()
 
 
 def test_persisted_pending_choice_survives_empty_batch_and_blocks_new_commands(tmp_path):
@@ -631,27 +970,53 @@ def test_batch_cannot_atomically_create_multiple_global_pending_choices(tmp_path
 def test_normalize_rejects_forged_or_mismatched_executor_envelopes(tmp_path):
     executor = _executor("coc_subsystem_executor_provenance")
     campaign, character = _campaign_and_character(tmp_path)
+    command = _command("trusted-result", "skill_check", payload={"skill": "Spot Hidden"})
     trusted = _execute(
         executor,
         campaign,
         character,
-        [_command("trusted-result", "skill_check", payload={"skill": "Spot Hidden"})],
+        [command],
         random.Random(115),
     )
     forged = json.loads(json.dumps(trusted))
     forged[0]["events"][0]["success"] = not forged[0]["events"][0]["success"]
 
     with pytest.raises(executor.SubsystemExecutorError) as exc_info:
-        executor.normalize_rule_results(forged, campaign_dir=campaign)
+        executor.normalize_rule_results(
+            forged,
+            campaign_dir=campaign,
+            expected_commands=[command],
+            investigator_id="inv1",
+            decision_id=None,
+            results_mode="normalized",
+        )
 
     assert exc_info.value.code == "untrusted_subsystem_result"
     assert exc_info.value.path == "rules_results[0]"
-    assert executor.normalize_rule_results(trusted, campaign_dir=campaign) == trusted[0]["events"]
+    with pytest.raises(executor.SubsystemExecutorError) as missing_context:
+        executor.normalize_rule_results(
+            trusted,
+            campaign_dir=campaign,
+            results_mode="normalized",
+        )
+    assert missing_context.value.code == "untrusted_subsystem_result"
+    assert executor.normalize_rule_results(
+        trusted,
+        campaign_dir=campaign,
+        expected_commands=[command],
+        investigator_id="inv1",
+        decision_id=None,
+        results_mode="normalized",
+    ) == trusted[0]["events"]
 
     with pytest.raises(executor.SubsystemExecutorError) as duplicate_exc:
         executor.normalize_rule_results(
             [trusted[0], json.loads(json.dumps(trusted[0]))],
             campaign_dir=campaign,
+            expected_commands=[command],
+            investigator_id="inv1",
+            decision_id=None,
+            results_mode="normalized",
         )
     assert duplicate_exc.value.code == "untrusted_subsystem_result"
     assert duplicate_exc.value.path == "rules_results[1]"
@@ -659,7 +1024,14 @@ def test_normalize_rejects_forged_or_mismatched_executor_envelopes(tmp_path):
     partial = json.loads(json.dumps(trusted[0]))
     partial.pop("status")
     with pytest.raises(executor.SubsystemExecutorError) as partial_exc:
-        executor.normalize_rule_results([partial], campaign_dir=campaign)
+        executor.normalize_rule_results(
+            [partial],
+            campaign_dir=campaign,
+            expected_commands=[command],
+            investigator_id="inv1",
+            decision_id=None,
+            results_mode="normalized",
+        )
     assert partial_exc.value.code == "untrusted_subsystem_result"
     assert partial_exc.value.path == "rules_results[0]"
 

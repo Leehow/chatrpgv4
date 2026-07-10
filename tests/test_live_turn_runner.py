@@ -1482,7 +1482,10 @@ def test_live_turn_returns_current_stable_pending_choice(tmp_path, monkeypatch):
             "command_id": f"{plan['decision_id']}-push",
             "kind": "push_offer",
             "phase": "offer",
-            "payload": {"original_roll_id": f"{plan['decision_id']}-rule-1"},
+            "payload": {
+                "decision_id": plan["decision_id"],
+                "original_roll_id": f"{plan['decision_id']}-rule-1",
+            },
         }],
     )
     result = live_runner.run_live_turn(
