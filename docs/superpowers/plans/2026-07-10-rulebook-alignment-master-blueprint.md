@@ -885,6 +885,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 - 多人桌支持（当前单玩家假设）
 - 编译校验 schema 演进（R-5 遗留）：多路线独立需 `alternate_route` 身份（现用去重 clue_id 近似）；`source_refs` 锚点校验依赖调用方传 `source_segments`，无则跳过
 - 场景边自动编译（R-3 遗留）：编译器暂不强制为旧模组生成 `scene_edges`，新剧本按 compile-protocol 要求产出
+- 模组身份 schema 细化（Masks 实测暴露）：`module_identity` 需区分 `module_edition` vs `rules_edition`（MoN 5th ed 书 / CoC 7e 规则）；`source_refs.page` 统一用印刷页而非 PDF index（差约 −2）；巨册分章注册的兄弟章发现/聚合视图；Product Identity 散文不入 git 的存储边界文档化
 
 ---
 
