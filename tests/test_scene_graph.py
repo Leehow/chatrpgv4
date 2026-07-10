@@ -176,6 +176,100 @@ def test_explicit_scene_edges_used_not_array_order():
 # ---------------------------------------------------------------------------
 
 
+def test_legacy_linear_unlocks_only_next_scene_when_start_active():
+    """Travel/cut edges need source locality — no full-chain cascade on turn 1."""
+    sg = {
+        "scenes": [
+            {"scene_id": "a", "is_start": True, "available_clues": []},
+            {"scene_id": "b", "available_clues": []},
+            {"scene_id": "c", "available_clues": []},
+            {"scene_id": "d", "available_clues": []},
+        ]
+    }
+    world = {
+        "active_scene_id": "a",
+        "unlocked_scene_ids": ["a"],
+        "visited_scene_ids": ["a"],
+        "discovered_clue_ids": [],
+    }
+    newly = coc_scene_graph.evaluate_unlocks(sg, world)
+    assert newly == ["b"]
+    assert "c" not in newly
+    assert "d" not in newly
+
+
+def test_legacy_linear_entering_scene_2_unlocks_scene_3():
+    """Once scene 2 is visited/active, its always-travel edge unlocks scene 3."""
+    sg = {
+        "scenes": [
+            {"scene_id": "a", "is_start": True, "available_clues": []},
+            {"scene_id": "b", "available_clues": []},
+            {"scene_id": "c", "available_clues": []},
+        ]
+    }
+    world = {
+        "active_scene_id": "b",
+        "unlocked_scene_ids": ["a", "b"],
+        "visited_scene_ids": ["a", "b"],
+        "discovered_clue_ids": [],
+    }
+    newly = coc_scene_graph.evaluate_unlocks(sg, world)
+    assert newly == ["c"]
+
+
+def test_explicit_unlock_edges_still_fire_from_anywhere():
+    """kind=unlock remains a global condition gate (clue opens warehouse anywhere)."""
+    sg = _branching_graph()
+    world = {
+        "active_scene_id": "street",
+        "unlocked_scene_ids": ["archive", "street"],
+        "visited_scene_ids": ["street"],
+        "discovered_clue_ids": ["clue-warehouse-lead"],
+    }
+    newly = coc_scene_graph.evaluate_unlocks(sg, world)
+    assert "warehouse" in newly
+
+
+def test_travel_unlock_is_one_wave_not_fixpoint():
+    """Newly unlocked scenes do not cascade further within the same evaluate call."""
+    sg = {
+        "scenes": [
+            {
+                "scene_id": "hub",
+                "is_start": True,
+                "available_clues": [],
+                "dramatic_question": "q",
+                "scene_edges": [
+                    {"to": "side", "kind": "travel", "when": {"kind": "always"}},
+                ],
+            },
+            {
+                "scene_id": "side",
+                "available_clues": [],
+                "dramatic_question": "q2",
+                "scene_edges": [
+                    {"to": "secret", "kind": "travel", "when": {"kind": "always"}},
+                ],
+            },
+            {
+                "scene_id": "secret",
+                "available_clues": [],
+                "dramatic_question": "q3",
+                "scene_edges": [],
+            },
+        ]
+    }
+    world = {
+        "active_scene_id": "hub",
+        "unlocked_scene_ids": ["hub"],
+        "visited_scene_ids": ["hub"],
+        "discovered_clue_ids": [],
+    }
+    newly = coc_scene_graph.evaluate_unlocks(sg, world)
+    assert newly == ["side"]
+    assert "secret" not in newly
+
+
 def test_unlock_on_condition_satisfaction(tmp_path):
     camp = _campaign(tmp_path)
     sg = _branching_graph()

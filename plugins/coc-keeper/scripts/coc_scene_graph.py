@@ -9,6 +9,9 @@ R-3 (C1/C2/C3): story progression is a real graph, not array order.
   edges marked ``legacy: True`` (array order as implicit travel edges).
 - World-state tracks ``unlocked_scene_ids`` / ``visited_scene_ids`` /
   ``exhausted_scene_ids`` / ``scene_history``.
+- Travel/cut unlock evaluation is source-local (visited or active only);
+  explicit ``unlock`` edges remain global condition gates. One wave per call
+  (no fixpoint across newly unlocked scenes).
 - CUT is cinematic travel among already-unlocked reachable targets — never an
   unlock mechanism.
 
@@ -184,9 +187,18 @@ def evaluate_unlocks(
 ) -> list[str]:
     """Return newly unlocked scene ids (not yet in world.unlocked_scene_ids).
 
-    Evaluates every ``kind=unlock`` edge (and travel edges whose ``when`` is
-    already satisfied may also unlock their target so travel destinations
-    become reachable once their gate opens). Unlock is additive and global.
+    Source locality (one wave per call — no fixpoint across newly unlocked
+    scenes):
+
+    - ``kind=unlock`` edges evaluate globally (authored condition gates, e.g.
+      "clue X opens the warehouse from anywhere").
+    - ``kind=travel`` / ``kind=cut`` edges (including legacy derived ones)
+      evaluate only when their source scene is in ``visited_scene_ids`` or is
+      the current ``active_scene_id``. Satisfied travel/cut gates unlock their
+      target so the destination becomes a legal CUT/travel candidate.
+
+    Unlock is additive. Callers (e.g. director apply) pass ``world`` that
+    already carries visited/active via ``ensure_world_scene_fields``.
     """
     world = ensure_world_scene_fields(world, story_graph)
     discovered = discovered_clue_ids
@@ -197,14 +209,21 @@ def evaluate_unlocks(
     flags = flags_set if flags_set is not None else set()
 
     already = {str(s) for s in world.get("unlocked_scene_ids") or []}
+    visited = {str(s) for s in world.get("visited_scene_ids") or []}
+    active = world.get("active_scene_id")
+    active_id = str(active) if active else None
     newly: list[str] = []
     edges_by_scene = derive_scene_edges(story_graph)
-    for _from_id, edges in edges_by_scene.items():
+    for from_id, edges in edges_by_scene.items():
+        source_local = (str(from_id) in visited) or (
+            active_id is not None and str(from_id) == active_id
+        )
         for edge in edges:
-            # Unlock edges always participate; travel/cut edges also unlock
-            # their target when ``when`` is satisfied so the destination
-            # becomes a legal CUT/travel candidate.
-            if edge.get("kind") not in ("unlock", "travel", "cut"):
+            kind = edge.get("kind")
+            if kind not in ("unlock", "travel", "cut"):
+                continue
+            # Travel/cut require source locality; unlock stays global.
+            if kind in ("travel", "cut") and not source_local:
                 continue
             if not evaluate_edge_when(
                 edge.get("when"),
