@@ -1986,3 +1986,55 @@ def test_delusion_directive_absent_for_other_actions():
         _underlying_delusion_ctx(), "CHARACTER") is None
     assert coc_story_director._delusion_directive(
         _underlying_delusion_ctx(), "REVEAL") is None
+
+
+# --------------------------------------------------------------------------- #
+# W1-5: early-horror trope boosts + mythos presentation directive
+# --------------------------------------------------------------------------- #
+
+_EARLY_HORROR_TROPES = ("mundane_expectation_break", "cognitive_dissonance")
+
+
+def test_early_horror_trope_boost_on_ordinary_pressure():
+    boosts = coc_story_director._early_horror_trope_boosts("ordinary", "PRESSURE")
+    assert boosts is not None
+    for trope in _EARLY_HORROR_TROPES:
+        assert boosts[trope] > 1.0
+
+
+def test_early_horror_trope_boost_on_wrongness_deepen():
+    boosts = coc_story_director._early_horror_trope_boosts("wrongness", "DEEPEN")
+    assert boosts is not None
+    for trope in _EARLY_HORROR_TROPES:
+        assert boosts[trope] > 1.0
+
+
+def test_early_horror_trope_boost_absent_at_revelation():
+    assert coc_story_director._early_horror_trope_boosts("revelation", "PRESSURE") is None
+    assert coc_story_director._early_horror_trope_boosts("revelation", "DEEPEN") is None
+    assert coc_story_director._early_horror_trope_boosts("pattern", "PRESSURE") is None
+    assert coc_story_director._early_horror_trope_boosts("ordinary", "REVEAL") is None
+
+
+def test_mythos_presentation_directive_from_structured_monster_id():
+    ctx = {
+        "active_scene": {"monster_ids": ["Ghoul"]},
+        "rng": random.Random(42),
+    }
+    directive = coc_story_director._mythos_presentation_directive(ctx, "PRESSURE")
+    assert directive is not None
+    assert directive["monster_id"] == "Ghoul"
+    assert directive["never_name_until"] == "revelation"
+    assert 1 <= len(directive["sensory_signature_sample"]) <= 2
+    assert all(isinstance(s, str) and s for s in directive["sensory_signature_sample"])
+    assert directive["horror_stage"] in coc_story_director.VALID_HORROR_STAGES
+
+
+def test_mythos_presentation_directive_none_without_structured_monster():
+    ctx = {
+        "active_scene": {"scene_id": "empty-room", "tone": ["quiet"]},
+        "threat_fronts": {"fronts": [{"front_id": "awareness"}]},
+        "rng": random.Random(42),
+    }
+    assert coc_story_director._mythos_presentation_directive(ctx, "PRESSURE") is None
+    assert coc_story_director._mythos_presentation_directive(ctx, "DEEPEN") is None

@@ -424,6 +424,27 @@ p.209-213; engine fields from `coc_sanity`):
 Bout playout detail (round tables, duration dice, summary Table VIII) lives in
 `coc-sanity`; this section is the live-table performance order only.
 
+## Horror Craft
+
+Scare craft hard rules for live play (Keeper Rulebook Ch10 p.207-211). Honor
+these before inventing atmosphere:
+
+1. **Fear comes from broken everyday expectation first.** The wife who just
+   left walking back down the stairs is scarier than naming a Mythos beast.
+   Naming the monster always comes last — never lead with the label.
+2. **Presentation ladder.** Climb in order: smell / touch / traces → sensory
+   detail → physical evidence → (optionally) naming. While pacing
+   `horror_stage` is below `revelation`, never say the monster's name
+   outright. Prefer the structured `mythos_presentation` directive
+   (`never_name_until`, `sensory_signature_sample`) when the director supplies
+   one.
+3. **A failed Spot Hidden is never "nothing is there."** Withhold certainty;
+   leave a gap the player can still investigate. Never draw conclusions for
+   the player — "no signs of life" is not "he is dead."
+4. **Questions stack on questions.** Resolving one layer must lift the lid on
+   a deeper one. Closing a mystery with a tidy answer that ends curiosity is
+   a craft failure.
+
 ## Ending a Story
 
 Close a scenario the way a human Keeper would (p.212-213):

@@ -662,6 +662,45 @@ def test_monsters_table_structure():
     assert len(table) >= 5
 
 
+def test_every_monster_has_well_formed_presentation_block():
+    """W1-5: Ch14 p.280-282 monster performance contracts."""
+    table = coc_rules.monsters_table()
+    required = {
+        "never_name_until",
+        "sensory_signature",
+        "death_residue",
+        "combat_goal",
+        "retreat_below_hp_fraction",
+    }
+    valid_goals = {"kill", "capture", "flee", "ritual"}
+    offenders = []
+    for name, entry in table.items():
+        presentation = entry.get("presentation")
+        if not isinstance(presentation, dict):
+            offenders.append((name, "missing_presentation"))
+            continue
+        missing = required - set(presentation)
+        if missing:
+            offenders.append((name, f"missing_keys:{sorted(missing)}"))
+            continue
+        if presentation.get("never_name_until") != "revelation":
+            offenders.append((name, "never_name_until"))
+        sig = presentation.get("sensory_signature")
+        if not isinstance(sig, list) or not (2 <= len(sig) <= 4) or not all(
+            isinstance(s, str) and s.strip() for s in sig
+        ):
+            offenders.append((name, "sensory_signature"))
+        residue = presentation.get("death_residue")
+        if not isinstance(residue, str) or not residue.strip():
+            offenders.append((name, "death_residue"))
+        if presentation.get("combat_goal") not in valid_goals:
+            offenders.append((name, "combat_goal"))
+        frac = presentation.get("retreat_below_hp_fraction")
+        if frac is not None and not (isinstance(frac, (int, float)) and 0 < float(frac) < 1):
+            offenders.append((name, "retreat_below_hp_fraction"))
+    assert offenders == []
+
+
 def test_bout_tables_structure():
     rt = coc_rules.bout_realtime_table()
     sm = coc_rules.bout_summary_table()

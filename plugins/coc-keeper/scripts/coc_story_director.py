@@ -1701,6 +1701,93 @@ def _delusion_directive(ctx: dict[str, Any], action: str) -> dict[str, Any] | No
     }
 
 
+# W1-5 (p.207-211): early-stage scare craft prefers expectation-break tropes.
+_EARLY_HORROR_TROPE_IDS = ("mundane_expectation_break", "cognitive_dissonance")
+_EARLY_HORROR_TROPE_MULTIPLIER = 2.5
+
+
+def _early_horror_trope_boosts(horror_stage: str, action: str) -> dict[str, float] | None:
+    """Boost early-horror tropes on PRESSURE/DEEPEN before revelation.
+
+    Consumed by coc_storylets._score_storylet via narrative_directives.
+    """
+    if horror_stage not in ("ordinary", "wrongness"):
+        return None
+    if action not in ("PRESSURE", "DEEPEN"):
+        return None
+    return {trope: _EARLY_HORROR_TROPE_MULTIPLIER for trope in _EARLY_HORROR_TROPE_IDS}
+
+
+def _load_monsters_table() -> dict[str, Any]:
+    data = _read_json(RULES_DIR / "monsters.json", {"monsters": {}})
+    monsters = data.get("monsters") if isinstance(data, dict) else {}
+    return monsters if isinstance(monsters, dict) else {}
+
+
+def _structured_monster_ids(ctx: dict[str, Any]) -> list[str]:
+    """Collect monster ids from structured scene / threat-front fields only."""
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: Any) -> None:
+        if isinstance(value, str) and value.strip() and value not in seen:
+            seen.add(value)
+            found.append(value)
+        elif isinstance(value, list):
+            for item in value:
+                _add(item)
+
+    scene = ctx.get("active_scene") or {}
+    for key in ("monster_ids", "monster_id"):
+        _add(scene.get(key))
+
+    fronts = (ctx.get("threat_fronts") or {}).get("fronts") or []
+    for front in fronts:
+        if not isinstance(front, dict):
+            continue
+        for key in ("monster_ids", "monster_id"):
+            _add(front.get(key))
+        for clock in _as_list(front.get("clocks")):
+            if isinstance(clock, dict):
+                for key in ("monster_ids", "monster_id"):
+                    _add(clock.get(key))
+    return found
+
+
+def _mythos_presentation_directive(ctx: dict[str, Any], action: str) -> dict[str, Any] | None:
+    """W1-5 (p.280-282): inject monster presentation contract for the narrator.
+
+    Looks up a structured monster id on the active scene or threat fronts and
+    samples sensory_signature from monsters.json. Never scans free-text names.
+    """
+    del action  # available for future action gating; presentation is stage-driven
+    monster_ids = _structured_monster_ids(ctx)
+    if not monster_ids:
+        return None
+    monsters = _load_monsters_table()
+    monster_id = next((mid for mid in monster_ids if mid in monsters), None)
+    if monster_id is None:
+        return None
+    presentation = (monsters.get(monster_id) or {}).get("presentation") or {}
+    if not isinstance(presentation, dict):
+        return None
+    signature = [s for s in _as_list(presentation.get("sensory_signature")) if isinstance(s, str) and s.strip()]
+    if not signature:
+        return None
+    rng = ctx.get("rng") or random.Random()
+    sample_n = min(2, len(signature))
+    sample = rng.sample(signature, sample_n) if sample_n else []
+    pacing_entry = _current_pacing_entry(ctx)
+    raw_horror = pacing_entry.get("horror_stage", "wrongness")
+    horror_stage = raw_horror if raw_horror in VALID_HORROR_STAGES else "wrongness"
+    return {
+        "monster_id": monster_id,
+        "never_name_until": presentation.get("never_name_until", "revelation"),
+        "sensory_signature_sample": sample,
+        "horror_stage": horror_stage,
+    }
+
+
 def _build_scene_pressure_move(ctx: dict[str, Any]) -> dict[str, Any] | None:
     scene = ctx.get("active_scene") or {}
     pressure_moves = [move for move in _as_list(scene.get("pressure_moves")) if move]
@@ -2005,6 +2092,8 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
 
     personal_horror = _personal_horror_directive(ctx, action)
     delusion_seed = _delusion_directive(ctx, action)
+    mythos_presentation = _mythos_presentation_directive(ctx, action)
+    trope_boosts = _early_horror_trope_boosts(horror_stage, action)
 
     narrative_directives = {
         "tone": scene.get("tone", []),
@@ -2022,6 +2111,10 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         narrative_directives["personal_horror_hook"] = personal_horror
     if delusion_seed is not None:
         narrative_directives["delusion_seed"] = delusion_seed
+    if mythos_presentation is not None:
+        narrative_directives["mythos_presentation"] = mythos_presentation
+    if trope_boosts is not None:
+        narrative_directives["storylet_trope_weight_boosts"] = trope_boosts
     if overrides and isinstance(overrides.get("scene_progress"), dict):
         narrative_directives["scene_progress"] = overrides["scene_progress"]
     dramatic_progress = _dramatic_progress_directive(

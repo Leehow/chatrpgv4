@@ -226,6 +226,33 @@ def test_default_storylet_library_declares_story_functions_and_decks():
     assert offenders == []
 
 
+def test_shipped_library_has_early_horror_craft_tropes():
+    """W1-5: mundane_expectation_break + cognitive_dissonance tropes (p.207-211)."""
+    library = storylets.load_storylet_library()
+    required_fields = {
+        "storylet_id", "title", "family_id", "trope_id", "conflict_level",
+        "base_weight", "scene_actions", "horror_stage", "requires", "serves",
+        "anti_repeat", "cue", "beat", "effects", "story_functions", "deck_tags",
+    }
+    for trope in ("mundane_expectation_break", "cognitive_dissonance"):
+        matches = [s for s in library["storylets"] if s.get("trope_id") == trope]
+        assert len(matches) >= 3, f"expected >=3 storylets for trope {trope}"
+        for item in matches:
+            missing = required_fields - set(item)
+            assert not missing, f"{item.get('storylet_id')} missing {sorted(missing)}"
+            req = item.get("requires") or {}
+            anchored = (
+                req.get("npc_id") is True
+                or req.get("unrevealed_clue") is True
+                or req.get("active_front") is True
+                or req.get("scene_pressure") is True
+                or bool(item.get("scene_tags"))
+                or bool(item.get("anchor_contract"))
+            )
+            assert anchored, f"{item.get('storylet_id')} lacks a scene anchor"
+            assert item.get("story_functions") and item.get("deck_tags")
+
+
 def test_selected_storylet_binds_to_existing_scenario_nodes_and_updates_ledger():
     library = {"storylets": [{
         "storylet_id": "bind-clue",

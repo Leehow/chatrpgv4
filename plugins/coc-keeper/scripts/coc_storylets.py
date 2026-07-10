@@ -564,6 +564,14 @@ def _score_storylet(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[st
             score *= 5.0
         else:
             score *= 0.01
+    # W1-5: director may boost early-horror tropes via narrative_directives.
+    trope_boosts = ((plan.get("narrative_directives") or {}).get("storylet_trope_weight_boosts") or {})
+    trope_id = storylet.get("trope_id")
+    if isinstance(trope_boosts, dict) and trope_id in trope_boosts:
+        try:
+            score *= float(trope_boosts[trope_id])
+        except (TypeError, ValueError):
+            pass
     return max(0.0, score)
 
 

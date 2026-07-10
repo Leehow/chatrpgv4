@@ -23,7 +23,18 @@
       ],
       "spells": [],
       "description": "Star-steeds that can fly through space, ridden by sorcerers.",
-      "source_page": 294
+      "source_page": 294,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a dry, ozone-sharp wind that should not move indoors",
+          "leather-and-bone wingbeats just beyond sight",
+          "hoof-scratches on stone that stop mid-stride"
+        ],
+        "death_residue": "A collapsed star-steed of brittle hide and hollow bone, already shedding dust as if gravity were optional.",
+        "combat_goal": "flee",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Chthonian": {
       "str": 260,
@@ -50,7 +61,18 @@
         "Dominate"
       ],
       "description": "Tentacled burrowers that cause earthquakes.",
-      "source_page": 296
+      "source_page": 296,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a low subterranean throb underfoot",
+          "warm, mucus-slick soil pushed up from nowhere",
+          "the taste of iron and wet clay in the air"
+        ],
+        "death_residue": "A vast, collapsing tunnel of rubbery flesh and grit, already sinking back into the earth.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Colour Out of Space": {
       "str": 15,
@@ -74,7 +96,18 @@
       ],
       "spells": [],
       "description": "Alien life-force feeder that drains vitality.",
-      "source_page": 297
+      "source_page": 297,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a color that has no name on familiar surfaces",
+          "plants and wood that feel warm and wrong to the touch",
+          "a faint, sweet rot with no source"
+        ],
+        "death_residue": "Only a bleached, brittle stain and a cold absence where vitality used to be — nothing like a corpse.",
+        "combat_goal": "flee",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Crawling One": {
       "str": 45,
@@ -102,7 +135,18 @@
         "Mindblast"
       ],
       "description": "Wriggling sorcerers made of worms.",
-      "source_page": 298
+      "source_page": 298,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a soft, continuous writhing under cloth or floorboards",
+          "the smell of damp earth and crushed insects",
+          "tiny wet sounds that pause when listened to"
+        ],
+        "death_residue": "A collapsing heap of worms and sodden robes that keep twitching after the shape is gone.",
+        "combat_goal": "ritual",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Dagon": {
       "str": 260,
@@ -129,7 +173,18 @@
         "Flesh Ward"
       ],
       "description": "Giant deep one deity, ruler of the deep ones.",
-      "source_page": 298
+      "source_page": 298,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "salt spray and deep-ocean cold indoors",
+          "a vast wet slap against distant pilings",
+          "scales glittering where no fish should be"
+        ],
+        "death_residue": "Not a corpse — a sudden withdrawal of the sea's attention, leaving only brine, broken stone, and an empty tide-line.",
+        "combat_goal": "ritual",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Dark Young of Shub-Niggurath": {
       "str": 220,
@@ -157,7 +212,18 @@
       ],
       "spells": [],
       "description": "Tree-like tentacled monstrosities.",
-      "source_page": 298
+      "source_page": 298,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a sweet, spoiled-milk reek of goat and sap",
+          "hoof-like impacts that do not match any animal gait",
+          "sticky black resin on bark and clothing"
+        ],
+        "death_residue": "A toppled mass of trunk-limbs and mouth-orifices leaking black sap that hardens into tar.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Deep One": {
       "str": 70,
@@ -185,7 +251,18 @@
       ],
       "spells": [],
       "description": "Gilled humanoid fish-folk of the deep seas.",
-      "source_page": 299
+      "source_page": 299,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "brine and fish-oil on a dry floor",
+          "webbed prints that dry into salt crust",
+          "a wet, croaking breath from the dark"
+        ],
+        "death_residue": "A gilled, frog-like body already drying into a leathery, salt-crusted husk.",
+        "combat_goal": "capture",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Deep One Hybrid": {
       "str": 65,
@@ -209,7 +286,18 @@
       ],
       "spells": [],
       "description": "Innsmouth-tainted progeny of deep ones and humans.",
-      "source_page": 300
+      "source_page": 300,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a persistent dampness on skin that never quite dries",
+          "eyes that catch light like a fish at night",
+          "a throaty swallow when speech should be clear"
+        ],
+        "death_residue": "A mostly-human corpse with wrong joints and gill-slits that look almost medical until examined closely.",
+        "combat_goal": "flee",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Dhole": {
       "str": 2525,
@@ -239,7 +327,18 @@
         "Shrivelling"
       ],
       "description": "Enormous burrowing worm-like horrors.",
-      "source_page": 301
+      "source_page": 301,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a grinding, distant tunnel-roar under the ground",
+          "sand and grit raining from a ceiling that should be solid",
+          "a sulfuric, worm-cast stench"
+        ],
+        "death_residue": "An impossible length of segmented flesh collapsing into a trench of acid-etched earth.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Dimensional Shambler": {
       "str": 95,
@@ -263,7 +362,18 @@
       ],
       "spells": [],
       "description": "Hairy other-dimensional creature that can phase between worlds.",
-      "source_page": 302
+      "source_page": 302,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "air that folds like cloth at the edge of vision",
+          "a brief, hair-raising silence as sound skips a beat",
+          "coarse fur-smell with no animal present"
+        ],
+        "death_residue": "A half-phased carcass that flickers between here and elsewhere before settling as empty, scorched air.",
+        "combat_goal": "capture",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Flying Polyp": {
       "str": 250,
@@ -293,7 +403,18 @@
         "Wind control"
       ],
       "description": "Terrors from below that control wind and weather.",
-      "source_page": 304
+      "source_page": 304,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a wind that pushes against closed windows",
+          "a whistling vacuum-note that hurts the ears",
+          "grit and dust swirling in a room with no draft"
+        ],
+        "death_residue": "A collapsing knot of semi-visible polyps that shred into abrasive wind and leave scored stone.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Formless Spawn": {
       "str": 90,
@@ -324,7 +445,18 @@
         "Green Decay"
       ],
       "description": "Shape-shifting black blobs of Tsathoggua.",
-      "source_page": 305
+      "source_page": 305,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "black, oily sheen on stone that moves when not watched",
+          "a cold, tar-like smell",
+          "footsteps that stick and then release with a wet pop"
+        ],
+        "death_residue": "A spreading puddle of black protoplasm that hardens into brittle, glassy flakes.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Ghast": {
       "str": 110,
@@ -348,7 +480,18 @@
       ],
       "spells": [],
       "description": "Hooved carnivorous subterranean beasts.",
-      "source_page": 305
+      "source_page": 305,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "hoof-clatter in a place with no livestock",
+          "a carnivore's breath, hot and sour",
+          "pale, rubbery skin glimpsed in torchlight"
+        ],
+        "death_residue": "A pale, hoofed carcass with too-long limbs, already stiffening into a cave-beast shape.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Ghoul": {
       "str": 80,
@@ -376,7 +519,18 @@
       ],
       "spells": [],
       "description": "Corpse-eating humanoid creatures that live in crypts.",
-      "source_page": 306
+      "source_page": 306,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "grave-dirt and sweet decay under floorboards",
+          "claw-marks on coffin wood that face the wrong way",
+          "a wet chewing sound from below"
+        ],
+        "death_residue": "A rubbery, canine-jawed humanoid body reeking of old graves, nails packed with cemetery soil.",
+        "combat_goal": "flee",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Gnorri": {
       "str": 50,
@@ -401,7 +555,18 @@
       "spells": [],
       "description": "Aquatic pinniped-like sentients.",
       "source_page": 306,
-      "source_note": "Not in core rulebook Ch.14; from Dreamlands/supplement source."
+      "source_note": "Not in core rulebook Ch.14; from Dreamlands/supplement source.",
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "cold seawater dripping where no tide reaches",
+          "a soft flipper-slap on stone",
+          "kelp and seal-musk in a closed room"
+        ],
+        "death_residue": "A pinniped-like body with too-human hands, already cooling into a salt-wet heap.",
+        "combat_goal": "flee",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Gnoph-Keh": {
       "str": 155,
@@ -429,7 +594,18 @@
       ],
       "spells": [],
       "description": "Hairy horned predators of the Arctic.",
-      "source_page": 307
+      "source_page": 307,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a sudden arctic cold indoors",
+          "ice crystals forming on metal without frost outside",
+          "a horn-scrape against timber"
+        ],
+        "death_residue": "A shaggy, horned carcass rimed with ice that melts into foul meltwater.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Great Race of Yith": {
       "str": 210,
@@ -456,7 +632,18 @@
         "Mind Exchange"
       ],
       "description": "Time-traveling cone-shaped beings that swap minds.",
-      "source_page": 308
+      "source_page": 308,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a dry, library-dust scent with no books nearby",
+          "a cone-shaped shadow that does not match any furniture",
+          "a soft clicking of claws on stone in careful rhythm"
+        ],
+        "death_residue": "A toppled cone-body of rubbery flesh and claws; the eyes already look vacated, as if the mind left first.",
+        "combat_goal": "capture",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Hound of Tindalos": {
       "str": 80,
@@ -484,7 +671,18 @@
       ],
       "spells": [],
       "description": "Angular time-predators that hunt through angles.",
-      "source_page": 310
+      "source_page": 310,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "blue ichor beading at sharp corners",
+          "a smell of ozone and old blood from angles",
+          "a howl that arrives before the sound should"
+        ],
+        "death_residue": "Angular, lean remains that seem to sink into the nearest corner, leaving only blue-stained geometry.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Hunting Horror": {
       "str": 145,
@@ -514,7 +712,18 @@
         "Dominate"
       ],
       "description": "Great viperine flyers summoned by Nyarlathotep.",
-      "source_page": 310
+      "source_page": 310,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a viperine hiss from overhead darkness",
+          "a shadow that coils independently of its caster",
+          "a burnt-hair stench on a cold wind"
+        ],
+        "death_residue": "A great serpentine flyer collapsing into smoking, blackened coils that flake into ash.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Mi-Go": {
       "str": 50,
@@ -546,7 +755,18 @@
         "Body Warping of Gorgoroth"
       ],
       "description": "Fungus-like alien scientists from Yuggoth (Pluto).",
-      "source_page": 313
+      "source_page": 313,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a crab-like clicking just outside the light",
+          "a fungal, pinkish dust on windowsills",
+          "a buzzing speech that is almost words"
+        ],
+        "death_residue": "A crustacean-fungus heap that dissolves into pinkish dust and brittle shell fragments.",
+        "combat_goal": "capture",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Nightgaunt": {
       "str": 50,
@@ -570,7 +790,18 @@
       ],
       "spells": [],
       "description": "Faceless bat-winged humanoids that tickle victims.",
-      "source_page": 314
+      "source_page": 314,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a soft leather wingbeat with no birdcall",
+          "cold, tickling fingers along the ribs",
+          "a faceless silhouette against the moon"
+        ],
+        "death_residue": "A rubbery, bat-winged body with a smooth blank where a face should be, already going slack.",
+        "combat_goal": "capture",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Serpent Person": {
       "str": 50,
@@ -604,7 +835,18 @@
         "Voorish Sign"
       ],
       "description": "Reptilian sorcerers who ruled prehistoric Earth.",
-      "source_page": 316
+      "source_page": 316,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a dry, shed-skin rustle behind the walls",
+          "a faint musk of reptiles in a heated room",
+          "a forked-tongue flicker at the edge of speech"
+        ],
+        "death_residue": "A scaled humanoid corpse, eyes filmed, with a sorcerer's tools still clutched in cooling claws.",
+        "combat_goal": "flee",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Shantak": {
       "str": 170,
@@ -632,7 +874,18 @@
       ],
       "spells": [],
       "description": "Winged elephantine mounts found in the Dreamlands.",
-      "source_page": 319
+      "source_page": 319,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "elephantine wingbeats that shake loose plaster",
+          "a rank, bird-and-beast musk from the sky",
+          "scales scraping slate roofs"
+        ],
+        "death_residue": "A vast winged mount of scale and hide, already too heavy for the dream-logic that kept it aloft.",
+        "combat_goal": "flee",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Shoggoth": {
       "str": 315,
@@ -660,7 +913,18 @@
       ],
       "spells": [],
       "description": "Shape-shifting protoplasmic servants created by the Elder Things.",
-      "source_page": 319
+      "source_page": 319,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a bubbling, black wetness that reflects too many eyes",
+          "a cold protoplasmic smell like spoiled seawater",
+          "surfaces that ripple as if remembering shapes"
+        ],
+        "death_residue": "A collapsing ocean of eyes and mouths that hardens into a foul, glassy sludge.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Star-Spawn of Cthulhu": {
       "str": 350,
@@ -692,7 +956,18 @@
         "Mindblast"
       ],
       "description": "Octopoid satraps of Great Cthulhu.",
-      "source_page": 319
+      "source_page": 319,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a green, submarine dampness in dry air",
+          "tentacle-shadows that do not match any light source",
+          "a pressure in the ears as if descending too deep"
+        ],
+        "death_residue": "An octopoid satrap-body that softens into greenish, tidal slime rather than lying like a beast.",
+        "combat_goal": "ritual",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Zoog": {
       "str": 20,
@@ -717,7 +992,18 @@
       "spells": [],
       "description": "Small carnivorous mammals of the Dreamlands enchanted wood.",
       "source_page": 320,
-      "source_note": "Not in core rulebook Ch.14; from Dreamlands/supplement source."
+      "source_note": "Not in core rulebook Ch.14; from Dreamlands/supplement source.",
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "tiny claw-scratches in the woodwork",
+          "a chittering just under the floor",
+          "a sharp, woodland musk in a city room"
+        ],
+        "death_residue": "A small, sharp-toothed mammal body, almost ordinary until the wrong number of digits is counted.",
+        "combat_goal": "flee",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Cthulhu": {
       "str": 700,
@@ -747,7 +1033,18 @@
         "all"
       ],
       "description": "High priest of the Great Old Ones, slumbering in Rlyeh.",
-      "source_page": 327
+      "source_page": 327,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a green, dreaming pressure behind the eyes",
+          "the smell of deep ocean and ancient stone",
+          "geometry that refuses to stay the same size"
+        ],
+        "death_residue": "Not death — a sudden dispersal into green mist and impossible angles, as if the presence were only borrowed.",
+        "combat_goal": "ritual",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Azathoth": {
       "str": "N/A",
@@ -773,7 +1070,18 @@
         "all"
       ],
       "description": "Blind idiot god at the center of the universe.",
-      "source_page": 323
+      "source_page": 323,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a mindless piping that seems to come from inside the skull",
+          "a blind, idiotic heat with no fire",
+          "space itself vibrating like a drumskin"
+        ],
+        "death_residue": "Nothing that can die remains — only a collapsing absence and the echo of piping that should not stop.",
+        "combat_goal": "ritual",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Hastur": {
       "str": 600,
@@ -799,7 +1107,18 @@
         "all"
       ],
       "description": "The Unspeakable One, Lord of Carcosa, Master of the Yellow Sign.",
-      "source_page": 331
+      "source_page": 331,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a yellow stain that spreads on clean cloth",
+          "a theatrical, distant applause with no audience",
+          "the smell of old stage dust and lake water"
+        ],
+        "death_residue": "No corpse — the yellow presence thins into fog and torn scenery, as if a play were struck.",
+        "combat_goal": "ritual",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Nyarlathotep": {
       "str": 60,
@@ -825,7 +1144,18 @@
         "all"
       ],
       "description": "Crawling Chaos, messenger of the Outer Gods.",
-      "source_page": 334
+      "source_page": 334,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a smile that arrives before the face does",
+          "the smell of hot metal and carnival grease",
+          "footsteps that match no one in the room"
+        ],
+        "death_residue": "A mask, a coat, or a shape collapses into crawling darkness — the messenger is gone, not slain.",
+        "combat_goal": "ritual",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Shub-Niggurath": {
       "str": 360,
@@ -851,7 +1181,18 @@
         "all"
       ],
       "description": "Black Goat of the Woods, fertility deity.",
-      "source_page": 336
+      "source_page": 336,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a fertile, goatish reek of milk and blood",
+          "too many hoofbeats in the undergrowth",
+          "black blossoms opening where no plant should grow"
+        ],
+        "death_residue": "A fertility-presence unmade into black sap, hoofprints, and a sudden sterile quiet — not a body.",
+        "combat_goal": "ritual",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Yog-Sothoth": {
       "str": "N/A",
@@ -877,7 +1218,18 @@
         "all"
       ],
       "description": "The Lurker at the Threshold, gate and key.",
-      "source_page": 342
+      "source_page": 342,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "iridescent spheres overlapping at the edge of sight",
+          "a gate-like pressure in doorways that should be ordinary",
+          "the smell of ozone and distant rain that never falls"
+        ],
+        "death_residue": "The spheres thin and the threshold closes; what remains is empty air and a lingering sense of elsewhere.",
+        "combat_goal": "ritual",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Werewolf": {
       "str": 105,
@@ -901,7 +1253,18 @@
       ],
       "spells": [],
       "description": "Traditional horror: lycanthrope that transforms at the full moon.",
-      "source_page": 330
+      "source_page": 330,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a wet-dog musk under human cologne",
+          "claw-gouges too high for any dog",
+          "a howl that starts as a human sob"
+        ],
+        "death_residue": "A body caught mid-change — fur, torn clothing, and a face that is neither fully beast nor fully human.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Vampire": {
       "str": 105,
@@ -928,7 +1291,18 @@
         "Create Zombie"
       ],
       "description": "Traditional horror: undead blood-drinker.",
-      "source_page": 329
+      "source_page": 329,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a cold draft that smells of old blood",
+          "a shadow that does not quite match its owner",
+          "dust on a mirror that should have been cleaned"
+        ],
+        "death_residue": "A corpse that ages decades in moments, or collapses into dust and stained clothing.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": 0.3
+      }
     },
     "Ghost": {
       "str": 0,
@@ -954,7 +1328,18 @@
         "varies"
       ],
       "description": "Traditional horror: spirit of the dead.",
-      "source_page": 344
+      "source_page": 344,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a sudden drop in temperature with no draft",
+          "the smell of a perfume no living person wears",
+          "footsteps on stairs that stop mid-flight"
+        ],
+        "death_residue": "No body — only a cold spot, a settled silence, and objects left slightly out of place.",
+        "combat_goal": "flee",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Zombie": {
       "str": 80,
@@ -982,7 +1367,18 @@
       ],
       "spells": [],
       "description": "Traditional horror: reanimated corpse.",
-      "source_page": 330
+      "source_page": 330,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a sweet, embalming-fluid rot",
+          "shuffling steps that never hurry",
+          "cold, clammy skin that does not bleed right"
+        ],
+        "death_residue": "A reanimated corpse that finally stays down — limp, gray, and already halfway to ordinary death.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": null
+      }
     },
     "Walter Corbitt": {
       "str": 90,
@@ -1009,7 +1405,18 @@
         "Flesh Ward"
       ],
       "description": "The Haunting: undead sorcerer, animating his own corpse.",
-      "source_page": 448
+      "source_page": 448,
+      "presentation": {
+        "never_name_until": "revelation",
+        "sensory_signature": [
+          "a cellar-damp reek of old blood and mold",
+          "scratching inside the walls that answers knocks",
+          "a corpse-cold draft from under a sealed door"
+        ],
+        "death_residue": "An undead sorcerer's body finally still — desiccated flesh, ritual scars, and eyes that no longer track.",
+        "combat_goal": "kill",
+        "retreat_below_hp_fraction": 0.3
+      }
     }
   }
 }
