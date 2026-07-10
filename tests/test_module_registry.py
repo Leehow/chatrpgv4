@@ -441,17 +441,26 @@ def test_alias_keys_use_rules_edition_not_module_edition(tmp_path: Path):
             "publisher": "Chaosium",
         },
     )
-    key_rules = coc_module_registry.normalize_alias_key("Masks of Nyarlathotep", "7e")
-    key_module = coc_module_registry.normalize_alias_key("Masks of Nyarlathotep", "5th")
+    key_rules = coc_module_registry.normalize_alias_key(
+        "Masks of Nyarlathotep", "7e", chapter="peru"
+    )
+    key_module = coc_module_registry.normalize_alias_key(
+        "Masks of Nyarlathotep", "5th", chapter="peru"
+    )
+    key_chapterless = coc_module_registry.normalize_alias_key(
+        "Masks of Nyarlathotep", "7e"
+    )
     registry = json.loads(
         (root / "module-library" / "registry.json").read_text(encoding="utf-8")
     )
     assert registry["alias_index"][key_rules] == "masks-of-nyarlathotep-ch-peru"
     assert key_module not in registry["alias_index"]
+    assert key_chapterless not in registry["alias_index"]
     summary = registry["modules"]["masks-of-nyarlathotep-ch-peru"]
     assert summary["rules_edition"] == "7e"
     assert summary["module_edition"] == "5th"
     assert summary["parent_module_id"] == "masks-of-nyarlathotep"
+    assert summary["chapter"] == "peru"
 
 
 def test_lookup_by_legacy_edition_and_rules_edition(tmp_path: Path):
@@ -650,3 +659,154 @@ def test_validate_accepts_printed_and_pdf_index_page_kind(tmp_path: Path):
     assert result["errors"] == []
     assert not any("page_kind" in w for w in result["warnings"])
     assert not any("source_ref" in w for w in result["warnings"])
+
+
+def test_normalize_alias_key_includes_chapter_when_present():
+    base = coc_module_registry.normalize_alias_key("Masks of Nyarlathotep", "7e")
+    with_ch = coc_module_registry.normalize_alias_key(
+        "Masks of Nyarlathotep", "7e", chapter="peru"
+    )
+    assert with_ch == f"{base}|peru"
+    assert with_ch != base
+
+
+def test_sibling_chapters_may_share_identical_alias_title(tmp_path: Path):
+    """Chapter-qualified keys let sibling chapters share the same book title."""
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    sc = _make_valid_scenario(tmp_path)
+    shared_title = "Masks of Nyarlathotep"
+    for chapter, cid in (
+        ("peru", "masks-of-nyarlathotep-ch-peru"),
+        ("new-york", "masks-of-nyarlathotep-ch-new-york"),
+    ):
+        meta = json.loads((sc / "module-meta.json").read_text(encoding="utf-8"))
+        meta["scenario_id"] = cid
+        meta["module_identity"] = {
+            "canonical_module_id": cid,
+            "canonical_title": shared_title,
+            "rules_edition": "7e",
+            "module_edition": "5th",
+            "parent_module_id": "masks-of-nyarlathotep",
+            "chapter": chapter,
+        }
+        (sc / "module-meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        coc_module_registry.register_module(
+            root,
+            sc,
+            {
+                "canonical_module_id": cid,
+                "canonical_title": shared_title,
+                "rules_edition": "7e",
+                "module_edition": "5th",
+                "parent_module_id": "masks-of-nyarlathotep",
+                "chapter": chapter,
+            },
+        )
+    registry = json.loads(
+        (root / "module-library" / "registry.json").read_text(encoding="utf-8")
+    )
+    peru_key = coc_module_registry.normalize_alias_key(
+        shared_title, "7e", chapter="peru"
+    )
+    ny_key = coc_module_registry.normalize_alias_key(
+        shared_title, "7e", chapter="new-york"
+    )
+    chapterless = coc_module_registry.normalize_alias_key(shared_title, "7e")
+    assert registry["alias_index"][peru_key] == "masks-of-nyarlathotep-ch-peru"
+    assert registry["alias_index"][ny_key] == "masks-of-nyarlathotep-ch-new-york"
+    assert chapterless not in registry["alias_index"]
+
+    hit_peru = coc_module_registry.lookup_module(
+        root,
+        {
+            "canonical_title": shared_title,
+            "rules_edition": "7e",
+            "chapter": "peru",
+        },
+    )
+    hit_ny = coc_module_registry.lookup_module(
+        root,
+        {
+            "canonical_title": shared_title,
+            "rules_edition": "7e",
+            "chapter": "new-york",
+        },
+    )
+    miss_chapterless = coc_module_registry.lookup_module(
+        root,
+        {"canonical_title": shared_title, "rules_edition": "7e"},
+    )
+    assert hit_peru is not None
+    assert hit_peru["canonical_module_id"] == "masks-of-nyarlathotep-ch-peru"
+    assert hit_ny is not None
+    assert hit_ny["canonical_module_id"] == "masks-of-nyarlathotep-ch-new-york"
+    assert miss_chapterless is None
+
+
+def test_chapterless_lookup_matches_only_chapterless_alias(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    sc = _make_valid_scenario(tmp_path)
+    coc_module_registry.register_module(
+        root,
+        sc,
+        {
+            "canonical_module_id": "demo-module",
+            "canonical_title": "Demo Module",
+            "rules_edition": "7e",
+        },
+    )
+    hit = coc_module_registry.lookup_module(
+        root, {"canonical_title": "Demo Module", "rules_edition": "7e"}
+    )
+    assert hit is not None
+    assert hit["canonical_module_id"] == "demo-module"
+    # Looking up with an unrelated chapter must not hit a chapterless alias.
+    miss = coc_module_registry.lookup_module(
+        root,
+        {
+            "canonical_title": "Demo Module",
+            "rules_edition": "7e",
+            "chapter": "peru",
+        },
+    )
+    assert miss is None
+
+
+def test_load_registry_migrates_chapter_alias_keys(tmp_path: Path):
+    """Old chapter entries indexed under chapterless keys are rebuilt on load."""
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    sc = _make_valid_scenario(tmp_path)
+    # Register once with current code path, then rewrite index to legacy shape.
+    coc_module_registry.register_module(
+        root,
+        sc,
+        {
+            "canonical_module_id": "masks-of-nyarlathotep-ch-peru",
+            "canonical_title": "Masks of Nyarlathotep",
+            "rules_edition": "7e",
+            "chapter": "peru",
+        },
+    )
+    registry_path = root / "module-library" / "registry.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    legacy_key = coc_module_registry.normalize_alias_key(
+        "Masks of Nyarlathotep", "7e"
+    )
+    chapter_key = coc_module_registry.normalize_alias_key(
+        "Masks of Nyarlathotep", "7e", chapter="peru"
+    )
+    # Force legacy chapterless key into the on-disk index.
+    registry["modules"]["masks-of-nyarlathotep-ch-peru"]["alias_keys"] = [legacy_key]
+    registry["alias_index"] = {
+        legacy_key: "masks-of-nyarlathotep-ch-peru",
+    }
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+    loaded = coc_module_registry.load_registry(root)
+    assert chapter_key in loaded["alias_index"]
+    assert loaded["alias_index"][chapter_key] == "masks-of-nyarlathotep-ch-peru"
+    assert legacy_key not in loaded["alias_index"]
+    assert chapter_key in loaded["modules"]["masks-of-nyarlathotep-ch-peru"]["alias_keys"]

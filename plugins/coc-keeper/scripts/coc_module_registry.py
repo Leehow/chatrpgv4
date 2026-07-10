@@ -21,7 +21,18 @@ Identity matching (Semantic Matcher Constitution)
 Runtime never scans free text or fuzzy-matches titles. The compiling LLM
 emits a structured ``module_identity`` block; this module only does exact
 comparisons on ``canonical_module_id`` and orthographically normalized
-alias keys (lowercase + strip punctuation/whitespace + **rules_edition**).
+alias keys (lowercase + strip punctuation/whitespace + **rules_edition**,
+and **chapter** when present).
+
+Alias key shape
+---------------
+- Chapterless module: ``title|rules_edition`` (or bare ``title`` when no
+  rules_edition).
+- Chaptered module: ``title|rules_edition|chapter``.
+- Lookup **without** ``chapter`` matches a chapterless alias key only — it
+  does not fall through to chapter-qualified keys. Lookup **with**
+  ``chapter`` matches only the chapter-qualified key. Sibling chapters of a
+  mega-module may therefore share an identical translated title.
 
 Edition fields
 --------------
@@ -29,7 +40,9 @@ Edition fields
 - ``rules_edition``: the CoC rules edition used to play (e.g. "7e").
 - Legacy ``edition`` alone is treated as ``rules_edition`` via
   ``normalize_module_identity`` (structured migration; no free-text guessing).
-  Alias index keys always use ``rules_edition``.
+  Alias index keys always use ``rules_edition`` (and ``chapter`` when set).
+  ``load_registry`` rebuilds alias keys from on-disk ``identity.json`` so
+  older chapterless index entries for chaptered modules are migrated.
 """
 from __future__ import annotations
 
@@ -122,10 +135,16 @@ def _rules_edition_value(identity: dict[str, Any]) -> str | None:
     return None
 
 
-def normalize_alias_key(title: str, rules_edition: str | None = None) -> str:
+def normalize_alias_key(
+    title: str,
+    rules_edition: str | None = None,
+    chapter: str | None = None,
+) -> str:
     """Orthographic normalization for alias index keys (not semantic matching).
 
-    The second argument is ``rules_edition`` (CoC rules), never ``module_edition``.
+    Shape: ``title|rules_edition`` when chapter is absent; when ``chapter`` is
+    present, ``title|rules_edition|chapter``. A lookup without chapter matches
+    a chapterless key only (see module docstring).
     """
     text = str(title or "").lower()
     text = _PUNCT_RE.sub("", text)
@@ -133,11 +152,65 @@ def normalize_alias_key(title: str, rules_edition: str | None = None) -> str:
     ed = str(rules_edition or "").lower().strip()
     ed = _PUNCT_RE.sub("", ed)
     ed = _WS_RE.sub("", ed)
+    ch = str(chapter or "").lower().strip()
+    ch = _PUNCT_RE.sub("", ch)
+    ch = _WS_RE.sub("", ch)
+    if ch:
+        # Chaptered keys always include the rules_edition slot (may be empty)
+        # so sibling chapters never collide with chapterless title-only keys.
+        return f"{text}|{ed}|{ch}"
     return f"{text}|{ed}" if ed else text
 
 
 def _empty_registry() -> dict[str, Any]:
     return {"schema_version": REGISTRY_SCHEMA_VERSION, "modules": {}, "alias_index": {}}
+
+
+def _chapter_value(identity: dict[str, Any]) -> str | None:
+    chapter = identity.get("chapter")
+    if isinstance(chapter, str) and chapter.strip():
+        return chapter.strip()
+    return None
+
+
+def _migrate_registry_alias_keys(coc_root: Path, registry: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild alias_keys from on-disk identity.json (chapter-aware).
+
+    Structural migration only: no free-text guessing. When identity.json is
+    missing, leave the summary untouched.
+    """
+    modules = registry.get("modules") or {}
+    changed = False
+    for cid, summary in list(modules.items()):
+        if not isinstance(summary, dict):
+            continue
+        identity_path = module_dir(coc_root, str(cid)) / "identity.json"
+        if not identity_path.is_file():
+            continue
+        try:
+            identity = normalize_module_identity(
+                json.loads(identity_path.read_text(encoding="utf-8"))
+            )
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+        alias_keys = _collect_alias_keys(identity)
+        if summary.get("alias_keys") != alias_keys or summary.get("chapter") != identity.get(
+            "chapter"
+        ):
+            summary = dict(summary)
+            summary["alias_keys"] = alias_keys
+            if "chapter" in identity:
+                summary["chapter"] = identity.get("chapter")
+            modules[cid] = summary
+            changed = True
+    if changed:
+        registry = dict(registry)
+        registry["modules"] = modules
+        _rebuild_alias_index(registry)
+    else:
+        # Still ensure alias_index mirrors modules even if keys were already current.
+        _rebuild_alias_index(registry)
+    return registry
 
 
 def load_registry(coc_root: Path) -> dict[str, Any]:
@@ -150,7 +223,7 @@ def load_registry(coc_root: Path) -> dict[str, Any]:
     raw.setdefault("schema_version", REGISTRY_SCHEMA_VERSION)
     raw.setdefault("modules", {})
     raw.setdefault("alias_index", {})
-    return raw
+    return _migrate_registry_alias_keys(coc_root, raw)
 
 
 def _write_registry(coc_root: Path, registry: dict[str, Any]) -> None:
@@ -225,11 +298,12 @@ def _rebuild_alias_index(registry: dict[str, Any]) -> None:
 def _collect_alias_keys(identity: dict[str, Any]) -> list[str]:
     identity = normalize_module_identity(identity)
     rules_edition = _rules_edition_value(identity)
+    chapter = _chapter_value(identity)
     keys: list[str] = []
     seen: set[str] = set()
 
     def _add(title: str) -> None:
-        key = normalize_alias_key(title, rules_edition)
+        key = normalize_alias_key(title, rules_edition, chapter=chapter)
         if key and key not in seen:
             seen.add(key)
             keys.append(key)
@@ -336,7 +410,10 @@ def register_module(
 
 
 def lookup_module(coc_root: Path, identity: dict[str, Any]) -> dict[str, Any] | None:
-    """Exact match on canonical_module_id, else normalized alias title+rules_edition."""
+    """Exact match on canonical_module_id, else normalized alias title+rules_edition[+chapter].
+
+    A lookup without ``chapter`` matches a chapterless alias key only.
+    """
     identity = normalize_module_identity(identity or {})
     registry = load_registry(coc_root)
 
@@ -351,7 +428,8 @@ def lookup_module(coc_root: Path, identity: dict[str, Any]) -> dict[str, Any] | 
     if not isinstance(title, str) or not title.strip():
         return None
     rules_edition = _rules_edition_value(identity)
-    key = normalize_alias_key(title.strip(), rules_edition)
+    chapter = _chapter_value(identity)
+    key = normalize_alias_key(title.strip(), rules_edition, chapter=chapter)
     owner = (registry.get("alias_index") or {}).get(key)
     if not owner:
         return None
@@ -393,16 +471,18 @@ def add_alias(
 
     identity = normalize_module_identity(dict(entry["identity"]))
     aliases = list(identity.get("aliases") or [])
-    # Exact structured dedupe on title+locale+rules_edition context.
+    # Exact structured dedupe on title+locale+rules_edition[+chapter] context.
     locale = alias.get("locale")
     rules_edition = _rules_edition_value(identity)
-    new_key = normalize_alias_key(title, rules_edition)
+    chapter = _chapter_value(identity)
+    new_key = normalize_alias_key(title, rules_edition, chapter=chapter)
     for existing in aliases:
         if not isinstance(existing, dict):
             continue
         if normalize_alias_key(
             str(existing.get("title") or ""),
             rules_edition,
+            chapter=chapter,
         ) == new_key and existing.get("locale") == locale:
             # Already present; still ensure index is current.
             break
