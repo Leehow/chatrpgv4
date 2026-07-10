@@ -1,9 +1,0 @@
-{
-  "schema_version": 1,
-  "campaign_id": "narrative-storylet-driver-playtest",
-  "active_scene_id": "street-exit",
-  "discovered_clue_ids": [
-    "ledger-mark"
-  ],
-  "major_decisions": []
-}

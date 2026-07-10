@@ -1,8 +1,0 @@
-{
-  "schema_version": 1,
-  "scenario_id": "lima-archive-storylet-test",
-  "structure_type": "branching_investigation",
-  "era": "1920s",
-  "content_flags": [],
-  "win_condition": "确认登记簿异常并离开档案馆"
-}
