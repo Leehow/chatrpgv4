@@ -265,6 +265,33 @@ def test_bout_state_survives_save_load(tmp_path):
     assert loaded.bout_rounds_remaining == s.bout_rounds_remaining
 
 
+def test_bout_id_is_stable_across_reload_and_bout_end_event(tmp_path):
+    s = coc_sanity.SanitySession(
+        "ada",
+        san_max=60,
+        int_value=50,
+        rng=random.Random(4),
+        campaign_dir=tmp_path,
+    )
+    bout = s._start_bout("ghoul", alone=False, module_bout_override=None)
+    bout_id = bout["bout_id"]
+    assert isinstance(bout_id, str) and bout_id
+    assert s.active_bout_id == bout_id
+    s.save(tmp_path)
+
+    loaded = coc_sanity.SanitySession.load(
+        tmp_path,
+        "ada",
+        rng=random.Random(99),
+    )
+    assert loaded.active_bout_id == bout_id
+    loaded.end_bout()
+
+    assert loaded.active_bout_id is None
+    ended = [event for event in loaded.events if event["type"] == "bout_ended"][-1]
+    assert ended["payload"]["bout_id"] == bout_id
+
+
 def test_indefinite_insanity_threshold_uses_day_start_current_san():
     """p.168: the 1/5 threshold is against *current* SAN at the start of the
     day, not max SAN. san_max=99 but day starts at 25 → losing 5 triggers."""

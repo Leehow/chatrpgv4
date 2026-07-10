@@ -100,6 +100,40 @@ def _san_command(command_id: str) -> dict:
     )
 
 
+def _realtime_bout_command(command_id: str = "san-realtime-bout") -> dict:
+    command = _san_command(command_id)
+    command["payload"].update({
+        "san_loss_success": 5,
+        "san_loss_fail_expr": "5",
+        "alone": False,
+        "involuntary_kind": "flee",
+        "involuntary_summary": "bolt toward the nearest lit doorway",
+        "module_bout_override": {
+            "force_mode": "real_time",
+            "result_description": "structured module bout override",
+        },
+        "creature_type": "deep-one",
+    })
+    return command
+
+
+def _set_high_san_and_int(character: Path) -> None:
+    sheet = json.loads(character.read_text(encoding="utf-8"))
+    sheet["characteristics"]["POW"] = 99
+    sheet["characteristics"]["INT"] = 99
+    sheet["derived"]["SAN"] = 99
+    character.write_text(json.dumps(sheet), encoding="utf-8")
+
+
+def _keeper_response(choice: dict, action: str = "tick") -> dict:
+    return {
+        "choice_id": choice["choice_id"],
+        "responder": "keeper",
+        "revision": choice["revision"],
+        "action": action,
+    }
+
+
 def _execute(module, campaign: Path, character: Path, commands: list[dict], rng):
     return module.execute_commands(
         campaign,
@@ -110,6 +144,112 @@ def _execute(module, campaign: Path, character: Path, commands: list[dict], rng)
     )
 
 
+def _pushable_roll_command(command_id: str = "original-failed-roll") -> dict:
+    return _command(
+        command_id,
+        "skill_check",
+        payload={
+            "decision_id": "origin-decision",
+            "roll_id": f"{command_id}-roll",
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+            "bonus_penalty_dice": 0,
+            "reason": "structured push origin",
+            "roll_contract": {
+                "schema_version": 1,
+                "goal": "find the hidden ledger",
+                "success_effect": "commit clue-ledger",
+                "failure_effect": "the watcher notices the search",
+                "failure_outcome_mode": "clue_with_cost",
+                "push_policy": {
+                    "eligible": True,
+                    "requires_changed_method": True,
+                    "keeper_must_foreshadow_failure": True,
+                },
+                "roll_density_group": "clue:clue-ledger",
+                "must_not": ["do not reveal clue-ledger on failure"],
+            },
+            "resolution_context": {
+                "scene_action": "REVEAL",
+                "clue_policy": {
+                    "clue_type": "obscured",
+                    "reveal": ["clue-ledger"],
+                    "fallback_routes": ["clue-watcher"],
+                    "skill": "Spot Hidden",
+                    "difficulty": "regular",
+                },
+            },
+        },
+    )
+
+
+def _valid_push_offer(
+    original_command_id: str = "original-failed-roll",
+    *,
+    command_id: str = "push-offer-1",
+) -> dict:
+    return _command(
+        command_id,
+        "push_offer",
+        payload={
+            "decision_id": "push-offer-decision",
+            "original_command_id": original_command_id,
+            "changed_method_evidence": {
+                "changed": True,
+                "source": "player_proposal",
+                "summary": "inspect the binding and page impressions instead of the text",
+            },
+            "announced_consequence": {
+                "summary": "the watcher will identify the investigator if the push fails",
+                "effect": {
+                    "kind": "fictional_position",
+                    "severity": "serious",
+                },
+            },
+        },
+    )
+
+
+def _persist_failed_pushable_roll(module, campaign: Path, character: Path) -> dict:
+    result = _execute(
+        module,
+        campaign,
+        character,
+        [_pushable_roll_command()],
+        random.Random(5),
+    )[0]
+    assert result["events"][0]["outcome"] == "failure"
+    assert result["events"][0]["success"] is False
+    return result
+
+
+def _offer_push(module, campaign: Path, character: Path) -> dict:
+    _persist_failed_pushable_roll(module, campaign, character)
+    return _execute(
+        module,
+        campaign,
+        character,
+        [_valid_push_offer()],
+        random.Random(211),
+    )[0]
+
+
+def _push_response(
+    choice: dict,
+    action: str,
+    *,
+    revision: int | None = None,
+    responder: str = "player",
+) -> dict:
+    response = {
+        "choice_id": choice["choice_id"],
+        "responder": responder,
+        "revision": choice["revision"] if revision is None else revision,
+        "action": action,
+    }
+    return response
+
+
 def test_public_typed_contracts_expose_exact_required_json_keys():
     executor = _executor()
 
@@ -117,6 +257,1102 @@ def test_public_typed_contracts_expose_exact_required_json_keys():
         "command_id", "kind", "phase", "payload",
     })
     assert executor.SubsystemResult.__required_keys__ == frozenset(RESULT_KEYS)
+
+
+def test_schema_v2_state_migrates_explicitly_to_v3_private_lifecycle_indexes(tmp_path):
+    executor = _executor("coc_subsystem_executor_schema_v2_to_v3")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_path.write_text(
+        json.dumps({
+            "schema_version": 2,
+            "applied_command_ids": [],
+            "command_hashes": {},
+            "command_provenance": {},
+            "result_snapshots": {},
+            "pending_choices": {},
+            "inflight": None,
+        }),
+        encoding="utf-8",
+    )
+
+    assert _execute(executor, campaign, character, [], random.Random(201)) == []
+
+    migrated = json.loads(state_path.read_text(encoding="utf-8"))
+    assert migrated["schema_version"] == 3
+    assert migrated["pending_contexts"] == {}
+    assert migrated["choice_history"] == {}
+    assert set(migrated) == {
+        "schema_version",
+        "applied_command_ids",
+        "command_hashes",
+        "command_provenance",
+        "result_snapshots",
+        "pending_choices",
+        "pending_contexts",
+        "choice_history",
+        "inflight",
+    }
+
+
+def test_push_offer_validates_origin_and_keeps_private_context_out_of_public_choice(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_push_offer_gate")
+    campaign, character = _campaign_and_character(tmp_path)
+    original = _persist_failed_pushable_roll(executor, campaign, character)
+    roll_log = campaign / "logs" / "rolls.jsonl"
+    log_before = roll_log.read_bytes()
+    rng = random.Random(202)
+    rng_before = rng.getstate()
+
+    offered = _execute(
+        executor,
+        campaign,
+        character,
+        [_valid_push_offer()],
+        rng,
+    )[0]
+
+    assert offered["status"] == "pending_choice"
+    assert offered["events"] == []
+    assert offered["pending_choice"] == {
+        "choice_id": "push-offer-1:confirm",
+        "kind": "push_confirm",
+        "command_id": "push-offer-1",
+        "responder": "player",
+        "revision": 0,
+        "prompt": (
+            "Push the failed Spot Hidden roll? Failure consequence: "
+            "the watcher will identify the investigator if the push fails"
+        ),
+        "options": [
+            {"action": "confirm", "label": "Push the roll"},
+            {"action": "cancel", "label": "Keep the original failure"},
+        ],
+    }
+    assert rng.getstate() == rng_before
+    assert roll_log.read_bytes() == log_before
+
+    state = json.loads((campaign / "save" / "subsystem-state.json").read_text())
+    assert state["schema_version"] == 3
+    private = state["pending_contexts"][offered["pending_choice"]["choice_id"]]
+    assert private["origin_command_id"] == "original-failed-roll"
+    assert private["original_roll"]["roll_id"] == original["events"][0]["roll_id"]
+    assert private["original_roll"]["outcome"] == "failure"
+    assert private["original_roll"]["roll_contract"] == original["events"][0]["roll_contract"]
+    assert private["resolution_context"] == original["events"][0]["resolution_context"]
+    assert private["changed_method_evidence"] == _valid_push_offer()["payload"]["changed_method_evidence"]
+    assert private["announced_consequence"] == _valid_push_offer()["payload"]["announced_consequence"]
+    assert "original_roll" not in json.dumps(offered["pending_choice"], ensure_ascii=False)
+    assert "watcher" in json.dumps(offered["pending_choice"], ensure_ascii=False)
+    assert "fictional_position" not in json.dumps(
+        offered["pending_choice"], ensure_ascii=False
+    )
+
+
+def test_schema_v2_pending_choice_without_private_context_fails_closed(tmp_path):
+    executor = _executor("coc_subsystem_executor_schema_v2_pending_reject")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "subsystem-state.json"
+    legacy_choice = {
+        "choice_id": "legacy-offer:confirm",
+        "kind": "push_confirm",
+        "command_id": "legacy-offer",
+    }
+    legacy_result = {
+        "command_id": "legacy-offer",
+        "kind": "push_offer",
+        "status": "pending_choice",
+        "events": [],
+        "pending_choice": legacy_choice,
+        "state_refs": ["save/subsystem-state.json#pending_choices/legacy-offer:confirm"],
+    }
+    legacy_command = _command(
+        "legacy-offer",
+        "push_offer",
+        payload={"original_roll_id": "unrecoverable-roll"},
+    )
+    state_path.write_text(
+        json.dumps({
+            "schema_version": 2,
+            "applied_command_ids": ["legacy-offer"],
+            "command_hashes": {
+                "legacy-offer": executor._canonical_command_hash(legacy_command),
+            },
+            "command_provenance": {
+                "legacy-offer": {
+                    "investigator_id": "inv1",
+                    "character_id": None,
+                    "decision_id": None,
+                },
+            },
+            "result_snapshots": {"legacy-offer": legacy_result},
+            "pending_choices": {legacy_choice["choice_id"]: legacy_choice},
+            "inflight": None,
+        }),
+        encoding="utf-8",
+    )
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [], random.Random(205))
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+    assert "private context" in exc_info.value.message
+    assert state_path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("payload_patch", "error_path"),
+    [
+        ({"changed_method_evidence": {"changed": False, "source": "player_proposal", "summary": "same method"}}, "changed_method_evidence.changed"),
+        ({"announced_consequence": {"summary": ""}}, "announced_consequence.summary"),
+        ({"original_command_id": "missing-origin"}, "original_command_id"),
+    ],
+)
+def test_push_offer_rejects_incomplete_gate_before_rng_or_state_mutation(
+    tmp_path,
+    payload_patch,
+    error_path,
+):
+    executor = _executor(f"coc_subsystem_executor_push_incomplete_{error_path.replace('.', '_')}")
+    campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
+    offer = _valid_push_offer()
+    offer["payload"].update(payload_patch)
+    rng = random.Random(203)
+    rng_before = rng.getstate()
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_before = state_path.read_bytes()
+    log_before = (campaign / "logs" / "rolls.jsonl").read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [offer], rng)
+
+    assert exc_info.value.code in {"invalid_command_payload", "push_origin_not_found"}
+    assert error_path in exc_info.value.path
+    assert rng.getstate() == rng_before
+    assert state_path.read_bytes() == state_before
+    assert (campaign / "logs" / "rolls.jsonl").read_bytes() == log_before
+
+
+@pytest.mark.parametrize(
+    ("seed", "expected_outcome", "expected_code"),
+    [
+        (1, "hard", "push_origin_not_failed"),
+        (23, "fumble", "push_origin_fumble"),
+    ],
+)
+def test_push_offer_rejects_success_and_fumble_origins_without_side_effects(
+    tmp_path,
+    seed,
+    expected_outcome,
+    expected_code,
+):
+    executor = _executor(f"coc_subsystem_executor_push_origin_{expected_outcome}")
+    campaign, character = _campaign_and_character(tmp_path)
+    original = _execute(
+        executor,
+        campaign,
+        character,
+        [_pushable_roll_command()],
+        random.Random(seed),
+    )[0]
+    assert original["events"][0]["outcome"] == expected_outcome
+    rng = random.Random(204)
+    rng_before = rng.getstate()
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [_valid_push_offer()], rng)
+
+    assert exc_info.value.code == expected_code
+    assert rng.getstate() == rng_before
+    assert state_path.read_bytes() == state_before
+
+
+@pytest.mark.parametrize(
+    "push_policy",
+    [
+        {},
+        {
+            "eligible": False,
+            "requires_changed_method": False,
+            "keeper_must_foreshadow_failure": False,
+        },
+    ],
+)
+def test_push_offer_rejects_missing_or_false_persisted_push_eligibility(
+    tmp_path,
+    push_policy,
+):
+    executor = _executor("coc_subsystem_executor_push_ineligible")
+    campaign, character = _campaign_and_character(tmp_path)
+    origin = _pushable_roll_command()
+    origin["payload"]["roll_contract"]["push_policy"] = push_policy
+    result = _execute(executor, campaign, character, [origin], random.Random(5))[0]
+    assert result["events"][0]["outcome"] == "failure"
+    state_path = campaign / "save" / "subsystem-state.json"
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(
+            executor,
+            campaign,
+            character,
+            [_valid_push_offer()],
+            random.Random(206),
+        )
+
+    assert exc_info.value.code == "push_origin_ineligible"
+    assert state_path.read_bytes() == before
+
+
+def test_push_offer_cannot_override_persisted_origin_resolution_context(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_context_override")
+    campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
+    offer = _valid_push_offer()
+    offer["payload"]["resolution_context"] = {
+        "scene_action": "REVEAL",
+        "clue_policy": {"reveal": ["keeper-secret-clue"]},
+    }
+    state_path = campaign / "save" / "subsystem-state.json"
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [offer], random.Random(207))
+
+    assert exc_info.value.code == "push_origin_context_mismatch"
+    assert state_path.read_bytes() == before
+
+
+def test_push_offer_is_bound_to_original_investigator_and_character(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_actor_binding")
+    campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
+    inv2_character = tmp_path / "investigators" / "inv2" / "character.json"
+    inv2_character.parent.mkdir(parents=True, exist_ok=True)
+    inv2_sheet = json.loads(character.read_text(encoding="utf-8"))
+    inv2_sheet["id"] = "inv2"
+    inv2_character.write_text(json.dumps(inv2_sheet), encoding="utf-8")
+    state_path = campaign / "save" / "subsystem-state.json"
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.execute_commands(
+            campaign,
+            inv2_character,
+            "inv2",
+            [_valid_push_offer()],
+            rng=random.Random(208),
+        )
+
+    assert exc_info.value.code == "push_origin_actor_mismatch"
+    assert state_path.read_bytes() == before
+
+
+def test_push_origin_cannot_be_offered_twice(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_already_offered")
+    campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
+    _execute(
+        executor,
+        campaign,
+        character,
+        [_valid_push_offer()],
+        random.Random(209),
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(
+            executor,
+            campaign,
+            character,
+            [_valid_push_offer(command_id="push-offer-2")],
+            random.Random(210),
+        )
+
+    assert exc_info.value.code == "push_origin_already_used"
+    assert state_path.read_bytes() == before
+
+
+def test_push_cancel_is_canonical_consumes_choice_and_has_zero_rng_or_log_effect(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_push_cancel")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "cancel")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    commands = executor.commands_from_rules_requests(plan)
+    assert [command["kind"] for command in commands] == ["push_confirm"]
+    assert commands[0]["phase"] == "confirm"
+    assert commands[0]["payload"]["action"] == "cancel"
+    assert len(commands[0]["command_id"]) <= 128
+    assert commands == executor.commands_from_rules_requests(
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_before = json.loads(state_path.read_text(encoding="utf-8"))
+    origin_before = state_before["result_snapshots"]["original-failed-roll"]
+    roll_log = campaign / "logs" / "rolls.jsonl"
+    log_before = roll_log.read_bytes()
+    rng = random.Random(212)
+    rng_before = rng.getstate()
+
+    cancelled = _execute(executor, campaign, character, commands, rng)
+
+    assert [result["status"] for result in cancelled] == ["cancelled"]
+    assert cancelled[0]["events"] == []
+    assert cancelled[0]["pending_choice"] is None
+    assert rng.getstate() == rng_before
+    assert roll_log.read_bytes() == log_before
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["pending_choices"] == {}
+    assert state["pending_contexts"] == {}
+    assert state["result_snapshots"]["original-failed-roll"] == origin_before
+    history = state["choice_history"][response["choice_id"]]
+    assert history["terminal_action"] == "cancel"
+    assert history["terminal_revision"] == 0
+
+
+def test_push_confirm_resolve_rerolls_once_from_private_origin_and_replays_exactly(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_push_confirm_success")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "confirm")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    commands = executor.commands_from_rules_requests(plan)
+    assert [command["kind"] for command in commands] == ["push_confirm", "push_resolve"]
+    assert [command["phase"] for command in commands] == ["confirm", "resolve"]
+    assert len({command["command_id"] for command in commands}) == 2
+    assert all(len(command["command_id"]) <= 128 for command in commands)
+    rng = random.Random(1)
+    one_draw = random.Random(1)
+    one_draw.randint(1, 100)
+    log_path = campaign / "logs" / "rolls.jsonl"
+    rows_before = log_path.read_text(encoding="utf-8").splitlines()
+
+    results = _execute(executor, campaign, character, commands, rng)
+
+    assert [result["status"] for result in results] == ["completed", "completed"]
+    assert results[0]["events"][0]["event_type"] == "push_confirmed"
+    pushed = results[1]["events"][0]
+    assert pushed["pushed"] is True
+    assert pushed["success"] is True
+    assert pushed["original_command_id"] == "original-failed-roll"
+    assert pushed["original_roll_id"] == "original-failed-roll-roll"
+    assert pushed["source_command_id"] == commands[1]["command_id"]
+    assert pushed["push_gate"] == {
+        "method_changed": True,
+        "consequence_announced": True,
+        "player_confirmed": True,
+    }
+    assert pushed["changed_method_evidence"] == _valid_push_offer()["payload"][
+        "changed_method_evidence"
+    ]
+    assert pushed["resolution_context"] == _pushable_roll_command()["payload"]["resolution_context"]
+    assert rng.getstate() == one_draw.getstate()
+    rows_after = log_path.read_text(encoding="utf-8").splitlines()
+    assert len(rows_after) == len(rows_before) + 1
+    assert json.loads(rows_after[-1])["command_id"] == commands[1]["command_id"]
+    assert executor.get_current_pending_choice(campaign) is None
+
+    reloaded = _executor("coc_subsystem_executor_push_confirm_success_reload")
+    replay_rng = random.Random(213)
+    replay_before = replay_rng.getstate()
+    replay_log = log_path.read_bytes()
+    replay = _execute(reloaded, campaign, character, commands, replay_rng)
+    assert replay == results
+    assert replay_rng.getstate() == replay_before
+    assert log_path.read_bytes() == replay_log
+    assert reloaded.plan_from_pending_choice_response(campaign, "inv1", response) == plan
+
+
+def test_pushed_failure_preserves_exact_announced_consequence_and_stable_identity(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_push_confirm_failure")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "confirm")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    commands = executor.commands_from_rules_requests(plan)
+
+    results = _execute(executor, campaign, character, commands, random.Random(5))
+
+    pushed = results[-1]["events"][0]
+    assert pushed["outcome"] == "failure"
+    assert pushed["success"] is False
+    assert pushed["announced_consequence"] == _valid_push_offer()["payload"]["announced_consequence"]
+    assert pushed["source_command_id"] == commands[-1]["command_id"]
+    assert pushed["original_roll_id"] == "original-failed-roll-roll"
+
+
+@pytest.mark.parametrize(
+    ("response_patch", "code"),
+    [
+        ({"revision": 1}, "stale_pending_choice_response"),
+        ({"responder": "keeper"}, "wrong_pending_choice_responder"),
+        ({"action": "unknown"}, "invalid_pending_choice_action"),
+        ({"choice_id": "another-choice"}, "pending_choice_not_found"),
+    ],
+)
+def test_push_response_wrong_stale_or_unknown_fails_before_mutation(
+    tmp_path,
+    response_patch,
+    code,
+):
+    executor = _executor(f"coc_subsystem_executor_push_response_{code}")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "cancel")
+    response.update(response_patch)
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_before = state_path.read_bytes()
+    log_before = (campaign / "logs" / "rolls.jsonl").read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+
+    assert exc_info.value.code == code
+    assert state_path.read_bytes() == state_before
+    assert (campaign / "logs" / "rolls.jsonl").read_bytes() == log_before
+
+
+def test_push_confirm_cannot_replace_offer_changed_method_evidence(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_response_override")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "confirm")
+    response["changed_method_evidence"] = {
+        "changed": True,
+        "source": "keeper_prompt",
+        "summary": "replace the already agreed method after confirmation",
+    }
+    state_path = campaign / "save" / "subsystem-state.json"
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+
+    assert exc_info.value.code == "invalid_pending_choice_response"
+    assert state_path.read_bytes() == before
+
+
+def test_invalid_pending_response_does_not_recover_or_mutate_prepared_inflight(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_response_before_recovery")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    valid_response = _push_response(offered["pending_choice"], "confirm")
+    valid_plan = executor.plan_from_pending_choice_response(
+        campaign, "inv1", valid_response
+    )
+    commands = executor.commands_from_rules_requests(valid_plan)
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    state["inflight"] = executor._build_inflight(
+        campaign,
+        "inv1",
+        [(command, executor._canonical_command_hash(command)) for command in commands],
+    )
+    executor._write_executor_state(campaign, state)
+    roll_log = campaign / "logs" / "rolls.jsonl"
+    with roll_log.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"sentinel": "must survive invalid response"}) + "\n")
+    state_before = state_path.read_bytes()
+    log_before = roll_log.read_bytes()
+    invalid_response = dict(valid_response)
+    invalid_response["revision"] += 1
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.plan_from_pending_choice_response(
+            campaign, "inv1", invalid_response
+        )
+
+    assert exc_info.value.code == "stale_pending_choice_response"
+    assert state_path.read_bytes() == state_before
+    assert roll_log.read_bytes() == log_before
+
+
+def test_push_confirm_transaction_failure_restores_pending_rng_log_and_can_retry(
+    tmp_path,
+    monkeypatch,
+):
+    executor = _executor("coc_subsystem_executor_push_confirm_rollback")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "confirm")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    commands = executor.commands_from_rules_requests(plan)
+    resolve_id = commands[-1]["command_id"]
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_before = state_path.read_bytes()
+    log_path = campaign / "logs" / "rolls.jsonl"
+    log_before = log_path.read_bytes()
+    rng = random.Random(5)
+    rng_before = rng.getstate()
+    real_write = executor._write_executor_state
+
+    def fail_final_ledger(campaign_dir, state):
+        if state.get("inflight") is None and resolve_id in state.get("applied_command_ids", []):
+            raise OSError("injected push final-ledger failure")
+        return real_write(campaign_dir, state)
+
+    monkeypatch.setattr(executor, "_write_executor_state", fail_final_ledger)
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, commands, rng)
+
+    assert exc_info.value.code == "subsystem_transaction_failed"
+    assert rng.getstate() == rng_before
+    assert state_path.read_bytes() == state_before
+    assert log_path.read_bytes() == log_before
+    assert executor.get_current_pending_choice(campaign) == offered["pending_choice"]
+
+    monkeypatch.setattr(executor, "_write_executor_state", real_write)
+    retried = _execute(executor, campaign, character, commands, rng)
+    assert retried[-1]["events"][0]["outcome"] == "failure"
+    assert executor.get_current_pending_choice(campaign) is None
+
+
+def test_consumed_push_origin_cannot_be_offered_again_after_cancel(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_consumed_origin")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "cancel")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    _execute(
+        executor,
+        campaign,
+        character,
+        executor.commands_from_rules_requests(plan),
+        random.Random(214),
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(
+            executor,
+            campaign,
+            character,
+            [_valid_push_offer(command_id="push-after-cancel")],
+            random.Random(215),
+        )
+
+    assert exc_info.value.code == "push_origin_already_used"
+    assert state_path.read_bytes() == before
+
+
+def test_structured_sanity_fields_are_forwarded_and_new_session_events_are_captured(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_sanity_forwarding")
+    campaign, character = _campaign_and_character(tmp_path)
+    command = _san_command("san-forwarding")
+    command["payload"].update({
+        "san_loss_fail_expr": "1",
+        "alone": True,
+        "involuntary_kind": "flee",
+        "involuntary_summary": "retreat to the marked safe doorway",
+        "module_bout_override": {"force_mode": "summary"},
+        "creature_type": "deep-one",
+    })
+
+    result = _execute(
+        executor,
+        campaign,
+        character,
+        [command],
+        random.Random(5),
+    )[0]
+
+    assert result["status"] == "completed"
+    event_types = [event.get("event_type") for event in result["events"]]
+    assert "sanity" in event_types
+    assert "involuntary_action" in event_types
+    sanity = json.loads((campaign / "save" / "sanity.json").read_text())
+    assert sanity["involuntary_actions"][-1] == {
+        "kind": "flee",
+        "summary": "retreat to the marked safe doorway",
+        "source": "structured-test-source",
+        "rule_ref": "core.sanity.failure_involuntary_action",
+    }
+    assert sanity["awfulness_caps"]["deep-one"] == 1
+    assert event_types.count("sanity") == 1
+    assert event_types.count("involuntary_action") == 1
+    roll_rows = [
+        json.loads(line)
+        for line in (campaign / "logs" / "rolls.jsonl").read_text().splitlines()
+    ]
+    assert len(roll_rows) == 1
+    assert roll_rows[0]["payload"].get("roll_id") == "san-forwarding"
+    assert roll_rows[0]["payload"].get("event_type") is None
+
+
+def test_forced_summary_bout_finishes_without_keeper_pending_choice(tmp_path):
+    executor = _executor("coc_subsystem_executor_bout_forced_summary")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    command = _realtime_bout_command("san-forced-summary")
+    command["payload"]["alone"] = True
+    command["payload"]["module_bout_override"] = {
+        "force_mode": "summary",
+        "result_description": "structured summary consequence",
+    }
+
+    result = _execute(executor, campaign, character, [command], random.Random(1))[0]
+
+    bout = next(
+        event for event in result["events"] if event.get("event_type") == "bout_of_madness"
+    )
+    assert bout["mode"] == "summary"
+    assert result["status"] == "completed"
+    assert result["pending_choice"] is None
+    sanity = json.loads((campaign / "save" / "sanity.json").read_text())
+    assert sanity["bout_active"] is False
+    assert sanity["active_bout_id"] is None
+
+
+def test_module_bout_result_override_does_not_require_forced_mode(tmp_path):
+    executor = _executor("coc_subsystem_executor_bout_result_only_override")
+    campaign, character = _campaign_and_character(tmp_path)
+    command = _san_command("san-result-only-override")
+    command["payload"]["module_bout_override"] = {
+        "result_description": "module-authored bout result",
+    }
+
+    result = _execute(executor, campaign, character, [command], random.Random(225))[0]
+
+    assert result["status"] == "completed"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("alone", "yes"),
+        ("involuntary_kind", "scan this prose for flight"),
+        ("involuntary_summary", {"text": "not a string"}),
+        ("module_bout_override", {"force_mode": "keyword-inferred"}),
+        ("creature_type", ["deep-one"]),
+    ],
+)
+def test_structured_sanity_fields_fail_closed_before_rng_or_state_mutation(
+    tmp_path,
+    field,
+    value,
+):
+    executor = _executor(f"coc_subsystem_executor_sanity_invalid_{field}")
+    campaign, character = _campaign_and_character(tmp_path)
+    command = _san_command("san-invalid-structured")
+    command["payload"][field] = value
+    rng = random.Random(224)
+    before = rng.getstate()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [command], rng)
+
+    assert exc_info.value.code == "invalid_command_payload"
+    assert field in exc_info.value.path
+    assert rng.getstate() == before
+    assert not (campaign / "save" / "subsystem-state.json").exists()
+
+
+def test_realtime_sanity_bout_creates_keeper_choice_and_ticks_to_terminal_across_reload(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_bout_start")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    started = _execute(
+        executor,
+        campaign,
+        character,
+        [_realtime_bout_command()],
+        random.Random(1),
+    )[0]
+
+    assert started["status"] == "pending_choice"
+    choice = started["pending_choice"]
+    assert choice["kind"] == "bout_keeper_action"
+    assert choice["responder"] == "keeper"
+    assert choice["revision"] == 0
+    assert choice["command_id"] == "san-realtime-bout"
+    assert choice["options"] == [
+        {"action": "tick", "label": "Advance Keeper-controlled round"},
+        {"action": "end", "label": "End the bout now"},
+    ]
+    assert "structured module bout override" not in json.dumps(choice)
+    sanity = json.loads((campaign / "save" / "sanity.json").read_text())
+    bout_id = sanity["active_bout_id"]
+    initial_rounds = sanity["bout_rounds_remaining"]
+    assert initial_rounds >= 1
+    state = json.loads((campaign / "save" / "subsystem-state.json").read_text())
+    private = state["pending_contexts"][choice["choice_id"]]
+    assert private["bout_id"] == bout_id
+    assert private["remaining_rounds"] == initial_rounds
+    log_path = campaign / "logs" / "rolls.jsonl"
+    log_after_start = log_path.read_bytes()
+
+    for expected_remaining in range(initial_rounds - 1, -1, -1):
+        executor = _executor(
+            f"coc_subsystem_executor_bout_reload_{expected_remaining}"
+        )
+        response = _keeper_response(choice, "tick")
+        plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+        commands = executor.commands_from_rules_requests(plan)
+        assert [command["kind"] for command in commands] == ["bout_tick"]
+        rng = random.Random(217 + expected_remaining)
+        rng_before = rng.getstate()
+        result = _execute(executor, campaign, character, commands, rng)[0]
+        assert rng.getstate() == rng_before
+        assert log_path.read_bytes() == log_after_start
+        assert result["events"][0]["event_type"] == "bout_tick"
+        assert result["events"][0]["bout_id"] == bout_id
+        assert result["events"][0]["remaining_rounds"] == expected_remaining
+        if expected_remaining:
+            assert result["status"] == "pending_choice"
+            next_choice = result["pending_choice"]
+            assert next_choice["choice_id"] == choice["choice_id"]
+            assert next_choice["revision"] == choice["revision"] + 1
+            choice = next_choice
+        else:
+            assert result["status"] == "completed"
+            assert result["pending_choice"] is None
+            assert any(
+                event.get("event_type") == "bout_ended"
+                for event in result["events"]
+            )
+
+    final_sanity = json.loads((campaign / "save" / "sanity.json").read_text())
+    assert final_sanity["bout_active"] is False
+    assert final_sanity["bout_rounds_remaining"] == 0
+    assert final_sanity["active_bout_id"] is None
+    assert final_sanity["temporary_insane"] is True
+    assert executor.get_current_pending_choice(campaign) is None
+
+
+def test_bout_end_command_clears_keeper_choice_but_preserves_underlying_insanity(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_bout_explicit_end")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    started = _execute(
+        executor,
+        campaign,
+        character,
+        [_realtime_bout_command("san-explicit-end")],
+        random.Random(1),
+    )[0]
+    response = _keeper_response(started["pending_choice"], "end")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    commands = executor.commands_from_rules_requests(plan)
+    assert [command["kind"] for command in commands] == ["bout_end"]
+
+    ended = _execute(
+        executor,
+        campaign,
+        character,
+        commands,
+        random.Random(218),
+    )[0]
+
+    assert ended["status"] == "completed"
+    assert ended["pending_choice"] is None
+    assert any(event.get("event_type") == "bout_ended" for event in ended["events"])
+    sanity = json.loads((campaign / "save" / "sanity.json").read_text())
+    assert sanity["bout_active"] is False
+    assert sanity["temporary_insane"] is True
+
+
+@pytest.mark.parametrize(
+    ("response_patch", "code"),
+    [
+        ({"revision": 99}, "stale_pending_choice_response"),
+        ({"responder": "player"}, "wrong_pending_choice_responder"),
+        ({"action": "confirm"}, "invalid_pending_choice_action"),
+    ],
+)
+def test_bout_response_wrong_stale_or_player_responder_fails_before_mutation(
+    tmp_path,
+    response_patch,
+    code,
+):
+    executor = _executor(f"coc_subsystem_executor_bout_response_{code}")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    started = _execute(
+        executor,
+        campaign,
+        character,
+        [_realtime_bout_command("san-bout-response")],
+        random.Random(1),
+    )[0]
+    response = _keeper_response(started["pending_choice"], "tick")
+    response.update(response_patch)
+    state_path = campaign / "save" / "subsystem-state.json"
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+
+    assert exc_info.value.code == code
+    assert state_path.read_bytes() == before
+
+
+def test_bout_tick_exact_command_replay_does_not_decrement_twice(tmp_path):
+    executor = _executor("coc_subsystem_executor_bout_tick_replay")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    started = _execute(
+        executor, campaign, character, [_realtime_bout_command("san-replay")], random.Random(1)
+    )[0]
+    response = _keeper_response(started["pending_choice"], "tick")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    commands = executor.commands_from_rules_requests(plan)
+    first = _execute(executor, campaign, character, commands, random.Random(220))
+    sanity_after_first = (campaign / "save" / "sanity.json").read_bytes()
+
+    replay_rng = random.Random(221)
+    rng_before = replay_rng.getstate()
+    replay = _execute(executor, campaign, character, commands, replay_rng)
+
+    assert replay == first
+    assert replay_rng.getstate() == rng_before
+    assert (campaign / "save" / "sanity.json").read_bytes() == sanity_after_first
+
+
+def test_terminal_bout_rejects_different_action_for_consumed_revision(tmp_path):
+    executor = _executor("coc_subsystem_executor_bout_terminal_stale")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    started = _execute(
+        executor, campaign, character, [_realtime_bout_command("san-terminal")], random.Random(1)
+    )[0]
+    choice = started["pending_choice"]
+    end_response = _keeper_response(choice, "end")
+    _execute(
+        executor,
+        campaign,
+        character,
+        executor.commands_from_rules_requests(
+            executor.plan_from_pending_choice_response(campaign, "inv1", end_response)
+        ),
+        random.Random(222),
+    )
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.plan_from_pending_choice_response(
+            campaign, "inv1", _keeper_response(choice, "tick")
+        )
+
+    assert exc_info.value.code == "stale_pending_choice_response"
+
+
+def test_corrupt_bout_history_public_choice_must_match_creator_snapshot(tmp_path):
+    executor = _executor("coc_subsystem_executor_bout_history_binding")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    started = _execute(
+        executor,
+        campaign,
+        character,
+        [_realtime_bout_command("san-history-binding")],
+        random.Random(1),
+    )[0]
+    response = _keeper_response(started["pending_choice"], "end")
+    _execute(
+        executor,
+        campaign,
+        character,
+        executor.commands_from_rules_requests(
+            executor.plan_from_pending_choice_response(campaign, "inv1", response)
+        ),
+        random.Random(227),
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    state["choice_history"][response["choice_id"]]["public_choice"][
+        "responder"
+    ] = "player"
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+
+
+def test_bout_tick_final_ledger_failure_rolls_back_sanity_choice_and_can_retry(
+    tmp_path,
+    monkeypatch,
+):
+    executor = _executor("coc_subsystem_executor_bout_tick_rollback")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    started = _execute(
+        executor, campaign, character, [_realtime_bout_command("san-rollback")], random.Random(1)
+    )[0]
+    response = _keeper_response(started["pending_choice"], "tick")
+    commands = executor.commands_from_rules_requests(
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    )
+    command_id = commands[0]["command_id"]
+    paths = [
+        campaign / "save" / "subsystem-state.json",
+        campaign / "save" / "sanity.json",
+        campaign / "save" / "investigator-state" / "inv1.json",
+        campaign / "logs" / "rolls.jsonl",
+    ]
+    before = {path: path.read_bytes() for path in paths}
+    real_write = executor._write_executor_state
+
+    def fail_final_ledger(campaign_dir, state):
+        if state.get("inflight") is None and command_id in state.get("applied_command_ids", []):
+            raise OSError("injected bout final-ledger failure")
+        return real_write(campaign_dir, state)
+
+    monkeypatch.setattr(executor, "_write_executor_state", fail_final_ledger)
+    rng = random.Random(223)
+    rng_before = rng.getstate()
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, commands, rng)
+
+    assert exc_info.value.code == "subsystem_transaction_failed"
+    assert rng.getstate() == rng_before
+    assert {path: path.read_bytes() for path in paths} == before
+    assert executor.get_current_pending_choice(campaign) == started["pending_choice"]
+
+    monkeypatch.setattr(executor, "_write_executor_state", real_write)
+    retried = _execute(executor, campaign, character, commands, rng)
+    assert retried[0]["kind"] == "bout_tick"
+
+
+def test_bout_choice_id_is_bounded_for_maximum_command_id(tmp_path):
+    executor = _executor("coc_subsystem_executor_bout_max_id")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    result = _execute(
+        executor,
+        campaign,
+        character,
+        [_realtime_bout_command("s" * 128)],
+        random.Random(1),
+    )[0]
+
+    assert len(result["pending_choice"]["choice_id"]) <= 128
+    assert executor.get_current_pending_choice(campaign) == result["pending_choice"]
+
+
+def test_bout_id_is_bounded_for_maximum_investigator_id(tmp_path):
+    executor = _executor("coc_subsystem_executor_bout_max_investigator")
+    campaign, character = _campaign_and_character(tmp_path)
+    investigator_id = "i" * 128
+    sheet = json.loads(character.read_text())
+    sheet["id"] = investigator_id
+    sheet["characteristics"].update({"POW": 99, "INT": 99})
+    sheet["derived"]["SAN"] = 99
+    character.write_text(json.dumps(sheet))
+
+    result = executor.execute_commands(
+        campaign,
+        character,
+        investigator_id,
+        [_realtime_bout_command("san-max-investigator")],
+        rng=random.Random(1),
+    )[0]
+    sanity = json.loads((campaign / "save" / "sanity.json").read_text())
+
+    assert result["status"] == "pending_choice"
+    assert len(sanity["active_bout_id"]) <= 128
+    assert sanity["active_bout_id"] == sanity["bouts_of_madness"][-1]["bout_id"]
+
+
+def test_corrupt_bout_private_context_fails_closed(tmp_path):
+    executor = _executor("coc_subsystem_executor_bout_context_corrupt")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    started = _execute(
+        executor,
+        campaign,
+        character,
+        [_realtime_bout_command("san-corrupt-context")],
+        random.Random(1),
+    )[0]
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    state["pending_contexts"][started["pending_choice"]["choice_id"]][
+        "remaining_rounds"
+    ] = 0
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+
+
+def test_push_offer_must_be_last_new_command_in_atomic_batch(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_pending_batch_tail")
+    campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_before = state_path.read_bytes()
+    log_before = (campaign / "logs" / "rolls.jsonl").read_bytes()
+    rng = random.Random(226)
+    rng_before = rng.getstate()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(
+            executor,
+            campaign,
+            character,
+            [
+                _valid_push_offer(),
+                _command("roll-after-push-offer", "skill_check", payload={"skill": "Dodge"}),
+            ],
+            rng,
+        )
+
+    assert exc_info.value.code == "pending_choice_must_end_batch"
+    assert state_path.read_bytes() == state_before
+    assert (campaign / "logs" / "rolls.jsonl").read_bytes() == log_before
+    assert rng.getstate() == rng_before
+
+
+def test_structured_san_that_can_start_bout_must_end_atomic_batch(tmp_path):
+    executor = _executor("coc_subsystem_executor_san_pending_batch_tail")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    rng = random.Random(1)
+    rng_before = rng.getstate()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(
+            executor,
+            campaign,
+            character,
+            [
+                _realtime_bout_command("san-before-later-roll"),
+                _command("roll-after-san", "skill_check", payload={"skill": "Dodge"}),
+            ],
+            rng,
+        )
+
+    assert exc_info.value.code == "pending_choice_must_end_batch"
+    assert rng.getstate() == rng_before
+    assert not (campaign / "save" / "subsystem-state.json").exists()
+    assert not (campaign / "save" / "sanity.json").exists()
 
 
 def test_unsafe_investigator_id_is_rejected_before_state_or_rng_mutation(tmp_path):
@@ -143,6 +1379,7 @@ def test_unsafe_investigator_id_is_rejected_before_state_or_rng_mutation(tmp_pat
 def test_push_offer_persists_stable_choice_and_atomic_state_shape(tmp_path, monkeypatch):
     executor = _executor()
     campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
     atomic_replaces: list[dict] = []
     real_replace = executor.os.replace
 
@@ -156,7 +1393,7 @@ def test_push_offer_persists_stable_choice_and_atomic_state_shape(tmp_path, monk
         executor,
         campaign,
         character,
-        [_command("cmd-1", "push_offer", payload={"original_roll_id": "roll-1"})],
+        [_valid_push_offer(command_id="cmd-1")],
         random.Random(7),
     )[0]
 
@@ -166,9 +1403,20 @@ def test_push_offer_persists_stable_choice_and_atomic_state_shape(tmp_path, monk
         "choice_id": "cmd-1:confirm",
         "kind": "push_confirm",
         "command_id": "cmd-1",
+        "responder": "player",
+        "revision": 0,
+        "prompt": (
+            "Push the failed Spot Hidden roll? Failure consequence: "
+            "the watcher will identify the investigator if the push fails"
+        ),
+        "options": [
+            {"action": "confirm", "label": "Push the roll"},
+            {"action": "cancel", "label": "Keep the original failure"},
+        ],
     }
     assert result["state_refs"] == [
-        "save/subsystem-state.json#pending_choices/cmd-1:confirm"
+        "save/subsystem-state.json#pending_choices/cmd-1:confirm",
+        "save/subsystem-state.json#pending_contexts/cmd-1:confirm",
     ]
 
     state_path = campaign / "save" / "subsystem-state.json"
@@ -180,21 +1428,23 @@ def test_push_offer_persists_stable_choice_and_atomic_state_shape(tmp_path, monk
         "command_provenance",
         "result_snapshots",
         "pending_choices",
+        "pending_contexts",
+        "choice_history",
         "inflight",
     }
-    assert state["schema_version"] == 2
-    assert state["applied_command_ids"] == ["cmd-1"]
-    assert set(state["command_hashes"]) == {"cmd-1"}
+    assert state["schema_version"] == 3
+    assert state["applied_command_ids"] == ["original-failed-roll", "cmd-1"]
+    assert set(state["command_hashes"]) == {"original-failed-roll", "cmd-1"}
     assert len(state["command_hashes"]["cmd-1"]) == hashlib.sha256().digest_size * 2
-    assert state["command_provenance"] == {
-        "cmd-1": {
-            "investigator_id": "inv1",
-            "character_id": None,
-            "decision_id": None,
-        }
+    assert state["command_provenance"]["cmd-1"] == {
+        "investigator_id": "inv1",
+        "character_id": "inv1",
+        "decision_id": "push-offer-decision",
     }
     assert state["result_snapshots"]["cmd-1"] == result
     assert state["pending_choices"] == {"cmd-1:confirm": result["pending_choice"]}
+    assert state["pending_contexts"]["cmd-1:confirm"]["offer_command_id"] == "cmd-1"
+    assert state["choice_history"] == {}
     assert state["inflight"] is None
     assert len(atomic_replaces) == 2
     assert all(call.get("src_dir_fd") is not None for call in atomic_replaces)
@@ -353,18 +1603,18 @@ def test_reload_recovers_prepared_inflight_before_executing_again(tmp_path):
         reloaded,
         campaign,
         character,
-        [_command("after-recovery", "push_offer")],
+        [],
         random.Random(3),
-    )[0]
+    )
 
-    assert result["status"] == "pending_choice"
+    assert result == []
     assert inv_path.read_bytes() == inv_before
     assert not sanity_path.exists()
     assert log_path.read_bytes() == log_before
     assert time_log_path.read_bytes() == time_log_before
     recovered = json.loads(state_path.read_text(encoding="utf-8"))
     assert recovered["inflight"] is None
-    assert recovered["applied_command_ids"] == ["after-recovery"]
+    assert recovered["applied_command_ids"] == []
 
 
 def _prepare_uncommitted_inflight(executor, campaign: Path) -> dict[Path, bytes | None]:
@@ -548,7 +1798,7 @@ def test_invalid_rng_is_rejected_before_prepared_inflight_recovery(tmp_path):
             executor,
             campaign,
             character,
-            [_command("valid-push-after-crash", "push_offer")],
+            [_command("valid-roll-after-crash", "skill_check", payload={"skill": "Spot Hidden"})],
             InvalidRng(),
         )
 
@@ -664,7 +1914,7 @@ def test_subsystem_state_rejects_symlinked_save_escape(tmp_path):
     rng_before = rng.getstate()
 
     with pytest.raises(executor.SubsystemExecutorError) as exc_info:
-        _execute(executor, campaign, character, [_command("escape", "push_offer")], rng)
+        _execute(executor, campaign, character, [], rng)
 
     assert exc_info.value.code == "unsafe_subsystem_state_path"
     assert exc_info.value.path == "save/subsystem-state.json"
@@ -722,7 +1972,7 @@ def test_subsystem_state_write_is_dirfd_anchored_across_save_swap(tmp_path, monk
             executor,
             campaign,
             character,
-            [_command("toctou-push", "push_offer")],
+            [_command("toctou-roll", "skill_check", payload={"skill": "Spot Hidden"})],
             random.Random(122),
         )
 
@@ -1063,11 +2313,12 @@ def test_unreleased_schema_v1_state_is_explicitly_rejected_not_reinterpreted(tmp
 def test_pending_choice_must_deep_match_its_applied_snapshot(tmp_path):
     executor = _executor("coc_subsystem_executor_mismatched_pending")
     campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
     result = _execute(
         executor,
         campaign,
         character,
-        [_command("push-mismatch", "push_offer")],
+        [_valid_push_offer(command_id="push-mismatch")],
         random.Random(109),
     )[0]
     state_path = campaign / "save" / "subsystem-state.json"
@@ -1237,11 +2488,12 @@ def test_first_structured_san_creates_identity_bound_investigator_mirror(tmp_pat
 def test_persisted_pending_choice_survives_empty_batch_and_blocks_new_commands(tmp_path):
     executor = _executor("coc_subsystem_executor_pending_query")
     campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
     offered = _execute(
         executor,
         campaign,
         character,
-        [_command("push-persisted", "push_offer")],
+        [_valid_push_offer(command_id="push-persisted")],
         random.Random(113),
     )[0]
     rng = random.Random(114)
@@ -1267,12 +2519,13 @@ def test_persisted_pending_choice_survives_empty_batch_and_blocks_new_commands(t
 def test_max_length_command_id_gets_stable_valid_push_choice_id(tmp_path):
     executor = _executor("coc_subsystem_executor_long_push_choice")
     campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
     command_id = "p" * 128
     result = _execute(
         executor,
         campaign,
         character,
-        [_command(command_id, "push_offer")],
+        [_valid_push_offer(command_id=command_id)],
         random.Random(118),
     )[0]
 
@@ -1289,10 +2542,13 @@ def test_max_length_command_id_gets_stable_valid_push_choice_id(tmp_path):
 def test_batch_cannot_atomically_create_multiple_global_pending_choices(tmp_path):
     executor = _executor("coc_subsystem_executor_multiple_pending_batch")
     campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
     rng = random.Random(119)
     rng_before = rng.getstate()
     log_path = campaign / "logs" / "rolls.jsonl"
     log_before = log_path.read_bytes()
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_before = state_path.read_bytes()
 
     with pytest.raises(executor.SubsystemExecutorError) as exc_info:
         _execute(
@@ -1300,8 +2556,8 @@ def test_batch_cannot_atomically_create_multiple_global_pending_choices(tmp_path
             campaign,
             character,
             [
-                _command("push-one", "push_offer"),
-                _command("push-two", "push_offer"),
+                _valid_push_offer(command_id="push-one"),
+                _valid_push_offer(command_id="push-two"),
             ],
             rng,
         )
@@ -1309,7 +2565,7 @@ def test_batch_cannot_atomically_create_multiple_global_pending_choices(tmp_path
     assert exc_info.value.code == "multiple_pending_choices"
     assert exc_info.value.path == "commands"
     assert rng.getstate() == rng_before
-    assert not (campaign / "save" / "subsystem-state.json").exists()
+    assert state_path.read_bytes() == state_before
     assert log_path.read_bytes() == log_before
 
 
@@ -1472,7 +2728,13 @@ def test_malformed_persisted_state_fails_closed_without_silent_reset(tmp_path):
     rng_before = rng.getstate()
 
     with pytest.raises(executor.SubsystemExecutorError) as exc_info:
-        _execute(executor, campaign, character, [_command("cmd-1", "push_offer")], rng)
+        _execute(
+            executor,
+            campaign,
+            character,
+            [_command("cmd-1", "skill_check", payload={"skill": "Spot Hidden"})],
+            rng,
+        )
 
     assert exc_info.value.code == "malformed_subsystem_state"
     assert exc_info.value.path == "save/subsystem-state.json"

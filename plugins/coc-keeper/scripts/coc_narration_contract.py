@@ -698,6 +698,33 @@ def _sanitize_redirection(redirection: Any) -> dict[str, Any] | None:
     return {"strategy": strategy, "grounding": grounding}
 
 
+def _project_rules_requests(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return narrator-safe rule requests without Keeper-only effect data.
+
+    A push consequence has two deliberately different views: its summary is
+    announced to the player before confirmation, while its structured effect
+    remains in the subsystem's private pending context until resolution.  The
+    DirectorPlan needs the full request to execute the command, but the
+    narration envelope must expose only the announced summary.
+    """
+    projected: list[dict[str, Any]] = []
+    for request in plan.get("rules_requests") or []:
+        if not isinstance(request, dict):
+            continue
+        safe_request = dict(request)
+        if request.get("kind") == "push_offer":
+            consequence = request.get("announced_consequence")
+            if isinstance(consequence, dict):
+                summary = consequence.get("summary")
+                safe_request["announced_consequence"] = (
+                    {"summary": summary}
+                    if isinstance(summary, str) and summary.strip()
+                    else {}
+                )
+        projected.append(safe_request)
+    return projected
+
+
 def build_narration_envelope(
     plan: dict[str, Any],
     *,
@@ -746,7 +773,7 @@ def build_narration_envelope(
         "pressure_moves": list(plan.get("pressure_moves") or []),
         "storylet_moves": list(plan.get("storylet_moves") or []),
         "choice_frame": plan.get("choice_frame") or {},
-        "rules_requests": list(plan.get("rules_requests") or []),
+        "rules_requests": _project_rules_requests(plan),
         "rule_results": _project_rule_results(
             plan, investigator_display_name=investigator_display_name
         ),

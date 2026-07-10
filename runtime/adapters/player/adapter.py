@@ -174,6 +174,26 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
         if response_mode not in {"tool", "prose_fallback"}:
             raise RuntimeError("response_mode must be tool or prose_fallback")
         result["response_mode"] = response_mode
+    pending_response = raw.get("pending_choice_response")
+    if pending_response is not None:
+        if not isinstance(pending_response, dict) or set(pending_response) != {
+            "choice_id", "responder", "revision", "action",
+        }:
+            raise RuntimeError(
+                "pending_choice_response must contain exactly choice_id, responder, revision, and action"
+            )
+        if (
+            not isinstance(pending_response.get("choice_id"), str)
+            or not pending_response["choice_id"].strip()
+            or pending_response.get("responder") != "player"
+            or isinstance(pending_response.get("revision"), bool)
+            or not isinstance(pending_response.get("revision"), int)
+            or pending_response["revision"] < 0
+            or not isinstance(pending_response.get("action"), str)
+            or not pending_response["action"].strip()
+        ):
+            raise RuntimeError("pending_choice_response has invalid player choice fields")
+        result["pending_choice_response"] = dict(pending_response)
     return result
 
 
@@ -195,6 +215,9 @@ def player_send_turn(
     for key in PLAYER_REQUEST_KEYS:
         if key not in request:
             raise ValueError(f"player_send_turn request missing {key!r}")
+    pending = request.get("pending_choice")
+    if isinstance(pending, dict) and pending.get("responder") == "keeper":
+        raise ValueError("Keeper pending choices must never be sent to the player adapter")
 
     # Resolve against the caller's cwd *before* spawning: the subprocess runs
     # with cwd=_player_dir(), which would silently re-anchor relative paths.
@@ -240,4 +263,23 @@ def player_send_turn(
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"player runner stdout is not JSON: {stdout[:200]!r}") from exc
 
-    return parse_runner_response(raw)
+    result = parse_runner_response(raw)
+    typed_response = result.get("pending_choice_response")
+    if isinstance(pending, dict) and pending.get("responder") == "player":
+        if not isinstance(typed_response, dict):
+            raise RuntimeError("player runner must return pending_choice_response")
+        allowed_actions = {
+            str(option.get("action"))
+            for option in (pending.get("options") or [])
+            if isinstance(option, dict) and option.get("action")
+        }
+        if (
+            typed_response.get("choice_id") != pending.get("choice_id")
+            or typed_response.get("responder") != "player"
+            or typed_response.get("revision") != pending.get("revision")
+            or typed_response.get("action") not in allowed_actions
+        ):
+            raise RuntimeError("player response does not match the canonical pending choice")
+    elif typed_response is not None:
+        raise RuntimeError("player returned pending_choice_response without a pending choice")
+    return result

@@ -18,6 +18,7 @@ Rulebook basis: Chapter 8 (Sanity), 7e 40th Anniversary.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import re
@@ -52,11 +53,20 @@ LVL = {"fumble": 0, "failure": 1, "regular": 2, "hard": 3, "extreme": 4, "critic
 # Involuntary action kinds (p.166).
 INVOLUNTARY_KINDS = {
     "jump_in_fright", "cry_out", "involuntary_movement",
-    "involuntary_combat_action", "freeze",
+    "involuntary_combat_action", "freeze", "flee",
 }
 
 # Bout of madness modes.
 BOUT_MODES = {"real_time", "summary"}
+_STABLE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+
+
+def _stable_bout_id(investigator_id: str, sequence: int) -> str:
+    candidate = f"{investigator_id}:bout:{sequence}"
+    if _STABLE_ID.fullmatch(candidate):
+        return candidate
+    material = f"{investigator_id}\0{sequence}".encode("utf-8")
+    return f"bout:{hashlib.sha256(material).hexdigest()}"
 
 # The nine investigator backstory categories (Keeper Rulebook p.157). Bout
 # backstory-amendment suggestions and personal-horror hooks reference these
@@ -199,6 +209,7 @@ class SanitySession:
         # the Keeper controls the investigator and no further SAN can be lost.
         self.bout_active: bool = False
         self.bout_rounds_remaining: int = 0
+        self.active_bout_id: str | None = None
         self.bouts_of_madness: list[dict[str, Any]] = []
         self.daily_san_lost: int = 0  # resets at "end of day" (Keeper-defined)
         # p.156: the indefinite-insanity threshold is a fifth of *current* SAN
@@ -424,7 +435,12 @@ class SanitySession:
         bout_result_text = bout_result or bout_entry.get("result", "")
         bout_kind = bout_entry.get("kind", "")
 
+        bout_id = _stable_bout_id(
+            self.investigator_id,
+            len(self.bouts_of_madness) + 1,
+        )
         bout = {
+            "bout_id": bout_id,
             "mode": mode,
             "summary_table": "table_viii_summary" if mode == "summary" else "table_vii_realtime",
             "bout_roll": bout_roll,
@@ -437,6 +453,7 @@ class SanitySession:
             bout["duration_rounds"] = self._rng.randint(1, 10)
             self.bout_active = True
             self.bout_rounds_remaining = bout["duration_rounds"]
+            self.active_bout_id = bout_id
         self.bouts_of_madness.append(bout)
 
         # p.171 bout-of-madness table: result 9 → phobia, 10 → mania.
@@ -497,9 +514,12 @@ class SanitySession:
         underlying-insanity phase continues (p.158)."""
         if not self.bout_active:
             return
+        bout_id = self.active_bout_id
         self.bout_active = False
         self.bout_rounds_remaining = 0
+        self.active_bout_id = None
         payload: dict[str, Any] = {
+            "bout_id": bout_id,
             "summary": (f"{self.investigator_id} bout of madness ends; control "
                         "returns to the player (underlying insanity continues)."),
         }
@@ -934,6 +954,7 @@ class SanitySession:
             "permanently_insane": self.permanently_insane,
             "bout_active": self.bout_active,
             "bout_rounds_remaining": self.bout_rounds_remaining,
+            "active_bout_id": self.active_bout_id,
             "daily_san_lost": self.daily_san_lost,
             "day_start_san": self.day_start_san,
             "bouts_of_madness": list(self.bouts_of_madness),
@@ -1067,6 +1088,18 @@ class SanitySession:
             snap.get("symptoms_suppressed_until_next_san_loss", False)
         )
         sess.bouts_of_madness = list(snap.get("bouts_of_madness") or [])
+        active_bout_id = snap.get("active_bout_id")
+        if isinstance(active_bout_id, str) and active_bout_id:
+            sess.active_bout_id = active_bout_id
+        elif sess.bout_active and sess.bouts_of_madness:
+            last_bout = sess.bouts_of_madness[-1]
+            if isinstance(last_bout, dict):
+                recovered_id = str(
+                    last_bout.get("bout_id")
+                    or _stable_bout_id(investigator_id, len(sess.bouts_of_madness))
+                )
+                last_bout.setdefault("bout_id", recovered_id)
+                sess.active_bout_id = recovered_id
         sess.involuntary_actions = list(snap.get("involuntary_actions") or [])
         saved_events = snap.get("events") or []
         sess.events = list(saved_events)

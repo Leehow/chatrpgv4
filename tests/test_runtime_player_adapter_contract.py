@@ -113,6 +113,37 @@ def test_parse_runner_response_accepts_valid_intent_class():
     assert parsed["intent_class"] == "investigate"
 
 
+def test_parse_runner_response_accepts_typed_player_pending_choice_response():
+    adapter = _load_adapter()
+    response = {
+        "choice_id": "push-offer:confirm",
+        "responder": "player",
+        "revision": 0,
+        "action": "cancel",
+    }
+    parsed = adapter.parse_runner_response({
+        "ok": True,
+        "player_text": "我不冒这个险。",
+        "pending_choice_response": response,
+    })
+    assert parsed["pending_choice_response"] == response
+
+
+def test_parse_runner_response_rejects_keeper_pending_choice_response():
+    adapter = _load_adapter()
+    with pytest.raises(RuntimeError, match="pending_choice_response"):
+        adapter.parse_runner_response({
+            "ok": True,
+            "player_text": "继续。",
+            "pending_choice_response": {
+                "choice_id": "san:bout",
+                "responder": "keeper",
+                "revision": 0,
+                "action": "tick",
+            },
+        })
+
+
 def test_parse_runner_response_preserves_observed_model_and_response_mode():
     adapter = _load_adapter()
     parsed = adapter.parse_runner_response(
@@ -151,6 +182,35 @@ def test_player_send_turn_round_trip_with_fake_runner(tmp_path):
     result = adapter.player_send_turn(_sample_request(), runner_path=runner)
     assert result["player_text"] == "我仔细检查门廊上的脚印。"
     assert result["player_notes"] == "脚印可能通向侧门。"
+
+
+def test_player_send_turn_rejects_response_mismatching_requested_choice(tmp_path):
+    adapter = _load_adapter()
+    runner = tmp_path / "fake_mismatched_choice"
+    _write_fake_runner(
+        runner,
+        stdout=json.dumps({
+            "ok": True,
+            "player_text": "我确认。",
+            "pending_choice_response": {
+                "choice_id": "another-choice",
+                "responder": "player",
+                "revision": 0,
+                "action": "confirm",
+            },
+        }) + "\n",
+    )
+    request = _sample_request()
+    request["pending_choice"] = {
+        "choice_id": "push-offer:confirm",
+        "kind": "push_confirm",
+        "responder": "player",
+        "revision": 0,
+        "options": [{"action": "confirm", "label": "Push"}],
+    }
+
+    with pytest.raises(RuntimeError, match="canonical pending choice"):
+        adapter.player_send_turn(request, runner_path=runner)
 
 
 def test_player_send_turn_requires_request_keys(tmp_path):
@@ -273,5 +333,6 @@ def test_run_player_turn_mjs_is_real_bridge_not_placeholder():
     assert "session.model" in source
     assert "model_identity" in source
     assert "response_mode" in source
+    assert "pending_choice_response" in source
     pkg = json.loads((PLAYER_DIR / "package.json").read_text(encoding="utf-8"))
     assert pkg["dependencies"]["@earendil-works/pi-coding-agent"] == "0.79.9"

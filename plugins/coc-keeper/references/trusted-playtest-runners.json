@@ -6,7 +6,7 @@
       "kind": "external_model_bridge",
       "identity": "coc-runtime-player-adapter@0.79.9",
       "path": "runtime/adapters/player/run_player_turn.mjs",
-      "sha256": "772b3a16869424c1d58e0774860860283a836e7878441335aab2a879a198607c",
+      "sha256": "04ee508e7267c9a87b345599a15ee227d7103d20758dea5ced6bf8278273ac97",
       "package_identity": {
         "name": "@earendil-works/pi-coding-agent",
         "version": "0.79.9"

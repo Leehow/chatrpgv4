@@ -69,6 +69,86 @@ def _build_mini_campaign(tmp_path):
     return camp, char_dir / "character.json"
 
 
+def _persist_driver_push_offer(camp: Path, char_path: Path) -> dict:
+    origin = {
+        "command_id": "driver-push-origin",
+        "kind": "skill_check",
+        "phase": "resolve",
+        "payload": {
+            "decision_id": "driver-push-origin-decision",
+            "roll_id": "driver-push-origin-roll",
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+            "roll_contract": {
+                "push_policy": {
+                    "eligible": True,
+                    "requires_changed_method": True,
+                    "keeper_must_foreshadow_failure": True,
+                },
+            },
+            "resolution_context": {
+                "scene_action": "SUBSYSTEM",
+                "clue_policy": {},
+                "narrative_directives": {},
+                "rule_signals": {},
+            },
+        },
+    }
+    failed = driver.subsystem_executor.execute_commands(
+        camp, char_path, "inv1", [origin], rng=random.Random(5)
+    )[0]
+    assert failed["events"][0]["outcome"] == "failure"
+    offer = {
+        "command_id": "driver-persisted-push",
+        "kind": "push_offer",
+        "phase": "offer",
+        "payload": {
+            "decision_id": "driver-push-offer-decision",
+            "original_command_id": "driver-push-origin",
+            "changed_method_evidence": {
+                "changed": True,
+                "source": "player_proposal",
+                "summary": "inspect paper impressions instead of rereading",
+            },
+            "announced_consequence": {
+                "summary": "the watcher identifies the investigator",
+                "effect": {"kind": "fictional_position"},
+            },
+        },
+    }
+    return driver.subsystem_executor.execute_commands(
+        camp, char_path, "inv1", [offer], rng=random.Random(116)
+    )[0]
+
+
+def _persist_driver_bout(camp: Path, char_path: Path) -> dict:
+    character = json.loads(char_path.read_text())
+    character["characteristics"].update({"POW": 99, "INT": 99})
+    character["derived"]["SAN"] = 99
+    char_path.write_text(json.dumps(character))
+    return driver.subsystem_executor.execute_commands(
+        camp,
+        char_path,
+        "inv1",
+        [{
+            "command_id": "driver-bout-origin",
+            "kind": "sanity_check",
+            "phase": "resolve",
+            "payload": {
+                "decision_id": "driver-bout-decision",
+                "roll_id": "driver-bout-roll",
+                "san_loss_success": 5,
+                "san_loss_fail_expr": "5",
+                "source": "driver horror",
+                "alone": False,
+                "involuntary_kind": "flee",
+                "module_bout_override": {"force_mode": "real_time"},
+            },
+        }],
+        rng=random.Random(1),
+    )[0]
+
+
 def test_driver_projection_preserves_live_subsystem_result_without_reexecution():
     subsystem_result = {
         "command_id": "turn-001-rule-1",
@@ -94,18 +174,7 @@ def test_driver_projection_preserves_live_subsystem_result_without_reexecution()
 
 def test_driver_stops_on_canonical_persisted_pending_choice(tmp_path):
     camp, char_path = _build_mini_campaign(tmp_path)
-    offered = driver.subsystem_executor.execute_commands(
-        camp,
-        char_path,
-        "inv1",
-        [{
-            "command_id": "driver-persisted-push",
-            "kind": "push_offer",
-            "phase": "offer",
-            "payload": {},
-        }],
-        rng=random.Random(116),
-    )[0]
+    offered = _persist_driver_push_offer(camp, char_path)
 
     result = driver.run_full_session(
         camp,
@@ -119,6 +188,64 @@ def test_driver_stops_on_canonical_persisted_pending_choice(tmp_path):
     assert result["pending_choice"] == offered["pending_choice"]
     assert len(result["turns"]) == 1
     assert result["turns"][0]["blocked_by_pending_choice"] is True
+
+
+def test_driver_forwards_scripted_typed_pending_choice_response(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    offered = _persist_driver_push_offer(camp, char_path)
+    choice = offered["pending_choice"]
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{
+            "pending_choice_response": {
+                "choice_id": choice["choice_id"],
+                "responder": "player",
+                "revision": choice["revision"],
+                "action": "cancel",
+            },
+        }],
+        max_turns=1,
+        rng_seed=118,
+    )
+
+    assert result["pending_choice"] is None
+    assert result["subsystem_results"][0]["status"] == "cancelled"
+
+
+def test_driver_continues_keeper_bout_when_next_scripted_responses_are_typed(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    started = _persist_driver_bout(camp, char_path)
+    choice = started["pending_choice"]
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[
+            {"pending_choice_response": {
+                "choice_id": choice["choice_id"],
+                "responder": "keeper",
+                "revision": 0,
+                "action": "tick",
+            }},
+            {"pending_choice_response": {
+                "choice_id": choice["choice_id"],
+                "responder": "keeper",
+                "revision": 1,
+                "action": "end",
+            }},
+        ],
+        max_turns=2,
+        rng_seed=119,
+    )
+
+    assert [row["kind"] for row in result["subsystem_results"]] == [
+        "bout_tick",
+        "bout_end",
+    ]
+    assert result["pending_choice"] is None
 
 
 def test_driver_advances_through_scenes(tmp_path):

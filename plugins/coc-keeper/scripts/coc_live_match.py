@@ -591,51 +591,83 @@ def run_live_match(
     current_playability = investigator_playability(camp, investigator_id)
 
     for _offset in range(max(1, int(max_turns))):
-        current_playability = investigator_playability(camp, investigator_id)
-        playability_stop = _playability_stop_reason(current_playability)
-        if playability_stop:
-            stop_reason = playability_stop
-            pending = current_playability.get("pending_resolution")
-            pending_resolution = dict(pending) if isinstance(pending, dict) else None
-            break
+        canonical_pending = live_turn_runner.subsystem_executor.get_current_pending_choice(camp)
+        keeper_progression = (
+            isinstance(canonical_pending, dict)
+            and canonical_pending.get("responder") == "keeper"
+        )
+        if keeper_progression:
+            allowed_actions = {
+                str(option.get("action"))
+                for option in (canonical_pending.get("options") or [])
+                if isinstance(option, dict) and option.get("action")
+            }
+            if "tick" not in allowed_actions:
+                stop_reason = "keeper_pending_choice_requires_explicit_policy"
+                pending_resolution = {
+                    "kind": "keeper_subsystem_choice",
+                    "choice_id": canonical_pending.get("choice_id"),
+                }
+                break
+            player_result = {
+                "ok": True,
+                "player_text": "",
+                "pending_choice_response": {
+                    "choice_id": canonical_pending["choice_id"],
+                    "responder": "keeper",
+                    "revision": canonical_pending["revision"],
+                    "action": "tick",
+                },
+            }
+        else:
+            current_playability = investigator_playability(camp, investigator_id)
+            playability_stop = _playability_stop_reason(current_playability)
+            if playability_stop:
+                stop_reason = playability_stop
+                pending = current_playability.get("pending_resolution")
+                pending_resolution = dict(pending) if isinstance(pending, dict) else None
+                break
 
-        narration = player_visible_narration(
-            last_turn,
-            camp,
-            play_language=play_language,
-            previous_affordance_ids=previous_affordance_ids,
-        )
-        request = build_player_request(
-            ws,
-            campaign_id,
-            narration=narration,
-            character_card=character_card,
-            transcript_tail=transcript_tail[-transcript_tail_limit:],
-        )
-        player_requests.append(json.loads(json.dumps(request, ensure_ascii=False)))
-
-        player_result = player_adapter.player_send_turn(
-            request,
-            runner_path=runner,
-            timeout_s=timeout_s,
-        )
-        player_response_mode = player_result.get("response_mode")
-        invocation_rows.append(
-            _invocation_row(
-                run_dir=out,
-                role="player",
-                runner_path=runner,
-                attempt=len([r for r in invocation_rows if r.get("role") == "player"]) + 1,
-                outcome="external_success",
-                model_identity=player_result.get("model_identity"),
-                response_mode=player_response_mode,
-                fallback_kind=(
-                    "prose_degradation"
-                    if player_response_mode == "prose_fallback"
-                    else None
-                ),
+            narration = player_visible_narration(
+                last_turn,
+                camp,
+                play_language=play_language,
+                previous_affordance_ids=previous_affordance_ids,
             )
-        )
+            request = build_player_request(
+                ws,
+                campaign_id,
+                narration=narration,
+                character_card=character_card,
+                transcript_tail=transcript_tail[-transcript_tail_limit:],
+            )
+            player_requests.append(json.loads(json.dumps(request, ensure_ascii=False)))
+
+            player_result = player_adapter.player_send_turn(
+                request,
+                runner_path=runner,
+                timeout_s=timeout_s,
+            )
+        player_response_mode = player_result.get("response_mode")
+        if not keeper_progression:
+            invocation_rows.append(
+                _invocation_row(
+                    run_dir=out,
+                    role="player",
+                    runner_path=runner,
+                    attempt=len(
+                        [r for r in invocation_rows if r.get("role") == "player"]
+                    ) + 1,
+                    outcome="external_success",
+                    model_identity=player_result.get("model_identity"),
+                    response_mode=player_response_mode,
+                    fallback_kind=(
+                        "prose_degradation"
+                        if player_response_mode == "prose_fallback"
+                        else None
+                    ),
+                )
+            )
         player_text = player_result["player_text"]
         player_notes = player_result.get("player_notes")
         # Per-turn structured intent from the player brain takes precedence over
@@ -649,6 +681,7 @@ def run_live_match(
             player_text,
             intent_class=turn_intent_class,
             player_intent_rich=player_intent_rich,
+            pending_choice_response=player_result.get("pending_choice_response"),
             max_auto_advance=1,
             auto_advance_low_agency=False,
             recording_mode="sync",
@@ -663,18 +696,23 @@ def run_live_match(
             "player_notes": player_notes,
             "intent_class": turn_intent_class,
         }
-        player_choices.append(choice_record)
-        player_turns.append(
-            {
-                "player_text": player_text,
-                "player_notes": player_notes,
-                "live_result": {
-                    "auto_advance": live_result.get("auto_advance"),
-                    "final_state": live_result.get("final_state"),
-                },
-            }
-        )
-        transcript_tail.append({"role": "player", "text": player_text})
+        if not keeper_progression:
+            if isinstance(player_result.get("pending_choice_response"), dict):
+                choice_record["pending_choice_response"] = dict(
+                    player_result["pending_choice_response"]
+                )
+            player_choices.append(choice_record)
+            player_turns.append(
+                {
+                    "player_text": player_text,
+                    "player_notes": player_notes,
+                    "live_result": {
+                        "auto_advance": live_result.get("auto_advance"),
+                        "final_state": live_result.get("final_state"),
+                    },
+                }
+            )
+            transcript_tail.append({"role": "player", "text": player_text})
 
         for live_turn in live_result.get("turns") or []:
             decision_id = str(live_turn.get("decision_id") or "")
@@ -750,6 +788,12 @@ def run_live_match(
         if turn_terminal["session_ending"]:
             stop_reason = "session_ending"
             break
+        pending_after = live_turn_runner.subsystem_executor.get_current_pending_choice(camp)
+        if (
+            isinstance(pending_after, dict)
+            and pending_after.get("responder") == "keeper"
+        ):
+            continue
         current_playability = investigator_playability(camp, investigator_id)
         playability_stop = _playability_stop_reason(current_playability)
         if playability_stop:

@@ -2082,6 +2082,189 @@ def test_apply_pushed_success_with_gate_does_not_set_pending(tmp_path):
     assert not any(e.get("event_type") == "push_gate_violation" for e in events)
 
 
+def _execute_normalized_push_lifecycle(
+    camp: Path,
+    character: Path,
+    *,
+    reroll_seed: int,
+) -> tuple[dict, list[dict], dict, list[dict]]:
+    executor = coc_director_apply.coc_subsystem_executor
+    origin_plan = {
+        "decision_id": "push-origin-decision",
+        "scene_action": "REVEAL",
+        "clue_policy": {
+            "clue_type": "obscured",
+            "reveal": ["clue-A"],
+            "fallback_routes": ["clue-B"],
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+        },
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+        "rules_requests": [{
+            "kind": "skill_check",
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+            "roll_contract": {
+                "schema_version": 1,
+                "goal": "surface clue-A",
+                "success_effect": "commit clue-A",
+                "failure_effect": "the watcher notices the search",
+                "failure_outcome_mode": "clue_with_cost",
+                "push_policy": {
+                    "eligible": True,
+                    "requires_changed_method": True,
+                    "keeper_must_foreshadow_failure": True,
+                },
+                "roll_density_group": "clue:clue-A",
+                "must_not": ["do not reveal clue-A on failure"],
+            },
+            "resolution_context": {
+                "scene_action": "REVEAL",
+                "clue_policy": {
+                    "clue_type": "obscured",
+                    "reveal": ["clue-A"],
+                    "fallback_routes": ["clue-B"],
+                    "skill": "Spot Hidden",
+                    "difficulty": "regular",
+                },
+            },
+        }],
+    }
+    origin_commands = executor.commands_from_rules_requests(origin_plan)
+    origin_results = executor.execute_commands(
+        camp,
+        character,
+        "inv1",
+        origin_commands,
+        rng=random.Random(5),
+    )
+    assert origin_results[0]["events"][0]["outcome"] == "failure"
+    coc_director_apply.apply_plan(
+        camp,
+        origin_plan,
+        "inv1",
+        rules_results=origin_results,
+        rules_results_mode="normalized",
+    )
+    offer_plan = {
+        "decision_id": "push-offer-decision",
+        "scene_action": "SUBSYSTEM",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+        "rules_requests": [{
+            "kind": "push_offer",
+            "original_command_id": origin_commands[0]["command_id"],
+            "changed_method_evidence": {
+                "changed": True,
+                "source": "player_proposal",
+                "summary": "inspect the binding impressions",
+            },
+            "announced_consequence": {
+                "summary": "the watcher identifies the investigator on failure",
+                "effect": {"kind": "fictional_position", "severity": "serious"},
+            },
+        }],
+    }
+    offer_results = executor.execute_commands(
+        camp,
+        character,
+        "inv1",
+        executor.commands_from_rules_requests(offer_plan),
+        rng=random.Random(216),
+    )
+    choice = offer_results[0]["pending_choice"]
+    response = {
+        "choice_id": choice["choice_id"],
+        "responder": "player",
+        "revision": choice["revision"],
+        "action": "confirm",
+    }
+    resume_plan = executor.plan_from_pending_choice_response(camp, "inv1", response)
+    resume_commands = executor.commands_from_rules_requests(resume_plan)
+    resume_results = executor.execute_commands(
+        camp,
+        character,
+        "inv1",
+        resume_commands,
+        rng=random.Random(reroll_seed),
+    )
+    return origin_plan, origin_results, resume_plan, resume_results
+
+
+def test_normalized_pushed_success_settles_originally_withheld_clue(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    _origin_plan, _origin_results, resume_plan, resume_results = (
+        _execute_normalized_push_lifecycle(camp, character, reroll_seed=1)
+    )
+    assert "clue-A" not in json.loads(
+        (camp / "save" / "world-state.json").read_text()
+    )["discovered_clue_ids"]
+
+    events = coc_director_apply.apply_plan(
+        camp,
+        resume_plan,
+        "inv1",
+        rules_results=resume_results,
+        rules_results_mode="normalized",
+    )
+
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert "clue-A" in world["discovered_clue_ids"]
+    assert any(event.get("event_type") == "clue_reveal" for event in events)
+
+
+def test_normalized_pushed_failure_applies_exact_announced_consequence_once(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    _origin_plan, _origin_results, resume_plan, resume_results = (
+        _execute_normalized_push_lifecycle(camp, character, reroll_seed=5)
+    )
+    expected = {
+        "summary": "the watcher identifies the investigator on failure",
+        "effect": {"kind": "fictional_position", "severity": "serious"},
+    }
+
+    events = coc_director_apply.apply_plan(
+        camp,
+        resume_plan,
+        "inv1",
+        rules_results=resume_results,
+        rules_results_mode="normalized",
+    )
+
+    pushed = [event for event in events if event.get("event_type") == "pushed_roll_failure"]
+    assert len(pushed) == 1
+    assert pushed[0]["push_gate"] == _FULL_PUSH_GATE
+    assert pushed[0]["announced_consequence"] == expected
+    assert pushed[0]["original_command_id"] == "push-origin-decision-rule-1"
+    assert pushed[0]["original_roll_id"] == "push-origin-decision-rule-1"
+    assert pushed[0]["source_command_id"] == resume_results[-1]["command_id"]
+    assert not any(event.get("event_type") == "failure_consequence" for event in events)
+    before = (camp / "logs" / "events.jsonl").read_bytes()
+
+    replay = coc_director_apply.apply_plan(
+        camp,
+        resume_plan,
+        "inv1",
+        rules_results=resume_results,
+        rules_results_mode="normalized",
+    )
+
+    assert replay == [{
+        "event_type": "apply_skipped",
+        "skipped": "duplicate_decision_id",
+        "decision_id": resume_plan["decision_id"],
+    }]
+    assert (camp / "logs" / "events.jsonl").read_bytes() == before
+
+
 # =============================================================================
 # W2-2: auto skill-tick recording on rules_results landing
 # =============================================================================

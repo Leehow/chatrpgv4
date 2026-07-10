@@ -8,6 +8,7 @@ the next real interrupt.
 import importlib.util
 import json
 import os
+import random
 import time
 from pathlib import Path
 
@@ -134,6 +135,120 @@ def _build_live_campaign(tmp_path):
         "win_condition": "continue live play",
     }))
     return camp, char_path
+
+
+def _persist_live_push_offer(camp: Path, char_path: Path) -> dict:
+    executor = live_runner.subsystem_executor
+    origin = {
+        "command_id": "live-push-origin",
+        "kind": "skill_check",
+        "phase": "resolve",
+        "payload": {
+            "decision_id": "live-push-origin-decision",
+            "roll_id": "live-push-origin-roll",
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+            "roll_contract": {
+                "push_policy": {
+                    "eligible": True,
+                    "requires_changed_method": True,
+                    "keeper_must_foreshadow_failure": True,
+                },
+            },
+            "resolution_context": {
+                "scene_action": "REVEAL",
+                "clue_policy": {},
+                "narrative_directives": {},
+                "rule_signals": {},
+            },
+        },
+    }
+    original = executor.execute_commands(
+        camp, char_path, "inv1", [origin], rng=random.Random(5)
+    )[0]
+    assert original["events"][0]["outcome"] == "failure"
+    offer = {
+        "command_id": "live-push-offer",
+        "kind": "push_offer",
+        "phase": "offer",
+        "payload": {
+            "decision_id": "live-push-offer-decision",
+            "original_command_id": "live-push-origin",
+            "changed_method_evidence": {
+                "changed": True,
+                "source": "player_proposal",
+                "summary": "inspect the paper impressions instead of rereading",
+            },
+            "announced_consequence": {
+                "summary": "the watcher identifies the investigator",
+                "effect": {
+                    "kind": "fictional_position",
+                    "severity": "serious",
+                    "keeper_secret": "the watcher is the hidden cult leader",
+                },
+            },
+        },
+    }
+    return executor.execute_commands(
+        camp, char_path, "inv1", [offer], rng=random.Random(211)
+    )[0]
+
+
+def _persist_live_realtime_bout(camp: Path, char_path: Path) -> dict:
+    character = json.loads(char_path.read_text())
+    character["characteristics"]["POW"] = 99
+    character["characteristics"]["INT"] = 99
+    character["derived"]["SAN"] = 99
+    char_path.write_text(json.dumps(character))
+    command = {
+        "command_id": "live-bout-origin",
+        "kind": "sanity_check",
+        "phase": "resolve",
+        "payload": {
+            "decision_id": "live-bout-decision",
+            "roll_id": "live-bout-roll",
+            "san_loss_success": 5,
+            "san_loss_fail_expr": "5",
+            "source": "live structured horror",
+            "alone": False,
+            "involuntary_kind": "flee",
+            "involuntary_summary": "run toward the lit doorway",
+            "module_bout_override": {
+                "force_mode": "real_time",
+                "result_description": "keeper-private bout direction",
+            },
+        },
+    }
+    return live_runner.subsystem_executor.execute_commands(
+        camp, char_path, "inv1", [command], rng=random.Random(1)
+    )[0]
+
+
+def _run_failed_live_origin(camp: Path, char_path: Path) -> dict:
+    clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
+    clue_graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "skill_check",
+        "skill": "Spot Hidden",
+        "difficulty": "regular",
+    })
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我检查桌上的文件。",
+        intent_class="investigate",
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=5,
+    )
+    origin = next(
+        row
+        for row in result["subsystem_results"]
+        if row.get("kind") == "skill_check"
+    )
+    assert origin["events"][0]["outcome"] == "failure"
+    return origin
 
 
 def test_live_turn_defaults_to_fast_background_recording_and_receipt(tmp_path, monkeypatch):
@@ -1472,45 +1587,10 @@ def test_live_turn_exposes_normalized_subsystem_results_and_passes_them_to_apply
     ]
 
 
-def test_live_turn_returns_current_stable_pending_choice(tmp_path, monkeypatch):
+def test_live_turn_returns_current_stable_pending_choice(tmp_path):
     camp, char_path = _build_live_campaign(tmp_path)
-
-    def push_commands_from_plan(plan):
-        return [{
-            "command_id": f"{plan['decision_id']}-push",
-            "kind": "push_offer",
-            "phase": "offer",
-            "payload": {
-                "decision_id": plan["decision_id"],
-                "original_roll_id": f"{plan['decision_id']}-rule-1",
-            },
-        }]
-
-    monkeypatch.setattr(
-        live_runner.subsystem_executor,
-        "commands_from_rules_requests",
-        push_commands_from_plan,
-    )
-    monkeypatch.setattr(
-        live_runner.apply_mod.coc_subsystem_executor,
-        "commands_from_rules_requests",
-        push_commands_from_plan,
-    )
-    result = live_runner.run_live_turn(
-        camp,
-        char_path,
-        "inv1",
-        "我要考虑是否孤注一掷。",
-        intent_class="investigate",
-        recording_mode="sync",
-        max_auto_advance=1,
-        rng_seed=38,
-    )
-
-    expected_id = f"{result['turns'][0]['decision_id']}-push:confirm"
-    assert result["pending_choice"]["choice_id"] == expected_id
-    assert result["pending_choice"] == result["turns"][0]["pending_choice"]
-    assert result["subsystem_results"][-1]["status"] == "pending_choice"
+    offered = _persist_live_push_offer(camp, char_path)
+    assert offered["pending_choice"]["choice_id"] == "live-push-offer:confirm"
 
     state_before = json.loads((camp / "save" / "subsystem-state.json").read_text())
     side_effect_paths = [
@@ -1538,7 +1618,7 @@ def test_live_turn_returns_current_stable_pending_choice(tmp_path, monkeypatch):
         rng_seed=39,
     )
 
-    assert blocked["pending_choice"] == result["pending_choice"]
+    assert blocked["pending_choice"] == offered["pending_choice"]
     assert blocked["auto_advance"]["stop_reason"] == "pending_subsystem_choice"
     assert blocked["turns"][0]["blocked_by_pending_choice"] is True
     assert blocked["turns"][0]["subsystem_results"] == []
@@ -1548,3 +1628,248 @@ def test_live_turn_returns_current_stable_pending_choice(tmp_path, monkeypatch):
         path: path.read_bytes() if path.exists() else None
         for path in side_effect_paths
     } == side_effects_before
+
+
+def test_live_turn_consumes_typed_push_cancel_before_intent_routing(tmp_path, monkeypatch):
+    camp, char_path = _build_live_campaign(tmp_path)
+    offered = _persist_live_push_offer(camp, char_path)
+    choice = offered["pending_choice"]
+    monkeypatch.setattr(
+        live_runner,
+        "_resolve_turn_intent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("pending response must bypass intent routing")
+        ),
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "",
+        pending_choice_response={
+            "choice_id": choice["choice_id"],
+            "responder": "player",
+            "revision": choice["revision"],
+            "action": "cancel",
+        },
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=39,
+    )
+
+    assert result["intent_resolution"]["source"] == "pending_choice_response"
+    assert [row["status"] for row in result["subsystem_results"]] == ["cancelled"]
+    assert result["pending_choice"] is None
+    assert result["turns"][0]["rules_requests"][0]["kind"] == "push_confirm"
+
+
+def test_live_turn_confirms_push_and_replays_same_resume_without_second_roll(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    offered = _persist_live_push_offer(camp, char_path)
+    choice = offered["pending_choice"]
+    response = {
+        "choice_id": choice["choice_id"],
+        "responder": "player",
+        "revision": choice["revision"],
+        "action": "confirm",
+    }
+    rng = random.Random(1)
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "",
+        pending_choice_response=response,
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng=rng,
+    )
+    rng_after = rng.getstate()
+    replay = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "",
+        pending_choice_response=response,
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng=rng,
+    )
+
+    assert [row["kind"] for row in result["subsystem_results"]] == [
+        "push_confirm",
+        "push_resolve",
+    ]
+    assert result["subsystem_results"][-1]["events"][0]["pushed"] is True
+    assert replay["subsystem_results"] == result["subsystem_results"]
+    assert rng.getstate() == rng_after
+
+
+def test_live_turn_keeper_tick_advances_bout_with_typed_response(tmp_path, monkeypatch):
+    camp, char_path = _build_live_campaign(tmp_path)
+    started = _persist_live_realtime_bout(camp, char_path)
+    choice = started["pending_choice"]
+    sanity_before = json.loads((camp / "save" / "sanity.json").read_text())
+    monkeypatch.setattr(
+        live_runner,
+        "_resolve_turn_intent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Keeper bout progression must bypass intent routing")
+        ),
+    )
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "",
+        pending_choice_response={
+            "choice_id": choice["choice_id"],
+            "responder": "keeper",
+            "revision": choice["revision"],
+            "action": "tick",
+        },
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=40,
+    )
+    sanity_after = json.loads((camp / "save" / "sanity.json").read_text())
+
+    assert result["subsystem_results"][0]["kind"] == "bout_tick"
+    assert sanity_after["bout_rounds_remaining"] == sanity_before["bout_rounds_remaining"] - 1
+    if sanity_after["bout_active"]:
+        assert result["pending_choice"]["responder"] == "keeper"
+        assert result["pending_choice"]["revision"] == choice["revision"] + 1
+
+
+def test_live_failed_roll_offers_push_through_typed_production_request_then_cancels(
+    tmp_path,
+):
+    camp, char_path = _build_live_campaign(tmp_path)
+    origin = _run_failed_live_origin(camp, char_path)
+    assert origin["events"][0]["resolution_context"]["scene_action"] == "REVEAL"
+
+    offered = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "",
+        subsystem_request={
+            "kind": "push_offer",
+            "original_command_id": origin["command_id"],
+            "changed_method_evidence": {
+                "changed": True,
+                "source": "player_proposal",
+                "summary": "inspect paper impressions instead of rereading",
+            },
+            "announced_consequence": {
+                "summary": "the watcher identifies the investigator",
+                "effect": {
+                    "kind": "fictional_position",
+                    "severity": "serious",
+                    "keeper_secret": "the watcher is the hidden cult leader",
+                },
+            },
+        },
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=225,
+    )
+    choice = offered["pending_choice"]
+    assert offered["subsystem_results"][0]["kind"] == "push_offer"
+    assert choice["kind"] == "push_confirm"
+    envelope_json = json.dumps(
+        offered["turns"][0]["narration_envelope"], ensure_ascii=False
+    )
+    assert "the watcher identifies the investigator" in envelope_json
+    assert "keeper_secret" not in envelope_json
+    assert "hidden cult leader" not in envelope_json
+
+    cancelled = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "",
+        pending_choice_response={
+            "choice_id": choice["choice_id"],
+            "responder": "player",
+            "revision": choice["revision"],
+            "action": "cancel",
+        },
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=226,
+    )
+
+    assert cancelled["subsystem_results"][0]["status"] == "cancelled"
+    assert cancelled["pending_choice"] is None
+
+
+def test_live_pushed_failure_applies_announced_consequence_once_across_replay(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    origin = _run_failed_live_origin(camp, char_path)
+    offered = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "",
+        subsystem_request={
+            "kind": "push_offer",
+            "original_command_id": origin["command_id"],
+            "changed_method_evidence": {
+                "changed": True,
+                "source": "player_proposal",
+                "summary": "inspect paper impressions instead of rereading",
+            },
+            "announced_consequence": {
+                "summary": "the watcher identifies the investigator",
+                "effect": {"kind": "fictional_position", "severity": "serious"},
+            },
+        },
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=227,
+    )
+    choice = offered["pending_choice"]
+    response = {
+        "choice_id": choice["choice_id"],
+        "responder": "player",
+        "revision": choice["revision"],
+        "action": "confirm",
+    }
+    first = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "",
+        pending_choice_response=response,
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=5,
+    )
+    assert first["subsystem_results"][-1]["events"][0]["outcome"] == "failure"
+    event_log = camp / "logs" / "events.jsonl"
+    rows_after_first = [
+        json.loads(line) for line in event_log.read_text().splitlines() if line.strip()
+    ]
+    pushed_failures = [
+        row for row in rows_after_first
+        if (row.get("payload") or {}).get("event_type") == "pushed_roll_failure"
+        or row.get("event_type") == "pushed_roll_failure"
+    ]
+    assert len(pushed_failures) == 1
+
+    replay = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "",
+        pending_choice_response=response,
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=228,
+    )
+    assert replay["subsystem_results"] == first["subsystem_results"]
+    assert [
+        json.loads(line) for line in event_log.read_text().splitlines() if line.strip()
+    ] == rows_after_first

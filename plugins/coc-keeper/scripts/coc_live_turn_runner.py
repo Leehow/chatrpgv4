@@ -16,6 +16,7 @@ memory during chat:
 from __future__ import annotations
 
 import json
+import hashlib
 import random
 import time
 from pathlib import Path
@@ -513,6 +514,26 @@ def _should_auto_advance(turn: dict[str, Any], *, enabled: bool) -> bool:
     return False
 
 
+def _bind_roll_resolution_context(plan: dict[str, Any]) -> None:
+    """Persist the exact structured plan slice an ordinary push may resume."""
+    context = {
+        "scene_action": plan.get("scene_action"),
+        "clue_policy": _copy_jsonable(plan.get("clue_policy") or {}),
+        "narrative_directives": _copy_jsonable(
+            plan.get("narrative_directives") or {}
+        ),
+        "rule_signals": _copy_jsonable(plan.get("rule_signals") or {}),
+    }
+    if isinstance(plan.get("turn_input"), dict):
+        context["turn_input"] = _copy_jsonable(plan["turn_input"])
+    for request in plan.get("rules_requests") or []:
+        if not isinstance(request, dict):
+            continue
+        if request.get("kind") not in {"skill_check", "characteristic_check"}:
+            continue
+        request.setdefault("resolution_context", _copy_jsonable(context))
+
+
 def _run_one_turn(
     *,
     campaign_dir: Path,
@@ -551,6 +572,7 @@ def _run_one_turn(
 
     plan = director.generate_director_plan(ctx, decision_id=decision_id)
     plan = narrative_enrichment.enrich_director_plan(plan, ctx)
+    _bind_roll_resolution_context(plan)
     _recording_defaults(plan, recording_mode, recording_flush)
 
     rules_recorder = _new_rules_recorder(campaign_dir, recording_mode, decision_id)
@@ -684,6 +706,8 @@ def run_live_turn(
     *,
     intent_class: str | None = None,
     player_intent_rich: dict[str, Any] | None = None,
+    pending_choice_response: dict[str, Any] | None = None,
+    subsystem_request: dict[str, Any] | None = None,
     max_auto_advance: int = 3,
     auto_advance_low_agency: bool = True,
     recording_mode: str = "fast",
@@ -725,6 +749,8 @@ def run_live_turn(
             player_text,
             intent_class=intent_class,
             player_intent_rich=player_intent_rich,
+            pending_choice_response=pending_choice_response,
+            subsystem_request=subsystem_request,
             max_auto_advance=max_auto_advance,
             auto_advance_low_agency=auto_advance_low_agency,
             recording_mode=recording_mode,
@@ -876,6 +902,254 @@ def _pending_choice_blocked_result(
     }
 
 
+def _plan_from_typed_subsystem_request(
+    investigator_id: str,
+    request: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(request, dict) or set(request) != {
+        "kind",
+        "original_command_id",
+        "changed_method_evidence",
+        "announced_consequence",
+    }:
+        raise ValueError(
+            "subsystem_request must contain exactly kind, original_command_id, "
+            "changed_method_evidence, and announced_consequence"
+        )
+    if request.get("kind") != "push_offer":
+        raise ValueError("subsystem_request currently supports only push_offer")
+    material = json.dumps(
+        {"investigator_id": investigator_id, "request": request},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    digest = hashlib.sha256(material).hexdigest()
+    decision_id = f"subsystem-{digest[:32]}"
+    return {
+        "decision_id": decision_id,
+        "scene_action": "SUBSYSTEM",
+        "rules_requests": [{
+            "command_id": f"push-offer:{digest}",
+            "kind": "push_offer",
+            "original_command_id": request["original_command_id"],
+            "changed_method_evidence": _copy_jsonable(
+                request["changed_method_evidence"]
+            ),
+            "announced_consequence": _copy_jsonable(
+                request["announced_consequence"]
+            ),
+        }],
+        "clue_policy": {},
+        "narrative_directives": {},
+        "rule_signals": {},
+        "pressure_moves": [],
+        "memory_writes": [],
+    }
+
+
+def _run_pending_choice_response(
+    campaign: Path,
+    character_path: Path,
+    investigator_id: str,
+    player_text: str,
+    response: dict[str, Any],
+    *,
+    recording_mode: str,
+    recording_flush: str,
+    rng: random.Random | None,
+    rng_seed: int | str | None,
+    max_auto_advance: int,
+    auto_advance_low_agency: bool,
+    state_patch: dict[str, Any] | None,
+    plan_override: dict[str, Any] | None = None,
+    intent_source: str = "pending_choice_response",
+) -> dict[str, Any]:
+    """Resolve one canonical subsystem choice without intent/Director routing."""
+    mode = coc_async_recorder.normalize_recording_mode(recording_mode)
+    flush_policy = coc_async_recorder.normalize_flush_policy(recording_flush)
+    turn_rng = rng if rng is not None else random.Random(
+        rng_seed if rng_seed is not None else f"{campaign}|pending|{time.time_ns()}"
+    )
+    plan = (
+        _copy_jsonable(plan_override)
+        if isinstance(plan_override, dict)
+        else subsystem_executor.plan_from_pending_choice_response(
+            campaign, investigator_id, response
+        )
+    )
+    _recording_defaults(plan, mode, flush_policy)
+    decision_id = str(plan["decision_id"])
+    rules_recorder = _new_rules_recorder(campaign, mode, decision_id)
+    append_jsonl = rules_recorder.append_jsonl if rules_recorder is not None else None
+    commands = subsystem_executor.commands_from_rules_requests(plan)
+    subsystem_results = subsystem_executor.execute_commands(
+        campaign,
+        character_path,
+        investigator_id,
+        commands,
+        rng=turn_rng,
+        append_jsonl=append_jsonl,
+    )
+    rule_results = subsystem_executor.flatten_result_events(subsystem_results)
+    rules_pending = _commit_rules_recorder(rules_recorder)
+    resolved_plan = apply_mod.backfill_rule_results(plan, rule_results)
+    _recording_defaults(resolved_plan, mode, flush_policy)
+    before_pending = _pending_record_count(campaign)
+    events = apply_mod.apply_plan(
+        campaign,
+        resolved_plan,
+        investigator_id,
+        rules_results=subsystem_results,
+        rules_results_mode="normalized",
+        recording_mode=mode,
+        recording_flush="manual" if flush_policy == "background" else flush_policy,
+    )
+    after_pending = _pending_record_count(campaign)
+    pending_choice = subsystem_executor.get_current_pending_choice(campaign)
+    world = apply_mod._read_json(campaign / "save" / "world-state.json", {})
+    pacing = apply_mod._read_json(campaign / "save" / "pacing-state.json", {})
+    active_scene = apply_mod._read_json(campaign / "save" / "active-scene.json", {})
+    clue_graph = apply_mod._read_json(campaign / "scenario" / "clue-graph.json", {})
+    character = apply_mod._read_json(character_path, {})
+    display_name = str(
+        character.get("name") or character.get("display_name") or investigator_id
+    ).strip() if isinstance(character, dict) else investigator_id
+    narration_envelope = narration_contract.build_narration_envelope(
+        resolved_plan,
+        clue_graph=clue_graph,
+        active_scene=active_scene,
+        investigator_display_name=display_name,
+    )
+    event_types = [
+        event.get("event_type") for event in events if isinstance(event, dict)
+    ]
+    scene_id = world.get("active_scene_id") or active_scene.get("scene_id")
+    turn = {
+        "decision_id": decision_id,
+        "turn_number": (resolved_plan.get("turn_input") or {}).get("turn_number"),
+        "scene_id": scene_id,
+        "action": resolved_plan.get("scene_action") or "SUBSYSTEM",
+        "validation_warnings": [],
+        "auto_advanced": False,
+        "apply_path": "coc_director_apply.apply_plan",
+        "pipeline": "run_live_turn.pending_choice_response",
+        "recording_mode": mode,
+        "recording_flush": flush_policy,
+        "rules_pending_batch": str(rules_pending) if rules_pending is not None else None,
+        "pending_batches_before_apply": before_pending,
+        "pending_batches_after_apply": after_pending,
+        "clue_revealed": [
+            event.get("clue_id") for event in events
+            if isinstance(event, dict) and event.get("event_type") == "clue_reveal"
+        ],
+        "event_types": event_types,
+        "events_count": len(events),
+        "rule_results": rule_results,
+        "subsystem_results": subsystem_results,
+        "pending_choice": pending_choice,
+        "blocked_by_pending_choice": False,
+        "rules_requests": resolved_plan.get("rules_requests", []),
+        "resolved_clue_policy": resolved_plan.get("resolved_clue_policy", {}),
+        "failure_consequence": (resolved_plan.get("narrative_directives") or {}).get("failure_consequence"),
+        "choice_frame": resolved_plan.get("choice_frame", {}),
+        "proposal_transform": None,
+        "scene_exit_pressure": None,
+        "idea_roll_plan": None,
+        "roll_density_decisions": [],
+        "npc_moves": [],
+        "storylet_moves": [],
+        "incident_moves": [],
+        "narrative_enrichment": {},
+        "narrative_directives": resolved_plan.get("narrative_directives", {}),
+        "narration_envelope": narration_envelope,
+        "dramatic_question": active_scene.get("dramatic_question", ""),
+        "horror_stage": None,
+        "scene_transition": "scene_transition" in event_types,
+        "active_scene_after": world.get("active_scene_id"),
+        "tension": pacing.get("tension_level"),
+        "tension_after": pacing.get("tension_level"),
+        "narration_audit": {"findings": 0},
+        "narration": {},
+    }
+    stop_reason = "pending_subsystem_choice" if pending_choice else "awaiting_player_input"
+    pending_batches = _pending_record_count(campaign)
+    result = {
+        "schema_version": 1,
+        "campaign_dir": str(campaign),
+        "investigator_id": investigator_id,
+        "player_text": player_text,
+        "intent_resolution": {
+            "source": intent_source,
+            "intent_class": None,
+        },
+        "turns": [turn],
+        "subsystem_results": subsystem_results,
+        "pending_choice": pending_choice,
+        "auto_advance": {
+            "enabled": bool(auto_advance_low_agency),
+            "turns_run": 1,
+            "stop_reason": stop_reason,
+            "max_turns": max(1, int(max_auto_advance or 1)),
+        },
+        "recording": {
+            "mode": mode,
+            "flush_policy": flush_policy,
+            "pending_batches_before_flush": pending_batches,
+            "background_flush_started": False,
+            "background_flush_result": None,
+            "completion_required_before_narration": False,
+            "background_work": {
+                "status": "not_needed",
+                "worker": "local_recorder_process",
+                "pending_batches": pending_batches,
+                "completion_required_before_narration": False,
+            },
+        },
+        "foreground": {
+            "narration_can_return_before_flush": True,
+            "waited_for_background_flush": False,
+            "sync_state_writes_completed": True,
+            "deferred_pending_batches": pending_batches if mode != "sync" else 0,
+        },
+        "state_patch": {
+            "applied": False,
+            "blocked_by_pending_choice": True,
+            "requested": bool(state_patch),
+        },
+        "stop_actionability": {
+            "schema_version": 1,
+            "immediate_handles": ([{
+                "kind": "pending_subsystem_choice",
+                "choice_id": pending_choice.get("choice_id"),
+                "choice_kind": pending_choice.get("kind"),
+            }] if pending_choice else []),
+            "must_surface_handles": bool(pending_choice),
+        },
+        "narration_audit": {"findings": 0},
+        "final_state": {
+            "active_scene": world.get("active_scene_id"),
+            "tension": pacing.get("tension_level"),
+            "turn_number": pacing.get("turn_number"),
+        },
+    }
+    _append_jsonl_sync(campaign / "logs" / "live-turn-runtime.jsonl", {
+        "schema_version": 1,
+        "event_type": "live_turn_runtime",
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "investigator_id": investigator_id,
+        "player_text": player_text,
+        "intent_resolution": result["intent_resolution"],
+        "turn_count": 1,
+        "decision_ids": [decision_id],
+        "auto_advance": result["auto_advance"],
+        "pending_choice": pending_choice,
+        "final_state": result["final_state"],
+    })
+    return result
+
+
 def _run_live_turn_impl(
     campaign_dir: Path | str,
     character_path: Path | str,
@@ -884,6 +1158,8 @@ def _run_live_turn_impl(
     *,
     intent_class: str | None = None,
     player_intent_rich: dict[str, Any] | None = None,
+    pending_choice_response: dict[str, Any] | None = None,
+    subsystem_request: dict[str, Any] | None = None,
     max_auto_advance: int = 3,
     auto_advance_low_agency: bool = True,
     recording_mode: str = "fast",
@@ -898,6 +1174,39 @@ def _run_live_turn_impl(
 ) -> dict[str, Any]:
     """Inner live-turn body; caller must already hold ``campaign_lock``."""
     campaign = Path(campaign_dir)
+    if pending_choice_response is not None:
+        return _run_pending_choice_response(
+            campaign,
+            Path(character_path),
+            investigator_id,
+            player_text,
+            pending_choice_response,
+            recording_mode=recording_mode,
+            recording_flush=recording_flush,
+            rng=rng,
+            rng_seed=rng_seed,
+            max_auto_advance=max_auto_advance,
+            auto_advance_low_agency=auto_advance_low_agency,
+            state_patch=state_patch,
+        )
+    if subsystem_request is not None:
+        plan = _plan_from_typed_subsystem_request(investigator_id, subsystem_request)
+        return _run_pending_choice_response(
+            campaign,
+            Path(character_path),
+            investigator_id,
+            player_text,
+            {},
+            recording_mode=recording_mode,
+            recording_flush=recording_flush,
+            rng=rng,
+            rng_seed=rng_seed,
+            max_auto_advance=max_auto_advance,
+            auto_advance_low_agency=auto_advance_low_agency,
+            state_patch=state_patch,
+            plan_override=plan,
+            intent_source="subsystem_request",
+        )
     pending_choice = subsystem_executor.get_current_pending_choice(campaign)
     if pending_choice is not None:
         return _pending_choice_blocked_result(

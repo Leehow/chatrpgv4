@@ -61,7 +61,8 @@ const SYSTEM_PROMPT =
   "Never do rules math, dice rolls, or skill arithmetic yourself. " +
   "Prefer calling the coc_player_action tool once with your in-character " +
   "player_text (in the campaign play_language). Optional intent_class and " +
-  "player_notes (out-of-character reasoning) may be included.";
+  "player_notes (out-of-character reasoning) may be included. When a player " +
+  "pending choice is present, copy its exact identity into pending_choice_response.";
 
 function readStdinJson() {
   return new Promise((resolve, reject) => {
@@ -279,7 +280,7 @@ function normalizeIntentClass(value) {
   return INTENT_CLASSES.includes(value) ? value : undefined;
 }
 
-function buildPlayerActionTool(capture) {
+function buildPlayerActionTool(capture, pendingChoice) {
   const intentUnion = Type.Union(
     INTENT_CLASSES.map((v) => Type.Literal(v)),
     {
@@ -314,6 +315,14 @@ function buildPlayerActionTool(capture) {
             "Optional out-of-character reasoning for the battle report only.",
         }),
       ),
+      pending_choice_response: Type.Optional(
+        Type.Object({
+          choice_id: Type.String(),
+          responder: Type.Literal("player"),
+          revision: Type.Integer({ minimum: 0 }),
+          action: Type.String(),
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
       capture.usedTool = true;
@@ -340,6 +349,38 @@ function buildPlayerActionTool(capture) {
         params.player_notes.trim()
       ) {
         result.player_notes = params.player_notes.trim();
+      }
+      if (pendingChoice && pendingChoice.responder === "player") {
+        const response = params.pending_choice_response;
+        const allowedActions = Array.isArray(pendingChoice.options)
+          ? pendingChoice.options
+              .filter((option) => option && typeof option === "object")
+              .map((option) => option.action)
+              .filter((action) => typeof action === "string")
+          : [];
+        if (
+          !response ||
+          response.choice_id !== pendingChoice.choice_id ||
+          response.responder !== "player" ||
+          response.revision !== pendingChoice.revision ||
+          !allowedActions.includes(response.action)
+        ) {
+          capture.error =
+            "pending_choice_response does not match the canonical player choice";
+          return {
+            content: [{ type: "text", text: JSON.stringify({ ok: false, error: capture.error }) }],
+            details: { error: capture.error },
+            terminate: true,
+          };
+        }
+        result.pending_choice_response = { ...response };
+      } else if (params.pending_choice_response !== undefined) {
+        capture.error = "pending_choice_response supplied without a player choice";
+        return {
+          content: [{ type: "text", text: JSON.stringify({ ok: false, error: capture.error }) }],
+          details: { error: capture.error },
+          terminate: true,
+        };
       }
       capture.result = result;
       return {
@@ -370,13 +411,20 @@ async function runPlayerTurn(request) {
     }
   }
 
+  const pendingChoice =
+    request.pending_choice !== undefined
+      ? request.pending_choice
+      : request.public_state && request.public_state.pending_choice;
+  if (pendingChoice && pendingChoice.responder === "keeper") {
+    throw new Error("Keeper pending choices must not be sent to the player brain");
+  }
   const capture = {
     usedTool: false,
     result: null,
     error: null,
     assistantProse: "",
   };
-  const tool = buildPlayerActionTool(capture);
+  const tool = buildPlayerActionTool(capture, pendingChoice);
   const cwd = __dirname;
   const agentDir = getAgentDir();
 
@@ -441,6 +489,13 @@ async function runPlayerTurn(request) {
     return {
       ok: false,
       error: capture.error || "coc_player_action invoked but produced no result",
+    };
+  }
+
+  if (pendingChoice && pendingChoice.responder === "player") {
+    return {
+      ok: false,
+      error: "player pending choice requires typed pending_choice_response",
     };
   }
 

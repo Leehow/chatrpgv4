@@ -116,6 +116,75 @@ def test_build_public_state_missing_files_use_safe_defaults(tmp_path):
     assert state["pending_choice"] is None
 
 
+def test_public_state_projects_only_player_pending_choice_from_canonical_state(tmp_path):
+    campaign_id = "camp-choice"
+    campaign = _seed_campaign(tmp_path, campaign_id)
+    choice = {
+        "choice_id": "push-offer:confirm",
+        "kind": "push_confirm",
+        "command_id": "push-offer",
+        "responder": "player",
+        "revision": 0,
+        "prompt": "Accept the announced consequence?",
+        "options": [{"action": "cancel", "label": "Keep the failure"}],
+    }
+    (campaign / "save" / "subsystem-state.json").write_text(json.dumps({
+        "pending_choices": {choice["choice_id"]: choice},
+        "pending_contexts": {
+            choice["choice_id"]: {"keeper_secret": "do not expose this"},
+        },
+    }))
+
+    state = _load().build_public_state(tmp_path, campaign_id)
+
+    assert state["pending_choice"] == choice
+    assert "keeper_secret" not in json.dumps(state)
+
+
+def test_public_state_hides_keeper_pending_choice_from_player_audience(tmp_path):
+    campaign_id = "camp-keeper-choice"
+    campaign = _seed_campaign(tmp_path, campaign_id)
+    choice = {
+        "choice_id": "san:bout",
+        "kind": "bout_keeper_action",
+        "command_id": "san",
+        "responder": "keeper",
+        "revision": 0,
+        "prompt": "Advance the bout?",
+        "options": [{"action": "tick", "label": "Advance"}],
+    }
+    (campaign / "save" / "subsystem-state.json").write_text(json.dumps({
+        "pending_choices": {choice["choice_id"]: choice},
+        "pending_contexts": {choice["choice_id"]: {"bout_result": "secret"}},
+    }))
+
+    assert _load().build_public_state(tmp_path, campaign_id)["pending_choice"] is None
+
+
+def test_public_state_fails_closed_when_public_choice_contains_extra_private_field(tmp_path):
+    campaign_id = "camp-forged-choice"
+    campaign = _seed_campaign(tmp_path, campaign_id)
+    choice = {
+        "choice_id": "push-offer:confirm",
+        "kind": "push_confirm",
+        "command_id": "push-offer",
+        "responder": "player",
+        "revision": 0,
+        "prompt": "Accept the announced consequence?",
+        "options": [{"action": "cancel", "label": "Keep the failure"}],
+        "private_effect": {"keeper_secret": "must not cross audience boundary"},
+    }
+    (campaign / "save" / "subsystem-state.json").write_text(json.dumps({
+        "pending_choices": {choice["choice_id"]: choice},
+        "pending_contexts": {},
+    }))
+
+    state = _load().build_public_state(tmp_path, campaign_id)
+
+    assert state["pending_choice"] is None
+    assert "keeper_secret" not in json.dumps(state)
+
+
 def test_public_state_schema_lists_required_keys():
     schema = json.loads(Path("runtime/protocol/public_state.schema.json").read_text())
     required = set(schema["required"])

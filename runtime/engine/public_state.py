@@ -6,6 +6,17 @@ from pathlib import Path
 from typing import Any
 
 
+_PUBLIC_PENDING_CHOICE_KEYS = {
+    "choice_id",
+    "kind",
+    "command_id",
+    "responder",
+    "revision",
+    "prompt",
+    "options",
+}
+
+
 def _load_config_module():
     path = Path(__file__).resolve().parent / "config.py"
     spec = importlib.util.spec_from_file_location("runtime_config", path)
@@ -42,6 +53,31 @@ def _investigator_entry(path: Path) -> dict[str, Any]:
     }
 
 
+def _canonical_player_pending_choice(save: Path) -> tuple[bool, dict[str, Any] | None]:
+    path = save / "subsystem-state.json"
+    if not path.exists():
+        return False, None
+    state = _read_json(path, {})
+    choices = state.get("pending_choices") if isinstance(state, dict) else None
+    if not isinstance(choices, dict) or len(choices) != 1:
+        return True, None
+    choice_id, choice = next(iter(choices.items()))
+    if (
+        not isinstance(choice, dict)
+        or set(choice) != _PUBLIC_PENDING_CHOICE_KEYS
+        or choice.get("choice_id") != choice_id
+        or choice.get("responder") != "player"
+        or not isinstance(choice.get("kind"), str)
+        or not isinstance(choice.get("command_id"), str)
+        or isinstance(choice.get("revision"), bool)
+        or not isinstance(choice.get("revision"), int)
+        or not isinstance(choice.get("prompt"), str)
+        or not isinstance(choice.get("options"), list)
+    ):
+        return True, None
+    return True, json.loads(json.dumps(choice))
+
+
 def build_public_state(workspace: Path | str, campaign_id: str) -> dict[str, Any]:
     root = Path(workspace)
     campaign_dir = root / ".coc" / "campaigns" / campaign_id
@@ -67,11 +103,12 @@ def build_public_state(workspace: Path | str, campaign_id: str) -> dict[str, Any
     except (TypeError, ValueError):
         turn_number = 0
 
-    pending = None
-    if isinstance(world, dict) and "pending_choice" in world:
-        pending = world.get("pending_choice")
-    elif isinstance(meta, dict) and "pending_choice" in meta:
-        pending = meta.get("pending_choice")
+    has_canonical_pending_state, pending = _canonical_player_pending_choice(save)
+    if not has_canonical_pending_state:
+        if isinstance(world, dict) and "pending_choice" in world:
+            pending = world.get("pending_choice")
+        elif isinstance(meta, dict) and "pending_choice" in meta:
+            pending = meta.get("pending_choice")
 
     cfg = _load_config_module().load_runtime_config(root)
 

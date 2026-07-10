@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import random
 import stat
 from pathlib import Path
 
@@ -1107,6 +1108,144 @@ def test_active_bout_is_temporarily_unplayable_and_pauses_match(tmp_path):
     assert result["stop_reason"] == "investigator_temporarily_unplayable"
     assert result["result"]["player_turn_count"] == 0
     assert result["result"]["reached_terminal"] is False
+
+
+def test_canonical_keeper_bout_choice_progresses_without_player_brain(tmp_path, monkeypatch):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    camp = workspace / ".coc" / "campaigns" / campaign_id
+    char_path = workspace / ".coc" / "investigators" / investigator_id / "character.json"
+    character = json.loads(char_path.read_text())
+    character["characteristics"].update({"POW": 99, "INT": 99})
+    character["derived"]["SAN"] = 99
+    char_path.write_text(json.dumps(character))
+    started = match.live_turn_runner.subsystem_executor.execute_commands(
+        camp,
+        char_path,
+        investigator_id,
+        [{
+            "command_id": "match-bout-origin",
+            "kind": "sanity_check",
+            "phase": "resolve",
+            "payload": {
+                "decision_id": "match-bout-decision",
+                "roll_id": "match-bout-roll",
+                "san_loss_success": 5,
+                "san_loss_fail_expr": "5",
+                "source": "match horror",
+                "alone": False,
+                "involuntary_kind": "flee",
+                "module_bout_override": {"force_mode": "real_time"},
+            },
+        }],
+        rng=random.Random(1),
+    )[0]
+    assert started["pending_choice"]["responder"] == "keeper"
+    monkeypatch.setattr(
+        match.player_adapter,
+        "player_send_turn",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Keeper-owned bout choice must bypass player brain")
+        ),
+    )
+    unused_runner = tmp_path / "unused-player"
+    _write_scripted_player_runner(unused_runner, ["不应调用"])
+
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=unused_runner,
+        max_turns=1,
+        rng_seed=31,
+        live=False,
+    )
+
+    assert result["stop_reason"] == "max_turns_reached"
+    assert result["result"]["player_turn_count"] == 0
+    assert result["result"]["turns"][0]["subsystem_results"][0]["kind"] == "bout_tick"
+    assert result["result"]["reached_terminal"] is False
+
+
+def test_live_match_forwards_player_typed_push_response(tmp_path, monkeypatch):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    camp = workspace / ".coc" / "campaigns" / campaign_id
+    char_path = workspace / ".coc" / "investigators" / investigator_id / "character.json"
+    executor = match.live_turn_runner.subsystem_executor
+    failed = executor.execute_commands(
+        camp,
+        char_path,
+        investigator_id,
+        [{
+            "command_id": "match-push-origin",
+            "kind": "skill_check",
+            "phase": "resolve",
+            "payload": {
+                "decision_id": "match-push-origin-decision",
+                "roll_id": "match-push-origin-roll",
+                "skill": "Spot Hidden",
+                "roll_contract": {"push_policy": {"eligible": True}},
+                "resolution_context": {
+                    "scene_action": "SUBSYSTEM",
+                    "clue_policy": {},
+                    "narrative_directives": {},
+                    "rule_signals": {},
+                },
+            },
+        }],
+        rng=random.Random(5),
+    )[0]
+    assert failed["events"][0]["outcome"] == "failure"
+    offered = executor.execute_commands(
+        camp,
+        char_path,
+        investigator_id,
+        [{
+            "command_id": "match-push-offer",
+            "kind": "push_offer",
+            "phase": "offer",
+            "payload": {
+                "decision_id": "match-push-offer-decision",
+                "original_command_id": "match-push-origin",
+                "changed_method_evidence": {
+                    "changed": True,
+                    "source": "player_proposal",
+                    "summary": "inspect the paper impression",
+                },
+                "announced_consequence": {"summary": "the watcher recognizes you"},
+            },
+        }],
+        rng=random.Random(211),
+    )[0]
+    choice = offered["pending_choice"]
+
+    def answer_push(request, **_kwargs):
+        assert request["pending_choice"] == choice
+        return {
+            "ok": True,
+            "player_text": "我不冒这个险。",
+            "pending_choice_response": {
+                "choice_id": choice["choice_id"],
+                "responder": "player",
+                "revision": choice["revision"],
+                "action": "cancel",
+            },
+        }
+
+    monkeypatch.setattr(match.player_adapter, "player_send_turn", answer_push)
+    runner = tmp_path / "player-placeholder"
+    _write_scripted_player_runner(runner, ["unused"])
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=runner,
+        max_turns=1,
+        rng_seed=32,
+        live=False,
+    )
+
+    assert result["result"]["turns"][0]["subsystem_results"][0]["status"] == "cancelled"
+    assert executor.get_current_pending_choice(camp) is None
 
 
 def test_condition_form_active_bout_is_temporarily_unplayable_and_pauses_match(

@@ -623,6 +623,11 @@ def run_full_session(
             player_text,
             intent_class=str(intent_class) if intent_class else None,
             player_intent_rich=player_intent_rich,
+            pending_choice_response=(
+                choice.get("pending_choice_response")
+                if isinstance(choice.get("pending_choice_response"), dict)
+                else None
+            ),
             max_auto_advance=1,
             auto_advance_low_agency=False,
             recording_mode="sync",
@@ -648,7 +653,17 @@ def run_full_session(
             tension_curve.append(tension)
 
         if subsystem_executor.get_current_pending_choice(campaign_dir) is not None:
-            break
+            next_offset = offset + 1
+            has_typed_continuation = (
+                next_offset < max_turns
+                and next_offset < len(player_choices)
+                and isinstance(
+                    player_choices[next_offset].get("pending_choice_response"),
+                    dict,
+                )
+            )
+            if not has_typed_continuation:
+                break
 
         world = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {})
         turn_terminal = coc_scene_graph.terminal_evidence(story, world, live_result)

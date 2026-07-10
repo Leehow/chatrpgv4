@@ -1014,6 +1014,18 @@ def _resolve_committed_clues(
     stalled = int(plan.get("rule_signals", {}).get("stalled_turns", 0) or 0)
     idea_plan = (plan.get("narrative_directives") or {}).get("idea_roll_plan") or {}
 
+    # The original ordinary failure has already settled its ordinary cost.
+    # A confirmed pushed failure applies only the exact pre-announced
+    # consequence emitted by _process_push_roll_gates; replaying the generic
+    # clue-with-cost branch here would charge the initial failure twice.
+    if isinstance(plan.get("push_continuation"), dict) and any(
+        isinstance(result, dict)
+        and result.get("pushed") is True
+        and _rule_result_success(result) is False
+        for result in (rules_results or [])
+    ):
+        return [], events, pressure
+
     # RECOVER is the Idea Roll recovery valve. Play always continues; the roll
     # (when required) decides cost/position, not whether the lead surfaces.
     if action == "RECOVER" and stalled >= 3 and fallback_ids:
@@ -1478,6 +1490,13 @@ def _process_push_roll_gates(
             "skill": result.get("skill"),
             "outcome": result.get("outcome"),
             "pushed_fail": True,
+            "push_gate": dict(result.get("push_gate") or {}),
+            "original_command_id": result.get("original_command_id"),
+            "original_roll_id": result.get("original_roll_id"),
+            "announced_consequence": _copy_jsonable(
+                result.get("announced_consequence") or {}
+            ),
+            "source_command_id": result.get("source_command_id"),
             "ts": ts,
         }
         if inv_state is None:

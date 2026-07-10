@@ -185,8 +185,9 @@ def test_sanity_check_settles_san_loss(tmp_path):
          "source": "the blast chamber carnage", "creature_type": None}]}
     results = drv._execute_rules_requests(camp, char_path, "inv1", plan, rng)
 
-    assert len(results) == 1
-    r = results[0]
+    assert len(results) == 2
+    r = next(row for row in results if row.get("kind") == "sanity_check")
+    assert any(row.get("event_type") == "sanity" for row in results)
     assert r["kind"] == "sanity_check"
     # SAN loss field present
     assert "san_loss" in r
