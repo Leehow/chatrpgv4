@@ -395,11 +395,11 @@ def read_sanity_engine_state(campaign_dir, investigator_id: str) -> dict[str, An
     conditions = state.get("conditions", []) or []
     daily_san_lost = state.get("daily_san_lost", 0)
 
-    # bout/temp insanity flags may live in conditions or as explicit fields.
+    # A bout (Keeper takeover, 1D10 rounds, p.157) is NOT the same as
+    # temporary insanity (underlying phase, 1D10 hours, player keeps control,
+    # p.158) — only explicit bout evidence counts.
     bout_active = bool(
-        state.get("bout_active")
-        or state.get("temporary_insane")
-        or "bout_active" in conditions
+        state.get("bout_active") or "bout_active" in conditions
     )
     temporary_insane = bool(state.get("temporary_insane"))
     indefinite_insane = bool(state.get("indefinite_insane"))

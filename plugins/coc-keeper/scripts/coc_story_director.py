@@ -29,6 +29,7 @@ coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_mythos = _load_sibling("coc_mythos", "coc_mythos.py")
 coc_narration_style = _load_sibling("coc_narration_style", "coc_narration_style.py")
 coc_npc_persona = _load_sibling("coc_npc_persona", "coc_npc_persona.py")
+coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 
 coc_time = None
 try:
@@ -481,7 +482,7 @@ def build_director_context(
         "hp_state": coc_rule_signals.read_hp_state(current_hp, max_hp, conditions),
         "sanity_state": coc_rule_signals.read_sanity_state(
             current_san, max_san,
-            bout_active="bout_active" in conditions,
+            bout_active=bool(inv_state.get("bout_active")) or "bout_active" in conditions,
             lost_this_event=inv_state.get("san_lost_this_event", 0),
         ),
         "indefinite_insane": bool(inv_state.get("indefinite_insane", False)),
@@ -498,7 +499,7 @@ def build_director_context(
         "tension_clock": coc_rule_signals.read_tension_clock(
             pacing.get("tension_level", "low"), pacing.get("lethal_chances_used", 0),
         ),
-        "bout_active": "bout_active" in conditions,
+        "bout_active": bool(inv_state.get("bout_active")) or "bout_active" in conditions,
     }
     signal_ctx = {
         "player_intent_class": player_intent_class,
@@ -1157,23 +1158,30 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
     return 0.0
 
 
-def _eval_exit(condition: str, ctx: dict[str, Any]) -> bool:
-    """Heuristic exit-condition eval. v1 supports 'clue discovered' and 'pressure clock reaches N'."""
+def _eval_exit(condition: Any, ctx: dict[str, Any]) -> bool:
+    """Structured exit-condition eval (shared normalizer in coc_exit_conditions).
+
+    Machine-checkable kinds: ``clue_discovered`` and ``clock_reaches``.
+    ``narrative`` conditions always evaluate False — such scenes wait for an
+    explicit CUT / force_transition.
+    """
     discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
-    if "discovered" in condition:
-        clue_id = condition.split()[0]
-        return clue_id in discovered
-    if "pressure clock reaches" in condition:
-        try:
-            n = int(condition.split("reaches")[-1].strip())
-            fronts = ctx.get("threat_fronts", {}).get("fronts", [])
-            return any(
-                any(_clock_segments(c, "current_segments", 0) >= n for c in f.get("clocks", []))
-                for f in fronts
-            )
-        except (ValueError, IndexError):
-            return False
-    return False
+
+    def clock_reached(clock_id: str | None, threshold: int) -> bool:
+        fronts = ctx.get("threat_fronts", {}).get("fronts", [])
+        for front in fronts:
+            for clock in front.get("clocks", []):
+                if clock_id and str(clock.get("clock_id") or "") != clock_id:
+                    continue
+                if _clock_segments(clock, "current_segments", 0) >= threshold:
+                    return True
+        return False
+
+    return coc_exit_conditions.evaluate_exit_condition(
+        condition,
+        discovered_clue_ids=discovered,
+        clock_reached=clock_reached,
+    )
 
 
 def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
@@ -1195,9 +1203,9 @@ def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
         return {"scene_action": "SUBSYSTEM", "subsystem": "combat", "handoff": "rules",
                 "rationale": "dying forces combat CON-clock + pressure",
                 "extra_pressure": True}
-    if sig["sanity_state"] == "temp_insane":
-        return {"scene_action": "SUBSYSTEM", "subsystem": "sanity", "handoff": "rules",
-                "rationale": "temp_insane triggers bout procedure"}
+    # NOTE: temp_insane (underlying insanity, p.158) deliberately does NOT
+    # force a subsystem takeover — the player retains full control between
+    # bouts; only bout_active (handled above) hands control to the Keeper.
     if sig["last_roll_fumble"]:
         return {"scene_action": "PRESSURE", "handoff": "narration",
                 "rationale": "fumble forces immediate misfortune, cannot be pushed off"}
@@ -1318,50 +1326,6 @@ def _derive_time_advance(action: str, time_signals: dict[str, Any]) -> dict[str,
 
 
 
-# Skill-name / difficulty-qualifier triggers that mark a clue delivery as
-# obscured (i.e. one that requires a die roll to surface). Anything else — a
-# Handout, a "directly given", a plain location/event description — is treated
-# as obvious and delivered by the narrator without a roll.
-_OBSCURED_DELIVERY_TRIGGERS = (
-    "spot hidden", "library use", "listen", "medicine", "science", "psychology",
-    "luck roll", "tracking", "investigate", "search", "examine",
-    # difficulty qualifiers (Hard/Extreme rolls)
-    "hard", "extreme",
-    # other common CoC skill names that imply a check
-    "persuade", "fast talk", "charm", "intimidate", "law", "occult",
-    "cthulhu mythos", "pharmacy", "archaeology", "anthropology",
-)
-
-
-def _infer_clue_type(clue_id: str | None, clue_graph: dict[str, Any]) -> str:
-    """Infer 'obvious' vs 'obscured' from a clue's delivery description.
-
-    Reads the `delivery` field of the clue with `clue_id` from clue_graph's
-    conclusions. If the delivery mentions a skill-name trigger or difficulty
-    qualifier (Spot Hidden, Library Use, Hard, Extreme, ...) the clue requires
-    a roll and is 'obscured'. Handouts, direct gives, plain location/event
-    descriptions are 'obvious'.
-
-    Defaults to 'obscured' (conservative — if we don't know, require a roll).
-    """
-    if not clue_id:
-        return "obscured"
-    needle = None
-    for concl in clue_graph.get("conclusions", []):
-        for clue in concl.get("clues", []):
-            if clue.get("clue_id") == clue_id:
-                needle = clue.get("delivery")
-                break
-        if needle is not None:
-            break
-    if needle is None:
-        return "obscured"
-    delivery = str(needle).lower()
-    if any(trigger in delivery for trigger in _OBSCURED_DELIVERY_TRIGGERS):
-        return "obscured"
-    return "obvious"
-
-
 def _find_clue(clue_id: str, clue_graph: dict[str, Any]) -> dict[str, Any] | None:
     """Find a clue dict by id across all conclusions. Returns None if not found."""
     for concl in clue_graph.get("conclusions", []):
@@ -1393,16 +1357,18 @@ def _clue_route_priority(clue_id: str | None, clue_graph: dict[str, Any]) -> flo
 
 
 def _resolve_clue_delivery(clue_id: str | None, clue_graph: dict[str, Any]) -> tuple[str, str | None, str | None]:
-    """Resolve a clue's delivery type + skill + difficulty from structured fields, with fallback.
+    """Resolve a clue's delivery type + skill + difficulty from structured fields.
 
     Returns (clue_type, skill, difficulty):
     - clue_type: "obvious" | "obscured"
     - skill: skill name if clue_type is obscured via skill_check, else None
     - difficulty: "regular"|"hard"|"extreme" or None
 
-    Priority:
-    1. Structured `delivery_kind` field on the clue (preferred)
-    2. Fallback to `_infer_clue_type` string heuristic (for old clue-graphs without delivery_kind)
+    Only the structured ``delivery_kind`` field decides obvious vs obscured.
+    Per the Semantic Matcher Constitution, the delivery prose is never scanned
+    for skill-name keywords. A clue missing ``delivery_kind`` defaults to
+    "obscured" (conservative — require a roll) and ``_select_clue_policy``
+    records a delivery warning so the clue-graph can be migrated.
     """
     if not clue_id:
         return ("obscured", None, None)
@@ -1415,9 +1381,8 @@ def _resolve_clue_delivery(clue_id: str | None, clue_graph: dict[str, Any]) -> t
             return ("obscured", clue.get("skill"), clue.get("difficulty", "regular"))
         # obvious, handout, npc_dialogue, environmental -> obvious
         return ("obvious", None, None)
-    # Fallback: no structured field, use string heuristic on `delivery`
-    clue_type = _infer_clue_type(clue_id, clue_graph)
-    return (clue_type, None, None)
+    # No structured field: conservative default, no prose inference.
+    return ("obscured", None, None)
 
 
 def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
@@ -1444,25 +1409,31 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     delivery_warnings: list[dict[str, Any]] = []
 
     # Resolve obvious vs obscured (+ skill/difficulty) from the first revealed
-    # clue's structured delivery_kind, falling back to the delivery string
-    # heuristic for old clue-graphs. This gates whether _build_rules_requests
-    # emits a skill check (and which skill/difficulty it requests).
+    # clue's structured delivery_kind. Clues without delivery_kind default to
+    # obscured (no prose inference — Semantic Matcher Constitution) and emit a
+    # delivery warning so the clue-graph can be migrated. This gates whether
+    # _build_rules_requests emits a skill check (and which skill/difficulty).
     _clue_type, _clue_skill, _clue_diff = _resolve_clue_delivery(
         reveal[0] if reveal else None, clue_graph)
     selected_clue_id = reveal[0] if reveal else None
     if selected_clue_id:
         selected_clue = _find_clue(selected_clue_id, clue_graph)
         selected_conclusion = _find_clue_conclusion(selected_clue_id, clue_graph)
-        if (
-            selected_clue is not None
-            and not selected_clue.get("delivery_kind")
-            and isinstance(selected_conclusion, dict)
-            and str(selected_conclusion.get("importance") or "").lower() == "critical"
-        ):
+        if selected_clue is not None and not selected_clue.get("delivery_kind"):
+            is_critical = (
+                isinstance(selected_conclusion, dict)
+                and str(selected_conclusion.get("importance") or "").lower() == "critical"
+            )
+            reason = (
+                f"legacy delivery without delivery_kind for critical clue {selected_clue_id}; "
+                "defaulted to obscured"
+                if is_critical
+                else f"clue {selected_clue_id} missing delivery_kind; defaulted to obscured"
+            )
             delivery_warnings.append({
                 "clue_id": selected_clue_id,
-                "reason": f"legacy delivery fallback used for critical clue {selected_clue_id}",
-                "fallback_mode": "delivery_string_inference",
+                "reason": reason,
+                "fallback_mode": "conservative_obscured_default",
             })
 
     # fallback: if stalled (RECOVER), pull the highest-priority not-yet-found route.
@@ -1797,17 +1768,22 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
 
     if action == "SUBSYSTEM":
         sig = ctx["rule_signals"]
-        if sig["bout_active"] or sig["sanity_state"] == "temp_insane":
-            return [{"kind": "sanity_check", "skill": "SAN", "reason": "bout procedure",
-                     "difficulty": "regular", "bonus_penalty_dice": 0,
-                     "roll_contract": _roll_contract(
-                         goal="regain control during the bout procedure",
-                         success_effect="steady yourself enough to proceed",
-                         failure_effect="the episode keeps pressure on the scene",
-                         failure_outcome_mode="pressure_cost",
-                         roll_density_group="subsystem:bout_procedure",
-                         push_eligible=False,
-                     )}]
+        if sig["bout_active"]:
+            # p.156-157: a bout of madness is a Keeper-takeover playout, not a
+            # dice procedure — there is no SAN roll to "regain control". The
+            # apply layer passes this directive straight to narration.
+            return [{"kind": "bout_playout",
+                     "reason": "bout of madness in progress",
+                     "keeper_controls_investigator": True,
+                     "rule_ref": "core.sanity.bout_of_madness",
+                     "narrative_directives": {
+                         "instruction": ("Keeper dictates the investigator's "
+                                         "actions this round per the rolled bout "
+                                         "result; no SAN roll; no further SAN "
+                                         "loss during the bout; the bout ends "
+                                         "when its rounds run out or the scene "
+                                         "resolves (tick_bout_round/end_bout)."),
+                     }}]
         if sig["hp_state"] == "dying":
             return [{"kind": "characteristic_check", "skill": "CON", "reason": "death-clock CON roll",
                      "difficulty": "regular", "bonus_penalty_dice": 0,

@@ -122,6 +122,10 @@ class SanitySession:
         self.temporary_insane_remaining_hours: int = 0
         self.indefinite_insane: bool = False
         self.permanently_insane: bool = False
+        # Active bout of madness (p.156-157): while a real-time bout runs,
+        # the Keeper controls the investigator and no further SAN can be lost.
+        self.bout_active: bool = False
+        self.bout_rounds_remaining: int = 0
         self.bouts_of_madness: list[dict[str, Any]] = []
         self.daily_san_lost: int = 0  # resets at "end of day" (Keeper-defined)
         # p.156: the indefinite-insanity threshold is a fifth of *current* SAN
@@ -166,6 +170,11 @@ class SanitySession:
         """
         if self.permanently_insane:
             return self._event("sanity_check_skipped", "Investigator is permanently insane")
+        if self.bout_active:
+            # p.157: the mind is completely unhinged — no further SAN loss
+            # while a bout of madness is being experienced.
+            return self._event("sanity_check_skipped",
+                               "No further SAN loss during an active bout of madness (p.157)")
 
         san_before = self.san_current
         res = coc_roll.percentile_check(san_before, rng=self._rng)
@@ -234,8 +243,13 @@ class SanitySession:
         if res["outcome"] in ("failure", "fumble") and involuntary_kind:
             self._apply_involuntary(involuntary_kind, involuntary_summary, source)
 
+        # p.158: while underlying insane (temporary or indefinite, bout over)
+        # ANY further SAN loss — even a single point — triggers another bout.
+        underlying = (self.temporary_insane or self.indefinite_insane)
+        if underlying and lost >= 1:
+            self._start_bout(source, alone, module_bout_override)
         # p.167: 5+ SAN lost from single source → temporary insanity check.
-        if lost >= 5:
+        elif lost >= 5:
             self._check_temporary_insanity(source, alone, module_bout_override)
 
         # p.168: losing a fifth or more of *current* SAN (as of day start) in
@@ -276,10 +290,34 @@ class SanitySession:
 
     def _trigger_temporary_insanity(self, source: str, alone: bool,
                                     module_bout_override: dict | None) -> None:
-        """Trigger bout of madness (p.171)."""
+        """Trigger temporary insanity + its opening bout of madness (p.171)."""
         self.temporary_insane = True
         duration_hours = self._rng.randint(1, 10)
         self.temporary_insane_remaining_hours = duration_hours
+
+        self._start_bout(source, alone, module_bout_override,
+                         duration_hours=duration_hours)
+
+        # p.176: temporary insanity recovers after 1D10 hours. When the time
+        # layer is attached, schedule a recovery trigger due at
+        # current_elapsed + remaining_hours*60. The trigger uses policy
+        # auto_apply_if_safe so recovery only fires once the investigator
+        # reaches a safe place (p.176 "rest in a safe place").
+        self._schedule_recovery_trigger(duration_hours)
+
+    def _start_bout(self, source: str, alone: bool,
+                    module_bout_override: dict | None,
+                    duration_hours: int | None = None) -> dict[str, Any]:
+        """Start a bout of madness (p.156-157, tables p.171).
+
+        Used both for the opening bout of temporary/indefinite insanity and
+        for the p.158 underlying-insanity retrigger (any further SAN loss).
+        Real-time bouts set ``bout_active`` (Keeper controls the investigator,
+        no further SAN loss) for 1D10 rounds; summary bouts are fast-forwarded
+        by the Keeper and end immediately.
+        """
+        if duration_hours is None:
+            duration_hours = self._rng.randint(1, 10)
 
         # Bout mode: real-time (Table VII) if others present, summary (Table VIII) if alone.
         mode = "summary" if alone else "real_time"
@@ -307,6 +345,8 @@ class SanitySession:
         }
         if mode == "real_time":
             bout["duration_rounds"] = self._rng.randint(1, 10)
+            self.bout_active = True
+            self.bout_rounds_remaining = bout["duration_rounds"]
         self.bouts_of_madness.append(bout)
 
         # p.171 bout-of-madness table: result 9 → phobia, 10 → mania.
@@ -326,13 +366,33 @@ class SanitySession:
             "summary": f"{self.investigator_id} bout of madness ({mode}): roll {bout_roll}, "
                        f"duration {duration_hours}h. {bout_result_text}",
         })
+        return bout
 
-        # p.176: temporary insanity recovers after 1D10 hours. When the time
-        # layer is attached, schedule a recovery trigger due at
-        # current_elapsed + remaining_hours*60. The trigger uses policy
-        # auto_apply_if_safe so recovery only fires once the investigator
-        # reaches a safe place (p.176 "rest in a safe place").
-        self._schedule_recovery_trigger(duration_hours)
+    def tick_bout_round(self) -> dict[str, Any]:
+        """Advance a real-time bout by one combat round (p.157: 1D10 rounds).
+
+        Returns a status dict; when the last round elapses the bout ends and
+        control returns to the player (underlying insanity continues).
+        """
+        if not self.bout_active:
+            return {"bout_active": False, "bout_rounds_remaining": 0}
+        self.bout_rounds_remaining = max(0, self.bout_rounds_remaining - 1)
+        if self.bout_rounds_remaining == 0:
+            self.end_bout()
+        return {"bout_active": self.bout_active,
+                "bout_rounds_remaining": self.bout_rounds_remaining}
+
+    def end_bout(self) -> None:
+        """End the active bout: control returns to the player; the fragile
+        underlying-insanity phase continues (p.158)."""
+        if not self.bout_active:
+            return
+        self.bout_active = False
+        self.bout_rounds_remaining = 0
+        self._event("bout_ended", {
+            "summary": (f"{self.investigator_id} bout of madness ends; control "
+                        "returns to the player (underlying insanity continues)."),
+        })
 
     def _trigger_indefinite_insanity(self) -> None:
         """p.168: 1/5+ SAN lost in one day → indefinite insanity.
@@ -626,6 +686,8 @@ class SanitySession:
             "temporary_insane_remaining_hours": self.temporary_insane_remaining_hours,
             "indefinite_insane": self.indefinite_insane,
             "permanently_insane": self.permanently_insane,
+            "bout_active": self.bout_active,
+            "bout_rounds_remaining": self.bout_rounds_remaining,
             "daily_san_lost": self.daily_san_lost,
             "day_start_san": self.day_start_san,
             "bouts_of_madness": list(self.bouts_of_madness),
@@ -661,6 +723,7 @@ class SanitySession:
             data = json.loads(inv_path.read_text(encoding="utf-8")) if inv_path.exists() else {}
             data["current_san"] = int(self.san_current)
             data["indefinite_insane"] = bool(self.indefinite_insane)
+            data["bout_active"] = bool(self.bout_active)
             inv_path.parent.mkdir(parents=True, exist_ok=True)
             inv_path.write_text(json.dumps(data, ensure_ascii=False, indent=2),
                                 encoding="utf-8")
@@ -699,6 +762,8 @@ class SanitySession:
             snap.get("temporary_insane_remaining_hours", 0))
         sess.indefinite_insane = bool(snap.get("indefinite_insane", False))
         sess.permanently_insane = bool(snap.get("permanently_insane", False))
+        sess.bout_active = bool(snap.get("bout_active", False))
+        sess.bout_rounds_remaining = int(snap.get("bout_rounds_remaining", 0))
         sess.daily_san_lost = int(snap.get("daily_san_lost", 0))
         sess.day_start_san = int(snap.get("day_start_san", sess.san_current))
         saved_events = snap.get("events") or []

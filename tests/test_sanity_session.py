@@ -199,6 +199,51 @@ def test_fumbled_san_roll_loses_maximum_san():
         assert s.san_current == san_before - 8
 
 
+def test_no_san_loss_during_active_bout():
+    """p.157: the investigator cannot lose further SAN while experiencing a
+    bout of madness."""
+    s = _make_session(san=60)
+    s.bout_active = True
+    ev = s.sanity_check("horror", 1, "1D6", involuntary_kind="freeze")
+    assert ev["type"] == "sanity_check_skipped"
+    assert s.san_current == 60
+
+
+def test_underlying_insanity_any_loss_triggers_new_bout():
+    """p.158: while underlying insane, any further SAN loss (even 1 point)
+    results in another bout of madness."""
+    s = _make_session(san=5, seed=50)  # low SAN → the roll fails, loses 1D4
+    s.temporary_insane = True          # underlying phase
+    before = len(s.bouts_of_madness)
+    s.sanity_check("aftershock", 1, "1D4", involuntary_kind="freeze")
+    assert s.san_current < 5
+    assert len(s.bouts_of_madness) == before + 1
+
+
+def test_realtime_bout_sets_active_and_ticks_down():
+    """Real-time bouts last 1D10 rounds (p.157); tick_bout_round counts down
+    and end_bout returns control (underlying insanity continues)."""
+    s = _make_session(san=60)
+    s._start_bout("ghoul", alone=False, module_bout_override=None)
+    assert s.bout_active is True
+    rounds = s.bout_rounds_remaining
+    assert rounds >= 1
+    for _ in range(rounds):
+        s.tick_bout_round()
+    assert s.bout_active is False
+    assert any(e["type"] == "bout_ended" for e in s.events)
+
+
+def test_bout_state_survives_save_load(tmp_path):
+    s = coc_sanity.SanitySession("ada", san_max=60, int_value=50,
+                                 rng=random.Random(4), campaign_dir=tmp_path)
+    s._start_bout("ghoul", alone=False, module_bout_override=None)
+    s.save(tmp_path)
+    loaded = coc_sanity.SanitySession.load(tmp_path, "ada")
+    assert loaded.bout_active is True
+    assert loaded.bout_rounds_remaining == s.bout_rounds_remaining
+
+
 def test_indefinite_insanity_threshold_uses_day_start_current_san():
     """p.168: the 1/5 threshold is against *current* SAN at the start of the
     day, not max SAN. san_max=99 but day starts at 25 → losing 5 triggers."""

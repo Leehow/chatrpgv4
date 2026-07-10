@@ -183,3 +183,24 @@ def test_contacts_difficulty_home_same_profession():
 
 def test_contacts_difficulty_foreign_remote():
     assert coc_rule_signals.read_contacts_difficulty(home_ground=False, same_profession=False) == "hard"
+
+
+def test_bout_active_not_inferred_from_temporary_insane(tmp_path):
+    """W0-5: temporary insanity (underlying phase, 1D10 hours) must NOT be
+    conflated with an active bout (1D10 rounds, p.157)."""
+    import json as _json
+    inv = tmp_path / "save" / "investigator-state"
+    inv.mkdir(parents=True)
+    (inv / "h.json").write_text(_json.dumps({"temporary_insane": True}))
+    sig = coc_rule_signals.read_sanity_engine_state(tmp_path, "h")
+    assert sig["bout_active"] is False
+    assert sig["temporary_insane"] is True
+
+
+def test_bout_active_read_from_explicit_field(tmp_path):
+    import json as _json
+    inv = tmp_path / "save" / "investigator-state"
+    inv.mkdir(parents=True)
+    (inv / "h.json").write_text(_json.dumps({"bout_active": True}))
+    sig = coc_rule_signals.read_sanity_engine_state(tmp_path, "h")
+    assert sig["bout_active"] is True

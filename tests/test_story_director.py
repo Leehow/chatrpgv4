@@ -1306,6 +1306,39 @@ def test_rule_override_bout_forces_subsystem_sanity(tmp_path):
     assert overrides["subsystem"] == "sanity"
 
 
+def test_temp_insane_underlying_does_not_force_subsystem(tmp_path):
+    """p.158: during underlying insanity the player retains full control —
+    temp_insane alone must not force the sanity subsystem takeover."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    ctx["rule_signals"]["bout_active"] = False
+    ctx["rule_signals"]["sanity_state"] = "temp_insane"
+    overrides = coc_story_director.apply_rule_signal_overrides(ctx)
+    assert overrides is None or overrides.get("subsystem") != "sanity"
+
+
+def test_bout_subsystem_emits_playout_directive_not_san_roll(tmp_path):
+    """p.156-157: a bout is a Keeper-takeover playout, not a SAN roll to
+    'regain control' — no such roll exists in the rulebook."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    ctx["rule_signals"]["bout_active"] = True
+    ctx["rule_signals"]["sanity_state"] = "bout_active"
+    requests = coc_story_director._build_rules_requests(ctx, "SUBSYSTEM")
+    kinds = [r.get("kind") for r in requests]
+    assert "bout_playout" in kinds
+    assert "sanity_check" not in kinds
+    playout = next(r for r in requests if r["kind"] == "bout_playout")
+    assert playout["keeper_controls_investigator"] is True
+    assert "roll_contract" not in playout
+
+
 def test_generate_plan_reveal_includes_clue_policy(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     ctx = coc_story_director.build_director_context(
@@ -1391,12 +1424,13 @@ def test_clue_type_obscured_for_skill_delivery(tmp_path):
 
 
 def test_clue_type_obvious_for_handout_delivery(tmp_path):
-    """A clue delivered via a Handout / direct give is obvious and skips the Spot Hidden roll."""
+    """A clue with structured delivery_kind=handout is obvious and skips the Spot Hidden roll."""
     camp, char_path = _make_minimal_campaign(tmp_path)
     # rewrite clue-graph so clue-1 is delivered as a Handout (no skill roll)
     cg = {"conclusions": [{"conclusion_id": "concl-1", "importance": "critical",
             "minimum_routes": 3,
-            "clues": [{"clue_id": "clue-1", "delivery": "Handout 1 — Mr. X gives this directly", "visibility": "player-safe"},
+            "clues": [{"clue_id": "clue-1", "delivery": "Handout 1 — Mr. X gives this directly",
+                       "delivery_kind": "handout", "visibility": "player-safe"},
                       {"clue_id": "clue-1b", "delivery": "Spot Hidden", "visibility": "player-safe"},
                       {"clue_id": "clue-1c", "delivery": "Library Use", "visibility": "player-safe"}],
             "fallback_policy": ""}]}
@@ -1410,13 +1444,20 @@ def test_clue_type_obvious_for_handout_delivery(tmp_path):
     assert plan["rules_requests"] == [] or all("Spot Hidden" not in r.get("skill", "") for r in plan["rules_requests"])
 
 
-def test_infer_clue_type_unknown_defaults_obscured():
-    """A clue_id not present in clue_graph defaults to obscured (conservative)."""
+def test_resolve_clue_delivery_never_scans_delivery_prose():
+    """Without delivery_kind, delivery prose is NEVER keyword-scanned: a
+    Handout-looking delivery string still defaults to obscured (Semantic
+    Matcher Constitution — conservative structured default, no prose
+    inference)."""
     cg = {"conclusions": [{"conclusion_id": "c1", "clues": [
         {"clue_id": "known", "delivery": "Handout"}], "fallback_policy": ""}]}
-    assert coc_story_director._infer_clue_type("missing-clue", cg) == "obscured"
-    assert coc_story_director._infer_clue_type(None, cg) == "obscured"
-    assert coc_story_director._infer_clue_type("known", cg) == "obvious"
+    assert coc_story_director._resolve_clue_delivery("missing-clue", cg) == ("obscured", None, None)
+    assert coc_story_director._resolve_clue_delivery(None, cg) == ("obscured", None, None)
+    # legacy heuristic would have said "obvious" for a Handout delivery string;
+    # the structured-only path defaults to obscured + delivery warning instead.
+    assert coc_story_director._resolve_clue_delivery("known", cg) == ("obscured", None, None)
+    assert not hasattr(coc_story_director, "_OBSCURED_DELIVERY_TRIGGERS")
+    assert not hasattr(coc_story_director, "_infer_clue_type")
 
 
 def test_must_include_filled_from_clue_anchor(tmp_path):
@@ -1594,15 +1635,19 @@ def test_resolve_delivery_structured_obvious(tmp_path):
 
 
 def test_resolve_delivery_fallback_when_no_delivery_kind(tmp_path):
-    """Old clue-graph without delivery_kind falls back to string heuristic."""
+    """Old clue-graph without delivery_kind defaults to obscured (no prose scan)."""
     camp, char_path = _make_minimal_campaign(tmp_path)
-    # default _make_minimal_campaign clues have no delivery_kind -> fallback
+    # default _make_minimal_campaign clues have no delivery_kind -> conservative default
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=char_path, investigator_id="inv1",
         player_intent="search", player_intent_class="investigate", rng=random.Random(42))
     plan = coc_story_director.generate_director_plan(ctx, "dk-fallback")
-    # clue-1 delivery is "investigate" -> heuristic says obscured
+    # no delivery_kind -> conservative obscured default + delivery warning
     assert plan["clue_policy"]["clue_type"] == "obscured"
+    assert any(
+        warning.get("fallback_mode") == "conservative_obscured_default"
+        for warning in plan["clue_policy"]["delivery_warnings"]
+    )
 
 
 def test_critical_legacy_delivery_fallback_emits_warning(tmp_path):
