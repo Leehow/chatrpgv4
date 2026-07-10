@@ -32,8 +32,8 @@
 | **Wave 0** | 与规则书**直接相反/写错**的 7 处修正（本文档含完整 TDD 任务） | ☑ 2026-07-10 |
 | **Wave 1** | 好玩优先项：幸运消费、背景个人化恐怖、幻觉/Reality Check、恐惧症压迫、惊吓技法、SAN 演出协议、怪物演出契约、收尾仪式（本文档含完整任务） | ☑ 2026-07-10 |
 | **Wave 2** | 规则引擎补洞：典籍阅读引擎、成长阶段结算、推骰门闩进 apply、治疗/asylum/self-help 重做、施法推骰后果表、信徒流程接线（任务级定义，波次启动时按本文档展开细化计划） | ☑ 2026-07-10 |
-| **Wave 3** | 动作场面：追逐 Part2–5 重写、自动武器/多发/瞄准、环境伤害引擎、prone/投掷修正（任务级定义） | ☐ |
-| **Wave 4** | 遗留 N 系列：N5 真 LLM 对战、N6 存档工程化、N1 多宿主、N2/N7 内容+快速开玩、N3 叙述闭环、N4 缓存、N8 清理（任务级定义） | ◐ N1–N8 done；余全量验证 |
+| **Wave 3** | 动作场面：追逐 Part2–5 重写、自动武器/多发/瞄准、环境伤害引擎、prone/投掷修正（任务级定义） | ☑ 2026-07-10 |
+| **Wave 4** | 遗留 N 系列：N5 真 LLM 对战、N6 存档工程化、N1 多宿主、N2/N7 内容+快速开玩、N3 叙述闭环、N4 缓存、N8 清理（任务级定义） | ☑ 2026-07-10 |
 | **Backlog** | Contacts / Training / Aging / CR 消费 / 组合检定 API / 物理极限 / Spot Rules 可选规则 | ☐ |
 
 > 每个波次完成后：在上表打勾、跑全量测试、更新本文件的"波次日志"。**禁止跳过日志直接开下一波**——这是防遗忘机制。
@@ -44,6 +44,7 @@
 - 2026-07-10：**Wave 0 完成**（W0-1…W0-7 全部落地，提交 `ba07c3d`…`3310a8f`）。全量 1193 passed。
 - 2026-07-10：**Wave 1 完成**。W1-1/W1-2 由主线实现（`3a02536`、`e77ebf9`）；W1-3/W1-4/W1-5/W1-6 由 subagent 实现并经协调者审核（`784ba45`、`f63dea1`、`cf5a6e9`、`2a3c0a0`）。W1-5 的 subagent 在提交前连接中断，成品经审核后由协调者代为提交（`cf5a6e9`）。全量 1243 passed（含 `test_plugin_metadata` 40 条）。另补交 P0 阶段遗留改动（`8e33921`、`942fd60`）。下一波：Wave 2 规则引擎补洞，启动时先按本文档展开细化计划。
 - 2026-07-10：**Wave 2 完成**（细化计划 `2026-07-10-wave2-rules-depth.md`）。任务→提交：W2-1 `b9d56d1`、W2-4 `6ebc360`、W2-5 `8fdc98d`、W2-3 `a22994e`（推骰门闩）+ `053e3e3`（pushed_fail_pending→PRESSURE）、W2-6 `19ba6c8`、W2-2 `07eb661`、W2-8 `e7fefce`、W2-7 `9d5f27e`、W2-9 收尾提交（本条）。全量 1333 passed（含 `test_plugin_metadata`）。下一波：Wave 3 动作场面。
+- 2026-07-10：**Wave 3 + Wave 4 完成**（全部由 grok-4.5 subagent 实现、协调者审核）。Wave 3：W3-3 环境伤害 `coc_hazards.py`（`d40a1a5`）、W3-2 火器深度（`36129da`）、W3-4 近战补丁（`8791d8d`）、W3-1 追逐重写（`9c12f19`）。Wave 4：N5 live-match harness（`f8408a2` 等）+ 真 pi-coding-agent 玩家桥（`e79912f`）、N6 存档工程化（原子写/文件锁/迁移钩子）、N8 清理、N3 叙述质量闭环、N4 缓存、N2+N7 The Haunting 内容包与 `quick_start`、N1 多宿主安装（`f8d71ac`）；另落地 move 目标结构化匹配（`16b434a`）与场景转移死锁修复。全量 **1540 passed**；Haunting 6 回合验收：visited 3 幕、4 线索。剩余：Backlog（Contacts/Training/Aging/CR 等）与真 LLM live match 首跑。
 
 ---
 
@@ -856,7 +857,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 - [x] **W3-2 火器深度**：瞄准（+1 奖励骰）、手枪多发（每发-1 惩罚级）、装填耗轮、全自动 volley（技能/10 一组）、压制射击；`weapons.json` 的 `uses_per_round` 接入引擎。
 - [x] **W3-3 环境伤害引擎**：`apply_other_damage(severity)`（Table III p.124 档位）、窒息状态机（每轮 CON→伤害→0HP 死且忽略重伤规则）、`apply_poison(id)`（`poisons.json` 接入，Extreme CON 减半）；环境伤 `bypass_armor`。
 - [x] **W3-4 近战补丁**：投掷武器路径（可 Dodge、半 DB）、prone 攻防修正（近战+1奖励/远程-1惩罚）、maneuver 命名统一（代码 `VALID_MANEUVER_GOALS` vs SKILL.md 141-148 的 grapple/break_free 不一致）、防御方 maneuver 反制。
-- [ ] **W3-5 全量验证 + 打勾写日志**
+- [x] **W3-5 全量验证 + 打勾写日志**
 
 # Wave 4：遗留工程项（N 系列，任务级定义）
 
@@ -869,7 +870,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 - [x] **N3 叙述质量闭环**：`guard_player_visible_text` 进 live 必查回路 + `narration-audit.jsonl`。
 - [x] **N4 缓存**：storylet 库/规则表/结构权重模块级缓存 + mtime 失效。
 - [x] **N8 清理**：`storylet-scheduler.jsonl` 只写不读、`fork_timeline` stub、`npc-role-keywords.json` 更名（实为 enum→template 映射，名字易误导后人抄成关键词扫描）。
-- [ ] **全量验证 + 打勾写日志**
+- [x] **全量验证 + 打勾写日志**
 
 # Backlog（暂不排期，防遗忘登记）
 
