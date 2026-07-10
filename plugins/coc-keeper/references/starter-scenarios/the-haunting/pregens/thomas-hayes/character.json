@@ -66,15 +66,18 @@
     "badge that impresses clerks more than cops"
   ],
   "backstory": {
-    "description": "波士顿南区出身的私家侦探，专接房东、律师与保险公司的脏活。Knott 的委托听起来像又一次「清清恶名」——直到他把钥匙拍在桌上。",
+    "scenario_id": "the-haunting",
+    "scenario_bound": {
+      "description": "波士顿南区出身的私家侦探，专接房东、律师与保险公司的脏活。Knott 的委托听起来像又一次「清清恶名」——直到他把钥匙拍在桌上。",
+      "significant_people": "前搭档在一次夜间跟踪中失踪，案子至今未结。",
+      "meaningful_locations": "南站附近那间一室办公室。"
+    },
     "traits": [
       "先查纸再上门",
       "不信鬼，但信人会疯",
       "开枪前会先算退路"
     ],
     "ideology": "真相值钱，沉默更贵。",
-    "significant_people": "前搭档在一次夜间跟踪中失踪，案子至今未结。",
-    "meaningful_locations": "南站附近那间一室办公室。",
     "treasured_possessions": "父亲留下的 .38。",
     "traits_detail": "说话短，观察长；对官僚系统又恨又熟。"
   },

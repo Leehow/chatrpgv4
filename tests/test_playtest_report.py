@@ -802,6 +802,153 @@ def test_state_changes_include_scene_unlock_and_game_time_payload(tmp_path):
     assert "crossing-saddle" in battle_text
     assert "+30" in battle_text or "30m" in battle_text
 
+
+def test_battle_report_uses_module_meta_title_not_campaign_title(tmp_path):
+    """Module section should prefer module-meta.json title over campaign title."""
+    run_dir = tmp_path / ".coc" / "playtests" / "masks-title"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "masks-peru-live"
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / "thomas-hayes"
+    for path in (run_dir, campaign_dir / "scenario", campaign_dir / "logs", campaign_dir / "memory", investigator_dir):
+        path.mkdir(parents=True, exist_ok=True)
+
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "masks-peru-live",
+        "title": "Masks Peru Live",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+    })
+    write_json(campaign_dir / "party.json", {"investigator_ids": ["thomas-hayes"]})
+    # No scenario.json — compiled packages ship module-meta.json only.
+    write_json(campaign_dir / "scenario" / "module-meta.json", {
+        "schema_version": 1,
+        "scenario_id": "masks-of-nyarlathotep-ch-peru",
+        "title": "Masks of Nyarlathotep — Prologue: Peru",
+        "structure_type": "hub_sandbox",
+        "era": "1920s",
+        "content_flags": [],
+        "win_condition": "survive",
+    })
+    write_json(investigator_dir / "character.json", {
+        "id": "thomas-hayes",
+        "name": "托马斯·海斯",
+        "occupation": "私家侦探",
+        "era": "1920s",
+        "characteristics": {"STR": 60, "CON": 55, "SIZ": 65, "DEX": 60, "APP": 50, "INT": 70, "POW": 55, "EDU": 65},
+        "derived": {"HP": 12, "MP": 11, "SAN": 55, "MOV": 7, "damage_bonus": "0", "build": 1},
+        "skills": {"Library Use": 40},
+        "backstory": {
+            "scenario_id": "the-haunting",
+            "scenario_bound": {
+                "description": "Knott 的委托听起来像又一次清清恶名。",
+                "significant_people": "前搭档失踪。",
+                "meaningful_locations": "克莱恩街附近的办公室。",
+            },
+            "traits": ["先查纸再上门"],
+            "ideology": "真相值钱。",
+            "treasured_possessions": "父亲留下的 .38。",
+        },
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+    write_json(run_dir / "playtest.json", {
+        "run_id": "masks-title",
+        "campaign_id": "masks-peru-live",
+        "campaign_title": "Masks Peru Live",
+        # Live-match historically stamped campaign title here — report must not prefer it.
+        "scenario": "Masks Peru Live",
+        "scenario_id": "masks-peru-live",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "simulation_method": "live_llm_player_vs_kp",
+    })
+
+    battle_text = coc_playtest_report.generate_battle_report(run_dir).read_text(encoding="utf-8")
+    visible = visible_markdown_text(battle_text)
+    assert "Campaign: Masks Peru Live" in visible or "战役: Masks Peru Live" in battle_text
+    assert "Masks of Nyarlathotep — Prologue: Peru" in battle_text
+    assert "Scenario ID: masks-of-nyarlathotep-ch-peru" in visible or "模组 ID: masks-of-nyarlathotep-ch-peru" in battle_text
+    # Campaign title must not leak into the Module/Scenario field.
+    module_section = battle_text.split("## Module")[-1] if "## Module" in battle_text else battle_text.split("## 模组")[-1]
+    module_header = module_section.split("## ")[0]
+    assert "Masks of Nyarlathotep — Prologue: Peru" in module_header
+    assert "Scenario: Masks Peru Live" not in visible_markdown_text(module_header)
+    # Scenario-bound Haunting prose omitted when campaign scenario differs.
+    assert "Knott" not in battle_text
+    assert "克莱恩街" not in battle_text
+    assert "先查纸再上门" in battle_text
+    assert "真相值钱" in battle_text
+
+
+def test_battle_report_keeps_scenario_bound_backstory_when_scenario_matches(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "haunting-bound"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-run"
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / "thomas-hayes"
+    for path in (run_dir, campaign_dir / "scenario", campaign_dir / "logs", campaign_dir / "memory", investigator_dir):
+        path.mkdir(parents=True, exist_ok=True)
+
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "haunting-run",
+        "title": "Haunting Run",
+        "scenario_id": "the-haunting",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+    })
+    write_json(campaign_dir / "party.json", {"investigator_ids": ["thomas-hayes"]})
+    write_json(campaign_dir / "scenario" / "module-meta.json", {
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "title": "The Haunting",
+        "structure_type": "branching_investigation",
+        "era": "1920s",
+        "content_flags": [],
+        "win_condition": "survive",
+    })
+    write_json(investigator_dir / "character.json", {
+        "id": "thomas-hayes",
+        "name": "托马斯·海斯",
+        "occupation": "私家侦探",
+        "era": "1920s",
+        "characteristics": {"STR": 60, "CON": 55, "SIZ": 65, "DEX": 60, "APP": 50, "INT": 70, "POW": 55, "EDU": 65},
+        "derived": {"HP": 12, "MP": 11, "SAN": 55, "MOV": 7, "damage_bonus": "0", "build": 1},
+        "skills": {"Library Use": 40},
+        "backstory": {
+            "scenario_id": "the-haunting",
+            "scenario_bound": {
+                "description": "Knott 的委托听起来像又一次清清恶名。",
+                "meaningful_locations": "克莱恩街附近的办公室。",
+            },
+            "traits": ["先查纸再上门"],
+        },
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+    write_json(run_dir / "playtest.json", {
+        "run_id": "haunting-bound",
+        "campaign_id": "haunting-run",
+        "campaign_title": "Haunting Run",
+        "scenario": "The Haunting",
+        "scenario_id": "the-haunting",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "simulation_method": "transcript_driven_virtual_table",
+    })
+
+    battle_text = coc_playtest_report.generate_battle_report(run_dir).read_text(encoding="utf-8")
+    assert "Knott" in battle_text
+    assert "克莱恩街" in battle_text
+    assert "先查纸再上门" in battle_text
+
+
 def test_battle_report_renders_narrative_adherence_section(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "adherence-run"
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "adherence-run"

@@ -1078,7 +1078,21 @@ def _load_campaign_context(run_dir: Path, metadata: dict[str, Any]) -> dict[str,
     campaign_dir = _select_campaign_dir(run_dir, metadata)
     campaign = _read_json(campaign_dir / "campaign.json", {}) if campaign_dir else {}
     party = _read_json(campaign_dir / "party.json", {}) if campaign_dir else {}
-    scenario = _read_json(campaign_dir / "scenario" / "scenario.json", {}) if campaign_dir else {}
+    scenario_file = (
+        _read_json(campaign_dir / "scenario" / "scenario.json", {}) if campaign_dir else {}
+    )
+    module_meta = (
+        _read_json(campaign_dir / "scenario" / "module-meta.json", {}) if campaign_dir else {}
+    )
+    # Compiled packages ship module-meta.json; optional scenario.json may be absent.
+    # Prefer explicit scenario.json fields when present, else fall back to module-meta.
+    scenario: dict[str, Any] = {}
+    if isinstance(module_meta, dict):
+        scenario.update(module_meta)
+    if isinstance(scenario_file, dict):
+        for key, value in scenario_file.items():
+            if value not in (None, "", [], {}):
+                scenario[key] = value
     return {
         "campaign_dir": campaign_dir,
         "campaign": campaign,
@@ -1134,26 +1148,50 @@ def _format_backstory(
     backstory: Any,
     localized_terms: dict[str, str],
     language_profile: dict[str, Any],
+    campaign_scenario_id: str | None = None,
 ) -> list[str]:
     if not isinstance(backstory, dict) or not backstory:
+        return []
+
+    # Structured provenance: scenario-bound prose is omitted when the character's
+    # backstory.scenario_id differs from the campaign/module scenario_id.
+    # Comparison is ID equality only — never free-text matching.
+    view = {
+        key: value
+        for key, value in backstory.items()
+        if key not in {"scenario_id", "scenario_bound"} and value not in (None, "", [], {})
+    }
+    bound_block = backstory.get("scenario_bound")
+    bound_id = backstory.get("scenario_id")
+    include_bound = True
+    if isinstance(bound_id, str) and bound_id.strip():
+        campaign_id = str(campaign_scenario_id or "").strip()
+        if campaign_id and campaign_id != bound_id.strip():
+            include_bound = False
+    if include_bound and isinstance(bound_block, dict):
+        for key, value in bound_block.items():
+            if value not in (None, "", [], {}) and key not in view:
+                view[key] = value
+
+    if not view:
         return []
 
     lines = [f"  - {_character_dossier_label(language_profile, 'Backstory')}:"]
     rendered_keys: set[str] = set()
     for key, label in BACKSTORY_FIELDS:
-        value = backstory.get(key)
+        value = view.get(key)
         if value in (None, "", [], {}):
             continue
         rendered_keys.add(key)
         display_label = _character_dossier_label(language_profile, label)
         lines.append(f"    - {display_label}: {_format_backstory_value(value, localized_terms)}")
 
-    for key in sorted(backstory):
-        if key in rendered_keys or backstory.get(key) in (None, "", [], {}):
+    for key in sorted(view):
+        if key in rendered_keys or view.get(key) in (None, "", [], {}):
             continue
         label = key.replace("_", " ").title()
         display_label = _character_dossier_label(language_profile, label)
-        lines.append(f"    - {display_label}: {_format_backstory_value(backstory[key], localized_terms)}")
+        lines.append(f"    - {display_label}: {_format_backstory_value(view[key], localized_terms)}")
     return lines if len(lines) > 1 else []
 
 
@@ -1161,6 +1199,7 @@ def _format_character(
     character: dict[str, Any],
     localized_terms: dict[str, str] | None = None,
     language_profile: dict[str, Any] | None = None,
+    campaign_scenario_id: str | None = None,
 ) -> list[str]:
     terms = localized_terms or {}
     profile = language_profile or {}
@@ -1208,7 +1247,14 @@ def _format_character(
             f"  - {_character_dossier_label(profile, 'Skill Half/Fifth Values')}: "
             f"{_format_skill_half_fifth_values(skill_thresholds, terms)}"
         )
-    lines.extend(_format_backstory(character.get("backstory"), terms, profile))
+    lines.extend(
+        _format_backstory(
+            character.get("backstory"),
+            terms,
+            profile,
+            campaign_scenario_id=campaign_scenario_id,
+        )
+    )
     return lines
 
 
@@ -2247,7 +2293,6 @@ def _render_narrative_adherence_section(adherence: Any) -> list[str]:
     return lines
 
 
-
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
     localized_terms = _localized_terms(metadata)
@@ -2421,7 +2466,14 @@ def generate_battle_report(run_dir: Path) -> Path:
         ))
     character_lines: list[str] = []
     for character in characters:
-        character_lines.extend(_format_character(character, localized_terms, language_profile))
+        character_lines.extend(
+            _format_character(
+                character,
+                localized_terms,
+                language_profile,
+                campaign_scenario_id=str(scenario_id) if scenario_id not in (None, "unknown") else None,
+            )
+        )
     chronicle_lines: list[str] = []
     for character in characters:
         chronicle_lines.extend(_format_investigator_chronicle(

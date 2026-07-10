@@ -53,15 +53,18 @@
     "letters of introduction to two city editors"
   ],
   "backstory": {
-    "description": "剑桥出身的都市记者，靠图书馆与花言巧语挖市政丑闻。Corbitt 宅的租客悲剧像一条被压下的社会新闻——她想把它写出来，也想活着交稿。",
+    "scenario_id": "the-haunting",
+    "scenario_bound": {
+      "description": "剑桥出身的都市记者，靠图书馆与花言巧语挖市政丑闻。Corbitt 宅的租客悲剧像一条被压下的社会新闻——她想把它写出来，也想活着交稿。",
+      "significant_people": "在 Globe 当夜班编辑的表姐，偶尔替她开后门。",
+      "meaningful_locations": "中央图书馆阅览室靠窗的位子。"
+    },
     "traits": [
       "先问谁受益",
       "剪报库比枪管用",
       "害怕的时候仍在记笔记"
     ],
     "ideology": "见光是最好的消毒——除非光本身会咬人。",
-    "significant_people": "在 Globe 当夜班编辑的表姐，偶尔替她开后门。",
-    "meaningful_locations": "中央图书馆阅览室靠窗的位子。",
     "treasured_possessions": "第一篇头版的剪报。",
     "traits_detail": "社交大胆、体力一般；擅长把官僚话翻译成线索。"
   },
