@@ -13,6 +13,15 @@ Clue reveal is intentionally *fail-forward*, not a hard gate:
 - RECOVER after multiple stalled turns may commit one fallback route with a
   pressure/time cost, modeling an Idea Roll-style recovery valve.
 
+Session ending (W1-6 / Keeper Rulebook p.212-213): when ``scene_action`` is
+``PAYOFF`` and the active story-graph scene is terminal, append a structured
+``session_ending`` event (playtest-compatible ``type`` + ``payload``). Terminal
+evidence is structured only — never prose keywords:
+
+- ``scene.is_final is True``, or
+- ``scene.scene_type == "resolution"``, or
+- the scene is the last entry in ``story-graph.json`` ``scenes``.
+
 Spec: docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md
 """
 from __future__ import annotations
@@ -175,6 +184,86 @@ def _read_json(path: Path, fallback: Any) -> Any:
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _resolve_scenario_id(campaign_dir: Path, world: dict[str, Any]) -> str | None:
+    """Resolve scenario_id from structured campaign/world/module-meta fields."""
+    for candidate in (
+        world.get("scenario_id"),
+        _read_json(campaign_dir / "campaign.json", {}).get("scenario_id"),
+        _read_json(campaign_dir / "scenario" / "module-meta.json", {}).get("scenario_id"),
+    ):
+        if candidate not in (None, "", [], {}):
+            return str(candidate)
+    return None
+
+
+def _is_terminal_scene(scene: dict[str, Any], scenes: list[dict[str, Any]]) -> bool:
+    """True when structured scene evidence marks a scenario ending beat.
+
+    Uses only structured fields (Semantic Matcher Constitution):
+    ``is_final``, ``scene_type == "resolution"``, or last story-graph entry.
+    """
+    if not isinstance(scene, dict):
+        return False
+    if scene.get("is_final") is True:
+        return True
+    if str(scene.get("scene_type") or "") == "resolution":
+        return True
+    if scenes and scenes[-1] is scene:
+        return True
+    scene_id = scene.get("scene_id")
+    if scene_id and scenes and scenes[-1].get("scene_id") == scene_id:
+        return True
+    return False
+
+
+def _maybe_emit_session_ending(
+    campaign_dir: Path,
+    plan: dict[str, Any],
+    *,
+    world: dict[str, Any],
+    investigator_id: str,
+    decision_id: str,
+    ts: str,
+) -> dict[str, Any] | None:
+    """Emit playtest-shaped ``session_ending`` when PAYOFF lands on a terminal scene.
+
+    Trigger (structured only; see module docstring): ``scene_action == "PAYOFF"``
+    and the active story-graph scene is terminal via ``is_final``,
+    ``scene_type == "resolution"``, or last-in-``scenes``.
+    """
+    if plan.get("scene_action") != "PAYOFF":
+        return None
+    story_graph_path = campaign_dir / "scenario" / "story-graph.json"
+    if not story_graph_path.exists():
+        return None
+    story = _read_json(story_graph_path, {"scenes": []})
+    scenes = [s for s in story.get("scenes", []) if isinstance(s, dict)]
+    current_scene_id = world.get("active_scene_id")
+    current_scene = next(
+        (s for s in scenes if s.get("scene_id") == current_scene_id),
+        None,
+    )
+    if current_scene is None or not _is_terminal_scene(current_scene, scenes):
+        return None
+    scenario_id = _resolve_scenario_id(campaign_dir, world)
+    return {
+        "type": "session_ending",
+        "event_type": "session_ending",
+        "actor": investigator_id,
+        "decision_id": decision_id,
+        "investigator_id": investigator_id,
+        "payload": {
+            "scenario_id": scenario_id,
+            "scene_id": current_scene_id,
+            "summary": f"scenario ending on scene {current_scene_id}",
+        },
+        "scenario_id": scenario_id,
+        "scene_id": current_scene_id,
+        "ts": ts,
+        "rule_ref": "core.keeper.ending_a_story",
+    }
 
 
 def _lookup_clock_def(campaign_dir: Path, clock_id: str) -> dict[str, Any] | None:
@@ -1271,6 +1360,22 @@ def _apply_plan_impl(
                         _apply_scene_on_enter(campaign_dir, next_scene, decision_id,
                                               investigator_id, ts, events, logs)
                         break
+
+    # 7b. session ending — PAYOFF on a terminal story-graph scene (W1-6 / p.212-213).
+    # Re-read world in case a prior step advanced active_scene_id; terminal
+    # detection uses only structured scene fields (see module docstring).
+    world = _read_json(world_path, world)
+    ending_ev = _maybe_emit_session_ending(
+        campaign_dir,
+        plan,
+        world=world,
+        investigator_id=investigator_id,
+        decision_id=decision_id,
+        ts=ts,
+    )
+    if ending_ev is not None:
+        events.append(ending_ev)
+        _append_jsonl(logs / "events.jsonl", ending_ev)
 
     # 8. always emit a turn event if nothing else did
     if not events:

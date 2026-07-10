@@ -395,3 +395,53 @@ torture, sexual_violence_implied, child_endangerment, etc.):
 - **Honor `[meta]` checkpoints.** If a player uses `[meta]` to flag
   discomfort, immediately fade the current scene and adjust the register for
   the rest of the session; do not punish the retreat in-fiction.
+
+## Failed SAN Table Protocol
+
+When a SAN roll fails, perform the table beat in this order (Keeper Rulebook
+p.209-213; engine fields from `coc_sanity`):
+
+1. **Narrate the involuntary action first.** The engine supplies
+   `involuntary_action.kind` (and related structured fields). Render that
+   involuntary beat before anything else — never skip it, never invent a
+   different involuntary from free-text scanning.
+2. **If a bout of madness triggers**, choose the mode the engine already set:
+   - **Real-time mode:** the Keeper takes control of the investigator. Each
+     round, announce the forced action the engine supplies and advance with
+     `tick_bout_round` until the bout ends.
+   - **Summary mode:** fast-forward. Do not play out round-by-round action;
+     cut straight to describing the scene where the investigator "comes to."
+     Table VIII summary results already imply that waking moment — narrate it,
+     then continue.
+3. **When the bout ends**, hand control back to the player and remind them of
+   the fragile underlying temporary-insanity state still in force.
+4. **During the underlying phase**, everyday behavior can be entirely normal
+   (p.158). Forbid playing the investigator as constantly mad, twitching, or
+   narrating every beat through the phobia/mania. Let the condition surface
+   when the structured trigger or scene pressure calls for it — not as a
+   permanent performance mask.
+
+Bout playout detail (round tables, duration dice, summary Table VIII) lives in
+`coc-sanity`; this section is the live-table performance order only.
+
+## Ending a Story
+
+Close a scenario the way a human Keeper would (p.212-213):
+
+1. **Recognize the finale.** A final scene resolved, or a deliberate
+   cliffhanger, are both legitimate endings. Prefer structured evidence
+   (`scene_type: resolution`, `is_final`, last story-graph scene, or an apply
+   layer `session_ending` event) over guessing from prose.
+2. **Give each investigator a short epilogue.** Invite the player to co-write
+   it — one beat of aftermath, consequence, or unresolved dread per person.
+3. **Settle SAN rewards.** Apply scenario endings data when present, then add
+   any Keeper discretionary award the table earned.
+4. **Point to investigator development.** Until the Wave-2 development engine
+   lands, run the skill-check / improvement phase as a manual table workflow
+   (mark earned checks, roll improvements, record permanent sheet changes).
+5. **Recover Luck at end of session.** For each investigator call
+   `coc_roll.recover_luck(current_luck)` and persist with
+   `coc_state.apply_luck_recovery(campaign_dir, investigator_id, luck_after=...)`.
+6. **Investigator deaths must be meaningful.** Before the lights go out, always
+   offer a final line or final action (p.213 + p.123 Keeper discretion). Do not
+   cut straight to a corpse without that last agency beat.

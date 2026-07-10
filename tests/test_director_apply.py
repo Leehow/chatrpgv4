@@ -1229,3 +1229,80 @@ def test_apply_no_spoiler_reveals_leaves_audit_jsonl_untouched(tmp_path):
             "pressure_moves": [], "memory_writes": [], "rule_signals": {}}
     coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
     assert not (camp / "logs" / "audit.jsonl").exists()
+
+
+def test_apply_payoff_on_final_scene_emits_session_ending(tmp_path):
+    """W1-6: PAYOFF on a terminal scene appends a structured session_ending event.
+
+    Terminal evidence is structured only: scene_type == \"resolution\",
+    is_final == True, or the scene is the last entry in story-graph.scenes.
+    """
+    camp = _campaign(tmp_path)
+    (camp / "campaign.json").write_text(json.dumps({
+        "campaign_id": "test",
+        "scenario_id": "the-haunting",
+        "title": "Test Campaign",
+    }), encoding="utf-8")
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "aftermath"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "house-entry", "available_clues": ["clue-A"],
+         "dramatic_question": "q1", "entry_conditions": [], "exit_conditions": [],
+         "scene_type": "investigation"},
+        {"scene_id": "aftermath", "available_clues": [],
+         "dramatic_question": "how does the story close?",
+         "entry_conditions": [], "exit_conditions": [],
+         "scene_type": "resolution", "is_final": True},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+
+    plan = {"decision_id": "d-end", "scene_action": "PAYOFF",
+            "clue_policy": {"reveal": []}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    ending = next(
+        (e for e in events
+         if e.get("type") == "session_ending" or e.get("event_type") == "session_ending"),
+        None,
+    )
+    assert ending is not None, "expected a session_ending event for final-scene PAYOFF"
+    payload = ending.get("payload") if isinstance(ending.get("payload"), dict) else ending
+    assert payload.get("scenario_id") == "the-haunting"
+    assert payload.get("scene_id") == "aftermath"
+
+    logged = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert any(
+        e.get("type") == "session_ending" or e.get("event_type") == "session_ending"
+        for e in logged
+    )
+
+
+def test_apply_payoff_on_non_final_scene_does_not_emit_session_ending(tmp_path):
+    """PAYOFF alone is not an ending — only a terminal scene triggers session_ending."""
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["active_scene_id"] = "scene-1"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "scene-1", "available_clues": ["clue-A"],
+         "dramatic_question": "q1", "entry_conditions": [], "exit_conditions": [],
+         "scene_type": "investigation"},
+        {"scene_id": "scene-2", "available_clues": ["clue-B"],
+         "dramatic_question": "q2", "entry_conditions": [], "exit_conditions": [],
+         "scene_type": "investigation"},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {"decision_id": "d-payoff", "scene_action": "PAYOFF",
+            "clue_policy": {"reveal": []}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    assert not any(
+        e.get("type") == "session_ending" or e.get("event_type") == "session_ending"
+        for e in events
+    )
