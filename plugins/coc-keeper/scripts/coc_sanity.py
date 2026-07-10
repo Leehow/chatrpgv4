@@ -38,6 +38,7 @@ def _load_sibling(name: str, filename: str):
 
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
+coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 
 coc_time = None
 try:
@@ -834,11 +835,10 @@ class SanitySession:
         periods[key] = period
         state["sanity_periods"] = periods
         # Persist back through the time layer's own write path.
-        import json as _json
         path = self.campaign_dir / "save" / "time-state.json"  # type: ignore[union-attr]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_json.dumps(state, ensure_ascii=False, indent=2) + "\n",
-                        encoding="utf-8")
+        coc_fileio.write_json_atomic(
+            path, state, indent=2, ensure_ascii=False, trailing_newline=True
+        )
 
     def gain_san(self, amount: int, source: str = "reward") -> None:
         """Increase current SAN (e.g. module conclusion reward). Cannot exceed san_max."""
@@ -899,8 +899,9 @@ class SanitySession:
         save_dir = campaign_dir / "save"
         save_dir.mkdir(parents=True, exist_ok=True)
         path = save_dir / "sanity.json"
-        path.write_text(json.dumps(self.snapshot(), ensure_ascii=False, indent=2),
-                        encoding="utf-8")
+        coc_fileio.write_json_atomic(
+            path, self.snapshot(), indent=2, ensure_ascii=False, trailing_newline=False
+        )
         # Mirror the player-facing fields the Story Director reads into
         # investigator-state, so build_director_context can see the live SAN
         # and indefinite-insanity flag without parsing the sanity snapshot.
@@ -932,9 +933,9 @@ class SanitySession:
             data["symptoms_suppressed_until_next_san_loss"] = bool(
                 self.symptoms_suppressed_until_next_san_loss
             )
-            inv_path.parent.mkdir(parents=True, exist_ok=True)
-            inv_path.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                                encoding="utf-8")
+            coc_fileio.write_json_atomic(
+                inv_path, data, indent=2, ensure_ascii=False, trailing_newline=False
+            )
         except (OSError, ValueError):
             pass
 

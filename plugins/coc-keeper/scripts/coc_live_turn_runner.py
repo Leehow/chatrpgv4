@@ -40,6 +40,7 @@ narrative_enrichment = _load_sibling("coc_narrative_enrichment", "coc_narrative_
 playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
 coc_async_recorder = _load_sibling("coc_async_recorder", "coc_async_recorder.py")
 coc_intent_router = _load_sibling("coc_intent_router", "coc_intent_router.py")
+coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 
 
 _INTERRUPT_EVENT_TYPES = {
@@ -82,8 +83,9 @@ def _read_json(path: Path, fallback: Any) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    coc_fileio.write_json_atomic(
+        path, payload, indent=2, ensure_ascii=False, trailing_newline=True
+    )
 
 
 def _append_jsonl_sync(path: Path, record: dict[str, Any]) -> None:

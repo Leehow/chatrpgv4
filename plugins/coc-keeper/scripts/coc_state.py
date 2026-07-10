@@ -5,7 +5,6 @@ import json
 import re
 import shutil
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from coc_fileio import write_json_atomic as _fileio_write_json_atomic
 from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
 
 
@@ -83,17 +83,11 @@ def coc_root(root: Path) -> Path:
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any] | list[Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w",
-        encoding="utf-8",
-        dir=path.parent,
-        delete=False,
-    ) as handle:
-        json.dump(payload, handle, indent=2)
-        handle.write("\n")
-        temp_path = Path(handle.name)
-    temp_path.replace(path)
+    # Preserve historical serialization: indent=2, ensure_ascii=True (json default),
+    # trailing newline. Delegates fsync+replace to coc_fileio.
+    _fileio_write_json_atomic(
+        path, payload, indent=2, ensure_ascii=True, trailing_newline=True
+    )
 
 
 def initial_clock_for_era(era: str = "1920s", start_clock: dict[str, Any] | None = None) -> dict[str, Any]:

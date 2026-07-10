@@ -24,6 +24,7 @@ def _load_sibling(name, filename):
 
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
+coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 LVL = {"fumble":0,"failure":1,"regular":2,"hard":3,"extreme":4,"critical":5}
 
 
@@ -178,7 +179,9 @@ class ChaseSession:
     def save(self, campaign_dir):
         d = campaign_dir/"save"; d.mkdir(parents=True, exist_ok=True)
         p = d/"chase.json"
-        p.write_text(json.dumps(self.snapshot(),ensure_ascii=False,indent=2))
+        coc_fileio.write_json_atomic(
+            p, self.snapshot(), indent=2, ensure_ascii=False, trailing_newline=False
+        )
         return p
 
     def drain_pending(self):

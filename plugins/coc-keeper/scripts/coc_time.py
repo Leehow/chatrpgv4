@@ -20,11 +20,25 @@ Files managed:
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_fileio():
+    spec = importlib.util.spec_from_file_location("coc_fileio", _SCRIPT_DIR / "coc_fileio.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_fileio = _load_fileio()
 
 
 # --------------------------------------------------------------------------- #
@@ -52,8 +66,9 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _write_json(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    coc_fileio.write_json_atomic(
+        path, data, indent=2, ensure_ascii=False, trailing_newline=True
+    )
 
 
 def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
@@ -378,8 +393,9 @@ def _read_inv_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
 
 def _write_inv_state(campaign_dir: Path, investigator_id: str, data: dict[str, Any]) -> None:
     path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    coc_fileio.write_json_atomic(
+        path, data, indent=2, ensure_ascii=False, trailing_newline=False
+    )
 
 
 def _handler_recover_temporary(campaign_dir: Path, investigator_id: str,
@@ -426,8 +442,9 @@ def _handler_apply_treatment(campaign_dir: Path, investigator_id: str,
                 snap = json.loads(sanity_path.read_text(encoding="utf-8"))
                 snap["san_current"] = new_san
                 snap["indefinite_insane"] = False
-                sanity_path.write_text(
-                    json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
+                coc_fileio.write_json_atomic(
+                    sanity_path, snap, indent=2, ensure_ascii=False, trailing_newline=False
+                )
             except (OSError, ValueError):
                 pass
     _write_inv_state(campaign_dir, investigator_id, inv)

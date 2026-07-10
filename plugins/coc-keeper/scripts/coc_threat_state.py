@@ -12,9 +12,23 @@ clocks were perpetually at 0 and ``on_full`` consequences never fired.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 from typing import Any
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_fileio():
+    spec = importlib.util.spec_from_file_location("coc_fileio", _SCRIPT_DIR / "coc_fileio.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_fileio = _load_fileio()
 
 THREAT_STATE_FILENAME = "threat-state.json"
 
@@ -40,10 +54,9 @@ def load_threat_state(save_dir: Path) -> dict[str, Any]:
 
 
 def _save_state(save_dir: Path, state: dict[str, Any]) -> None:
-    save_dir.mkdir(parents=True, exist_ok=True)
     path = _state_path(save_dir)
-    path.write_text(
-        json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    coc_fileio.write_json_atomic(
+        path, state, indent=2, ensure_ascii=False, trailing_newline=True
     )
 
 

@@ -42,6 +42,7 @@ def _load_sibling(name: str, filename: str):
 
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
+coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 
 
 # --------------------------------------------------------------------------- #
@@ -1299,8 +1300,9 @@ class CombatSession:
         save_dir = campaign_dir / "save"
         save_dir.mkdir(parents=True, exist_ok=True)
         path = save_dir / "combat.json"
-        path.write_text(json.dumps(self.snapshot(), ensure_ascii=False, indent=2),
-                        encoding="utf-8")
+        coc_fileio.write_json_atomic(
+            path, self.snapshot(), indent=2, ensure_ascii=False, trailing_newline=False
+        )
         return path
 
     def drain_pending(self) -> tuple[list[dict], list[dict]]:

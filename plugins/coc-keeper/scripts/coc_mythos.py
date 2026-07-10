@@ -18,9 +18,23 @@ events to logs/events.jsonl. It is deterministic given its inputs.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 from typing import Any
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_fileio():
+    spec = importlib.util.spec_from_file_location("coc_fileio", _SCRIPT_DIR / "coc_fileio.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_fileio = _load_fileio()
 
 
 # --------------------------------------------------------------------------- #
@@ -55,8 +69,9 @@ def _read_inv_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
 
 def _write_inv_state(campaign_dir: Path, investigator_id: str, data: dict[str, Any]) -> None:
     path = _inv_state_path(campaign_dir, investigator_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    coc_fileio.write_json_atomic(
+        path, data, indent=2, ensure_ascii=False, trailing_newline=True
+    )
 
 
 def _append_event(campaign_dir: Path, event: dict[str, Any]) -> None:

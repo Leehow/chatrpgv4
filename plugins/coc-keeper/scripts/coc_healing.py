@@ -45,6 +45,7 @@ def _load_sibling(name: str, filename: str):
 
 
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
+coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 
 
 # --------------------------------------------------------------------------- #
@@ -63,8 +64,9 @@ def _read_inv_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
 
 def _write_inv_state(campaign_dir: Path, investigator_id: str, data: dict[str, Any]) -> None:
     path = _inv_state_path(campaign_dir, investigator_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    coc_fileio.write_json_atomic(
+        path, data, indent=2, ensure_ascii=False, trailing_newline=True
+    )
 
 
 def _append_event(campaign_dir: Path, event: dict[str, Any]) -> None:
