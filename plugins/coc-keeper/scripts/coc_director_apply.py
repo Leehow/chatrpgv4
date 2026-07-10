@@ -1088,27 +1088,29 @@ def apply_plan(
     rules_results: list[dict[str, Any]] | None = None,
     recording_mode: str | None = None,
     recording_flush: str | None = None,
-) -> list[dict[str, Any]] | dict[str, Any]:
+) -> list[dict[str, Any]]:
     """Apply a DirectorPlan with sync or fast queued JSONL recording.
 
     Default sync mode preserves legacy behavior. Fast/minimal mode keeps save
     state updates synchronous but queues verbose JSONL records under
     logs/pending-turns for a recorder worker or later flush.
 
-    Re-applying the same ``plan["decision_id"]`` is a structured no-op
-    (``{"skipped": "duplicate_decision_id", ...}``) so damage/SAN/clock ticks
-    are not double-applied.
+    Re-applying the same ``plan["decision_id"]`` is a structured no-op: the
+    return stays a list of event dicts (uniform with every other path) whose
+    single ``apply_skipped`` event carries the duplicate marker, so callers
+    like run_live_turn can iterate it without a shape guard. No state is
+    touched and nothing is appended to JSONL logs.
     """
     global _ACTIVE_JSONL_RECORDER
 
     decision_id = str(plan.get("decision_id", "unknown"))
     save_dir = Path(campaign_dir) / "save"
     if _decision_already_applied(save_dir, decision_id):
-        return {
+        return [{
+            "event_type": "apply_skipped",
             "skipped": "duplicate_decision_id",
             "decision_id": decision_id,
-            "events": [],
-        }
+        }]
 
     mode = "sync"
     flush_policy = "manual"

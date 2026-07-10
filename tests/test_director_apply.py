@@ -1477,13 +1477,12 @@ def test_apply_plan_idempotent_skips_duplicate_decision_id(tmp_path):
     lines1 = [ln for ln in events_path.read_text().splitlines() if ln.strip()]
 
     result2 = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
-    # Structured no-op: dict or single-element list carrying skipped marker.
-    if isinstance(result2, dict):
-        assert result2.get("skipped") == "duplicate_decision_id"
-        assert result2.get("decision_id") == "d-once"
-    else:
-        assert result2
-        assert result2[0].get("skipped") == "duplicate_decision_id"
+    # Structured no-op: uniform list shape with one apply_skipped event.
+    assert isinstance(result2, list)
+    assert len(result2) == 1
+    assert result2[0].get("event_type") == "apply_skipped"
+    assert result2[0].get("skipped") == "duplicate_decision_id"
+    assert result2[0].get("decision_id") == "d-once"
 
     world2 = json.loads((camp / "save" / "world-state.json").read_text())
     pacing2 = json.loads((camp / "save" / "pacing-state.json").read_text())
@@ -1495,6 +1494,41 @@ def test_apply_plan_idempotent_skips_duplicate_decision_id(tmp_path):
 
     ledger = json.loads((camp / "save" / "apply-ledger.json").read_text())
     assert "d-once" in ledger.get("applied_decision_ids", [])
+
+
+def test_apply_plan_duplicate_result_safe_for_runner_consumption(tmp_path):
+    """run_live_turn iterates apply_plan's return with event.get(...) and no
+    isinstance guard — the duplicate no-op must keep that consumption shape
+    working (list of dicts) and leave state untouched."""
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-retry",
+        "scene_action": "REVEAL",
+        "clue_policy": {"reveal": ["clue-A"]},
+        "pressure_moves": [{"clock_id": "cult-alert", "tick": 1}],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world1 = json.loads((camp / "save" / "world-state.json").read_text())
+    pacing1 = json.loads((camp / "save" / "pacing-state.json").read_text())
+
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    # Mirror the runner's comprehension (coc_live_turn_runner.run_live_turn):
+    # iterating with event.get must not raise on the duplicate no-op result.
+    clue_revealed = [
+        event.get("clue_id") for event in events
+        if event.get("event_type") == "clue_reveal"
+    ]
+    event_types = [event.get("event_type") for event in events if isinstance(event, dict)]
+    assert clue_revealed == []
+    assert event_types == ["apply_skipped"]
+
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    pacing2 = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert world2 == world1
+    assert pacing2 == pacing1
 
 
 def test_write_json_is_atomic_via_replace(tmp_path, monkeypatch):
