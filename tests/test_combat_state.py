@@ -831,3 +831,65 @@ def test_flesh_ward_armor_degrades_correctly_under_extreme_damage():
         assert d["armor_after"] == d["armor_before"] - d["armor_absorbed"]
         # armor should never go negative
         assert d["armor_after"] >= 0
+
+
+# --------------------------------------------------------------------------- #
+# Major wound immediate effects / overkill / zero-HP triage (p.120)
+# --------------------------------------------------------------------------- #
+def _flat_hit(s, target_id: str, damage: int) -> None:
+    """Land an exact amount of damage on target, then update conditions."""
+    s._damage_roll(str(damage), "attacker", target_id, "test-blow", "t-test")
+    s._update_conditions(target_id)
+
+
+def _victim_session(con: int = 50, seed: int = 11):
+    rng = random.Random(seed)
+    s = coc_combat.CombatSession("mw-fight", "test", 1, rng=rng)
+    s.add_participant("attacker", "monster", dex=50, combat_skill=50, build=0, hp_max=10)
+    s.add_participant("victim", "investigator", dex=50, combat_skill=50, build=0,
+                      hp_max=12, con=con)
+    return s
+
+
+def test_major_wound_causes_prone_and_con_check_unconscious():
+    s = _victim_session(con=1)  # CON 1 → CON 检定必失败 → 昏迷
+    _flat_hit(s, "victim", 6)   # 单击达半上限（12//2=6）
+    p = s.participants["victim"]
+    assert "major_wound" in p["conditions"]
+    assert "prone" in p["conditions"]
+    assert "unconscious" in p["conditions"]
+
+
+def test_major_wound_con_success_stays_conscious():
+    s = _victim_session(con=99, seed=3)
+    _flat_hit(s, "victim", 6)
+    p = s.participants["victim"]
+    assert "major_wound" in p["conditions"]
+    assert "prone" in p["conditions"]
+    assert "unconscious" not in p["conditions"]
+
+
+def test_overkill_single_hit_is_instant_death():
+    s = _victim_session()
+    _flat_hit(s, "victim", 13)  # > hp_max(12) 单击 → 死亡不可避免
+    p = s.participants["victim"]
+    assert "dead" in p["conditions"]
+
+
+def test_zero_hp_regular_damage_is_unconscious_not_dying():
+    s = _victim_session(con=99)
+    p = s.participants["victim"]
+    while p["hp_current"] > 0:
+        _flat_hit(s, "victim", 1)  # 小伤堆到 0，无单击达半上限
+    assert "unconscious" in p["conditions"]
+    assert "dying" not in p["conditions"]
+
+
+def test_zero_hp_with_major_wound_is_dying():
+    s = _victim_session(con=99, seed=3)
+    _flat_hit(s, "victim", 6)   # 重伤
+    _flat_hit(s, "victim", 6)   # 打到 0
+    p = s.participants["victim"]
+    assert p["hp_current"] == 0
+    assert "dying" in p["conditions"]
+    assert "unconscious" in p["conditions"]

@@ -185,7 +185,8 @@ class CombatSession:
                         dodge_skill: int | None = None,
                         firearms_skill: int | None = None,
                         has_ready_firearm: bool = False,
-                        damage_bonus: str = "none") -> None:
+                        damage_bonus: str = "none",
+                        con: int = 50) -> None:
         if side not in VALID_SIDES:
             raise ValueError(f"invalid side {side!r}")
         if armor_rule not in VALID_ARMOR_RULES:
@@ -202,6 +203,7 @@ class CombatSession:
             "has_ready_firearm": has_ready_firearm,
             "build": build,
             "damage_bonus": damage_bonus,  # e.g. "+1D4", "-2", "none" (STR+SIZ table)
+            "con": con,  # CON characteristic (major-wound unconsciousness roll, p.120)
             "hp_max": hp_max,
             "hp_current": hp_max,
             "magic_points": magic_points,
@@ -1217,32 +1219,54 @@ class CombatSession:
                    for e in self.participants[actor_id]["active_effects"])
 
     def _update_conditions(self, target_id: str | None) -> None:
+        """Apply the p.120 wound-state triage after damage lands.
+
+        - Single hit > max HP: inevitable death.
+        - Major wound (single hit >= half max HP): immediately prone + CON
+          roll to avoid falling unconscious.
+        - 0 HP: unconscious; dying only if a major wound was also taken.
+        """
         if target_id is None or target_id not in self.participants:
             return
         p = self.participants[target_id]
-        # major_wound: single hit damage >= half hp_max (p.119)
         half_max = p["hp_max"] // 2
-        for d in self.damage_chain:
-            # Skip non-damage records (e.g. malfunction events).
-            if "target_actor_id" not in d:
-                continue
-            if d["target_actor_id"] == target_id and d.get("rulebook_exception"):
-                continue
-        # Recompute major_wound based on worst single hit
+        # Worst single delivered hit (post-armor, NOT capped by remaining HP —
+        # p.120 triage keys off the damage the attack delivered), skipping
+        # non-damage records (e.g. malfunction events).
         worst_single = 0
         for d in self.damage_chain:
-            if "target_actor_id" not in d:
+            if "target_actor_id" not in d or d["target_actor_id"] != target_id:
                 continue
-            if d["target_actor_id"] == target_id:
-                # damage that landed (post-armor)
-                landed = -d["hp_delta"]
-                if landed > worst_single:
-                    worst_single = landed
+            landed = int(d.get("raw_damage", 0)) - int(d.get("armor_absorbed", 0))
+            if landed > worst_single:
+                worst_single = landed
+        # p.120: damage greater than max HP in one attack -> death is inevitable.
+        if worst_single > p["hp_max"]:
+            if "dead" not in p["conditions"]:
+                p["conditions"].append("dead")
+            return
+        newly_major = (worst_single >= half_max and worst_single > 0
+                       and "major_wound" not in p["conditions"])
         if worst_single >= half_max and worst_single > 0:
             if "major_wound" not in p["conditions"]:
                 p["conditions"].append("major_wound")
-        # dying / unconscious at 0 hp
+        if newly_major:
+            # p.120: the character immediately falls prone and must make a
+            # CON roll to avoid falling unconscious.
+            if "prone" not in p["conditions"]:
+                p["conditions"].append("prone")
+            con_res = coc_roll.percentile_check(int(p.get("con", 50)), rng=self._rng)
+            if con_res.get("outcome") in ("failure", "fumble"):
+                if "unconscious" not in p["conditions"]:
+                    p["conditions"].append("unconscious")
+            # Recorded on the participant (not damage_chain) so damage-chain
+            # consumers keep seeing pure damage records.
+            p["major_wound_con"] = con_res.get("outcome")
         if p["hp_current"] == 0:
+            # p.120: on zero HP the character is unconscious; dying only when
+            # a major wound has also been taken.
+            if "unconscious" not in p["conditions"]:
+                p["conditions"].append("unconscious")
             if "major_wound" in p["conditions"] and "dying" not in p["conditions"]:
                 p["conditions"].append("dying")
 
