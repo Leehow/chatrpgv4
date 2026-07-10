@@ -558,7 +558,7 @@ def _run_one_turn(
     narration_envelope = narration_contract.build_narration_envelope(resolved_plan)
     event_types = [event.get("event_type") for event in events if isinstance(event, dict)]
     tension = pacing.get("tension_level")
-    return {
+    turn_record = {
         "decision_id": decision_id,
         "turn_number": (resolved_plan.get("turn_input") or {}).get("turn_number"),
         "scene_id": ctx.get("active_scene_id"),
@@ -602,6 +602,22 @@ def _run_one_turn(
         "tension": tension,
         "tension_after": tension,
     }
+    # N3: prose-style audit trail over player-visible envelope fields.
+    # Findings with severity "rewrite" never gate the turn; only "block" would.
+    audit = narration_contract.audit_player_visible_fields(
+        narration_envelope,
+        turn=turn_record,
+        decision_id=decision_id,
+    )
+    for record in audit.get("records") or []:
+        _append_jsonl_sync(campaign_dir / "logs" / "narration-audit.jsonl", record)
+    turn_record["narration_audit"] = {"findings": int(audit.get("findings_count") or 0)}
+    if audit.get("blocking"):
+        raise narration_contract.NarrationGuardBlockedError(
+            f"player-visible narration guard blocked decision_id={decision_id} "
+            f"with {audit.get('findings_count')} finding(s)"
+        )
+    return turn_record
 
 
 def run_live_turn(
@@ -639,6 +655,48 @@ def run_live_turn(
     * ``storylet_policy`` / ``storylet_library`` / ``incident_deck`` /
       ``signal_overrides`` — fixture overrides forwarded into director context.
     """
+    return _run_live_turn_impl(
+        campaign_dir,
+        character_path,
+        investigator_id,
+        player_text,
+        intent_class=intent_class,
+        player_intent_rich=player_intent_rich,
+        max_auto_advance=max_auto_advance,
+        auto_advance_low_agency=auto_advance_low_agency,
+        recording_mode=recording_mode,
+        recording_flush=recording_flush,
+        rng=rng,
+        rng_seed=rng_seed,
+        storylet_policy=storylet_policy,
+        storylet_library=storylet_library,
+        incident_deck=incident_deck,
+        signal_overrides=signal_overrides,
+        state_patch=state_patch,
+    )
+
+
+def _run_live_turn_impl(
+    campaign_dir: Path | str,
+    character_path: Path | str,
+    investigator_id: str,
+    player_text: str,
+    *,
+    intent_class: str | None = None,
+    player_intent_rich: dict[str, Any] | None = None,
+    max_auto_advance: int = 3,
+    auto_advance_low_agency: bool = True,
+    recording_mode: str = "fast",
+    recording_flush: str = "background",
+    rng: random.Random | None = None,
+    rng_seed: int | str | None = None,
+    storylet_policy: dict[str, Any] | None = None,
+    storylet_library: dict[str, Any] | None = None,
+    incident_deck: dict[str, Any] | None = None,
+    signal_overrides: dict[str, Any] | None = None,
+    state_patch: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Inner live-turn body used by ``run_live_turn``."""
     campaign = Path(campaign_dir)
     character = Path(character_path)
     mode = coc_async_recorder.normalize_recording_mode(recording_mode)
@@ -801,6 +859,11 @@ def run_live_turn(
         "sync_state_writes_completed": True,
         "deferred_pending_batches": pending_before_flush if mode != "sync" else 0,
     }
+    narration_findings = sum(
+        int((turn.get("narration_audit") or {}).get("findings") or 0)
+        for turn in turns
+        if isinstance(turn, dict)
+    )
     result = {
         "schema_version": 1,
         "campaign_dir": str(campaign),
@@ -826,6 +889,7 @@ def run_live_turn(
         "foreground": foreground,
         "state_patch": state_patch_status,
         "stop_actionability": stop_actionability,
+        "narration_audit": {"findings": narration_findings},
         "final_state": {
             "active_scene": world.get("active_scene_id"),
             "tension": pacing.get("tension_level"),
@@ -852,6 +916,7 @@ def run_live_turn(
         "background_work": background_work,
         "state_patch": state_patch_status,
         "stop_actionability": stop_actionability,
+        "narration_audit": result["narration_audit"],
         "final_state": result["final_state"],
     })
     return result

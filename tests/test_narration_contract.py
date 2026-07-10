@@ -307,3 +307,88 @@ def test_no_module_meta_passes_chain_cannot_verify(tmp_path):
     findings = cnc.assert_narration_ready(plan, scenario_dir)
     assert findings["content_constraints_passed_through"]["passed"] is True
     assert "cannot verify" in findings["content_constraints_passed_through"]["detail"]
+
+
+# ---------------------------------------------------------------------------
+# N3: player-visible prose guard over narration envelope fields
+# ---------------------------------------------------------------------------
+
+def test_iter_player_visible_text_fields_covers_envelope_prose():
+    envelope = {
+        "dramatic_question": "桌上有什么？",
+        "approved_reveals": {
+            "must_include": ["门框上的新划痕", {"cue": "抽屉半开着"}],
+            "leads": ["去书房"],
+            "clue_ids": ["c1"],
+        },
+        "choice_frame": {"prompt": "你要怎么做？"},
+        "storylet_moves": [{"cue": "地板吱呀一声"}],
+        "rationale": "keeper-only reason should be skipped",
+        "must_not_reveal": [{"id": "secret-1", "category": "keeper_secret"}],
+    }
+
+    fields = dict(cnc.iter_player_visible_text_fields(envelope))
+
+    assert fields["narration_envelope.dramatic_question"] == "桌上有什么？"
+    assert fields["narration_envelope.approved_reveals.must_include[0]"] == "门框上的新划痕"
+    assert fields["narration_envelope.approved_reveals.must_include[1].cue"] == "抽屉半开着"
+    assert fields["narration_envelope.approved_reveals.leads[0]"] == "去书房"
+    assert fields["narration_envelope.choice_frame.prompt"] == "你要怎么做？"
+    assert fields["narration_envelope.storylet_moves[0].cue"] == "地板吱呀一声"
+    assert "rationale" not in "".join(fields)
+    assert "must_not_reveal" not in "".join(fields)
+    assert "secret-1" not in fields.values()
+
+
+def test_audit_player_visible_fields_emits_structured_rewrite_findings():
+    """Guard findings are advisory (severity=rewrite); never block by default."""
+    envelope = {
+        "dramatic_question": "继续？",
+        "approved_reveals": {
+            "must_include": ["这表明桌上有一份文件。"],
+            "leads": [],
+            "clue_ids": [],
+        },
+        "choice_frame": {},
+        "storylet_moves": [],
+    }
+
+    audit = cnc.audit_player_visible_fields(
+        envelope, decision_id="turn-001", ts="2026-07-10T00:00:00Z"
+    )
+
+    assert audit["findings_count"] >= 1
+    assert audit["blocking"] is False
+    record = audit["records"][0]
+    assert record["decision_id"] == "turn-001"
+    assert record["ts"] == "2026-07-10T00:00:00Z"
+    assert "must_include" in record["field"]
+    assert record["finding_code"] == "ai_summary_voice"
+    assert record["severity"] == "rewrite"
+    assert cnc.is_blocking_severity(record["severity"]) is False
+
+
+def test_audit_player_visible_fields_clean_prose_has_zero_findings():
+    envelope = {
+        "dramatic_question": "桌上有什么？",
+        "approved_reveals": {
+            "must_include": ["门框上的新划痕。"],
+            "leads": [],
+            "clue_ids": [],
+        },
+        "choice_frame": {},
+        "storylet_moves": [],
+    }
+
+    audit = cnc.audit_player_visible_fields(envelope, decision_id="turn-002")
+
+    assert audit["findings_count"] == 0
+    assert audit["records"] == []
+    assert audit["blocking"] is False
+
+
+def test_blocking_severity_contract_is_block_only():
+    """guard_player_visible_text emits rewrite; only 'block' would gate a turn."""
+    assert cnc.is_blocking_severity("rewrite") is False
+    assert cnc.is_blocking_severity("block") is True
+    assert cnc.NARRATION_GUARD_BLOCKING_SEVERITY == "block"

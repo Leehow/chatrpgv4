@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,166 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from coc_narration_style import player_facing_style_contract as _player_facing_style_contract
+from coc_narration_style import (
+    guard_player_visible_text,
+    player_facing_style_contract as _player_facing_style_contract,
+)
+
+# guard_player_visible_text findings use severity "rewrite" (advisory).
+# Only "block" would gate a turn; the prose guard does not emit it today.
+NARRATION_GUARD_BLOCKING_SEVERITY = "block"
+
+
+class NarrationGuardBlockedError(RuntimeError):
+    """Raised when a player-visible guard finding has blocking severity."""
+
+
+def is_blocking_severity(severity: str | None) -> bool:
+    """True only for the guard's hard-gate severity (``block``)."""
+    return str(severity or "") == NARRATION_GUARD_BLOCKING_SEVERITY
+
+
+def _append_text_field(
+    fields: list[tuple[str, str]], path: str, value: Any
+) -> None:
+    if isinstance(value, str) and value.strip():
+        fields.append((path, value))
+
+
+def _append_list_text_fields(
+    fields: list[tuple[str, str]],
+    path_prefix: str,
+    items: Any,
+    *,
+    dict_keys: tuple[str, ...] = ("text", "summary", "cue", "prompt", "title"),
+) -> None:
+    if not isinstance(items, list):
+        return
+    for index, item in enumerate(items):
+        if isinstance(item, str):
+            _append_text_field(fields, f"{path_prefix}[{index}]", item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        for key in dict_keys:
+            _append_text_field(
+                fields, f"{path_prefix}[{index}].{key}", item.get(key)
+            )
+
+
+def iter_player_visible_text_fields(
+    envelope: dict[str, Any] | None,
+    *,
+    turn: dict[str, Any] | None = None,
+) -> list[tuple[str, str]]:
+    """Collect (field_path, text) pairs for player-visible prose.
+
+    Walks the narration envelope (and optional turn overlays) for strings that
+    may reach the player. Keeper-only fields such as ``rationale`` and
+    ``must_not_reveal`` secret refs are intentionally skipped.
+    """
+    fields: list[tuple[str, str]] = []
+    env = envelope if isinstance(envelope, dict) else {}
+    turn_rec = turn if isinstance(turn, dict) else {}
+
+    _append_text_field(
+        fields,
+        "narration_envelope.dramatic_question",
+        env.get("dramatic_question"),
+    )
+
+    reveals = env.get("approved_reveals") or {}
+    if isinstance(reveals, dict):
+        _append_list_text_fields(
+            fields,
+            "narration_envelope.approved_reveals.must_include",
+            reveals.get("must_include"),
+            dict_keys=("text", "summary", "cue", "player_visible_anchor"),
+        )
+        _append_list_text_fields(
+            fields,
+            "narration_envelope.approved_reveals.leads",
+            reveals.get("leads"),
+        )
+
+    choice_frame = env.get("choice_frame")
+    if not isinstance(choice_frame, dict):
+        choice_frame = turn_rec.get("choice_frame") or {}
+    if isinstance(choice_frame, dict):
+        for key in ("prompt", "question", "summary", "player_entry"):
+            _append_text_field(
+                fields, f"narration_envelope.choice_frame.{key}", choice_frame.get(key)
+            )
+        _append_list_text_fields(
+            fields,
+            "narration_envelope.choice_frame.visible_affordances",
+            choice_frame.get("visible_affordances"),
+            dict_keys=("cue", "label", "text", "summary"),
+        )
+
+    storylet_moves = env.get("storylet_moves")
+    if not isinstance(storylet_moves, list):
+        storylet_moves = turn_rec.get("storylet_moves") or []
+    _append_list_text_fields(
+        fields,
+        "narration_envelope.storylet_moves",
+        storylet_moves,
+        dict_keys=("cue", "title", "summary", "player_visible_summary"),
+    )
+
+    pressure_moves = env.get("pressure_moves")
+    if not isinstance(pressure_moves, list):
+        pressure_moves = turn_rec.get("pressure_moves") or []
+    _append_list_text_fields(
+        fields,
+        "narration_envelope.pressure_moves",
+        pressure_moves,
+        dict_keys=("text", "summary", "cue", "description"),
+    )
+
+    return fields
+
+
+def audit_player_visible_fields(
+    envelope: dict[str, Any] | None,
+    *,
+    turn: dict[str, Any] | None = None,
+    decision_id: str | None = None,
+    ts: str | None = None,
+    language: str = "zh-Hans",
+) -> dict[str, Any]:
+    """Run ``guard_player_visible_text`` over player-visible envelope fields.
+
+    Returns structured audit records suitable for ``narration-audit.jsonl``.
+    Findings with severity ``rewrite`` are advisory (audit trail only).
+    Severity ``block`` sets ``blocking=True``; callers may raise
+    ``NarrationGuardBlockedError``.
+    """
+    stamp = ts or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    records: list[dict[str, Any]] = []
+    blocking = False
+    for field, text in iter_player_visible_text_fields(envelope, turn=turn):
+        guarded = guard_player_visible_text(text, language=language)
+        for finding in guarded.get("findings") or []:
+            if not isinstance(finding, dict):
+                continue
+            severity = str(finding.get("severity") or "rewrite")
+            records.append({
+                "decision_id": decision_id,
+                "ts": stamp,
+                "field": field,
+                "finding_code": finding.get("rule_id"),
+                "severity": severity,
+            })
+            if is_blocking_severity(severity):
+                blocking = True
+    return {
+        "records": records,
+        "findings_count": len(records),
+        "blocking": blocking,
+        "decision_id": decision_id,
+        "ts": stamp,
+    }
 
 ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT",
            "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]

@@ -836,3 +836,72 @@ def test_live_turn_no_semantic_evidence_degrades_to_ambiguous_not_investigate(tm
     assert result["turns"], "turn should still run with the honest-unknown intent"
     # the file-mediated evaluator request lands under the campaign's logs
     assert (camp / "logs" / "intent-eval" / "intent-eval-request.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# N3: narration quality audit loop on live turns
+# ---------------------------------------------------------------------------
+
+def test_live_turn_narration_audit_jsonl_and_counter(tmp_path, monkeypatch):
+    """After envelope build, guard findings land in narration-audit.jsonl + turn counter.
+
+    Rewrite-severity findings are audit-only: the turn still completes.
+    """
+    camp, char_path = _build_live_campaign(tmp_path)
+    real_build = live_runner.narration_contract.build_narration_envelope
+
+    def build_with_summary_ese(plan):
+        env = dict(real_build(plan))
+        reveals = dict(env.get("approved_reveals") or {})
+        reveals["must_include"] = ["这表明桌上有一份文件。"]
+        env["approved_reveals"] = reveals
+        return env
+
+    monkeypatch.setattr(
+        live_runner.narration_contract,
+        "build_narration_envelope",
+        build_with_summary_ese,
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我检查桌上的文件。",
+        intent_class="investigate",
+        recording_mode="sync",
+        rng_seed=21,
+    )
+
+    turn = result["turns"][0]
+    assert turn["narration_audit"]["findings"] >= 1
+    assert result["narration_audit"]["findings"] >= 1
+
+    audit_path = camp / "logs" / "narration-audit.jsonl"
+    assert audit_path.exists()
+    records = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+    assert records
+    assert all(
+        {"decision_id", "ts", "field", "finding_code", "severity"} <= set(rec)
+        for rec in records
+    )
+    assert any(rec["finding_code"] == "ai_summary_voice" for rec in records)
+    assert all(rec["severity"] == "rewrite" for rec in records)
+    # rewrite severity must not gate the turn
+    assert turn["decision_id"]
+    assert turn["narration_envelope"]["approved_reveals"]["must_include"]
+
+
+def test_live_turn_narration_audit_zero_findings_when_clean(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我检查桌上的文件。",
+        intent_class="investigate",
+        recording_mode="sync",
+        rng_seed=22,
+    )
+    assert result["turns"][0]["narration_audit"]["findings"] == 0
+    assert result["narration_audit"]["findings"] == 0
