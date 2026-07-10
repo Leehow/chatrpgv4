@@ -58,7 +58,11 @@
   - `scene_type` (string)：场景类型（如 `investigation`、`social`、`combat`、`exploration`）。
   - `dramatic_question` (string)：该场景要回答的戏剧问题（非空，编译期硬断言）。
   - `entry_conditions` (string[])：进入场景的条件。
-  - `exit_conditions` (string[])：退出场景的条件。
+  - `exit_conditions` ((object|string)[])：退出场景的条件。**新编译剧本一律用结构化对象**（Semantic Matcher Constitution：运行时禁止扫自由文本判断语义），三种 `kind`：
+    - `{"kind": "clue_discovered", "clue_id": "clue-chapel-link"}` — 指定线索被发现即满足（机器可判）。
+    - `{"kind": "clock_reaches", "threshold": 3}` — 任一威胁时钟达到阈值即满足；可选 `clock_id` 只看某一个时钟（机器可判）。
+    - `{"kind": "narrative", "description": "investigators accept the job"}` — 叙事性条件，机器永远判 False，需要 Keeper 显式 CUT / force_transition。
+    - 兼容旧格式：字符串 `"<clue_id> discovered"` / `"pressure clock reaches N"` 会在 `coc_exit_conditions.py` 单一入口被转换为上述结构化对象（标记 `legacy_source`，属技术债，勿在新剧本中使用）；其余任意字符串按 `narrative` 处理。
   - `available_clues` (string[])：该场景可交付的 clue_id 列表（引用 clue-graph.json）。
   - `affordances` (object[], optional)：该场景自然露出的可行动线（diegetic routes，非玩家菜单）。开场与多分叉场景应至少 2 条，让玩家有选择权、不被线性推向单一出口。每条含 `id`（route 标识）、`cue`（可行动的感官/叙事提示）、可选 `route_type`（**固定枚举**，选最贴切的：`tenant_history` 前租客/房史、`reward_scope` 报酬范围、`direct_entry` 直接进入、`npc_question` 向 NPC 追问、`environment` 环境调查、`investigative_lead` 调查线索、`scene_affordance` 场景通用——运行时 focus 提取按此枚举匹配玩家结构化意图）、可选 `status`（`open`/`suggested`/`exhausted`/`locked`，缺省视为 `open`）。引擎据此结构化计算 `is_real_fork`（≥2 条 open route），仅在真分叉时才把选择交给玩家。
   - `storylet_tags` (string[], optional)：该场景在进入时可触发的 storylet 语义标签（如 `opening_briefing`/`arrival`/`first_contact`）。当玩家首次进入该场景（source_event_type 为 `scene_transition`/`scene_enter`）时，引擎会触发 `storylet_tags` 匹配的 storylet beat（storylet 端用其 `scene_tags` 字段匹配）。调查/社交开场场景宜标 1-2 个，让开场不只靠骰子事件也能调度剧情片段。
@@ -81,7 +85,11 @@
       "scene_type": "investigation",
       "dramatic_question": "玩家能否把公开记录和隐藏邪教联系起来？",
       "entry_conditions": ["player asks about public records", "director uses fallback clue after stalled investigation"],
-      "exit_conditions": ["clue_chapel_link discovered", "player abandons research", "pressure clock reaches 3"],
+      "exit_conditions": [
+        {"kind": "clue_discovered", "clue_id": "clue-chapel-link"},
+        {"kind": "narrative", "description": "player abandons research"},
+        {"kind": "clock_reaches", "threshold": 3}
+      ],
       "available_clues": ["clue-chapel-link", "clue-lawsuit"],
       "npc_ids": ["npc-archivist"],
       "pressure_moves": ["closing_time", "watched_by_stranger"],

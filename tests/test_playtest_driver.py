@@ -49,9 +49,9 @@ def _build_mini_campaign(tmp_path):
     ]}))
     (scn / "clue-graph.json").write_text(json.dumps({"conclusions": [
         {"conclusion_id": "cc1", "importance": "critical", "minimum_routes": 3,
-         "clues": [{"clue_id":"c1","delivery":"x","visibility":"player-safe"},
-                   {"clue_id":"c2","delivery":"y","visibility":"player-safe"},
-                   {"clue_id":"c3","delivery":"z","visibility":"player-safe"}],
+         "clues": [{"clue_id":"c1","delivery":"x","delivery_kind":"environmental","visibility":"player-safe"},
+                   {"clue_id":"c2","delivery":"y","delivery_kind":"environmental","visibility":"player-safe"},
+                   {"clue_id":"c3","delivery":"z","delivery_kind":"environmental","visibility":"player-safe"}],
          "fallback_policy": ""}]}))
     (scn / "npc-agendas.json").write_text(json.dumps({"npcs": []}))
     (scn / "threat-fronts.json").write_text(json.dumps({"fronts": []}))

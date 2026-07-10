@@ -759,3 +759,80 @@ def test_live_resume_affordance_does_not_create_false_real_fork(tmp_path, monkey
     assert "live-scene-thread" not in choice_frame["open_route_ids"]
     assert choice_frame["is_real_fork"] is False
     assert result["auto_advance"]["stop_reason"] != "meaningful_choice"
+
+
+# ---------------------------------------------------------------------------
+# Semantic intent resolution (Semantic Matcher Constitution)
+# ---------------------------------------------------------------------------
+
+class _FixtureIntentEvaluator:
+    evaluator_id = "codex-llm-semantic-v1"
+
+    def __init__(self, primary_intent="social"):
+        self.calls = []
+        self._primary = primary_intent
+
+    def classify(self, player_text, active_scene):
+        self.calls.append((player_text, active_scene))
+        return {
+            "primary_intent": self._primary,
+            "secondary_intents": [],
+            "target_entities": [],
+            "risk_posture": "neutral",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+            "action_atoms": [],
+        }
+
+
+def test_live_turn_caller_intent_is_recorded(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "我检查桌上的文件。",
+        intent_class="investigate", recording_mode="sync", rng_seed=3,
+    )
+    assert result["intent_resolution"]["source"] == "caller_intent_class"
+    assert result["intent_resolution"]["intent_class"] == "investigate"
+
+
+def test_live_turn_missing_intent_routes_through_intent_router(tmp_path):
+    """Without caller intent, the runner consults coc_intent_router (installed
+    evaluator), never a hardcoded intent default."""
+    camp, char_path = _build_live_campaign(tmp_path)
+    fixture = _FixtureIntentEvaluator(primary_intent="social")
+    live_runner.coc_intent_router.set_intent_evaluator(fixture)
+    try:
+        result = live_runner.run_live_turn(
+            camp, char_path, "inv1", "我去问问邻居昨晚听到了什么。",
+            recording_mode="sync", rng_seed=5,
+        )
+    finally:
+        live_runner.coc_intent_router.set_intent_evaluator(None)
+
+    assert fixture.calls, "semantic evaluator must be consulted"
+    assert result["intent_resolution"]["source"] == "intent_router"
+    assert result["intent_resolution"]["intent_class"] == "social"
+    receipts = [
+        json.loads(line)
+        for line in (camp / "logs" / "live-turn-runtime.jsonl").read_text().splitlines()
+    ]
+    assert receipts[-1]["intent_resolution"]["source"] == "intent_router"
+
+
+def test_live_turn_no_semantic_evidence_degrades_to_ambiguous_not_investigate(tmp_path):
+    """With no caller intent and no evaluator result artifact, the intent
+    degrades to 'ambiguous' (honest unknown) and the degradation is recorded.
+    It must never silently default to 'investigate'."""
+    camp, char_path = _build_live_campaign(tmp_path)
+    live_runner.coc_intent_router.set_intent_evaluator(None)
+
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "我检查桌上的文件。",
+        recording_mode="sync", rng_seed=9,
+    )
+
+    assert result["intent_resolution"]["source"] == "unresolved_default_ambiguous"
+    assert result["intent_resolution"]["intent_class"] == "ambiguous"
+    assert result["turns"], "turn should still run with the honest-unknown intent"
+    # the file-mediated evaluator request lands under the campaign's logs
+    assert (camp / "logs" / "intent-eval" / "intent-eval-request.json").exists()

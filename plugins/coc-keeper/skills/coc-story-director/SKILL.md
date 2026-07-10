@@ -19,7 +19,12 @@ You are the hidden director layer, not the player-facing Keeper voice. coc-keepe
 
 ## Decision Loop
 
-1. Interpret player intent class (investigate/social/combat/flee/meta/stuck/idle).
+1. Consume the turn's semantic intent (investigate/social/combat/flee/meta/stuck/idle)
+   from structured input only: the caller-supplied `player_intent_rich` /
+   `intent_class`, or `scripts/coc_intent_router.py` (`parse_intent`) output.
+   Never classify intent inside this skill by keyword hits or fixed phrases in
+   the player's prose (Semantic Matcher Constitution). If no semantic evidence
+   exists, treat the intent as `ambiguous`; do not guess `investigate`.
 2. Apply Layer 3 rule overrides first (bout_active/dying/temp_insane/fumble/stalled force actions).
 3. If no override, score all 10 actions via base_score × structure_weight.
 4. Pick highest score (tiebreak by rules-fidelity-priority order).

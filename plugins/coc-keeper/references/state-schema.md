@@ -51,22 +51,66 @@ Campaigns store temporary and scenario-specific state:
 ├── campaign.json
 ├── party.json
 ├── save/
-│   ├── world-state.json
-│   ├── active-scene.json
-│   ├── flags.json
-│   └── investigator-state/
-├── scenario/
+│   ├── world-state.json            # active scene, discovered clue ids, decisions, refs
+│   ├── active-scene.json           # current player-safe scene pointer / next-turn contract
+│   ├── flags.json                  # clue, decision, and spoiler-reveal flags
+│   ├── pacing-state.json           # turn number, tension level, recent intent classes/tags
+│   ├── threat-state.json           # threat-front clock segments
+│   ├── npc-state.json              # persisted NPC persona cards + stat promotions
+│   ├── storylet-ledger.json        # storylet anti-repeat signatures + usage ledger
+│   ├── time-state.json             # in-fiction world clock
+│   ├── time-triggers.json          # scheduled time-based triggers
+│   ├── sanity.json                 # sanity session state (bouts, episodes) when active
+│   ├── combat.json                 # combat session state (only during combat)
+│   ├── chase.json                  # chase session state (only during chases)
+│   ├── character-creation-draft.json  # in-progress creation workflow state
+│   └── investigator-state/         # per-investigator campaign-local HP/SAN/conditions
+├── scenario/                       # compiled story-graph, clue-graph, npc-agendas,
+│                                   # threat-fronts, pacing-map, improvisation-boundaries
+├── artifacts/                      # DirectorPlan JSON per decision_id
 ├── index/
 ├── memory/
-│   └── session-summaries.jsonl
+│   ├── session-summaries.jsonl     # player-safe running recaps (resume + battle reports)
+│   ├── cards/
+│   │   ├── player-safe/            # retrievable memory cards, player-visible
+│   │   └── keeper-only/            # retrievable memory cards, keeper-side
+│   ├── context-packs/              # precomputed retrieval packs
+│   └── index.json                  # memory card index
 ├── logs/
-│   ├── events.jsonl
-│   ├── rolls.jsonl
-│   └── audit.jsonl
+│   ├── events.jsonl                # story events
+│   ├── rolls.jsonl                 # mechanical roll events
+│   ├── audit.jsonl                 # Keeper-facing audit events (e.g. spoiler reveals)
+│   ├── live-turn-runtime.jsonl     # run_live_turn receipts (decision ids, intent
+│   │                               # resolution, recording mode, auto-advance)
+│   ├── scene-state-patches.jsonl   # detailed state_patch payloads (queued)
+│   ├── storylet-scheduler.jsonl    # storylet trigger/deck/filter decision traces
+│   ├── scene-progress.jsonl        # bridge/transition scene governance traces
+│   ├── npc-agency.jsonl            # NPC agency move decision traces
+│   ├── npc-generation.jsonl        # NPC genesis pipeline audits
+│   ├── npc-stat-upgrade.jsonl      # NPC stat-profile promotion audits
+│   ├── time.jsonl                  # world-clock advancement log
+│   ├── intent-eval/                # intent router request/result artifacts
+│   ├── pending-turns/              # queued fast-mode JSONL batches awaiting flush
+│   ├── flush-attempts.jsonl        # background recorder flush markers
+│   └── maintenance-flush.jsonl     # out-of-band forced flush audits
 └── snapshots/
 ```
 
 `party.json` references reusable investigator ids. Campaign-specific HP, SAN, conditions, and scene position live under `save/`.
+
+Subsystem session files (`combat.json`, `chase.json`, `sanity.json`) exist only
+while their subsystem is active and are owned by the corresponding session
+classes; do not hand-edit them mid-session. `pacing-state.json`,
+`threat-state.json`, `npc-state.json`, and `storylet-ledger.json` are written
+by the director apply layer each turn — treat `run_live_turn(...)` as their
+single writer during live play.
+
+Memory has two complementary tracks: `memory/session-summaries.jsonl` is the
+append-only player-safe recap stream consumed by resume flows and battle
+reports; `memory/cards/` + `context-packs/` + `index.json` is the retrievable
+card store the Story Director queries (via `coc_memory`) for PAYOFF-style
+recall. Session summaries are written at session boundaries; memory cards are
+written by the apply layer when a plan carries memory_write intents.
 `create_campaign` initializes the minimal resume contract: `world-state.json` tracks active scene, subsystem, clue ids, decisions, memory refs, log refs, and investigator-state refs; `active-scene.json` stores the current player-safe scene pointer; `flags.json` stores clue, decision, and spoiler-reveal flags. `campaign.json` persists `play_language`, `language_profile`, and a `localized_terms` map keyed by language, so resumed campaigns keep the same visible narration language, output instruction, name policy, term policy, report labels, and name/term localization. Logs and memory may include `localized_text[play_language]` for player-visible prose that should be rendered directly before falling back to `localized_terms`.
 
 `pending_choices` is Keeper-facing resume state, not a player menu. It may record
@@ -84,7 +128,8 @@ diegetic cue，并由 `choice_frame.is_real_fork` 决定是否在真分叉时停
 
 - `logs/*.jsonl` is append-only event history.
 - `logs/events.jsonl` stores story events, `logs/rolls.jsonl` stores mechanical roll events, and `logs/audit.jsonl` stores Keeper-facing audit events such as confirmed spoiler reveals.
-- `memory/session-summaries.jsonl` stores player-safe running recaps for resume and battle reports.
+- In fast recording mode, verbose JSONL writes are queued under `logs/pending-turns/` and flushed by a background recorder or maintenance pass; never poll or block narration on that flush.
+- `memory/session-summaries.jsonl` stores player-safe running recaps for resume and battle reports; `memory/cards/` is the director-retrievable memory store (see Campaigns above for the split).
 - `snapshots/` stores point-in-time recovery copies.
 
 ## Playtests

@@ -39,6 +39,7 @@ apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 narrative_enrichment = _load_sibling("coc_narrative_enrichment", "coc_narrative_enrichment.py")
 playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
 coc_async_recorder = _load_sibling("coc_async_recorder", "coc_async_recorder.py")
+coc_intent_router = _load_sibling("coc_intent_router", "coc_intent_router.py")
 
 
 _INTERRUPT_EVENT_TYPES = {
@@ -93,6 +94,80 @@ def _append_jsonl_sync(path: Path, record: dict[str, Any]) -> None:
 
 def _pending_record_count(campaign_dir: Path) -> int:
     return coc_async_recorder.pending_record_count(campaign_dir)
+
+
+def _resolve_turn_intent(
+    campaign_dir: Path,
+    player_text: str,
+    intent_class: str | None,
+    player_intent_rich: dict[str, Any] | None,
+) -> tuple[str, dict[str, Any] | None, dict[str, Any]]:
+    """Resolve the turn's semantic intent (Semantic Matcher Constitution).
+
+    Priority:
+    1. Caller-supplied ``intent_class`` / ``player_intent_rich`` (the host LLM
+       is itself the semantic evaluator in ordinary live play).
+    2. The intent router (``coc_intent_router.parse_intent``): machine
+       carve-outs (empty → idle, leading ``[`` → meta) plus the installed
+       semantic evaluator, with request/result artifacts scoped under the
+       campaign's ``logs/intent-eval/``.
+    3. If no semantic evidence is available (evaluator artifact missing), the
+       intent degrades to ``"ambiguous"`` — an honest unknown. It must NEVER
+       silently default to ``"investigate"``; that would be a hardcoded
+       meaning judgment the runner has no evidence for.
+
+    Returns ``(intent_class, player_intent_rich, intent_resolution)`` where
+    ``intent_resolution`` is an audit record of how the intent was obtained.
+    """
+    if intent_class:
+        return (
+            str(intent_class),
+            player_intent_rich,
+            {"source": "caller_intent_class", "intent_class": str(intent_class)},
+        )
+    rich_primary = (player_intent_rich or {}).get("primary_intent")
+    if rich_primary:
+        return (
+            str(rich_primary),
+            player_intent_rich,
+            {"source": "caller_intent_rich", "intent_class": str(rich_primary)},
+        )
+
+    active_scene = _read_json(campaign_dir / "save" / "active-scene.json", {})
+    evaluator = None
+    if getattr(coc_intent_router, "_DEFAULT_EVALUATOR", None) is None:
+        evaluator = coc_intent_router.LLMIntentEvaluator(
+            artifacts_dir=campaign_dir / "logs" / "intent-eval",
+        )
+    try:
+        parsed = coc_intent_router.parse_intent(
+            player_text,
+            active_scene if isinstance(active_scene, dict) else None,
+            evaluator=evaluator,
+        )
+    except coc_intent_router.IntentEvalError as exc:
+        return (
+            "ambiguous",
+            player_intent_rich,
+            {
+                "source": "unresolved_default_ambiguous",
+                "intent_class": "ambiguous",
+                "error": str(exc),
+                "note": (
+                    "no semantic intent evidence; caller should pass "
+                    "intent_class/player_intent_rich or provide an intent "
+                    "evaluator result artifact"
+                ),
+            },
+        )
+    return (
+        str(parsed.get("primary_intent") or "ambiguous"),
+        parsed,
+        {
+            "source": "intent_router",
+            "intent_class": str(parsed.get("primary_intent") or "ambiguous"),
+        },
+    )
 
 
 def _next_live_decision_number(campaign_dir: Path) -> int:
@@ -535,10 +610,16 @@ def run_live_turn(
     flush_policy = coc_async_recorder.normalize_flush_policy(recording_flush)
     rng = random.Random(rng_seed if rng_seed is not None else f"{campaign}|{time.time_ns()}")
 
+    resolved_intent_class, resolved_intent_rich, intent_resolution = _resolve_turn_intent(
+        campaign,
+        player_text,
+        intent_class,
+        player_intent_rich,
+    )
     choice: dict[str, Any] = {
         "player_text": player_text,
-        "intent_class": intent_class or (player_intent_rich or {}).get("primary_intent") or "investigate",
-        "player_intent_rich": _copy_jsonable(player_intent_rich) if player_intent_rich else None,
+        "intent_class": resolved_intent_class,
+        "player_intent_rich": _copy_jsonable(resolved_intent_rich) if resolved_intent_rich else None,
     }
     # P0-4b: 在 auto-advance 循环替换 choice 之前，先捕获玩家本轮原始的结构化意图。
     # 循环内 _semantic_low_agency_choice 会把 player_intent_rich 换成合成版
@@ -684,6 +765,7 @@ def run_live_turn(
         "campaign_dir": str(campaign),
         "investigator_id": investigator_id,
         "player_text": player_text,
+        "intent_resolution": intent_resolution,
         "turns": turns,
         "auto_advance": {
             "enabled": bool(auto_advance_low_agency),
@@ -716,6 +798,7 @@ def run_live_turn(
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "investigator_id": investigator_id,
         "player_text": player_text,
+        "intent_resolution": intent_resolution,
         "turn_count": len(turns),
         "decision_ids": decision_ids,
         "auto_advance": result["auto_advance"],

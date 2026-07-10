@@ -267,13 +267,21 @@ def set_intent_evaluator(evaluator: IntentEvaluator | None) -> None:
     _DEFAULT_EVALUATOR = evaluator
 
 
-def parse_intent(player_text: str | None, active_scene: dict | None = None) -> dict:
+def parse_intent(
+    player_text: str | None,
+    active_scene: dict | None = None,
+    *,
+    evaluator: IntentEvaluator | None = None,
+) -> dict:
     """Parse player text into a structured intent.
 
     Args:
         player_text: Raw player free-text (中英文 mixed ok).
         active_scene: Optional scene dict; passed through to the evaluator,
             which may use ``available_clues`` / ``npc_ids`` to anchor targets.
+        evaluator: Optional per-call evaluator. When omitted, the process-wide
+            evaluator installed via ``set_intent_evaluator`` is used, falling
+            back to the default file-mediated ``LLMIntentEvaluator``.
 
     Returns:
         {
@@ -304,8 +312,8 @@ def parse_intent(player_text: str | None, active_scene: dict | None = None) -> d
     if text.lstrip().startswith("["):
         return _meta_result()
 
-    evaluator = _DEFAULT_EVALUATOR or LLMIntentEvaluator()
-    return evaluator.classify(text, active_scene)
+    chosen = evaluator or _DEFAULT_EVALUATOR or LLMIntentEvaluator()
+    return chosen.classify(text, active_scene)
 
 
 def _idle_result() -> dict[str, Any]:
