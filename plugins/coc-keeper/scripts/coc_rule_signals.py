@@ -465,3 +465,121 @@ def read_chase_state(campaign_dir) -> dict[str, Any]:
         "round": last_round,
         "outcome": outcome,
     }
+
+
+# --------------------------------------------------------------------------- #
+# G1: clue affordance matching (structured intent ∩ compile-time affordance)
+# --------------------------------------------------------------------------- #
+
+def _norm_tag(value: Any) -> str | None:
+    """Case-normalize an ID/tag for set comparison. Empty → None."""
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    return text or None
+
+
+def _norm_tag_set(values: Any) -> set[str]:
+    if not isinstance(values, list):
+        return set()
+    out: set[str] = set()
+    for item in values:
+        tag = _norm_tag(item)
+        if tag is not None:
+            out.add(tag)
+    return out
+
+
+def _intent_affordance_sets(intent: dict[str, Any] | None) -> tuple[set[str], set[str], set[str]]:
+    """Extract structured entity/verb/skill sets from a router intent.
+
+    Sources (Semantic Matcher Constitution — no prose scanning):
+    - entities: ``target_entities``
+    - verbs: ``action_atoms[].verb`` (also ``goal`` / ``intent`` when present as tags)
+    - skills: ``action_atoms[].skill`` / ``roll_skill``
+    """
+    rich = intent if isinstance(intent, dict) else {}
+    entities = _norm_tag_set(rich.get("target_entities"))
+    verbs: set[str] = set()
+    skills: set[str] = set()
+    for atom in rich.get("action_atoms") or []:
+        if not isinstance(atom, dict):
+            continue
+        for key in ("verb", "goal", "intent"):
+            tag = _norm_tag(atom.get(key))
+            if tag is not None:
+                verbs.add(tag)
+        for key in ("skill", "roll_skill"):
+            tag = _norm_tag(atom.get(key))
+            if tag is not None:
+                skills.add(tag)
+    return entities, verbs, skills
+
+
+def _clue_affordance_block(clue: dict[str, Any]) -> dict[str, Any] | None:
+    block = clue.get("affordance")
+    return block if isinstance(block, dict) else None
+
+
+def match_clue_affordances(
+    intent: dict[str, Any] | None,
+    clue_graph: dict[str, Any] | None,
+    available_clue_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Match structured player intent against clue affordance lists.
+
+    Pure set-intersection over case-normalized IDs/tags. Returns only clues
+    that share at least one entity, verb, or skill with the intent. Score is
+    the count of matched dimensions (entities + verbs + skills hits, each
+    dimension contributing 1 when non-empty intersection).
+
+    Empty / missing affordance → no match (backward compatible).
+    """
+    available = {
+        str(cid) for cid in (available_clue_ids or []) if cid is not None and str(cid)
+    }
+    if not available:
+        return []
+    intent_entities, intent_verbs, intent_skills = _intent_affordance_sets(intent)
+    if not (intent_entities or intent_verbs or intent_skills):
+        return []
+
+    hits: list[dict[str, Any]] = []
+    for concl in (clue_graph or {}).get("conclusions") or []:
+        if not isinstance(concl, dict):
+            continue
+        for clue in concl.get("clues") or []:
+            if not isinstance(clue, dict):
+                continue
+            clue_id = clue.get("clue_id")
+            if clue_id is None or str(clue_id) not in available:
+                continue
+            block = _clue_affordance_block(clue)
+            if block is None:
+                continue
+            aff_entities = _norm_tag_set(block.get("target_entities"))
+            aff_verbs = _norm_tag_set(block.get("verbs"))
+            aff_skills = _norm_tag_set(block.get("skills"))
+            if not (aff_entities or aff_verbs or aff_skills):
+                continue
+            matched_entities = sorted(intent_entities & aff_entities)
+            matched_verbs = sorted(intent_verbs & aff_verbs)
+            matched_skills = sorted(intent_skills & aff_skills)
+            score = (
+                (1 if matched_entities else 0)
+                + (1 if matched_verbs else 0)
+                + (1 if matched_skills else 0)
+            )
+            if score <= 0:
+                continue
+            hits.append({
+                "clue_id": str(clue_id),
+                "matched": {
+                    "entities": matched_entities,
+                    "verbs": matched_verbs,
+                    "skills": matched_skills,
+                },
+                "score": score,
+            })
+    hits.sort(key=lambda h: (-int(h["score"]), str(h["clue_id"])))
+    return hits

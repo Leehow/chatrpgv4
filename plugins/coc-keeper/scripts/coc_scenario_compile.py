@@ -486,6 +486,52 @@ def _check_source_refs(
     return findings
 
 
+_AFFORDANCE_KEYS = frozenset({"target_entities", "verbs", "skills"})
+
+
+def _check_clue_affordances(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    """G1: shape-check optional clue ``affordance`` blocks (warnings only).
+
+    A well-formed block is a dict whose keys are a subset of
+    {target_entities, verbs, skills}, each holding a list of strings.
+    Absent blocks are fine (backward compatible).
+    """
+    findings: list[dict[str, str]] = []
+    for i, concl in enumerate((compiled.get("clue_graph") or {}).get("conclusions") or []):
+        if not isinstance(concl, dict):
+            continue
+        for j, clue in enumerate(concl.get("clues") or []):
+            if not isinstance(clue, dict) or "affordance" not in clue:
+                continue
+            path = f"clue_graph.conclusions[{i}].clues[{clue.get('clue_id') or j}]"
+            block = clue.get("affordance")
+            if not isinstance(block, dict):
+                findings.append(_finding(
+                    "invalid_affordance", "warning",
+                    "affordance must be an object with target_entities/verbs/skills lists",
+                    path=path,
+                ))
+                continue
+            unknown = sorted(set(block) - _AFFORDANCE_KEYS)
+            if unknown:
+                findings.append(_finding(
+                    "invalid_affordance", "warning",
+                    f"affordance has unknown keys {unknown}; allowed: {sorted(_AFFORDANCE_KEYS)}",
+                    path=path,
+                ))
+            for key in _AFFORDANCE_KEYS:
+                if key not in block:
+                    continue
+                value = block[key]
+                if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
+                    findings.append(_finding(
+                        "invalid_affordance", "warning",
+                        f"affordance.{key} must be a list of strings",
+                        path=path,
+                    ))
+    return findings
+
+
 def _check_provenance(compiled: dict[str, Any]) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
 
@@ -595,6 +641,7 @@ def validate_compiled_scenario(
     findings.extend(_check_multi_route_independence(compiled))
     findings.extend(_check_source_refs(compiled, source_segments))
     findings.extend(_check_provenance(compiled))
+    findings.extend(_check_clue_affordances(compiled))
     return findings
 
 

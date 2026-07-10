@@ -1458,6 +1458,9 @@ def _resolve_clue_delivery(clue_id: str | None, clue_graph: dict[str, Any]) -> t
     return ("obscured", None, None)
 
 
+_AFFORDANCE_SCORE_WEIGHT = 0.5  # per matched dimension (entities/verbs/skills)
+
+
 def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     """Choose reveal/withhold/fallback/leads per clue-graph.
 
@@ -1465,6 +1468,13 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     (0.0-1.0, higher = more direct/likely route, default 0.5). REVEAL/RECOVER
     pick the highest-priority eligible clue; CHOICE surfaces the top 2 leads
     so the narrator can offer them to an idle/ambiguous player.
+
+    G1: when the router's structured intent matches an available clue's
+    compile-time `affordance` block (entities/verbs/skills set intersection,
+    computed by coc_rule_signals.match_clue_affordances — never prose), the
+    match score feeds into the route_priority ranking so the earned clue wins
+    REVEAL, and the winning match is attached as `matched_affordance` for the
+    narrator to make the discovery feel earned.
     """
     scene = ctx.get("active_scene") or {}
     discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
@@ -1474,9 +1484,18 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     )
     clue_graph = ctx.get("clue_graph", {})
 
-    # REVEAL: rank eligible clues by route_priority (desc) and take the top one.
+    affordance_hits = coc_rule_signals.match_clue_affordances(
+        ctx.get("player_intent_rich"), clue_graph, available
+    )
+    hit_by_clue = {hit["clue_id"]: hit for hit in affordance_hits}
+
+    def _rank_score(cid: str) -> float:
+        boost = _AFFORDANCE_SCORE_WEIGHT * (hit_by_clue.get(cid) or {}).get("score", 0)
+        return _clue_route_priority(cid, clue_graph) + boost
+
+    # REVEAL: rank eligible clues by route_priority + affordance boost, take the top one.
     if action == "REVEAL" and available:
-        ranked = sorted(available, key=lambda cid: _clue_route_priority(cid, clue_graph), reverse=True)
+        ranked = sorted(available, key=_rank_score, reverse=True)
         reveal = [ranked[0]]
     else:
         reveal = []
@@ -1528,9 +1547,14 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
         ranked = sorted(available, key=lambda cid: _clue_route_priority(cid, clue_graph), reverse=True)
         leads = ranked[:2]
 
-    return {"reveal": reveal, "withhold": list(secret_ids), "fallback_routes": fallback,
-            "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff,
-            "leads": leads, "delivery_warnings": delivery_warnings}
+    policy = {"reveal": reveal, "withhold": list(secret_ids), "fallback_routes": fallback,
+              "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff,
+              "leads": leads, "delivery_warnings": delivery_warnings}
+    # G1: attach the winning affordance match so the narrator can make the
+    # discovery feel earned (structured entities/verbs/skills only, no prose).
+    if selected_clue_id and selected_clue_id in hit_by_clue:
+        policy["matched_affordance"] = hit_by_clue[selected_clue_id]
+    return policy
 
 
 def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[str]:
