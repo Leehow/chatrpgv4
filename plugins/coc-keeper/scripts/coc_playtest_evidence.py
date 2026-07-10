@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import tempfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +24,10 @@ LEDGER_OUTCOMES = frozenset(
     {"external_success", "template", "template_fallback", "runner_failure"}
 )
 FALLBACK_KINDS = frozenset({"template", "prose_degradation"})
+_FIXED_ARTIFACT_BASENAMES = {
+    "evidence_receipt": "evidence.json",
+    "invocation_ledger": "runner-invocations.jsonl",
+}
 
 
 def sha256_path(path: Path) -> str:
@@ -30,6 +36,47 @@ def sha256_path(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _write_fixed_artifact_atomic(
+    run_dir: Path,
+    artifact_kind: str,
+    text: str,
+) -> Path:
+    """Atomically replace one repository-defined evidence artifact."""
+    basename = _FIXED_ARTIFACT_BASENAMES[artifact_kind]
+    root = Path(run_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    root = root.resolve(strict=True)
+    output = root / basename
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=root,
+            prefix=f".{basename}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, output)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return output
+
+
+def write_invocation_ledger_artifact(run_dir: Path, text: str) -> Path:
+    """Write the fixed-name invocation ledger without following output symlinks."""
+    return _write_fixed_artifact_atomic(run_dir, "invocation_ledger", text)
 
 
 def _finding(findings: list[dict[str, str]], code: str, field: str) -> None:
@@ -117,7 +164,10 @@ def _load_trusted_registry(
     except (OSError, json.JSONDecodeError):
         _finding(findings, "trusted_runner_registry_invalid", "trusted_runner_registry")
         return {}
-    runners = payload.get("runners") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        _finding(findings, "trusted_runner_registry_invalid", "trusted_runner_registry")
+        return {}
+    runners = payload.get("runners")
     if payload.get("schema_version") != 1 or not isinstance(runners, dict):
         _finding(findings, "trusted_runner_registry_invalid", "trusted_runner_registry")
         return {}
@@ -482,13 +532,13 @@ def _invalid_receipt(code: str) -> dict[str, Any]:
 def write_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> Path:
     root = Path(run_dir)
     root.mkdir(parents=True, exist_ok=True)
+    root = root.resolve(strict=True)
     validated = validate_evidence_receipt(root, receipt)
-    output = root / "evidence.json"
-    output.write_text(
+    return _write_fixed_artifact_atomic(
+        root,
+        "evidence_receipt",
         json.dumps(validated, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
     )
-    return output
 
 
 def read_evidence_receipt(run_dir: Path) -> dict[str, Any]:

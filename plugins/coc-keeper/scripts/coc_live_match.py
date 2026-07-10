@@ -348,15 +348,13 @@ def _write_invocation_ledger(run_dir: Path, rows: list[dict[str, Any]]) -> Path:
         if offset < len(available):
             row["transcript_turn"] = available[offset]
         role_offsets[str(role)] = offset + 1
-    output = run_dir / "runner-invocations.jsonl"
-    output.write_text(
+    return playtest_evidence.write_invocation_ledger_artifact(
+        run_dir,
         "".join(
             json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
             for row in rows
         ),
-        encoding="utf-8",
     )
-    return output
 
 
 def _enrich_transcript_with_player_notes(

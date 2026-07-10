@@ -476,6 +476,31 @@ def _run_canonical_player_match(
     )
 
 
+def test_invocation_ledger_write_replaces_symlink_without_touching_outside_target(
+    tmp_path,
+):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "transcript.jsonl").write_text(
+        json.dumps({"turn": 1, "role": "player_simulator", "text": "look"}) + "\n",
+        encoding="utf-8",
+    )
+    outside = tmp_path / "outside-ledger.jsonl"
+    sentinel = "outside ledger sentinel\n"
+    outside.write_text(sentinel, encoding="utf-8")
+    output = run_dir / "runner-invocations.jsonl"
+    output.symlink_to(outside)
+    rows = [{"role": "player", "attempt": 1}]
+
+    written = match._write_invocation_ledger(run_dir, rows)
+
+    assert outside.read_text(encoding="utf-8") == sentinel
+    assert written == output
+    assert written.is_file()
+    assert not written.is_symlink()
+    assert json.loads(written.read_text(encoding="utf-8"))["transcript_turn"] == 1
+
+
 @pytest.mark.parametrize("attack", ["self_sha", "invented_package"])
 def test_fake_runner_cannot_forge_trust_end_to_end(tmp_path, attack):
     workspace, campaign_id, investigator_id = _build_workspace(tmp_path)

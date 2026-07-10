@@ -124,6 +124,25 @@ def test_trusted_runner_registry_pins_canonical_entrypoints_and_hashes():
         assert entry["sha256"] == _sha256((REPO / expected_path).read_bytes())
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [[], "not-a-registry", 7, None],
+    ids=["array", "string", "number", "null"],
+)
+def test_non_object_trusted_registry_fails_closed(
+    tmp_path, evidence, monkeypatch, payload
+):
+    provenance = _complete_provenance(tmp_path)
+    registry_path = tmp_path / "invalid-trusted-runners.json"
+    registry_path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(evidence, "TRUSTED_RUNNER_REGISTRY_PATH", registry_path)
+
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert "trusted_runner_registry_invalid" in receipt["evidence_reasons"]
+
+
 @pytest.mark.parametrize("attack", ["self_sha", "invented_package"])
 def test_arbitrary_runner_cannot_self_attest_as_trusted(tmp_path, evidence, attack):
     provenance = _complete_provenance(tmp_path)
@@ -200,6 +219,26 @@ def test_complete_attested_receipt_qualifies_and_hashes_actual_bytes(tmp_path, e
     assert receipt["validation_findings"] == []
     assert receipt["evidence_reasons"] == []
     assert receipt["eligible_as_gameplay_evidence"] is True
+
+
+def test_write_evidence_receipt_replaces_symlink_without_touching_outside_target(
+    tmp_path, evidence
+):
+    run_dir = tmp_path / "run"
+    receipt = evidence.build_evidence_receipt(run_dir, _complete_provenance(run_dir))
+    outside = tmp_path / "outside-evidence.json"
+    sentinel = "outside evidence sentinel\n"
+    outside.write_text(sentinel, encoding="utf-8")
+    output = run_dir / "evidence.json"
+    output.symlink_to(outside)
+
+    written = evidence.write_evidence_receipt(run_dir, receipt)
+
+    assert outside.read_text(encoding="utf-8") == sentinel
+    assert written == output
+    assert written.is_file()
+    assert not written.is_symlink()
+    assert json.loads(written.read_text(encoding="utf-8"))["schema_version"] == 1
 
 
 def test_caller_runner_claims_cannot_override_trusted_ledger(tmp_path, evidence):
