@@ -39,6 +39,10 @@ apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 narrative_enrichment = _load_sibling("coc_narrative_enrichment", "coc_narrative_enrichment.py")
 narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
 playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
+subsystem_executor = _load_sibling(
+    "coc_subsystem_executor_live_turn",
+    "coc_subsystem_executor.py",
+)
 coc_async_recorder = _load_sibling("coc_async_recorder", "coc_async_recorder.py")
 coc_intent_router = _load_sibling("coc_intent_router", "coc_intent_router.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
@@ -423,6 +427,8 @@ def _npc_move_requires_player_decision(npc_moves: list[dict[str, Any]] | None) -
 
 
 def _turn_interrupt_reason(turn: dict[str, Any]) -> str | None:
+    if isinstance(turn.get("pending_choice"), dict):
+        return "pending_subsystem_choice"
     if turn.get("scene_transition"):
         return "scene_arrival_or_transition"
     event_types = set(turn.get("event_types") or [])
@@ -549,14 +555,17 @@ def _run_one_turn(
 
     rules_recorder = _new_rules_recorder(campaign_dir, recording_mode, decision_id)
     append_jsonl = rules_recorder.append_jsonl if rules_recorder is not None else None
-    rule_results = playtest_driver._execute_rules_requests(
+    commands = subsystem_executor.commands_from_rules_requests(plan)
+    subsystem_results = subsystem_executor.execute_commands(
         campaign_dir,
         character_path,
         investigator_id,
-        plan,
-        rng,
+        commands,
+        rng=rng,
         append_jsonl=append_jsonl,
     )
+    rule_results = subsystem_executor.flatten_result_events(subsystem_results)
+    pending_choice = subsystem_executor.current_pending_choice(subsystem_results)
     rules_pending = _commit_rules_recorder(rules_recorder)
 
     resolved_plan = apply_mod.backfill_rule_results(plan, rule_results)
@@ -569,7 +578,7 @@ def _run_one_turn(
         campaign_dir,
         resolved_plan,
         investigator_id,
-        rules_results=rule_results,
+        rules_results=subsystem_results,
         recording_mode=recording_mode,
         recording_flush="manual" if recording_flush == "background" else recording_flush,
     )
@@ -616,6 +625,8 @@ def _run_one_turn(
         "event_types": event_types,
         "events_count": len(events),
         "rule_results": rule_results,
+        "subsystem_results": subsystem_results,
+        "pending_choice": pending_choice,
         "rules_requests": resolved_plan.get("rules_requests", []),
         "resolved_clue_policy": resolved_plan.get("resolved_clue_policy", {}),
         "failure_consequence": directives.get("failure_consequence"),
@@ -922,6 +933,21 @@ def _run_live_turn_impl(
         "player_text": player_text,
         "intent_resolution": intent_resolution,
         "turns": turns,
+        "subsystem_results": [
+            subsystem_result
+            for turn in turns
+            if isinstance(turn, dict)
+            for subsystem_result in (turn.get("subsystem_results") or [])
+            if isinstance(subsystem_result, dict)
+        ],
+        "pending_choice": next(
+            (
+                turn.get("pending_choice")
+                for turn in reversed(turns)
+                if isinstance(turn, dict) and isinstance(turn.get("pending_choice"), dict)
+            ),
+            None,
+        ),
         "auto_advance": {
             "enabled": bool(auto_advance_low_agency),
             "turns_run": len(turns),
@@ -967,6 +993,7 @@ def _run_live_turn_impl(
         "background_work": background_work,
         "state_patch": state_patch_status,
         "stop_actionability": stop_actionability,
+        "pending_choice": result["pending_choice"],
         "narration_audit": result["narration_audit"],
         "final_state": result["final_state"],
     })

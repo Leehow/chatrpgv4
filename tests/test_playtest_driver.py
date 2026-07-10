@@ -68,6 +68,29 @@ def _build_mini_campaign(tmp_path):
     return camp, char_dir / "character.json"
 
 
+def test_driver_projection_preserves_live_subsystem_result_without_reexecution():
+    subsystem_result = {
+        "command_id": "turn-001-rule-1",
+        "kind": "skill_check",
+        "status": "completed",
+        "events": [{"kind": "skill_check", "roll": 42, "success": True}],
+        "pending_choice": None,
+        "state_refs": ["logs/rolls.jsonl#turn-001-rule-1"],
+    }
+    live_turn = {
+        "decision_id": "turn-001",
+        "subsystem_results": [subsystem_result],
+        "pending_choice": None,
+        "rule_results": subsystem_result["events"],
+    }
+
+    projected = driver._project_driver_turn(live_turn, 1)
+
+    assert projected["subsystem_results"] == [subsystem_result]
+    assert projected["pending_choice"] is None
+    assert projected["rule_results"] == subsystem_result["events"]
+
+
 def test_driver_advances_through_scenes(tmp_path):
     """Driver should advance scene-1 → scene-2 → scene-3 as clues get discovered."""
     camp, char_path = _build_mini_campaign(tmp_path)

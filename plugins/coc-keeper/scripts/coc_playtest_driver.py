@@ -34,13 +34,12 @@ def _load_sibling(name: str, filename: str):
 
 
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
-coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
-
-_SUCCESS_OUTCOMES = {"critical", "extreme", "hard", "regular", "success",
-                     # legacy aliases (some callers may emit *_success forms)
-                     "extreme_success", "hard_success", "regular_success"}
+subsystem_executor = _load_sibling(
+    "coc_subsystem_executor_driver",
+    "coc_subsystem_executor.py",
+)
 
 
 def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
@@ -104,87 +103,6 @@ def _next_decision_number(campaign_dir: Path) -> int:
     return max_seen + 1
 
 
-def _settle_sanity_check(
-    campaign_dir: Path,
-    character: dict[str, Any],
-    investigator_id: str,
-    request: dict[str, Any],
-    rng: random.Random,
-) -> dict[str, Any] | None:
-    """Resolve a sanity_check through SanitySession — deduct SAN, trigger bout.
-
-    Returns a result dict with san_before/san_loss/san_after/outcome/roll,
-    or None if SanitySession is unavailable (caller falls back to plain roll).
-    """
-    try:
-        from coc_sanity import SanitySession
-    except Exception:
-        return None
-    chars = character.get("characteristics", {})
-    int_value = int(chars.get("INT", 50))
-    derived = character.get("derived", {})
-    cm = int(character.get("skills", {}).get("Cthulhu Mythos", 0))
-    # If a sanity snapshot exists, san_max comes from it; otherwise derive from POW.
-    sess = SanitySession.load(campaign_dir, investigator_id,
-                              int_value=int_value, rng=rng, cm_value=cm)
-    # If no prior snapshot, set san_max from the character sheet's derived SAN.
-    sanity_json = campaign_dir / "save" / "sanity.json"
-    if not sanity_json.exists():
-        sheet_san = int(derived.get("SAN", chars.get("POW", 50)))
-        sess.san_max = sheet_san
-        sess.san_current = sheet_san
-
-    san_before = sess.san_current
-    source = str(request.get("source") or request.get("reason") or "encountering the unnatural")
-    san_loss_success = int(request.get("san_loss_success", 0))
-    san_loss_fail_expr = str(request.get("san_loss_fail_expr", "1"))
-    creature_type = request.get("creature_type")
-
-    event = sess.sanity_check(
-        source=source,
-        san_loss_success=san_loss_success,
-        san_loss_fail_expr=san_loss_fail_expr,
-        creature_type=creature_type if isinstance(creature_type, str) else None,
-    )
-    sess.save(campaign_dir)
-
-    san_loss = int(event.get("san_loss", 0))
-    san_after = sess.san_current
-    outcome = "regular" if event.get("san_loss", san_loss) == san_loss_success and san_loss == san_loss_success else (
-        "failure" if san_loss > san_loss_success else "regular"
-    )
-    # The SanitySession event has the roll outcome — use it if available.
-    roll_outcome = event.get("roll_outcome") or event.get("outcome", "")
-    roll_value = event.get("roll", 0)
-    if isinstance(roll_outcome, str) and roll_outcome:
-        outcome = roll_outcome
-
-    return {
-        "san_before": san_before,
-        "san_loss": san_loss,
-        "san_after": san_after,
-        "outcome": outcome,
-        "roll": roll_value,
-        "bout_triggered": bool(event.get("bout_triggered") or sess.temporary_insane),
-        "source": source,
-        "san_trigger_id": request.get("san_trigger_id"),
-    }
-
-
-def _target_for_request(character: dict[str, Any], request: dict[str, Any]) -> int:
-    skill = str(request.get("skill", ""))
-    skills = character.get("skills", {}) if isinstance(character.get("skills"), dict) else {}
-    characteristics = character.get("characteristics", {}) if isinstance(character.get("characteristics"), dict) else {}
-    if skill in skills:
-        return int(skills[skill])
-    if skill in characteristics:
-        return int(characteristics[skill])
-    if request.get("kind") == "sanity_check":
-        derived = character.get("derived", {}) if isinstance(character.get("derived"), dict) else {}
-        return int(derived.get("SAN", characteristics.get("POW", 50)))
-    return 50
-
-
 def _execute_rules_requests(
     campaign_dir: Path,
     character_path: Path,
@@ -193,150 +111,19 @@ def _execute_rules_requests(
     rng: random.Random,
     append_jsonl=None,
 ) -> list[dict[str, Any]]:
-    """Execute DirectorPlan.rules_requests and append roll rows.
-
-    This closes the director→rules→apply loop used by D1: apply_plan can now
-    decide whether an obscured clue is committed, withheld, or converted into a
-    fail-forward cost using actual rule results.
-    """
-    requests = plan.get("rules_requests", [])
-    if not requests:
+    """Compatibility adapter over the sole canonical mutable executor path."""
+    commands = subsystem_executor.commands_from_rules_requests(plan)
+    if not commands:
         return []
-    character = json.loads(character_path.read_text(encoding="utf-8"))
-    results: list[dict[str, Any]] = []
-    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    rolls_path = campaign_dir / "logs" / "rolls.jsonl"
-    append = append_jsonl or _append_jsonl
-
-    for idx, request in enumerate(requests, start=1):
-        kind = request.get("kind")
-        if kind not in {
-            "skill_check",
-            "characteristic_check",
-            "sanity_check",
-            "opposed_check",
-            "idea_roll",
-        }:
-            continue
-        target = _target_for_request(character, request)
-        difficulty = str(request.get("difficulty", "regular"))
-        bonus_penalty = int(request.get("bonus_penalty_dice", 0) or 0)
-        bonus = max(0, bonus_penalty)
-        penalty = max(0, -bonus_penalty)
-
-        # SAN auto-settlement: when a sanity_check carries structured loss
-        # params, resolve it through SanitySession (deducts SAN, triggers
-        # bout/temp insanity, persists to save/sanity.json). Falls back to a
-        # plain percentile roll when params are absent (backward compat).
-        if kind == "sanity_check" and "san_loss_fail_expr" in request:
-            san_result = _settle_sanity_check(
-                campaign_dir, character, investigator_id, request, rng
-            )
-            if san_result is not None:
-                payload = {
-                    "roll_id": f"{plan.get('decision_id', 'turn')}-rule-{idx}",
-                    "decision_id": plan.get("decision_id"),
-                    "kind": "sanity_check",
-                    "skill": "SAN",
-                    "target": san_result["san_before"],
-                    "difficulty": "regular",
-                    "reason": request.get("reason"),
-                    "bonus_penalty_dice": 0,
-                    "roll": san_result["roll"],
-                    "effective_target": san_result["san_before"],
-                    "outcome": san_result["outcome"],
-                    "success": san_result["outcome"] in _SUCCESS_OUTCOMES,
-                    "san_loss": san_result["san_loss"],
-                    "san_before": san_result["san_before"],
-                    "san_after": san_result["san_after"],
-                    "bout_triggered": san_result.get("bout_triggered", False),
-                    "source": san_result.get("source", ""),
-                    "san_trigger_id": san_result.get("san_trigger_id"),
-                    "roll_contract": request.get("roll_contract"),
-                }
-                results.append(payload)
-                append(rolls_path, {"type": "roll", "actor": investigator_id,
-                                    "payload": payload, "ts": ts})
-                continue
-
-        if kind == "idea_roll":
-            characteristics = (
-                character.get("characteristics", {})
-                if isinstance(character.get("characteristics"), dict)
-                else {}
-            )
-            int_value = int(characteristics.get("INT", target if target else 50))
-            roll = coc_roll.idea_roll(
-                int_value,
-                difficulty=difficulty,
-                bonus=bonus,
-                penalty=penalty,
-                rng=rng,
-            )
-            payload = {
-                "roll_id": f"{plan.get('decision_id', 'turn')}-rule-{idx}",
-                "decision_id": plan.get("decision_id"),
-                "kind": "idea_roll",
-                "skill": "INT",
-                "target": roll.get("target", int_value),
-                "difficulty": difficulty,
-                "reason": request.get("reason"),
-                "request_id": request.get("request_id"),
-                "signpost_level": request.get("signpost_level"),
-                "missed_clue_id": request.get("missed_clue_id"),
-                "bonus_penalty_dice": bonus_penalty,
-                "roll": roll.get("roll"),
-                "effective_target": roll.get("effective_target"),
-                "outcome": roll.get("outcome"),
-                "success": roll.get("outcome") in _SUCCESS_OUTCOMES,
-                "roll_contract": request.get("roll_contract"),
-                "roll_kind": "idea",
-                "characteristic": "INT",
-            }
-            results.append(payload)
-            append(rolls_path, {
-                "type": "roll",
-                "actor": investigator_id,
-                "payload": payload,
-                "ts": ts,
-            })
-            continue
-
-        roll = coc_roll.percentile_check(
-            target,
-            difficulty=difficulty,
-            bonus=bonus,
-            penalty=penalty,
-            rng=rng,
-        )
-        payload = {
-            "roll_id": f"{plan.get('decision_id', 'turn')}-rule-{idx}",
-            "decision_id": plan.get("decision_id"),
-            "kind": kind,
-            "skill": request.get("skill"),
-            "target": target,
-            "difficulty": difficulty,
-            "reason": request.get("reason"),
-            "request_id": request.get("request_id"),
-            "depends_on": request.get("depends_on"),
-            "stakes": request.get("stakes"),
-            "opposed_by": request.get("opposed_by"),
-            "opposed_skill": request.get("opposed_skill"),
-            "bonus_penalty_dice": bonus_penalty,
-            "roll": roll.get("roll"),
-            "effective_target": roll.get("effective_target"),
-            "outcome": roll.get("outcome"),
-            "success": roll.get("outcome") in _SUCCESS_OUTCOMES,
-            "roll_contract": request.get("roll_contract"),
-        }
-        results.append(payload)
-        append(rolls_path, {
-            "type": "roll",
-            "actor": investigator_id,
-            "payload": payload,
-            "ts": ts,
-        })
-    return results
+    normalized = subsystem_executor.execute_commands(
+        campaign_dir,
+        character_path,
+        investigator_id,
+        commands,
+        rng=rng,
+        append_jsonl=append_jsonl,
+    )
+    return subsystem_executor.flatten_result_events(normalized)
 _SCENE_ACTION_ZH = {
     "REVEAL": "揭示线索",
     "PRESSURE": "施加压力",
@@ -766,6 +553,8 @@ def _project_driver_turn(live_turn: dict[str, Any], turn_num: int) -> dict[str, 
         "apply_path": live_turn.get("apply_path"),
         "clue_revealed": list(live_turn.get("clue_revealed") or []),
         "rule_results": live_turn.get("rule_results") or [],
+        "subsystem_results": live_turn.get("subsystem_results") or [],
+        "pending_choice": live_turn.get("pending_choice"),
         "resolved_clue_policy": live_turn.get("resolved_clue_policy") or {},
         "failure_consequence": live_turn.get("failure_consequence"),
         "choice_frame": live_turn.get("choice_frame") or {},
@@ -869,6 +658,20 @@ def run_full_session(
     ending_evidence = coc_scene_graph.terminal_evidence(story, world_final, turns)
     return {
         "turns": turns,
+        "subsystem_results": [
+            subsystem_result
+            for turn in turns
+            for subsystem_result in (turn.get("subsystem_results") or [])
+            if isinstance(subsystem_result, dict)
+        ],
+        "pending_choice": next(
+            (
+                turn.get("pending_choice")
+                for turn in reversed(turns)
+                if isinstance(turn.get("pending_choice"), dict)
+            ),
+            None,
+        ),
         "final_state": {
             "active_scene": world_final.get("active_scene_id"),
             "discovered_clues": discovered_final,

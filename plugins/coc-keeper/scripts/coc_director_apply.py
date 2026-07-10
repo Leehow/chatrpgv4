@@ -55,6 +55,10 @@ coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
+coc_subsystem_executor = _load_sibling(
+    "coc_subsystem_executor_director_apply",
+    "coc_subsystem_executor.py",
+)
 
 coc_memory = None
 try:
@@ -1552,6 +1556,7 @@ def apply_plan(
     global _ACTIVE_JSONL_RECORDER
 
     decision_id = str(plan.get("decision_id", "unknown"))
+    settled_rule_results = coc_subsystem_executor.normalize_rule_results(rules_results)
     save_dir = Path(campaign_dir) / "save"
     if _decision_already_applied(save_dir, decision_id):
         return [{
@@ -1576,7 +1581,12 @@ def apply_plan(
     previous_recorder = _ACTIVE_JSONL_RECORDER
     _ACTIVE_JSONL_RECORDER = recorder
     try:
-        events = _apply_plan_impl(campaign_dir, plan, investigator_id, rules_results)
+        events = _apply_plan_impl(
+            campaign_dir,
+            plan,
+            investigator_id,
+            settled_rule_results,
+        )
         if recorder is not None:
             pending_batch = recorder.commit()
             if pending_batch is not None and flush_policy == "background":

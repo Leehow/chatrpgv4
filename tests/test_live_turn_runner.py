@@ -1418,3 +1418,85 @@ def test_live_turn_envelope_grounds_reveals_scene_npc_and_rule_results(tmp_path)
         assert npc_moves[0].get("display_name") == "Steven Knott"
         assert npc_moves[0].get("dialogue_seed")
         assert "knows only rumor" not in json.dumps(npc_moves, ensure_ascii=False)
+
+
+def test_live_turn_exposes_normalized_subsystem_results_and_passes_them_to_apply(
+    tmp_path,
+    monkeypatch,
+):
+    camp, char_path = _build_live_campaign(tmp_path)
+    clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
+    clue_graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "skill_check",
+        "skill": "Spot Hidden",
+        "difficulty": "regular",
+    })
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+    apply_calls = []
+    real_apply = live_runner.apply_mod.apply_plan
+
+    def capturing_apply(*args, **kwargs):
+        apply_calls.append(kwargs.get("rules_results"))
+        return real_apply(*args, **kwargs)
+
+    monkeypatch.setattr(live_runner.apply_mod, "apply_plan", capturing_apply)
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我检查桌上的文件。",
+        intent_class="investigate",
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=37,
+    )
+
+    turn = result["turns"][0]
+    assert turn["subsystem_results"]
+    assert result["subsystem_results"] == turn["subsystem_results"]
+    assert result["pending_choice"] is None
+    assert apply_calls == [turn["subsystem_results"]]
+    for subsystem_result in turn["subsystem_results"]:
+        assert set(subsystem_result) == {
+            "command_id",
+            "kind",
+            "status",
+            "events",
+            "pending_choice",
+            "state_refs",
+        }
+    assert turn["rule_results"] == [
+        event
+        for subsystem_result in turn["subsystem_results"]
+        for event in subsystem_result["events"]
+    ]
+
+
+def test_live_turn_returns_current_stable_pending_choice(tmp_path, monkeypatch):
+    camp, char_path = _build_live_campaign(tmp_path)
+
+    monkeypatch.setattr(
+        live_runner.subsystem_executor,
+        "commands_from_rules_requests",
+        lambda plan: [{
+            "command_id": f"{plan['decision_id']}-push",
+            "kind": "push_offer",
+            "phase": "offer",
+            "payload": {"original_roll_id": f"{plan['decision_id']}-rule-1"},
+        }],
+    )
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我要考虑是否孤注一掷。",
+        intent_class="investigate",
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=38,
+    )
+
+    expected_id = f"{result['turns'][0]['decision_id']}-push:confirm"
+    assert result["pending_choice"]["choice_id"] == expected_id
+    assert result["pending_choice"] == result["turns"][0]["pending_choice"]
+    assert result["subsystem_results"][-1]["status"] == "pending_choice"
