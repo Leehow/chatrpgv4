@@ -29,8 +29,8 @@
 
 | 波次 | 内容 | 状态 |
 |---|---|---|
-| **Wave 0** | 与规则书**直接相反/写错**的 7 处修正（本文档含完整 TDD 任务） | ☐ |
-| **Wave 1** | 好玩优先项：幸运消费、背景个人化恐怖、幻觉/Reality Check、恐惧症压迫、惊吓技法、SAN 演出协议、怪物演出契约、收尾仪式（本文档含完整任务） | ☐ |
+| **Wave 0** | 与规则书**直接相反/写错**的 7 处修正（本文档含完整 TDD 任务） | ☑ 2026-07-10 |
+| **Wave 1** | 好玩优先项：幸运消费、背景个人化恐怖、幻觉/Reality Check、恐惧症压迫、惊吓技法、SAN 演出协议、怪物演出契约、收尾仪式（本文档含完整任务） | ☑ 2026-07-10 |
 | **Wave 2** | 规则引擎补洞：典籍阅读引擎、成长阶段结算、推骰门闩进 apply、治疗/asylum/self-help 重做、施法推骰后果表、信徒流程接线（任务级定义，波次启动时按本文档展开细化计划） | ☐ |
 | **Wave 3** | 动作场面：追逐 Part2–5 重写、自动武器/多发/瞄准、环境伤害引擎、prone/投掷修正（任务级定义） | ☐ |
 | **Wave 4** | 遗留 N 系列：N5 真 LLM 对战、N6 存档工程化、N1 多宿主、N2/N7 内容+快速开玩、N3 叙述闭环、N4 缓存、N8 清理（任务级定义） | ☐ |
@@ -41,6 +41,8 @@
 ## 波次日志
 
 - 2026-07-10：蓝图创建。Wave 0 未开始。
+- 2026-07-10：**Wave 0 完成**（W0-1…W0-7 全部落地，提交 `ba07c3d`…`3310a8f`）。全量 1193 passed。
+- 2026-07-10：**Wave 1 完成**。W1-1/W1-2 由主线实现（`3a02536`、`e77ebf9`）；W1-3/W1-4/W1-5/W1-6 由 subagent 实现并经协调者审核（`784ba45`、`f63dea1`、`cf5a6e9`、`2a3c0a0`）。W1-5 的 subagent 在提交前连接中断，成品经审核后由协调者代为提交（`cf5a6e9`）。全量 1243 passed（含 `test_plugin_metadata` 40 条）。另补交 P0 阶段遗留改动（`8e33921`、`942fd60`）。下一波：Wave 2 规则引擎补洞，启动时先按本文档展开细化计划。
 
 ---
 
@@ -72,7 +74,7 @@
 
 规则依据（p.120–121）：dying = HP 0 + Major Wound，立即昏迷；每轮末 CON，失败即死；**只有 First Aid** 能稳定（给 1 点临时 HP），Medicine **不能**用于稳定；稳定后每小时 CON，失败则失去临时 HP 回到濒死起点；稳定后用 Medicine 成功 → 取消 dying 勾 + 1D3 HP。
 
-- [ ] **Step 1: 写失败测试**（替换 `test_first_aid_skipped_when_dying`）
+- [x] **Step 1: 写失败测试**（替换 `test_first_aid_skipped_when_dying`）
 
 ```python
 def _dying_session():
@@ -132,12 +134,12 @@ def test_stabilized_con_roll_failure_reverts_to_dying():
     assert "dying" in sess.conditions
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `PYTHONDONTWRITEBYTECODE=1 tmp/.venv311/bin/python -m pytest tests/test_healing.py -q -p no:cacheprovider`
 Expected: 新增测试 FAIL（`first_aid` 返回 healing_skipped、`dying_con_roll` 不存在）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `first_aid` 开头的濒死分支改为（`pushed` 语义保留）：
 
@@ -226,12 +228,12 @@ Expected: 新增测试 FAIL（`first_aid` 返回 healing_skipped、`dying_con_ro
 
 同时更新模块 docstring 中错误的一句 `Dying/unconscious investigators cannot heal until stabilized` 为规则书语义。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `PYTHONDONTWRITEBYTECODE=1 tmp/.venv311/bin/python -m pytest tests/test_healing.py -q -p no:cacheprovider`
 Expected: PASS（含既有用例）。
 
-- [ ] **Step 5: Commit** `fix(healing): dying stabilization chain per rulebook p.121`
+- [x] **Step 5: Commit** `fix(healing): dying stabilization chain per rulebook p.121`
 
 ---
 
@@ -247,7 +249,7 @@ Expected: PASS（含既有用例）。
 
 规则依据（p.120）：受重伤 → 立即 prone + CON 检定否则昏迷；HP=0 → 昏迷；HP=0 且有重伤 → dying；单次伤害 > HP 上限 → 死亡不可避免。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_major_wound_causes_prone_and_con_check():
@@ -277,11 +279,11 @@ def test_zero_hp_regular_damage_is_unconscious_not_dying():
 
 （`_hit` 为测试内小助手：用现有 `apply_damage`/`damage_only` 路径落一次伤害后触发 `_update_conditions`；按 test_combat_state.py 现有工具函数命名对齐。）
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `PYTHONDONTWRITEBYTECODE=1 tmp/.venv311/bin/python -m pytest tests/test_combat_state.py -q -p no:cacheprovider`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `add_participant` 增加参数 `con: int = 50`，写入 `"con": con`（快照/加载路径同步）。`_update_conditions` 重写：
 
@@ -334,8 +336,8 @@ Run: `PYTHONDONTWRITEBYTECODE=1 tmp/.venv311/bin/python -m pytest tests/test_com
 
 （`self._rng` 若 CombatSession 无该属性，则沿用会话现有 RNG 字段名；实现时以实际字段为准，保持确定性测试可注入。）
 
-- [ ] **Step 4: 跑测试确认通过**（同上命令）
-- [ ] **Step 5: Commit** `fix(combat): major-wound prone/CON, overkill death, 0hp unconscious (p.120)`
+- [x] **Step 4: 跑测试确认通过**（同上命令）
+- [x] **Step 5: Commit** `fix(combat): major-wound prone/CON, overkill death, 0hp unconscious (p.120)`
 
 ---
 
@@ -349,7 +351,7 @@ Run: `PYTHONDONTWRITEBYTECODE=1 tmp/.venv311/bin/python -m pytest tests/test_com
 - Produces: `weekly_recovery(days_of_rest)` 保留（**无重伤**时 1 HP/天不变）；重伤路径改为新方法 `major_wound_recovery_roll(*, complete_rest=False, medical_care_success: bool | None = None, poor_environment=False, medicine_fumbled=False, roll_result=None) -> dict`，每**周**调用一次：CON 失败 0 / 成功 1D3 / 极难 2D3；`complete_rest`、`medical_care_success=True` 各 +1 奖励骰；`poor_environment` 或 `medicine_fumbled` +1 惩罚骰；极难成功或 HP≥半上限 → 清 `major_wound`；CON fumble → 事件 `lasting_injury`（`keeper_note` 指示 KP 选择永久后遗症并写入 backstory Wounds & Scars，p.121）。
 - Consumes: `coc_roll.percentile_check(target, bonus=, penalty=)`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_major_wound_recovery_is_weekly_con_roll():
@@ -391,8 +393,8 @@ def test_recovery_fumble_emits_lasting_injury():
     assert any(e["event_type"] == "lasting_injury" for e in sess.events)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**（`pytest tests/test_healing.py`）
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 跑测试确认失败**（`pytest tests/test_healing.py`）
+- [x] **Step 3: 实现**
 
 ```python
     def major_wound_recovery_roll(self, *, complete_rest: bool = False,
@@ -434,8 +436,8 @@ def test_recovery_fumble_emits_lasting_injury():
 
 `weekly_recovery(days_of_rest)`：删除逐日 CON 循环；有重伤时 `hp_gained=0` 并返回 `"major_wound_recovery_required": True`（`summary` 说明需走周检定）；无重伤路径不变。`handle_time_trigger`：`had_major_wound` 时改为每累计 7 天 rest 调一次 `major_wound_recovery_roll(complete_rest=True)`（简化：`weeks = days // 7`），不足一周只重置日常护理并返回 0。
 
-- [ ] **Step 4: 跑测试确认通过**；同时跑 `tests/test_sanity_time_integration.py tests/test_final_subsystems.py` 防回归。
-- [ ] **Step 5: Commit** `fix(healing): weekly major-wound recovery with rest/care dice (p.121)`
+- [x] **Step 4: 跑测试确认通过**；同时跑 `tests/test_sanity_time_integration.py tests/test_final_subsystems.py` 防回归。
+- [x] **Step 5: Commit** `fix(healing): weekly major-wound recovery with rest/care dice (p.121)`
 
 ---
 
@@ -450,7 +452,7 @@ def test_recovery_fumble_emits_lasting_injury():
 
 规则依据（p.156）："On losing a fifth or more of **current** Sanity points in one game day"。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_indefinite_insanity_threshold_uses_day_start_current_san():
@@ -474,10 +476,10 @@ def test_day_start_san_survives_save_load(tmp_path):
     assert loaded.day_start_san == 40
 ```
 
-- [ ] **Step 2: 跑测试确认失败**（`pytest tests/test_sanity_session.py`）
-- [ ] **Step 3: 实现**：`__init__` 里 `self.day_start_san = self.san_current`；`sanity_check` 阈值行替换为 `if self.daily_san_lost >= max(1, self.day_start_san // 5) and not self.indefinite_insane:`；`end_day()` 开头加 `self.day_start_san = self.san_current`；`snapshot()` 增加 `"day_start_san"`；`load()` 增加 `sess.day_start_san = int(snap.get("day_start_san", sess.san_current))`。若既有用例依赖 `san_max // 5`（如满值 99 的场景两者相同），无需改动。
-- [ ] **Step 4: 跑测试确认通过**
-- [ ] **Step 5: Commit** `fix(sanity): indefinite-insanity threshold uses day-start current SAN (p.156)`
+- [x] **Step 2: 跑测试确认失败**（`pytest tests/test_sanity_session.py`）
+- [x] **Step 3: 实现**：`__init__` 里 `self.day_start_san = self.san_current`；`sanity_check` 阈值行替换为 `if self.daily_san_lost >= max(1, self.day_start_san // 5) and not self.indefinite_insane:`；`end_day()` 开头加 `self.day_start_san = self.san_current`；`snapshot()` 增加 `"day_start_san"`；`load()` 增加 `sess.day_start_san = int(snap.get("day_start_san", sess.san_current))`。若既有用例依赖 `san_max // 5`（如满值 99 的场景两者相同），无需改动。
+- [x] **Step 4: 跑测试确认通过**
+- [x] **Step 5: Commit** `fix(sanity): indefinite-insanity threshold uses day-start current SAN (p.156)`
 
 ---
 
@@ -509,7 +511,7 @@ def test_day_start_san_survives_save_load(tmp_path):
     （无 `roll_contract`，apply 层视为叙事指令直接透传给 narration，不掷骰。）
 - Consumes: W0-4 的 `day_start_san`（同文件先后关系：先做 W0-4）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # tests/test_sanity_session.py
@@ -556,10 +558,10 @@ def test_bout_subsystem_emits_playout_directive_not_san_roll():
 
 （`_fresh_session`/`_ctx_with_signals` 沿用各测试文件既有 fixture；`test_realtime_bout_...` 用能让 INT 成功的固定种子。）
 
-- [ ] **Step 2: 跑测试确认失败**
-- [ ] **Step 3: 实现**（按 Interfaces 描述逐条落；`_trigger_temporary_insanity` 里 real_time 分支设 `self.bout_active = True; self.bout_rounds_remaining = bout["duration_rounds"]`；`sanity_check` 开头加 bout 保护、结尾加 underlying 再触发——注意再触发分支要放在"lost >= 5 → temporary check"之前短路，避免双触发：underlying 期直接 `_trigger_new_bout()`（提炼 `_trigger_temporary_insanity` 中 bout 生成部分为 `_start_bout(source, alone, override)`，temporary 触发与 underlying 再触发共用）。director 的 L1206-1208 `temp_insane` override 删除；L1199 `bout_active` override 保留。apply 层在遍历 `rules_requests` 时对 `kind == "bout_playout"` 不走掷骰路径，原样并入 narration directives——先读 `coc_director_apply.py` L495-670 的请求分发结构再接线。）
-- [ ] **Step 4: 跑测试确认通过** + 跑 `tests/test_director_apply.py tests/test_playtest_driver.py` 防回归（playtest 驱动器可能依赖旧的 bout→sanity_check 行为，按新语义更新其断言）。
-- [ ] **Step 5: Commit** `fix(sanity): bout state machine — SAN immunity, KP takeover, underlying retrigger (p.156-158)`
+- [x] **Step 2: 跑测试确认失败**
+- [x] **Step 3: 实现**（按 Interfaces 描述逐条落；`_trigger_temporary_insanity` 里 real_time 分支设 `self.bout_active = True; self.bout_rounds_remaining = bout["duration_rounds"]`；`sanity_check` 开头加 bout 保护、结尾加 underlying 再触发——注意再触发分支要放在"lost >= 5 → temporary check"之前短路，避免双触发：underlying 期直接 `_trigger_new_bout()`（提炼 `_trigger_temporary_insanity` 中 bout 生成部分为 `_start_bout(source, alone, override)`，temporary 触发与 underlying 再触发共用）。director 的 L1206-1208 `temp_insane` override 删除；L1199 `bout_active` override 保留。apply 层在遍历 `rules_requests` 时对 `kind == "bout_playout"` 不走掷骰路径，原样并入 narration directives——先读 `coc_director_apply.py` L495-670 的请求分发结构再接线。）
+- [x] **Step 4: 跑测试确认通过** + 跑 `tests/test_director_apply.py tests/test_playtest_driver.py` 防回归（playtest 驱动器可能依赖旧的 bout→sanity_check 行为，按新语义更新其断言）。
+- [x] **Step 5: Commit** `fix(sanity): bout state machine — SAN immunity, KP takeover, underlying retrigger (p.156-158)`
 
 ---
 
@@ -578,7 +580,7 @@ def test_bout_subsystem_emits_playout_directive_not_san_roll():
   - `coc_rules.development_rule()` 返回值增加 `always_improves_above` 与 `never_tick_skills`；`luck_rule()` 返回值增加 `spend.constraints` 列表透传。
 - Consumes: 无。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_development_rule_carries_over_95_auto_improve():
@@ -597,8 +599,8 @@ def test_luck_rule_exposes_spend_constraints():
     assert rule["recovery"]["applies_when"] == "after_each_session"
 ```
 
-- [ ] **Step 2: 跑测试确认失败**（`pytest tests/test_rules.py`）
-- [ ] **Step 3: 实现**（JSON 全字段落好 source_note 页码：成长 p.94-95、幸运 p.99；loader 透传）。luck.json constraints 目标值：
+- [x] **Step 2: 跑测试确认失败**（`pytest tests/test_rules.py`）
+- [x] **Step 3: 实现**（JSON 全字段落好 source_note 页码：成长 p.94-95、幸运 p.99；loader 透传）。luck.json constraints 目标值：
 
 ```json
 "constraints": [
@@ -616,8 +618,8 @@ def test_luck_rule_exposes_spend_constraints():
 ]
 ```
 
-- [ ] **Step 4: 跑测试确认通过** + `pytest tests/test_subsystems3.py`（`sanity_reward_rule` 读者）防回归。
-- [ ] **Step 5: Commit** `fix(rules-json): align development & luck tables with rulebook p.94-99`
+- [x] **Step 4: 跑测试确认通过** + `pytest tests/test_subsystems3.py`（`sanity_reward_rule` 读者）防回归。
+- [x] **Step 5: Commit** `fix(rules-json): align development & luck tables with rulebook p.94-99`
 
 ---
 
@@ -630,7 +632,7 @@ def test_luck_rule_exposes_spend_constraints():
 **Interfaces:**
 - Produces: `load` 恢复 `awfulness_caps`、`phobia`、`mania`、`conditions`、`bouts_of_madness`、`involuntary_actions`、（W0-5 引入的）`bout_active`/`bout_rounds_remaining`、（W0-4 引入的）`day_start_san`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_load_restores_phobia_mania_awfulness_and_conditions(tmp_path):
@@ -648,8 +650,8 @@ def test_load_restores_phobia_mania_awfulness_and_conditions(tmp_path):
     assert "phobia:Arachnophobia" in loaded.conditions
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
-- [ ] **Step 3: 实现**：`load` 里补：
+- [x] **Step 2: 跑测试确认失败**
+- [x] **Step 3: 实现**：`load` 里补：
 
 ```python
         sess.awfulness_caps = dict(snap.get("awfulness_caps") or {})
@@ -663,18 +665,18 @@ def test_load_restores_phobia_mania_awfulness_and_conditions(tmp_path):
         sess.day_start_san = int(snap.get("day_start_san", sess.san_current))
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
-- [ ] **Step 5: Commit** `fix(sanity): SanitySession.load restores full persisted state`
+- [x] **Step 4: 跑测试确认通过**
+- [x] **Step 5: Commit** `fix(sanity): SanitySession.load restores full persisted state`
 
 ---
 
 ### Task W0-8: Wave 0 全量验证
 
-- [ ] Run: `PYTHONDONTWRITEBYTECODE=1 tmp/.venv311/bin/python -m pytest tests/ -q -p no:cacheprovider`
+- [x] Run: `PYTHONDONTWRITEBYTECODE=1 tmp/.venv311/bin/python -m pytest tests/ -q -p no:cacheprovider`
 Expected: 全绿（基线 1162 个用例 + 本波新增）。
-- [ ] Run: `PYTHONDONTWRITEBYTECODE=1 tmp/.venv311/bin/python -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider`
-- [ ] 在本文件"波次总览"给 Wave 0 打勾，写波次日志。
-- [ ] Commit: `chore(blueprint): wave 0 complete`
+- [x] Run: `PYTHONDONTWRITEBYTECODE=1 tmp/.venv311/bin/python -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider`
+- [x] 在本文件"波次总览"给 Wave 0 打勾，写波次日志。
+- [x] Commit: `chore(blueprint): wave 0 complete`
 
 ---
 
@@ -702,11 +704,11 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
   ```
 - Consumes: W0-6 的 `luck_rule()` constraints。
 
-- [ ] Step 1: 失败测试（成功改判、禁项逐条 ValueError、cap 99、tick 不可得、recover 边界）——测试代码写进 `tests/test_roll.py`，每条 constraint 一个用例。
-- [ ] Step 2: 确认失败 → Step 3: 实现 → Step 4: 通过。
-- [ ] Step 5: 技能层接线：`coc-rules-engine/SKILL.md` 增加"失败后二选一：推骰 XOR 花幸运"工作流（KP 必须先预告失败恶果再让玩家选）；`coc-keeper-play/SKILL.md` 的 Action Prompt Shape 节加"生死关头提示可花幸运，并报出当前 Luck 与将剩余值"。
-- [ ] Step 6: `coc_state`：结算后把 `current_luck` 合并进 `save/investigator-state/<id>.json`、`pacing-state.luck_spent_last` 置位（director 已消费该信号）。
-- [ ] Step 7: 全量相关测试 + Commit `feat(rules): luck spend runtime with push-XOR-luck gating (p.99)`
+- [x] Step 1: 失败测试（成功改判、禁项逐条 ValueError、cap 99、tick 不可得、recover 边界）——测试代码写进 `tests/test_roll.py`，每条 constraint 一个用例。
+- [x] Step 2: 确认失败 → Step 3: 实现 → Step 4: 通过。
+- [x] Step 5: 技能层接线：`coc-rules-engine/SKILL.md` 增加"失败后二选一：推骰 XOR 花幸运"工作流（KP 必须先预告失败恶果再让玩家选）；`coc-keeper-play/SKILL.md` 的 Action Prompt Shape 节加"生死关头提示可花幸运，并报出当前 Luck 与将剩余值"。
+- [x] Step 6: `coc_state`：结算后把 `current_luck` 合并进 `save/investigator-state/<id>.json`、`pacing-state.luck_spent_last` 置位（director 已消费该信号）。
+- [x] Step 7: 全量相关测试 + Commit `feat(rules): luck spend runtime with push-XOR-luck gating (p.99)`
 
 ### Task W1-2: 背景个人化恐怖（织入钩 + 发作腐蚀背景）
 
@@ -724,7 +726,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 - director：`build_director_context` 读 hooks；CHARACTER 动作的 narrative_directives 优先未织入的 hook；PAYOFF 可回收已织入 hook 做回声。
 - skill 层：开场协议加"读角色卡 → 选 1–2 条背景做织入问题（3–5 问）"；`coc-character` 建卡末尾生成初始 hooks。
 
-- [ ] TDD 步骤同型（先测 hooks 读写与 bout 建议事件，再测 director 消费），Commit `feat(horror): personal backstory hooks + bout backstory corruption (p.157, p.193-194)`
+- [x] TDD 步骤同型（先测 hooks 读写与 bout 建议事件，再测 director 消费），Commit `feat(horror): personal backstory hooks + bout backstory corruption (p.157, p.193-194)`
 
 ### Task W1-3: 幻觉与 Reality Check
 
@@ -741,7 +743,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
   - director：`rule_signals` 增 `delusion_active`；underlying 期 DEEPEN 的 narrative_directives 可带 `delusion_seed`（引用 backstory hook，Constitution 合规：引用的是结构化 hook 而非扫描散文）。
 - skill 层：coc-sanity SKILL 增加 Reality Check 工作流（玩家喊"我怀疑这是幻觉"→ 走 reality_check；KP 不主动揭穿；成功后 KP 必须如实描述真实场景）。
 
-- [ ] TDD 同型；Commit `feat(sanity): delusions + reality check with bout retrigger (p.162-163)`
+- [x] TDD 同型；Commit `feat(sanity): delusions + reality check with bout retrigger (p.162-163)`
 
 ### Task W1-4: 恐惧症/躁狂结构化压迫（清除子串匹配宪法债）
 
@@ -757,7 +759,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 - mania 未满足时的持续惩罚：`mania_unindulged: bool` 状态 + `indulge_mania()`；Psychoanalysis 成功 → `suppressed_until_next_san_loss = True`（p.162）。
 - director：danger/scene 数据已有 tags 结构的沿用；没有的加 `threat_tags` 可选字段（scenario schema 文档同步）。
 
-- [ ] TDD 同型；Commit `fix(sanity): structured phobia/mania exposure tags, drop substring matching`
+- [x] TDD 同型；Commit `fix(sanity): structured phobia/mania exposure tags, drop substring matching`
 
 ### Task W1-5: 惊吓技法 + Mythos 展示阶梯 + 怪物演出契约
 
@@ -778,7 +780,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 - `monsters.json.presentation`: `{never_name_until: "revelation", sensory_signature: [...], death_residue: "...", combat_goal: "kill|capture|flee|ritual", retreat_below_hp_fraction: 0.3}`（智慧种族不轻易拼命，p.281；0 HP 神祇 = 驱散非死亡）。
 - director 消费 `presentation`：威胁进场时 narrative_directives 附 `sensory_signature` 采样与 `never_name_until` 约束。
 
-- [ ] TDD：schema 校验测试 + director 权重测试 + storylet 库 lint；Commit `feat(horror): scare craft rules, mythos presentation ladder, monster contracts (p.207-211, p.280-282)`
+- [x] TDD：schema 校验测试 + director 权重测试 + storylet 库 lint；Commit `feat(horror): scare craft rules, mythos presentation ladder, monster contracts (p.207-211, p.280-282)`
 
 ### Task W1-6: SAN 失败桌面演出协议 + 收尾仪式（Ending / Epilogue / 奖励）
 
@@ -793,11 +795,11 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 - Ending 协议（p.212-213）：识别终局 → 逐人一段短 epilogue（KP 邀玩家共写）→ 结算 SAN 奖励（scenario endings 数据 + keeper award）→ 提示成长阶段（Wave 2 落引擎前先用手工流程）→ 幸运恢复（W1-1 `recover_luck`）。cliffhanger 也是合法收尾。
 - 调查员死亡要"有意义"：死亡场景必须给最后一句话/最后行动机会（p.213 + p.123 Keeper 裁量）。
 
-- [ ] TDD：apply 层 `session_ending` 事件测试；skill 文档 lint（`test_plugin_metadata`）；Commit `feat(play): failed-SAN table protocol + story ending ritual (p.209-213)`
+- [x] TDD：apply 层 `session_ending` 事件测试；skill 文档 lint（`test_plugin_metadata`）；Commit `feat(play): failed-SAN table protocol + story ending ritual (p.209-213)`
 
 ### Task W1-7: Wave 1 全量验证
 
-- [ ] 全量 pytest + `test_plugin_metadata` + 更新波次总览/日志 + Commit。
+- [x] 全量 pytest + `test_plugin_metadata` + 更新波次总览/日志 + Commit。
 
 ---
 
