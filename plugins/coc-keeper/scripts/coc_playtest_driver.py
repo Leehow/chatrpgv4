@@ -855,7 +855,7 @@ def run_full_session(
 
         world = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {})
         turn_terminal = coc_scene_graph.terminal_evidence(story, world, live_result)
-        if turn_terminal["reached_terminal"]:
+        if turn_terminal["session_ending"]:
             break
 
     world_final = apply_mod._read_json(

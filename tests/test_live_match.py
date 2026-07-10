@@ -765,25 +765,67 @@ def test_explicit_dead_condition_is_immediately_terminal(tmp_path):
     assert result["result"]["reached_terminal"] is False
 
 
-@pytest.mark.parametrize(
-    ("state_overrides", "expected_status"),
-    [
-        ({"temporary_insane": True}, "temporarily_unplayable"),
-        ({"permanently_insane": True}, "permanently_unplayable"),
-    ],
-)
-def test_single_unplayable_investigator_is_not_a_terminal_campaign(
+def test_permanently_unplayable_investigator_is_not_a_terminal_campaign(tmp_path):
+    result = _run_match_with_investigator_state(
+        tmp_path,
+        current_hp=8,
+        conditions=[],
+        permanently_insane=True,
+    )
+
+    assert result["investigator_playability"]["status"] == "permanently_unplayable"
+    assert result["investigator_playability"]["terminal"] is False
+    assert result["result"]["reached_terminal"] is False
+
+
+@pytest.mark.parametrize("underlying_flag", ["temporary_insane", "indefinite_insane"])
+def test_underlying_insanity_without_active_bout_remains_player_controlled(
     tmp_path,
-    state_overrides,
-    expected_status,
+    underlying_flag,
 ):
     result = _run_match_with_investigator_state(
         tmp_path,
         current_hp=8,
         conditions=[],
-        **state_overrides,
+        bout_active=False,
+        **{underlying_flag: True},
     )
 
-    assert result["investigator_playability"]["status"] == expected_status
-    assert result["investigator_playability"]["terminal"] is False
+    assert result["investigator_playability"] == {
+        "status": "active",
+        "playable": True,
+        "terminal": False,
+    }
+    assert result["stop_reason"] == "max_turns_reached"
+    assert result["result"]["player_turn_count"] == 1
+
+
+def test_active_bout_is_temporarily_unplayable_and_pauses_match(tmp_path):
+    result = _run_match_with_investigator_state(
+        tmp_path,
+        current_hp=8,
+        conditions=[],
+        bout_active=True,
+    )
+
+    assert result["investigator_playability"] == {
+        "status": "temporarily_unplayable",
+        "playable": False,
+        "terminal": False,
+    }
+    assert result["stop_reason"] == "investigator_temporarily_unplayable"
+    assert result["result"]["player_turn_count"] == 0
     assert result["result"]["reached_terminal"] is False
+
+
+def test_explicit_temporarily_unplayable_condition_pauses_match(tmp_path):
+    result = _run_match_with_investigator_state(
+        tmp_path,
+        current_hp=8,
+        conditions=["temporarily_unplayable"],
+    )
+
+    assert result["investigator_playability"]["status"] == "temporarily_unplayable"
+    assert result["investigator_playability"]["terminal"] is False
+    assert result["stop_reason"] == "investigator_temporarily_unplayable"
+    assert result["result"]["player_turn_count"] == 0

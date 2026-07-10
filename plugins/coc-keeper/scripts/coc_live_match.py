@@ -204,8 +204,7 @@ def investigator_playability(
 
     if (
         "temporarily_unplayable" in conditions
-        or state.get("temporary_insane")
-        or state.get("indefinite_insane")
+        or state.get("bout_active")
     ):
         return {
             "status": "temporarily_unplayable",

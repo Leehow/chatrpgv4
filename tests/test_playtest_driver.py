@@ -16,6 +16,7 @@ def _load(name, rel):
 
 driver = _load("coc_playtest_driver", "plugins/coc-keeper/scripts/coc_playtest_driver.py")
 scene_graph = _load("coc_scene_graph_task2", "plugins/coc-keeper/scripts/coc_scene_graph.py")
+coc_memory = _load("coc_memory_task2", "plugins/coc-keeper/scripts/coc_memory.py")
 
 
 def _build_mini_campaign(tmp_path):
@@ -707,6 +708,103 @@ def test_driver_honors_structured_session_ending_evidence(tmp_path, monkeypatch)
     assert result["reached_terminal"] is True
     assert result["terminal_evidence"]["session_ending"] is True
     assert result["terminal_evidence"]["graph_terminal"] is False
+
+
+def test_driver_reaches_terminal_then_runs_real_payoff_and_session_ending(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    story = {
+        "scenes": [
+            {
+                "scene_id": "start",
+                "scene_type": "investigation",
+                "available_clues": [],
+                "dramatic_question": "Can the investigator reach the resolution?",
+                "scene_edges": [
+                    {"to": "ending", "kind": "travel", "when": {"kind": "always"}}
+                ],
+            },
+            {
+                "scene_id": "ending",
+                "scene_type": "resolution",
+                "is_final": True,
+                "available_clues": [],
+                "dramatic_question": "What does the resolution mean?",
+                "scene_edges": [],
+            },
+        ]
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world_path = camp / "save" / "world-state.json"
+    world = json.loads(world_path.read_text())
+    world.update(
+        {
+            "active_scene_id": "start",
+            "unlocked_scene_ids": ["start", "ending"],
+            "visited_scene_ids": [],
+            "exhausted_scene_ids": [],
+            "scene_history": [],
+        }
+    )
+    world_path.write_text(json.dumps(world))
+    coc_memory.create_memory_card(
+        campaign_dir=camp,
+        memory_id="ending-payoff",
+        privacy="player_safe",
+        salience=1.0,
+        summary="The investigator carries forward the resolved choice.",
+        entities=["ending"],
+        tags=["player_interest"],
+        reactivation_cues=["ending"],
+        source_events=[],
+    )
+    choices = [
+        {
+            "intent": "Move to the unlocked resolution scene.",
+            "intent_class": "move",
+            "player_intent_rich": {
+                "primary_intent": "move",
+                "target_entities": ["ending"],
+                "action_atoms": [],
+            },
+        },
+        {
+            "intent": "Reflect on the ending and close this session.",
+            "intent_class": "reflect",
+            "player_intent_rich": {
+                "primary_intent": "reflect",
+                "target_entities": ["ending"],
+                "action_atoms": [],
+            },
+        },
+    ]
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=choices,
+        max_turns=3,
+        rng_seed=23,
+    )
+
+    assert [turn["action"] for turn in result["turns"]] == ["CUT", "PAYOFF"]
+    assert "scene_transition" in result["turns"][0]["event_types"]
+    assert "session_ending" in result["turns"][1]["event_types"]
+    assert result["terminal_evidence"] == {
+        "reached_terminal": True,
+        "active_scene_id": "ending",
+        "graph_terminal": True,
+        "session_ending": True,
+    }
+    logged = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(
+        row.get("event_type") == "session_ending" or row.get("type") == "session_ending"
+        for row in logged
+    )
 
 
 def test_terminal_evidence_contract_accepts_structured_event_records():
