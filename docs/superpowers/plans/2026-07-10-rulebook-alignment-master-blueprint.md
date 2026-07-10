@@ -865,7 +865,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 - [ ] **N1 多宿主安装**：`.claude-plugin/` manifest + Cursor 入口薄适配层指向同一 skills 树（单轨法）；立绘保持 `CODEX_ONLY_IMAGEGEN` 门控。
 - [ ] **N2+N7 内容与快速开玩**：The Haunting 叙事包（story-graph/clue-graph/npc-agendas）或第二短 starter；预生成调查员 + 一句话开玩入口。
 - [ ] **N3 叙述质量闭环**：`guard_player_visible_text` 进 live 必查回路 + `narration-audit.jsonl`。
-- [ ] **N4 缓存**：storylet 库/规则表/结构权重模块级缓存 + mtime 失效。
+- [x] **N4 缓存**：storylet 库/规则表/结构权重模块级缓存 + mtime 失效。
 - [x] **N8 清理**：`storylet-scheduler.jsonl` 只写不读、`fork_timeline` stub、`npc-role-keywords.json` 更名（实为 enum→template 映射，名字易误导后人抄成关键词扫描）。
 - [ ] **全量验证 + 打勾写日志**
 
