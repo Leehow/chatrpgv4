@@ -152,6 +152,10 @@ class SanitySession:
         self.phobia: str | None = None
         self.mania: str | None = None
         self.conditions: list[str] = []
+        # Delusions + reality check (p.162-163): only plantable during the
+        # underlying-insanity phase (insane, no active bout).
+        self.active_delusion: dict[str, Any] | None = None
+        self.delusion_resistant: bool = False
 
     # ------------------------------------------------------------------ #
     # Core: SAN roll + loss
@@ -222,6 +226,9 @@ class SanitySession:
 
         self.san_current = max(0, self.san_current - lost)
         self.daily_san_lost += lost
+        # p.162-163: delusion resistance lasts only until the next SAN loss.
+        if lost >= 1:
+            self.delusion_resistant = False
 
         roll_record = {
             "roll_id": roll_id,
@@ -435,6 +442,81 @@ class SanitySession:
             if suggestion:
                 payload["backstory_amend_suggestion"] = suggestion
         self._event("bout_ended", payload)
+
+    def plant_delusion(self, description: str, *,
+                       backstory_field: str | None = None) -> dict[str, Any]:
+        """Plant a delusion during the underlying-insanity phase (p.162-163).
+
+        Only allowed when the investigator is insane and no bout is active.
+        The Keeper narrates the delusion as if real; the player may later
+        declare suspicion and call ``reality_check()``.
+        """
+        if not self.is_insane:
+            raise ValueError(
+                "Delusions may only be planted during the underlying-insanity "
+                "phase (investigator must be insane)."
+            )
+        if self.bout_active:
+            raise ValueError(
+                "Cannot plant a delusion while a bout of madness is active."
+            )
+        delusion = {
+            "description": description,
+            "backstory_field": backstory_field,
+            "resistant": False,
+        }
+        self.active_delusion = delusion
+        self._event("delusion_planted", {
+            "description": description,
+            "backstory_field": backstory_field,
+            "summary": (f"{self.investigator_id} delusion planted: {description}"),
+        })
+        return delusion
+
+    def reality_check(self, roll_result: int | None = None) -> dict[str, Any]:
+        """SAN check when the player suspects a delusion (p.162-163).
+
+        Success: clear the delusion and grant resistance until the next SAN
+        loss. Failure: lose 1 SAN and immediately trigger a new bout; the
+        delusion remains.
+        """
+        roll = int(roll_result) if roll_result is not None else self._rng.randint(1, 100)
+        success = roll <= self.san_current
+        if success:
+            self.active_delusion = None
+            self.delusion_resistant = True
+            payload = {
+                "success": True,
+                "roll": roll,
+                "rule_ref": "core.sanity.reality_check",
+                "summary": (f"{self.investigator_id} reality check succeeds "
+                            f"(roll {roll} <= SAN {self.san_current}); "
+                            "delusion cleared, resistance granted."),
+            }
+            self._event("reality_check", payload)
+            return {
+                "success": True,
+                "roll": roll,
+                "rule_ref": "core.sanity.reality_check",
+            }
+
+        self.san_current = max(0, self.san_current - 1)
+        self.daily_san_lost += 1
+        self._start_bout("reality_check", alone=False, module_bout_override=None)
+        payload = {
+            "success": False,
+            "roll": roll,
+            "rule_ref": "core.sanity.reality_check",
+            "summary": (f"{self.investigator_id} reality check fails "
+                        f"(roll {roll}); -1 SAN, new bout triggered; "
+                        "delusion persists."),
+        }
+        self._event("reality_check", payload)
+        return {
+            "success": False,
+            "roll": roll,
+            "rule_ref": "core.sanity.reality_check",
+        }
 
     def _trigger_indefinite_insanity(self) -> None:
         """p.168: 1/5+ SAN lost in one day → indefinite insanity.
@@ -737,6 +819,8 @@ class SanitySession:
             "phobia": self.phobia,
             "mania": self.mania,
             "conditions": list(self.conditions),
+            "active_delusion": self.active_delusion,
+            "delusion_resistant": self.delusion_resistant,
             "events": list(self.events),
         }
 
@@ -766,6 +850,7 @@ class SanitySession:
             data["current_san"] = int(self.san_current)
             data["indefinite_insane"] = bool(self.indefinite_insane)
             data["bout_active"] = bool(self.bout_active)
+            data["active_delusion"] = self.active_delusion
             inv_path.parent.mkdir(parents=True, exist_ok=True)
             inv_path.write_text(json.dumps(data, ensure_ascii=False, indent=2),
                                 encoding="utf-8")
@@ -813,6 +898,8 @@ class SanitySession:
         sess.phobia = snap.get("phobia")
         sess.mania = snap.get("mania")
         sess.conditions = list(snap.get("conditions") or [])
+        sess.active_delusion = snap.get("active_delusion")
+        sess.delusion_resistant = bool(snap.get("delusion_resistant", False))
         sess.bouts_of_madness = list(snap.get("bouts_of_madness") or [])
         sess.involuntary_actions = list(snap.get("involuntary_actions") or [])
         saved_events = snap.get("events") or []

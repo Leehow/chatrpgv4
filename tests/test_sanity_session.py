@@ -293,6 +293,90 @@ def test_realtime_bout_end_event_carries_backstory_amend_suggestion():
     assert suggestion["backstory_field"] in coc_sanity.BACKSTORY_FIELDS
 
 
+# --------------------------------------------------------------------------- #
+# W1-3: delusions + reality check (p.162-163)
+# --------------------------------------------------------------------------- #
+
+def _underlying_session(seed=7):
+    """Session in the underlying-insanity phase (insane, no active bout)."""
+    s = _make_session(seed=seed)
+    s.temporary_insane = True
+    s.bout_active = False
+    return s
+
+
+def test_plant_delusion_requires_underlying_phase():
+    s = _make_session()
+    try:
+        s.plant_delusion("the nurse has no face")
+    except ValueError as exc:
+        assert "underlying" in str(exc)
+    else:
+        raise AssertionError("expected ValueError when sane")
+
+    s2 = _underlying_session()
+    s2.bout_active = True
+    try:
+        s2.plant_delusion("the nurse has no face")
+    except ValueError as exc:
+        assert "bout" in str(exc)
+    else:
+        raise AssertionError("expected ValueError during bout")
+
+
+def test_plant_delusion_records_structured_delusion():
+    s = _underlying_session()
+    d = s.plant_delusion("the nurse has no face",
+                         backstory_field="significant_people")
+    assert s.active_delusion["description"] == "the nurse has no face"
+    assert s.active_delusion["backstory_field"] == "significant_people"
+    assert d == s.active_delusion
+
+
+def test_reality_check_success_clears_delusion_and_grants_resistance():
+    s = _underlying_session()
+    s.plant_delusion("the walls breathe")
+    out = s.reality_check(roll_result=1)  # forced success
+    assert out["success"] is True
+    assert s.active_delusion is None
+    assert s.delusion_resistant is True
+
+
+def test_reality_check_failure_costs_1_san_and_triggers_bout():
+    s = _underlying_session()
+    s.plant_delusion("the walls breathe")
+    san_before = s.san_current
+    bouts_before = len(s.bouts_of_madness)
+    out = s.reality_check(roll_result=100)  # forced failure
+    assert out["success"] is False
+    assert s.san_current == san_before - 1
+    assert len(s.bouts_of_madness) == bouts_before + 1
+    assert s.active_delusion is not None  # delusion persists
+
+
+def test_delusion_resistance_lapses_on_next_san_loss():
+    s = _underlying_session(seed=50)
+    s.plant_delusion("the walls breathe")
+    s.reality_check(roll_result=1)
+    assert s.delusion_resistant is True
+    # Force a SAN loss (low SAN session likely fails, but the reset happens on
+    # any loss >= 1; use a loss-on-success expression to guarantee it).
+    s.sanity_check("fresh horror", 1, "1D4")
+    assert s.delusion_resistant is False
+
+
+def test_delusion_state_survives_save_load(tmp_path):
+    s = coc_sanity.SanitySession("ada", san_max=60, int_value=50,
+                                 rng=random.Random(9), campaign_dir=tmp_path)
+    s.temporary_insane = True
+    s.plant_delusion("the walls breathe", backstory_field="meaningful_locations")
+    s.delusion_resistant = False
+    s.save(tmp_path)
+    loaded = coc_sanity.SanitySession.load(tmp_path, "ada")
+    assert loaded.active_delusion["description"] == "the walls breathe"
+    assert loaded.delusion_resistant is False
+
+
 def test_load_restores_phobia_mania_awfulness_and_conditions(tmp_path):
     """W0-7: reloading a session must not amnesia away phobia/mania/awfulness
     caps/conditions/bout history."""

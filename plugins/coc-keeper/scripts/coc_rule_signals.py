@@ -417,6 +417,7 @@ def read_sanity_engine_state(campaign_dir, investigator_id: str) -> dict[str, An
         "temporary_insane": temporary_insane,
         "indefinite_insane": indefinite_insane,
         "permanently_insane": permanently_insane,
+        "delusion_active": bool(state.get("active_delusion")),
     }
     if state.get("phobia"):
         signal["phobia"] = state["phobia"]

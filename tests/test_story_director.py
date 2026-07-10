@@ -1876,3 +1876,59 @@ def test_personal_horror_directive_absent_for_other_actions_or_no_hooks():
         {"personal_horror_hooks": hooks}, "PRESSURE") is None
     assert coc_story_director._personal_horror_directive(
         {"personal_horror_hooks": []}, "CHARACTER") is None
+
+
+# --------------------------------------------------------------------------- #
+# W1-3: delusion_seed directive (p.162-163)
+# --------------------------------------------------------------------------- #
+
+def _underlying_delusion_ctx(hooks=None, bout_active=False, indefinite=True):
+    """Minimal ctx for an investigator in the underlying-insanity phase."""
+    return {
+        "personal_horror_hooks": hooks or [
+            {"hook_id": "h-woven", "backstory_field": "significant_people",
+             "summary": "sister vanished", "woven": True},
+            {"hook_id": "h-new", "backstory_field": "traits",
+             "summary": "unused", "woven": False},
+        ],
+        "rule_signals": {
+            "indefinite_insane": indefinite,
+            "bout_active": bout_active,
+        },
+        "sanity_engine_state": {"temporary_insane": False},
+    }
+
+
+def test_delusion_directive_on_deepen_during_underlying():
+    seed = coc_story_director._delusion_directive(
+        _underlying_delusion_ctx(), "DEEPEN")
+    assert seed is not None
+    assert seed["hook_id"] == "h-woven"  # prefer woven
+    assert seed["backstory_field"] == "significant_people"
+    assert "instruction" in seed
+
+
+def test_delusion_directive_on_pressure_during_underlying():
+    seed = coc_story_director._delusion_directive(
+        _underlying_delusion_ctx(), "PRESSURE")
+    assert seed is not None
+    assert seed["hook_id"] == "h-woven"
+
+
+def test_delusion_directive_suppressed_during_bout():
+    assert coc_story_director._delusion_directive(
+        _underlying_delusion_ctx(bout_active=True), "DEEPEN") is None
+
+
+def test_delusion_directive_absent_when_sane():
+    ctx = _underlying_delusion_ctx(indefinite=False)
+    ctx["rule_signals"]["indefinite_insane"] = False
+    ctx["sanity_engine_state"] = {"temporary_insane": False}
+    assert coc_story_director._delusion_directive(ctx, "DEEPEN") is None
+
+
+def test_delusion_directive_absent_for_other_actions():
+    assert coc_story_director._delusion_directive(
+        _underlying_delusion_ctx(), "CHARACTER") is None
+    assert coc_story_director._delusion_directive(
+        _underlying_delusion_ctx(), "REVEAL") is None

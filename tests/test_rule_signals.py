@@ -204,3 +204,21 @@ def test_bout_active_read_from_explicit_field(tmp_path):
     (inv / "h.json").write_text(_json.dumps({"bout_active": True}))
     sig = coc_rule_signals.read_sanity_engine_state(tmp_path, "h")
     assert sig["bout_active"] is True
+
+
+def test_delusion_active_read_from_explicit_field(tmp_path):
+    """W1-3: the director sees delusion_active as a structured signal."""
+    import json as _json
+    inv = tmp_path / "save" / "investigator-state"
+    inv.mkdir(parents=True)
+    (inv / "h.json").write_text(_json.dumps({
+        "temporary_insane": True,
+        "active_delusion": {"description": "the walls breathe",
+                            "backstory_field": None, "resistant": False},
+    }))
+    sig = coc_rule_signals.read_sanity_engine_state(tmp_path, "h")
+    assert sig["delusion_active"] is True
+
+    (inv / "g.json").write_text(_json.dumps({"temporary_insane": True}))
+    sig2 = coc_rule_signals.read_sanity_engine_state(tmp_path, "g")
+    assert sig2["delusion_active"] is False

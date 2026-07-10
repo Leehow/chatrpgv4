@@ -500,6 +500,7 @@ def build_director_context(
             pacing.get("tension_level", "low"), pacing.get("lethal_chances_used", 0),
         ),
         "bout_active": bool(inv_state.get("bout_active")) or "bout_active" in conditions,
+        "delusion_active": bool(inv_state.get("active_delusion")),
     }
     signal_ctx = {
         "player_intent_class": player_intent_class,
@@ -1640,6 +1641,43 @@ def _personal_horror_directive(ctx: dict[str, Any], action: str) -> dict[str, An
     }
 
 
+def _delusion_directive(ctx: dict[str, Any], action: str) -> dict[str, Any] | None:
+    """W1-3 (p.162-163): seed a subtle delusion during the underlying phase.
+
+    Only fires on DEEPEN/PRESSURE while the investigator is insane and no bout
+    is active. Prefers a woven personal-horror hook as the structured anchor;
+    never scans free-text prose (Semantic Matcher Constitution).
+    """
+    if action not in ("DEEPEN", "PRESSURE"):
+        return None
+    sig = ctx.get("rule_signals") or {}
+    if sig.get("bout_active"):
+        return None
+    engine = ctx.get("sanity_engine_state") or {}
+    underlying = bool(
+        sig.get("indefinite_insane")
+        or engine.get("temporary_insane")
+        or sig.get("temporary_insane")
+    )
+    if not underlying:
+        return None
+    hooks = [h for h in (ctx.get("personal_horror_hooks") or []) if isinstance(h, dict)]
+    if not hooks:
+        return None
+    pick = next((h for h in hooks if h.get("woven")), None) or hooks[0]
+    return {
+        "hook_id": pick.get("hook_id"),
+        "backstory_field": pick.get("backstory_field"),
+        "summary": pick.get("summary", ""),
+        "instruction": (
+            "During the underlying-insanity phase you may weave one subtle "
+            "false sensory detail tied to this personal-horror hook. Narrate "
+            "it as if real; never confirm to the player which details are false. "
+            "If the player declares suspicion, run SanitySession.reality_check()."
+        ),
+    }
+
+
 def _build_scene_pressure_move(ctx: dict[str, Any]) -> dict[str, Any] | None:
     scene = ctx.get("active_scene") or {}
     pressure_moves = [move for move in _as_list(scene.get("pressure_moves")) if move]
@@ -1943,6 +1981,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         pressure_moves = _build_pressure_moves(ctx, action)
 
     personal_horror = _personal_horror_directive(ctx, action)
+    delusion_seed = _delusion_directive(ctx, action)
 
     narrative_directives = {
         "tone": scene.get("tone", []),
@@ -1958,6 +1997,8 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     }
     if personal_horror is not None:
         narrative_directives["personal_horror_hook"] = personal_horror
+    if delusion_seed is not None:
+        narrative_directives["delusion_seed"] = delusion_seed
     if overrides and isinstance(overrides.get("scene_progress"), dict):
         narrative_directives["scene_progress"] = overrides["scene_progress"]
     dramatic_progress = _dramatic_progress_directive(
