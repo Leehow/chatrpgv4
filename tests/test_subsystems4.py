@@ -222,44 +222,58 @@ def test_asylum_confinement_rolls_1d6_months():
     assert sess.asylum_months_remaining == ev["months"]
 
 
-def test_asylum_release_success_recovers_to_max():
-    state = {"current_san": 40, "max_san": 90}
-    sess = coc_healing.PsychotherapySession("inv1", state, rng=random.Random(1))
-    sess.confine_to_asylum()
-    # Find a success seed for the release roll.
-    for seed in range(1, 400):
-        state2 = {"current_san": 40, "max_san": 90}
-        sess2 = coc_healing.PsychotherapySession("inv1", state2, rng=random.Random(seed))
-        sess2.asylum_months_remaining = 4
-        ev = sess2.resolve_asylum_release(psychoanalysis_skill=60)
-        if ev["psychoanalysis_outcome"] in ("regular", "hard", "extreme", "critical"):
-            assert state2["current_san"] == 90  # recovered to max
-            assert sess2.asylum_months_remaining == 0
-            return
-    pytest.skip("no release-success seed")
-
-
-def test_asylum_release_failure_no_recovery():
+def test_asylum_release_success_gains_at_most_1d3():
+    """W2-4 (p.164-168): release routes through one monthly_treatment_roll —
+    success grants +1D3 at most, never a full restore to max SAN."""
     for seed in range(1, 400):
         state = {"current_san": 40, "max_san": 90}
         sess = coc_healing.PsychotherapySession("inv1", state, rng=random.Random(seed))
         sess.asylum_months_remaining = 4
-        ev = sess.resolve_asylum_release(psychoanalysis_skill=20)
-        if ev["psychoanalysis_outcome"] in ("failure", "fumble"):
-            assert state["current_san"] == 40  # unchanged
-            assert sess.asylum_months_remaining == 0
-            return
-    pytest.skip("no release-failure seed")
+        ev = sess.resolve_asylum_release()
+        if ev["setback"]:
+            continue
+        assert ev["event_type"] == "asylum_release"
+        assert ev["months_confined"] == 4
+        assert 1 <= ev["san_delta"] <= 3  # 1D3 gain, never to-max
+        assert state["current_san"] == 40 + ev["san_delta"]
+        assert state["current_san"] < 90
+        assert sess.asylum_months_remaining == 0
+        return
+    pytest.skip("no release-success seed")
+
+
+def test_asylum_release_setback_loses_1d6():
+    """W2-4: a 96-00 monthly roll at release is a setback losing 1D6 SAN."""
+    for seed in range(1, 800):
+        state = {"current_san": 40, "max_san": 90}
+        sess = coc_healing.PsychotherapySession("inv1", state, rng=random.Random(seed))
+        sess.asylum_months_remaining = 4
+        ev = sess.resolve_asylum_release()
+        if not ev["setback"]:
+            continue
+        assert ev["roll"] > 95
+        assert -6 <= ev["san_delta"] <= -1
+        assert state["current_san"] == 40 + ev["san_delta"]
+        assert ev["san_recovered"] == 0
+        assert sess.asylum_months_remaining == 0
+        return
+    pytest.skip("no release-setback seed")
+
+
+_KEY_CONNECTION = {"backstory_field": "significant_people",
+                   "summary": "trusted mentor from Arkham"}
 
 
 def test_self_help_success_recovers_1d6():
     for seed in range(1, 400):
         state = {"current_san": 50, "max_san": 90}
         sess = coc_healing.PsychotherapySession("inv1", state, rng=random.Random(seed))
-        ev = sess.self_help()
+        ev = sess.self_help(key_connection=_KEY_CONNECTION)
         if ev["outcome"] in ("regular", "hard", "extreme", "critical"):
-            assert ev["san_delta"] >= 1
+            assert 1 <= ev["san_delta"] <= 6
             assert state["current_san"] == 50 + ev["san_delta"]
+            assert ev["key_connection"]["backstory_field"] == "significant_people"
+            assert "backstory_amend_required" not in ev
             return
     pytest.skip("no self-help success seed")
 
@@ -268,10 +282,13 @@ def test_self_help_failure_loses_1_san():
     for seed in range(1, 400):
         state = {"current_san": 50, "max_san": 90}
         sess = coc_healing.PsychotherapySession("inv1", state, rng=random.Random(seed))
-        ev = sess.self_help()
+        ev = sess.self_help(key_connection=_KEY_CONNECTION)
         if ev["outcome"] in ("failure", "fumble"):
             assert ev["san_delta"] == -1
             assert state["current_san"] == 49
+            amend = ev["backstory_amend_required"]
+            assert amend["mode"] == "corrupt_existing"
+            assert amend["backstory_field"] == "significant_people"
             return
     pytest.skip("no self-help failure seed")
 
