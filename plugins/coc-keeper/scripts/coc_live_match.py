@@ -45,6 +45,7 @@ playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
 live_turn_runner = _load_sibling("coc_live_turn_runner", "coc_live_turn_runner.py")
 narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
+coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 try:
     coc_adherence = _load_sibling("coc_adherence", "coc_adherence.py")
 except Exception:
@@ -144,44 +145,94 @@ def build_player_request(
     }
 
 
-def _investigator_terminal(campaign_dir: Path, investigator_id: str) -> str | None:
-    """Return a stop reason if the investigator is dead or indefinitely insane."""
-    inv = _read_json(
+def investigator_playability(
+    campaign_dir: Path,
+    investigator_id: str,
+) -> dict[str, Any]:
+    """Classify structured investigator state without equating 0 HP to death."""
+    state = _read_json(
         campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json",
         {},
     )
-    if not isinstance(inv, dict):
-        return None
-    hp = inv.get("current_hp")
+    if not isinstance(state, dict):
+        state = {}
+    raw_conditions = state.get("conditions") or []
+    conditions = {
+        str(condition).strip().lower()
+        for condition in raw_conditions
+        if str(condition).strip()
+    } if isinstance(raw_conditions, list) else set()
+
+    if "dead" in conditions:
+        return {"status": "dead", "playable": False, "terminal": True}
+
+    if "stabilized" in conditions:
+        return {
+            "status": "stabilized",
+            "playable": False,
+            "terminal": False,
+            "pending_resolution": {
+                "kind": "stabilized_death_clock",
+                "investigator_id": investigator_id,
+                "event_type": "stabilized_con_roll",
+            },
+        }
+
+    if "dying" in conditions:
+        return {
+            "status": "dying",
+            "playable": False,
+            "terminal": False,
+            "pending_resolution": {
+                "kind": "dying_rescue",
+                "investigator_id": investigator_id,
+                "rescue_event_type": "first_aid_stabilize",
+                "death_clock_event_type": "dying_con_roll",
+            },
+        }
+
+    if (
+        "permanently_unplayable" in conditions
+        or state.get("permanently_insane")
+        or state.get("permanent_insane")
+    ):
+        return {
+            "status": "permanently_unplayable",
+            "playable": False,
+            "terminal": False,
+        }
+
+    if (
+        "temporarily_unplayable" in conditions
+        or state.get("temporary_insane")
+        or state.get("indefinite_insane")
+    ):
+        return {
+            "status": "temporarily_unplayable",
+            "playable": False,
+            "terminal": False,
+        }
+
+    hp = state.get("current_hp")
+    hp_at_or_below_zero = False
     try:
-        if hp is not None and int(hp) <= 0:
-            return "investigator_dead"
+        hp_at_or_below_zero = hp is not None and int(hp) <= 0
     except (TypeError, ValueError):
         pass
-    conditions = inv.get("conditions") or []
-    if isinstance(conditions, list):
-        lowered = {str(c).lower() for c in conditions}
-        if "dead" in lowered or "dying" in lowered:
-            return "investigator_dead"
-    if inv.get("indefinite_insane") or inv.get("permanent_insane"):
-        return "investigator_indefinite_insanity"
+
+    if "unconscious" in conditions or hp_at_or_below_zero:
+        return {"status": "unconscious", "playable": False, "terminal": False}
+    return {"status": "active", "playable": True, "terminal": False}
+
+
+def _playability_stop_reason(playability: dict[str, Any]) -> str | None:
+    if playability.get("terminal") is True:
+        return "investigator_dead"
+    if isinstance(playability.get("pending_resolution"), dict):
+        return "pending_resolution"
+    if playability.get("playable") is False:
+        return f"investigator_{playability.get('status') or 'unplayable'}"
     return None
-
-
-def _result_has_session_ending(live_result: dict[str, Any]) -> bool:
-    for turn in live_result.get("turns") or []:
-        if not isinstance(turn, dict):
-            continue
-        for et in turn.get("event_types") or []:
-            if et == "session_ending":
-                return True
-        events = turn.get("events") or []
-        for ev in events:
-            if isinstance(ev, dict) and (
-                ev.get("type") == "session_ending" or ev.get("event_type") == "session_ending"
-            ):
-                return True
-    return False
 
 
 def _match_metadata(*, live: bool, campaign_id: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -420,6 +471,7 @@ def run_live_match(
     tension_curve: list[Any] = []
     scene_path: list[str] = []
     stop_reason = "max_turns_reached"
+    pending_resolution: dict[str, Any] | None = None
     last_turn: dict[str, Any] | None = None
     previous_affordance_ids: list[str] | None = None
     fallback_turns = 0
@@ -430,11 +482,16 @@ def run_live_match(
     play_language = str(
         campaign_meta.get("play_language") if isinstance(campaign_meta, dict) else "zh-Hans"
     ) or "zh-Hans"
+    story = _read_json(camp / "scenario" / "story-graph.json", {"scenes": []})
+    current_playability = investigator_playability(camp, investigator_id)
 
     for _offset in range(max(1, int(max_turns))):
-        terminal = _investigator_terminal(camp, investigator_id)
-        if terminal:
-            stop_reason = terminal
+        current_playability = investigator_playability(camp, investigator_id)
+        playability_stop = _playability_stop_reason(current_playability)
+        if playability_stop:
+            stop_reason = playability_stop
+            pending = current_playability.get("pending_resolution")
+            pending_resolution = dict(pending) if isinstance(pending, dict) else None
             break
 
         narration = player_visible_narration(
@@ -549,36 +606,38 @@ def run_live_match(
             if len(recent_narrations) > 2:
                 recent_narrations = recent_narrations[-2:]
 
-        if _result_has_session_ending(live_result):
+        world_after = _read_json(camp / "save" / "world-state.json", {})
+        turn_terminal = coc_scene_graph.terminal_evidence(
+            story, world_after, live_result
+        )
+        if turn_terminal["session_ending"]:
             stop_reason = "session_ending"
             break
-        terminal = _investigator_terminal(camp, investigator_id)
-        if terminal:
-            stop_reason = terminal
+        current_playability = investigator_playability(camp, investigator_id)
+        playability_stop = _playability_stop_reason(current_playability)
+        if playability_stop:
+            stop_reason = playability_stop
+            pending = current_playability.get("pending_resolution")
+            pending_resolution = dict(pending) if isinstance(pending, dict) else None
             break
 
-    discovered_final = _read_json(camp / "save" / "world-state.json", {}).get(
-        "discovered_clue_ids", []
-    )
-    story = _read_json(camp / "scenario" / "story-graph.json", {"scenes": []})
+    world_final = _read_json(camp / "save" / "world-state.json", {})
+    discovered_final = world_final.get("discovered_clue_ids", [])
+    current_playability = investigator_playability(camp, investigator_id)
+    if pending_resolution is None:
+        pending = current_playability.get("pending_resolution")
+        pending_resolution = dict(pending) if isinstance(pending, dict) else None
+    ending_evidence = coc_scene_graph.terminal_evidence(story, world_final, turns)
     clue_graph = _read_json(camp / "scenario" / "clue-graph.json", {"conclusions": []})
     total_clues: set[str] = set()
     for concl in clue_graph.get("conclusions", []) if isinstance(clue_graph, dict) else []:
         for cl in concl.get("clues", []) if isinstance(concl, dict) else []:
             if isinstance(cl, dict) and cl.get("clue_id"):
                 total_clues.add(str(cl["clue_id"]))
-    scene_ids = [
-        s["scene_id"]
-        for s in (story.get("scenes") or [])
-        if isinstance(s, dict) and s.get("scene_id")
-    ]
-
     session_result: dict[str, Any] = {
         "turns": turns,
         "final_state": {
-            "active_scene": _read_json(camp / "save" / "world-state.json", {}).get(
-                "active_scene_id"
-            ),
+            "active_scene": world_final.get("active_scene_id"),
             "discovered_clues": discovered_final,
             "tension": _read_json(camp / "save" / "pacing-state.json", {}).get(
                 "tension_level"
@@ -591,14 +650,17 @@ def run_live_match(
         },
         "tension_curve": tension_curve,
         "scene_path": scene_path,
-        "reached_terminal": bool(scene_path and scene_ids and scene_path[-1] == scene_ids[-1]),
+        "reached_terminal": ending_evidence["reached_terminal"],
+        "terminal_evidence": ending_evidence,
+        "investigator_playability": current_playability,
         "pipeline": "run_live_turn",
         "stop_reason": stop_reason,
         "player_turn_count": len(player_turns),
     }
+    if pending_resolution is not None:
+        session_result["pending_resolution"] = pending_resolution
 
     # Enrich play record with structured fields adherence evaluation consumes.
-    world_final = _read_json(camp / "save" / "world-state.json", {})
     if isinstance(world_final, dict):
         visited = world_final.get("visited_scene_ids") or scene_path
         session_result["visited_scene_ids"] = (
@@ -685,6 +747,10 @@ def run_live_match(
             "simulation_method": metadata["simulation_method"],
             "evidence_disclaimer": metadata["evidence_disclaimer"],
             "stop_reason": stop_reason,
+            "investigator_playability": current_playability,
+            "pending_resolution": pending_resolution,
+            "terminal_evidence": ending_evidence,
+            "reached_terminal": ending_evidence["reached_terminal"],
             "narration_method": narration_method,
             "fallback_turns": fallback_turns,
         }
@@ -725,6 +791,9 @@ def run_live_match(
         "metadata": metadata,
         "result": session_result,
         "stop_reason": stop_reason,
+        "investigator_playability": current_playability,
+        "pending_resolution": pending_resolution,
+        "terminal_evidence": ending_evidence,
         "narration_method": narration_method,
         "fallback_turns": fallback_turns,
     }

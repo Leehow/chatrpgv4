@@ -662,3 +662,128 @@ def test_narrator_guard_rewrite_and_final_text_audit(tmp_path):
         if line.strip()
     ]
     assert any(row.get("field") == "final_text" for row in lines)
+
+
+def _run_match_with_investigator_state(
+    tmp_path: Path,
+    *,
+    current_hp: int,
+    conditions: list[str],
+    **state_overrides,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    state_path = (
+        workspace
+        / ".coc"
+        / "campaigns"
+        / campaign_id
+        / "save"
+        / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update(
+        {
+            "current_hp": current_hp,
+            "conditions": conditions,
+            **state_overrides,
+        }
+    )
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    runner = tmp_path / "outcome_player"
+    _write_scripted_player_runner(runner, ["我等待同伴处理眼前的危机。"])
+    return match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=runner,
+        max_turns=1,
+        rng_seed=17,
+        live=False,
+        intent_class="wait",
+    )
+
+
+def test_dying_investigator_enters_rescue_resolution_not_dead(tmp_path):
+    result = _run_match_with_investigator_state(
+        tmp_path,
+        current_hp=0,
+        conditions=["major_wound", "dying", "unconscious"],
+    )
+
+    assert result["stop_reason"] != "investigator_dead"
+    assert result["investigator_playability"]["status"] == "dying"
+    assert result["investigator_playability"]["terminal"] is False
+    assert result["pending_resolution"]["kind"] == "dying_rescue"
+    assert result["result"]["pending_resolution"] == result["pending_resolution"]
+    assert result["result"]["reached_terminal"] is False
+
+
+def test_stabilized_dying_investigator_remains_distinct_in_match_evidence(tmp_path):
+    result = _run_match_with_investigator_state(
+        tmp_path,
+        current_hp=1,
+        conditions=["major_wound", "dying", "stabilized", "unconscious"],
+    )
+
+    assert result["stop_reason"] != "investigator_dead"
+    assert result["investigator_playability"]["status"] == "stabilized"
+    assert result["investigator_playability"]["terminal"] is False
+    assert result["pending_resolution"]["kind"] == "stabilized_death_clock"
+    assert result["result"]["reached_terminal"] is False
+
+
+def test_unconscious_without_dead_condition_does_not_report_death(tmp_path):
+    result = _run_match_with_investigator_state(
+        tmp_path,
+        current_hp=0,
+        conditions=["unconscious"],
+    )
+
+    assert result["stop_reason"] != "investigator_dead"
+    assert result["investigator_playability"] == {
+        "status": "unconscious",
+        "playable": False,
+        "terminal": False,
+    }
+    assert result["result"]["reached_terminal"] is False
+
+
+def test_explicit_dead_condition_is_immediately_terminal(tmp_path):
+    result = _run_match_with_investigator_state(
+        tmp_path,
+        current_hp=4,
+        conditions=["dead"],
+    )
+
+    assert result["stop_reason"] == "investigator_dead"
+    assert result["investigator_playability"] == {
+        "status": "dead",
+        "playable": False,
+        "terminal": True,
+    }
+    assert result["result"]["reached_terminal"] is False
+
+
+@pytest.mark.parametrize(
+    ("state_overrides", "expected_status"),
+    [
+        ({"temporary_insane": True}, "temporarily_unplayable"),
+        ({"permanently_insane": True}, "permanently_unplayable"),
+    ],
+)
+def test_single_unplayable_investigator_is_not_a_terminal_campaign(
+    tmp_path,
+    state_overrides,
+    expected_status,
+):
+    result = _run_match_with_investigator_state(
+        tmp_path,
+        current_hp=8,
+        conditions=[],
+        **state_overrides,
+    )
+
+    assert result["investigator_playability"]["status"] == expected_status
+    assert result["investigator_playability"]["terminal"] is False
+    assert result["result"]["reached_terminal"] is False

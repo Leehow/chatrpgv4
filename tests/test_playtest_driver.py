@@ -15,6 +15,7 @@ def _load(name, rel):
 
 
 driver = _load("coc_playtest_driver", "plugins/coc-keeper/scripts/coc_playtest_driver.py")
+scene_graph = _load("coc_scene_graph_task2", "plugins/coc-keeper/scripts/coc_scene_graph.py")
 
 
 def _build_mini_campaign(tmp_path):
@@ -588,3 +589,143 @@ def test_choice_frame_prose_never_menu_dumps():
     assert "你留意到" in blob
     assert "敲门" not in blob  # only first two cues woven
 
+
+class _StaticLiveRunner:
+    def __init__(self, scene_id, event_types=None):
+        self.scene_id = scene_id
+        self.event_types = list(event_types or [])
+
+    def run_live_turn(self, *_args, **_kwargs):
+        return {
+            "turns": [
+                {
+                    "decision_id": "turn-001",
+                    "scene_id": self.scene_id,
+                    "action": "REVEAL",
+                    "pipeline": "run_live_turn",
+                    "apply_path": "coc_director_apply.apply_plan",
+                    "event_types": self.event_types,
+                }
+            ]
+        }
+
+
+def _write_branching_terminal_graph(camp, active_scene_id):
+    story = {
+        "scenes": [
+            {
+                "scene_id": "start",
+                "available_clues": [],
+                "scene_edges": [{"to": "last-array", "kind": "travel"}],
+            },
+            {
+                "scene_id": "ending-a",
+                "available_clues": [],
+                "scene_edges": [],
+            },
+            {
+                "scene_id": "last-array",
+                "available_clues": [],
+                "scene_edges": [{"to": "ending-a", "kind": "travel"}],
+            },
+        ]
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world_path = camp / "save" / "world-state.json"
+    world = json.loads(world_path.read_text())
+    world["active_scene_id"] = active_scene_id
+    world_path.write_text(json.dumps(world))
+    return story, world
+
+
+def test_driver_reports_terminal_scene_that_is_not_last_in_array(tmp_path, monkeypatch):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    story, world = _write_branching_terminal_graph(camp, "ending-a")
+    monkeypatch.setattr(
+        driver,
+        "_live_turn_runner",
+        lambda: _StaticLiveRunner("ending-a"),
+    )
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "收束场景", "intent_class": "reflect"}],
+        max_turns=1,
+    )
+
+    assert scene_graph.is_terminal_scene(story["scenes"][1], story) is True
+    assert result["reached_terminal"] is True
+    assert result["terminal_evidence"]["active_scene_id"] == world["active_scene_id"]
+    assert result["terminal_evidence"]["graph_terminal"] is True
+
+
+def test_driver_does_not_treat_last_array_scene_with_outgoing_edge_as_terminal(
+    tmp_path,
+    monkeypatch,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    story, _world = _write_branching_terminal_graph(camp, "last-array")
+    monkeypatch.setattr(
+        driver,
+        "_live_turn_runner",
+        lambda: _StaticLiveRunner("last-array"),
+    )
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "继续前进", "intent_class": "move"}],
+        max_turns=1,
+    )
+
+    assert scene_graph.is_terminal_scene(story["scenes"][2], story) is False
+    assert result["reached_terminal"] is False
+    assert result["terminal_evidence"]["graph_terminal"] is False
+
+
+def test_driver_honors_structured_session_ending_evidence(tmp_path, monkeypatch):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    _write_branching_terminal_graph(camp, "start")
+    monkeypatch.setattr(
+        driver,
+        "_live_turn_runner",
+        lambda: _StaticLiveRunner("start", event_types=["session_ending"]),
+    )
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "结束本次会话", "intent_class": "reflect"}],
+        max_turns=3,
+    )
+
+    assert len(result["turns"]) == 1
+    assert result["reached_terminal"] is True
+    assert result["terminal_evidence"]["session_ending"] is True
+    assert result["terminal_evidence"]["graph_terminal"] is False
+
+
+def test_terminal_evidence_contract_accepts_structured_event_records():
+    story = {
+        "scenes": [
+            {
+                "scene_id": "continuing",
+                "scene_edges": [{"to": "later", "kind": "travel"}],
+            },
+            {"scene_id": "later", "scene_edges": []},
+        ]
+    }
+    evidence = scene_graph.terminal_evidence(
+        story,
+        {"active_scene_id": "continuing"},
+        [{"event_type": "session_ending", "payload": {"scene_id": "continuing"}}],
+    )
+
+    assert evidence["reached_terminal"] is True
+    assert evidence["active_scene_id"] == "continuing"
+    assert evidence["graph_terminal"] is False
+    assert evidence["session_ending"] is True

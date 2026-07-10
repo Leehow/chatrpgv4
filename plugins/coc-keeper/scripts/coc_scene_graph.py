@@ -442,7 +442,7 @@ def is_terminal_scene(
     scene: dict[str, Any] | None,
     story_graph: dict[str, Any] | None,
 ) -> bool:
-    """Terminal = is_final / resolution / no outgoing edges (or legacy last)."""
+    """Terminal = is_final / resolution / no outgoing derived graph edges."""
     if not isinstance(scene, dict):
         return False
     if scene.get("is_final") is True:
@@ -454,15 +454,50 @@ def is_terminal_scene(
         return False
     edges_map = derive_scene_edges(story_graph)
     outs = edges_map.get(str(sid), [])
-    if _graph_declares_scene_edges(story_graph):
-        return len(outs) == 0
-    # LEGACY: last array entry is terminal when no explicit edges exist.
-    scenes = _scenes(story_graph)
-    if scenes and scenes[-1] is scene:
-        return True
-    if scenes and scenes[-1].get("scene_id") == sid:
-        return True
     return len(outs) == 0
+
+
+def _has_structured_event_type(events: Any, event_type: str) -> bool:
+    """Read event enums from structured records without inspecting prose."""
+    if isinstance(events, str):
+        return events == event_type
+    if isinstance(events, (list, tuple)):
+        return any(_has_structured_event_type(item, event_type) for item in events)
+    if not isinstance(events, dict):
+        return False
+    if events.get("event_type") == event_type or events.get("type") == event_type:
+        return True
+    if _has_structured_event_type(events.get("event_types"), event_type):
+        return True
+    return any(
+        _has_structured_event_type(events.get(key), event_type)
+        for key in ("events", "turns")
+    )
+
+
+def terminal_evidence(
+    story_graph: dict[str, Any] | None,
+    world_state: dict[str, Any] | None,
+    events: Any,
+) -> dict[str, Any]:
+    """Return graph/session evidence for whether the scenario has ended.
+
+    Scene-array position is consumed only by ``derive_scene_edges`` for legacy
+    graphs. Live callers receive the same stable evidence shape for explicit
+    branching graphs and legacy-linear graphs.
+    """
+    world = world_state if isinstance(world_state, dict) else {}
+    active_raw = world.get("active_scene_id")
+    active_scene_id = str(active_raw) if active_raw not in (None, "") else None
+    active_scene = _scene_by_id(story_graph, active_scene_id)
+    graph_terminal = is_terminal_scene(active_scene, story_graph)
+    session_ending = _has_structured_event_type(events, "session_ending")
+    return {
+        "reached_terminal": bool(graph_terminal or session_ending),
+        "active_scene_id": active_scene_id,
+        "graph_terminal": bool(graph_terminal),
+        "session_ending": bool(session_ending),
+    }
 
 
 def outgoing_edge_count(scene_id: str, story_graph: dict[str, Any] | None) -> int:
@@ -483,5 +518,6 @@ __all__ = [
     "pick_transition_target",
     "record_scene_enter",
     "is_terminal_scene",
+    "terminal_evidence",
     "outgoing_edge_count",
 ]

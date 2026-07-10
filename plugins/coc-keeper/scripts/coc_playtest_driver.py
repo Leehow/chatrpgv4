@@ -35,6 +35,7 @@ def _load_sibling(name: str, filename: str):
 
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
+coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
 
 _SUCCESS_OUTCOMES = {"critical", "extreme", "hard", "regular", "success",
@@ -815,8 +816,6 @@ def run_full_session(
     for concl in clue_graph.get("conclusions", []):
         for cl in concl.get("clues", []):
             total_clues.add(cl.get("clue_id"))
-    scene_ids = [s["scene_id"] for s in story.get("scenes", [])]
-
     for offset in range(max_turns):
         choice = player_choices[min(offset, len(player_choices) - 1)]
         player_intent_rich = choice.get("player_intent_rich")
@@ -855,19 +854,19 @@ def run_full_session(
             tension_curve.append(tension)
 
         world = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {})
-        discovered = world.get("discovered_clue_ids", [])
-        active = world.get("active_scene_id")
-        if scene_ids and active == scene_ids[-1]:
-            last_scene = next((s for s in story.get("scenes", []) if s["scene_id"] == active), {})
-            last_clues = last_scene.get("available_clues", [])
-            if not last_clues or all(c in discovered for c in last_clues):
-                break
+        turn_terminal = coc_scene_graph.terminal_evidence(story, world, live_result)
+        if turn_terminal["reached_terminal"]:
+            break
 
-    discovered_final = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {}).get("discovered_clue_ids", [])
+    world_final = apply_mod._read_json(
+        campaign_dir / "save" / "world-state.json", {}
+    )
+    discovered_final = world_final.get("discovered_clue_ids", [])
+    ending_evidence = coc_scene_graph.terminal_evidence(story, world_final, turns)
     return {
         "turns": turns,
         "final_state": {
-            "active_scene": apply_mod._read_json(campaign_dir / "save" / "world-state.json", {}).get("active_scene_id"),
+            "active_scene": world_final.get("active_scene_id"),
             "discovered_clues": discovered_final,
             "tension": apply_mod._read_json(campaign_dir / "save" / "pacing-state.json", {}).get("tension_level"),
         },
@@ -878,7 +877,8 @@ def run_full_session(
         },
         "tension_curve": tension_curve,
         "scene_path": scene_path,
-        "reached_terminal": scene_path[-1] == scene_ids[-1] if scene_path and scene_ids else False,
+        "reached_terminal": ending_evidence["reached_terminal"],
+        "terminal_evidence": ending_evidence,
         "pipeline": "run_live_turn",
         "simulation_method": "driver_executed_virtual_table_not_live_llm",
     }
