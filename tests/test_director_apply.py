@@ -1832,3 +1832,55 @@ def test_apply_does_not_tick_excluded_or_failed_rolls(tmp_path):
     )
     tick_path = camp.parents[1] / "investigators" / "inv1" / "development.jsonl"
     assert tick_path.read_text().strip() == ""
+
+
+# =============================================================================
+# W2-7: Fair Warning ladder increments lethal_chances_used (p.209)
+# =============================================================================
+
+def test_apply_fair_warning_increments_lethal_chances_used(tmp_path):
+    """Landing fair_warning bumps pacing-state.lethal_chances_used by 1."""
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-fw-1",
+        "scene_action": "PRESSURE",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {
+            "fair_warning": {"warning_number": 1, "remaining": 2},
+        },
+    }
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing["lethal_chances_used"] == 1
+    fw_events = [e for e in events if e.get("event_type") == "fair_warning"]
+    assert len(fw_events) == 1
+    assert fw_events[0]["warning_number"] == 1
+    assert fw_events[0]["remaining"] == 2
+
+
+def test_apply_fair_warning_idempotent_per_decision_id(tmp_path):
+    """Same decision_id must not increment lethal_chances_used twice."""
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-fw-dup",
+        "scene_action": "PRESSURE",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {
+            "fair_warning": {"warning_number": 1, "remaining": 2},
+        },
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing["lethal_chances_used"] == 1
+
+    # Replay is a structured no-op via apply ledger.
+    events2 = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    assert any(e.get("skipped") == "duplicate_decision_id" for e in events2)
+    pacing2 = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing2["lethal_chances_used"] == 1

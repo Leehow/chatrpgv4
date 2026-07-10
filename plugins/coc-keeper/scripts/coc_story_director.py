@@ -1247,13 +1247,12 @@ def _eval_exit(condition: Any, ctx: dict[str, Any]) -> bool:
 def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
     """Layer 3: hard overrides. Returns a forced action dict or None.
 
-    Note on lethal-endings (Spec Layer 3): the "lethal_chances_used < 3 in a
-    lethal scene → block lethal ending" rule is currently enforced
-    *structurally* — v1's ACTIONS set (see ACTIONS above) contains no
-    lethal-ending action, so no plan can ever emit one. When v2 adds a
-    death-capable action, an explicit branch must be added here that checks
-    rule_signals["tension_clock"]["lethal_chances_used"] and downgrades/blocks
-    the lethal action.
+    Fair Warning (p.209 / Spec Layer 3): lethal outcomes are not a separate
+    ACTIONS entry. While ``lethal_chances_used < 3``, ``generate_director_plan``
+    downgrades structured lethal evidence (pressure_move / danger with
+    ``lethal: true``, or positive ``lethality``) into
+    ``narrative_directives["fair_warning"]`` via ``_apply_fair_warning_ladder``.
+    After 3 warnings, ``death_allowed`` lets lethal outcomes through.
     """
     sig = ctx["rule_signals"]
     if sig["bout_active"]:
@@ -1854,7 +1853,7 @@ def _build_scene_pressure_move(ctx: dict[str, Any]) -> dict[str, Any] | None:
             tick = int(tick or 0)
         except (TypeError, ValueError):
             tick = 0
-        return {
+        move = {
             "clock_id": raw.get("clock_id"),
             "tick": tick,
             "visible_symptom": _short_text(symptom, 140),
@@ -1862,6 +1861,10 @@ def _build_scene_pressure_move(ctx: dict[str, Any]) -> dict[str, Any] | None:
             "source": "active_scene.pressure_moves",
             "pressure_move_id": raw.get("id"),
         }
+        # Optional structured lethal flag (schema: pressure_moves[].lethal).
+        if raw.get("lethal") is True:
+            move["lethal"] = True
+        return move
     return {
         "clock_id": None,
         "tick": 0,
@@ -1869,6 +1872,112 @@ def _build_scene_pressure_move(ctx: dict[str, Any]) -> dict[str, Any] | None:
         "reason": "low_agency_scene_pressure",
         "source": "active_scene.pressure_moves",
     }
+
+
+def _collect_lethal_evidence(
+    ctx: dict[str, Any],
+    pressure_moves: list[dict[str, Any]],
+    rules_requests: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Structured lethal evidence only — no free-text scanning (p.209).
+
+    Sources: pressure_moves with ``lethal: true``, threat dangers with
+    ``lethal: true``, and danger attack profiles / rules_requests carrying
+    a positive ``lethality`` rating or ``lethal: true``.
+    """
+    evidence: list[dict[str, Any]] = []
+    for move in pressure_moves or []:
+        if isinstance(move, dict) and move.get("lethal") is True:
+            evidence.append({"kind": "pressure_move", "ref": move})
+    for front in (ctx.get("threat_fronts") or {}).get("fronts", []) or []:
+        if not isinstance(front, dict):
+            continue
+        for danger in front.get("dangers") or []:
+            if not isinstance(danger, dict):
+                continue
+            if danger.get("lethal") is True:
+                evidence.append({"kind": "danger", "ref": danger})
+            for profile in danger.get("attack_profiles") or []:
+                if not isinstance(profile, dict):
+                    continue
+                lethality = profile.get("lethality")
+                if profile.get("lethal") is True or (
+                    isinstance(lethality, (int, float)) and lethality > 0
+                ):
+                    evidence.append({
+                        "kind": "danger_attack",
+                        "danger_id": danger.get("id"),
+                        "ref": profile,
+                    })
+    for req in rules_requests or []:
+        if not isinstance(req, dict):
+            continue
+        lethality = req.get("lethality")
+        if req.get("lethal") is True or (
+            isinstance(lethality, (int, float)) and lethality > 0
+        ):
+            evidence.append({"kind": "rules_request", "ref": req})
+    return evidence
+
+
+def _apply_fair_warning_ladder(
+    ctx: dict[str, Any],
+    pressure_moves: list[dict[str, Any]],
+    rules_requests: list[dict[str, Any]],
+    narrative_directives: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Layer-3 fair-warning: downgrade lethal outcomes while used < 3 (p.209).
+
+    When ``lethal_chances_used < 3`` and structured lethal evidence is present,
+    strip/downgrade lethal flags on pressure_moves and rules_requests and attach
+    ``narrative_directives["fair_warning"] = {warning_number, remaining}``.
+    At ``>= 3`` (``death_allowed``), lethal outcomes pass through unchanged.
+    """
+    tclock = (ctx.get("rule_signals") or {}).get("tension_clock") or {}
+    used = int(tclock.get("lethal_chances_used", 0) or 0)
+    if used >= 3 or tclock.get("death_allowed") is True:
+        return pressure_moves
+
+    evidence = _collect_lethal_evidence(ctx, pressure_moves, rules_requests)
+    if not evidence:
+        return pressure_moves
+
+    narrative_directives["fair_warning"] = {
+        "warning_number": used + 1,
+        "remaining": max(0, 3 - used - 1),
+        "rule_ref": "core.pacing.fair_warning",
+    }
+
+    downgraded: list[dict[str, Any]] = []
+    for move in pressure_moves or []:
+        if not isinstance(move, dict):
+            downgraded.append(move)
+            continue
+        if move.get("lethal") is True:
+            m = dict(move)
+            m["lethal"] = False
+            m["lethal_downgraded"] = True
+            m["fair_warning"] = True
+            downgraded.append(m)
+        else:
+            downgraded.append(move)
+
+    for req in rules_requests or []:
+        if not isinstance(req, dict):
+            continue
+        lethality = req.get("lethality")
+        if req.get("lethal") is True or (
+            isinstance(lethality, (int, float)) and lethality > 0
+        ):
+            req["lethal"] = False
+            req["lethal_downgraded"] = True
+            req["fair_warning"] = True
+            # Preserve original rating for narration; zero out active lethality.
+            if "lethality" in req and req.get("lethality_deferred") is None:
+                req["lethality_deferred"] = req.get("lethality")
+            req["lethality"] = None
+
+    return downgraded
 
 
 def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
@@ -2159,6 +2268,11 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "content_constraints": ctx.get("module_meta", {}).get("content_flags", []),
         "player_facing_style": _player_facing_style(ctx.get("play_language") or "zh-Hans"),
     }
+    # Layer-3 Fair Warning (p.209): downgrade lethal structured evidence while
+    # lethal_chances_used < 3; attach fair_warning directive for apply/narration.
+    pressure_moves = _apply_fair_warning_ladder(
+        ctx, pressure_moves, rules_requests, narrative_directives,
+    )
     if personal_horror is not None:
         narrative_directives["personal_horror_hook"] = personal_horror
     if delusion_seed is not None:

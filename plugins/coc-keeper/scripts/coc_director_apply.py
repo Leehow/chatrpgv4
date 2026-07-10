@@ -1463,6 +1463,27 @@ def _apply_plan_impl(
         pacing["pushed_fail_pending"] = False
     if pushed_fail_pending:
         pacing["pushed_fail_pending"] = True
+
+    # W2-7 Fair Warning (p.209): landing a fair_warning directive increments
+    # lethal_chances_used. Idempotent per decision_id via the apply ledger
+    # (duplicate plans never reach this write path).
+    fair_warning = (plan.get("narrative_directives") or {}).get("fair_warning")
+    if isinstance(fair_warning, dict):
+        used = int(pacing.get("lethal_chances_used", 0) or 0)
+        pacing["lethal_chances_used"] = used + 1
+        fw_ev = {
+            "event_type": "fair_warning",
+            "decision_id": decision_id,
+            "warning_number": fair_warning.get("warning_number", used + 1),
+            "remaining": fair_warning.get("remaining", max(0, 3 - used - 1)),
+            "lethal_chances_used": pacing["lethal_chances_used"],
+            "investigator_id": investigator_id,
+            "rule_ref": "core.pacing.fair_warning",
+            "ts": ts,
+        }
+        events.append(fw_ev)
+        _append_jsonl(logs / "events.jsonl", fw_ev)
+
     _write_json(pacing_path, pacing)
     for move in pressure_moves:
         ev = {"event_type": "pressure_tick", "decision_id": decision_id,

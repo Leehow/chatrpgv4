@@ -535,6 +535,84 @@ def test_pushed_fail_pending_boosts_pressure_score(tmp_path):
     assert pending_score > base_score
 
 
+def test_fair_warning_downgrades_lethal_before_three_chances(tmp_path):
+    """p.209: lethal structured evidence is downgraded to fair_warning while used < 3."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["pressure_moves"] = [{
+        "id": "lethal-collapse",
+        "visible_symptom": "the floor gives way",
+        "tick": 1,
+        "lethal": True,
+    }]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["lethal_chances_used"] = 1
+    pacing["recent_intent_classes"] = ["idle", "idle"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="继续磨蹭", player_intent_class="idle",
+        rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["tension_clock"]["death_allowed"] is False
+    # Force PRESSURE so scene lethal pressure_moves are selected.
+    ctx = dict(ctx)
+    ctx["rule_signals"] = dict(ctx["rule_signals"])
+    ctx["rule_signals"]["low_agency_continue_count"] = 2
+    ctx["rule_signals"]["scene_pressure_available"] = True
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="fw-1")
+    fw = plan["narrative_directives"]["fair_warning"]
+    assert fw["warning_number"] == 2
+    assert fw["remaining"] == 1
+    for move in plan.get("pressure_moves") or []:
+        if isinstance(move, dict) and move.get("lethal_downgraded"):
+            assert move.get("lethal") is not True
+            break
+    else:
+        # At least one move must have been downgraded, or plan carries fair_warning
+        # with no remaining lethal=True outcomes.
+        assert not any(
+            isinstance(m, dict) and m.get("lethal") is True
+            for m in (plan.get("pressure_moves") or [])
+        )
+
+
+def test_fair_warning_allows_lethal_after_three_chances(tmp_path):
+    """After 3 fair warnings, death_allowed and lethal outcomes pass through."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["pressure_moves"] = [{
+        "id": "lethal-collapse",
+        "visible_symptom": "the floor gives way",
+        "tick": 1,
+        "lethal": True,
+    }]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["lethal_chances_used"] = 3
+    pacing["recent_intent_classes"] = ["idle", "idle"]
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="继续磨蹭", player_intent_class="idle",
+        rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["tension_clock"]["death_allowed"] is True
+    ctx = dict(ctx)
+    ctx["rule_signals"] = dict(ctx["rule_signals"])
+    ctx["rule_signals"]["low_agency_continue_count"] = 2
+    ctx["rule_signals"]["scene_pressure_available"] = True
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="fw-lethal")
+    assert "fair_warning" not in plan["narrative_directives"]
+    assert any(
+        isinstance(m, dict) and m.get("lethal") is True
+        for m in (plan.get("pressure_moves") or [])
+    )
+
+
 def test_pushed_fail_pending_consumed_no_repeat_boost(tmp_path):
     """After apply consumes the flag, the next context no longer boosts PRESSURE."""
     camp, char_path = _make_minimal_campaign(tmp_path)
