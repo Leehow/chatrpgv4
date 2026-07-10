@@ -821,7 +821,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 
 ## R-3 场景真图（C1/C2/C3）
 
-- [ ] `scene_edges`（结构化 `when` 条件）+ unlock 模型；转场不再按数组顺序；world-state 增 `unlocked/visited/exhausted_scene_ids` + `scene_history`；导演只提供已解锁入口，CUT 仅电影式转场。
+- [x] `scene_edges`（结构化 `when` 条件）+ unlock 模型；转场不再按数组顺序；world-state 增 `unlocked/visited/exhausted_scene_ids` + `scene_history`；导演只提供已解锁入口，CUT 仅电影式转场。
 
 ## R-4 体验纵深（G1/G3 + A1 残留 + D1 联动）
 
