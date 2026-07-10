@@ -1,7 +1,7 @@
 {
-  "source_note": "Keeper Rulebook Chapter 8: Sanity, treatment and recovery (p.164). Indefinite insanity requires treatment to recover; three treatment paths are modeled here. These mirror the PsychotherapySession implementation in coc_healing.py.",
+  "source_note": "Keeper Rulebook Chapter 8: Sanity, treatment and recovery (p.164-168). Indefinite insanity requires treatment to recover; three treatment paths are modeled here. These mirror the PsychotherapySession implementation in coc_healing.py.",
   "psychoanalysis": {
-    "source_note": "Keeper Rulebook p.164: weekly Psychoanalysis skill roll offers a SAN recovery chance scaled by success level.",
+    "source_note": "Keeper Rulebook p.164: weekly Psychoanalysis skill roll offers a SAN recovery chance scaled by success level. Private care also resolves a monthly 1D100 treatment roll (01-95 gain 1D3; 96-00 setback lose 1D6).",
     "skill": "Psychoanalysis",
     "frequency": "weekly",
     "success_recovery": {
@@ -10,26 +10,38 @@
       "extreme": "3D3"
     },
     "failure_recovery": "0",
+    "monthly_roll": {
+      "success_range": [1, 95],
+      "gain": "1D3",
+      "setback_loss": "1D6"
+    },
     "constraints": [
       "cannot_exceed_max_san",
       "usable_while_indefinitely_insane"
     ]
   },
   "asylum_confinement": {
-    "source_note": "Keeper Rulebook p.164: an indefinitely insane investigator may be confined to an asylum; recovery is resolved at the end of the confinement period.",
+    "source_note": "Keeper Rulebook p.164: an indefinitely insane investigator may be confined to an asylum; monthly treatment rolls use institution quality (good = bonus die, poor = penalty die). Recovery is gradual — never a single full restore.",
     "duration_months": "1D6",
-    "resolution": "psychoanalysis_roll_at_release"
+    "resolution": "monthly_treatment_roll_at_release",
+    "quality_tiers": {
+      "good": {"monthly_bonus_die": true},
+      "poor": {"monthly_penalty_die": true}
+    }
   },
   "asylum_release": {
-    "source_note": "Keeper Rulebook p.164: at the end of asylum confinement, a Psychoanalysis roll determines whether treatment succeeded.",
+    "source_note": "Keeper Rulebook p.164-168: at the end of asylum confinement, resolve one monthly treatment roll (quality-tier dice apply). Success gains 1D3 SAN; setback loses 1D6. Does not restore to max SAN.",
     "skill": "Psychoanalysis",
-    "success": "recover_to_max_san",
-    "failure": "no_change"
+    "success": "monthly_gain_1d3",
+    "failure": "monthly_setback_1d6"
   },
   "self_help": {
-    "source_note": "Keeper Rulebook p.164: a self-help recovery attempt resolved by a SAN roll.",
+    "source_note": "Keeper Rulebook p.164-165: a self-help recovery attempt resolved by a SAN roll, bound to a structured key_connection backstory field. Failure corrupts that backstory entry.",
     "check": "1D100_vs_current_san",
     "success_recovery": "1D6",
-    "failure_loss": "-1"
+    "failure_loss": "-1",
+    "failure_backstory_amend": {
+      "mode": "corrupt_existing"
+    }
   }
 }

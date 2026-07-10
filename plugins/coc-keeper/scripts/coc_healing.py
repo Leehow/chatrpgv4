@@ -504,17 +504,40 @@ def handle_time_trigger(
 
 
 # --------------------------------------------------------------------------- #
-# Psychotherapy / asylum / self-help recovery (p.164)
+# Psychotherapy / asylum / self-help recovery (p.164-168)
 # --------------------------------------------------------------------------- #
+
+# Nine backstory categories (p.157); mirrored from coc_sanity / coc_state so
+# self-help key_connection never scans prose (Semantic Matcher Constitution).
+_BACKSTORY_FIELDS = (
+    "personal_description",
+    "ideology_beliefs",
+    "significant_people",
+    "meaningful_locations",
+    "treasured_possessions",
+    "traits",
+    "injuries_scars",
+    "phobias_manias",
+    "encounters",
+)
+
+# Private-care monthly roll threshold (treatment.json psychoanalysis.monthly_roll).
+_MONTHLY_SUCCESS_MAX = 95
+
+
 class PsychotherapySession:
     """Structured SAN-recovery-via-treatment state for one investigator.
 
-    Implements the Chapter 8 (p.164) treatment paths:
-    - Psychoanalysis: a weekly Psychoanalysis skill roll; success gives a
-      chance to recover 1D3 SAN (regular) or more (hard/extreme).
-    - Asylum confinement: 1D6 months of confinement, after which a Psychoanalysis
-      roll determines recovery (p.164).
-    - Self-help: a SAN roll; success recovers 1D6 SAN, failure loses 1 SAN.
+    Implements Chapter 8 (p.164-168) treatment paths:
+    - Psychoanalysis: weekly skill roll (scaled 1D3/2D3/3D3) plus a separate
+      monthly private-care 1D100 (01-95 +1D3 / 96-00 -1D6 setback).
+    - Asylum confinement: 1D6 months; release resolves one monthly treatment
+      roll (quality tiers grant bonus/penalty die). Never restores to max SAN
+      in a single step.
+    - Two-step indefinite cure: after >=1 successful monthly gain,
+      ``cure_indefinite_check`` may clear indefinite insanity via SAN roll.
+    - Self-help: SAN roll bound to a structured key_connection; failure
+      returns a W1-2-shaped ``backstory_amend_required``.
 
     The session mutates a supplied SAN state dict (``current_san``, ``max_san``)
     and emits structured events. It is deterministic given the RNG.
@@ -530,6 +553,8 @@ class PsychotherapySession:
         self._event_counter = 0
         # Track asylum confinement (months remaining).
         self.asylum_months_remaining = 0
+        # Successful monthly +1D3 gains; gates cure_indefinite_check (p.164-168).
+        self.monthly_gains_count = 0
 
     @property
     def current_san(self) -> int:
@@ -560,7 +585,7 @@ class PsychotherapySession:
 
         Success offers a recovery chance: regular success -> 1D3 SAN,
         hard -> 2D3, extreme -> 3D3. Failure yields no recovery (but no loss).
-        Returns the event record.
+        Returns the event record. This is not a full-restore path.
         """
         res = coc_roll.percentile_check(skill_value, difficulty=difficulty,
                                         rng=self._rng)
@@ -588,77 +613,216 @@ class PsychotherapySession:
         })
 
     # ------------------------------------------------------------------ #
-    # Asylum confinement (1D6 months)
+    # Monthly private-care / asylum treatment roll (p.164)
     # ------------------------------------------------------------------ #
-    def confine_to_asylum(self) -> dict[str, Any]:
-        """Confine the investigator to an asylum for 1D6 months (p.164).
+    def monthly_treatment_roll(
+        self,
+        *,
+        quality: str | None = None,
+        rng: random.Random | None = None,
+    ) -> dict[str, Any]:
+        """Monthly private-care / asylum treatment roll (p.164).
 
-        Sets ``asylum_months_remaining`` and emits an event. Actual recovery is
-        resolved by ``resolve_asylum_release`` after the confinement period.
+        Flat 1D100 against success_range [1, 95]:
+          - 01-95 → gain 1D3 SAN (increments ``monthly_gains_count``)
+          - 96-00 → setback, lose 1D6 SAN
+
+        Asylum quality tiers (treatment.json):
+          - ``good`` → bonus die on the 1D100
+          - ``poor`` → penalty die on the 1D100
+
+        Uses ``coc_roll.percentile_check`` tens-die mechanics (target 95).
+        Applies SAN changes in place, matching ``psychoanalysis()``.
         """
-        months = self._rng.randint(1, 6)
-        self.asylum_months_remaining = months
-        return self._event("asylum_confinement", {
-            "months": months,
-            "summary": (f"{self.investigator_id} committed to asylum for "
-                        f"{months} month(s)."),
-        })
+        active_rng = rng or self._rng
+        bonus = 0
+        penalty = 0
+        if quality == "good":
+            bonus = 1
+        elif quality == "poor":
+            penalty = 1
+        elif quality is not None:
+            raise ValueError(
+                f"quality must be 'good', 'poor', or None, got {quality!r}")
 
-    def resolve_asylum_release(self, psychoanalysis_skill: int) -> dict[str, Any]:
-        """Resolve SAN recovery at the end of asylum confinement (p.164).
-
-        A Psychoanalysis roll determines whether the investigator recovers. On
-        success they recover to their max SAN (treatment worked); on failure
-        they remain at their current SAN. Clears ``asylum_months_remaining``.
-        """
-        months = self.asylum_months_remaining
-        self.asylum_months_remaining = 0
-        res = coc_roll.percentile_check(psychoanalysis_skill, rng=self._rng)
-        outcome = res.get("outcome")
+        # Target 95: roll <= 95 is a monthly gain; 96-100 is a setback.
+        res = coc_roll.percentile_check(
+            _MONTHLY_SUCCESS_MAX,
+            bonus=bonus,
+            penalty=penalty,
+            rng=active_rng,
+        )
+        roll = int(res.get("roll", 100))
         san_before = self.current_san
-        recovered = 0
-        if outcome in ("regular", "hard", "extreme", "critical"):
-            # Treatment successful: recover to max SAN.
-            recovered = self.max_san - san_before
-            self._set_san(self.max_san)
-        return self._event("asylum_release", {
-            "psychoanalysis_outcome": outcome,
-            "months_confined": months,
-            "san_before": san_before,
-            "san_recovered": recovered,
-            "san_after": self.current_san,
-            "summary": (f"{self.investigator_id} released from asylum after "
-                        f"{months}m: Psychoanalysis {outcome}, "
-                        f"+{recovered} SAN."),
-        })
-
-    # ------------------------------------------------------------------ #
-    # Self-help (SAN roll)
-    # ------------------------------------------------------------------ #
-    def self_help(self) -> dict[str, Any]:
-        """Self-help recovery via a SAN roll (p.164).
-
-        Success: recover 1D6 SAN. Failure: lose 1 SAN.
-        """
-        res = coc_roll.percentile_check(self.current_san, rng=self._rng)
-        outcome = res.get("outcome")
-        san_before = self.current_san
-        if outcome in ("regular", "hard", "extreme", "critical"):
-            dice = coc_roll.roll_expression("1D6", rng=self._rng)
-            recovered = self._recover(int(dice.get("total", 0)))
-            san_delta = recovered
+        setback = roll > _MONTHLY_SUCCESS_MAX
+        if setback:
+            dice = coc_roll.roll_expression("1D6", rng=active_rng)
+            lost = int(dice.get("total", 0))
+            self._set_san(self.current_san - lost)
+            san_delta = self.current_san - san_before
         else:
-            # Failure: lose 1 SAN.
-            self._set_san(self.current_san - 1)
-            san_delta = -1
-        return self._event("self_help", {
-            "outcome": outcome,
+            dice = coc_roll.roll_expression("1D3", rng=active_rng)
+            gained = self._recover(int(dice.get("total", 0)))
+            san_delta = gained
+            if gained > 0:
+                self.monthly_gains_count += 1
+
+        return self._event("monthly_treatment", {
+            "roll": roll,
+            "bonus": int(res.get("bonus", 0)),
+            "penalty": int(res.get("penalty", 0)),
+            "quality": quality,
+            "setback": setback,
             "san_before": san_before,
             "san_delta": san_delta,
             "san_after": self.current_san,
-            "summary": (f"{self.investigator_id} self-help SAN roll "
-                        f"{outcome}: SAN {san_before}->{self.current_san}."),
+            "monthly_gains_count": self.monthly_gains_count,
+            "summary": (
+                f"{self.investigator_id} monthly treatment roll {roll}"
+                f"{' (setback)' if setback else ''}: "
+                f"SAN {san_before}->{self.current_san}."
+            ),
         })
+
+    # ------------------------------------------------------------------ #
+    # Asylum confinement (1D6 months)
+    # ------------------------------------------------------------------ #
+    def confine_to_asylum(self, *, quality: str | None = None) -> dict[str, Any]:
+        """Confine the investigator to an asylum for 1D6 months (p.164).
+
+        Sets ``asylum_months_remaining`` and emits an event. Actual recovery is
+        resolved by ``resolve_asylum_release`` / ``monthly_treatment_roll`` —
+        never a single full restore to max SAN.
+        """
+        if quality is not None and quality not in ("good", "poor"):
+            raise ValueError(
+                f"quality must be 'good', 'poor', or None, got {quality!r}")
+        months = self._rng.randint(1, 6)
+        self.asylum_months_remaining = months
+        self.asylum_quality = quality
+        return self._event("asylum_confinement", {
+            "months": months,
+            "quality": quality,
+            "summary": (f"{self.investigator_id} committed to asylum for "
+                        f"{months} month(s)"
+                        f"{f' ({quality})' if quality else ''}."),
+        })
+
+    def resolve_asylum_release(
+        self,
+        psychoanalysis_skill: int = 0,
+        *,
+        quality: str | None = None,
+    ) -> dict[str, Any]:
+        """Resolve SAN recovery at the end of asylum confinement (p.164-168).
+
+        Neutralizes the former full-restore shortcut: release now resolves one
+        ``monthly_treatment_roll`` (optional asylum quality die). The legacy
+        ``psychoanalysis_skill`` argument is accepted for call-site compat but
+        is unused — recovery is monthly cadence, not a skill-to-max restore.
+        Clears ``asylum_months_remaining``.
+        """
+        del psychoanalysis_skill  # legacy API; monthly cadence replaces skill-to-max
+        months = self.asylum_months_remaining
+        self.asylum_months_remaining = 0
+        effective_quality = quality
+        if effective_quality is None:
+            effective_quality = getattr(self, "asylum_quality", None)
+        monthly = self.monthly_treatment_roll(quality=effective_quality)
+        # Re-tag the monthly event as asylum_release while preserving fields.
+        monthly["event_type"] = "asylum_release"
+        monthly["months_confined"] = months
+        monthly["san_recovered"] = max(0, int(monthly.get("san_delta", 0)))
+        monthly["summary"] = (
+            f"{self.investigator_id} released from asylum after {months}m: "
+            f"monthly treatment roll {monthly.get('roll')}"
+            f"{' (setback)' if monthly.get('setback') else ''}, "
+            f"SAN {monthly.get('san_before')}->{monthly.get('san_after')}."
+        )
+        return monthly
+
+    # ------------------------------------------------------------------ #
+    # Two-step indefinite cure (p.164-168)
+    # ------------------------------------------------------------------ #
+    def cure_indefinite_check(self) -> dict[str, Any]:
+        """Attempt to clear indefinite insanity after monthly gains (p.164-168).
+
+        Requires ``monthly_gains_count >= 1``. Then rolls 1D100 <= current SAN;
+        on success clears ``indefinite_insane`` on the session's san_state
+        (caller may also route to SanitySession).
+        """
+        if self.monthly_gains_count < 1:
+            return {
+                "blocked": "monthly_gain_required",
+                "monthly_gains_count": self.monthly_gains_count,
+                "cured": False,
+            }
+        res = coc_roll.percentile_check(self.current_san, rng=self._rng)
+        outcome = res.get("outcome")
+        cured = outcome in ("regular", "hard", "extreme", "critical")
+        if cured:
+            self.san_state["indefinite_insane"] = False
+        return self._event("cure_indefinite", {
+            "roll": res.get("roll"),
+            "target": self.current_san,
+            "outcome": outcome,
+            "cured": cured,
+            "monthly_gains_count": self.monthly_gains_count,
+            "summary": (
+                f"{self.investigator_id} indefinite-cure check "
+                f"{outcome}: cured={cured}."
+            ),
+        })
+
+    # ------------------------------------------------------------------ #
+    # Self-help (SAN roll + key_connection)
+    # ------------------------------------------------------------------ #
+    def self_help(self, *, key_connection: dict[str, Any]) -> dict[str, Any]:
+        """Self-help recovery via a SAN roll bound to a key connection (p.165).
+
+        ``key_connection`` is a structured reference::
+
+            {"backstory_field": <one of nine p.157 categories>, "summary": str}
+
+        Success: recover 1D6 SAN. Failure: lose 1 SAN and return
+        ``backstory_amend_required`` (W1-2 ``corrupt_existing`` shape).
+        """
+        if not isinstance(key_connection, dict):
+            raise TypeError("key_connection must be a dict")
+        field = key_connection.get("backstory_field")
+        if field not in _BACKSTORY_FIELDS:
+            raise ValueError(
+                f"key_connection.backstory_field must be one of "
+                f"{_BACKSTORY_FIELDS}, got {field!r}")
+
+        res = coc_roll.percentile_check(self.current_san, rng=self._rng)
+        outcome = res.get("outcome")
+        san_before = self.current_san
+        payload: dict[str, Any] = {
+            "outcome": outcome,
+            "san_before": san_before,
+            "key_connection": {
+                "backstory_field": field,
+                "summary": str(key_connection.get("summary", "")),
+            },
+        }
+        if outcome in ("regular", "hard", "extreme", "critical"):
+            dice = coc_roll.roll_expression("1D6", rng=self._rng)
+            recovered = self._recover(int(dice.get("total", 0)))
+            payload["san_delta"] = recovered
+        else:
+            self._set_san(self.current_san - 1)
+            payload["san_delta"] = -1
+            payload["backstory_amend_required"] = {
+                "mode": "corrupt_existing",
+                "backstory_field": field,
+            }
+        payload["san_after"] = self.current_san
+        payload["summary"] = (
+            f"{self.investigator_id} self-help SAN roll {outcome}: "
+            f"SAN {san_before}->{self.current_san}."
+        )
+        return self._event("self_help", payload)
 
     # ------------------------------------------------------------------ #
     # Helpers
@@ -677,6 +841,8 @@ class PsychotherapySession:
             "current_san": self.current_san,
             "max_san": self.max_san,
             "asylum_months_remaining": self.asylum_months_remaining,
+            "asylum_quality": getattr(self, "asylum_quality", None),
+            "monthly_gains_count": self.monthly_gains_count,
             "events": list(self.events),
         }
 

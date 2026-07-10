@@ -342,3 +342,148 @@ def test_reset_daily_treatments():
     assert sess._first_aid_used_today is True
     sess.reset_daily_treatments()
     assert sess._first_aid_used_today is False
+
+
+# --------------------------------------------------------------------------- #
+# W2-4: monthly treatment / asylum tiers / indefinite cure / self-help (p.164-168)
+# --------------------------------------------------------------------------- #
+def test_treatment_json_monthly_roll_and_quality_tiers():
+    """treatment.json exposes private-care monthly roll + asylum quality tiers."""
+    path = PLUGIN_ROOT / "references" / "rules-json" / "treatment.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    monthly = data["psychoanalysis"]["monthly_roll"]
+    assert monthly["success_range"] == [1, 95]
+    assert monthly["gain"] == "1D3"
+    assert monthly["setback_loss"] == "1D6"
+    tiers = data["asylum_confinement"]["quality_tiers"]
+    assert tiers["good"]["monthly_bonus_die"] is True
+    assert tiers["poor"]["monthly_penalty_die"] is True
+
+
+def test_monthly_treatment_roll_success_gains_1d3():
+    """01-95 on the monthly private-care roll recovers 1D3 SAN (p.164)."""
+    for seed in range(1, 500):
+        state = {"current_san": 40, "max_san": 90}
+        sess = coc_healing.PsychotherapySession(
+            "inv1", state, rng=random.Random(seed))
+        ev = sess.monthly_treatment_roll()
+        if ev.get("setback"):
+            continue
+        assert ev["san_delta"] >= 1
+        assert state["current_san"] == 40 + ev["san_delta"]
+        assert sess.monthly_gains_count == 1
+        return
+    pytest.fail("no monthly success seed found")
+
+
+def test_monthly_treatment_roll_setback_loses_1d6():
+    """96-00 is a setback: lose 1D6 SAN (p.164)."""
+    for seed in range(1, 800):
+        state = {"current_san": 40, "max_san": 90}
+        sess = coc_healing.PsychotherapySession(
+            "inv1", state, rng=random.Random(seed))
+        ev = sess.monthly_treatment_roll()
+        if not ev.get("setback"):
+            continue
+        assert ev["san_delta"] <= -1
+        assert state["current_san"] == 40 + ev["san_delta"]
+        assert sess.monthly_gains_count == 0
+        return
+    pytest.fail("no monthly setback seed found")
+
+
+def test_monthly_treatment_asylum_quality_applies_bonus_or_penalty_die():
+    """Asylum good/poor quality attaches bonus/penalty die to the monthly 1D100."""
+    state = {"current_san": 40, "max_san": 90}
+    good = coc_healing.PsychotherapySession(
+        "inv1", state, rng=random.Random(11))
+    ev_good = good.monthly_treatment_roll(quality="good")
+    assert ev_good["bonus"] == 1
+    assert ev_good["penalty"] == 0
+
+    poor = coc_healing.PsychotherapySession(
+        "inv1", dict(state), rng=random.Random(11))
+    ev_poor = poor.monthly_treatment_roll(quality="poor")
+    assert ev_poor["bonus"] == 0
+    assert ev_poor["penalty"] == 1
+
+
+def test_asylum_release_no_longer_recovers_to_max_san():
+    """Full-restore shortcut is neutralized; release uses monthly cadence."""
+    for seed in range(1, 400):
+        state = {"current_san": 40, "max_san": 90}
+        sess = coc_healing.PsychotherapySession(
+            "inv1", state, rng=random.Random(seed))
+        sess.asylum_months_remaining = 3
+        ev = sess.resolve_asylum_release(psychoanalysis_skill=99)
+        assert state["current_san"] < 90 or ev.get("setback") is not None
+        # Even on the best outcome, a single release cannot jump to max from 40.
+        assert state["current_san"] <= 40 + 3  # at most +1D3
+        return
+
+
+def test_cure_indefinite_requires_prior_monthly_gain():
+    """cure_indefinite_check is gated behind at least one successful monthly gain."""
+    state = {"current_san": 50, "max_san": 90, "indefinite_insane": True}
+    sess = coc_healing.PsychotherapySession(
+        "inv1", state, rng=random.Random(1))
+    blocked = sess.cure_indefinite_check()
+    assert blocked.get("blocked") == "monthly_gain_required"
+    assert state.get("indefinite_insane") is True
+
+    # Force a successful monthly gain, then allow the cure check.
+    for seed in range(1, 500):
+        state2 = {"current_san": 50, "max_san": 90, "indefinite_insane": True}
+        sess2 = coc_healing.PsychotherapySession(
+            "inv1", state2, rng=random.Random(seed))
+        monthly = sess2.monthly_treatment_roll()
+        if monthly.get("setback") or sess2.monthly_gains_count < 1:
+            continue
+        # Find a seed where the cure SAN check succeeds (1D100 <= current SAN).
+        for cure_seed in range(seed, seed + 300):
+            state3 = {
+                "current_san": state2["current_san"],
+                "max_san": 90,
+                "indefinite_insane": True,
+            }
+            sess3 = coc_healing.PsychotherapySession(
+                "inv1", state3, rng=random.Random(cure_seed))
+            sess3.monthly_gains_count = sess2.monthly_gains_count
+            result = sess3.cure_indefinite_check()
+            if result.get("blocked"):
+                continue
+            if result.get("cured"):
+                assert state3.get("indefinite_insane") is False
+                return
+        return  # monthly gate works even if cure roll didn't succeed in scan
+    pytest.fail("no monthly gain seed for cure gate")
+
+
+def test_self_help_failure_returns_backstory_amend_required():
+    """Failed self-help returns structured backstory corruption (W1-2 shape)."""
+    key = {
+        "backstory_field": "significant_people",
+        "summary": "trusted mentor from Arkham",
+    }
+    for seed in range(1, 500):
+        state = {"current_san": 50, "max_san": 90}
+        sess = coc_healing.PsychotherapySession(
+            "inv1", state, rng=random.Random(seed))
+        ev = sess.self_help(key_connection=key)
+        if ev["outcome"] in ("failure", "fumble"):
+            amend = ev["backstory_amend_required"]
+            assert amend["mode"] == "corrupt_existing"
+            assert amend["backstory_field"] == "significant_people"
+            assert ev["san_delta"] == -1
+            return
+    pytest.fail("no self-help failure seed")
+
+
+def test_psychotherapy_snapshot_persists_monthly_gains_count():
+    state = {"current_san": 50, "max_san": 90}
+    sess = coc_healing.PsychotherapySession(
+        "inv1", state, rng=random.Random(1))
+    sess.monthly_gains_count = 2
+    snap = sess.snapshot()
+    assert snap["monthly_gains_count"] == 2
+    assert snap["asylum_months_remaining"] == 0
