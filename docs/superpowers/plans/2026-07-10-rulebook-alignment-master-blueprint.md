@@ -852,7 +852,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 
 - [ ] **W3-1 追逐重写（最大项）**：`coc_chase.py` 按 Part 1-5 重构 —— `cut_to_the_chase()`（默认落后 2 格入场 + location chain 生成）；hazard 真机制（谨慎买奖励骰/失败伤害+1D3 移动动作债务仍前进）；barrier HP/砸开（Build×1D10）/车撞毁→残骸变 hazard；Part 4 conflict 同格近战委托 `CombatSession`、车战 Drive Auto 对抗、车伤 Build×1D10、`vehicle_collision` 接入会话；可选规则里优先 Pedal to the Metal（加速换惩罚骰）、乘客动作、边跑开火、Choosing a Route、Sudden Hazards（交替 Luck）。`chase.json` 载具 MOV 对齐 Table V（经济车 13 等）。`coc-chase/SKILL.md` 从 21 行重写为 Part1-5 工作流。
 - [ ] **W3-2 火器深度**：瞄准（+1 奖励骰）、手枪多发（每发-1 惩罚级）、装填耗轮、全自动 volley（技能/10 一组）、压制射击；`weapons.json` 的 `uses_per_round` 接入引擎。
-- [ ] **W3-3 环境伤害引擎**：`apply_other_damage(severity)`（Table III p.124 档位）、窒息状态机（每轮 CON→伤害→0HP 死且忽略重伤规则）、`apply_poison(id)`（`poisons.json` 接入，Extreme CON 减半）；环境伤 `bypass_armor`。
+- [x] **W3-3 环境伤害引擎**：`apply_other_damage(severity)`（Table III p.124 档位）、窒息状态机（每轮 CON→伤害→0HP 死且忽略重伤规则）、`apply_poison(id)`（`poisons.json` 接入，Extreme CON 减半）；环境伤 `bypass_armor`。
 - [ ] **W3-4 近战补丁**：投掷武器路径（可 Dodge、半 DB）、prone 攻防修正（近战+1奖励/远程-1惩罚）、maneuver 命名统一（代码 `VALID_MANEUVER_GOALS` vs SKILL.md 141-148 的 grapple/break_free 不一致）、防御方 maneuver 反制。
 - [ ] **W3-5 全量验证 + 打勾写日志**
 
