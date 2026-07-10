@@ -790,6 +790,28 @@ class _FixtureIntentEvaluator:
         }
 
 
+class _ParsedTimeIntentEvaluator:
+    evaluator_id = "codex-llm-semantic-v1"
+
+    def __init__(self, intent_detail="quick_observation"):
+        self.calls = []
+        self._intent_detail = intent_detail
+
+    def classify(self, player_text, active_scene):
+        self.calls.append((player_text, active_scene))
+        raw = {
+            "primary_intent": "investigate",
+            "secondary_intents": [],
+            "target_entities": [],
+            "risk_posture": "cautious",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+            "action_atoms": [],
+            "intent_detail": self._intent_detail,
+        }
+        return live_runner.coc_intent_router.LLMIntentEvaluator._parse_result(self, raw)
+
+
 def test_live_turn_caller_intent_is_recorded(tmp_path):
     camp, char_path = _build_live_campaign(tmp_path)
     result = live_runner.run_live_turn(
@@ -862,6 +884,134 @@ def test_live_turn_quick_observation_in_extreme_cold_persists_short_time_and_def
     triggers = json.loads((camp / "save" / "time-triggers.json").read_text())["triggers"]
     exposure = next(trigger for trigger in triggers if trigger["trigger_id"] == exposure_trigger_id)
     assert exposure["status"] == "pending"
+
+
+def test_live_turn_routed_quick_observation_persists_short_time_and_defers_exposure(
+    tmp_path,
+):
+    camp, char_path = _build_live_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    story["scenes"][0]["scene_tags"] = ["extreme_cold"]
+    story_path.write_text(json.dumps(story), encoding="utf-8")
+
+    time_layer = live_runner.director.coc_time
+    time_layer.initialize_time_state(camp)
+    exposure_interval = 5
+    exposure_trigger_id = time_layer.schedule_trigger(camp, {
+        "kind": "cold_exposure",
+        "target_id": "inv1",
+        "due_elapsed_minutes": exposure_interval,
+        "policy": "auto_apply",
+    })
+    fixture = _ParsedTimeIntentEvaluator()
+    live_runner.coc_intent_router.set_intent_evaluator(fixture)
+    try:
+        result = live_runner.run_live_turn(
+            camp,
+            char_path,
+            "inv1",
+            "I scan the snowfield.",
+            max_auto_advance=1,
+            recording_mode="sync",
+            rng_seed=42,
+        )
+    finally:
+        live_runner.coc_intent_router.set_intent_evaluator(None)
+
+    assert fixture.calls
+    assert result["intent_resolution"]["source"] == "intent_router"
+    assert result["turns"][0]["action"] == "REVEAL"
+    elapsed = time_layer.read_time_state(camp)["clock"]["elapsed_minutes"]
+    assert 0 < elapsed <= exposure_interval
+    triggers = json.loads((camp / "save" / "time-triggers.json").read_text())["triggers"]
+    exposure = next(trigger for trigger in triggers if trigger["trigger_id"] == exposure_trigger_id)
+    assert exposure["status"] == "pending"
+
+
+def test_live_state_patch_preserves_authored_time_profile_for_next_routed_turn(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    patch_result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "I speak briefly.",
+        intent_class="social",
+        max_auto_advance=1,
+        recording_mode="sync",
+        rng_seed=43,
+        state_patch={
+            "scene_id": "scene-1",
+            "scene_tags": ["extreme_cold"],
+            "time_profile": {"category": "single_room_search"},
+        },
+    )
+
+    active_path = camp / "save" / "active-scene.json"
+    active = json.loads(active_path.read_text(encoding="utf-8"))
+    assert active["time_profile"] == {"category": "single_room_search"}
+    assert "time_profile" in patch_result["state_patch"]["minimal_keys"]
+
+    time_layer = live_runner.director.coc_time
+    time_layer.initialize_time_state(camp)
+    exposure_trigger_id = time_layer.schedule_trigger(camp, {
+        "kind": "cold_exposure",
+        "target_id": "inv1",
+        "due_elapsed_minutes": 5,
+        "policy": "auto_apply",
+    })
+    fixture = _ParsedTimeIntentEvaluator()
+    live_runner.coc_intent_router.set_intent_evaluator(fixture)
+    try:
+        result = live_runner.run_live_turn(
+            camp,
+            char_path,
+            "inv1",
+            "I scan the snowfield.",
+            max_auto_advance=1,
+            recording_mode="sync",
+            rng_seed=44,
+        )
+    finally:
+        live_runner.coc_intent_router.set_intent_evaluator(None)
+
+    time_records = [
+        json.loads(line)
+        for line in (camp / "logs" / "time.jsonl").read_text().splitlines()
+        if line.strip() and json.loads(line).get("event_type") == "time_advance"
+    ]
+    assert time_records[-1]["category"] == "single_room_search"
+    assert time_records[-1]["delta_minutes"] == 20
+    triggers = json.loads((camp / "save" / "time-triggers.json").read_text())["triggers"]
+    exposure = next(trigger for trigger in triggers if trigger["trigger_id"] == exposure_trigger_id)
+    assert exposure["status"] == "fired"
+    assert result["intent_resolution"]["source"] == "intent_router"
+
+
+def test_live_state_patch_drops_invalid_time_profile_with_reason(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "I speak briefly.",
+        intent_class="social",
+        max_auto_advance=1,
+        recording_mode="sync",
+        rng_seed=45,
+        state_patch={
+            "scene_id": "scene-1",
+            "time_profile": {"category": "look around quickly"},
+        },
+    )
+
+    active = json.loads((camp / "save" / "active-scene.json").read_text())
+    assert "time_profile" not in active
+    assert result["state_patch"]["validation_warnings"] == [{
+        "field": "time_profile",
+        "reason_code": "category_not_in_time_cost_catalog",
+    }]
 
 
 def test_live_turn_missing_intent_routes_through_intent_router(tmp_path):

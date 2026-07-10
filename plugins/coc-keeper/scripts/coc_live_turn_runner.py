@@ -74,7 +74,11 @@ _ACTIVE_SCENE_STATE_PATCH_KEYS = {
     "responsibility_threats",
     "pending_choices",
     "source_event_type",
+    "time_profile",
 }
+
+_TIME_PROFILE_KEYS = frozenset({"mode", "category", "delta_minutes"})
+_TIME_PROFILE_MODES = frozenset({"instant", "elapsed", "until", "downtime", "subsystem"})
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -224,6 +228,40 @@ def _blocking_rule_requests(turn: dict[str, Any]) -> list[dict[str, Any]]:
     return blocking
 
 
+def _validated_state_patch_time_profile(
+    value: Any,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate authored profile structure against the canonical time catalog."""
+    if not isinstance(value, dict):
+        return None, "profile_must_be_object"
+    if set(value) - _TIME_PROFILE_KEYS:
+        return None, "unsupported_profile_fields"
+
+    category = value.get("category")
+    categories = director._time_cost_categories()
+    if not isinstance(category, str) or category not in categories:
+        return None, "category_not_in_time_cost_catalog"
+
+    mode = value.get("mode")
+    if mode is not None and mode not in _TIME_PROFILE_MODES:
+        return None, "mode_not_in_time_profile_enum"
+
+    delta = value.get("delta_minutes")
+    if delta is not None:
+        if isinstance(delta, bool) or not isinstance(delta, int):
+            return None, "delta_minutes_must_be_integer"
+        bounds = categories[category]
+        if delta < int(bounds["min"]) or delta > int(bounds["max"]):
+            return None, "delta_minutes_outside_category_bounds"
+
+    normalized = {"category": category}
+    if mode is not None:
+        normalized["mode"] = mode
+    if delta is not None:
+        normalized["delta_minutes"] = delta
+    return normalized, None
+
+
 def _apply_state_patch_sync(
     campaign_dir: Path,
     state_patch: dict[str, Any] | None,
@@ -250,10 +288,20 @@ def _apply_state_patch_sync(
             active_scene.setdefault("scenario_id", world.get("scenario_id"))
 
     minimal_keys: list[str] = []
+    validation_warnings: list[dict[str, str]] = []
     for key in sorted(_ACTIVE_SCENE_STATE_PATCH_KEYS):
         if key not in state_patch:
             continue
-        active_scene[key] = _copy_jsonable(state_patch[key])
+        value = state_patch[key]
+        if key == "time_profile":
+            value, reason_code = _validated_state_patch_time_profile(value)
+            if value is None:
+                validation_warnings.append({
+                    "field": "time_profile",
+                    "reason_code": str(reason_code),
+                })
+                continue
+        active_scene[key] = _copy_jsonable(value)
         minimal_keys.append(key)
 
     active_scene.setdefault("source_event_type", "live_turn_state_patch")
@@ -276,6 +324,7 @@ def _apply_state_patch_sync(
         "active_scene_path": str(active_path),
         "world_active_scene_updated": world_updated,
         "minimal_keys": minimal_keys,
+        "validation_warnings": validation_warnings,
         "detail_record_deferred": False,
         "detail_pending_batch": None,
     }

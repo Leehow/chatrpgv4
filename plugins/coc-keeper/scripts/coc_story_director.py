@@ -56,6 +56,7 @@ _NON_PLAYER_ROLL_ROLES = {"npc", "enemy", "opponent", "adversary", "monster"}
 _SCENE_PROGRESS_KEYS = (
     "scene_kind",
     "scene_tags",
+    "time_profile",
     "authority_demands",
     "responsibility_threats",
     "progress_contract",
@@ -1674,9 +1675,7 @@ def _structured_intent_time_category(ctx: dict[str, Any]) -> str | None:
     categories = _time_cost_categories()
     for candidate in (
         ctx.get("intent_detail"),
-        ctx.get("intent_category"),
         rich.get("intent_detail"),
-        rich.get("intent_category"),
     ):
         if isinstance(candidate, str) and candidate in categories:
             return candidate

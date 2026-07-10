@@ -286,6 +286,60 @@ def test_compiled_scene_merges_live_visible_affordances(tmp_path):
     assert ctx["active_scene"]["source"] == "live-story-bridge.merged-active-scene"
 
 
+def test_build_context_preserves_authored_time_profile_from_runtime_active_scene(tmp_path):
+    camp, char_path = _make_legacy_live_campaign(tmp_path)
+    active_path = camp / "save" / "active-scene.json"
+    active = json.loads(active_path.read_text(encoding="utf-8"))
+    active["scene_tags"] = ["extreme_cold"]
+    active["time_profile"] = {"category": "single_room_search"}
+    active_path.write_text(json.dumps(active), encoding="utf-8")
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="I take a quick look.",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+        },
+        rng=random.Random(42),
+    )
+
+    assert ctx["active_scene"]["source"] == "live-story-bridge.active-scene"
+    assert ctx["active_scene"]["time_profile"] == {"category": "single_room_search"}
+    profile = coc_story_director._time_profile_for_action("REVEAL", ctx)
+    assert profile["category"] == "single_room_search"
+    assert profile["delta_minutes"] == 20
+
+
+def test_build_context_merges_authored_time_profile_over_compiled_scene(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    (camp / "save" / "active-scene.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scene_id": "scene-1",
+        "time_profile": {"category": "single_room_search"},
+    }))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="I take a quick look.",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+        },
+        rng=random.Random(42),
+    )
+
+    assert ctx["active_scene"]["source"] == "live-story-bridge.merged-active-scene"
+    assert ctx["active_scene"]["time_profile"] == {"category": "single_room_search"}
+    assert coc_story_director._time_profile_for_action("REVEAL", ctx)["delta_minutes"] == 20
+
+
 def test_obscured_clue_rules_request_includes_roll_contract(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
