@@ -46,6 +46,97 @@ STARTER_SCENARIO_FILES = (
     "improvisation-boundaries.json",
 )
 
+# Structured registry of shipped starter pregens (id → home scenario).
+# Used for provenance backfill and dossier scenario-bound filtering — lookup by
+# investigator id only, never free-text matching.
+KNOWN_STARTER_PREGENS: dict[str, dict[str, str]] = {
+    "thomas-hayes": {"scenario_id": "the-haunting"},
+    "eleanor-reed": {"scenario_id": "the-haunting"},
+}
+
+
+def lookup_known_starter_pregen(pregen_id: str) -> dict[str, Any] | None:
+    """Return registry entry for a known starter pregen, or None.
+
+    Includes ``scenario_bound_keys`` from the canonical shipped sheet when
+    available so dossier rendering can omit legacy flat bound fields.
+    """
+    key = str(pregen_id or "").strip()
+    entry = KNOWN_STARTER_PREGENS.get(key)
+    if not entry:
+        return None
+    result: dict[str, Any] = dict(entry)
+    try:
+        path = _pregen_character_path(entry["scenario_id"], key)
+        sheet = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
+        return result
+    if not isinstance(sheet, dict):
+        return result
+    backstory = sheet.get("backstory") if isinstance(sheet.get("backstory"), dict) else {}
+    bound = backstory.get("scenario_bound")
+    if isinstance(bound, dict):
+        result["scenario_bound_keys"] = [
+            str(k) for k, v in bound.items() if v not in (None, "", [], {})
+        ]
+    if isinstance(backstory.get("scenario_id"), str) and backstory["scenario_id"].strip():
+        result["scenario_id"] = backstory["scenario_id"].strip()
+    return result
+
+
+def ensure_pregen_backstory_provenance(sheet: dict[str, Any]) -> dict[str, Any]:
+    """Stamp / nest scenario provenance on known starter pregen sheets.
+
+    Custom / unknown investigator ids are returned unchanged. For known starter
+    pregens (thomas-hayes, eleanor-reed): stamp ``backstory.scenario_id`` when
+    missing, and move legacy flat bound keys into ``scenario_bound`` using the
+    canonical shipped sheet as the key list.
+    """
+    if not isinstance(sheet, dict):
+        return sheet
+    inv_id = str(sheet.get("id") or "").strip()
+    entry = KNOWN_STARTER_PREGENS.get(inv_id)
+    if not entry:
+        return sheet
+
+    out = dict(sheet)
+    backstory = out.get("backstory")
+    if not isinstance(backstory, dict):
+        backstory = {}
+    else:
+        backstory = dict(backstory)
+    out["backstory"] = backstory
+
+    if not str(backstory.get("scenario_id") or "").strip():
+        backstory["scenario_id"] = entry["scenario_id"]
+
+    if isinstance(backstory.get("scenario_bound"), dict) and backstory["scenario_bound"]:
+        return out
+
+    # Restructure legacy flat bound fields using canonical scenario_bound keys.
+    try:
+        canon_path = _pregen_character_path(entry["scenario_id"], inv_id)
+        canon = json.loads(canon_path.read_text(encoding="utf-8"))
+    except (OSError, FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
+        return out
+    canon_bs = canon.get("backstory") if isinstance(canon, dict) else None
+    canon_bound = (
+        canon_bs.get("scenario_bound")
+        if isinstance(canon_bs, dict)
+        else None
+    )
+    if not isinstance(canon_bound, dict) or not canon_bound:
+        return out
+    moved: dict[str, Any] = {}
+    for key in canon_bound:
+        if key in {"scenario_id", "scenario_bound"}:
+            continue
+        if key in backstory and backstory[key] not in (None, "", [], {}):
+            moved[key] = backstory.pop(key)
+    if moved:
+        backstory["scenario_bound"] = moved
+    return out
+
 
 def list_starter_scenarios() -> list[dict[str, Any]]:
     """Enumerate built-in starter scenarios from their module-meta.json files.
@@ -271,6 +362,7 @@ def quick_start(
     sheet = json.loads(pregen_path.read_text(encoding="utf-8"))
     if not isinstance(sheet, dict):
         raise ValueError(f"pregen character.json must be an object: {pregen_path}")
+    sheet = ensure_pregen_backstory_provenance(sheet)
     investigator_id = str(sheet.get("id") or pregen_id)
 
     meta_path = src_dir / "module-meta.json"
@@ -304,7 +396,13 @@ def quick_start(
     # Campaign-local copy for sandbox / report tooling that looks under the campaign.
     camp_inv_dir = campaign_dir / "investigators" / investigator_id
     camp_inv_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(pregen_path, camp_inv_dir / "character.json")
+    coc_fileio.write_json_atomic(
+        camp_inv_dir / "character.json",
+        sheet,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
 
     _seed_investigator_state(campaign_dir, camp_id, investigator_id, sheet)
     coc_state.link_party(coc_root, camp_id, [investigator_id])

@@ -238,12 +238,51 @@ def test_quick_start_installs_campaign_and_pregen(tmp_path):
     assert ws_char.is_file()
     assert camp_char.is_file()
     assert result["character_path"] == str(ws_char)
+    for path in (ws_char, camp_char):
+        sheet = json.loads(path.read_text("utf-8"))
+        assert sheet["backstory"]["scenario_id"] == "the-haunting"
+        assert isinstance(sheet["backstory"].get("scenario_bound"), dict)
 
     inv_state = campaign_dir / "save" / "investigator-state" / "thomas-hayes.json"
     assert inv_state.is_file()
     world = json.loads((campaign_dir / "save" / "world-state.json").read_text("utf-8"))
     assert world["status"] == "active"
     assert world["active_scene_id"]
+
+
+def test_ensure_pregen_backstory_provenance_stamps_known_legacy_sheet():
+    """Pre-existing flat pregen sheets get scenario_id + nested scenario_bound."""
+    legacy = {
+        "id": "thomas-hayes",
+        "name": "托马斯·海斯",
+        "backstory": {
+            "description": "Knott 的委托听起来像又一次清清恶名。",
+            "significant_people": "前搭档失踪。",
+            "meaningful_locations": "克莱恩街附近的办公室。",
+            "traits": ["先查纸再上门"],
+            "ideology": "真相值钱。",
+        },
+    }
+    stamped = coc_starter.ensure_pregen_backstory_provenance(legacy)
+    assert stamped["backstory"]["scenario_id"] == "the-haunting"
+    bound = stamped["backstory"]["scenario_bound"]
+    assert "Knott" in bound["description"]
+    assert "description" not in stamped["backstory"]
+    assert "significant_people" not in stamped["backstory"]
+    assert stamped["backstory"]["traits"] == ["先查纸再上门"]
+    # Custom / unknown ids untouched.
+    custom = {"id": "my-oc", "backstory": {"description": "原创背景"}}
+    assert coc_starter.ensure_pregen_backstory_provenance(custom)["backstory"] == {
+        "description": "原创背景"
+    }
+
+
+def test_lookup_known_starter_pregen_registry():
+    entry = coc_starter.lookup_known_starter_pregen("thomas-hayes")
+    assert entry is not None
+    assert entry["scenario_id"] == "the-haunting"
+    assert "description" in entry.get("scenario_bound_keys", [])
+    assert coc_starter.lookup_known_starter_pregen("my-custom-investigator") is None
 
 
 def test_quick_start_then_run_live_turn_succeeds(tmp_path):

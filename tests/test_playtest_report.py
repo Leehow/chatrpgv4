@@ -884,6 +884,73 @@ def test_battle_report_uses_module_meta_title_not_campaign_title(tmp_path):
     assert "真相值钱" in battle_text
 
 
+def test_battle_report_omits_legacy_flat_bound_backstory_via_pregen_registry(tmp_path):
+    """Known starter pregen id without scenario_id still drops foreign bound prose."""
+    run_dir = tmp_path / ".coc" / "playtests" / "masks-legacy-pregen"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "masks-peru-legacy"
+    investigator_dir = run_dir / "sandbox" / ".coc" / "investigators" / "thomas-hayes"
+    for path in (run_dir, campaign_dir / "scenario", campaign_dir / "logs", campaign_dir / "memory", investigator_dir):
+        path.mkdir(parents=True, exist_ok=True)
+
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "masks-peru-legacy",
+        "title": "Masks Peru Legacy",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+    })
+    write_json(campaign_dir / "party.json", {"investigator_ids": ["thomas-hayes"]})
+    write_json(campaign_dir / "scenario" / "module-meta.json", {
+        "schema_version": 1,
+        "scenario_id": "masks-of-nyarlathotep-ch-peru",
+        "title": "Masks of Nyarlathotep — Prologue: Peru",
+        "structure_type": "hub_sandbox",
+        "era": "1920s",
+        "content_flags": [],
+        "win_condition": "survive",
+    })
+    # Legacy flat sheet: no scenario_id / scenario_bound nesting.
+    write_json(investigator_dir / "character.json", {
+        "id": "thomas-hayes",
+        "name": "托马斯·海斯",
+        "occupation": "私家侦探",
+        "era": "1920s",
+        "characteristics": {"STR": 60, "CON": 55, "SIZ": 65, "DEX": 60, "APP": 50, "INT": 70, "POW": 55, "EDU": 65},
+        "derived": {"HP": 12, "MP": 11, "SAN": 55, "MOV": 7, "damage_bonus": "0", "build": 1},
+        "skills": {"Library Use": 40},
+        "backstory": {
+            "description": "Knott 的委托听起来像又一次清清恶名。",
+            "significant_people": "前搭档失踪。",
+            "meaningful_locations": "克莱恩街附近的办公室。",
+            "traits": ["先查纸再上门"],
+            "ideology": "真相值钱。",
+            "treasured_possessions": "父亲留下的 .38。",
+        },
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+    write_json(run_dir / "playtest.json", {
+        "run_id": "masks-legacy-pregen",
+        "campaign_id": "masks-peru-legacy",
+        "campaign_title": "Masks Peru Legacy",
+        "scenario": "Masks of Nyarlathotep — Prologue: Peru",
+        "scenario_id": "masks-of-nyarlathotep-ch-peru",
+        "era": "1920s",
+        "dice_mode": "codex",
+        "spoiler_policy": "warn_before_reveal",
+        "simulation_method": "live_llm_player_vs_kp",
+    })
+
+    battle_text = coc_playtest_report.generate_battle_report(run_dir).read_text(encoding="utf-8")
+    assert "Knott" not in battle_text
+    assert "克莱恩街" not in battle_text
+    assert "先查纸再上门" in battle_text
+    assert "真相值钱" in battle_text
+
+
 def test_battle_report_keeps_scenario_bound_backstory_when_scenario_matches(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "haunting-bound"
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "haunting-run"

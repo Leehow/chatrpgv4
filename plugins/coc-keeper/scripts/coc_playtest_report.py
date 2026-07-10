@@ -1149,6 +1149,7 @@ def _format_backstory(
     localized_terms: dict[str, str],
     language_profile: dict[str, Any],
     campaign_scenario_id: str | None = None,
+    investigator_id: str | None = None,
 ) -> list[str]:
     if not isinstance(backstory, dict) or not backstory:
         return []
@@ -1156,6 +1157,8 @@ def _format_backstory(
     # Structured provenance: scenario-bound prose is omitted when the character's
     # backstory.scenario_id differs from the campaign/module scenario_id.
     # Comparison is ID equality only — never free-text matching.
+    # Known starter pregens missing scenario_id fall back to the starter registry
+    # (structured id lookup) so legacy installs still omit foreign bound prose.
     view = {
         key: value
         for key, value in backstory.items()
@@ -1163,6 +1166,21 @@ def _format_backstory(
     }
     bound_block = backstory.get("scenario_bound")
     bound_id = backstory.get("scenario_id")
+    registry_bound_keys: set[str] = set()
+    if not (isinstance(bound_id, str) and bound_id.strip()):
+        try:
+            import coc_starter
+
+            registry = coc_starter.lookup_known_starter_pregen(str(investigator_id or ""))
+        except Exception:
+            registry = None
+        if isinstance(registry, dict):
+            rid = registry.get("scenario_id")
+            if isinstance(rid, str) and rid.strip():
+                bound_id = rid.strip()
+            registry_bound_keys = {
+                str(k) for k in (registry.get("scenario_bound_keys") or []) if str(k).strip()
+            }
     include_bound = True
     if isinstance(bound_id, str) and bound_id.strip():
         campaign_id = str(campaign_scenario_id or "").strip()
@@ -1172,6 +1190,11 @@ def _format_backstory(
         for key, value in bound_block.items():
             if value not in (None, "", [], {}) and key not in view:
                 view[key] = value
+    elif not include_bound:
+        # Legacy flat sheets: drop keys that the canonical pregen nests under
+        # scenario_bound, even when scenario_id was never stamped on disk.
+        for key in registry_bound_keys:
+            view.pop(key, None)
 
     if not view:
         return []
@@ -1253,6 +1276,7 @@ def _format_character(
             terms,
             profile,
             campaign_scenario_id=campaign_scenario_id,
+            investigator_id=str(investigator_id) if investigator_id else None,
         )
     )
     return lines
