@@ -165,6 +165,22 @@ Derived from the damage chain and effects, stored in `participants[].conditions[
 - `dying`: hp_current = 0 with a major wound.
 - `unconscious`, `prone`, `grappled`, `surprised`, `outnumbered`: applied by maneuvers, surprise, or positioning.
 
+## Environmental / Other Forms of Damage (Table III, p.124)
+
+Weapon combat stays in `coc_combat.py`. Falls, fire, drowning, poison, and similar
+non-weapon harm use `../../scripts/coc_hazards.py` + `references/rules-json/hazards.json`
+(and `poisons.json`):
+
+- `apply_other_damage(...)` — Table III severity ladder (`minor`…`splat`); always
+  `bypass_armor: true`.
+- Suffocation/drowning state machine — CON each round until fail, then damage each
+  round; at 0 HP the victim is `dead` (ignores major-wound/`dying`).
+- `apply_poison(poison_id)` — Extreme CON halves damage; results carry structured
+  `symptom_tags` (no prose scanning).
+
+Do not invent a parallel keyword matcher for hazard narration — call the hazards
+engine and consume its structured events/conditions.
+
 ## No Pushing Combat Rolls (p.116)
 
 > "There is no option to push combat rolls (either Fighting or Firearms)."

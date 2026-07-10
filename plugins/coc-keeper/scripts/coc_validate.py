@@ -41,6 +41,7 @@ REQUIRED_RULE_FILES = [
     "manias.json",
     "equipment.json",
     "poisons.json",
+    "hazards.json",
     "artifacts.json",
     "luck.json",
     "development.json",

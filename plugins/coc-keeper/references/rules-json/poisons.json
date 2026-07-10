@@ -1,71 +1,110 @@
 {
   "source_rule_id": "core.combat.poisons",
-  "source_note": "Keeper Rulebook Chapter 6: Sample Poisons (p129, Table). Damage per 1 dose.",
+  "source_note": "Keeper Rulebook Chapter 6: Sample Poisons (p129, Table) + Table III footnote ** (p.124). Damage per 1 dose. Extreme CON success halves damage; critical may shake off (Keeper option).",
+  "potency_bands": {
+    "very_mild": {"damage_expr": null, "note": "No damage, only temporary unconsciousness."},
+    "mild": {"damage_expr": "1D10"},
+    "strong": {"damage_expr": "2D10"},
+    "lethal": {"damage_expr": "4D10"}
+  },
   "poisons": {
     "Amanita": {
       "delivery": "ingested",
       "damage_or_effect": "1D10 HP",
+      "damage_expr": "1D10",
+      "potency": "mild",
       "onset": "6 to 24 hours",
+      "symptoms": ["stomach_pains", "vomiting", "jaundice"],
       "note": "Violent stomach pains, vomiting, jaundice. Agaric mushrooms; death cap foremost."
     },
     "Arsenic": {
       "delivery": "ingested",
       "damage_or_effect": "4D10 HP",
+      "damage_expr": "4D10",
+      "potency": "lethal",
       "onset": "30 minutes to 24 hours",
+      "symptoms": ["burning_pain", "vomiting", "diarrhea"],
       "note": "Burning pain, vomiting, violent diarrhea."
     },
     "Belladonna": {
       "delivery": "ingested",
       "damage_or_effect": "4D10 HP",
+      "damage_expr": "4D10",
+      "potency": "lethal",
       "onset": "2 hours to 2 days",
+      "symptoms": ["rapid_heartbeat", "impaired_vision", "convulsions"],
       "note": "Rapid heartbeat, impaired vision, convulsions. Deadly nightshade."
     },
     "Black Widow Spider Venom": {
       "delivery": "injury",
       "damage_or_effect": "1D10 HP",
+      "damage_expr": "1D10",
+      "potency": "mild",
       "onset": "2 to 8 hours",
+      "symptoms": ["chills", "sweats", "nausea"],
       "note": "Chills, sweats, nausea. Rarely causes death with treatment."
     },
     "Chloroform": {
       "delivery": "inhaled",
       "damage_or_effect": "no damage (unconsciousness 1 hour)",
+      "damage_expr": null,
+      "potency": "very_mild",
       "onset": "1 round",
+      "symptoms": ["unconscious"],
       "note": "Unconsciousness for 1 hour."
     },
     "Cobra Venom": {
       "delivery": "injury",
       "damage_or_effect": "4D10 HP",
+      "damage_expr": "4D10",
+      "potency": "lethal",
       "onset": "15 to 60 minutes",
+      "symptoms": ["convulsions", "respiratory_failure"],
       "note": "Convulsions, respiratory failure. Serum can avoid death."
     },
     "Curare": {
       "delivery": "injury",
       "damage_or_effect": "4D10 HP",
+      "damage_expr": "4D10",
+      "potency": "lethal",
       "onset": "1 round",
+      "symptoms": ["muscular_paralysis", "respiratory_failure"],
       "note": "Muscular paralysis, respiratory failure. Harmless if ingested."
     },
     "Cyanide": {
       "delivery": "ingested or inhaled",
       "damage_or_effect": "4D10 HP",
+      "damage_expr": "4D10",
+      "potency": "lethal",
       "onset": "1 to 15 minutes",
+      "symptoms": ["dizziness", "convulsions", "fainting"],
       "note": "Dizziness, convulsions, fainting, death."
     },
     "Rattlesnake Venom": {
       "delivery": "injury",
       "damage_or_effect": "2D10 HP",
+      "damage_expr": "2D10",
+      "potency": "strong",
       "onset": "6 to 24 hours",
+      "symptoms": ["vomiting", "violent_spasms", "yellowish_vision"],
       "note": "Vomiting, violent spasms, yellowish vision."
     },
     "Rohypnol": {
       "delivery": "ingested",
       "damage_or_effect": "no damage (unconsciousness 4-8 hours)",
+      "damage_expr": null,
+      "potency": "very_mild",
       "onset": "15 to 30 minutes",
+      "symptoms": ["unconscious", "amnesia"],
       "note": "Unconsciousness for 4-8 hours, possible amnesia."
     },
     "Strychnine": {
       "delivery": "ingested",
       "damage_or_effect": "4D10 HP",
+      "damage_expr": "4D10",
+      "potency": "lethal",
       "onset": "10 to 20 minutes",
+      "symptoms": ["muscle_contractions", "asphyxiation"],
       "note": "Violent muscle contractions, asphyxiation, death."
     }
   }

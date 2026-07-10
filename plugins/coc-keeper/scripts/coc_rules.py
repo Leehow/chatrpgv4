@@ -660,6 +660,10 @@ def poisons_table() -> dict[str, Any]:
     """Return the sample poisons."""
     return load_rule_table("poisons").get("poisons", {})
 
+def hazards_table() -> dict[str, Any]:
+    """Return Table III other-forms-of-damage severity + presets (p.124)."""
+    return load_rule_table("hazards")
+
 def artifacts_table() -> dict[str, Any]:
     """Return the artifacts and alien devices."""
     return load_rule_table("artifacts").get("artifacts", {})

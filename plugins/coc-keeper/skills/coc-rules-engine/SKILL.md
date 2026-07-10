@@ -21,6 +21,9 @@ Use these scripts for deterministic rule work:
   `percentile_check(...)`; use `format_percentile_result(...)` for
   player-facing bonus/penalty dice summaries.
 - `../../scripts/coc_validate.py`
+- `../../scripts/coc_hazards.py` — Table III other-forms damage, suffocation/
+  drowning, and poison (p.124 / p.129). Data: `hazards.json`, `poisons.json`.
+  Environmental sources always set `bypass_armor: true`.
 
 ## Failed Roll: Push XOR Spend Luck
 

@@ -614,9 +614,18 @@
       "id": "core.combat.poisons",
       "category": "combat",
       "source_table": "poisons.json",
-      "source_note": "Keeper Rulebook Ch.6 Sample Poisons (pp.129-131). Each poison has delivery, damage/effect, onset.",
+      "source_note": "Keeper Rulebook Ch.6 Sample Poisons (pp.129-131). Each poison has delivery, damage_expr, potency, onset, symptoms. Extreme CON halves damage (Table III footnote **, p.124).",
       "numeric": {
         "poison_count": 11
+      }
+    },
+    {
+      "id": "core.combat.other_forms_of_damage",
+      "category": "combat",
+      "source_table": "hazards.json",
+      "source_note": "Keeper Rulebook Ch.6 Table III Other Forms of Damage (p.124): minor 1D3, moderate 1D6, severe 1D10, deadly 2D10, terminal 4D10, splat 8D10. Asphyxiation/drowning CON each round; death at 0 HP ignores Major Wound. Armor does not apply (p.120).",
+      "numeric": {
+        "severity_count": 6
       }
     },
     {
