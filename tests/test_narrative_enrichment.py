@@ -108,6 +108,43 @@ def test_action_atom_requests_include_roll_contract():
     assert contract["failure_effect"] == "失败则被敌人抢先射击"
     assert contract["failure_outcome_mode"] == "pressure_cost"
     assert contract["roll_density_group"] == "crossing_fire"
+    # Ordinary skill checks stay push-eligible by default (p.83-85).
+    assert contract["push_policy"]["eligible"] is True
+
+
+def test_atom_roll_contract_auto_disables_push_for_ineligible_kinds():
+    """W2-3: sanity/luck/opposed/damage/combat rolls are never push-eligible."""
+    cases = [
+        {"id": "san", "kind": "sanity_check", "skill": "SAN"},
+        {"id": "luck", "kind": "luck", "skill": "LUCK"},
+        {"id": "opp", "kind": "opposed_check", "skill": "Dodge", "opposed_skill": "Fighting"},
+        {"id": "dmg", "kind": "damage", "skill": "Damage"},
+        {"id": "cbt", "kind": "combat", "skill": "Fighting"},
+    ]
+    for atom in cases:
+        rich = {"action_atoms": [atom]}
+        requests = narr.build_action_chain_requests(rich)
+        assert requests, f"expected a request for {atom['id']}"
+        policy = requests[0]["roll_contract"]["push_policy"]
+        assert policy["eligible"] is False, atom["id"]
+        assert policy["requires_changed_method"] is False, atom["id"]
+        assert policy["keeper_must_foreshadow_failure"] is False, atom["id"]
+
+
+def test_atom_roll_contract_infers_opposed_and_luck_without_explicit_kind():
+    """Kind may be derived from structured fields when atom.kind is absent."""
+    opposed = narr.build_action_chain_requests({"action_atoms": [{
+        "id": "parry",
+        "skill": "Dodge",
+        "opposed_by": "Fighting",
+    }]})
+    assert opposed[0]["roll_contract"]["push_policy"]["eligible"] is False
+
+    luck = narr.build_action_chain_requests({"action_atoms": [{
+        "id": "spend-luck-check",
+        "skill": "LUCK",
+    }]})
+    assert luck[0]["roll_contract"]["push_policy"]["eligible"] is False
 
 
 def test_action_atom_density_group_merges_same_axis_requests():

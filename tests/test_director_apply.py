@@ -1593,3 +1593,146 @@ def test_write_json_is_atomic_via_replace(tmp_path, monkeypatch):
     assert json.loads(target.read_text()) == {"ok": True}
     assert calls, "expected os.replace to be used for atomic write"
     assert any(str(target) == dst for _src, dst in calls)
+
+
+# =============================================================================
+# W2-3: push-roll gate in apply layer (Keeper Rulebook p.83-85, p.163)
+# =============================================================================
+
+_FULL_PUSH_GATE = {
+    "method_changed": True,
+    "consequence_announced": True,
+    "player_confirmed": True,
+}
+
+
+def test_apply_rejects_pushed_result_without_complete_push_gate(tmp_path):
+    """pushed:True without a complete push_gate must not settle as a push."""
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-push-gate",
+        "scene_action": "DEEPEN",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    rules_results = [{
+        "skill": "Spot Hidden",
+        "outcome": "failure",
+        "success": False,
+        "pushed": True,
+        "push_gate": {
+            "method_changed": True,
+            "consequence_announced": False,
+            "player_confirmed": True,
+        },
+    }]
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1", rules_results=rules_results,
+    )
+    violations = [e for e in events if e.get("event_type") == "push_gate_violation"]
+    assert len(violations) == 1
+    missing = violations[0].get("missing_gate_fields") or []
+    assert "consequence_announced" in missing
+    # Demoted: must not be treated as a settled pushed roll.
+    assert rules_results[0].get("pushed") is not True
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing.get("pushed_fail_pending") is not True
+
+
+def test_apply_pushed_failure_writes_pushed_fail_pending(tmp_path):
+    """Valid pushed failure writes pacing-state.pushed_fail_pending (p.84)."""
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-push-fail",
+        "scene_action": "DEEPEN",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1",
+        rules_results=[{
+            "skill": "Spot Hidden",
+            "outcome": "failure",
+            "success": False,
+            "pushed": True,
+            "push_gate": dict(_FULL_PUSH_GATE),
+        }],
+    )
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing.get("pushed_fail_pending") is True
+    assert not any(e.get("event_type") == "push_gate_violation" for e in events)
+    fail_events = [
+        e for e in events
+        if e.get("event_type") == "pushed_roll_failure" or e.get("pushed_fail")
+    ]
+    assert fail_events, "expected a structured pushed-failure event"
+
+
+def test_apply_pushed_failure_underlying_insanity_allows_delusion_consequence(tmp_path):
+    """Underlying insanity (no bout) may use delusion as push-fail consequence (p.163)."""
+    camp = _campaign(tmp_path)
+    inv_dir = camp / "save" / "investigator-state"
+    inv_dir.mkdir(parents=True, exist_ok=True)
+    (inv_dir / "inv1.json").write_text(json.dumps({
+        "temporary_insane": True,
+        "bout_active": False,
+    }))
+    plan = {
+        "decision_id": "d-push-delusion",
+        "scene_action": "DEEPEN",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1",
+        rules_results=[{
+            "skill": "Persuade",
+            "outcome": "failure",
+            "success": False,
+            "pushed": True,
+            "push_gate": dict(_FULL_PUSH_GATE),
+        }],
+    )
+    fail_events = [
+        e for e in events
+        if e.get("event_type") == "pushed_roll_failure"
+        or e.get("delusion_consequence_allowed") is True
+    ]
+    assert fail_events
+    assert any(e.get("delusion_consequence_allowed") is True for e in fail_events)
+
+
+def test_apply_pushed_success_with_gate_does_not_set_pending(tmp_path):
+    """Pushed success still needs the gate, but does not set pushed_fail_pending."""
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-push-ok",
+        "scene_action": "DEEPEN",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    events = coc_director_apply.apply_plan(
+        camp, plan, investigator_id="inv1",
+        rules_results=[{
+            "skill": "Spot Hidden",
+            "outcome": "regular_success",
+            "success": True,
+            "pushed": True,
+            "push_gate": dict(_FULL_PUSH_GATE),
+        }],
+    )
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing.get("pushed_fail_pending") is not True
+    assert not any(e.get("event_type") == "push_gate_violation" for e in events)

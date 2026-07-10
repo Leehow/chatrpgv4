@@ -533,11 +533,46 @@ def _infer_request_kind(atom: dict[str, Any], skill: str | None) -> str:
     return "skill_check"
 
 
+# Keeper Rulebook p.83-85: these roll kinds cannot be pushed.
+_PUSH_INELIGIBLE_KIND_BASES = frozenset({
+    "sanity", "luck", "opposed", "damage", "combat",
+})
+
+
+def _push_kind_base(atom: dict[str, Any], skill: str | None) -> str | None:
+    """Map structured atom fields to a push-policy kind base, or None if unknown.
+
+    Sources (structured only — no prose scan):
+    - ``atom["kind"]`` / inferred kind via ``_infer_request_kind``
+    - skill ``SAN`` / ``LUCK`` (characteristic checks that are never pushable)
+    """
+    if skill:
+        upper = skill.upper()
+        if upper == "SAN":
+            return "sanity"
+        if upper == "LUCK":
+            return "luck"
+    kind = _infer_request_kind(atom, skill)
+    token = str(kind or "").strip().lower()
+    if not token:
+        return None
+    if token.endswith("_check") or token.endswith("_roll"):
+        token = token.rsplit("_", 1)[0]
+    if token in _PUSH_INELIGIBLE_KIND_BASES:
+        return token
+    return None
+
+
 def _atom_roll_contract(atom: dict[str, Any], atom_id: str) -> dict[str, Any]:
     goal = _non_empty_str(atom.get("goal") or atom.get("verb") or atom.get("intent")) or "resolve player action"
     failure = _non_empty_str(atom.get("failure_effect") or atom.get("stakes")) or "failure changes the fiction with a cost"
     group = _non_empty_str(atom.get("roll_density_group") or atom.get("target") or atom_id) or atom_id
+    skill = _non_empty_str(atom.get("skill") or atom.get("roll_skill"))
     push_eligible = bool(atom.get("push_eligible", True))
+    # Auto-disable push for rulebook-ineligible kinds (p.83-85). Explicit
+    # push_eligible=True on those kinds is overridden; unknown kinds keep default.
+    if _push_kind_base(atom, skill) in _PUSH_INELIGIBLE_KIND_BASES:
+        push_eligible = False
     return {
         "schema_version": _SCHEMA_VERSION,
         "goal": goal,

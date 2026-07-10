@@ -1081,6 +1081,95 @@ def _record_applied_decision(save_dir: Path, decision_id: str) -> None:
     _write_json(path, {"applied_decision_ids": ids})
 
 
+# Keeper Rulebook p.83-85: a pushed roll may settle only when all three gate
+# fields are explicitly True (changed method → foreshadowed consequence → confirm).
+_PUSH_GATE_REQUIRED_FIELDS = (
+    "method_changed",
+    "consequence_announced",
+    "player_confirmed",
+)
+
+
+def _push_gate_missing_fields(result: dict[str, Any]) -> list[str]:
+    gate = result.get("push_gate")
+    if not isinstance(gate, dict):
+        return list(_PUSH_GATE_REQUIRED_FIELDS)
+    return [field for field in _PUSH_GATE_REQUIRED_FIELDS if gate.get(field) is not True]
+
+
+def _rules_result_is_failure(result: dict[str, Any]) -> bool:
+    if result.get("success") is False:
+        return True
+    outcome = str(result.get("outcome") or "").strip().lower()
+    return outcome in {"failure", "fumble"}
+
+
+def _read_investigator_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
+    path = Path(campaign_dir) / "save" / "investigator-state" / f"{investigator_id}.json"
+    return _read_json(path, {})
+
+
+def _process_push_roll_gates(
+    campaign_dir: Path,
+    rules_results: list[dict[str, Any]] | None,
+    *,
+    investigator_id: str,
+    decision_id: str,
+    ts: str,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Enforce push-roll gate on rules_results; return (events, pushed_fail_pending).
+
+    Incomplete gates are demoted to ordinary failures (``pushed`` cleared) and
+    emit ``push_gate_violation``. Valid pushed failures set
+    ``pushed_fail_pending`` for pacing and may flag ``delusion_consequence_allowed``
+    during underlying insanity without an active bout (p.163).
+    """
+    events: list[dict[str, Any]] = []
+    pushed_fail_pending = False
+    inv_state: dict[str, Any] | None = None
+
+    for result in rules_results or []:
+        if not isinstance(result, dict) or result.get("pushed") is not True:
+            continue
+        missing = _push_gate_missing_fields(result)
+        if missing:
+            result["pushed"] = False
+            result["push_gate_rejected"] = True
+            events.append({
+                "event_type": "push_gate_violation",
+                "decision_id": decision_id,
+                "investigator_id": investigator_id,
+                "skill": result.get("skill"),
+                "missing_gate_fields": missing,
+                "summary": "pushed roll rejected: incomplete push_gate",
+                "ts": ts,
+            })
+            continue
+        if not _rules_result_is_failure(result):
+            continue
+        pushed_fail_pending = True
+        fail_ev: dict[str, Any] = {
+            "event_type": "pushed_roll_failure",
+            "decision_id": decision_id,
+            "investigator_id": investigator_id,
+            "skill": result.get("skill"),
+            "outcome": result.get("outcome"),
+            "pushed_fail": True,
+            "ts": ts,
+        }
+        if inv_state is None:
+            inv_state = _read_investigator_state(campaign_dir, investigator_id)
+        underlying = bool(
+            inv_state.get("temporary_insane") or inv_state.get("indefinite_insane")
+        )
+        bout_active = bool(inv_state.get("bout_active"))
+        if underlying and not bout_active:
+            fail_ev["delusion_consequence_allowed"] = True
+        events.append(fail_ev)
+
+    return events, pushed_fail_pending
+
+
 def apply_plan(
     campaign_dir: Path,
     plan: dict[str, Any],
@@ -1158,6 +1247,19 @@ def _apply_plan_impl(
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     decision_id = str(plan.get("decision_id", "unknown"))
     action = plan.get("scene_action", "")
+
+    # 0. push-roll gate (Keeper Rulebook p.83-85) — demote incomplete pushed
+    # results before clue/pressure consumers see them as settled pushes.
+    push_events, pushed_fail_pending = _process_push_roll_gates(
+        campaign_dir,
+        rules_results,
+        investigator_id=investigator_id,
+        decision_id=decision_id,
+        ts=ts,
+    )
+    for ev in push_events:
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
 
     # 1. clue reveal / fail-forward resolution
     world_path = save / "world-state.json"
@@ -1294,6 +1396,10 @@ def _apply_plan_impl(
     horror = plan.get("narrative_directives", {}).get("horror_escalation_stage")
     if horror:
         pacing["horror_stage"] = horror
+    # W2-3: pushed failure pending drives next-turn PRESSURE (field written here;
+    # coc_story_director has no pacing consumer yet — see task report).
+    if pushed_fail_pending:
+        pacing["pushed_fail_pending"] = True
     _write_json(pacing_path, pacing)
     for move in pressure_moves:
         ev = {"event_type": "pressure_tick", "decision_id": decision_id,
