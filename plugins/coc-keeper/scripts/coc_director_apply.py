@@ -29,6 +29,7 @@ Spec: docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -576,6 +577,26 @@ def _apply_npc_effects(
         events.append(record)
         _append_jsonl(logs / "events.jsonl", record)
     return events
+
+
+def _storylet_scheduler_debug_enabled(campaign_dir: Path | None = None) -> bool:
+    """Return True when optional storylet-scheduler.jsonl writing is enabled.
+
+    Default OFF: the log has no runtime readers. Enable via env
+    ``COC_DEBUG_STORYLET_SCHEDULER=1`` (or true/yes/on), or campaign.json
+    ``debug.storylet_scheduler_log: true``.
+    """
+    raw = str(os.environ.get("COC_DEBUG_STORYLET_SCHEDULER", "") or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    if campaign_dir is not None:
+        campaign = _read_json(Path(campaign_dir) / "campaign.json", {})
+        debug = campaign.get("debug") if isinstance(campaign, dict) else None
+        if isinstance(debug, dict) and debug.get("storylet_scheduler_log") is True:
+            return True
+    return False
 
 
 def _storylet_scheduler_record(
@@ -1691,7 +1712,7 @@ def _apply_plan_impl(
         _write_json(ledger_path, ledger)
 
     scheduler_record = _storylet_scheduler_record(plan, investigator_id, ts)
-    if scheduler_record is not None:
+    if scheduler_record is not None and _storylet_scheduler_debug_enabled(campaign_dir):
         _append_jsonl(logs / "storylet-scheduler.jsonl", scheduler_record)
 
     scene_progress = (plan.get("narrative_directives") or {}).get("scene_progress")

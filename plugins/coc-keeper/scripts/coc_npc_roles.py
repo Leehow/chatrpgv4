@@ -7,9 +7,9 @@ P1-4 root cause: shipped NPC records carry a structured
 ``social_role`` and therefore returns empty authority for every shipped NPC,
 turning them into tool-characters.
 
-This module is the compile bridge: it maps the structured keyword to a
-``npc-social-roles.json`` template via the ``npc-role-keywords.json`` table and
-materialises a full ``social_role`` dict on each NPC record. The keyword→template
+This module is the compile bridge: it maps the structured relationship enum to a
+``npc-social-roles.json`` template via the ``npc-role-templates.json`` table and
+materialises a full ``social_role`` dict on each NPC record. The enum→template
 mapping lives entirely here + in the JSON table; the core persona module
 (``coc_npc_persona.py``) stays free of concrete role strings so its guard test
 keeps passing.
@@ -36,7 +36,9 @@ _DEFAULT_SOCIAL_ROLE: dict[str, Any] = {
 }
 
 ROLE_TEMPLATES_FILENAME = "npc-social-roles.json"
-ROLE_KEYWORDS_FILENAME = "npc-role-keywords.json"
+ROLE_MAPPING_FILENAME = "npc-role-templates.json"
+# Back-compat alias for older call sites / docs that still say "keywords".
+ROLE_KEYWORDS_FILENAME = ROLE_MAPPING_FILENAME
 
 
 def _as_str_list(value: Any) -> list[str]:
@@ -107,14 +109,15 @@ def load_role_templates(rules_dir: Path) -> dict[str, dict[str, Any]]:
     return templates
 
 
-def load_role_keywords(rules_dir: Path) -> dict[str, dict[str, Any]]:
-    """Load ``npc-role-keywords.json`` from ``rules_dir``.
+def load_role_mappings(rules_dir: Path) -> dict[str, dict[str, Any]]:
+    """Load ``npc-role-templates.json`` from ``rules_dir``.
 
-    Returns the ``mappings`` dict (keyword→{template_id?, initiative_style_override?}).
-    Missing file returns an empty mapping (compile does not hard-fail on a
-    missing keyword table; callers without a table simply get no role injected).
+    Returns the ``mappings`` dict (relationship enum →
+    ``{template_id?, initiative_style_override?}``). Missing file returns an
+    empty mapping (compile does not hard-fail on a missing table; callers
+    without a table simply get no role injected).
     """
-    path = Path(rules_dir) / ROLE_KEYWORDS_FILENAME
+    path = Path(rules_dir) / ROLE_MAPPING_FILENAME
     if not path.exists():
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -122,6 +125,11 @@ def load_role_keywords(rules_dir: Path) -> dict[str, dict[str, Any]]:
     if not isinstance(mappings, dict):
         return {}
     return {str(k): (v if isinstance(v, dict) else {}) for k, v in mappings.items()}
+
+
+def load_role_keywords(rules_dir: Path) -> dict[str, dict[str, Any]]:
+    """Deprecated alias for ``load_role_mappings`` (N8 rename)."""
+    return load_role_mappings(rules_dir)
 
 
 def expand_npc_social_roles(
@@ -176,10 +184,10 @@ def expand_from_dir(
 ) -> dict[str, Any]:
     """Load npc-agendas.json from ``scenario_dir`` and return role-expanded copy.
 
-    Resolves templates + keywords from ``rules_dir`` (defaults to the shipped
-    ``references/rules-json`` next to starter scenarios). Reads
-    ``scenario_dir/npc-agendas.json``; does not write back. Callers persist the
-    result themselves.
+    Resolves templates + relationship→template mappings from ``rules_dir``
+    (defaults to the shipped ``references/rules-json`` next to starter
+    scenarios). Reads ``scenario_dir/npc-agendas.json``; does not write back.
+    Callers persist the result themselves.
     """
     scenario_dir = Path(scenario_dir)
     if rules_dir is None:
@@ -188,6 +196,6 @@ def expand_from_dir(
         )
     rules_dir = Path(rules_dir)
     templates = load_role_templates(rules_dir)
-    keywords = load_role_keywords(rules_dir)
+    keywords = load_role_mappings(rules_dir)
     agendas = json.loads((scenario_dir / "npc-agendas.json").read_text(encoding="utf-8"))
     return expand_npc_social_roles(agendas, templates, keywords=keywords)

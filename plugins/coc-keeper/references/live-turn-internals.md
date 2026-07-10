@@ -44,3 +44,10 @@ Internal pipeline (owned by `scripts/coc_live_turn_runner.py`):
 
 When debugging a single stage, prefer driving that stage's module directly in
 a sandbox campaign over re-implementing this sequence in chat.
+
+## Optional debug logs
+
+- `logs/storylet-scheduler.jsonl` — storylet trigger/deck/filter decision
+  traces written by `coc_director_apply`. **Default OFF** (no runtime readers).
+  Enable with env `COC_DEBUG_STORYLET_SCHEDULER=1` or campaign.json
+  `{"debug": {"storylet_scheduler_log": true}}`.

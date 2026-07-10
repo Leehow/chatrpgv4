@@ -661,18 +661,20 @@ def build_time_signals(
 
 
 # --------------------------------------------------------------------------- #
-# Fork (IF branch) — stub for v1
+# Fork (IF branch) — not part of the public API (stub retained for experiments)
 # --------------------------------------------------------------------------- #
-def fork_timeline(
+def _fork_timeline(
     campaign_dir: Path,
     *,
     new_branch_id: str,
     forked_from: dict[str, Any],
 ) -> None:
-    """Create a new timeline branch from a snapshot. (Stub for v1.)
+    """Internal stub: create a timeline branch marker. Not a public API.
 
-    Full implementation will generate a new timeline_id, copy state,
-    and mark forked_from. For now this is a placeholder.
+    Full IF-branch support would generate a new timeline_id, copy campaign
+    state from a snapshot, and mark ``forked_from``. Callers must not rely on
+    this helper until that lands; the former public ``fork_timeline`` name was
+    removed from the export surface in N8.
     """
     path = _time_state_path(campaign_dir)
     state = _read_json(path)

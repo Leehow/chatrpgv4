@@ -184,7 +184,8 @@ def test_apply_persists_storylet_narrative_fields_to_event_log(tmp_path):
     assert storylet_event["rolled_variants"]["sensory_detail_1d6"] == "空气里有一丝金属味。"
 
 
-def test_apply_writes_storylet_scheduler_jsonl(tmp_path):
+def test_apply_writes_storylet_scheduler_jsonl(tmp_path, monkeypatch):
+    monkeypatch.setenv("COC_DEBUG_STORYLET_SCHEDULER", "1")
     camp = _campaign(tmp_path)
     trace = {
         "schema_version": 1,
@@ -248,6 +249,27 @@ def test_apply_writes_storylet_scheduler_jsonl(tmp_path):
     assert record["candidate_counts"]["after_story_need_filter"] == 1
     assert record["selected"]["storylet_id"] == "right-clue"
     assert record["rejected_examples"][0]["reason"] == "deck_mismatch"
+
+
+def test_apply_skips_storylet_scheduler_jsonl_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("COC_DEBUG_STORYLET_SCHEDULER", raising=False)
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-storylet-trace-off",
+        "scene_action": "REVEAL",
+        "turn_input": {"active_scene_id": "archive", "turn_number": 3},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_enrichment": {
+            "storylet_trigger": {"triggered": True, "reason": "forced", "polarity": "neutral"},
+            "storylet_scheduler": {"story_need": {"need_id": "clue_delivery"}},
+        },
+        "storylet_moves": [],
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    assert not (camp / "logs" / "storylet-scheduler.jsonl").exists()
 
 
 def test_apply_writes_scene_progress_jsonl(tmp_path):

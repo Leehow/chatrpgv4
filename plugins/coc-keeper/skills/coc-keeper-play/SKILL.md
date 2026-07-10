@@ -124,12 +124,14 @@ sync mode is the non-default legacy behavior that writes each JSONL audit
 record immediately, and lower-level `apply_plan(...)` calls that bypass the
 runner still start from sync unless told otherwise.
 
-When storylet scheduling runs, preserve its audit trail. The apply layer writes
-one JSONL record per turn to `logs/storylet-scheduler.jsonl` when an enriched
-plan carries `storylet_trigger`, `storylet_scheduler`, or `storylet_moves`.
-Use this log for post-session tuning: it records the trigger reason, inferred
-story need, candidate decks, filter counts, selected storylet, rejected examples,
-and ledger update without exposing hidden scenario prose.
+When storylet scheduling runs, its detailed audit trail is optional. The apply
+layer writes one JSONL record per turn to `logs/storylet-scheduler.jsonl` only
+when debug logging is enabled (`COC_DEBUG_STORYLET_SCHEDULER=1` or campaign.json
+`debug.storylet_scheduler_log: true`) and an enriched plan carries
+`storylet_trigger`, `storylet_scheduler`, or `storylet_moves`. Use this log for
+post-session tuning: it records the trigger reason, inferred story need,
+candidate decks, filter counts, selected storylet, rejected examples, and ledger
+update without exposing hidden scenario prose.
 
 When scene progress governance runs, preserve its audit trail. The apply layer
 writes one JSONL record to `logs/scene-progress.jsonl` when a plan carries
@@ -354,9 +356,10 @@ pass prevents that single action from feeling like a single-track plot.
   and bound target as separate anti-repeat signatures. If a family was used
   recently, choose a different family even if the literal event text differs.
 - **Keep scheduler decisions inspectable.** When a storylet is selected, its
-  move should carry `scheduler_trace`; after apply, `logs/storylet-scheduler.jsonl`
-  should show why the trigger opened, what story need/deck was chosen, how many
-  candidates survived each filter, and which examples were rejected.
+  move should carry `scheduler_trace`; with debug logging enabled
+  (`COC_DEBUG_STORYLET_SCHEDULER=1`), `logs/storylet-scheduler.jsonl` shows why
+  the trigger opened, what story need/deck was chosen, how many candidates
+  survived each filter, and which examples were rejected.
 - **Side beats must be thematic.** `incident_moves` and `storylet_moves` should
   complicate the scene, reveal character, echo the scenario theme, or return a
   side thread to the mainline. They must not replace the player's chosen goal

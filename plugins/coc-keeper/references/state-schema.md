@@ -85,7 +85,8 @@ Campaigns store temporary and scenario-specific state:
 │   ├── live-turn-runtime.jsonl     # run_live_turn receipts (decision ids, intent
 │   │                               # resolution, recording mode, auto-advance)
 │   ├── scene-state-patches.jsonl   # detailed state_patch payloads (queued)
-│   ├── storylet-scheduler.jsonl    # storylet trigger/deck/filter decision traces
+│   ├── storylet-scheduler.jsonl    # OPTIONAL debug: storylet trigger/deck/filter
+│   │                               # traces (off by default; see live-turn-internals)
 │   ├── scene-progress.jsonl        # bridge/transition scene governance traces
 │   ├── npc-agency.jsonl            # NPC agency move decision traces
 │   ├── npc-generation.jsonl        # NPC genesis pipeline audits
