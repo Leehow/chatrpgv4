@@ -829,7 +829,7 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 
 ## R-5 PDF 编译器硬化（F1-F4）+ CI
 
-- [ ] 编译器补校验：ID 唯一、引用完整性、可达性/死节点、多路线独立、start/finale、leads_to 目标、source_refs 锚点存在性；`origin: source|inferred|improvised` + confidence；依赖 doctor；GitHub Actions CI。
+- [x] 编译器补校验：ID 唯一、引用完整性、可达性/死节点、多路线独立、start/finale、leads_to 目标、source_refs 锚点存在性；`origin: source|inferred|improvised` + confidence；依赖 doctor；GitHub Actions CI。
 
 ---
 
