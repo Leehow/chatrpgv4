@@ -9,7 +9,7 @@
   "homepage": "https://github.com/Leehow/chatrpgv4",
   "repository": "https://github.com/Leehow/chatrpgv4",
   "license": "Apache-2.0",
-  "logo": "./assets/chatrpg-logo.png",
+  "logo": "assets/logo.png",
   "keywords": [
     "call-of-cthulhu",
     "coc",

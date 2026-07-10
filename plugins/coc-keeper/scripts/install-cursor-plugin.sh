@@ -23,5 +23,24 @@ rsync -a --delete \
   --exclude '*.pyc' \
   "$SRC/" "$DEST/"
 
+# Cursor resolves relative logo paths to raw.githubusercontent.com. For a local
+# install that is not published yet, rewrite to a file:// URL so the icon shows.
+python3 - "$DEST" <<'PY'
+import json, sys
+from pathlib import Path
+dest = Path(sys.argv[1])
+manifest = dest / ".cursor-plugin" / "plugin.json"
+logo = dest / "assets" / "logo.png"
+if not logo.is_file():
+    logo = dest / "assets" / "chatrpg-logo.png"
+data = json.loads(manifest.read_text())
+if logo.is_file():
+    data["logo"] = logo.resolve().as_uri()
+    manifest.write_text(json.dumps(data, indent=2) + "\n")
+    print(f"logo: {data['logo']}")
+else:
+    print("warning: no logo asset found", file=sys.stderr)
+PY
+
 echo "installed: $DEST"
 echo "next: Cursor → Developer: Reload Window, then check Customize → Plugins"
