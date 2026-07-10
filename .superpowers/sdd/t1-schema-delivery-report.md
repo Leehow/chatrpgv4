@@ -2,8 +2,14 @@
 
 **Status:** ✅ Complete
 **Branch:** `codex/source-refs-delivery`
-**Commit:** see `git log` (committed below)
+**Commit:** `2fcc425`
 **Date:** 2026-07-05
+
+> **当前状态补记（2026-07-10，工作树尚未提交）：** 本报告正文保留 T1
+> 初次落地时的兼容策略。当前工作树已移除 `_infer_clue_type` 自由文本启发式；
+> 缺少 `delivery_kind` 的线索一律保守视为 `obscured` 并产生结构化迁移警告。
+> 因此下文“heuristic fallback”只属于历史实现证据，不是当前运行时说明。
+> 插件也已由 `e314156` 收敛为单一 `plugins/coc-keeper/` track。
 
 ## What was done
 

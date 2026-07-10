@@ -4,7 +4,7 @@
 
 > **实现进度对账（2026-07-10）：全部 Task 已落地提交。** 执行时 checkbox 未逐项勾选，以 commit 对账：
 > Task1 `6f6c174`（_scene_tags 接线）· Task2 `a452caa`（校验软警告）· Task3-5 `2ae9d8a`（schema/protocol/SKILL 合约）· Task6 `7822913`（white-war affordances+opening tag）· Task7 `21da731` + 修复 `6d1ca34`/`2a542e9`/`cdf340f`（开场 storylet 真正触发并胜选）· Task8 全量回归。
-> **原"已知范围边界"已收口**：`arrival`/`first_contact` 场景型 storylet 已入库（`arrival-terrain-wrong-note`/`arrival-predecessor-trace`/`first-contact-sound-answers-back`/`first-contact-scale-collapse`），white-war 的 crossing-saddle/austrian-positions 标 `arrival`、blast-chamber/whistle-approaches 标 `first_contact`，端到端选中测试见 `tests/test_storylets.py::test_e2e_white_war_scene_entries_summon_tagged_storylets_real_data`。
+> **原"已知范围边界"已收口**（`e68ff6d`）：`arrival`/`first_contact` 场景型 storylet 已入库（`arrival-terrain-wrong-note`/`arrival-predecessor-trace`/`first-contact-sound-answers-back`/`first-contact-scale-collapse`），white-war 的 crossing-saddle/austrian-positions 标 `arrival`、blast-chamber/whistle-approaches 标 `first_contact`，端到端选中测试见 `tests/test_storylets.py::test_e2e_white_war_scene_entries_summon_tagged_storylets_real_data`。
 
 **Goal:** 让 P0-1（多线分叉）/P0-3（storylet 触发）/P0-4（focus 刷新）三个"机制已实现"的缺陷在生产真正生效，方法是：扩展 LLM 编译合约 + 给 white-war starter 场景补真实数据 + 修 storylet 匹配接线 + 校验器软警告 + 库内补开场 storylet。
 

@@ -128,7 +128,10 @@ codex plugin marketplace upgrade
 
 ## 开发 / Development
 
-需要 Python 3.10+。
+版本发布、tag 之后的已提交更新和明确标注的在途变更，统一记录在
+[CHANGELOG.md](CHANGELOG.md)。
+
+需要 Python 3.11+（`coc_completion_audit.py` 使用标准库 `tomllib`）。
 
 安装测试依赖：
 

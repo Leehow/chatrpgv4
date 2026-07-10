@@ -1,13 +1,16 @@
 # W5 Task 2 Report: P2-3' — list_investigators registry
 
+> **维护说明（2026-07-10）：** 本报告中的双轨同步和两个副本路径只属于
+> 历史执行证据；`e314156` 后唯一 canonical track 为 `plugins/coc-keeper/`。
+
 ## Status
 COMPLETE
 
 ## Commit
-Commit directly on `release/0.15-alpha` (no feature branch).
+Landed directly on the release branch as `8bcd077`.
 - Message: `feat(coc): add list_investigators registry (P2-3')`
 - Files: 4 changed, +203 lines — `.superpowers/sdd/w5-t2-report.md`, `plugins/coc-keeper/scripts/coc_state.py`, `plugins/coc-keeper/scripts/coc_state.py`, `tests/test_state.py`.
-- Hash: run `git log -1 --format=%H` for the above message; embedding the hash here is unstable because amending to record the hash changes the hash. The commit is the HEAD of `release/0.15-alpha` as of this report.
+- Historical branch at execution time: `release/0.15-alpha`.
 
 ## What was done
 Added `list_investigators(root)` to `plugins/coc-keeper/scripts/coc_state.py` (canonical) and synced to `plugins/coc-keeper/scripts/coc_state.py`.

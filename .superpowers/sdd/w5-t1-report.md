@@ -1,7 +1,11 @@
 # W5 Task 1 Report: P2-1 — 奖励骰展示十位/个位分量
 
+> **维护说明（2026-07-10）：** 本报告中的双轨传播、byte-identical 与 sync
+> 检查只属于历史执行证据；`e314156` 后唯一 canonical track 为
+> `plugins/coc-keeper/`。
+
 > Status: COMPLETE
-> Commit: see git log on branch `feat/w5-t1-percentile-breakdown`
+> Commit: `0aa4652`
 > Approach: TDD (red → green), canonical-first single-track sync.
 
 ## Summary

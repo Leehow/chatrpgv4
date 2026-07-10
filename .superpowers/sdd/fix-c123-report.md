@@ -1,6 +1,10 @@
 # Fix C1/C2/C3 — scene_tag_beat storylets bypass story_need filter and win selection
 
-Status: **DONE** (ready to commit)
+> **维护说明（2026-07-10）：** 本报告中的插件副本同步命令仅为历史执行
+> 证据；`e314156` 后只维护 `plugins/coc-keeper/`，不得按旧记录重建 ZCode
+> track 或已删除的同步流程。
+
+Status: **DONE**（landed as `6d1ca34`）
 Branch: `release/0.15-alpha`
 
 ## The defect (verified)

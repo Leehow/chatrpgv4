@@ -2,6 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **实现进度对账（2026-07-10）：全部 Task 已落地提交。** 正文 checkbox
+> 保留为历史执行模板；当前状态以 commit 对账为准：Task1 `3a9dd4d` +
+> `8f91acc`（runtime config）· Task2 `a4ee30b`（Event + schema）· Task3
+> `dd09c0c` + `b0ab3e6`（live-turn mapper + roll 结构守卫）· Task4
+> `ee501fc`（PublicState）· Task5 `19366f6`（Python session SDK）· Task6
+> `593f300` + `1c246f6`（Pi bridge + 失败上报）· Task7 `eaa5398`
+>（single-track runtime 边界与 no-Exa 约束）。实现计划归档提交为 `546785a`。
+
 **Goal:** Add an open headless COC agent runtime (`runtime/`) with a project-level `debug` | `pi` brain switch, shared Event/PublicState protocol, Python SDK, and a thin Pi adapter — without forking `plugins/coc-keeper/`.
 
 **Architecture:** Python owns protocol, config, session SDK, and the `debug` path (map `run_live_turn` output → Events). `pi` mode shells out to a small Node adapter that embeds `@earendil-works/pi-coding-agent`, constrains tools, and returns the same Event JSON. Both brains read `.coc/runtime.json` and the same campaign state under `.coc/`.

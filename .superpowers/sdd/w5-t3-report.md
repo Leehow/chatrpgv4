@@ -1,13 +1,16 @@
 # W5 Task 3 Report: P2-4' — 跨模块 API 索引
 
+> **维护说明（2026-07-10）：** 本报告中的双轨同步和两个副本路径只属于
+> 历史执行证据；`e314156` 后唯一 canonical track 为 `plugins/coc-keeper/`。
+
 ## Status
 COMPLETE
 
 ## Commit
-Commit directly on `release/0.15-alpha` (no feature branch).
+Landed directly on the release branch as `8ae67bd`.
 - Message: `feat(coc): cross-module helper API index (P2-4')`
 - Files: 4 changed — `plugins/coc-keeper/scripts/coc_api.py` (new), `plugins/coc-keeper/scripts/coc_api.py` (new, synced), `tests/test_api.py` (new), `.superpowers/sdd/w5-t3-report.md` (this file).
-- Hash: recorded post-commit in the "Commit hash" section below (the hash is fixed once the commit is created; embedding it before committing would change it via amend, so it is read back after the commit lands).
+- Historical branch at execution time: `release/0.15-alpha`.
 
 ## What was done
 Created `plugins/coc-keeper/scripts/coc_api.py` with `api_index()` — a single discovery point that aggregates coc_roll's `public_api_index()` (5 roll helpers) and a curated `coc_rules` public-fn section (6 rules helpers), for a total of 11 entries.

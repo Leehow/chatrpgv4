@@ -1,5 +1,11 @@
 # Task 1 Report: Roll Contract Normalization
 
+> **当前状态补记（2026-07-10，工作树尚未提交）：** “Critical Finding Fix”
+> 记录的是当时对 legacy delivery string inference 增加审计告警的历史过程。
+> 当前工作树不再用自由文本推断交付语义：缺 `delivery_kind` 时保守降级为
+> `obscured` 并记录 `conservative_obscured_default`。文中的双轨同步失败也只
+> 是执行时证据；`e314156` 后唯一 canonical track 为 `plugins/coc-keeper/`。
+
 ## Scope
 
 - Task: `Task 1: Roll Contract Normalization`

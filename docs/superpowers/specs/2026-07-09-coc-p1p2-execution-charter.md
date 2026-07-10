@@ -1,7 +1,7 @@
 # P1+P2 全量执行章程（Goal）
 
 **Date:** 2026-07-09
-**Status:** 执行中（连续，不打断）
+**Status:** 已完成（2026-07-10；波次 3-5 全部落地并完成 commit 对账）
 **Base spec:** `docs/superpowers/specs/2026-07-08-coc-defect-master-blueprint.md`（P1/P2 浓缩展开 + 勘误）
 
 ## 目标
@@ -17,7 +17,8 @@
   2. 需要不可逆/破坏性操作：删文件、改外部 API 契约、force push 等。
   3. 全部完成。
 - **高风险项保守处理**：P2-6（主流程并行化）触及 live turn 同步主流程，风险高——我只做 flush 可靠性（ack/超时/健康检查），**不**强行并行化主流程的 director/enrichment/rules；该降级记录在 plan。
-- **质量门不降**：每 Task 仍 TDD + 独立 review + sync 门禁；final review 抓到的 Critical 必修。
+- **质量门不降（执行时）**：每 Task 仍 TDD + 独立 review + sync 门禁；final review 抓到的 Critical 必修。
+- **当前维护说明（2026-07-10）**：以上 sync 门禁保留为历史执行证据；`e314156` 移除双轨后，当前对应门禁是 `test_plugin_metadata.py`，不得重建已删除的同步流程。
 
 ## 波次与 plan 文档
 
@@ -27,9 +28,17 @@
 | 波次 4 | 节奏 + 文字（P1-1/2/3/7/8 + P2-2） | `docs/superpowers/plans/2026-07-09-coc-p1p2-pacing-prose.md` |
 | 波次 5 | UX + 记录（P2-1/3'/4'/5/6/7） | `docs/superpowers/plans/2026-07-09-coc-p1p2-ux-logging.md` |
 
-## 进度台账
+## 完成台账
 
-`.superpowers/sdd/progress-p1p2.md`（连续更新，compaction 后据此续航）。
+原计划中的临时 `.superpowers/sdd/progress-p1p2.md` 未进入版本库，不再作为
+durable 状态源。完成情况以三个波次 plan 顶部的“实现进度对账”块为准：
+
+- 波次 3：`docs/superpowers/plans/2026-07-09-coc-p1p2-npc.md`
+- 波次 4：`docs/superpowers/plans/2026-07-09-coc-p1p2-pacing-prose.md`
+- 波次 5：`docs/superpowers/plans/2026-07-09-coc-p1p2-ux-logging.md`
+
+总收口记录见
+`docs/superpowers/specs/2026-07-08-coc-defect-master-blueprint.md` 的修订记录。
 
 ## 跨波次约束（沿用）
 

@@ -1,5 +1,9 @@
 # W4 Task 4 Report: P1-2 — 空 handle 反压继续推进
 
+> **维护说明（2026-07-10）：** 本报告中的“双副本一致”与 sync 记录只描述
+> 当时的执行环境；`e314156` 后只维护 `plugins/coc-keeper/`，不得据此重建
+> ZCode track 或已删除的同步流程。
+
 ## Status
 
 DONE. The live turn runner no longer strands the player on an empty
@@ -11,9 +15,8 @@ the director gets another chance to surface a handle/threat/NPC question. The
 
 ## Commit
 
-`fix(coc): don't stop on empty handles when not a real fork (P1-2)`
-(see `git log` for hash; commit created at end of task on branch
-`release/0.15-alpha`)
+`9d5ec0b` — `fix(coc): don't stop on empty handles when not a real fork (P1-2)`
+（补充覆盖提交：`0dd1827`）。
 
 ## What was done
 

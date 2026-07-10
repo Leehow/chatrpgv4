@@ -1,8 +1,8 @@
 # COC 插件缺陷大蓝图（Master Defect Blueprint）
 
 **Date:** 2026-07-08
-**Status:** 设计定稿，待用户复审（brainstormed → spec pending review）
-**Canonical track:** `plugins/coc-keeper/`（Codex single-track）。历史单轨 `plugins/coc-keeper/` 已移除；本文所有 `file:line` 指向 `plugins/coc-keeper/`。
+**Status:** 已完成并于 2026-07-10 关闭（波次 0-5 与 Idea Roll signpost 均已对账；后续见 `2026-07-10-next-phase-optimization-audit.md`）
+**Canonical track:** `plugins/coc-keeper/`（Codex single-track）。平台差异能力用显式门控；不维护 host-specific 插件副本。本文所有 `file:line` 均指向该目录。
 **审计方法:** 本文每一条缺陷均经代码与日志逐行核实（file:line 可溯），非照抄原始清单。原始清单中经核实不成立或被夸大的条目，单列"原清单勘误"节修正。
 
 > 本文件是 COC 插件缺陷的**唯一真相源（single source of truth）**。修复实现以本文为基线；新增缺陷或勘误请追加修订记录，勿另起炉灶。
