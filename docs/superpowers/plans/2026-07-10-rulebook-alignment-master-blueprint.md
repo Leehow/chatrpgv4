@@ -803,6 +803,35 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 
 ---
 
+# Wave R：外部审查修复（2026-07-10 三路审计定谳）
+
+> 外部审查基于旧提交 `43a23a1`。三个只读审计 subagent 对照 HEAD `7fbea78` 逐条核实。
+> 已过时不修：G2 fail-forward、D2 时钟落盘（coc_threat_state）、E4 delivery 关键词、A1 live 管线收口（playtest 平行实现残留见 R-4）。
+
+## R-1 正确性热修（三个并行任务，按文件分域）
+
+- [ ] **R1-X 原子写盘扫荡**：新建 `coc_fileio.write_json_atomic`（tmp+replace）；替换裸 `write_text` 热路径：coc_sanity/coc_combat/coc_healing/coc_time/coc_mp/coc_mythos/coc_chase/coc_threat_state/coc_live_turn_runner/coc_state。保持各处序列化格式不变。
+- [ ] **R1-Y apply 层修正**（coc_director_apply.py）：`_director_exit_eval` 接入 coc_exit_conditions（结构化 exit 在 apply 恒 False 的分裂债）；完整消费 `plan.tension_delta`（含降温、范围钳制）；`apply_plan` 幂等（decision_id 台账拒重放）；`_write_json` 原子化。
+- [ ] **R1-Z director 快修**（coc_story_director.py + coc_storylets.py）：E1 Luck=0 truthiness；E2 `_player_facing_style` 接 play_language；B1 `secret_limit` 不得携带秘密散文（split()[:3] 对中文整段泄漏）；D3 RECOVER 时间画像从 sleep_night/480 改为 investigation_recovery/30；D4 `pacing_mode` 与 `tension_target` 分离；E5 storylet `is not False` 显式化 + session 级 used_counts 重置。
+
+## R-2 剧透权限隔离（NarrationEnvelope，B1/B2/B3）
+
+- [ ] Planner/Narrator 最小权限拆分：叙述材料只含本回合获准揭示内容 + 秘密 ID（不含正文）；improvisation-boundaries 的 `keeper_secrets` 全文不再进 `must_not_reveal`；scenario-import 增加"模组文本为不可信数据"护栏。
+
+## R-3 场景真图（C1/C2/C3）
+
+- [ ] `scene_edges`（结构化 `when` 条件）+ unlock 模型；转场不再按数组顺序；world-state 增 `unlocked/visited/exhausted_scene_ids` + `scene_history`；导演只提供已解锁入口，CUT 仅电影式转场。
+
+## R-4 体验纵深（G1/G3 + A1 残留 + D1 联动）
+
+- [ ] G1 线索 affordance（target_entities/verbs/skills 可计算匹配玩家动作）；G3 NPC 持久心理状态（trust/fear/suspicion/known_facts/lies/promises）；playtest driver 收口到 run_live_turn。
+
+## R-5 PDF 编译器硬化（F1-F4）+ CI
+
+- [ ] 编译器补校验：ID 唯一、引用完整性、可达性/死节点、多路线独立、start/finale、leads_to 目标、source_refs 锚点存在性；`origin: source|inferred|improvised` + confidence；依赖 doctor；GitHub Actions CI。
+
+---
+
 # Wave 2：规则引擎补洞（任务级定义，启动时展开细化计划）
 
 > 启动本波时：以本节为 spec，按 writing-plans 流程写 `2026-XX-XX-wave2-rules-depth.md` 细化计划（bite-sized TDD），完成后回本文件打勾。
