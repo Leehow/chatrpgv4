@@ -22,6 +22,28 @@
     "after_zero_costs_hp_one_for_one": true,
     "max_cannot_exceed_pow_divided_5": true
   },
+  "push_side_effects": {
+    "minor": [
+      {"roll": 1, "effect": "Temporary blindness for 1D6 rounds; Perception checks at Extreme difficulty."},
+      {"roll": 2, "effect": "Caster takes 1D3 damage as the spell backlashes through flesh."},
+      {"roll": 3, "effect": "Caster falls unconscious for 1D10 minutes."},
+      {"roll": 4, "effect": "Caster ages 1D6 years instantly; appearance and vitality shift."},
+      {"roll": 5, "effect": "A nearby mundane object warps or shatters; witnesses may need a Sanity check."},
+      {"roll": 6, "effect": "Caster is struck mute for 1D6 hours; cannot cast further spells while mute."},
+      {"roll": 7, "effect": "Something notices: a Mythos entity briefly turns its attention toward the caster."},
+      {"roll": 8, "effect": "Caster suffers a temporary phobia or mania related to the spell's imagery (1D6 days)."}
+    ],
+    "major": [
+      {"roll": 1, "effect": "Permanent blindness in one eye, or temporary total blindness for 1D6 days."},
+      {"roll": 2, "effect": "Caster takes 1D6 damage and is knocked prone by the backlash."},
+      {"roll": 3, "effect": "Caster falls into a coma for 1D6 days (or until medical intervention)."},
+      {"roll": 4, "effect": "Caster ages 2D10 years; POW or CON may be reduced at Keeper discretion."},
+      {"roll": 5, "effect": "The spell's intended effect manifests uncontrollably on a random nearby target."},
+      {"roll": 6, "effect": "Caster is possessed or ridden for 1D10 rounds by a fragment of the spell's entity."},
+      {"roll": 7, "effect": "The entity the spell concerns becomes aware of the caster and may act against them."},
+      {"roll": 8, "effect": "Caster gains an indefinite insanity related to the spell, or loses 1D10 POW permanently."}
+    ]
+  },
   "spells": [
     {
       "name": "Apportion Ka",

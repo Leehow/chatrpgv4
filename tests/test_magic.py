@@ -142,15 +142,6 @@ def test_cast_zero_mp_spell_spends_nothing():
 # --------------------------------------------------------------------------- #
 # cast_spell -- pushed cast
 # --------------------------------------------------------------------------- #
-def test_pushed_cast_always_succeeds_even_on_high_roll():
-    # Pushed: roll is high but spell still works.
-    state = {"pow": 60, "current_mp": 20, "current_hp": 12, "current_san": 70}
-    res = coc_magic.cast_spell("Cloud Memory", state, is_first_cast=True,
-                               pushed=True, rng=random.Random(99))
-    assert res["pushed"] is True
-    assert res["success"] is True  # pushed cast always works
-
-
 def test_pushed_cast_multiplies_mp_by_1d6():
     """Pushed cast: base MP x 1D6 multiplier, with HP overspill."""
     # Breath of the Deep cost_mp = 8 (fixed). Multiplier is 1D6.
@@ -172,6 +163,127 @@ def test_pushed_cast_overspills_to_hp():
     assert res["pushed"] is True
     assert res["hp_damage"] >= 1
     assert state["current_mp"] == 0
+
+
+def _seed_for_hard_pow(pow_value: int, *, succeed: bool) -> int:
+    """Find an RNG seed whose Hard POW percentile outcome matches succeed."""
+    target = pow_value // 2
+    for s in range(1, 800):
+        probe = coc_magic.coc_roll.percentile_check(
+            pow_value, difficulty="hard", rng=random.Random(s)
+        )
+        ok = probe["roll"] <= target
+        if ok == succeed:
+            return s
+    raise AssertionError("no suitable seed found")
+
+
+def test_pushed_cast_failure_multiplies_san_and_rolls_side_effect():
+    """Failed pushed cast (p.178-179): MP×1D6, SAN×1D6, plus 1D8 side-effect."""
+    # Breath of the Deep: cost_mp=8, cost_sanity=1D6. No tier field → minor (mp<10).
+    seed = _seed_for_hard_pow(60, succeed=False)
+    state = {"pow": 60, "current_mp": 100, "current_hp": 12, "current_san": 70}
+    res = coc_magic.cast_spell(
+        "Breath of the Deep", state, is_first_cast=True,
+        pushed=True, rng=random.Random(seed),
+    )
+    assert res["pushed"] is True
+    assert res["success"] is False
+    assert res["mp_spent"] in {8, 16, 24, 32, 40, 48}
+    # SAN cost (1D6) × same push multiplier as MP.
+    multiplier = res["mp_spent"] // 8
+    assert 1 <= multiplier <= 6
+    assert res["san_lost"] >= 1
+    assert res["san_lost"] % multiplier == 0 or multiplier == 1
+    base_san = res["san_lost"] // multiplier
+    assert 1 <= base_san <= 6
+    assert state["current_san"] == 70 - res["san_lost"]
+    se = res["side_effect"]
+    assert se["tier"] == "minor"
+    assert 1 <= se["roll"] <= 8
+    assert isinstance(se["effect"], str) and se["effect"]
+
+
+def test_pushed_cast_failure_major_tier_when_mp_cost_ge_10():
+    """No push_tier field: resolved mp_cost >= 10 → major side-effect table."""
+    # Apportion Ka: cost_mp=10 → major tier.
+    seed = _seed_for_hard_pow(60, succeed=False)
+    state = {"pow": 60, "current_mp": 200, "current_hp": 12, "current_san": 70}
+    res = coc_magic.cast_spell(
+        "Apportion Ka", state, is_first_cast=True,
+        pushed=True, rng=random.Random(seed),
+    )
+    assert res["success"] is False
+    assert res["side_effect"]["tier"] == "major"
+    assert 1 <= res["side_effect"]["roll"] <= 8
+
+
+def test_pushed_cast_success_has_no_side_effect_table():
+    """Successful pushed cast still multiplies MP but skips the side-effect table."""
+    seed = _seed_for_hard_pow(60, succeed=True)
+    state = {"pow": 60, "current_mp": 100, "current_hp": 12, "current_san": 70}
+    res = coc_magic.cast_spell(
+        "Breath of the Deep", state, is_first_cast=True,
+        pushed=True, rng=random.Random(seed),
+    )
+    assert res["success"] is True
+    assert res["pushed"] is True
+    assert res.get("side_effect") is None
+    assert res["mp_spent"] in {8, 16, 24, 32, 40, 48}
+
+
+# --------------------------------------------------------------------------- #
+# cast_spell -- interruption (p.178)
+# --------------------------------------------------------------------------- #
+def test_interrupted_cast_fails_loses_committed_mp_no_side_effect():
+    state = {"pow": 60, "current_mp": 20, "current_hp": 12, "current_san": 70}
+    res = coc_magic.cast_spell(
+        "Breath of the Deep", state, is_first_cast=True,
+        interrupted=True, rng=random.Random(3),
+    )
+    assert res["interrupted"] is True
+    assert res["success"] is False
+    assert res["mp_spent"] == 8  # base cost committed and lost
+    assert state["current_mp"] == 12
+    assert res.get("side_effect") is None
+    assert res["san_lost"] == 0  # no SAN multiplier / no success SAN
+
+
+def test_interrupted_pushed_cast_skips_side_effect_and_san_multiplier():
+    """Interrupted takes precedence: no side-effect table, no SAN×1D6."""
+    state = {"pow": 60, "current_mp": 100, "current_hp": 12, "current_san": 70}
+    res = coc_magic.cast_spell(
+        "Breath of the Deep", state, is_first_cast=True,
+        pushed=True, interrupted=True, rng=random.Random(99),
+    )
+    assert res["interrupted"] is True
+    assert res["success"] is False
+    assert res.get("side_effect") is None
+    assert res["san_lost"] == 0
+    assert state["current_san"] == 70
+
+
+# --------------------------------------------------------------------------- #
+# cast_spell -- POW cost settlement
+# --------------------------------------------------------------------------- #
+def test_cast_deducts_pow_when_spell_has_cost_pow():
+    # Bless Blade: cost_mp=0, cost_pow=5.
+    state = {"pow": 60, "current_mp": 10, "current_hp": 12, "current_san": 70}
+    res = coc_magic.cast_spell(
+        "Bless Blade", state, is_first_cast=False, rng=random.Random(2),
+    )
+    assert res["success"] is True
+    assert res["pow_spent"] == 5
+    assert state["pow"] == 55
+
+
+def test_cast_pow_spent_zero_when_no_pow_cost():
+    state = {"pow": 60, "current_mp": 20, "current_hp": 12, "current_san": 70}
+    res = coc_magic.cast_spell(
+        "Breath of the Deep", state, is_first_cast=False, rng=random.Random(5),
+    )
+    assert res["pow_spent"] == 0
+    assert state["pow"] == 60
 
 
 # --------------------------------------------------------------------------- #
@@ -248,6 +360,26 @@ def test_learn_spell_from_person_uses_days():
     assert res["learned"] is True
     assert res["study_weeks"] == 0  # person study is in days, not weeks
     assert 1 <= res["study_days"] <= 8  # 1D8
+
+
+def test_learn_spell_from_entity_returns_san_floor():
+    """Entity-taught spells: SAN floor from learning.from_entity_min_sanity_cost."""
+    seed = None
+    for s in range(1, 400):
+        probe = coc_magic.coc_roll.percentile_check(70, difficulty="hard", rng=random.Random(s))
+        if probe["roll"] <= 35:
+            seed = s
+            break
+    assert seed is not None
+    state = {"int": 70}
+    res = coc_magic.learn_spell(
+        "Cloud Memory", state, source="entity", rng=random.Random(seed),
+    )
+    assert res["learned"] is True
+    assert res["source"] == "entity"
+    assert res["san_cost_expr"] == "1D6"  # learning.from_entity_min_sanity_cost
+    assert res["study_weeks"] == 0
+    assert res["study_days"] == 0  # entity teaching has no study delay
 
 
 def test_learn_spell_invalid_source_raises():
