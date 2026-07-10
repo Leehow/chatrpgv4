@@ -1014,6 +1014,153 @@ def test_live_state_patch_drops_invalid_time_profile_with_reason(tmp_path):
     }]
 
 
+def test_live_state_patch_scene_change_clears_prior_time_profile(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "I speak briefly.",
+        intent_class="social",
+        max_auto_advance=1,
+        recording_mode="sync",
+        rng_seed=46,
+        state_patch={
+            "scene_id": "scene-1",
+            "time_profile": {"category": "single_room_search"},
+        },
+    )
+    live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "I move onward.",
+        intent_class="move",
+        max_auto_advance=1,
+        recording_mode="sync",
+        rng_seed=47,
+        state_patch={
+            "scene_id": "scene-2",
+            "scene_tags": ["extreme_cold"],
+        },
+    )
+
+    active = json.loads((camp / "save" / "active-scene.json").read_text())
+    assert active["scene_id"] == "scene-2"
+    assert "time_profile" not in active
+
+    time_layer = live_runner.director.coc_time
+    time_layer.initialize_time_state(camp)
+    exposure_trigger_id = time_layer.schedule_trigger(camp, {
+        "kind": "cold_exposure",
+        "target_id": "inv1",
+        "due_elapsed_minutes": 5,
+        "policy": "auto_apply",
+    })
+    fixture = _ParsedTimeIntentEvaluator()
+    live_runner.coc_intent_router.set_intent_evaluator(fixture)
+    try:
+        result = live_runner.run_live_turn(
+            camp,
+            char_path,
+            "inv1",
+            "I scan the new scene.",
+            max_auto_advance=1,
+            recording_mode="sync",
+            rng_seed=48,
+        )
+    finally:
+        live_runner.coc_intent_router.set_intent_evaluator(None)
+
+    time_records = [
+        json.loads(line)
+        for line in (camp / "logs" / "time.jsonl").read_text().splitlines()
+        if line.strip() and json.loads(line).get("event_type") == "time_advance"
+    ]
+    assert time_records[-1]["category"] == "quick_observation"
+    assert time_records[-1]["delta_minutes"] <= 5
+    triggers = json.loads((camp / "save" / "time-triggers.json").read_text())["triggers"]
+    exposure = next(trigger for trigger in triggers if trigger["trigger_id"] == exposure_trigger_id)
+    assert exposure["status"] == "pending"
+    assert result["intent_resolution"]["source"] == "intent_router"
+
+
+def test_live_state_patch_explicitly_clears_time_profile(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "I speak briefly.",
+        intent_class="social",
+        max_auto_advance=1,
+        recording_mode="sync",
+        rng_seed=49,
+        state_patch={
+            "scene_id": "scene-1",
+            "time_profile": {"category": "single_room_search"},
+        },
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "I revise the scene timing.",
+        intent_class="social",
+        max_auto_advance=1,
+        recording_mode="sync",
+        rng_seed=50,
+        state_patch={
+            "scene_id": "scene-1",
+            "time_profile": None,
+        },
+    )
+
+    active = json.loads((camp / "save" / "active-scene.json").read_text())
+    assert "time_profile" not in active
+    assert result["state_patch"]["validation_warnings"] == []
+
+
+def test_live_turn_invalid_compiled_time_profile_warns_and_uses_routed_detail(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    story["scenes"][0]["time_profile"] = {"category": "scan_the_snow"}
+    story_path.write_text(json.dumps(story), encoding="utf-8")
+    time_layer = live_runner.director.coc_time
+    time_layer.initialize_time_state(camp)
+
+    fixture = _ParsedTimeIntentEvaluator()
+    live_runner.coc_intent_router.set_intent_evaluator(fixture)
+    try:
+        result = live_runner.run_live_turn(
+            camp,
+            char_path,
+            "inv1",
+            "I scan the snowfield.",
+            max_auto_advance=1,
+            recording_mode="sync",
+            rng_seed=51,
+        )
+    finally:
+        live_runner.coc_intent_router.set_intent_evaluator(None)
+
+    turn = result["turns"][0]
+    assert turn["validation_warnings"] == [{
+        "field": "time_profile",
+        "source": "compiled_scene",
+        "reason_code": "category_not_in_time_cost_catalog",
+    }]
+    time_records = [
+        json.loads(line)
+        for line in (camp / "logs" / "time.jsonl").read_text().splitlines()
+        if line.strip() and json.loads(line).get("event_type") == "time_advance"
+    ]
+    assert time_records[-1]["category"] == "quick_observation"
+    assert time_records[-1]["delta_minutes"] <= 5
+
+
 def test_live_turn_missing_intent_routes_through_intent_router(tmp_path):
     """Without caller intent, the runner consults coc_intent_router (installed
     evaluator), never a hardcoded intent default."""

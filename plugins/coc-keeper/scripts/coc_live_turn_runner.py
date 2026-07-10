@@ -77,10 +77,6 @@ _ACTIVE_SCENE_STATE_PATCH_KEYS = {
     "time_profile",
 }
 
-_TIME_PROFILE_KEYS = frozenset({"mode", "category", "delta_minutes"})
-_TIME_PROFILE_MODES = frozenset({"instant", "elapsed", "until", "downtime", "subsystem"})
-
-
 def _read_json(path: Path, fallback: Any) -> Any:
     if not path.exists():
         return fallback
@@ -228,40 +224,6 @@ def _blocking_rule_requests(turn: dict[str, Any]) -> list[dict[str, Any]]:
     return blocking
 
 
-def _validated_state_patch_time_profile(
-    value: Any,
-) -> tuple[dict[str, Any] | None, str | None]:
-    """Validate authored profile structure against the canonical time catalog."""
-    if not isinstance(value, dict):
-        return None, "profile_must_be_object"
-    if set(value) - _TIME_PROFILE_KEYS:
-        return None, "unsupported_profile_fields"
-
-    category = value.get("category")
-    categories = director._time_cost_categories()
-    if not isinstance(category, str) or category not in categories:
-        return None, "category_not_in_time_cost_catalog"
-
-    mode = value.get("mode")
-    if mode is not None and mode not in _TIME_PROFILE_MODES:
-        return None, "mode_not_in_time_profile_enum"
-
-    delta = value.get("delta_minutes")
-    if delta is not None:
-        if isinstance(delta, bool) or not isinstance(delta, int):
-            return None, "delta_minutes_must_be_integer"
-        bounds = categories[category]
-        if delta < int(bounds["min"]) or delta > int(bounds["max"]):
-            return None, "delta_minutes_outside_category_bounds"
-
-    normalized = {"category": category}
-    if mode is not None:
-        normalized["mode"] = mode
-    if delta is not None:
-        normalized["delta_minutes"] = delta
-    return normalized, None
-
-
 def _apply_state_patch_sync(
     campaign_dir: Path,
     state_patch: dict[str, Any] | None,
@@ -287,6 +249,15 @@ def _apply_state_patch_sync(
         if world.get("scenario_id"):
             active_scene.setdefault("scenario_id", world.get("scenario_id"))
 
+    previous_scene_id = str(
+        active_scene.get("scene_id")
+        or (world.get("active_scene_id") if isinstance(world, dict) else "")
+        or ""
+    ).strip()
+    incoming_scene_id = str(state_patch.get("scene_id") or "").strip()
+    if incoming_scene_id and previous_scene_id and incoming_scene_id != previous_scene_id:
+        active_scene.pop("time_profile", None)
+
     minimal_keys: list[str] = []
     validation_warnings: list[dict[str, str]] = []
     for key in sorted(_ACTIVE_SCENE_STATE_PATCH_KEYS):
@@ -294,7 +265,11 @@ def _apply_state_patch_sync(
             continue
         value = state_patch[key]
         if key == "time_profile":
-            value, reason_code = _validated_state_patch_time_profile(value)
+            if value is None:
+                active_scene.pop("time_profile", None)
+                minimal_keys.append(key)
+                continue
+            value, reason_code = director._validate_time_profile(value)
             if value is None:
                 validation_warnings.append({
                     "field": "time_profile",
@@ -624,6 +599,11 @@ def _run_one_turn(
         "turn_number": (resolved_plan.get("turn_input") or {}).get("turn_number"),
         "scene_id": ctx.get("active_scene_id"),
         "action": resolved_plan.get("scene_action"),
+        "validation_warnings": list(
+            resolved_plan.get("validation_warnings")
+            or ctx.get("validation_warnings")
+            or []
+        ),
         "auto_advanced": bool(choice.get("auto_advanced")),
         "apply_path": "coc_director_apply.apply_plan",
         "pipeline": "run_live_turn",

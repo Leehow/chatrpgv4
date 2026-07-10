@@ -300,11 +300,24 @@ def _merge_live_active_scene(
     compiled_scene: dict[str, Any],
     active_scene_state: dict[str, Any],
     scenario_doc: dict[str, Any],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """Overlay live save affordances onto the compiled scene without changing plot data."""
-    if not active_scene_state:
-        return compiled_scene
+    warnings: list[dict[str, str]] = []
     merged = dict(compiled_scene)
+    if "time_profile" in merged:
+        profile, reason_code = _validate_time_profile(merged.get("time_profile"))
+        if profile is None:
+            merged.pop("time_profile", None)
+            if reason_code is not None:
+                warnings.append({
+                    "field": "time_profile",
+                    "source": "compiled_scene",
+                    "reason_code": reason_code,
+                })
+        else:
+            merged["time_profile"] = profile
+    if not active_scene_state:
+        return merged, warnings
     if active_scene_state.get("summary"):
         merged["live_summary"] = active_scene_state.get("summary")
 
@@ -336,19 +349,35 @@ def _merge_live_active_scene(
         merged[key] = current
 
     for key in _SCENE_PROGRESS_KEYS:
+        if key == "time_profile":
+            continue
         live_value = active_scene_state.get(key)
         if live_value not in (None, [], {}):
             merged[key] = live_value
 
+    compiled_scene_id = _text_or_none(compiled_scene.get("scene_id"))
+    live_scene_id = _text_or_none(active_scene_state.get("scene_id"))
+    same_scene = not compiled_scene_id or not live_scene_id or compiled_scene_id == live_scene_id
+    if same_scene and "time_profile" in active_scene_state:
+        profile, reason_code = _validate_time_profile(active_scene_state.get("time_profile"))
+        if profile is not None:
+            merged["time_profile"] = profile
+        elif reason_code is not None:
+            warnings.append({
+                "field": "time_profile",
+                "source": "runtime_active_scene",
+                "reason_code": reason_code,
+            })
+
     merged["source"] = "live-story-bridge.merged-active-scene"
-    return merged
+    return merged, warnings
 
 
 def _runtime_scene_from_live_state(
     active_scene_state: dict[str, Any],
     world: dict[str, Any],
     scenario_doc: dict[str, Any],
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
     scene_id = _text_or_none(active_scene_state.get("scene_id")) or _text_or_none(world.get("active_scene_id"))
     if not scene_id:
         scene_id = _text_or_none(scenario_doc.get("current_phase")) or "live-current-scene"
@@ -359,7 +388,7 @@ def _runtime_scene_from_live_state(
         or scenario_doc.get("summary")
         or scene_id
     )
-    return {
+    runtime_scene = {
         "scene_id": scene_id,
         "scene_type": active_scene_state.get("scene_type", "investigation"),
         "dramatic_question": (
@@ -378,10 +407,23 @@ def _runtime_scene_from_live_state(
         **{
             key: active_scene_state[key]
             for key in _SCENE_PROGRESS_KEYS
+            if key != "time_profile"
             if active_scene_state.get(key) not in (None, [], {})
         },
         "source": "live-story-bridge.active-scene",
     }
+    warnings: list[dict[str, str]] = []
+    if "time_profile" in active_scene_state:
+        profile, reason_code = _validate_time_profile(active_scene_state.get("time_profile"))
+        if profile is not None:
+            runtime_scene["time_profile"] = profile
+        elif reason_code is not None:
+            warnings.append({
+                "field": "time_profile",
+                "source": "runtime_active_scene",
+                "reason_code": reason_code,
+            })
+    return runtime_scene, warnings
 
 
 def _story_graph_with_live_fallback(
@@ -389,31 +431,42 @@ def _story_graph_with_live_fallback(
     active_scene_state: dict[str, Any],
     world: dict[str, Any],
     scenario_doc: dict[str, Any],
-) -> tuple[dict[str, Any], str | None, dict[str, Any] | None]:
+) -> tuple[
+    dict[str, Any],
+    str | None,
+    dict[str, Any] | None,
+    list[dict[str, str]],
+]:
     story_graph = dict(story_graph or {"scenes": []})
     scenes = [s for s in story_graph.get("scenes", []) if isinstance(s, dict)]
     world_scene_id = _text_or_none(world.get("active_scene_id"))
     if world_scene_id:
         active_scene = next((s for s in scenes if s.get("scene_id") == world_scene_id), None)
         if active_scene is not None:
-            active_scene = _merge_live_active_scene(active_scene, active_scene_state, scenario_doc)
+            active_scene, warnings = _merge_live_active_scene(
+                active_scene, active_scene_state, scenario_doc
+            )
             scenes = [active_scene if s.get("scene_id") == world_scene_id else s for s in scenes]
             story_graph["scenes"] = scenes
-            return story_graph, world_scene_id, active_scene
+            return story_graph, world_scene_id, active_scene, warnings
 
     live_scene_id = _text_or_none(active_scene_state.get("scene_id"))
     if live_scene_id:
         active_scene = next((s for s in scenes if s.get("scene_id") == live_scene_id), None)
         if active_scene is not None:
-            active_scene = _merge_live_active_scene(active_scene, active_scene_state, scenario_doc)
+            active_scene, warnings = _merge_live_active_scene(
+                active_scene, active_scene_state, scenario_doc
+            )
             scenes = [active_scene if s.get("scene_id") == live_scene_id else s for s in scenes]
             story_graph["scenes"] = scenes
-            return story_graph, live_scene_id, active_scene
+            return story_graph, live_scene_id, active_scene, warnings
 
-    runtime_scene = _runtime_scene_from_live_state(active_scene_state, world, scenario_doc)
+    runtime_scene, warnings = _runtime_scene_from_live_state(
+        active_scene_state, world, scenario_doc
+    )
     if runtime_scene is None:
         story_graph["scenes"] = scenes
-        return story_graph, world_scene_id, None
+        return story_graph, world_scene_id, None, warnings
 
     runtime_id = runtime_scene.get("scene_id")
     scenes = [s for s in scenes if s.get("scene_id") != runtime_id]
@@ -421,7 +474,7 @@ def _story_graph_with_live_fallback(
     story_graph["schema_version"] = story_graph.get("schema_version", 1)
     story_graph["source"] = story_graph.get("source", "live-story-bridge")
     story_graph["scenes"] = scenes
-    return story_graph, str(runtime_id), runtime_scene
+    return story_graph, str(runtime_id), runtime_scene, warnings
 
 
 def build_director_context(
@@ -461,11 +514,13 @@ def build_director_context(
     module_meta = _read_json(scenario / "module-meta.json", {})
     scenario_doc = _read_json(scenario / "scenario.json", {})
     active_scene_state = _read_json(save / "active-scene.json", {})
-    story_graph, active_scene_id, active_scene = _story_graph_with_live_fallback(
-        _read_json(scenario / "story-graph.json", {"scenes": []}),
-        active_scene_state if isinstance(active_scene_state, dict) else {},
-        world if isinstance(world, dict) else {},
-        scenario_doc if isinstance(scenario_doc, dict) else {},
+    story_graph, active_scene_id, active_scene, validation_warnings = (
+        _story_graph_with_live_fallback(
+            _read_json(scenario / "story-graph.json", {"scenes": []}),
+            active_scene_state if isinstance(active_scene_state, dict) else {},
+            world if isinstance(world, dict) else {},
+            scenario_doc if isinstance(scenario_doc, dict) else {},
+        )
     )
     if active_scene_id:
         world = dict(world)
@@ -548,6 +603,7 @@ def build_director_context(
     signal_ctx = {
         "player_intent_class": player_intent_class,
         "player_intent_rich": player_intent_rich,
+        "validation_warnings": validation_warnings,
         "active_scene": active_scene,
     }
     rule_signals["low_agency_continue_count"] = _low_agency_continue_count(
@@ -583,6 +639,7 @@ def build_director_context(
         "player_intent": player_intent,
         "player_intent_class": player_intent_class,
         "player_intent_rich": player_intent_rich,
+        "validation_warnings": validation_warnings,
         "play_language": play_language,
         # P1-8: expose the investigator's structured skills so downstream
         # enrichment (dialogue_comprehension tier) can gate foreign-dialogue
@@ -1644,11 +1701,70 @@ _ACTION_TIME_PROFILES: dict[str, dict[str, Any]] = {
     "PAYOFF":   {"mode": "instant", "category": None, "delta_minutes": 0},
 }
 
+_TIME_PROFILE_KEYS = frozenset({"mode", "category", "delta_minutes"})
+_TIME_PROFILE_MODES = frozenset({
+    "none", "instant", "elapsed", "until", "downtime", "subsystem",
+})
+
 
 def _time_cost_categories() -> dict[str, dict[str, Any]]:
     catalog = coc_cache.load_json_cached(RULES_DIR / "time-costs.json")
     categories = catalog.get("categories") if isinstance(catalog, dict) else None
     return categories if isinstance(categories, dict) else {}
+
+
+def _validate_time_profile(
+    value: Any,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate a structured time profile against the canonical catalog."""
+    if value is None:
+        return None, None
+    if not isinstance(value, dict):
+        return None, "profile_must_be_object"
+    if set(value) - _TIME_PROFILE_KEYS:
+        return None, "unsupported_profile_fields"
+
+    category = value.get("category")
+    categories = _time_cost_categories()
+    if not isinstance(category, str) or category not in categories:
+        return None, "category_not_in_time_cost_catalog"
+
+    mode = value.get("mode")
+    if mode is not None and mode not in _TIME_PROFILE_MODES:
+        return None, "mode_not_in_time_profile_enum"
+
+    delta = value.get("delta_minutes")
+    if delta is not None:
+        if isinstance(delta, bool) or not isinstance(delta, int):
+            return None, "delta_minutes_must_be_integer"
+        if delta < 0:
+            return None, "delta_minutes_must_be_nonnegative"
+        bounds = categories[category]
+        if delta < int(bounds["min"]) or delta > int(bounds["max"]):
+            return None, "delta_minutes_outside_category_bounds"
+
+    normalized = {"category": category}
+    if mode is not None:
+        normalized["mode"] = mode
+    if delta is not None:
+        normalized["delta_minutes"] = delta
+    return normalized, None
+
+
+def _record_time_profile_warning(
+    ctx: dict[str, Any],
+    *,
+    source: str,
+    reason_code: str,
+) -> None:
+    warning = {
+        "field": "time_profile",
+        "source": source,
+        "reason_code": reason_code,
+    }
+    warnings = ctx.setdefault("validation_warnings", [])
+    if isinstance(warnings, list) and warning not in warnings:
+        warnings.append(warning)
 
 
 def _complete_time_profile(
@@ -1694,9 +1810,15 @@ def _time_profile_for_action(action: str, ctx: dict[str, Any]) -> dict[str, Any]
     if not isinstance(scene, dict):
         scene = {}
 
-    authored = scene.get("time_profile")
-    if isinstance(authored, dict):
+    authored, reason_code = _validate_time_profile(scene.get("time_profile"))
+    if authored is not None:
         return _complete_time_profile(authored, fallback=fallback)
+    if reason_code is not None:
+        _record_time_profile_warning(
+            ctx,
+            source="director_context",
+            reason_code=reason_code,
+        )
 
     intent_category = _structured_intent_time_category(ctx)
     if intent_category is not None:
@@ -2872,6 +2994,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "rule_signals": ctx["rule_signals"],
         "time_signals": ctx.get("time_signals", {}),
         "time_advance": time_advance,
+        "validation_warnings": list(ctx.get("validation_warnings") or []),
         "clue_policy": clue_policy,
         "npc_moves": npc_moves,
         "npc_state_writes": ctx.get("npc_state_writes", []),

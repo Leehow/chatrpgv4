@@ -340,6 +340,122 @@ def test_build_context_merges_authored_time_profile_over_compiled_scene(tmp_path
     assert coc_story_director._time_profile_for_action("REVEAL", ctx)["delta_minutes"] == 20
 
 
+def test_build_context_does_not_overlay_stale_time_profile_onto_new_compiled_scene(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    story["scenes"].append({
+        "scene_id": "scene-2",
+        "scene_type": "investigation",
+        "dramatic_question": "What is visible here?",
+        "entry_conditions": [],
+        "exit_conditions": [],
+        "available_clues": [],
+        "npc_ids": [],
+        "pressure_moves": [],
+        "tone": ["cold"],
+        "allowed_improvisation": [],
+    })
+    story_path.write_text(json.dumps(story), encoding="utf-8")
+    world_path = camp / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = "scene-2"
+    world_path.write_text(json.dumps(world), encoding="utf-8")
+    (camp / "save" / "active-scene.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scene_id": "scene-1",
+        "time_profile": {"category": "single_room_search"},
+    }))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="I take a quick look.",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+        },
+        rng=random.Random(42),
+    )
+
+    assert ctx["active_scene_id"] == "scene-2"
+    assert "time_profile" not in ctx["active_scene"]
+    profile = coc_story_director._time_profile_for_action("REVEAL", ctx)
+    assert profile["category"] == "quick_observation"
+    assert profile["delta_minutes"] <= 5
+
+
+def test_invalid_compiled_time_profile_is_dropped_with_context_warning(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    story["scenes"][0]["time_profile"] = {"category": "fast_snowfield_scan"}
+    story_path.write_text(json.dumps(story), encoding="utf-8")
+    (camp / "logs").mkdir(exist_ok=True)
+    coc_story_director.coc_time.initialize_time_state(camp)
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="I take a quick look.",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+        },
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "invalid-compiled-time")
+
+    assert "time_profile" not in ctx["active_scene"]
+    assert ctx["validation_warnings"] == [{
+        "field": "time_profile",
+        "source": "compiled_scene",
+        "reason_code": "category_not_in_time_cost_catalog",
+    }]
+    assert plan["time_advance"]["category"] == "quick_observation"
+    assert plan["time_advance"]["delta_minutes"] <= 5
+
+
+def test_invalid_runtime_time_profile_string_delta_falls_back_without_raising(tmp_path):
+    camp, char_path = _make_legacy_live_campaign(tmp_path)
+    active_path = camp / "save" / "active-scene.json"
+    active = json.loads(active_path.read_text(encoding="utf-8"))
+    active["time_profile"] = {
+        "category": "quick_observation",
+        "delta_minutes": "five",
+    }
+    active_path.write_text(json.dumps(active), encoding="utf-8")
+    (camp / "logs").mkdir(exist_ok=True)
+    coc_story_director.coc_time.initialize_time_state(camp)
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="I take a quick look.",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+        },
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "invalid-runtime-time")
+
+    assert "time_profile" not in ctx["active_scene"]
+    assert ctx["validation_warnings"] == [{
+        "field": "time_profile",
+        "source": "runtime_active_scene",
+        "reason_code": "delta_minutes_must_be_integer",
+    }]
+    assert plan["time_advance"]["category"] == "quick_observation"
+    assert plan["time_advance"]["delta_minutes"] <= 5
+
+
 def test_obscured_clue_rules_request_includes_roll_contract(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
