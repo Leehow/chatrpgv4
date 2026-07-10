@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "id": "thomas-hayes",
+  "name": "托马斯·海斯",
+  "occupation": "私家侦探",
+  "era": "1920s",
+  "age": 34,
+  "sex": "M",
+  "residence": "Boston, Massachusetts",
+  "birthplace": "South Boston",
+  "characteristics": {
+    "STR": 60,
+    "CON": 55,
+    "SIZ": 65,
+    "DEX": 60,
+    "APP": 50,
+    "INT": 70,
+    "POW": 55,
+    "EDU": 65,
+    "LUCK": 50
+  },
+  "derived": {
+    "HP": 12,
+    "SAN": 55,
+    "MP": 11,
+    "MOV": 7,
+    "DB": "0",
+    "BUILD": 1
+  },
+  "skills": {
+    "Accounting": 25,
+    "Charm": 35,
+    "Climb": 30,
+    "Credit Rating": 25,
+    "Dodge": 30,
+    "Drive Auto": 40,
+    "Fast Talk": 45,
+    "Fighting (Brawl)": 50,
+    "Firearms (Handgun)": 55,
+    "Intimidate": 45,
+    "Law": 40,
+    "Library Use": 40,
+    "Listen": 45,
+    "Locksmith": 35,
+    "Persuade": 40,
+    "Psychology": 45,
+    "Spot Hidden": 55,
+    "Stealth": 40,
+    "Track": 30
+  },
+  "weapons": [
+    {
+      "name": ".38 Revolver",
+      "skill": "Firearms (Handgun)",
+      "damage": "1D10",
+      "range": "15 yards",
+      "attacks": 1,
+      "ammo": 6,
+      "malfunction": 100
+    }
+  ],
+  "equipment": [
+    "notebook and stub pencil",
+    "set of lockpicks",
+    "flashlight",
+    "badge that impresses clerks more than cops"
+  ],
+  "backstory": {
+    "description": "波士顿南区出身的私家侦探，专接房东、律师与保险公司的脏活。Knott 的委托听起来像又一次「清清恶名」——直到他把钥匙拍在桌上。",
+    "traits": [
+      "先查纸再上门",
+      "不信鬼，但信人会疯",
+      "开枪前会先算退路"
+    ],
+    "ideology": "真相值钱，沉默更贵。",
+    "significant_people": "前搭档在一次夜间跟踪中失踪，案子至今未结。",
+    "meaningful_locations": "南站附近那间一室办公室。",
+    "treasured_possessions": "父亲留下的 .38。",
+    "traits_detail": "说话短，观察长；对官僚系统又恨又熟。"
+  },
+  "credit_rating": 25,
+  "cash": "15 dollars",
+  "notes": "Pregen for The Haunting quick start — classic private investigator seat."
+}

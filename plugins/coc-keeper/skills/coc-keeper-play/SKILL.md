@@ -179,6 +179,12 @@ an investigator or choose an existing reusable investigator that fits the era.
 AI may draft a complete investigator only after the player asks for auto-creation,
 and the player must confirm the final sheet before play begins.
 
+Exception — explicit one-line quick start: when the player asks for
+`coc_starter.quick_start` / `coc-starter quick-start` (scenario + pregen id),
+use the shipped pregen and enter the opening scene immediately. Do not offer
+quick-start unless the player opts in; ordinary `install` still follows the
+gate above.
+
 ## Style
 
 Stay immersive by default. Do not expose implementation details, JSON paths, or hidden scenario facts in ordinary play.

@@ -26,8 +26,15 @@ Do not proactively offer COC mode during ordinary Codex work.
    >
    > Built-in starter scenarios (run `coc-starter list` for the current list):
    > - **《白色战争》The White War** — 1916 年意大利阿尔卑斯前线，一支山地巡逻队调查冰川上传来的怪响，唤醒冰封万年的远古存在。开箱即玩。
+   > - **《闹鬼》The Haunting** — 1920 年波士顿，房东委托调查恶名昭彰的 Corbitt 宅；报馆/档案/街坊多线调查后对峙地下室不死术士。开箱即玩。
+   >
+   > One-line quick start (pregen investigators, The Haunting):
+   > ```bash
+   > python3 ../../scripts/coc_starter.py quick-start --scenario the-haunting --pregen thomas-hayes
+   > # or: --pregen eleanor-reed
+   > ```
 
-   To install a chosen built-in scenario into the campaign, run:
+   To install a chosen built-in scenario into the campaign (then create/link an investigator), run:
    ```bash
    python3 ../../scripts/coc_starter.py install --campaign <campaign-id> --scenario <scenario-id>
    ```

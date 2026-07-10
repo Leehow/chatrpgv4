@@ -12,13 +12,36 @@ referenced from `../../rules-json/monsters.json`.
 
 ## Playing
 
+### One-line quick start (N7)
+
+```bash
+python3 plugins/coc-keeper/scripts/coc_starter.py quick-start \
+  --scenario the-haunting --pregen thomas-hayes
+# or: --pregen eleanor-reed
+```
+
+This creates a campaign, installs the starter, copies the pregen investigator
+into `.coc/investigators/<id>/` and the campaign `investigators/` folder, seeds
+`save/investigator-state/`, and leaves you on the opening briefing ready for
+`run_live_turn`.
+
+Pregens:
+
+| id | name | occupation |
+| --- | --- | --- |
+| `thomas-hayes` | 托马斯·海斯 | 私家侦探 |
+| `eleanor-reed` | 埃莉诺·里德 | 记者 |
+
+### Install only (create your own investigator)
+
 ```bash
 python3 plugins/coc-keeper/scripts/coc_starter.py install \
   --campaign <campaign-id> --scenario the-haunting
 ```
 
-Then create or link an investigator for 1920s Boston before play. The starter
-installs module structure and a player-safe character creation briefing.
+Then create or link an investigator for 1920s Boston before play. The normal
+install path still expects a player-made (or explicitly chosen) investigator;
+quick-start is the opt-in pregen path.
 
 ## Structure
 

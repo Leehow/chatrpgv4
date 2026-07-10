@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "id": "eleanor-reed",
+  "name": "埃莉诺·里德",
+  "occupation": "记者",
+  "era": "1920s",
+  "age": 28,
+  "sex": "F",
+  "residence": "Boston, Massachusetts",
+  "birthplace": "Cambridge",
+  "characteristics": {
+    "STR": 45,
+    "CON": 50,
+    "SIZ": 50,
+    "DEX": 65,
+    "APP": 60,
+    "INT": 75,
+    "POW": 60,
+    "EDU": 80,
+    "LUCK": 55
+  },
+  "derived": {
+    "HP": 10,
+    "SAN": 60,
+    "MP": 12,
+    "MOV": 9,
+    "DB": "0",
+    "BUILD": 0
+  },
+  "skills": {
+    "Art/Craft (Photography)": 40,
+    "Charm": 50,
+    "Credit Rating": 30,
+    "Dodge": 32,
+    "Fast Talk": 55,
+    "Fighting (Brawl)": 25,
+    "History": 50,
+    "Library Use": 70,
+    "Listen": 40,
+    "Occult": 25,
+    "Persuade": 55,
+    "Psychology": 50,
+    "Spot Hidden": 50,
+    "Stealth": 30,
+    "Language (Latin)": 40,
+    "Language (Own)": 80
+  },
+  "weapons": [],
+  "equipment": [
+    "press notebook",
+    "fountain pen",
+    "box camera and flash powder",
+    "letters of introduction to two city editors"
+  ],
+  "backstory": {
+    "description": "剑桥出身的都市记者，靠图书馆与花言巧语挖市政丑闻。Corbitt 宅的租客悲剧像一条被压下的社会新闻——她想把它写出来，也想活着交稿。",
+    "traits": [
+      "先问谁受益",
+      "剪报库比枪管用",
+      "害怕的时候仍在记笔记"
+    ],
+    "ideology": "见光是最好的消毒——除非光本身会咬人。",
+    "significant_people": "在 Globe 当夜班编辑的表姐，偶尔替她开后门。",
+    "meaningful_locations": "中央图书馆阅览室靠窗的位子。",
+    "treasured_possessions": "第一篇头版的剪报。",
+    "traits_detail": "社交大胆、体力一般；擅长把官僚话翻译成线索。"
+  },
+  "credit_rating": 30,
+  "cash": "12 dollars",
+  "notes": "Pregen for The Haunting quick start — classic journalist seat paired with the private eye."
+}

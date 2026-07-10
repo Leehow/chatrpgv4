@@ -10,6 +10,10 @@ start a game with zero PDF preparation.
 reads (`coc_story_director.py:95`). It also writes a player-safe character
 creation briefing so the player can create their own investigator before play.
 The campaign.json is updated with active_scenario_id/era.
+
+`quick_start` (N7) creates a campaign, installs a starter that ships pregens,
+copies a chosen pregen into workspace + campaign investigator slots, seeds
+investigator-state, and returns ids ready for `run_live_turn`.
 """
 from __future__ import annotations
 
@@ -180,6 +184,159 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def list_pregens(scenario_id: str) -> list[dict[str, Any]]:
+    """Enumerate pregen investigators shipped under a starter's ``pregens/`` dir."""
+    pregen_root = STARTER_DIR / scenario_id / "pregens"
+    if not pregen_root.is_dir():
+        return []
+    out: list[dict[str, Any]] = []
+    for child in sorted(pregen_root.iterdir()):
+        char_path = child / "character.json"
+        if not child.is_dir() or not char_path.is_file():
+            continue
+        try:
+            sheet = json.loads(char_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(sheet, dict):
+            continue
+        pregen_id = str(sheet.get("id") or child.name)
+        out.append(
+            {
+                "pregen_id": pregen_id,
+                "name": sheet.get("name"),
+                "occupation": sheet.get("occupation"),
+                "era": sheet.get("era"),
+                "character_path": str(char_path),
+            }
+        )
+    return out
+
+
+def _pregen_character_path(scenario_id: str, pregen_id: str) -> Path:
+    path = STARTER_DIR / scenario_id / "pregens" / pregen_id / "character.json"
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"unknown pregen '{pregen_id}' for starter scenario '{scenario_id}'"
+        )
+    return path
+
+
+def _seed_investigator_state(
+    campaign_dir: Path,
+    campaign_id: str,
+    investigator_id: str,
+    sheet: dict[str, Any],
+) -> Path:
+    derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
+    characteristics = (
+        sheet.get("characteristics") if isinstance(sheet.get("characteristics"), dict) else {}
+    )
+    state = {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "current_hp": int(derived.get("HP") or 10),
+        "current_san": int(derived.get("SAN") or characteristics.get("POW") or 50),
+        "current_mp": int(derived.get("MP") or max(1, int(characteristics.get("POW") or 50) // 5)),
+        "current_luck": int(characteristics.get("LUCK") or 50),
+        "conditions": [],
+        "skill_checks_earned": [],
+    }
+    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    coc_fileio.write_json_atomic(
+        path, state, indent=2, ensure_ascii=False, trailing_newline=True
+    )
+    return path
+
+
+def quick_start(
+    root: Path,
+    scenario_id: str,
+    pregen_id: str,
+    *,
+    campaign_id: str | None = None,
+    title: str | None = None,
+) -> dict[str, Any]:
+    """Create a campaign, install a starter, and bind a shipped pregen investigator.
+
+    Returns campaign_id / investigator_id / scenario_id / character_path /
+    campaign_dir for an immediately playable table (``run_live_turn``-ready).
+    """
+    src_dir = STARTER_DIR / scenario_id
+    if not src_dir.is_dir():
+        raise FileNotFoundError(f"unknown starter scenario: {scenario_id}")
+    pregen_path = _pregen_character_path(scenario_id, pregen_id)
+    sheet = json.loads(pregen_path.read_text(encoding="utf-8"))
+    if not isinstance(sheet, dict):
+        raise ValueError(f"pregen character.json must be an object: {pregen_path}")
+    investigator_id = str(sheet.get("id") or pregen_id)
+
+    meta_path = src_dir / "module-meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+    era = str(meta.get("era") or "1920s")
+    camp_id = campaign_id or f"{scenario_id}-qs"
+    camp_title = title or str(meta.get("title") or scenario_id)
+
+    coc_root = _coc_root(root)
+    coc_state.ensure_workspace(coc_root)
+    campaign_path = coc_root / "campaigns" / camp_id / "campaign.json"
+    if campaign_path.exists():
+        raise FileExistsError(
+            f"campaign {camp_id} already exists; pass a fresh campaign_id or remove it first"
+        )
+
+    coc_state.create_campaign(
+        coc_root,
+        camp_id,
+        camp_title,
+        era=era,
+        start_clock=meta.get("start_clock") if isinstance(meta.get("start_clock"), dict) else None,
+    )
+    install_starter(coc_root, camp_id, scenario_id)
+
+    # Workspace reusable investigator (what coc_live_match / run_live_turn expect).
+    coc_state.create_investigator(coc_root, investigator_id, sheet)
+    character_path = coc_root / "investigators" / investigator_id / "character.json"
+
+    campaign_dir = coc_root / "campaigns" / camp_id
+    # Campaign-local copy for sandbox / report tooling that looks under the campaign.
+    camp_inv_dir = campaign_dir / "investigators" / investigator_id
+    camp_inv_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(pregen_path, camp_inv_dir / "character.json")
+
+    _seed_investigator_state(campaign_dir, camp_id, investigator_id, sheet)
+    coc_state.link_party(coc_root, camp_id, [investigator_id])
+
+    campaign = json.loads((campaign_dir / "campaign.json").read_text(encoding="utf-8"))
+    campaign["status"] = "active"
+    campaign["active_subsystem"] = "play"
+    campaign["character_creation"] = {
+        **(campaign.get("character_creation") if isinstance(campaign.get("character_creation"), dict) else {}),
+        "active_investigator_id": investigator_id,
+        "pregen_id": pregen_id,
+        "quick_start": True,
+    }
+    campaign["updated_at"] = _now_iso()
+    coc_fileio.write_json_atomic(
+        campaign_dir / "campaign.json",
+        campaign,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+
+    return {
+        "campaign_id": camp_id,
+        "investigator_id": investigator_id,
+        "scenario_id": scenario_id,
+        "pregen_id": pregen_id,
+        "character_path": str(character_path),
+        "campaign_dir": str(campaign_dir),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="List or install built-in starter scenarios.")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -191,6 +348,19 @@ def main(argv: list[str] | None = None) -> int:
     inst.add_argument("--scenario", required=True)
     inst.add_argument("--root", default=".coc", help="path to .coc workspace")
 
+    qs = sub.add_parser(
+        "quick-start",
+        help="create campaign + install starter + bind a shipped pregen (one-line play)",
+    )
+    qs.add_argument("--scenario", required=True)
+    qs.add_argument("--pregen", required=True, help="pregen id (e.g. thomas-hayes)")
+    qs.add_argument("--campaign", default=None, help="optional campaign id (default: <scenario>-qs)")
+    qs.add_argument("--root", default=".coc", help="path to .coc workspace or its parent")
+    qs.add_argument("--title", default=None, help="optional campaign title")
+
+    pre = sub.add_parser("list-pregens", help="list pregen investigators for a starter")
+    pre.add_argument("--scenario", required=True)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "list":
@@ -200,6 +370,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "install":
         path = install_starter(Path(args.root), args.campaign, args.scenario)
         print(f"installed {args.scenario} -> {path}")
+        return 0
+    if args.cmd == "list-pregens":
+        for p in list_pregens(args.scenario):
+            print(f"{p['pregen_id']}\t{p.get('name')}\t{p.get('occupation')}")
+        return 0
+    if args.cmd == "quick-start":
+        result = quick_start(
+            Path(args.root),
+            args.scenario,
+            args.pregen,
+            campaign_id=args.campaign,
+            title=args.title,
+        )
+        print(
+            f"quick-start ready campaign={result['campaign_id']} "
+            f"investigator={result['investigator_id']} "
+            f"character={result['character_path']}"
+        )
         return 0
     return 1
 

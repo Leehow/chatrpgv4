@@ -200,3 +200,79 @@ def test_the_haunting_critical_conclusions_have_multi_routes():
         assert len(distinct) >= min_routes, (
             f"{concl.get('conclusion_id')} has {len(distinct)} routes, need >={min_routes}"
         )
+
+
+# ---------------------------------------------------------------------------
+# N7: pregen investigators + quick_start
+# ---------------------------------------------------------------------------
+
+
+def test_the_haunting_ships_two_pregen_investigators():
+    pregens = coc_starter.list_pregens("the-haunting")
+    ids = {p["pregen_id"] for p in pregens}
+    assert "thomas-hayes" in ids
+    assert "eleanor-reed" in ids
+    for pregen in pregens:
+        sheet = json.loads(Path(pregen["character_path"]).read_text("utf-8"))
+        assert sheet.get("id") == pregen["pregen_id"]
+        assert sheet.get("era") == "1920s"
+        assert "characteristics" in sheet
+        assert "skills" in sheet
+        assert "backstory" in sheet
+
+
+def test_quick_start_installs_campaign_and_pregen(tmp_path):
+    root = tmp_path / ".coc"
+    result = coc_starter.quick_start(root, "the-haunting", "thomas-hayes")
+
+    assert result["scenario_id"] == "the-haunting"
+    assert result["investigator_id"] == "thomas-hayes"
+    campaign_id = result["campaign_id"]
+    campaign_dir = root / "campaigns" / campaign_id
+
+    for fname in coc_starter.STARTER_SCENARIO_FILES:
+        assert (campaign_dir / "scenario" / fname).exists()
+
+    ws_char = root / "investigators" / "thomas-hayes" / "character.json"
+    camp_char = campaign_dir / "investigators" / "thomas-hayes" / "character.json"
+    assert ws_char.is_file()
+    assert camp_char.is_file()
+    assert result["character_path"] == str(ws_char)
+
+    inv_state = campaign_dir / "save" / "investigator-state" / "thomas-hayes.json"
+    assert inv_state.is_file()
+    world = json.loads((campaign_dir / "save" / "world-state.json").read_text("utf-8"))
+    assert world["status"] == "active"
+    assert world["active_scene_id"]
+
+
+def test_quick_start_then_run_live_turn_succeeds(tmp_path):
+    import importlib.util
+
+    root = tmp_path / ".coc"
+    result = coc_starter.quick_start(root, "the-haunting", "eleanor-reed")
+    campaign_dir = root / "campaigns" / result["campaign_id"]
+    char_path = Path(result["character_path"])
+
+    spec = importlib.util.spec_from_file_location(
+        "coc_live_turn_runner",
+        PLUGIN_ROOT / "scripts" / "coc_live_turn_runner.py",
+    )
+    live_runner = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(live_runner)
+
+    turn_result = live_runner.run_live_turn(
+        campaign_dir,
+        char_path,
+        result["investigator_id"],
+        "我向房东确认委托细节，并询问还能去哪里查资料。",
+        intent_class="investigate",
+        rng_seed=42,
+        recording_mode="fast",
+        recording_flush="manual",
+    )
+    assert turn_result.get("turns"), "expected at least one applied turn"
+    assert any(
+        t.get("apply_path") == "coc_director_apply.apply_plan" for t in turn_result["turns"]
+    )
