@@ -1,105 +1,1005 @@
 {
   "source_note": "Keeper Rulebook Chapter 8: Sanity, Table X: Sample Manias (p.161 / PDF idx 160). A mania results in an obsession or compulsion with its subject. 100 entries, roll 1D100. Each mania has a trigger description.",
   "manias": {
-    "Ablutomania": { "trigger": "compulsion for washing oneself", "source_page": 161 },
-    "Aboulomania": { "trigger": "pathological indecisiveness", "source_page": 161 },
-    "Achluomania": { "trigger": "an excessive liking for darkness", "source_page": 161 },
-    "Acromania": { "trigger": "compulsion for high places (heights)", "source_page": 161 },
-    "Agathomania": { "trigger": "pathological kindness", "source_page": 161 },
-    "Agromania": { "trigger": "intense desire to be in open spaces", "source_page": 161 },
-    "Aichmomania": { "trigger": "obsession with sharp or pointed objects", "source_page": 161 },
-    "Ailuromania": { "trigger": "abnormal fondness for cats", "source_page": 161 },
-    "Algomania": { "trigger": "obsession with pain", "source_page": 161 },
-    "Alliomania": { "trigger": "obsession with garlic", "source_page": 161 },
-    "Amaxomania": { "trigger": "obsession with being in vehicles", "source_page": 161 },
-    "Amenomania": { "trigger": "irrational cheerfulness", "source_page": 161 },
-    "Anthomania": { "trigger": "obsession with flowers", "source_page": 161 },
-    "Arithmomania": { "trigger": "obsessive preoccupation with numbers", "source_page": 161 },
-    "Asoticamania": { "trigger": "impulsive or reckless spending", "source_page": 161 },
-    "Automania": { "trigger": "an excessive liking for solitude", "source_page": 161 },
-    "Balletomania": { "trigger": "abnormal fondness for ballet", "source_page": 161 },
-    "Bibliokleptomania": { "trigger": "compulsion for stealing books", "source_page": 161 },
-    "Bibliomania": { "trigger": "obsession with books and/or reading", "source_page": 161 },
-    "Bruxomania": { "trigger": "compulsion for grinding teeth", "source_page": 161 },
-    "Cacodemomania": { "trigger": "pathological belief that one is inhabited by an evil spirit", "source_page": 161 },
-    "Callomania": { "trigger": "obsession with one's own beauty", "source_page": 161 },
-    "Cartacoethes": { "trigger": "uncontrollable compulsion to see maps everywhere", "source_page": 161 },
-    "Catapedamania": { "trigger": "obsession with jumping from high places", "source_page": 161 },
-    "Cheimatomania": { "trigger": "abnormal desire for cold and/or cold things", "source_page": 161 },
-    "Choreomania": { "trigger": "dancing mania or uncontrollable frenzy", "source_page": 161 },
-    "Clinomania": { "trigger": "excessive desire to stay in bed", "source_page": 161 },
-    "Coimetromania": { "trigger": "obsession with cemeteries", "source_page": 161 },
-    "Coloromania": { "trigger": "obsession with a specific color", "source_page": 161 },
-    "Coulromania": { "trigger": "obsession with clowns", "source_page": 161 },
-    "Countermania": { "trigger": "compulsion to experience fearful situations", "source_page": 161 },
-    "Dacnomania": { "trigger": "obsession with killing", "source_page": 161 },
-    "Demonomania": { "trigger": "pathological belief that one is possessed by demons", "source_page": 161 },
-    "Dermatillomania": { "trigger": "compulsion for picking at one's skin", "source_page": 161 },
-    "Dikemania": { "trigger": "obsession to see justice done", "source_page": 161 },
-    "Dipsomania": { "trigger": "abnormal craving for alcohol", "source_page": 161 },
-    "Doramania": { "trigger": "obsession with owning furs", "source_page": 161 },
-    "Doromania": { "trigger": "obsession with giving gifts", "source_page": 161 },
-    "Dromomania": { "trigger": "compulsion to walk away or wander", "source_page": 161 },
-    "Ecdemiomania": { "trigger": "compulsion for wandering", "source_page": 161 },
-    "Egomania": { "trigger": "irrational self-centered attitude or self-worship", "source_page": 161 },
-    "Empleomania": { "trigger": "insatiable urge to hold office", "source_page": 161 },
-    "Enosimania": { "trigger": "pathological belief that one has sinned", "source_page": 161 },
-    "Epistemomania": { "trigger": "obsession for acquiring knowledge", "source_page": 161 },
-    "Eremiomania": { "trigger": "compulsion for stillness", "source_page": 161 },
-    "Etheromania": { "trigger": "craving for ether", "source_page": 161 },
-    "Gamomania": { "trigger": "obsession with issuing odd marriage proposals", "source_page": 161 },
-    "Geliomania": { "trigger": "uncontrollable compulsion to laugh", "source_page": 161 },
-    "Goetomania": { "trigger": "obsession with witches and witchcraft", "source_page": 161 },
-    "Graphomania": { "trigger": "obsession with writing everything down", "source_page": 161 },
-    "Gymnomania": { "trigger": "compulsion with nudity", "source_page": 161 },
-    "Habromania": { "trigger": "abnormal tendency to create pleasant delusions (in spite of reality)", "source_page": 161 },
-    "Helminthomania": { "trigger": "an excessive liking for worms", "source_page": 161 },
-    "Hoplomania": { "trigger": "obsession with firearms", "source_page": 161 },
-    "Hydromania": { "trigger": "irrational craving for water", "source_page": 161 },
-    "Ichthyomania": { "trigger": "obsession with fish", "source_page": 161 },
-    "Iconomania": { "trigger": "obsession with icons or portraits", "source_page": 161 },
-    "Idolomania": { "trigger": "obsession or devotion to an idol", "source_page": 161 },
-    "Infomania": { "trigger": "excessive devotion to accumulating facts", "source_page": 161 },
-    "Klazomania": { "trigger": "irrational compulsion to shout", "source_page": 161 },
-    "Kleptomania": { "trigger": "irrational compulsion for stealing", "source_page": 161 },
-    "Ligyromania": { "trigger": "uncontrollable compulsion to make loud or shrill noises", "source_page": 161 },
-    "Linonomania": { "trigger": "obsession with string", "source_page": 161 },
-    "Lotterymania": { "trigger": "an extreme desire to take part in lotteries", "source_page": 161 },
-    "Lypemania": { "trigger": "an abnormal tendency toward deep melancholy", "source_page": 161 },
-    "Megalithomania": { "trigger": "abnormal tendency to compose bizarre ideas when in the presence of stone circles/standing stones", "source_page": 161 },
-    "Melomania": { "trigger": "obsession with music or a specific tune", "source_page": 161 },
-    "Metromania": { "trigger": "insatiable desire for writing verse", "source_page": 161 },
-    "Misomania": { "trigger": "hatred of everything, obsession of hating some subject or group", "source_page": 161 },
-    "Monomania": { "trigger": "abnormal obsession with a single thought or idea", "source_page": 161 },
-    "Mythomania": { "trigger": "lying or exaggerating to an abnormal extent", "source_page": 161 },
-    "Nosomania": { "trigger": "delusion of suffering from an imagined disease", "source_page": 161 },
-    "Notomania": { "trigger": "compulsion to record everything (e.g. photograph)", "source_page": 161 },
-    "Onomamania": { "trigger": "obsession with names (people, places, things)", "source_page": 161 },
-    "Onomatomania": { "trigger": "irresistible desire to repeat certain words", "source_page": 161 },
-    "Onychotillomania": { "trigger": "compulsive picking at the fingernails", "source_page": 161 },
-    "Opsomania": { "trigger": "abnormal love for one kind of food", "source_page": 161 },
-    "Paramania": { "trigger": "an abnormal pleasure in complaining", "source_page": 161 },
-    "Personamania": { "trigger": "compulsion to wear masks", "source_page": 161 },
-    "Phasmomania": { "trigger": "obsession with ghosts", "source_page": 161 },
-    "Phonomania": { "trigger": "pathological tendency to murder", "source_page": 161 },
-    "Photomania": { "trigger": "pathological desire for light", "source_page": 161 },
-    "Planomania": { "trigger": "abnormal desire to disobey social norms", "source_page": 161 },
-    "Plutomania": { "trigger": "obsessive desire for wealth", "source_page": 161 },
-    "Pseudomania": { "trigger": "irrational compulsion for lying", "source_page": 161 },
-    "Pyromania": { "trigger": "compulsion for starting fires", "source_page": 161 },
-    "Question-Asking Mania": { "trigger": "compulsive urge to ask questions", "source_page": 161 },
-    "Rhinotillexomania": { "trigger": "compulsive nose picking", "source_page": 161 },
-    "Scribbleomania": { "trigger": "obsession with scribbling/doodling", "source_page": 161 },
-    "Siderodromomania": { "trigger": "intense fascination with trains and railroad travel", "source_page": 161 },
-    "Sophomania": { "trigger": "the delusion that one is incredibly intelligent", "source_page": 161 },
-    "Technomania": { "trigger": "obsession with new technology", "source_page": 161 },
-    "Thanatomania": { "trigger": "belief that one is cursed by death magic", "source_page": 161 },
-    "Theomania": { "trigger": "belief that he or she is a god", "source_page": 161 },
-    "Titillomaniac": { "trigger": "compulsion for scratching oneself", "source_page": 161 },
-    "Tomomania": { "trigger": "irrational predilection for performing surgery", "source_page": 161 },
-    "Trichotillomania": { "trigger": "craving for pulling out own hair", "source_page": 161 },
-    "Typhlomania": { "trigger": "pathological blindness", "source_page": 161 },
-    "Xenomania": { "trigger": "obsession with foreign things", "source_page": 161 },
-    "Zoomania": { "trigger": "insane fondness for animals", "source_page": 161 }
+    "Ablutomania": {
+      "trigger": "compulsion for washing oneself",
+      "trigger_tags": [
+        "washing",
+        "water",
+        "bathing",
+        "hygiene"
+      ],
+      "source_page": 161
+    },
+    "Aboulomania": {
+      "trigger": "pathological indecisiveness",
+      "trigger_tags": [
+        "indecision",
+        "choices",
+        "hesitation",
+        "paralysis"
+      ],
+      "source_page": 161
+    },
+    "Achluomania": {
+      "trigger": "an excessive liking for darkness",
+      "trigger_tags": [
+        "darkness",
+        "night",
+        "shadows",
+        "unlit"
+      ],
+      "source_page": 161
+    },
+    "Acromania": {
+      "trigger": "compulsion for high places (heights)",
+      "trigger_tags": [
+        "heights",
+        "high_places",
+        "rooftop",
+        "cliff_edge"
+      ],
+      "source_page": 161
+    },
+    "Agathomania": {
+      "trigger": "pathological kindness",
+      "trigger_tags": [
+        "kindness",
+        "helping",
+        "charity",
+        "people"
+      ],
+      "source_page": 161
+    },
+    "Agromania": {
+      "trigger": "intense desire to be in open spaces",
+      "trigger_tags": [
+        "open_space",
+        "outdoors",
+        "fields",
+        "wilderness"
+      ],
+      "source_page": 161
+    },
+    "Aichmomania": {
+      "trigger": "obsession with sharp or pointed objects",
+      "trigger_tags": [
+        "sharp_objects",
+        "blades",
+        "pointed",
+        "weapons"
+      ],
+      "source_page": 161
+    },
+    "Ailuromania": {
+      "trigger": "abnormal fondness for cats",
+      "trigger_tags": [
+        "cats",
+        "felines",
+        "animals",
+        "pets"
+      ],
+      "source_page": 161
+    },
+    "Algomania": {
+      "trigger": "obsession with pain",
+      "trigger_tags": [
+        "pain",
+        "injury",
+        "suffering",
+        "wounds"
+      ],
+      "source_page": 161
+    },
+    "Alliomania": {
+      "trigger": "obsession with garlic",
+      "trigger_tags": [
+        "garlic",
+        "food",
+        "cooking",
+        "onions"
+      ],
+      "source_page": 161
+    },
+    "Amaxomania": {
+      "trigger": "obsession with being in vehicles",
+      "trigger_tags": [
+        "vehicles",
+        "cars",
+        "riding",
+        "travel"
+      ],
+      "source_page": 161
+    },
+    "Amenomania": {
+      "trigger": "irrational cheerfulness",
+      "trigger_tags": [
+        "cheerfulness",
+        "laughter",
+        "mood",
+        "delusion"
+      ],
+      "source_page": 161
+    },
+    "Anthomania": {
+      "trigger": "obsession with flowers",
+      "trigger_tags": [
+        "flowers",
+        "plants",
+        "garden",
+        "pollen"
+      ],
+      "source_page": 161
+    },
+    "Arithmomania": {
+      "trigger": "obsessive preoccupation with numbers",
+      "trigger_tags": [
+        "numbers",
+        "counting",
+        "mathematics",
+        "symbols"
+      ],
+      "source_page": 161
+    },
+    "Asoticamania": {
+      "trigger": "impulsive or reckless spending",
+      "trigger_tags": [
+        "spending",
+        "money",
+        "shopping",
+        "wealth"
+      ],
+      "source_page": 161
+    },
+    "Automania": {
+      "trigger": "an excessive liking for solitude",
+      "trigger_tags": [
+        "solitude",
+        "alone",
+        "isolation",
+        "privacy"
+      ],
+      "source_page": 161
+    },
+    "Balletomania": {
+      "trigger": "abnormal fondness for ballet",
+      "trigger_tags": [
+        "ballet",
+        "dance",
+        "performance",
+        "music"
+      ],
+      "source_page": 161
+    },
+    "Bibliokleptomania": {
+      "trigger": "compulsion for stealing books",
+      "trigger_tags": [
+        "stealing_books",
+        "books",
+        "theft",
+        "library"
+      ],
+      "source_page": 161
+    },
+    "Bibliomania": {
+      "trigger": "obsession with books and/or reading",
+      "trigger_tags": [
+        "books",
+        "reading",
+        "library",
+        "tomes"
+      ],
+      "source_page": 161
+    },
+    "Bruxomania": {
+      "trigger": "compulsion for grinding teeth",
+      "trigger_tags": [
+        "teeth",
+        "grinding",
+        "jaws",
+        "dental"
+      ],
+      "source_page": 161
+    },
+    "Cacodemomania": {
+      "trigger": "pathological belief that one is inhabited by an evil spirit",
+      "trigger_tags": [
+        "demons",
+        "possession",
+        "spirits",
+        "supernatural"
+      ],
+      "source_page": 161
+    },
+    "Callomania": {
+      "trigger": "obsession with one's own beauty",
+      "trigger_tags": [
+        "beauty",
+        "self_image",
+        "appearance",
+        "vanity"
+      ],
+      "source_page": 161
+    },
+    "Cartacoethes": {
+      "trigger": "uncontrollable compulsion to see maps everywhere",
+      "trigger_tags": [
+        "maps",
+        "cartography",
+        "navigation",
+        "symbols"
+      ],
+      "source_page": 161
+    },
+    "Catapedamania": {
+      "trigger": "obsession with jumping from high places",
+      "trigger_tags": [
+        "jumping",
+        "heights",
+        "cliff_edge",
+        "falling"
+      ],
+      "source_page": 161
+    },
+    "Cheimatomania": {
+      "trigger": "abnormal desire for cold and/or cold things",
+      "trigger_tags": [
+        "cold",
+        "ice",
+        "winter",
+        "freezing"
+      ],
+      "source_page": 161
+    },
+    "Choreomania": {
+      "trigger": "dancing mania or uncontrollable frenzy",
+      "trigger_tags": [
+        "dancing",
+        "frenzy",
+        "movement",
+        "music"
+      ],
+      "source_page": 161
+    },
+    "Clinomania": {
+      "trigger": "excessive desire to stay in bed",
+      "trigger_tags": [
+        "bed",
+        "sleep",
+        "rest",
+        "lying_down"
+      ],
+      "source_page": 161
+    },
+    "Coimetromania": {
+      "trigger": "obsession with cemeteries",
+      "trigger_tags": [
+        "cemeteries",
+        "graves",
+        "death",
+        "burial"
+      ],
+      "source_page": 161
+    },
+    "Coloromania": {
+      "trigger": "obsession with a specific color",
+      "trigger_tags": [
+        "colors",
+        "specific_color",
+        "pigment",
+        "visual"
+      ],
+      "source_page": 161
+    },
+    "Coulromania": {
+      "trigger": "obsession with clowns",
+      "trigger_tags": [
+        "clowns",
+        "circus",
+        "makeup",
+        "performance"
+      ],
+      "source_page": 161
+    },
+    "Countermania": {
+      "trigger": "compulsion to experience fearful situations",
+      "trigger_tags": [
+        "fearful_situations",
+        "danger",
+        "risk",
+        "thrill"
+      ],
+      "source_page": 161
+    },
+    "Dacnomania": {
+      "trigger": "obsession with killing",
+      "trigger_tags": [
+        "killing",
+        "violence",
+        "murder",
+        "death"
+      ],
+      "source_page": 161
+    },
+    "Demonomania": {
+      "trigger": "pathological belief that one is possessed by demons",
+      "trigger_tags": [
+        "demons",
+        "possession",
+        "spirits",
+        "supernatural"
+      ],
+      "source_page": 161
+    },
+    "Dermatillomania": {
+      "trigger": "compulsion for picking at one's skin",
+      "trigger_tags": [
+        "skin_picking",
+        "skin",
+        "self_harm",
+        "compulsion"
+      ],
+      "source_page": 161
+    },
+    "Dikemania": {
+      "trigger": "obsession to see justice done",
+      "trigger_tags": [
+        "justice",
+        "law",
+        "punishment",
+        "morality"
+      ],
+      "source_page": 161
+    },
+    "Dipsomania": {
+      "trigger": "abnormal craving for alcohol",
+      "trigger_tags": [
+        "alcohol",
+        "drinking",
+        "intoxication",
+        "beverages"
+      ],
+      "source_page": 161
+    },
+    "Doramania": {
+      "trigger": "obsession with owning furs",
+      "trigger_tags": [
+        "fur",
+        "pelts",
+        "animal_hide",
+        "possessions"
+      ],
+      "source_page": 161
+    },
+    "Doromania": {
+      "trigger": "obsession with giving gifts",
+      "trigger_tags": [
+        "gifts",
+        "giving",
+        "presents",
+        "generosity"
+      ],
+      "source_page": 161
+    },
+    "Dromomania": {
+      "trigger": "compulsion to walk away or wander",
+      "trigger_tags": [
+        "wandering",
+        "walking",
+        "travel",
+        "leaving"
+      ],
+      "source_page": 161
+    },
+    "Ecdemiomania": {
+      "trigger": "compulsion for wandering",
+      "trigger_tags": [
+        "wandering",
+        "travel",
+        "leaving",
+        "roaming"
+      ],
+      "source_page": 161
+    },
+    "Egomania": {
+      "trigger": "irrational self-centered attitude or self-worship",
+      "trigger_tags": [
+        "self_worship",
+        "ego",
+        "vanity",
+        "self_centered"
+      ],
+      "source_page": 161
+    },
+    "Empleomania": {
+      "trigger": "insatiable urge to hold office",
+      "trigger_tags": [
+        "office",
+        "authority",
+        "power",
+        "politics"
+      ],
+      "source_page": 161
+    },
+    "Enosimania": {
+      "trigger": "pathological belief that one has sinned",
+      "trigger_tags": [
+        "sinning",
+        "guilt",
+        "religion",
+        "morality"
+      ],
+      "source_page": 161
+    },
+    "Epistemomania": {
+      "trigger": "obsession for acquiring knowledge",
+      "trigger_tags": [
+        "knowledge",
+        "learning",
+        "study",
+        "facts"
+      ],
+      "source_page": 161
+    },
+    "Eremiomania": {
+      "trigger": "compulsion for stillness",
+      "trigger_tags": [
+        "stillness",
+        "silence",
+        "quiet",
+        "immobility"
+      ],
+      "source_page": 161
+    },
+    "Etheromania": {
+      "trigger": "craving for ether",
+      "trigger_tags": [
+        "ether",
+        "drugs",
+        "chemicals",
+        "intoxication"
+      ],
+      "source_page": 161
+    },
+    "Gamomania": {
+      "trigger": "obsession with issuing odd marriage proposals",
+      "trigger_tags": [
+        "marriage",
+        "proposals",
+        "romance",
+        "people"
+      ],
+      "source_page": 161
+    },
+    "Geliomania": {
+      "trigger": "uncontrollable compulsion to laugh",
+      "trigger_tags": [
+        "laughter",
+        "laughing",
+        "cheerfulness",
+        "sound"
+      ],
+      "source_page": 161
+    },
+    "Goetomania": {
+      "trigger": "obsession with witches and witchcraft",
+      "trigger_tags": [
+        "witches",
+        "witchcraft",
+        "magic",
+        "curses"
+      ],
+      "source_page": 161
+    },
+    "Graphomania": {
+      "trigger": "obsession with writing everything down",
+      "trigger_tags": [
+        "writing",
+        "recording",
+        "notes",
+        "documents"
+      ],
+      "source_page": 161
+    },
+    "Gymnomania": {
+      "trigger": "compulsion with nudity",
+      "trigger_tags": [
+        "nudity",
+        "undressing",
+        "clothing",
+        "exposure"
+      ],
+      "source_page": 161
+    },
+    "Habromania": {
+      "trigger": "abnormal tendency to create pleasant delusions (in spite of reality)",
+      "trigger_tags": [
+        "pleasant_delusions",
+        "delusion",
+        "fantasy",
+        "denial"
+      ],
+      "source_page": 161
+    },
+    "Helminthomania": {
+      "trigger": "an excessive liking for worms",
+      "trigger_tags": [
+        "worms",
+        "parasites",
+        "creepy_crawlies",
+        "soil"
+      ],
+      "source_page": 161
+    },
+    "Hoplomania": {
+      "trigger": "obsession with firearms",
+      "trigger_tags": [
+        "firearms",
+        "guns",
+        "weapons",
+        "gunfire"
+      ],
+      "source_page": 161
+    },
+    "Hydromania": {
+      "trigger": "irrational craving for water",
+      "trigger_tags": [
+        "water",
+        "drinking",
+        "liquid",
+        "thirst"
+      ],
+      "source_page": 161
+    },
+    "Ichthyomania": {
+      "trigger": "obsession with fish",
+      "trigger_tags": [
+        "fish",
+        "aquatic",
+        "seafood",
+        "water"
+      ],
+      "source_page": 161
+    },
+    "Iconomania": {
+      "trigger": "obsession with icons or portraits",
+      "trigger_tags": [
+        "icons",
+        "portraits",
+        "images",
+        "art"
+      ],
+      "source_page": 161
+    },
+    "Idolomania": {
+      "trigger": "obsession or devotion to an idol",
+      "trigger_tags": [
+        "idols",
+        "worship",
+        "devotion",
+        "religion"
+      ],
+      "source_page": 161
+    },
+    "Infomania": {
+      "trigger": "excessive devotion to accumulating facts",
+      "trigger_tags": [
+        "facts",
+        "information",
+        "knowledge",
+        "collecting"
+      ],
+      "source_page": 161
+    },
+    "Klazomania": {
+      "trigger": "irrational compulsion to shout",
+      "trigger_tags": [
+        "shouting",
+        "loud_noises",
+        "yelling",
+        "sound"
+      ],
+      "source_page": 161
+    },
+    "Kleptomania": {
+      "trigger": "irrational compulsion for stealing",
+      "trigger_tags": [
+        "stealing",
+        "theft",
+        "taking",
+        "possessions"
+      ],
+      "source_page": 161
+    },
+    "Ligyromania": {
+      "trigger": "uncontrollable compulsion to make loud or shrill noises",
+      "trigger_tags": [
+        "loud_noises",
+        "noise",
+        "shrill",
+        "sound"
+      ],
+      "source_page": 161
+    },
+    "Linonomania": {
+      "trigger": "obsession with string",
+      "trigger_tags": [
+        "string",
+        "cord",
+        "binding",
+        "thread"
+      ],
+      "source_page": 161
+    },
+    "Lotterymania": {
+      "trigger": "an extreme desire to take part in lotteries",
+      "trigger_tags": [
+        "lotteries",
+        "gambling",
+        "chance",
+        "money"
+      ],
+      "source_page": 161
+    },
+    "Lypemania": {
+      "trigger": "an abnormal tendency toward deep melancholy",
+      "trigger_tags": [
+        "melancholy",
+        "sadness",
+        "depression",
+        "mood"
+      ],
+      "source_page": 161
+    },
+    "Megalithomania": {
+      "trigger": "abnormal tendency to compose bizarre ideas when in the presence of stone circles/standing stones",
+      "trigger_tags": [
+        "stone_circles",
+        "standing_stones",
+        "megaliths",
+        "ruins"
+      ],
+      "source_page": 161
+    },
+    "Melomania": {
+      "trigger": "obsession with music or a specific tune",
+      "trigger_tags": [
+        "music",
+        "tunes",
+        "melody",
+        "sound"
+      ],
+      "source_page": 161
+    },
+    "Metromania": {
+      "trigger": "insatiable desire for writing verse",
+      "trigger_tags": [
+        "verse",
+        "poetry",
+        "writing",
+        "words"
+      ],
+      "source_page": 161
+    },
+    "Misomania": {
+      "trigger": "hatred of everything, obsession of hating some subject or group",
+      "trigger_tags": [
+        "hatred",
+        "hating",
+        "animosity",
+        "people"
+      ],
+      "source_page": 161
+    },
+    "Monomania": {
+      "trigger": "abnormal obsession with a single thought or idea",
+      "trigger_tags": [
+        "obsession",
+        "single_idea",
+        "fixation",
+        "thought"
+      ],
+      "source_page": 161
+    },
+    "Mythomania": {
+      "trigger": "lying or exaggerating to an abnormal extent",
+      "trigger_tags": [
+        "lying",
+        "exaggerating",
+        "falsehood",
+        "speech"
+      ],
+      "source_page": 161
+    },
+    "Nosomania": {
+      "trigger": "delusion of suffering from an imagined disease",
+      "trigger_tags": [
+        "disease",
+        "illness",
+        "imagined_sickness",
+        "medical"
+      ],
+      "source_page": 161
+    },
+    "Notomania": {
+      "trigger": "compulsion to record everything (e.g. photograph)",
+      "trigger_tags": [
+        "recording",
+        "photograph",
+        "documenting",
+        "images"
+      ],
+      "source_page": 161
+    },
+    "Onomamania": {
+      "trigger": "obsession with names (people, places, things)",
+      "trigger_tags": [
+        "names",
+        "naming",
+        "labels",
+        "words"
+      ],
+      "source_page": 161
+    },
+    "Onomatomania": {
+      "trigger": "irresistible desire to repeat certain words",
+      "trigger_tags": [
+        "repeating_words",
+        "words",
+        "speech",
+        "sound"
+      ],
+      "source_page": 161
+    },
+    "Onychotillomania": {
+      "trigger": "compulsive picking at the fingernails",
+      "trigger_tags": [
+        "fingernails",
+        "nail_picking",
+        "self_harm",
+        "compulsion"
+      ],
+      "source_page": 161
+    },
+    "Opsomania": {
+      "trigger": "abnormal love for one kind of food",
+      "trigger_tags": [
+        "food",
+        "eating",
+        "specific_food",
+        "appetite"
+      ],
+      "source_page": 161
+    },
+    "Paramania": {
+      "trigger": "an abnormal pleasure in complaining",
+      "trigger_tags": [
+        "complaining",
+        "grievance",
+        "speech",
+        "mood"
+      ],
+      "source_page": 161
+    },
+    "Personamania": {
+      "trigger": "compulsion to wear masks",
+      "trigger_tags": [
+        "masks",
+        "disguise",
+        "faces",
+        "concealment"
+      ],
+      "source_page": 161
+    },
+    "Phasmomania": {
+      "trigger": "obsession with ghosts",
+      "trigger_tags": [
+        "ghosts",
+        "spirits",
+        "hauntings",
+        "supernatural"
+      ],
+      "source_page": 161
+    },
+    "Phonomania": {
+      "trigger": "pathological tendency to murder",
+      "trigger_tags": [
+        "murder",
+        "killing",
+        "violence",
+        "death"
+      ],
+      "source_page": 161
+    },
+    "Photomania": {
+      "trigger": "pathological desire for light",
+      "trigger_tags": [
+        "light",
+        "brightness",
+        "illumination",
+        "daylight"
+      ],
+      "source_page": 161
+    },
+    "Planomania": {
+      "trigger": "abnormal desire to disobey social norms",
+      "trigger_tags": [
+        "disobedience",
+        "norms",
+        "rebellion",
+        "rules"
+      ],
+      "source_page": 161
+    },
+    "Plutomania": {
+      "trigger": "obsessive desire for wealth",
+      "trigger_tags": [
+        "wealth",
+        "money",
+        "riches",
+        "possessions"
+      ],
+      "source_page": 161
+    },
+    "Pseudomania": {
+      "trigger": "irrational compulsion for lying",
+      "trigger_tags": [
+        "lying",
+        "falsehood",
+        "speech",
+        "deception"
+      ],
+      "source_page": 161
+    },
+    "Pyromania": {
+      "trigger": "compulsion for starting fires",
+      "trigger_tags": [
+        "fire",
+        "flames",
+        "burning",
+        "arson"
+      ],
+      "source_page": 161
+    },
+    "Question-Asking Mania": {
+      "trigger": "compulsive urge to ask questions",
+      "trigger_tags": [
+        "questions",
+        "asking",
+        "speech",
+        "inquiry"
+      ],
+      "source_page": 161
+    },
+    "Rhinotillexomania": {
+      "trigger": "compulsive nose picking",
+      "trigger_tags": [
+        "nose_picking",
+        "nose",
+        "compulsion",
+        "self_harm"
+      ],
+      "source_page": 161
+    },
+    "Scribbleomania": {
+      "trigger": "obsession with scribbling/doodling",
+      "trigger_tags": [
+        "scribbling",
+        "doodling",
+        "writing",
+        "drawing"
+      ],
+      "source_page": 161
+    },
+    "Siderodromomania": {
+      "trigger": "intense fascination with trains and railroad travel",
+      "trigger_tags": [
+        "trains",
+        "railroad",
+        "travel",
+        "vehicles"
+      ],
+      "source_page": 161
+    },
+    "Sophomania": {
+      "trigger": "the delusion that one is incredibly intelligent",
+      "trigger_tags": [
+        "intelligence",
+        "ego",
+        "knowledge",
+        "delusion"
+      ],
+      "source_page": 161
+    },
+    "Technomania": {
+      "trigger": "obsession with new technology",
+      "trigger_tags": [
+        "technology",
+        "machines",
+        "devices",
+        "novelty"
+      ],
+      "source_page": 161
+    },
+    "Thanatomania": {
+      "trigger": "belief that one is cursed by death magic",
+      "trigger_tags": [
+        "death_magic",
+        "curses",
+        "death",
+        "magic"
+      ],
+      "source_page": 161
+    },
+    "Theomania": {
+      "trigger": "belief that he or she is a god",
+      "trigger_tags": [
+        "godhood",
+        "divinity",
+        "religion",
+        "delusion"
+      ],
+      "source_page": 161
+    },
+    "Titillomaniac": {
+      "trigger": "compulsion for scratching oneself",
+      "trigger_tags": [
+        "scratching",
+        "itching",
+        "skin",
+        "compulsion"
+      ],
+      "source_page": 161
+    },
+    "Tomomania": {
+      "trigger": "irrational predilection for performing surgery",
+      "trigger_tags": [
+        "surgery",
+        "operations",
+        "cutting",
+        "medical"
+      ],
+      "source_page": 161
+    },
+    "Trichotillomania": {
+      "trigger": "craving for pulling out own hair",
+      "trigger_tags": [
+        "hair_pulling",
+        "hair",
+        "self_harm",
+        "compulsion"
+      ],
+      "source_page": 161
+    },
+    "Typhlomania": {
+      "trigger": "pathological blindness",
+      "trigger_tags": [
+        "blindness",
+        "vision",
+        "sight",
+        "darkness"
+      ],
+      "source_page": 161
+    },
+    "Xenomania": {
+      "trigger": "obsession with foreign things",
+      "trigger_tags": [
+        "foreign_things",
+        "foreigners",
+        "strangers",
+        "exotic"
+      ],
+      "source_page": 161
+    },
+    "Zoomania": {
+      "trigger": "insane fondness for animals",
+      "trigger_tags": [
+        "animals",
+        "beasts",
+        "wildlife",
+        "creatures"
+      ],
+      "source_page": 161
+    }
   }
 }

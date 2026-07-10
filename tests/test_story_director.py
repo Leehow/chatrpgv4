@@ -526,6 +526,60 @@ def test_rich_intent_indefinite_insane_signal_read(tmp_path):
     assert ctx["rule_signals"]["indefinite_insane"] is True
 
 
+def test_phobia_exposure_signal_when_insane_and_tags_intersect(tmp_path):
+    """Scene threat_tags ∩ phobia_tags → phobia_exposure.penalty_die while insane."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["threat_tags"] = ["heights", "cliff_edge", "darkness"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv["temporary_insane"] = True
+    inv["phobia_tags"] = ["heights", "rooftop", "looking_down"]
+    inv_path.write_text(json.dumps(inv))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    signal = ctx["rule_signals"]["phobia_exposure"]
+    assert signal["penalty_die"] is True
+    assert "heights" in signal["matched_tags"]
+
+
+def test_phobia_exposure_signal_empty_when_sane_or_disjoint(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["threat_tags"] = ["heights", "cliff_edge"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    # Sane + intersecting tags → no penalty
+    inv["phobia_tags"] = ["heights", "rooftop"]
+    inv_path.write_text(json.dumps(inv))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["phobia_exposure"]["penalty_die"] is False
+
+    # Insane + disjoint tags → no penalty
+    inv["temporary_insane"] = True
+    inv["phobia_tags"] = ["spiders", "webs"]
+    inv_path.write_text(json.dumps(inv))
+    ctx2 = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert ctx2["rule_signals"]["phobia_exposure"]["penalty_die"] is False
+    assert ctx2["rule_signals"]["phobia_exposure"]["matched_tags"] == []
+
+
 def test_build_director_context_fallen_back_on_missing_pacing(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     (camp / "save" / "pacing-state.json").unlink()

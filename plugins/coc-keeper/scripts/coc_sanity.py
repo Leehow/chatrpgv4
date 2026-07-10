@@ -149,13 +149,21 @@ class SanitySession:
         self.involuntary_actions: list[dict[str, Any]] = []
         # Phobia / mania (p.159, p.171 bout table IX/X).
         # Set when a bout-of-madness result is 9 (phobia) or 10 (mania).
+        # trigger_tags are compile-time structured exposure evidence from the
+        # JSON tables — runtime never scans free-text phobia/mania names.
         self.phobia: str | None = None
+        self.phobia_tags: list[str] = []
         self.mania: str | None = None
+        self.mania_tags: list[str] = []
+        self.mania_unindulged: bool = False
         self.conditions: list[str] = []
         # Delusions + reality check (p.162-163): only plantable during the
         # underlying-insanity phase (insane, no active bout).
         self.active_delusion: dict[str, Any] | None = None
         self.delusion_resistant: bool = False
+        # Psychoanalysis success suppresses phobia/mania symptoms until the
+        # next SAN loss of 1+ (p.162).
+        self.symptoms_suppressed_until_next_san_loss: bool = False
 
     # ------------------------------------------------------------------ #
     # Core: SAN roll + loss
@@ -226,9 +234,11 @@ class SanitySession:
 
         self.san_current = max(0, self.san_current - lost)
         self.daily_san_lost += lost
-        # p.162-163: delusion resistance lasts only until the next SAN loss.
+        # p.162-163: delusion resistance and Psychoanalysis symptom suppression
+        # both lapse on the next SAN loss of 1+.
         if lost >= 1:
             self.delusion_resistant = False
+            self.symptoms_suppressed_until_next_san_loss = False
 
         roll_record = {
             "roll_id": roll_id,
@@ -615,8 +625,8 @@ class SanitySession:
     def _roll_phobia(self) -> str | None:
         """Roll 1D100 on Table IX (phobias) and record the result (p.171).
 
-        Sets ``self.phobia`` and adds ``"phobia:<name>"`` to conditions.
-        Returns the phobia name, or None if the phobia table is unavailable.
+        Sets ``self.phobia`` / ``self.phobia_tags`` and adds ``"phobia:<name>"``
+        to conditions. Returns the phobia name, or None if the table is missing.
         """
         table = _load_phobia_mania_table("phobias")
         if not table:
@@ -625,13 +635,16 @@ class SanitySession:
         roll = self._rng.randint(1, 100)
         idx = min(roll - 1, len(names) - 1)
         name = names[idx]
+        entry = table.get(name, {}) or {}
         self.phobia = name
+        self.phobia_tags = [str(t) for t in (entry.get("trigger_tags") or [])]
         cond = f"phobia:{name}"
         if cond not in self.conditions:
             self.conditions.append(cond)
         self._event("phobia_gained", {
             "phobia": name, "roll": roll,
-            "trigger": table.get(name, {}).get("trigger", ""),
+            "trigger": entry.get("trigger", ""),
+            "trigger_tags": list(self.phobia_tags),
             "summary": f"{self.investigator_id} developed phobia: {name} (Table IX roll {roll}).",
         })
         return name
@@ -639,8 +652,9 @@ class SanitySession:
     def _roll_mania(self) -> str | None:
         """Roll 1D100 on Table X (manias) and record the result (p.171).
 
-        Sets ``self.mania`` and adds ``"mania:<name>"`` to conditions.
-        Returns the mania name, or None if the mania table is unavailable.
+        Sets ``self.mania`` / ``self.mania_tags``, marks ``mania_unindulged``,
+        and adds ``"mania:<name>"`` to conditions. Returns the mania name, or
+        None if the table is unavailable.
         """
         table = _load_phobia_mania_table("manias")
         if not table:
@@ -649,41 +663,92 @@ class SanitySession:
         roll = self._rng.randint(1, 100)
         idx = min(roll - 1, len(names) - 1)
         name = names[idx]
+        entry = table.get(name, {}) or {}
         self.mania = name
+        self.mania_tags = [str(t) for t in (entry.get("trigger_tags") or [])]
+        self.mania_unindulged = True
         cond = f"mania:{name}"
         if cond not in self.conditions:
             self.conditions.append(cond)
         self._event("mania_gained", {
             "mania": name, "roll": roll,
-            "trigger": table.get(name, {}).get("trigger", ""),
+            "trigger": entry.get("trigger", ""),
+            "trigger_tags": list(self.mania_tags),
             "summary": f"{self.investigator_id} developed mania: {name} (Table X roll {roll}).",
         })
         return name
+
+    def indulge_mania(self) -> dict[str, Any]:
+        """Clear the unindulged-mania pressure flag (p.159 / p.162).
+
+        Call when the investigator acts on the mania. Returns a status dict.
+        """
+        self.mania_unindulged = False
+        result = {
+            "mania": self.mania,
+            "mania_unindulged": False,
+            "summary": (f"{self.investigator_id} indulged mania"
+                        f"{(': ' + self.mania) if self.mania else ''}."),
+        }
+        self._event("mania_indulged", result)
+        return result
+
+    def suppress_insanity_symptoms(self) -> dict[str, Any]:
+        """Psychoanalysis success: suppress phobia/mania symptoms until the
+        next SAN loss of 1+ (p.162)."""
+        self.symptoms_suppressed_until_next_san_loss = True
+        result = {
+            "symptoms_suppressed_until_next_san_loss": True,
+            "summary": (f"{self.investigator_id} insanity symptoms suppressed "
+                        "until next SAN loss (Psychoanalysis, p.162)."),
+        }
+        self._event("insanity_symptoms_suppressed", result)
+        return result
 
     @property
     def is_insane(self) -> bool:
         """True if the investigator is currently in any insanity state."""
         return self.temporary_insane or self.indefinite_insane or self.permanently_insane
 
-    def penalty_die_for_exposure(self, *, phobia_source: str | None = None,
-                                 mania_source: str | None = None) -> int:
-        """Penalty dice applied when an insane investigator is exposed to a
-        phobia or mania source (p.159).
+    def penalty_die_for_exposure(
+        self,
+        *,
+        exposure_tags: set[str] | list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Penalty dice when an insane investigator faces structured exposure.
 
-        - Phobia exposure while insane: 1 penalty die to all non-SAN rolls.
-        - Mania exposure while insane: 1 penalty die until the mania is indulged.
+        Intersects ``exposure_tags`` (scene/danger evidence) with the stored
+        ``phobia_tags`` / ``mania_tags`` acquired from the JSON tables. No
+        free-text or substring matching (Semantic Matcher Constitution).
 
-        ``phobia_source``/``mania_source`` are the name (or substring) of the
-        phobia/mania being confronted. Returns 0 or 1 (penalty dice count).
+        Returns ``{"penalty_dice": int, "matched": [...], "reason": ...}``.
         """
         if not self.is_insane:
-            return 0
-        penalty = 0
-        if phobia_source and self.phobia and phobia_source.lower() in self.phobia.lower():
-            penalty += 1
-        if mania_source and self.mania and mania_source.lower() in self.mania.lower():
-            penalty += 1
-        return penalty
+            return {
+                "penalty_dice": 0,
+                "matched": [],
+                "reason": "not_insane",
+            }
+        if self.symptoms_suppressed_until_next_san_loss:
+            return {
+                "penalty_dice": 0,
+                "matched": [],
+                "reason": "symptoms_suppressed",
+            }
+        tags = {str(t) for t in (exposure_tags or []) if t}
+        owned = set(self.phobia_tags or []) | set(self.mania_tags or [])
+        matched = sorted(tags & owned)
+        if not matched:
+            return {
+                "penalty_dice": 0,
+                "matched": [],
+                "reason": "no_structured_exposure_evidence",
+            }
+        return {
+            "penalty_dice": 1,
+            "matched": matched,
+            "reason": "structured_exposure_match",
+        }
 
     # ------------------------------------------------------------------ #
     # coc_time integration: schedule / clear recovery triggers
@@ -817,10 +882,16 @@ class SanitySession:
             "bouts_of_madness": list(self.bouts_of_madness),
             "involuntary_actions": list(self.involuntary_actions),
             "phobia": self.phobia,
+            "phobia_tags": list(self.phobia_tags),
             "mania": self.mania,
+            "mania_tags": list(self.mania_tags),
+            "mania_unindulged": self.mania_unindulged,
             "conditions": list(self.conditions),
             "active_delusion": self.active_delusion,
             "delusion_resistant": self.delusion_resistant,
+            "symptoms_suppressed_until_next_san_loss": (
+                self.symptoms_suppressed_until_next_san_loss
+            ),
             "events": list(self.events),
         }
 
@@ -849,8 +920,18 @@ class SanitySession:
             data = json.loads(inv_path.read_text(encoding="utf-8")) if inv_path.exists() else {}
             data["current_san"] = int(self.san_current)
             data["indefinite_insane"] = bool(self.indefinite_insane)
+            data["temporary_insane"] = bool(self.temporary_insane)
+            data["permanently_insane"] = bool(self.permanently_insane)
             data["bout_active"] = bool(self.bout_active)
             data["active_delusion"] = self.active_delusion
+            data["phobia"] = self.phobia
+            data["phobia_tags"] = list(self.phobia_tags)
+            data["mania"] = self.mania
+            data["mania_tags"] = list(self.mania_tags)
+            data["mania_unindulged"] = bool(self.mania_unindulged)
+            data["symptoms_suppressed_until_next_san_loss"] = bool(
+                self.symptoms_suppressed_until_next_san_loss
+            )
             inv_path.parent.mkdir(parents=True, exist_ok=True)
             inv_path.write_text(json.dumps(data, ensure_ascii=False, indent=2),
                                 encoding="utf-8")
@@ -896,10 +977,16 @@ class SanitySession:
         sess.awfulness_caps = {str(k): int(v)
                                for k, v in (snap.get("awfulness_caps") or {}).items()}
         sess.phobia = snap.get("phobia")
+        sess.phobia_tags = [str(t) for t in (snap.get("phobia_tags") or [])]
         sess.mania = snap.get("mania")
+        sess.mania_tags = [str(t) for t in (snap.get("mania_tags") or [])]
+        sess.mania_unindulged = bool(snap.get("mania_unindulged", False))
         sess.conditions = list(snap.get("conditions") or [])
         sess.active_delusion = snap.get("active_delusion")
         sess.delusion_resistant = bool(snap.get("delusion_resistant", False))
+        sess.symptoms_suppressed_until_next_san_loss = bool(
+            snap.get("symptoms_suppressed_until_next_san_loss", False)
+        )
         sess.bouts_of_madness = list(snap.get("bouts_of_madness") or [])
         sess.involuntary_actions = list(snap.get("involuntary_actions") or [])
         saved_events = snap.get("events") or []

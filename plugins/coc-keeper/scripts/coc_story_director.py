@@ -502,6 +502,29 @@ def build_director_context(
         "bout_active": bool(inv_state.get("bout_active")) or "bout_active" in conditions,
         "delusion_active": bool(inv_state.get("active_delusion")),
     }
+    # Structured phobia/mania exposure (W1-4): scene threat_tags ∩ stored
+    # phobia_tags/mania_tags. No free-text scanning.
+    threat_tags = {
+        str(t) for t in (active_scene.get("threat_tags") or []) if t
+    }
+    owned_tags = {
+        str(t) for t in (
+            list(inv_state.get("phobia_tags") or [])
+            + list(inv_state.get("mania_tags") or [])
+        ) if t
+    }
+    matched_exposure = sorted(threat_tags & owned_tags)
+    insane_for_exposure = bool(
+        inv_state.get("temporary_insane")
+        or inv_state.get("indefinite_insane")
+        or inv_state.get("permanently_insane")
+        or rule_signals["bout_active"]
+        or rule_signals["sanity_state"] in ("temp_insane", "bout_active")
+    )
+    rule_signals["phobia_exposure"] = {
+        "penalty_die": bool(insane_for_exposure and matched_exposure),
+        "matched_tags": matched_exposure if insane_for_exposure else [],
+    }
     signal_ctx = {
         "player_intent_class": player_intent_class,
         "player_intent_rich": player_intent_rich,
