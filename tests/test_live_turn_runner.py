@@ -855,8 +855,8 @@ def test_live_turn_narration_audit_jsonl_and_counter(tmp_path, monkeypatch):
     camp, char_path = _build_live_campaign(tmp_path)
     real_build = live_runner.narration_contract.build_narration_envelope
 
-    def build_with_summary_ese(plan):
-        env = dict(real_build(plan))
+    def build_with_summary_ese(plan, **kwargs):
+        env = dict(real_build(plan, **kwargs))
         reveals = dict(env.get("approved_reveals") or {})
         reveals["must_include"] = ["这表明桌上有一份文件。"]
         env["approved_reveals"] = reveals
@@ -981,3 +981,79 @@ def test_run_live_turn_reclaims_stale_lock_from_dead_pid(tmp_path):
 
     assert result["turns"]
     assert not lock_path.exists()
+
+
+def test_live_turn_envelope_grounds_reveals_scene_npc_and_rule_results(tmp_path):
+    """Narration envelope must carry player-safe clue bodies, scene anchors, npc seeds."""
+    camp, char_path = _build_live_campaign(tmp_path)
+    scn = camp / "scenario"
+    char = json.loads(char_path.read_text(encoding="utf-8"))
+    char["name"] = "艾达·金"
+    char_path.write_text(json.dumps(char, ensure_ascii=False), encoding="utf-8")
+
+    story = json.loads((scn / "story-graph.json").read_text(encoding="utf-8"))
+    story["scenes"][0].update({
+        "display_name": "诺特的事务所",
+        "sensory_anchors": ["咖啡渣味", "雨打窗玻璃"],
+        "tone": ["dust", "daylight"],
+        "npc_ids": ["npc-knott"],
+    })
+    (scn / "story-graph.json").write_text(json.dumps(story, ensure_ascii=False), encoding="utf-8")
+
+    clues = json.loads((scn / "clue-graph.json").read_text(encoding="utf-8"))
+    clues["conclusions"][0]["clues"][0]["player_safe_summary"] = "桌上放着一把黄铜钥匙"
+    (scn / "clue-graph.json").write_text(json.dumps(clues, ensure_ascii=False), encoding="utf-8")
+
+    (scn / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [{
+            "npc_id": "npc-knott",
+            "name": "Steven Knott",
+            "agenda": "wants the house cleared",
+            "fear": "losing money",
+            "secret": "knows only rumor",
+            "voice": "Practical and impatient.",
+            "relationship_to_investigators": "employer",
+            "reaction_triggers": [{
+                "when": "always",
+                "move": "nudge",
+                "line_seed": "钥匙在桌上，今天就定下来吧。",
+                "visibility": "player_visible",
+            }],
+        }],
+    }, ensure_ascii=False), encoding="utf-8")
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我检查桌上的钥匙。",
+        intent_class="investigate",
+        recording_mode="sync",
+        rng_seed=31,
+    )
+    turn = result["turns"][0]
+    env = turn["narration_envelope"]
+
+    assert env["scene_anchor"]["display_name"] == "诺特的事务所"
+    assert "咖啡渣味" in env["scene_anchor"]["sensory_anchors"]
+
+    clues_payload = env["approved_reveals"].get("clues") or []
+    if env["approved_reveals"].get("clue_ids"):
+        assert any(
+            c.get("player_safe_summary") == "桌上放着一把黄铜钥匙"
+            for c in clues_payload
+        )
+
+    assert "rule_results" in env
+    assert isinstance(env["rule_results"], list)
+    for rr in env["rule_results"]:
+        assert "roll" not in rr
+        assert "target" not in rr
+        if rr.get("skill"):
+            assert rr.get("investigator_display_name") == "艾达·金"
+
+    npc_moves = env.get("npc_moves") or []
+    if npc_moves:
+        assert npc_moves[0].get("display_name") == "Steven Knott"
+        assert npc_moves[0].get("dialogue_seed")
+        assert "knows only rumor" not in json.dumps(npc_moves, ensure_ascii=False)

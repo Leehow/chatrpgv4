@@ -1829,8 +1829,22 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
         else:
             emotional_tone = _npc_default_tone(agenda)
             disposition_source = None
+        persona_card = (agency_by_npc.get(npc_id) or {}).get("persona_card") or {}
+        name_rec = persona_card.get("name")
+        persona_name = (
+            name_rec.get("value")
+            if isinstance(name_rec, dict)
+            else (name_rec if isinstance(name_rec, str) else None)
+        )
+        display_name = (
+            agenda.get("name")
+            or agenda.get("display_name")
+            or persona_name
+            or npc_id
+        )
         move: dict[str, Any] = {
             "npc_id": npc_id,
+            "display_name": display_name,
             "agenda": agenda.get("agenda", ""),
             "emotional_tone": emotional_tone,
             "has_secret": has_secret,
@@ -1838,10 +1852,19 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
             "disposition_source": disposition_source,
             "psych_stance": disposition["stance"] if disposition else None,
             "relationship_to_investigators": agenda.get("relationship_to_investigators"),
-            "social_role": (agency_by_npc.get(npc_id) or {}).get("persona_card", {}).get("social_role"),
-            "persona": (agency_by_npc.get(npc_id) or {}).get("persona_card", {}).get("persona"),
+            "social_role": persona_card.get("social_role"),
+            "persona": persona_card.get("persona"),
             "agency_moves": (agency_by_npc.get(npc_id) or {}).get("agency_moves", []),
         }
+        # Player-safe demeanor hint for narrator dialogue seeds (not secret prose).
+        voice = agenda.get("voice")
+        if isinstance(voice, str) and voice.strip():
+            move["voice"] = voice.strip()
+        foreign = agenda.get("foreign_dialogue")
+        if isinstance(foreign, dict):
+            sample = foreign.get("sample_line")
+            if isinstance(sample, str) and sample.strip():
+                move["dialogue_seed"] = sample.strip()
         if disposition is not None:
             move["stance_drivers"] = disposition["drivers"]
         secret_id = agenda.get("secret_id")

@@ -392,3 +392,198 @@ def test_blocking_severity_contract_is_block_only():
     assert cnc.is_blocking_severity("rewrite") is False
     assert cnc.is_blocking_severity("block") is True
     assert cnc.NARRATION_GUARD_BLOCKING_SEVERITY == "block"
+
+
+# ---------------------------------------------------------------------------
+# Narration envelope grounding: reveals / rule_results / scene / npc seeds
+# ---------------------------------------------------------------------------
+
+def _clue_graph_with_summaries():
+    return {
+        "conclusions": [{
+            "conclusion_id": "c1",
+            "importance": "critical",
+            "minimum_routes": 1,
+            "clues": [
+                {
+                    "clue_id": "clue-door-scratch",
+                    "delivery_kind": "environmental",
+                    "visibility": "player-safe",
+                    "player_safe_summary": "门框边缘有新鲜划痕",
+                },
+                {
+                    "clue_id": "clue-keeper-only",
+                    "visibility": "keeper-only",
+                    "player_safe_summary": "SHOULD_NOT_LEAK",
+                },
+            ],
+        }],
+    }
+
+
+def test_envelope_approved_reveals_include_player_safe_summary_bodies():
+    plan = _good_plan()
+    plan["clue_policy"]["reveal"] = ["clue-door-scratch"]
+    plan["handoff"] = "narration"
+    plan["rules_requests"] = []
+    envelope = cnc.build_narration_envelope(
+        plan, clue_graph=_clue_graph_with_summaries()
+    )
+    reveals = envelope["approved_reveals"]
+    assert "clue-door-scratch" in reveals["clue_ids"]
+    assert reveals["clues"] == [{
+        "clue_id": "clue-door-scratch",
+        "player_safe_summary": "门框边缘有新鲜划痕",
+    }]
+    blob = json.dumps(envelope, ensure_ascii=False)
+    assert "门框边缘有新鲜划痕" in blob
+    assert "SHOULD_NOT_LEAK" not in blob
+
+
+def test_envelope_includes_settled_rule_results_not_just_requests():
+    plan = _good_plan()
+    plan["rules_results"] = [{
+        "kind": "skill_check",
+        "skill": "Spot Hidden",
+        "outcome": "regular_success",
+        "success": True,
+        "roll": 42,
+        "target": 60,
+        "effective_target": 60,
+        "difficulty": "hard",
+        "roll_contract": {
+            "failure_outcome_mode": "bonus_with_cost",
+            "goal": "gain extra detail",
+        },
+    }]
+    plan["resolved_clue_policy"] = {
+        "bonus_reveal": "抽屉夹层里还有一张发黄的便条",
+        "bonus_cost": None,
+    }
+    envelope = cnc.build_narration_envelope(
+        plan, investigator_display_name="埃莉诺·里德"
+    )
+    assert envelope["rule_results"]
+    result = envelope["rule_results"][0]
+    assert result["skill"] == "Spot Hidden"
+    assert result["investigator_display_name"] == "埃莉诺·里德"
+    assert result["outcome"] == "regular_success"
+    assert result["success"] is True
+    assert result["bonus_reveal"] == "抽屉夹层里还有一张发黄的便条"
+    # Hidden dice math must not reach the narrator.
+    assert "roll" not in result
+    assert "target" not in result
+    assert "effective_target" not in result
+    assert "difficulty" not in result
+
+
+def test_envelope_rule_results_carry_player_visible_cost_on_failure():
+    plan = _good_plan()
+    plan["rules_results"] = [{
+        "kind": "skill_check",
+        "skill": "Library Use",
+        "outcome": "failure",
+        "success": False,
+        "roll": 88,
+        "target": 50,
+        "roll_contract": {"failure_outcome_mode": "bonus_with_cost"},
+    }]
+    plan["resolved_clue_policy"] = {"bonus_cost": "time", "bonus_reveal": None}
+    envelope = cnc.build_narration_envelope(
+        plan, investigator_display_name="托马斯·海斯"
+    )
+    result = envelope["rule_results"][0]
+    assert result["success"] is False
+    assert result["player_visible_cost"] == "time"
+    assert "roll" not in result
+
+
+def test_envelope_scene_anchor_from_player_safe_scene_fields():
+    plan = _good_plan()
+    plan["handoff"] = "narration"
+    plan["rules_requests"] = []
+    scene = {
+        "scene_id": "hall-of-records",
+        "display_name": "市政厅档案厅",
+        "tone": ["dust", "old paper", "bureaucratic indifference"],
+        "sensory_anchors": ["墨水味", "高窗透进的灰光"],
+        "location_tags": ["archive", "档案厅"],
+        "allowed_improvisation": ["do not invent new cult fact"],
+        "keeper_notes": "Corbitt is undead — never say this",
+    }
+    envelope = cnc.build_narration_envelope(plan, active_scene=scene)
+    anchor = envelope["scene_anchor"]
+    assert anchor["scene_id"] == "hall-of-records"
+    assert anchor["display_name"] == "市政厅档案厅"
+    assert "墨水味" in anchor["sensory_anchors"]
+    assert "dust" in anchor["sensory_anchors"]
+    assert "archive" in anchor.get("location_tags", [])
+    blob = json.dumps(envelope, ensure_ascii=False)
+    assert "Corbitt is undead" not in blob
+    assert "do not invent new cult fact" not in blob
+
+
+def test_envelope_npc_moves_keep_display_name_and_dialogue_seed():
+    plan = _good_plan()
+    plan["handoff"] = "narration"
+    plan["rules_requests"] = []
+    plan["npc_moves"] = [{
+        "npc_id": "npc-steven-knott",
+        "display_name": "Steven Knott",
+        "agenda": "wants the house rented",
+        "emotional_tone": "warm and cooperative",
+        "has_secret": True,
+        "secret_id": "secret-knott-doubts",
+        "secret_limit": "do not reveal this NPC's secret",
+        "voice": "Practical, impatient, money-minded.",
+        "active_reactions": [{
+            "move": "nudge",
+            "line_seed": "钥匙在桌上，今天就定下来吧。",
+            "visibility": "player_visible",
+        }],
+        "persona": {"surface_cues": ["捏着怀表链"]},
+    }]
+    envelope = cnc.build_narration_envelope(plan)
+    move = envelope["npc_moves"][0]
+    assert move["display_name"] == "Steven Knott"
+    assert move["dialogue_seed"] == "钥匙在桌上，今天就定下来吧。"
+    assert move["has_secret"] is True
+    assert "secret" not in move or move.get("secret") in (None, "")
+    # Secret prose / keeper agenda desire may be stripped or kept structural;
+    # secret id refs are ok, secret body is not present on the move.
+    assert "secret-knott-doubts" == move.get("secret_id")
+
+
+def test_iter_player_visible_text_fields_covers_new_envelope_prose():
+    envelope = {
+        "dramatic_question": "桌上有什么？",
+        "approved_reveals": {
+            "clue_ids": ["c1"],
+            "clues": [{"clue_id": "c1", "player_safe_summary": "门框上的新划痕"}],
+            "must_include": [],
+            "leads": [],
+        },
+        "rule_results": [{
+            "skill": "Spot Hidden",
+            "investigator_display_name": "埃莉诺",
+            "outcome": "success",
+            "success": True,
+            "bonus_reveal": "便条边角发潮",
+        }],
+        "scene_anchor": {
+            "display_name": "档案厅",
+            "sensory_anchors": ["灰尘味"],
+        },
+        "npc_moves": [{
+            "npc_id": "npc-1",
+            "display_name": "Knott",
+            "dialogue_seed": "今天就定下来吧。",
+        }],
+    }
+    fields = dict(cnc.iter_player_visible_text_fields(envelope))
+    assert fields["narration_envelope.approved_reveals.clues[0].player_safe_summary"] == "门框上的新划痕"
+    assert fields["narration_envelope.rule_results[0].bonus_reveal"] == "便条边角发潮"
+    assert fields["narration_envelope.scene_anchor.display_name"] == "档案厅"
+    assert fields["narration_envelope.scene_anchor.sensory_anchors[0]"] == "灰尘味"
+    assert fields["narration_envelope.npc_moves[0].dialogue_seed"] == "今天就定下来吧。"
+    assert fields["narration_envelope.npc_moves[0].display_name"] == "Knott"

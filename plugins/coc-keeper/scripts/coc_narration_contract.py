@@ -104,6 +104,49 @@ def iter_player_visible_text_fields(
             "narration_envelope.approved_reveals.leads",
             reveals.get("leads"),
         )
+        _append_list_text_fields(
+            fields,
+            "narration_envelope.approved_reveals.clues",
+            reveals.get("clues"),
+            dict_keys=("player_safe_summary", "summary", "text"),
+        )
+
+    _append_list_text_fields(
+        fields,
+        "narration_envelope.rule_results",
+        env.get("rule_results"),
+        dict_keys=(
+            "bonus_reveal",
+            "player_visible_cost",
+            "investigator_display_name",
+            "skill",
+            "outcome",
+        ),
+    )
+
+    scene_anchor = env.get("scene_anchor")
+    if isinstance(scene_anchor, dict):
+        for key in ("display_name", "player_safe_summary"):
+            _append_text_field(
+                fields, f"narration_envelope.scene_anchor.{key}", scene_anchor.get(key)
+            )
+        _append_list_text_fields(
+            fields,
+            "narration_envelope.scene_anchor.sensory_anchors",
+            scene_anchor.get("sensory_anchors"),
+        )
+        _append_list_text_fields(
+            fields,
+            "narration_envelope.scene_anchor.location_tags",
+            scene_anchor.get("location_tags"),
+        )
+
+    _append_list_text_fields(
+        fields,
+        "narration_envelope.npc_moves",
+        env.get("npc_moves"),
+        dict_keys=("display_name", "dialogue_seed", "emotional_tone", "voice"),
+    )
 
     choice_frame = env.get("choice_frame")
     if not isinstance(choice_frame, dict):
@@ -326,42 +369,295 @@ def secret_ref_ids(secrets: Any) -> list[str]:
     return [ref["id"] for ref in normalize_keeper_secret_refs(secrets)]
 
 
-def build_narration_envelope(plan: dict[str, Any]) -> dict[str, Any]:
+def _clue_lookup_player_safe(clue_graph: dict[str, Any] | None) -> dict[str, str]:
+    """Map clue_id -> player_safe_summary from a clue-graph (structured fields only)."""
+    lookup: dict[str, str] = {}
+    if not isinstance(clue_graph, dict):
+        return lookup
+    for conclusion in clue_graph.get("conclusions") or []:
+        if not isinstance(conclusion, dict):
+            continue
+        for clue in conclusion.get("clues") or []:
+            if not isinstance(clue, dict):
+                continue
+            clue_id = str(clue.get("clue_id") or clue.get("id") or "").strip()
+            if not clue_id:
+                continue
+            visibility = str(clue.get("visibility") or "player-safe").strip().lower()
+            if visibility in {"keeper-only", "keeper_only", "secret"}:
+                continue
+            summary = (
+                clue.get("player_safe_summary")
+                or clue.get("player_visible_anchor")
+                or ""
+            )
+            summary = str(summary).strip()
+            if summary:
+                lookup[clue_id] = summary
+    return lookup
+
+
+def _approved_reveal_clue_ids(plan: dict[str, Any]) -> list[str]:
+    """Prefer committed reveals after rules backfill; else planned reveal ids."""
+    resolved = plan.get("resolved_clue_policy") or {}
+    if isinstance(resolved, dict):
+        committed = [
+            str(cid) for cid in (resolved.get("committed_reveals") or []) if cid
+        ]
+        if committed:
+            return committed
+        recovered = [
+            str(cid) for cid in (resolved.get("fallback_recovered") or []) if cid
+        ]
+        if recovered:
+            return recovered
+    clue_policy = plan.get("clue_policy") or {}
+    return [str(cid) for cid in (clue_policy.get("reveal") or []) if cid]
+
+
+def _project_approved_reveal_clues(
+    plan: dict[str, Any],
+    clue_graph: dict[str, Any] | None,
+) -> list[dict[str, str]]:
+    lookup = _clue_lookup_player_safe(clue_graph)
+    clues: list[dict[str, str]] = []
+    for clue_id in _approved_reveal_clue_ids(plan):
+        summary = lookup.get(clue_id, "")
+        entry: dict[str, str] = {"clue_id": clue_id}
+        if summary:
+            entry["player_safe_summary"] = summary
+        clues.append(entry)
+    return clues
+
+
+def _is_bonus_rule_result(result: dict[str, Any]) -> bool:
+    if result.get("clue_bonus") is True:
+        return True
+    contract = result.get("roll_contract") or {}
+    if isinstance(contract, dict):
+        mode = str(contract.get("failure_outcome_mode") or "")
+        group = str(contract.get("roll_density_group") or "")
+        if mode == "bonus_with_cost":
+            return True
+        if group.startswith("clue-bonus:"):
+            return True
+    return False
+
+
+def _project_rule_results(
+    plan: dict[str, Any],
+    *,
+    investigator_display_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Player-safe settled rule outcomes for the narrator (no dice math)."""
+    raw = plan.get("rules_results")
+    if not isinstance(raw, list):
+        raw = plan.get("rule_results")
+    if not isinstance(raw, list):
+        return []
+
+    resolved = plan.get("resolved_clue_policy") or {}
+    if not isinstance(resolved, dict):
+        resolved = {}
+    failure = (plan.get("narrative_directives") or {}).get("failure_consequence") or {}
+    if not isinstance(failure, dict):
+        failure = {}
+    failure_costs = [
+        str(c) for c in (failure.get("costs") or []) if str(c).strip()
+    ]
+    bonus_cost = resolved.get("bonus_cost")
+    bonus_reveal = resolved.get("bonus_reveal")
+    inv_name = str(investigator_display_name or "").strip()
+
+    projected: list[dict[str, Any]] = []
+    for result in raw:
+        if not isinstance(result, dict) or result.get("skipped"):
+            continue
+        if "outcome" not in result and "success" not in result and "roll" not in result:
+            continue
+        skill = (
+            result.get("skill")
+            or result.get("characteristic")
+            or result.get("kind")
+            or ""
+        )
+        entry: dict[str, Any] = {
+            "skill": skill,
+            "investigator_display_name": inv_name,
+            "outcome": result.get("outcome"),
+            "success": bool(result.get("success")),
+        }
+        if result.get("san_loss") is not None:
+            entry["san_loss"] = result.get("san_loss")
+
+        if not entry["success"]:
+            costs: list[str] = []
+            if _is_bonus_rule_result(result) and bonus_cost:
+                costs.append(str(bonus_cost))
+            for cost in failure_costs:
+                if cost not in costs:
+                    costs.append(cost)
+            if len(costs) == 1:
+                entry["player_visible_cost"] = costs[0]
+            elif costs:
+                entry["player_visible_cost"] = costs
+        elif entry["success"] and bonus_reveal and _is_bonus_rule_result(result):
+            entry["bonus_reveal"] = str(bonus_reveal)
+
+        projected.append(entry)
+    return projected
+
+
+def _scene_display_name(scene: dict[str, Any]) -> str:
+    for key in ("display_name", "title", "player_safe_summary", "live_summary"):
+        value = scene.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    tags = scene.get("location_tags")
+    if isinstance(tags, list):
+        for tag in tags:
+            text = str(tag or "").strip()
+            if text:
+                return text
+    return str(scene.get("scene_id") or "").strip()
+
+
+def _build_scene_anchor(active_scene: dict[str, Any] | None) -> dict[str, Any]:
+    """Player-safe scene grounding: display name + sensory anchors only."""
+    scene = active_scene if isinstance(active_scene, dict) else {}
+    if not scene:
+        return {}
+
+    sensory: list[str] = []
+    seen: set[str] = set()
+
+    def _push(value: Any) -> None:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            return
+        seen.add(text)
+        sensory.append(text)
+
+    for item in scene.get("sensory_anchors") or []:
+        _push(item)
+    for item in scene.get("tone") or []:
+        _push(item)
+
+    location_tags = [
+        str(tag).strip()
+        for tag in (scene.get("location_tags") or [])
+        if str(tag or "").strip()
+    ]
+
+    anchor: dict[str, Any] = {
+        "scene_id": scene.get("scene_id"),
+        "display_name": _scene_display_name(scene),
+        "sensory_anchors": sensory,
+    }
+    if location_tags:
+        anchor["location_tags"] = location_tags
+    return anchor
+
+
+def _npc_dialogue_seed(move: dict[str, Any]) -> str:
+    """Short player-safe dialogue seed or demeanor hint from structured fields."""
+    for reaction in move.get("active_reactions") or []:
+        if not isinstance(reaction, dict):
+            continue
+        visibility = str(reaction.get("visibility") or "player_visible").strip().lower()
+        if visibility not in {"player_visible", "player-safe", "public", ""}:
+            continue
+        seed = reaction.get("line_seed")
+        if isinstance(seed, str) and seed.strip():
+            return seed.strip()
+    for key in ("dialogue_seed", "voice"):
+        value = move.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    persona = move.get("persona") or {}
+    if isinstance(persona, dict):
+        for cue in persona.get("surface_cues") or []:
+            text = str(cue or "").strip()
+            if text:
+                return text
+    tone = move.get("emotional_tone")
+    if isinstance(tone, str) and tone.strip():
+        return tone.strip()
+    return ""
+
+
+def _npc_display_name(move: dict[str, Any]) -> str:
+    for key in ("display_name", "name"):
+        value = move.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    persona = move.get("persona") or {}
+    if isinstance(persona, dict):
+        name_rec = persona.get("name")
+        if isinstance(name_rec, dict):
+            value = name_rec.get("value")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        elif isinstance(name_rec, str) and name_rec.strip():
+            return name_rec.strip()
+    return str(move.get("npc_id") or "").strip()
+
+
+def _sanitize_npc_move(move: dict[str, Any]) -> dict[str, Any]:
+    """Minimum-privilege NPC move for the narrator (no secret prose)."""
+    safe_move: dict[str, Any] = {
+        "npc_id": move.get("npc_id"),
+        "display_name": _npc_display_name(move),
+        "dialogue_seed": _npc_dialogue_seed(move),
+        "agenda": move.get("agenda"),
+        "emotional_tone": move.get("emotional_tone"),
+        "has_secret": bool(move.get("has_secret")),
+        "secret_limit": move.get("secret_limit") or "",
+        "disposition_source": move.get("disposition_source"),
+        "relationship_to_investigators": move.get("relationship_to_investigators"),
+        "social_role": move.get("social_role"),
+        "persona": move.get("persona"),
+        "agency_moves": move.get("agency_moves") or [],
+    }
+    if move.get("secret_id"):
+        safe_move["secret_id"] = move["secret_id"]
+    return safe_move
+
+
+def build_narration_envelope(
+    plan: dict[str, Any],
+    *,
+    clue_graph: dict[str, Any] | None = None,
+    active_scene: dict[str, Any] | None = None,
+    investigator_display_name: str | None = None,
+) -> dict[str, Any]:
     """Build the minimum-privilege narrator payload from a DirectorPlan.
 
-    Includes this-turn approved reveals (full player-safe text ok), tone,
-    constraints, and must_not_reveal as {id, category} only. Keeper secret
-    prose must never appear in the serialized envelope.
+    Includes this-turn approved reveals (with player_safe_summary bodies when
+    the clue-graph is supplied), settled rule_results, scene sensory anchors,
+    tone, constraints, and must_not_reveal as {id, category} only. Keeper
+    secret prose must never appear in the serialized envelope.
     """
     directives = plan.get("narrative_directives") or {}
     clue_policy = plan.get("clue_policy") or {}
     mnr_refs = normalize_keeper_secret_refs(directives.get("must_not_reveal") or [])
-    npc_moves = []
-    for move in plan.get("npc_moves") or []:
-        if not isinstance(move, dict):
-            continue
-        safe_move = {
-            "npc_id": move.get("npc_id"),
-            "agenda": move.get("agenda"),
-            "emotional_tone": move.get("emotional_tone"),
-            "has_secret": bool(move.get("has_secret")),
-            "secret_limit": move.get("secret_limit") or "",
-            "disposition_source": move.get("disposition_source"),
-            "relationship_to_investigators": move.get("relationship_to_investigators"),
-            "social_role": move.get("social_role"),
-            "persona": move.get("persona"),
-            "agency_moves": move.get("agency_moves") or [],
-        }
-        if move.get("secret_id"):
-            safe_move["secret_id"] = move["secret_id"]
-        npc_moves.append(safe_move)
+    clue_ids = _approved_reveal_clue_ids(plan)
+    npc_moves = [
+        _sanitize_npc_move(move)
+        for move in (plan.get("npc_moves") or [])
+        if isinstance(move, dict)
+    ]
+    scene = active_scene
+    if not isinstance(scene, dict) or not scene:
+        scene = plan.get("active_scene") if isinstance(plan.get("active_scene"), dict) else {}
     return {
         "decision_id": plan.get("decision_id"),
         "scene_action": plan.get("scene_action"),
         "dramatic_question": plan.get("dramatic_question"),
         "handoff": plan.get("handoff"),
         "approved_reveals": {
-            "clue_ids": list(clue_policy.get("reveal") or []),
+            "clue_ids": list(clue_ids),
+            "clues": _project_approved_reveal_clues(plan, clue_graph),
             "must_include": list(directives.get("must_include") or []),
             "leads": list(clue_policy.get("leads") or []),
             "fallback_routes": list(clue_policy.get("fallback_routes") or []),
@@ -377,6 +673,10 @@ def build_narration_envelope(plan: dict[str, Any]) -> dict[str, Any]:
         "storylet_moves": list(plan.get("storylet_moves") or []),
         "choice_frame": plan.get("choice_frame") or {},
         "rules_requests": list(plan.get("rules_requests") or []),
+        "rule_results": _project_rule_results(
+            plan, investigator_display_name=investigator_display_name
+        ),
+        "scene_anchor": _build_scene_anchor(scene),
         "rationale": plan.get("rationale"),
     }
 

@@ -554,8 +554,20 @@ def _run_one_turn(
     world = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {})
     pacing = apply_mod._read_json(campaign_dir / "save" / "pacing-state.json", {})
     directives = resolved_plan.get("narrative_directives") or {}
-    # R-2: narrator-facing envelope — approved reveals + secret IDs, never prose.
-    narration_envelope = narration_contract.build_narration_envelope(resolved_plan)
+    character = apply_mod._read_json(character_path, {})
+    investigator_display_name = ""
+    if isinstance(character, dict):
+        investigator_display_name = str(
+            character.get("name") or character.get("display_name") or investigator_id or ""
+        ).strip()
+    # R-2 / envelope grounding: player-safe clue bodies, settled rule results,
+    # scene sensory anchors, and NPC dialogue seeds — never keeper secret prose.
+    narration_envelope = narration_contract.build_narration_envelope(
+        resolved_plan,
+        clue_graph=ctx.get("clue_graph"),
+        active_scene=ctx.get("active_scene"),
+        investigator_display_name=investigator_display_name,
+    )
     event_types = [event.get("event_type") for event in events if isinstance(event, dict)]
     tension = pacing.get("tension_level")
     turn_record = {

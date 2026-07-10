@@ -229,13 +229,36 @@ def test_narration_envelope_never_contains_secret_prose(tmp_path):
         rng=random.Random(42),
     )
     plan = director.generate_director_plan(ctx, decision_id="r2-envelope")
-    envelope = cnc.build_narration_envelope(plan)
+    envelope = cnc.build_narration_envelope(
+        plan,
+        clue_graph=ctx.get("clue_graph"),
+        active_scene=ctx.get("active_scene"),
+    )
     assert envelope["must_not_reveal"]
     assert all(set(item.keys()) == {"id", "category"} for item in envelope["must_not_reveal"])
     # Approved reveal anchors (player-safe) may appear; secret prose must not.
     assert "门框上有新鲜刮痕" in json.dumps(envelope, ensure_ascii=False) or not plan[
         "narrative_directives"
     ].get("must_include")
+    _assert_no_secret_prose(envelope)
+
+
+def test_narration_envelope_attaches_clue_bodies_from_clue_graph(tmp_path):
+    camp, char_path = _make_campaign(tmp_path, PROSE_SECRETS)
+    ctx = director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我检查门框",
+        player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    plan = director.generate_director_plan(ctx, decision_id="r2-clue-bodies")
+    plan["clue_policy"] = dict(plan.get("clue_policy") or {})
+    plan["clue_policy"]["reveal"] = ["clue-1"]
+    envelope = cnc.build_narration_envelope(plan, clue_graph=ctx["clue_graph"])
+    clues = envelope["approved_reveals"]["clues"]
+    assert clues == [{"clue_id": "clue-1", "player_safe_summary": "门框上有新鲜刮痕"}]
     _assert_no_secret_prose(envelope)
 
 
