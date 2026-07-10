@@ -642,6 +642,11 @@ def run_live_turn(
 ) -> dict[str, Any]:
     """Run one live player input through the full Keeper stack.
 
+    Holds an advisory ``campaign_lock`` for the whole turn so two concurrent
+    sessions cannot corrupt one campaign directory. Raises
+    ``coc_fileio.CampaignLockError`` when the lock is already held by a live
+    process (hard error for callers). Stale locks from dead pids are reclaimed.
+
     ``max_auto_advance`` is the maximum total number of internal director turns
     consumed by this one player input. The first turn always represents the
     player's text; later turns only occur when the director emitted a compressed
@@ -655,25 +660,27 @@ def run_live_turn(
     * ``storylet_policy`` / ``storylet_library`` / ``incident_deck`` /
       ``signal_overrides`` — fixture overrides forwarded into director context.
     """
-    return _run_live_turn_impl(
-        campaign_dir,
-        character_path,
-        investigator_id,
-        player_text,
-        intent_class=intent_class,
-        player_intent_rich=player_intent_rich,
-        max_auto_advance=max_auto_advance,
-        auto_advance_low_agency=auto_advance_low_agency,
-        recording_mode=recording_mode,
-        recording_flush=recording_flush,
-        rng=rng,
-        rng_seed=rng_seed,
-        storylet_policy=storylet_policy,
-        storylet_library=storylet_library,
-        incident_deck=incident_deck,
-        signal_overrides=signal_overrides,
-        state_patch=state_patch,
-    )
+    campaign = Path(campaign_dir)
+    with coc_fileio.campaign_lock(campaign):
+        return _run_live_turn_impl(
+            campaign,
+            character_path,
+            investigator_id,
+            player_text,
+            intent_class=intent_class,
+            player_intent_rich=player_intent_rich,
+            max_auto_advance=max_auto_advance,
+            auto_advance_low_agency=auto_advance_low_agency,
+            recording_mode=recording_mode,
+            recording_flush=recording_flush,
+            rng=rng,
+            rng_seed=rng_seed,
+            storylet_policy=storylet_policy,
+            storylet_library=storylet_library,
+            incident_deck=incident_deck,
+            signal_overrides=signal_overrides,
+            state_patch=state_patch,
+        )
 
 
 def _run_live_turn_impl(
@@ -696,7 +703,7 @@ def _run_live_turn_impl(
     signal_overrides: dict[str, Any] | None = None,
     state_patch: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Inner live-turn body used by ``run_live_turn``."""
+    """Inner live-turn body; caller must already hold ``campaign_lock``."""
     campaign = Path(campaign_dir)
     character = Path(character_path)
     mode = coc_async_recorder.normalize_recording_mode(recording_mode)

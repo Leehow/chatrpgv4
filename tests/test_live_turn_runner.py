@@ -7,7 +7,12 @@ the next real interrupt.
 """
 import importlib.util
 import json
+import os
+import time
 from pathlib import Path
+
+import pytest
+
 
 
 def _load(name, rel):
@@ -905,3 +910,74 @@ def test_live_turn_narration_audit_zero_findings_when_clean(tmp_path):
     )
     assert result["turns"][0]["narration_audit"]["findings"] == 0
     assert result["narration_audit"]["findings"] == 0
+
+
+# ---------------------------------------------------------------------------
+# N6 leftover: campaign_lock wraps run_live_turn
+# ---------------------------------------------------------------------------
+
+def test_run_live_turn_holds_campaign_lock_mid_turn(tmp_path, monkeypatch):
+    camp, char_path = _build_live_campaign(tmp_path)
+    seen = {}
+    original = live_runner._run_one_turn
+
+    def wrapped(**kwargs):
+        lock_path = camp / ".campaign.lock"
+        seen["exists"] = lock_path.exists()
+        if lock_path.exists():
+            seen["payload"] = json.loads(lock_path.read_text(encoding="utf-8"))
+        return original(**kwargs)
+
+    monkeypatch.setattr(live_runner, "_run_one_turn", wrapped)
+
+    live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我检查桌上的文件。",
+        intent_class="investigate",
+        recording_mode="sync",
+        rng_seed=23,
+    )
+
+    assert seen.get("exists") is True
+    assert seen["payload"]["pid"] == os.getpid()
+    assert not (camp / ".campaign.lock").exists()
+
+
+def test_run_live_turn_raises_campaign_lock_error_when_held(tmp_path):
+    """Concurrent session: CampaignLockError is a hard error (raise, not soft event)."""
+    camp, char_path = _build_live_campaign(tmp_path)
+    with live_runner.coc_fileio.campaign_lock(camp):
+        with pytest.raises(live_runner.coc_fileio.CampaignLockError):
+            live_runner.run_live_turn(
+                camp,
+                char_path,
+                "inv1",
+                "我检查桌上的文件。",
+                intent_class="investigate",
+                recording_mode="sync",
+                rng_seed=24,
+            )
+
+
+def test_run_live_turn_reclaims_stale_lock_from_dead_pid(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    lock_path = camp / ".campaign.lock"
+    lock_path.write_text(
+        json.dumps({"pid": 999_999_999, "acquired_at": time.time()}),
+        encoding="utf-8",
+    )
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我检查桌上的文件。",
+        intent_class="investigate",
+        recording_mode="sync",
+        rng_seed=25,
+    )
+
+    assert result["turns"]
+    assert not lock_path.exists()
