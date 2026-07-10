@@ -2759,3 +2759,130 @@ def test_director_still_emits_skill_check_delivery_kind_unchanged(tmp_path):
     assert gate["skill"] == "Spot Hidden"
     assert gate["roll_contract"]["failure_outcome_mode"] == "clue_with_cost"
     assert gate["roll_contract"]["roll_density_group"] == "clue:clue-1"
+
+
+# ---------------------------------------------------------------------------
+# Narrative redirection policy (SENNA / Narrative Adherence paper)
+# ---------------------------------------------------------------------------
+
+def test_redirection_trigger_predicate_cases():
+    """Pure trigger: stuck/ambiguous/meta/target_unmatched/boundary/stalled; not investigate."""
+    pred = coc_story_director.redirection_should_trigger
+    assert pred(intent_class="stuck") is True
+    assert pred(intent_class="ambiguous") is True
+    assert pred(intent_class="meta") is True
+    assert pred(intent_class="investigate") is False
+    assert pred(intent_class="investigate", target_unmatched=True) is True
+    assert pred(
+        intent_class="investigate",
+        boundary_violation={"id": "b1", "consequence_hint": "fallout"},
+    ) is True
+    assert pred(intent_class="idle", stalled_turns=2) is True
+    assert pred(intent_class="idle", stalled_turns=1) is False
+    assert pred(intent_class="move") is False
+
+
+def test_stuck_intent_emits_redirection_npc_influence_when_npc_present(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["npc_ids"] = ["npc-guide"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [{
+            "npc_id": "npc-guide",
+            "name": "Guide",
+            "agenda": "keep the party on the trail",
+            "relationship_to_investigators": "ally",
+        }],
+    }))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我不知道该做什么",
+        player_intent_class="stuck",
+        rng=random.Random(7),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="redir-stuck-npc")
+    redir = plan.get("redirection")
+    assert isinstance(redir, dict)
+    assert redir["strategy"] == "npc_influence"
+    assert redir["reason_code"] == "stuck_player"
+    assert redir["strategy"] != "hard_denial"
+    grounding = redir["grounding"]
+    assert grounding.get("npc_id") == "npc-guide"
+    assert grounding.get("display_name") == "Guide"
+
+
+def test_stuck_intent_emits_more_information_without_npc(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我卡住了",
+        player_intent_class="stuck",
+        rng=random.Random(7),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="redir-stuck-solo")
+    redir = plan.get("redirection")
+    assert isinstance(redir, dict)
+    assert redir["strategy"] == "more_information"
+    assert redir["reason_code"] == "stuck_player"
+    assert redir["grounding"].get("scene_id") == "scene-1"
+
+
+def test_boundary_violation_prefers_in_world_consequences(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["npc_ids"] = ["npc-guide"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [{"npc_id": "npc-guide", "name": "Guide", "agenda": "help"}],
+    }))
+    (camp / "scenario" / "improvisation-boundaries.json").write_text(json.dumps({
+        "invent_allowed": [],
+        "never_invent": [],
+        "keeper_secrets": [],
+        "consequence_boundaries": [{
+            "id": "boundary-no-teleport",
+            "category": "physics",
+            "consequence_hint": "The attempt fails and draws unwanted attention.",
+        }],
+    }))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我传送进地下室",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "boundary_violation": {
+                "id": "boundary-no-teleport",
+                "category": "physics",
+                "consequence_hint": "The attempt fails and draws unwanted attention.",
+            },
+        },
+        rng=random.Random(7),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="redir-boundary")
+    redir = plan.get("redirection")
+    assert redir["strategy"] == "in_world_consequences"
+    assert redir["reason_code"] == "boundary_violation"
+    assert redir["grounding"]["boundary_id"] == "boundary-no-teleport"
+    assert redir["grounding"]["category"] == "physics"
+
+
+def test_normal_investigate_turn_has_no_redirection(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="我仔细搜查房间",
+        player_intent_class="investigate",
+        rng=random.Random(7),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="redir-normal")
+    assert "redirection" not in plan or plan.get("redirection") is None

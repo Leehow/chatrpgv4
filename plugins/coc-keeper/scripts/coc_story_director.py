@@ -1395,6 +1395,235 @@ def select_action(ctx: dict[str, Any]) -> tuple[str, dict[str, float]]:
 
 
 # =============================================================================
+# Narrative redirection (SENNA / Narrative Adherence in LLM-driven Games)
+# =============================================================================
+
+_OFF_TRACK_INTENT_CLASSES = frozenset({"stuck", "ambiguous", "meta"})
+_REDIRECTION_STRATEGIES = frozenset({
+    "in_world_consequences",
+    "npc_influence",
+    "more_information",
+})
+_STALLED_REDIRECTION_THRESHOLD = 2
+
+
+def redirection_should_trigger(
+    *,
+    intent_class: str,
+    target_unmatched: bool = False,
+    boundary_violation: dict[str, Any] | None = None,
+    stalled_turns: int = 0,
+) -> bool:
+    """Pure predicate: emit redirection only on structured off-track signals.
+
+    Normal on-track turns (e.g. investigate/move without unmatched target or
+    boundary violation) return False. Never scans free-text player prose.
+    """
+    intent = str(intent_class or "").strip().lower()
+    if intent in _OFF_TRACK_INTENT_CLASSES:
+        return True
+    if target_unmatched:
+        return True
+    if isinstance(boundary_violation, dict) and (
+        boundary_violation.get("id") or boundary_violation.get("boundary_id")
+    ):
+        return True
+    try:
+        stalled = int(stalled_turns or 0)
+    except (TypeError, ValueError):
+        stalled = 0
+    return stalled >= _STALLED_REDIRECTION_THRESHOLD
+
+
+def _structured_boundary_violation(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a structured boundary violation with a consequence hint, if any."""
+    rich = ctx.get("player_intent_rich") if isinstance(ctx.get("player_intent_rich"), dict) else {}
+    candidates = [
+        rich.get("boundary_violation") if isinstance(rich, dict) else None,
+        ctx.get("boundary_violation"),
+    ]
+    for raw in candidates:
+        if not isinstance(raw, dict):
+            continue
+        boundary_id = _text_or_none(raw.get("id") or raw.get("boundary_id"))
+        hint = _text_or_none(raw.get("consequence_hint"))
+        if boundary_id and hint:
+            return {
+                "id": boundary_id,
+                "category": _text_or_none(raw.get("category")) or "improvisation_boundary",
+                "consequence_hint": hint,
+            }
+
+    # Match structured violated_boundary_ids against scenario consequence_boundaries.
+    violated_ids = rich.get("violated_boundary_ids") if isinstance(rich, dict) else None
+    if not isinstance(violated_ids, list) or not violated_ids:
+        return None
+    boundaries = (ctx.get("improvisation_boundaries") or {}).get("consequence_boundaries") or []
+    wanted = {str(v).strip() for v in violated_ids if str(v or "").strip()}
+    for entry in boundaries:
+        if not isinstance(entry, dict):
+            continue
+        eid = _text_or_none(entry.get("id") or entry.get("boundary_id"))
+        hint = _text_or_none(entry.get("consequence_hint"))
+        if eid and eid in wanted and hint:
+            return {
+                "id": eid,
+                "category": _text_or_none(entry.get("category")) or "improvisation_boundary",
+                "consequence_hint": hint,
+            }
+    return None
+
+
+def _move_target_unmatched(ctx: dict[str, Any]) -> bool:
+    """True when move intent names target_entities that fail structured matching."""
+    if str(ctx.get("player_intent_class") or "").strip().lower() != "move":
+        return False
+    rich = ctx.get("player_intent_rich") if isinstance(ctx.get("player_intent_rich"), dict) else {}
+    target_entities = rich.get("target_entities") if isinstance(rich, dict) else None
+    if not isinstance(target_entities, list) or not any(str(t or "").strip() for t in target_entities):
+        return False
+    scene = ctx.get("active_scene") or {}
+    candidates = coc_scene_graph.transition_candidates(
+        ctx.get("active_scene_id") or scene.get("scene_id"),
+        ctx.get("story_graph"),
+        ctx.get("world_state") or {},
+    )
+    if not candidates:
+        return True
+    _chosen, matched = coc_scene_graph.rank_move_targets(
+        candidates, ctx.get("story_graph"), target_entities
+    )
+    return matched is None
+
+
+def _redirection_reason_code(
+    *,
+    intent_class: str,
+    target_unmatched: bool,
+    boundary_violation: dict[str, Any] | None,
+    stalled_turns: int,
+) -> str:
+    if boundary_violation:
+        return "boundary_violation"
+    if target_unmatched:
+        return "target_unmatched"
+    intent = str(intent_class or "").strip().lower()
+    if intent == "stuck":
+        return "stuck_player"
+    if intent == "ambiguous":
+        return "ambiguous_intent"
+    if intent == "meta":
+        return "meta_intent"
+    if int(stalled_turns or 0) >= _STALLED_REDIRECTION_THRESHOLD:
+        return "stalled_turns"
+    return "off_track"
+
+
+def _scene_has_npc_presence(ctx: dict[str, Any], npc_moves: list[dict[str, Any]] | None = None) -> bool:
+    if npc_moves:
+        return True
+    scene = ctx.get("active_scene") or {}
+    npc_ids = scene.get("npc_ids") or []
+    return bool(isinstance(npc_ids, list) and any(str(n or "").strip() for n in npc_ids))
+
+
+def _first_scene_npc_grounding(ctx: dict[str, Any], npc_moves: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    for move in npc_moves or []:
+        if not isinstance(move, dict):
+            continue
+        npc_id = _text_or_none(move.get("npc_id"))
+        if not npc_id:
+            continue
+        return {
+            "npc_id": npc_id,
+            "display_name": _text_or_none(move.get("display_name") or move.get("name")) or npc_id,
+        }
+    scene = ctx.get("active_scene") or {}
+    agendas = (ctx.get("npc_agendas") or {}).get("npcs") or []
+    agenda_by_id = {
+        str(n.get("npc_id")): n
+        for n in agendas
+        if isinstance(n, dict) and n.get("npc_id")
+    }
+    for raw_id in scene.get("npc_ids") or []:
+        npc_id = _text_or_none(raw_id)
+        if not npc_id:
+            continue
+        agenda = agenda_by_id.get(npc_id) or {}
+        display = _text_or_none(agenda.get("name") or agenda.get("display_name")) or npc_id
+        return {"npc_id": npc_id, "display_name": display}
+    return {}
+
+
+def _more_information_grounding(ctx: dict[str, Any]) -> dict[str, Any]:
+    scene = ctx.get("active_scene") or {}
+    grounding: dict[str, Any] = {}
+    scene_id = _text_or_none(ctx.get("active_scene_id") or scene.get("scene_id"))
+    if scene_id:
+        grounding["scene_id"] = scene_id
+    discovered = set((ctx.get("world_state") or {}).get("discovered_clue_ids") or [])
+    for clue_id in scene.get("available_clues") or []:
+        cid = _text_or_none(clue_id)
+        if cid and cid not in discovered:
+            grounding["clue_id"] = cid
+            break
+    return grounding
+
+
+def build_redirection_block(
+    ctx: dict[str, Any],
+    *,
+    npc_moves: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Select an explicit redirection strategy when off-track signals fire.
+
+    Strategy priority mirrors the paper ranking (never hard_denial):
+    1. in_world_consequences — boundary violation with consequence hint
+    2. npc_influence — NPC present in the active scene
+    3. more_information — environmental / knowledge cue
+    """
+    intent = str(ctx.get("player_intent_class") or "").strip().lower()
+    boundary = _structured_boundary_violation(ctx)
+    target_unmatched = _move_target_unmatched(ctx)
+    stalled = int((ctx.get("rule_signals") or {}).get("stalled_turns", 0) or 0)
+    if not redirection_should_trigger(
+        intent_class=intent,
+        target_unmatched=target_unmatched,
+        boundary_violation=boundary,
+        stalled_turns=stalled,
+    ):
+        return None
+
+    reason_code = _redirection_reason_code(
+        intent_class=intent,
+        target_unmatched=target_unmatched,
+        boundary_violation=boundary,
+        stalled_turns=stalled,
+    )
+
+    if boundary:
+        strategy = "in_world_consequences"
+        grounding = {
+            "boundary_id": boundary["id"],
+            "category": boundary["category"],
+            "consequence_hint": boundary["consequence_hint"],
+        }
+    elif _scene_has_npc_presence(ctx, npc_moves):
+        strategy = "npc_influence"
+        grounding = _first_scene_npc_grounding(ctx, npc_moves)
+    else:
+        strategy = "more_information"
+        grounding = _more_information_grounding(ctx)
+
+    assert strategy in _REDIRECTION_STRATEGIES
+    return {
+        "strategy": strategy,
+        "reason_code": reason_code,
+        "grounding": grounding,
+    }
+
+
+# =============================================================================
 # DirectorPlan assembly
 # =============================================================================
 
@@ -2598,4 +2827,9 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
             plan["transition_candidates"] = candidates
             if overrides and isinstance(overrides.get("matched_target"), dict):
                 plan["matched_target"] = overrides["matched_target"]
+
+    # SENNA-style explicit redirection: only when structured off-track signals fire.
+    redirection = build_redirection_block(ctx, npc_moves=npc_moves)
+    if redirection is not None:
+        plan["redirection"] = redirection
     return plan
