@@ -5,11 +5,16 @@ Validates that LLM-compiled scenario story-graph files meet the structural
 requirements the director depends on. Run after coc-scenario-import compiles
 a module. Reports errors (must fix) and warnings (soft).
 
+Also provides ``validate_compiled_scenario`` (structured findings), provenance
+annotation, and a dependency ``doctor`` for CI / local env checks (R-5).
+
 Spec: docs/superpowers/specs/2026-07-05-story-director-design.md
 """
 from __future__ import annotations
 
 import json
+import sys
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -30,10 +35,33 @@ NON_FRAGILE_DELIVERY_KINDS = {
     "social",
     "direct",
 }
+VALID_ORIGINS = frozenset({"source", "inferred", "improvised"})
+DOCTOR_RULES_JSON_FILES = (
+    "structure-weights.json",
+    "rule-index.json",
+)
+MIN_PYTHON = (3, 11)
+
+
+def _plugin_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _rules_json_dir() -> Path:
+    return _plugin_root() / "references" / "rules-json"
 
 
 def _read(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _finding(
+    code: str,
+    severity: str,
+    message: str,
+    path: str = "",
+) -> dict[str, str]:
+    return {"code": code, "severity": severity, "path": path, "message": message}
 
 
 def _is_non_fragile_clue_route(clue: dict[str, Any]) -> bool:
@@ -58,6 +86,527 @@ def _has_recoverable_fallback(conclusion: dict[str, Any]) -> bool:
         for clue in conclusion.get("clues", [])
         if isinstance(clue, dict)
     )
+
+
+def _is_finale_scene(scene: dict[str, Any]) -> bool:
+    if scene.get("is_final") is True:
+        return True
+    return str(scene.get("scene_type") or "") == "resolution"
+
+
+def _iter_clues(compiled: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    out: list[tuple[str, dict[str, Any]]] = []
+    for ci, concl in enumerate((compiled.get("clue_graph") or {}).get("conclusions") or []):
+        if not isinstance(concl, dict):
+            continue
+        cid = concl.get("conclusion_id") or str(ci)
+        for qi, clue in enumerate(concl.get("clues") or []):
+            if isinstance(clue, dict):
+                out.append((f"clue_graph.conclusions[{cid}].clues[{clue.get('clue_id') or qi}]", clue))
+    return out
+
+
+def _collect_id_maps(compiled: dict[str, Any]) -> dict[str, dict[str, list[str]]]:
+    """Map entity kind -> {id: [json-paths]} for uniqueness checks."""
+    maps: dict[str, dict[str, list[str]]] = {
+        "scene": {},
+        "clue": {},
+        "npc": {},
+        "front": {},
+        "conclusion": {},
+    }
+    for i, scene in enumerate((compiled.get("story_graph") or {}).get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        sid = scene.get("scene_id")
+        if sid:
+            maps["scene"].setdefault(str(sid), []).append(f"story_graph.scenes[{i}]")
+    for path, clue in _iter_clues(compiled):
+        cid = clue.get("clue_id")
+        if cid:
+            maps["clue"].setdefault(str(cid), []).append(path)
+    for i, npc in enumerate((compiled.get("npc_agendas") or {}).get("npcs") or []):
+        if not isinstance(npc, dict):
+            continue
+        nid = npc.get("npc_id")
+        if nid:
+            maps["npc"].setdefault(str(nid), []).append(f"npc_agendas.npcs[{i}]")
+    for i, front in enumerate((compiled.get("threat_fronts") or {}).get("fronts") or []):
+        if not isinstance(front, dict):
+            continue
+        fid = front.get("front_id")
+        if fid:
+            maps["front"].setdefault(str(fid), []).append(f"threat_fronts.fronts[{i}]")
+    for i, concl in enumerate((compiled.get("clue_graph") or {}).get("conclusions") or []):
+        if not isinstance(concl, dict):
+            continue
+        cid = concl.get("conclusion_id")
+        if cid:
+            maps["conclusion"].setdefault(str(cid), []).append(f"clue_graph.conclusions[{i}]")
+    return maps
+
+
+def _check_id_uniqueness(id_maps: dict[str, dict[str, list[str]]]) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    for kind, mapping in id_maps.items():
+        for eid, paths in mapping.items():
+            if len(paths) > 1:
+                findings.append(
+                    _finding(
+                        "duplicate_id",
+                        "error",
+                        f"duplicate {kind} id '{eid}' at {', '.join(paths)}",
+                        path=paths[0],
+                    )
+                )
+    return findings
+
+
+def _resolvable_ids(id_maps: dict[str, dict[str, list[str]]]) -> set[str]:
+    """IDs that leads_to / exit targets may point at (scenes + npcs)."""
+    return set(id_maps["scene"]) | set(id_maps["npc"])
+
+
+def _check_reference_integrity(
+    compiled: dict[str, Any],
+    id_maps: dict[str, dict[str, list[str]]],
+) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    scene_ids = set(id_maps["scene"])
+    clue_ids = set(id_maps["clue"])
+    npc_ids = set(id_maps["npc"])
+    lead_targets = _resolvable_ids(id_maps)
+
+    for i, scene in enumerate((compiled.get("story_graph") or {}).get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        base = f"story_graph.scenes[{i}]"
+        for target in scene.get("exit_targets") or []:
+            if target not in scene_ids:
+                findings.append(
+                    _finding(
+                        "broken_reference",
+                        "error",
+                        f"exit_target '{target}' does not resolve to a scene_id",
+                        path=f"{base}.exit_targets",
+                    )
+                )
+        for clue_id in scene.get("available_clues") or []:
+            if clue_id not in clue_ids:
+                findings.append(
+                    _finding(
+                        "broken_reference",
+                        "error",
+                        f"available_clues entry '{clue_id}' does not resolve to a clue_id",
+                        path=f"{base}.available_clues",
+                    )
+                )
+        for npc_id in scene.get("npc_ids") or []:
+            if npc_id not in npc_ids:
+                findings.append(
+                    _finding(
+                        "broken_reference",
+                        "error",
+                        f"npc_ids entry '{npc_id}' does not resolve to an npc_id",
+                        path=f"{base}.npc_ids",
+                    )
+                )
+        for exit_cond in scene.get("exit_conditions") or []:
+            if isinstance(exit_cond, dict) and exit_cond.get("kind") == "clue_discovered":
+                cid = exit_cond.get("clue_id")
+                if cid and cid not in clue_ids:
+                    findings.append(
+                        _finding(
+                            "broken_reference",
+                            "error",
+                            f"exit_conditions clue_id '{cid}' does not resolve",
+                            path=f"{base}.exit_conditions",
+                        )
+                    )
+
+    for path, clue in _iter_clues(compiled):
+        for target in clue.get("leads_to") or []:
+            if target not in lead_targets:
+                findings.append(
+                    _finding(
+                        "broken_reference",
+                        "error",
+                        f"leads_to '{target}' does not resolve to a scene_id or npc_id",
+                        path=f"{path}.leads_to",
+                    )
+                )
+    return findings
+
+
+def _scene_edges(
+    compiled: dict[str, Any],
+    clue_by_id: dict[str, dict[str, Any]],
+) -> dict[str, set[str]]:
+    """Build scene→scene adjacency from structured exit_targets and clue leads_to."""
+    edges: dict[str, set[str]] = {}
+    scenes = [
+        s for s in ((compiled.get("story_graph") or {}).get("scenes") or [])
+        if isinstance(s, dict) and s.get("scene_id")
+    ]
+    scene_ids = {str(s["scene_id"]) for s in scenes}
+    for scene in scenes:
+        sid = str(scene["scene_id"])
+        edges.setdefault(sid, set())
+        for target in scene.get("exit_targets") or []:
+            if target in scene_ids:
+                edges[sid].add(str(target))
+        for clue_id in scene.get("available_clues") or []:
+            clue = clue_by_id.get(str(clue_id))
+            if not clue:
+                continue
+            for target in clue.get("leads_to") or []:
+                if target in scene_ids:
+                    edges[sid].add(str(target))
+    return edges
+
+
+def _check_reachability(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    scenes = [
+        s for s in ((compiled.get("story_graph") or {}).get("scenes") or [])
+        if isinstance(s, dict) and s.get("scene_id")
+    ]
+    if not scenes:
+        return findings
+    starts = [s for s in scenes if s.get("is_start") is True]
+    if len(starts) != 1:
+        return findings  # start presence handled separately
+    start_id = str(starts[0]["scene_id"])
+    clue_by_id = {
+        str(c["clue_id"]): c
+        for _, c in _iter_clues(compiled)
+        if c.get("clue_id")
+    }
+    edges = _scene_edges(compiled, clue_by_id)
+    reachable: set[str] = set()
+    queue: deque[str] = deque([start_id])
+    while queue:
+        cur = queue.popleft()
+        if cur in reachable:
+            continue
+        reachable.add(cur)
+        for nxt in edges.get(cur, ()):
+            if nxt not in reachable:
+                queue.append(nxt)
+    for scene in scenes:
+        sid = str(scene["scene_id"])
+        if sid not in reachable:
+            findings.append(
+                _finding(
+                    "unreachable_scene",
+                    "warning",
+                    f"scene '{sid}' is unreachable from start '{start_id}' (orphan/dead node)",
+                    path=f"story_graph.scenes/{sid}",
+                )
+            )
+    return findings
+
+
+def _check_multi_route_independence(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    """Require distinct clue_ids >= minimum_routes for conclusions that declare it.
+
+    Gap: the schema has no separate alternate-route identity beyond the clues[]
+    list; independence is approximated as unique clue_id count.
+    """
+    findings: list[dict[str, str]] = []
+    for i, concl in enumerate((compiled.get("clue_graph") or {}).get("conclusions") or []):
+        if not isinstance(concl, dict):
+            continue
+        importance = concl.get("importance")
+        min_routes = concl.get("minimum_routes")
+        if min_routes is None:
+            if importance == "critical":
+                min_routes = 3
+            else:
+                continue
+        clues = [c for c in (concl.get("clues") or []) if isinstance(c, dict)]
+        distinct = {str(c["clue_id"]) for c in clues if c.get("clue_id")}
+        if len(distinct) < int(min_routes):
+            cid = concl.get("conclusion_id") or i
+            findings.append(
+                _finding(
+                    "insufficient_routes",
+                    "error",
+                    (
+                        f"conclusion '{cid}' declares minimum_routes={min_routes} but only "
+                        f"{len(distinct)} distinct clue_id routes "
+                        f"(schema has no separate alternate_route identity)"
+                    ),
+                    path=f"clue_graph.conclusions[{i}]",
+                )
+            )
+    return findings
+
+
+def _check_start_finale(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    scenes = [
+        s for s in ((compiled.get("story_graph") or {}).get("scenes") or [])
+        if isinstance(s, dict)
+    ]
+    starts = [s for s in scenes if s.get("is_start") is True]
+    if not starts:
+        findings.append(
+            _finding(
+                "missing_start",
+                "error",
+                "exactly one scene with is_start=true is required",
+                path="story_graph.scenes",
+            )
+        )
+    elif len(starts) > 1:
+        ids = [s.get("scene_id") for s in starts]
+        findings.append(
+            _finding(
+                "multiple_starts",
+                "error",
+                f"exactly one start scene required; found {len(starts)}: {ids}",
+                path="story_graph.scenes",
+            )
+        )
+    finales = [s for s in scenes if _is_finale_scene(s)]
+    if not finales:
+        findings.append(
+            _finding(
+                "missing_finale",
+                "error",
+                "at least one finale/resolution scene required (is_final=true or scene_type=resolution)",
+                path="story_graph.scenes",
+            )
+        )
+    return findings
+
+
+def _segment_text_for_page(
+    source_segments: list[dict[str, Any]] | None,
+    page: int,
+) -> str:
+    if not source_segments:
+        return ""
+    parts: list[str] = []
+    for seg in source_segments:
+        if not isinstance(seg, dict):
+            continue
+        if seg.get("page") == page:
+            parts.append(str(seg.get("text") or ""))
+    return "\n".join(parts)
+
+
+def _check_source_refs(
+    compiled: dict[str, Any],
+    source_segments: list[dict[str, Any]] | None,
+) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    if source_segments is None:
+        return findings
+
+    def _check_refs(refs: Any, owner_path: str) -> None:
+        for ri, ref in enumerate(refs or []):
+            if not isinstance(ref, dict):
+                continue
+            anchor = ref.get("grep_anchor")
+            page = ref.get("page")
+            if not anchor or not isinstance(page, int):
+                continue
+            text = _segment_text_for_page(source_segments, page)
+            if anchor not in text:
+                findings.append(
+                    _finding(
+                        "missing_source_anchor",
+                        "error",
+                        f"source_ref grep_anchor not found in compile input segments for page {page}",
+                        path=f"{owner_path}.source_refs[{ri}]",
+                    )
+                )
+
+    for i, scene in enumerate((compiled.get("story_graph") or {}).get("scenes") or []):
+        if isinstance(scene, dict):
+            _check_refs(scene.get("source_refs"), f"story_graph.scenes[{i}]")
+    for path, clue in _iter_clues(compiled):
+        _check_refs(clue.get("source_refs"), path)
+    for i, npc in enumerate((compiled.get("npc_agendas") or {}).get("npcs") or []):
+        if isinstance(npc, dict):
+            _check_refs(npc.get("source_refs"), f"npc_agendas.npcs[{i}]")
+    for i, front in enumerate((compiled.get("threat_fronts") or {}).get("fronts") or []):
+        if isinstance(front, dict):
+            _check_refs(front.get("source_refs"), f"threat_fronts.fronts[{i}]")
+    return findings
+
+
+def _check_provenance(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+
+    def _flag(entry: dict[str, Any], path: str) -> None:
+        origin = entry.get("origin")
+        if origin is None:
+            findings.append(
+                _finding(
+                    "missing_origin",
+                    "warning",
+                    "entry missing origin (expected source|inferred|improvised)",
+                    path=path,
+                )
+            )
+        elif origin not in VALID_ORIGINS:
+            findings.append(
+                _finding(
+                    "invalid_origin",
+                    "warning",
+                    f"origin '{origin}' not in {sorted(VALID_ORIGINS)}",
+                    path=path,
+                )
+            )
+
+    for i, scene in enumerate((compiled.get("story_graph") or {}).get("scenes") or []):
+        if isinstance(scene, dict):
+            _flag(scene, f"story_graph.scenes[{i}]")
+    for i, concl in enumerate((compiled.get("clue_graph") or {}).get("conclusions") or []):
+        if not isinstance(concl, dict):
+            continue
+        _flag(concl, f"clue_graph.conclusions[{i}]")
+        for j, clue in enumerate(concl.get("clues") or []):
+            if isinstance(clue, dict):
+                _flag(clue, f"clue_graph.conclusions[{i}].clues[{j}]")
+    for i, npc in enumerate((compiled.get("npc_agendas") or {}).get("npcs") or []):
+        if isinstance(npc, dict):
+            _flag(npc, f"npc_agendas.npcs[{i}]")
+    for i, front in enumerate((compiled.get("threat_fronts") or {}).get("fronts") or []):
+        if isinstance(front, dict):
+            _flag(front, f"threat_fronts.fronts[{i}]")
+    return findings
+
+
+def _default_origin(entry: dict[str, Any]) -> str:
+    if entry.get("improvised") is True:
+        return "improvised"
+    if entry.get("derived") is True or entry.get("inferred") is True:
+        return "inferred"
+    existing = entry.get("origin")
+    if existing in VALID_ORIGINS:
+        return str(existing)
+    return "source"
+
+
+def annotate_provenance(compiled: dict[str, Any]) -> dict[str, Any]:
+    """Fill ``origin`` (and optional ``confidence``) on compiled entries in-place.
+
+    Defaults to ``source`` for directly extracted nodes; ``inferred`` when
+    ``derived``/``inferred`` flags are set; ``improvised`` when marked as such.
+    Existing valid ``origin`` values are preserved.
+    """
+    def _annotate(entry: dict[str, Any]) -> None:
+        if entry.get("origin") not in VALID_ORIGINS:
+            entry["origin"] = _default_origin(entry)
+        if entry.get("origin") == "inferred":
+            entry.setdefault("confidence", 0.6)
+        elif entry.get("origin") == "source":
+            entry.setdefault("confidence", 1.0)
+        elif entry.get("origin") == "improvised":
+            entry.setdefault("confidence", 0.4)
+
+    for scene in (compiled.get("story_graph") or {}).get("scenes") or []:
+        if isinstance(scene, dict):
+            _annotate(scene)
+    for concl in (compiled.get("clue_graph") or {}).get("conclusions") or []:
+        if not isinstance(concl, dict):
+            continue
+        _annotate(concl)
+        for clue in concl.get("clues") or []:
+            if isinstance(clue, dict):
+                _annotate(clue)
+    for npc in (compiled.get("npc_agendas") or {}).get("npcs") or []:
+        if isinstance(npc, dict):
+            _annotate(npc)
+    for front in (compiled.get("threat_fronts") or {}).get("fronts") or []:
+        if isinstance(front, dict):
+            _annotate(front)
+    return compiled
+
+
+def validate_compiled_scenario(
+    compiled: dict[str, Any],
+    source_segments: list[dict[str, Any]] | None = None,
+) -> list[dict[str, str]]:
+    """Structured validation pass over an in-memory compiled scenario.
+
+    Returns findings with ``{code, severity, path, message}``. Operates only on
+    structured fields and IDs (Semantic Matcher Constitution).
+    """
+    id_maps = _collect_id_maps(compiled)
+    findings: list[dict[str, str]] = []
+    findings.extend(_check_id_uniqueness(id_maps))
+    findings.extend(_check_reference_integrity(compiled, id_maps))
+    findings.extend(_check_start_finale(compiled))
+    findings.extend(_check_reachability(compiled))
+    findings.extend(_check_multi_route_independence(compiled))
+    findings.extend(_check_source_refs(compiled, source_segments))
+    findings.extend(_check_provenance(compiled))
+    return findings
+
+
+def doctor(*, rules_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Check the runtime environment needed by the scenario compiler.
+
+    Returns structured results with ``check``, ``ok``, ``severity``, ``message``.
+    """
+    results: list[dict[str, Any]] = []
+    py_ok = sys.version_info[:2] >= MIN_PYTHON
+    results.append(
+        {
+            "check": "python_version",
+            "code": "python_version",
+            "ok": py_ok,
+            "severity": "error" if not py_ok else "info",
+            "message": (
+                f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}; "
+                f"require >={MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
+            ),
+        }
+    )
+    # This module is stdlib-only; surface that assumption for CI/docs.
+    results.append(
+        {
+            "check": "stdlib_only",
+            "code": "stdlib_only",
+            "ok": True,
+            "severity": "info",
+            "message": "coc_scenario_compile assumes stdlib-only (json/pathlib/collections/sys)",
+        }
+    )
+    root = rules_dir or _rules_json_dir()
+    for name in DOCTOR_RULES_JSON_FILES:
+        path = root / name
+        present = path.is_file()
+        results.append(
+            {
+                "check": f"rules_json:{name}",
+                "code": "rules_json",
+                "ok": present,
+                "severity": "error" if not present else "info",
+                "message": (
+                    f"rules-json table present: {path}"
+                    if present
+                    else f"missing rules-json table: {path}"
+                ),
+            }
+        )
+    return results
+
+
+def load_compiled_from_dir(scenario_dir: Path) -> dict[str, Any]:
+    """Load on-disk scenario JSON files into the in-memory compiled shape."""
+    return {
+        "module_meta": _read(scenario_dir / "module-meta.json") if (scenario_dir / "module-meta.json").exists() else {},
+        "story_graph": _read(scenario_dir / "story-graph.json") if (scenario_dir / "story-graph.json").exists() else {"scenes": []},
+        "clue_graph": _read(scenario_dir / "clue-graph.json") if (scenario_dir / "clue-graph.json").exists() else {"conclusions": []},
+        "npc_agendas": _read(scenario_dir / "npc-agendas.json") if (scenario_dir / "npc-agendas.json").exists() else {"npcs": []},
+        "threat_fronts": _read(scenario_dir / "threat-fronts.json") if (scenario_dir / "threat-fronts.json").exists() else {"fronts": []},
+    }
 
 
 def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
@@ -125,7 +674,24 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
 
     fronts_data = _read(scenario_dir / "threat-fronts.json")
     improv = _read(scenario_dir / "improvisation-boundaries.json")
-    secrets = set(improv.get("keeper_secrets", []))
+    # Compare against secret ids only (prose / id:description stay planner-side).
+    secrets = set()
+    for index, secret in enumerate(improv.get("keeper_secrets", []) or []):
+        if isinstance(secret, dict):
+            sid = str(secret.get("id") or "").strip()
+            if sid:
+                secrets.add(sid)
+            continue
+        text = str(secret or "").strip()
+        if ": " in text:
+            prefix = text.split(": ", 1)[0].strip()
+            if prefix and " " not in prefix and len(prefix) <= 80:
+                secrets.add(prefix)
+                continue
+        if text and " " not in text and len(text) <= 80:
+            secrets.add(text)
+        elif text:
+            secrets.add(f"secret_{index + 1:03d}")
     # check secrets don't leak into player-safe clue visibility
     for concl in clue_graph.get("conclusions", []):
         for clue in concl.get("clues", []):
@@ -196,15 +762,41 @@ def _main() -> int:
         prog="coc_scenario_compile.py",
         description="Validate a compiled scenario story-graph (compilation Layer 2).",
     )
-    parser.add_argument("scenario_dir", help="path to the compiled scenario directory")
+    parser.add_argument(
+        "scenario_dir",
+        nargs="?",
+        default=None,
+        help="path to the compiled scenario directory",
+    )
     parser.add_argument(
         "--validate",
         action="store_true",
         help="always validates (accepted for documentation consistency with SKILL.md)",
     )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="check compiler runtime dependencies and print structured results",
+    )
+    parser.add_argument(
+        "--structured",
+        action="store_true",
+        help="also run validate_compiled_scenario and print JSON findings",
+    )
     args = parser.parse_args()
 
-    result = validate_scenario(Path(args.scenario_dir))
+    if args.doctor:
+        results = doctor()
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        if any(not r.get("ok", True) and r.get("severity") == "error" for r in results):
+            return 1
+        return 0
+
+    if not args.scenario_dir:
+        parser.error("scenario_dir is required unless --doctor is set")
+
+    scenario_dir = Path(args.scenario_dir)
+    result = validate_scenario(scenario_dir)
     errors = result.get("errors", [])
     warnings = result.get("warnings", [])
 
@@ -212,6 +804,12 @@ def _main() -> int:
         print(f"WARNING: {w}")
     for e in errors:
         print(f"ERROR: {e}")
+
+    if args.structured:
+        findings = validate_compiled_scenario(load_compiled_from_dir(scenario_dir))
+        print(json.dumps(findings, indent=2, ensure_ascii=False))
+        if any(f.get("severity") == "error" for f in findings):
+            return 1
 
     if errors:
         return 1

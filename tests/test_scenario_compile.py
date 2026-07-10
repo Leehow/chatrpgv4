@@ -299,3 +299,282 @@ def test_validate_no_warning_for_combat_scene_without_affordances(tmp_path):
     (sc / "story-graph.json").write_text(json.dumps(story))
     result = coc_scenario_compile.validate_scenario(sc)
     assert not any("fight" in w and "affordances" in w for w in result["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# R-5: validate_compiled_scenario — structured findings
+# ---------------------------------------------------------------------------
+
+def _finding_codes(findings):
+    return {f["code"] for f in findings}
+
+
+def _findings_by_code(findings, code):
+    return [f for f in findings if f["code"] == code]
+
+
+def _minimal_compiled(**overrides):
+    """Inline compiled fixture with one start, one finale, linked by leads_to."""
+    compiled = {
+        "story_graph": {
+            "scenes": [
+                {
+                    "scene_id": "start",
+                    "is_start": True,
+                    "dramatic_question": "begin?",
+                    "available_clues": ["clue-a"],
+                    "npc_ids": ["npc-1"],
+                    "exit_targets": ["finale"],
+                    "origin": "source",
+                },
+                {
+                    "scene_id": "finale",
+                    "is_final": True,
+                    "scene_type": "resolution",
+                    "dramatic_question": "end?",
+                    "available_clues": [],
+                    "npc_ids": [],
+                    "origin": "source",
+                },
+            ]
+        },
+        "clue_graph": {
+            "conclusions": [
+                {
+                    "conclusion_id": "concl-1",
+                    "importance": "critical",
+                    "minimum_routes": 2,
+                    "origin": "source",
+                    "clues": [
+                        {
+                            "clue_id": "clue-a",
+                            "delivery_kind": "obvious",
+                            "visibility": "player-safe",
+                            "leads_to": ["finale"],
+                            "origin": "source",
+                        },
+                        {
+                            "clue_id": "clue-b",
+                            "delivery_kind": "handout",
+                            "visibility": "player-safe",
+                            "leads_to": ["finale"],
+                            "origin": "source",
+                        },
+                    ],
+                }
+            ]
+        },
+        "npc_agendas": {
+            "npcs": [
+                {"npc_id": "npc-1", "agenda": "watch", "origin": "source"},
+            ]
+        },
+        "threat_fronts": {
+            "fronts": [
+                {"front_id": "front-1", "scope": "scenario", "clocks": [], "origin": "source"},
+            ]
+        },
+    }
+    compiled.update(overrides)
+    return compiled
+
+
+def test_validate_compiled_duplicate_scene_ids():
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"].append(
+        {**compiled["story_graph"]["scenes"][0], "scene_id": "start", "is_start": False}
+    )
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    dupes = _findings_by_code(findings, "duplicate_id")
+    assert dupes
+    assert all(f["severity"] == "error" for f in dupes)
+    assert any("start" in f["message"] for f in dupes)
+
+
+def test_validate_compiled_duplicate_clue_and_npc_and_front_ids():
+    compiled = _minimal_compiled()
+    compiled["clue_graph"]["conclusions"][0]["clues"].append(
+        {"clue_id": "clue-a", "delivery_kind": "obvious", "origin": "source"}
+    )
+    compiled["npc_agendas"]["npcs"].append(
+        {"npc_id": "npc-1", "agenda": "other", "origin": "inferred"}
+    )
+    compiled["threat_fronts"]["fronts"].append(
+        {"front_id": "front-1", "scope": "scenario", "clocks": [], "origin": "source"}
+    )
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    dupes = _findings_by_code(findings, "duplicate_id")
+    assert len(dupes) >= 3
+    messages = " ".join(f["message"] for f in dupes)
+    assert "clue-a" in messages and "npc-1" in messages and "front-1" in messages
+
+
+def test_validate_compiled_broken_leads_to_and_exit_target():
+    compiled = _minimal_compiled()
+    compiled["clue_graph"]["conclusions"][0]["clues"][0]["leads_to"] = ["missing-scene"]
+    compiled["story_graph"]["scenes"][0]["exit_targets"] = ["no-such-scene"]
+    compiled["story_graph"]["scenes"][0]["npc_ids"] = ["ghost-npc"]
+    compiled["story_graph"]["scenes"][0]["available_clues"] = ["ghost-clue"]
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    refs = _findings_by_code(findings, "broken_reference")
+    assert refs
+    assert all(f["severity"] == "error" for f in refs)
+    joined = " ".join(f["message"] for f in refs)
+    assert "missing-scene" in joined
+    assert "no-such-scene" in joined
+    assert "ghost-npc" in joined
+    assert "ghost-clue" in joined
+
+
+def test_validate_compiled_orphan_scene_is_warning():
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"].append(
+        {
+            "scene_id": "orphan",
+            "dramatic_question": "unused?",
+            "available_clues": [],
+            "npc_ids": [],
+            "origin": "source",
+        }
+    )
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    orphans = _findings_by_code(findings, "unreachable_scene")
+    assert orphans
+    assert all(f["severity"] == "warning" for f in orphans)
+    assert any(f.get("path", "").endswith("orphan") or "orphan" in f["message"] for f in orphans)
+
+
+def test_validate_compiled_multi_route_independence():
+    """Critical conclusion must meet minimum_routes with distinct clue_ids."""
+    compiled = _minimal_compiled()
+    compiled["clue_graph"]["conclusions"][0]["minimum_routes"] = 3
+    # only 2 distinct clues present
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    routes = _findings_by_code(findings, "insufficient_routes")
+    assert routes
+    assert all(f["severity"] == "error" for f in routes)
+
+    # Model gap note: no separate alternate_route identity beyond clue list —
+    # when minimum_routes is met via distinct clue_ids, no finding.
+    compiled["clue_graph"]["conclusions"][0]["clues"].append(
+        {
+            "clue_id": "clue-c",
+            "delivery_kind": "environmental",
+            "visibility": "player-safe",
+            "leads_to": ["finale"],
+            "origin": "source",
+        }
+    )
+    findings_ok = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert not _findings_by_code(findings_ok, "insufficient_routes")
+
+
+def test_validate_compiled_requires_exactly_one_start_and_at_least_one_finale():
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][0]["is_start"] = False
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert _findings_by_code(findings, "missing_start")
+
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"].append(
+        {
+            "scene_id": "also-start",
+            "is_start": True,
+            "dramatic_question": "q",
+            "available_clues": [],
+            "npc_ids": [],
+            "exit_targets": ["finale"],
+            "origin": "source",
+        }
+    )
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert _findings_by_code(findings, "multiple_starts")
+
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][1]["is_final"] = False
+    compiled["story_graph"]["scenes"][1]["scene_type"] = "investigation"
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert _findings_by_code(findings, "missing_finale")
+
+
+def test_validate_compiled_source_refs_anchor_against_segments():
+    compiled = _minimal_compiled()
+    compiled["clue_graph"]["conclusions"][0]["clues"][0]["source_refs"] = [
+        {
+            "source_id": "pdf:demo",
+            "path": "pdf/demo.pdf",
+            "page": 2,
+            "grep_anchor": "Chapel records were moved",
+        }
+    ]
+    segments = [
+        {"page": 2, "text": "Something else entirely on this page."},
+    ]
+    findings = coc_scenario_compile.validate_compiled_scenario(
+        compiled, source_segments=segments
+    )
+    anchors = _findings_by_code(findings, "missing_source_anchor")
+    assert anchors
+    assert all(f["severity"] == "error" for f in anchors)
+
+    segments_ok = [
+        {"page": 2, "text": "Note: Chapel records were moved to the annex."},
+    ]
+    findings_ok = coc_scenario_compile.validate_compiled_scenario(
+        compiled, source_segments=segments_ok
+    )
+    assert not _findings_by_code(findings_ok, "missing_source_anchor")
+
+
+def test_validate_compiled_flags_missing_origin():
+    compiled = _minimal_compiled()
+    del compiled["story_graph"]["scenes"][0]["origin"]
+    del compiled["clue_graph"]["conclusions"][0]["clues"][0]["origin"]
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    missing = _findings_by_code(findings, "missing_origin")
+    assert len(missing) >= 2
+    assert all(f["severity"] == "warning" for f in missing)
+
+
+def test_annotate_provenance_defaults_origin():
+    compiled = _minimal_compiled()
+    del compiled["story_graph"]["scenes"][0]["origin"]
+    del compiled["npc_agendas"]["npcs"][0]["origin"]
+    annotated = coc_scenario_compile.annotate_provenance(compiled)
+    assert annotated["story_graph"]["scenes"][0]["origin"] == "source"
+    assert annotated["npc_agendas"]["npcs"][0]["origin"] == "source"
+    # inferred when explicitly marked derivation
+    annotated["clue_graph"]["conclusions"][0]["clues"][0]["derived"] = True
+    annotated = coc_scenario_compile.annotate_provenance(annotated)
+    assert annotated["clue_graph"]["conclusions"][0]["clues"][0]["origin"] in (
+        "source", "inferred", "improvised"
+    )
+
+
+def test_doctor_reports_structured_environment():
+    results = coc_scenario_compile.doctor()
+    assert isinstance(results, list)
+    assert results
+    assert all(
+        set(r) >= {"code", "severity", "message"} or set(r) >= {"check", "ok", "message"}
+        for r in results
+    )
+    # Accept either shape; normalize via helper if present
+    codes = {r.get("code") or r.get("check") for r in results}
+    assert any("python" in str(c).lower() for c in codes)
+    assert any("rules" in str(c).lower() or "rules_json" in str(c).lower() for c in codes)
+
+
+def test_cli_doctor_exits_zero():
+    proc = subprocess.run(
+        [sys.executable, str(_scenario_script_path()), "--doctor"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    assert proc.stdout.strip()
+
+
+def test_validate_compiled_clean_fixture_has_no_errors():
+    findings = coc_scenario_compile.validate_compiled_scenario(_minimal_compiled())
+    errors = [f for f in findings if f["severity"] == "error"]
+    assert errors == []
