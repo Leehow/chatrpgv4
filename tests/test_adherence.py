@@ -151,3 +151,93 @@ def test_evaluate_adherence_accepts_session_result_shape():
     assert by_id["conclusion:c1"]["satisfied"] is True
     assert by_id["terminal:end"]["satisfied"] is True
     assert result["required_coverage"] == 1.0
+
+
+def test_evaluate_adherence_reads_clue_bonus_from_live_turn_shape():
+    """Live match persists clue_bonus on turns/events, not bonus_rolls_engaged."""
+    checklist = [
+        {
+            "statement_id": "bonus:clue-larkin-illness",
+            "kind": "optional",
+            "criterion": {"bonus_clue_id": "clue-larkin-illness"},
+            "description": "Engage bonus roll for clue 'clue-larkin-illness'",
+        },
+        {
+            "statement_id": "bonus:clue-other",
+            "kind": "optional",
+            "criterion": {"bonus_clue_id": "clue-other"},
+            "description": "Engage bonus roll for clue 'clue-other'",
+        },
+    ]
+    # Mirrors masks-peru-r2 / live-match turn + events.jsonl shapes.
+    play = {
+        "discovered_clue_ids": ["clue-larkin-illness"],
+        "turns": [
+            {
+                "turn": 3,
+                "event_types": ["skill_check_earned", "clue_bonus_reveal", "clue_reveal"],
+                "clue_revealed": ["clue-larkin-illness"],
+                "rules_requests": [
+                    {
+                        "clue_bonus": True,
+                        "clue_id": "clue-larkin-illness",
+                        "skill": "Medicine",
+                        "roll_contract": {
+                            "roll_density_group": "clue-bonus:clue-larkin-illness",
+                        },
+                    }
+                ],
+                "resolved_clue_policy": {
+                    "committed_reveals": ["clue-larkin-illness"],
+                    "bonus_reveal": "something is rotting him from within.",
+                },
+                "npc_moves": [],
+            }
+        ],
+        "events": [
+            {
+                "event_type": "clue_bonus_reveal",
+                "clue_id": "clue-larkin-illness",
+                "bonus_reveal": "something is rotting him from within.",
+            }
+        ],
+    }
+    result = coc_adherence.evaluate_adherence(checklist, play)
+    by_id = {s["statement_id"]: s for s in result["statements"]}
+    assert by_id["bonus:clue-larkin-illness"]["satisfied"] is True
+    assert by_id["bonus:clue-other"]["satisfied"] is False
+
+
+def test_evaluate_adherence_reads_npc_engagement_from_turns_and_events():
+    """NPC engagement is recorded via turn npc_moves and/or npc_engagement events."""
+    checklist = [
+        {
+            "statement_id": "npc:npc-augustus-larkin",
+            "kind": "optional",
+            "criterion": {"npc_id": "npc-augustus-larkin"},
+            "description": "Engage NPC 'Augustus Larkin'",
+        },
+        {
+            "statement_id": "npc:npc-nayra",
+            "kind": "optional",
+            "criterion": {"npc_id": "npc-nayra"},
+            "description": "Engage NPC 'Nayra'",
+        },
+    ]
+    play = {
+        "turns": [
+            {
+                "npc_moves": [
+                    {"npc_id": "npc-augustus-larkin", "display_name": "Augustus Larkin"},
+                    {"npc_id": "npc-luis-de-mendoza", "display_name": "Luis de Mendoza"},
+                ],
+            }
+        ],
+        "events": [
+            {"event_type": "npc_engagement", "npc_id": "npc-augustus-larkin"},
+        ],
+    }
+    result = coc_adherence.evaluate_adherence(checklist, play)
+    by_id = {s["statement_id"]: s for s in result["statements"]}
+    assert by_id["npc:npc-augustus-larkin"]["satisfied"] is True
+    assert by_id["npc:npc-nayra"]["satisfied"] is False

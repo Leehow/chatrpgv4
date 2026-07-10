@@ -248,6 +248,124 @@ def _as_str_set(values: Any) -> set[str]:
     return {text} if text else set()
 
 
+_CLUE_BONUS_EVENT_TYPES = frozenset(
+    {"clue_bonus_reveal", "clue_bonus_cost", "clue_bonus_pending"}
+)
+_NPC_ENGAGEMENT_EVENT_TYPES = frozenset({"npc_engagement", "npc_agency"})
+
+
+def _iter_play_events(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    top = raw.get("events")
+    if isinstance(top, list):
+        events.extend(e for e in top if isinstance(e, dict))
+    for turn in raw.get("turns") or []:
+        if not isinstance(turn, dict):
+            continue
+        turn_events = turn.get("events")
+        if isinstance(turn_events, list):
+            events.extend(e for e in turn_events if isinstance(e, dict))
+    return events
+
+
+def _bonus_clue_id_from_request(request: dict[str, Any]) -> str | None:
+    if request.get("clue_bonus"):
+        return _text(request.get("clue_id"))
+    contract = request.get("roll_contract") if isinstance(request.get("roll_contract"), dict) else {}
+    group = str(contract.get("roll_density_group") or "")
+    if group.startswith("clue-bonus:"):
+        return _text(group.split(":", 1)[1]) or _text(request.get("clue_id"))
+    return None
+
+
+def _harvest_bonus_rolls_engaged(raw: dict[str, Any], final_state: dict[str, Any]) -> set[str]:
+    """Collect clue ids that engaged a bonus roll from real live-match records.
+
+    Preferred explicit fields first; then turns' clue_bonus rules_requests /
+    event_types, then clue_bonus_* events. No free-text scanning.
+    """
+    explicit = (
+        raw.get("bonus_rolls_engaged")
+        or raw.get("engaged_bonus_clue_ids")
+        or final_state.get("bonus_rolls_engaged")
+        or []
+    )
+    found = _as_str_set(explicit)
+
+    for turn in raw.get("turns") or []:
+        if not isinstance(turn, dict):
+            continue
+        for request in turn.get("rules_requests") or []:
+            if not isinstance(request, dict):
+                continue
+            cid = _bonus_clue_id_from_request(request)
+            if cid:
+                found.add(cid)
+        event_types = {
+            str(et).strip()
+            for et in (turn.get("event_types") or [])
+            if str(et or "").strip()
+        }
+        if event_types & _CLUE_BONUS_EVENT_TYPES:
+            for request in turn.get("rules_requests") or []:
+                if not isinstance(request, dict):
+                    continue
+                cid = _bonus_clue_id_from_request(request)
+                if cid:
+                    found.add(cid)
+            policy = turn.get("resolved_clue_policy")
+            if isinstance(policy, dict) and (
+                policy.get("bonus_reveal") or policy.get("bonus_cost")
+            ):
+                for request in turn.get("rules_requests") or []:
+                    if not isinstance(request, dict):
+                        continue
+                    cid = _bonus_clue_id_from_request(request)
+                    if cid:
+                        found.add(cid)
+
+    for event in _iter_play_events(raw):
+        etype = str(event.get("event_type") or "").strip()
+        if etype not in _CLUE_BONUS_EVENT_TYPES:
+            continue
+        cid = _text(event.get("clue_id"))
+        if cid:
+            found.add(cid)
+
+    return found
+
+
+def _harvest_engaged_npc_ids(raw: dict[str, Any], final_state: dict[str, Any]) -> set[str]:
+    """Collect NPC ids engaged during play from turns / engagement events."""
+    explicit = (
+        raw.get("engaged_npc_ids")
+        or raw.get("npc_interactions")
+        or final_state.get("engaged_npc_ids")
+        or []
+    )
+    found = _as_str_set(explicit)
+
+    for turn in raw.get("turns") or []:
+        if not isinstance(turn, dict):
+            continue
+        for move in turn.get("npc_moves") or []:
+            if not isinstance(move, dict):
+                continue
+            npc_id = _text(move.get("npc_id"))
+            if npc_id:
+                found.add(npc_id)
+
+    for event in _iter_play_events(raw):
+        etype = str(event.get("event_type") or "").strip()
+        if etype not in _NPC_ENGAGEMENT_EVENT_TYPES:
+            continue
+        npc_id = _text(event.get("npc_id"))
+        if npc_id:
+            found.add(npc_id)
+
+    return found
+
+
 def _normalize_play_record(play: dict[str, Any] | None) -> dict[str, Any]:
     """Normalize session_result / campaign world-state shapes into one record."""
     raw = play if isinstance(play, dict) else {}
@@ -275,25 +393,12 @@ def _normalize_play_record(play: dict[str, Any] | None) -> dict[str, Any]:
         if not clocks and isinstance(final_state.get("clocks"), dict):
             clocks = final_state["clocks"]
 
-    bonus = (
-        raw.get("bonus_rolls_engaged")
-        or raw.get("engaged_bonus_clue_ids")
-        or final_state.get("bonus_rolls_engaged")
-        or []
-    )
-    npcs = (
-        raw.get("engaged_npc_ids")
-        or raw.get("npc_interactions")
-        or final_state.get("engaged_npc_ids")
-        or []
-    )
-
     return {
         "discovered_clue_ids": _as_str_set(discovered),
         "visited_scene_ids": _as_str_set(visited),
         "clocks": clocks if isinstance(clocks, dict) else {},
-        "bonus_rolls_engaged": _as_str_set(bonus),
-        "engaged_npc_ids": _as_str_set(npcs),
+        "bonus_rolls_engaged": _harvest_bonus_rolls_engaged(raw, final_state),
+        "engaged_npc_ids": _harvest_engaged_npc_ids(raw, final_state),
     }
 
 

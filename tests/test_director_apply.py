@@ -395,6 +395,47 @@ def test_apply_persists_npc_state_writes_and_agency_log(tmp_path):
     ]
     assert generation_records[0]["event_type"] == "npc_generation"
     assert generation_records[0]["npc_id"] == "npc-authority"
+    engagement_records = [
+        json.loads(line)
+        for line in (camp / "logs" / "npc-engagement.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert engagement_records[0]["event_type"] == "npc_engagement"
+    assert engagement_records[0]["npc_id"] == "npc-authority"
+
+
+def test_apply_records_npc_engagement_without_agency_moves(tmp_path):
+    """npc_moves with no agency_moves still leave an append-only engagement event."""
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-npc-engage",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [
+            {"npc_id": "npc-augustus-larkin", "display_name": "Augustus Larkin"},
+        ],
+    }
+
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    engagement_records = [
+        json.loads(line)
+        for line in (camp / "logs" / "npc-engagement.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert len(engagement_records) == 1
+    assert engagement_records[0]["event_type"] == "npc_engagement"
+    assert engagement_records[0]["npc_id"] == "npc-augustus-larkin"
+    events = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(e.get("event_type") == "npc_engagement" for e in events)
 
 
 def test_apply_persists_npc_stat_upgrade_log(tmp_path):

@@ -495,6 +495,22 @@ def _apply_npc_state_and_agency(
         if not isinstance(move, dict):
             continue
         npc_id = move.get("npc_id")
+        if npc_id:
+            # Append-only engagement record so adherence / audits can see that
+            # this NPC actually moved this turn (agency_moves may be empty).
+            engagement = {
+                "schema_version": 1,
+                "event_type": "npc_engagement",
+                "decision_id": plan.get("decision_id"),
+                "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
+                "scene_id": (plan.get("turn_input") or {}).get("active_scene_id"),
+                "npc_id": npc_id,
+                "investigator_id": investigator_id,
+                "ts": ts,
+            }
+            events.append(engagement)
+            _append_jsonl(logs / "npc-engagement.jsonl", engagement)
+            _append_jsonl(logs / "events.jsonl", engagement)
         for agency_move in move.get("agency_moves", []) or []:
             if not isinstance(agency_move, dict):
                 continue
