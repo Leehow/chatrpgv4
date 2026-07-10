@@ -800,6 +800,70 @@ def test_live_turn_caller_intent_is_recorded(tmp_path):
     assert result["intent_resolution"]["intent_class"] == "investigate"
 
 
+def test_live_turn_quick_observation_in_extreme_cold_persists_short_time_and_defers_exposure(
+    tmp_path,
+):
+    camp, char_path = _build_live_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    story["scenes"][0]["scene_tags"] = ["extreme_cold"]
+    story_path.write_text(json.dumps(story), encoding="utf-8")
+
+    time_layer = live_runner.director.coc_time
+    time_layer.initialize_time_state(camp)
+    cold_rule = json.loads(
+        (
+            Path("plugins/coc-keeper/references/rules-json/the-white-war.json")
+        ).read_text(encoding="utf-8")
+    )["rules"]["cold_exposure"]
+    exposure_interval = cold_rule["interval_minutes"]
+    exposure_trigger_id = time_layer.schedule_trigger(camp, {
+        "kind": "cold_exposure",
+        "target_id": "inv1",
+        "due_elapsed_minutes": exposure_interval,
+        "policy": "auto_apply",
+    })
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "I take a quick look across the snowfield.",
+        intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+            "secondary_intents": [],
+            "target_entities": [],
+            "risk_posture": "cautious",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+            "action_atoms": [],
+        },
+        max_auto_advance=1,
+        recording_mode="sync",
+        rng_seed=41,
+    )
+
+    assert result["turns"][0]["action"] == "REVEAL"
+    time_state = time_layer.read_time_state(camp)
+    elapsed = time_state["clock"]["elapsed_minutes"]
+    assert 0 < elapsed <= exposure_interval
+
+    time_records = [
+        json.loads(line)
+        for line in (camp / "logs" / "time.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    advance = next(record for record in time_records if record["event_type"] == "time_advance")
+    assert advance["category"] == "quick_observation"
+    assert advance["delta_minutes"] == elapsed
+
+    triggers = json.loads((camp / "save" / "time-triggers.json").read_text())["triggers"]
+    exposure = next(trigger for trigger in triggers if trigger["trigger_id"] == exposure_trigger_id)
+    assert exposure["status"] == "pending"
+
+
 def test_live_turn_missing_intent_routes_through_intent_router(tmp_path):
     """Without caller intent, the runner consults coc_intent_router (installed
     evaluator), never a hardcoded intent default."""

@@ -11,8 +11,8 @@
 ## Current release posture
 
 - The full-hardening initiative is active. Release-governance acceptance
-  A01-A06 is represented in current HEAD; A07-A34 must not be inferred complete
-  from historical plans or isolated test results.
+  A01-A06 is represented in current HEAD; A07-A34 remain open unless this file
+  explicitly adopts an item below. A11 is adopted as resolved here.
 - `plugins/coc-keeper/` is the only canonical plugin implementation. Codex,
   Claude Code, and Cursor use thin host metadata over that single tree.
 - Two play-ready starters are packaged: **The White War** and **The Haunting**.
@@ -42,15 +42,19 @@
 - The full-hardening acceptance ledger remains open beyond A01-A06; later task
   commits must update this file when their status changes.
 
-### Open: Extreme-cold REVEAL time advance
+## Resolved hardening items
 
-An ordinary `REVEAL` or observe-surroundings action in an outdoor extreme cold
-scene still inherits the generic `single_room_search` time cost of 20 minutes.
-That can over-advance cold exposure or require manual correction when the
-fiction calls for a short scan rather than a full room search. This issue
-remains unresolved; no Task 4 fix is claimed. The dated observation in
-`docs/live-playtest-notes.md` is historical evidence only, while this section
-owns its live status.
+### Resolved: Extreme-cold REVEAL time advance
+
+Director time selection now uses structured priority: an authored scene
+`time_profile` wins, followed by an exact structured intent detail/category,
+then the action default. A `REVEAL` carrying `quick_observation` therefore uses
+the existing `quick_observation` category (at most five minutes), while an
+authored or ordinary deliberate `single_room_search` remains 20 minutes even
+in extreme cold. No player prose is scanned. The live regression
+`test_live_turn_quick_observation_in_extreme_cold_persists_short_time_and_defers_exposure`
+proves that `run_live_turn(...)` persists the shorter clock delta and leaves a
+five-minute cold-exposure trigger pending.
 
 ## Verification entry points
 

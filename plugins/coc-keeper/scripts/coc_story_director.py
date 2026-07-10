@@ -1644,7 +1644,77 @@ _ACTION_TIME_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 
-def _derive_time_advance(action: str, time_signals: dict[str, Any]) -> dict[str, Any]:
+def _time_cost_categories() -> dict[str, dict[str, Any]]:
+    catalog = coc_cache.load_json_cached(RULES_DIR / "time-costs.json")
+    categories = catalog.get("categories") if isinstance(catalog, dict) else None
+    return categories if isinstance(categories, dict) else {}
+
+
+def _complete_time_profile(
+    profile: dict[str, Any],
+    *,
+    fallback: dict[str, Any],
+) -> dict[str, Any]:
+    """Fill a structured time profile without interpreting free text."""
+    completed = dict(fallback)
+    completed.update(profile)
+    category = completed.get("category")
+    if "delta_minutes" not in profile and isinstance(category, str):
+        bounds = _time_cost_categories().get(category)
+        if isinstance(bounds, dict) and "default" in bounds:
+            completed["delta_minutes"] = int(bounds["default"])
+    return completed
+
+
+def _structured_intent_time_category(ctx: dict[str, Any]) -> str | None:
+    """Return an exact catalog category emitted by structured intent routing."""
+    rich = ctx.get("player_intent_rich")
+    if not isinstance(rich, dict):
+        rich = {}
+    categories = _time_cost_categories()
+    for candidate in (
+        ctx.get("intent_detail"),
+        ctx.get("intent_category"),
+        rich.get("intent_detail"),
+        rich.get("intent_category"),
+    ):
+        if isinstance(candidate, str) and candidate in categories:
+            return candidate
+    return None
+
+
+def _time_profile_for_action(action: str, ctx: dict[str, Any]) -> dict[str, Any]:
+    """Select an action's structured time profile in author-first priority.
+
+    Priority is an authored active-scene ``time_profile``, then an exact
+    category enum from structured intent metadata, then the action default.
+    Scene tags and player prose are never interpreted as intent.
+    """
+    fallback = dict(_ACTION_TIME_PROFILES.get(action, {"mode": "none"}))
+    scene = ctx.get("active_scene")
+    if not isinstance(scene, dict):
+        scene = {}
+
+    authored = scene.get("time_profile")
+    if isinstance(authored, dict):
+        return _complete_time_profile(authored, fallback=fallback)
+
+    intent_category = _structured_intent_time_category(ctx)
+    if intent_category is not None:
+        return _complete_time_profile(
+            {"mode": "elapsed", "category": intent_category},
+            fallback=fallback,
+        )
+
+    return fallback
+
+
+def _derive_time_advance(
+    action: str,
+    time_signals: dict[str, Any],
+    *,
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Derive a time_advance proposal for the DirectorPlan.
 
     Combines the action's default time profile with the live time_signals
@@ -1655,7 +1725,7 @@ def _derive_time_advance(action: str, time_signals: dict[str, Any]) -> dict[str,
     if not time_signals:
         return {"mode": "none", "reason": "time layer not initialized"}
 
-    profile = _ACTION_TIME_PROFILES.get(action, {"mode": "none"})
+    profile = _time_profile_for_action(action, ctx or {})
     mode = profile.get("mode", "none")
     category = profile.get("category")
     delta = int(profile.get("delta_minutes", 0))
@@ -2780,7 +2850,11 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         for c in mem_cards
     ]
 
-    time_advance = _derive_time_advance(action, ctx.get("time_signals", {}))
+    time_advance = _derive_time_advance(
+        action,
+        ctx.get("time_signals", {}),
+        ctx=ctx,
+    )
 
     plan: dict[str, Any] = {
         "decision_id": decision_id,

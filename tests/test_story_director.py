@@ -2298,6 +2298,46 @@ def test_recover_time_profile_is_short_investigation_recovery():
     assert advance["mode"] == "elapsed"
 
 
+def test_reveal_quick_observation_in_extreme_cold_uses_short_profile():
+    ctx = {
+        "active_scene": {"scene_tags": ["extreme_cold"]},
+        "intent_detail": "quick_observation",
+    }
+
+    profile = coc_story_director._time_profile_for_action("REVEAL", ctx)
+
+    assert profile["category"] == "quick_observation"
+    assert profile["delta_minutes"] <= 5
+
+
+def test_authored_room_search_time_profile_wins_over_quick_cold_observation():
+    ctx = {
+        "active_scene": {
+            "scene_tags": ["extreme_cold"],
+            "time_profile": {"category": "single_room_search"},
+        },
+        "intent_detail": "quick_observation",
+    }
+
+    profile = coc_story_director._time_profile_for_action("REVEAL", ctx)
+
+    assert profile["category"] == "single_room_search"
+    assert profile["delta_minutes"] == 20
+
+
+def test_reveal_without_structured_time_detail_keeps_room_search_default():
+    cold_profile = coc_story_director._time_profile_for_action(
+        "REVEAL", {"active_scene": {"scene_tags": ["extreme_cold"]}},
+    )
+    ordinary_profile = coc_story_director._time_profile_for_action(
+        "REVEAL", {"active_scene": {"scene_tags": []}},
+    )
+
+    assert cold_profile["category"] == "single_room_search"
+    assert cold_profile["delta_minutes"] == 20
+    assert ordinary_profile == cold_profile
+
+
 def test_pacing_mode_stays_action_derived_when_tension_target_present(tmp_path):
     """D4: tension_target must not overwrite pacing_mode."""
     camp, char_path = _make_minimal_campaign(tmp_path)

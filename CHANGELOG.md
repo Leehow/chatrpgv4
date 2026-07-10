@@ -44,11 +44,13 @@
   说明，并补全 campaign 状态、runtime receipt 和 fast/background 日志目录约定。
 - README 的 Python 最低版本从 3.10+ 修正为 3.11+，与代码对标准库
   `tomllib` 的实际依赖一致。
+- 修复极寒场景中快速环境观察被统一计作 20 分钟房间搜索的问题：director
+  现在按「场景作者显式 `time_profile` → 结构化 intent detail/category → action
+  默认值」选择时间档；`quick_observation` 最多推进 5 分钟，显式或普通
+  `single_room_search` 仍保持 20 分钟，并由真实 `run_live_turn(...)` 回归覆盖。
+  `docs/live-playtest-notes.md` remains historical evidence only; live status remains in `docs/status/CURRENT.md`.
 ### Known Issues
 
-- 极寒场景中的普通 `REVEAL` / 环境观察仍会继承通用
-  `single_room_search` 20 分钟推进，可能放大寒冷暴露，尚未修复。
-  `docs/live-playtest-notes.md` is historical evidence only; live status remains in `docs/status/CURRENT.md`.
 - 当前自动 playtest driver 不是 live LLM-vs-KP；已有 suite/completion 产物不能
   替代项目要求的真实战报证据。外部模型证据状态见 `docs/status/CURRENT.md`。
 

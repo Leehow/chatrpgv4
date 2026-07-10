@@ -141,12 +141,24 @@ def test_content_inventory_covers_all_declared_python_dependencies():
     assert "PyPI packages `pytest` and `pypdf`" not in inventory
 
 
-def test_current_status_owns_extreme_cold_reveal_issue():
+def test_extreme_cold_reveal_resolution_is_consistent_across_status_sources():
     current = (ROOT / CURRENT_STATUS_PATH).read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    notes = (ROOT / "docs/live-playtest-notes.md").read_text(encoding="utf-8")
 
-    assert "### Open: Extreme-cold REVEAL time advance" in current
-    for term in ("`REVEAL`", "`single_room_search`", "20 minutes", "extreme cold"):
+    assert "### Resolved: Extreme-cold REVEAL time advance" in current
+    assert "### Open: Extreme-cold REVEAL time advance" not in current
+    for term in ("`REVEAL`", "`single_room_search`", "20 minutes", "`quick_observation`"):
         assert term in current
+    assert "极寒场景" in changelog
+    assert "`quick_observation`" in changelog
+    known_issues = changelog.split("### Known Issues", 1)[1].split("## [", 1)[0]
+    assert "极寒场景" not in known_issues
+    assert "## Fixed - Director Time Advance In Extreme Cold Scenes" in notes
+    assert (
+        "test_live_turn_quick_observation_in_extreme_cold_persists_short_time_and_defers_exposure"
+        in notes
+    )
 
 
 def test_changelog_does_not_delegate_live_status_to_playtest_notes():
