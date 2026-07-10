@@ -74,12 +74,79 @@ def test_first_aid_can_be_pushed():
     assert sess.current_hp == 10
 
 
-def test_first_aid_skipped_when_dying():
-    sess = coc_healing.HealingSession(
-        "inv1", hp_max=12, con_value=60, current_hp=0, conditions=["dying"])
-    ev = sess.first_aid(skill_value=60, skill_roll_result=_roll("regular"))
+# --------------------------------------------------------------------------- #
+# Dying chain (p.121): First Aid stabilizes -> hourly CON -> Medicine clears
+# --------------------------------------------------------------------------- #
+def _dying_session(seed: int = 7) -> "coc_healing.HealingSession":
+    return coc_healing.HealingSession(
+        "harvey", hp_max=12, con_value=60, rng=random.Random(seed),
+        current_hp=0, conditions=["major_wound", "dying"])
+
+
+def test_first_aid_stabilizes_dying_character():
+    sess = _dying_session()
+    ev = sess.first_aid(99, skill_roll_result=_roll("regular"))
+    assert ev["event_type"] == "first_aid_stabilize"
+    assert sess.current_hp == 1
+    assert "stabilized" in sess.conditions
+    assert "dying" in sess.conditions  # dying 勾要等 Medicine 才清（p.121）
+
+
+def test_first_aid_on_stabilized_dying_does_not_heal_further():
+    sess = _dying_session()
+    sess.first_aid(99, skill_roll_result=_roll("regular"))
+    ev = sess.first_aid(99, skill_roll_result=_roll("regular"))
     assert ev["event_type"] == "healing_skipped"
+    assert sess.current_hp == 1
+
+
+def test_first_aid_failure_does_not_stabilize():
+    sess = _dying_session()
+    ev = sess.first_aid(10, skill_roll_result=_roll("failure"))
+    assert ev["event_type"] == "first_aid"
+    assert ev["stabilized"] is False
     assert sess.current_hp == 0
+    assert "stabilized" not in sess.conditions
+
+
+def test_medicine_cannot_stabilize_dying():
+    sess = _dying_session()
+    ev = sess.medicine(99, skill_roll_result=_roll("regular"))
+    assert ev["event_type"] == "healing_skipped"
+    assert "First Aid" in ev["reason"]
+
+
+def test_medicine_clears_dying_after_stabilization():
+    sess = _dying_session()
+    sess.first_aid(99, skill_roll_result=_roll("regular"))
+    ev = sess.medicine(99, skill_roll_result=_roll("regular"))
+    assert ev["event_type"] == "medicine"
+    assert "dying" not in sess.conditions
+    assert "stabilized" not in sess.conditions
+    assert sess.current_hp >= 2  # 1 临时 + 1D3
+
+
+def test_dying_con_roll_failure_kills():
+    sess = _dying_session()
+    ev = sess.dying_con_roll(roll_result=_roll("failure"))
+    assert ev["died"] is True
+    assert "dead" in sess.conditions
+
+
+def test_dying_con_roll_success_holds_on():
+    sess = _dying_session()
+    ev = sess.dying_con_roll(roll_result=_roll("regular"))
+    assert ev["died"] is False
+    assert "dead" not in sess.conditions
+
+
+def test_stabilized_con_roll_failure_reverts_to_dying():
+    sess = _dying_session()
+    sess.first_aid(99, skill_roll_result=_roll("regular"))
+    sess.stabilized_con_roll(roll_result=_roll("failure"))
+    assert sess.current_hp == 0
+    assert "stabilized" not in sess.conditions
+    assert "dying" in sess.conditions
 
 
 # --------------------------------------------------------------------------- #

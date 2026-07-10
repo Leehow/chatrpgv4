@@ -12,11 +12,14 @@ Rulebook basis (7e 40th Anniversary):
 - Medicine (Medicine skill, p.120): success restores 1D3 HP. Hard difficulty
   if the wound is not from the same day. Cannot be combined with First Aid
   on the same wound in the same day.
-- Natural recovery (p.122):
-  - Rest: restore 1 HP per day of rest.
-  - Major wound: a CON roll at the end of each day of rest determines rate:
-    failure = 0 HP, regular = 1D3 HP, extreme = 2D3 HP.
-- Dying/unconscious investigators cannot heal until stabilized (p.121).
+- Natural recovery (p.121):
+  - Rest (no major wound): restore 1 HP per day of rest.
+  - Major wound: a CON roll at the end of each *week* determines rate:
+    failure = 0 HP, regular = 1D3 HP, extreme = 2D3 HP (+ bonus/penalty dice
+    for rest quality and medical care).
+- Dying (p.121): only First Aid can stabilize a dying character (1 temporary
+  HP); Medicine then clears the dying tick (+1D3). While dying: CON roll each
+  round or die; once stabilized: CON roll each hour or revert to dying.
 
 Files managed:
   save/investigator-state/<id>.json  — `current_hp` field (merged)
@@ -116,7 +119,9 @@ class HealingSession:
 
     @property
     def is_dying(self) -> bool:
-        return "dying" in self.conditions or self.current_hp <= 0
+        # Dying is condition-driven (p.121): 0 HP with only regular damage is
+        # unconscious, not dying, and heals normally.
+        return "dying" in self.conditions
 
     @property
     def is_unconscious(self) -> bool:
@@ -154,11 +159,34 @@ class HealingSession:
 
         Each investigator can only receive First Aid once per wound (tracked
         via `_first_aid_used_today`). Returns the event record.
+
+        Dying characters (p.121): only First Aid can stabilize them — success
+        grants 1 temporary HP and the `stabilized` condition; the dying tick
+        stays until a successful Medicine roll clears it.
         """
+        if self.is_dying and "stabilized" not in self.conditions:
+            res = skill_roll_result or coc_roll.percentile_check(
+                skill_value, difficulty=difficulty, rng=self._rng)
+            success = res.get("outcome") in ("regular", "hard", "extreme", "critical")
+            if success:
+                self.current_hp = 1
+                self.conditions.append("stabilized")
+            return self._event("first_aid_stabilize" if success else "first_aid", {
+                "skill": "First Aid", "difficulty": difficulty,
+                "outcome": res.get("outcome"), "pushed": pushed,
+                "stabilized": success,
+                "hp_after": self.current_hp,
+                "rule_ref": "core.combat.dying_stabilize",
+                "summary": (f"{self.investigator_id} First Aid on dying -> "
+                            f"{res.get('outcome')}: "
+                            + ("stabilized at 1 temporary HP."
+                               if success else "failed to stabilize.")),
+            })
         if self.is_dying:
             return self._event("healing_skipped", {
-                "reason": "investigator is dying; stabilize before healing",
-                "summary": f"{self.investigator_id} cannot heal while dying.",
+                "reason": ("dying but already stabilized; use Medicine to "
+                           "clear dying (p.121)"),
+                "summary": f"{self.investigator_id} already stabilized; Medicine next.",
             })
         res = skill_roll_result
         if res is None:
@@ -199,12 +227,18 @@ class HealingSession:
         Hard difficulty if the wound is not from the same day (`same_day=False`).
         Cannot combine with First Aid on the same wound in the same day.
         Returns the event record.
+
+        Dying characters (p.121): Medicine cannot stabilize them (First Aid
+        first). Once stabilized, a successful Medicine roll clears the dying
+        tick and restores 1D3 HP.
         """
-        if self.is_dying:
+        if self.is_dying and "stabilized" not in self.conditions:
             return self._event("healing_skipped", {
-                "reason": "investigator is dying; stabilize before healing",
-                "summary": f"{self.investigator_id} cannot heal while dying.",
+                "reason": ("Medicine cannot stabilize a dying character; "
+                           "First Aid first (p.121)"),
+                "summary": f"{self.investigator_id} needs First Aid stabilization first.",
             })
+        clearing_dying = self.is_dying and "stabilized" in self.conditions
         difficulty = "regular" if same_day else "hard"
         res = skill_roll_result
         if res is None:
@@ -213,6 +247,10 @@ class HealingSession:
         hp_before = self.current_hp
         hp_gained = 0
         if success and not self._medicine_used_today:
+            if clearing_dying:
+                # p.121: uncheck the dying box, then heal 1D3.
+                self.conditions.remove("dying")
+                self.conditions.remove("stabilized")
             dice = coc_roll.roll_expression("1D3", rng=self._rng)
             roll_total = int(dice.get("total", 1))
             hp_gained = self._heal(roll_total)
@@ -232,7 +270,42 @@ class HealingSession:
         return event
 
     # ------------------------------------------------------------------ #
-    # Weekly/daily recovery (p.122)
+    # Dying CON clocks (p.121)
+    # ------------------------------------------------------------------ #
+    def dying_con_roll(self, roll_result: dict | None = None) -> dict[str, Any]:
+        """p.121: a dying investigator makes a CON roll at the end of each
+        round; failure = immediate death."""
+        res = roll_result or coc_roll.percentile_check(self.con_value, rng=self._rng)
+        died = res.get("outcome") in ("failure", "fumble")
+        if died and "dead" not in self.conditions:
+            self.conditions.append("dead")
+        return self._event("dying_con_roll", {
+            "outcome": res.get("outcome"), "died": died,
+            "rule_ref": "core.combat.dying_con_clock",
+            "summary": (f"{self.investigator_id} dying CON roll -> {res.get('outcome')}"
+                        + (": dies." if died else ": holds on.")),
+        })
+
+    def stabilized_con_roll(self, roll_result: dict | None = None) -> dict[str, Any]:
+        """p.121: a stabilized (1 temporary HP) investigator makes a CON roll
+        at the end of each hour; failure = lose the temporary HP and revert to
+        the start of the dying process (First Aid needed again)."""
+        res = roll_result or coc_roll.percentile_check(self.con_value, rng=self._rng)
+        deteriorated = res.get("outcome") in ("failure", "fumble")
+        if deteriorated:
+            self.current_hp = 0
+            if "stabilized" in self.conditions:
+                self.conditions.remove("stabilized")
+        return self._event("stabilized_con_roll", {
+            "outcome": res.get("outcome"), "deteriorated": deteriorated,
+            "rule_ref": "core.combat.dying_stabilized_clock",
+            "summary": (f"{self.investigator_id} hourly CON roll -> {res.get('outcome')}"
+                        + (": condition deteriorates, back to dying."
+                           if deteriorated else ": stable.")),
+        })
+
+    # ------------------------------------------------------------------ #
+    # Weekly/daily recovery (p.121)
     # ------------------------------------------------------------------ #
     def weekly_recovery(self, days_of_rest: int) -> dict[str, Any]:
         """Natural recovery over days of rest (p.122).
