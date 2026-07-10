@@ -31,7 +31,7 @@
 |---|---|---|
 | **Wave 0** | 与规则书**直接相反/写错**的 7 处修正（本文档含完整 TDD 任务） | ☑ 2026-07-10 |
 | **Wave 1** | 好玩优先项：幸运消费、背景个人化恐怖、幻觉/Reality Check、恐惧症压迫、惊吓技法、SAN 演出协议、怪物演出契约、收尾仪式（本文档含完整任务） | ☑ 2026-07-10 |
-| **Wave 2** | 规则引擎补洞：典籍阅读引擎、成长阶段结算、推骰门闩进 apply、治疗/asylum/self-help 重做、施法推骰后果表、信徒流程接线（任务级定义，波次启动时按本文档展开细化计划） | ☐ |
+| **Wave 2** | 规则引擎补洞：典籍阅读引擎、成长阶段结算、推骰门闩进 apply、治疗/asylum/self-help 重做、施法推骰后果表、信徒流程接线（任务级定义，波次启动时按本文档展开细化计划） | ☑ 2026-07-10 |
 | **Wave 3** | 动作场面：追逐 Part2–5 重写、自动武器/多发/瞄准、环境伤害引擎、prone/投掷修正（任务级定义） | ☐ |
 | **Wave 4** | 遗留 N 系列：N5 真 LLM 对战、N6 存档工程化、N1 多宿主、N2/N7 内容+快速开玩、N3 叙述闭环、N4 缓存、N8 清理（任务级定义） | ☐ |
 | **Backlog** | Contacts / Training / Aging / CR 消费 / 组合检定 API / 物理极限 / Spot Rules 可选规则 | ☐ |
@@ -43,6 +43,7 @@
 - 2026-07-10：蓝图创建。Wave 0 未开始。
 - 2026-07-10：**Wave 0 完成**（W0-1…W0-7 全部落地，提交 `ba07c3d`…`3310a8f`）。全量 1193 passed。
 - 2026-07-10：**Wave 1 完成**。W1-1/W1-2 由主线实现（`3a02536`、`e77ebf9`）；W1-3/W1-4/W1-5/W1-6 由 subagent 实现并经协调者审核（`784ba45`、`f63dea1`、`cf5a6e9`、`2a3c0a0`）。W1-5 的 subagent 在提交前连接中断，成品经审核后由协调者代为提交（`cf5a6e9`）。全量 1243 passed（含 `test_plugin_metadata` 40 条）。另补交 P0 阶段遗留改动（`8e33921`、`942fd60`）。下一波：Wave 2 规则引擎补洞，启动时先按本文档展开细化计划。
+- 2026-07-10：**Wave 2 完成**（细化计划 `2026-07-10-wave2-rules-depth.md`）。任务→提交：W2-1 `b9d56d1`、W2-4 `6ebc360`、W2-5 `8fdc98d`、W2-3 `a22994e`（推骰门闩）+ `053e3e3`（pushed_fail_pending→PRESSURE）、W2-6 `19ba6c8`、W2-2 `07eb661`、W2-8 `e7fefce`、W2-7 `9d5f27e`、W2-9 收尾提交（本条）。全量 1333 passed（含 `test_plugin_metadata`）。下一波：Wave 3 动作场面。
 
 ---
 
@@ -836,15 +837,15 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 
 > 启动本波时：以本节为 spec，按 writing-plans 流程写 `2026-XX-XX-wave2-rules-depth.md` 细化计划（bite-sized TDD），完成后回本文件打勾。
 
-- [ ] **W2-1 典籍阅读引擎**：新建 `plugins/coc-keeper/scripts/coc_tomes.py`。`TomeSession.read(phase="skim|initial|full|research")`：语言/Read Language 前置、initial → CMI + SAN、full → CMF/MR、耗时（周）、法术摘要揭示、research 用 Mythos Rating、重复 full 时间翻倍、非信徒可延迟 SAN（与 believer 流程联动）。数据已备（`tomes.json` CMI/CMF/MR）。技能层：书的感官描写与"书之人格"指导（Ch11 p.224-226）。KP 策略：情节关键典籍失败不卡死（p.211-212 → `plot_critical: skip_failure_gate` 字段）。
-- [ ] **W2-2 成长阶段结算引擎**：新建 `coc_development.py`。`run_development_phase(campaign_dir, investigator_id)`：读 `development.jsonl` ticks → 逐技能 1D100 > skill 或 >95 → +1D10 写回 character.json → 技能达 90 → `gain_san(2D6)` → 幸运恢复（W1-1）→ awfulness_caps 各 -1（恐怖回潮，p.169）→ 清 ticks。成功检定自动记 tick：在 live turn 落骰点处（`coc_director_apply` 掷骰结果落地点）按 W0-6 规则（排除花幸运/奖励骰-only/对抗负方/Mythos/CR）写 `skill_check_earned`。
-- [ ] **W2-3 推骰门闩进 apply 层**：`coc_director_apply` 强制四阶段（改方法→KP 预告→确认→更糟后果）；`coc_narrative_enrichment._atom_roll_contract` L540 按 roll kind 自动置 `push_eligible=False`（SAN/Luck/对抗/伤害/战斗内）；推骰失败挂 `pushed_fail_pending` 驱动 PRESSURE；underlying 期推骰失败可用妄想作后果（W1-3 联动，p.163）。
-- [ ] **W2-4 治疗/asylum/self-help 重做**：对齐 p.164-168 —— private care 月度 01-95/96-100 档、asylum 机构品质档（不再"1 次 Psychoanalysis 直接回满"）、"先 +1D3 再 SAN 检定治愈不定性"两步、self-help 绑 backstory key connection、失败改写背景条目；`treatment.json` 补月度表。
-- [ ] **W2-5 施法与魔法后果**：`coc_magic.cast_spell` 推骰失败 → MP **与 SAN** ×1D6 + 1D8 副作用表（弱法/强法两档，p.178-179）+ POW 消耗结算 + 施法被打断规则；`learn_spell` 支持 `source="entity"`（`from_entity_min_sanity_cost`）。
-- [ ] **W2-6 信徒流程接线**：investigator-state 增 `believer: bool`；读典籍分支"选择不信"；首次神话目击强制 `become_believer(first_hand)` + 世界色调切换（`tone: mythos_bleak` 注入，Ch10 p.212）。
-- [ ] **W2-7 Fair Warning 结构化**：致命场景强制累计 3 次 diegetic 警告（气味/疯子嘲讽/环境声）才允许致命结果；`lethal_chances_used` 由 apply 层在警告落地时递增（现在只有读者没有写者）；director Layer-3 加显式拦截分支（替换 coc_story_director.py:1190-1196 的"结构性依赖"注释）。
-- [ ] **W2-8 Idea Roll 失败代价结构化**：idea_roll 成败都推进但失败"以最糟方式获得信息"（p.199）——结果附 `failure_delivery: "worst_possible_way"` 指令。
-- [ ] **W2-9 全量验证 + 打勾写日志**
+- [x] **W2-1 典籍阅读引擎**：新建 `plugins/coc-keeper/scripts/coc_tomes.py`。`TomeSession.read(phase="skim|initial|full|research")`：语言/Read Language 前置、initial → CMI + SAN、full → CMF/MR、耗时（周）、法术摘要揭示、research 用 Mythos Rating、重复 full 时间翻倍、非信徒可延迟 SAN（与 believer 流程联动）。数据已备（`tomes.json` CMI/CMF/MR）。技能层：书的感官描写与"书之人格"指导（Ch11 p.224-226）。KP 策略：情节关键典籍失败不卡死（p.211-212 → `plot_critical: skip_failure_gate` 字段）。
+- [x] **W2-2 成长阶段结算引擎**：新建 `coc_development.py`。`run_development_phase(campaign_dir, investigator_id)`：读 `development.jsonl` ticks → 逐技能 1D100 > skill 或 >95 → +1D10 写回 character.json → 技能达 90 → `gain_san(2D6)` → 幸运恢复（W1-1）→ awfulness_caps 各 -1（恐怖回潮，p.169）→ 清 ticks。成功检定自动记 tick：在 live turn 落骰点处（`coc_director_apply` 掷骰结果落地点）按 W0-6 规则（排除花幸运/奖励骰-only/对抗负方/Mythos/CR）写 `skill_check_earned`。
+- [x] **W2-3 推骰门闩进 apply 层**：`coc_director_apply` 强制四阶段（改方法→KP 预告→确认→更糟后果）；`coc_narrative_enrichment._atom_roll_contract` L540 按 roll kind 自动置 `push_eligible=False`（SAN/Luck/对抗/伤害/战斗内）；推骰失败挂 `pushed_fail_pending` 驱动 PRESSURE；underlying 期推骰失败可用妄想作后果（W1-3 联动，p.163）。
+- [x] **W2-4 治疗/asylum/self-help 重做**：对齐 p.164-168 —— private care 月度 01-95/96-100 档、asylum 机构品质档（不再"1 次 Psychoanalysis 直接回满"）、"先 +1D3 再 SAN 检定治愈不定性"两步、self-help 绑 backstory key connection、失败改写背景条目；`treatment.json` 补月度表。
+- [x] **W2-5 施法与魔法后果**：`coc_magic.cast_spell` 推骰失败 → MP **与 SAN** ×1D6 + 1D8 副作用表（弱法/强法两档，p.178-179）+ POW 消耗结算 + 施法被打断规则；`learn_spell` 支持 `source="entity"`（`from_entity_min_sanity_cost`）。
+- [x] **W2-6 信徒流程接线**：investigator-state 增 `believer: bool`；读典籍分支"选择不信"；首次神话目击强制 `become_believer(first_hand)` + 世界色调切换（`tone: mythos_bleak` 注入，Ch10 p.212）。
+- [x] **W2-7 Fair Warning 结构化**：致命场景强制累计 3 次 diegetic 警告（气味/疯子嘲讽/环境声）才允许致命结果；`lethal_chances_used` 由 apply 层在警告落地时递增（现在只有读者没有写者）；director Layer-3 加显式拦截分支（替换 coc_story_director.py:1190-1196 的"结构性依赖"注释）。
+- [x] **W2-8 Idea Roll 失败代价结构化**：idea_roll 成败都推进但失败"以最糟方式获得信息"（p.199）——结果附 `failure_delivery: "worst_possible_way"` 指令。
+- [x] **W2-9 全量验证 + 打勾写日志**
 
 # Wave 3：动作场面（任务级定义）
 

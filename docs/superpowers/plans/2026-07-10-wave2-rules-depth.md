@@ -1,6 +1,6 @@
 # Wave 2: 规则引擎补洞 · 细化实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 补齐 Keeper Rulebook 中"典籍阅读、成长结算、推骰门闩、疯狂治疗、施法后果、信徒流程、Fair Warning、Idea Roll 代价"八个规则引擎深洞，使 LLM KP 的裁定不再依赖散文即兴。
 
@@ -58,9 +58,9 @@ class TomeSession:
 - 持久化 `save/tomes.json`：`{investigator_id, tome_name, phases_completed, cm_gained, weeks_spent}`；用 `coc_fileio.write_json_atomic`。
 
 **TDD 步骤：**
-- [ ] 失败测试：语言门（blocked / plot_critical 放行）、initial 的 CM+SAN 表达式+周数、full 前置与翻倍、research roll contract、snapshot/load 往返。
-- [ ] 实现 → 通过 → 技能文档 → `pytest tests/test_tomes.py tests/test_plugin_metadata.py`
-- [ ] Commit: `feat(tomes): tome reading engine with study phases (p.217-226)`
+- [x] 失败测试：语言门（blocked / plot_critical 放行）、initial 的 CM+SAN 表达式+周数、full 前置与翻倍、research roll contract、snapshot/load 往返。
+- [x] 实现 → 通过 → 技能文档 → `pytest tests/test_tomes.py tests/test_plugin_metadata.py`
+- [x] Commit: `feat(tomes): tome reading engine with study phases (p.217-226)`
 
 ### Task W2-4: 治疗/asylum/self-help 重做（p.164-168）
 
@@ -76,9 +76,9 @@ class TomeSession:
 - self-help：绑定 backstory `key_connection`（结构化字段名，取 investigator-state `personal_horror_hooks` 或 character backstory 键）；失败 → 返回 `backstory_amend_required: {mode: "corrupt_existing", backstory_field: ...}`（复用 W1-2 结构）。
 
 **TDD 步骤：**
-- [ ] 失败测试：月度 01-95/96-100 两档、asylum 品质骰、两步治愈门、self-help 失败改写背景。
-- [ ] 实现 → 通过 → `pytest tests/test_healing.py tests/test_rules.py`
-- [ ] Commit: `feat(sanity): monthly treatment tiers, two-step indefinite cure, self-help hooks (p.164-168)`
+- [x] 失败测试：月度 01-95/96-100 两档、asylum 品质骰、两步治愈门、self-help 失败改写背景。
+- [x] 实现 → 通过 → `pytest tests/test_healing.py tests/test_rules.py`
+- [x] Commit: `feat(sanity): monthly treatment tiers, two-step indefinite cure, self-help hooks (p.164-168)`
 
 ### Task W2-5: 施法与魔法后果（p.177-179）
 
@@ -94,8 +94,8 @@ class TomeSession:
 - `learn_spell(source="entity")`：实体亲授，SAN 成本下限字段 `from_entity_min_sanity_cost`（spells 数据无此字段时默认 `"1D6"`），返回 `san_cost_expr`。
 
 **TDD 步骤：**
-- [ ] 失败测试：推骰失败双损+副作用两档、interrupted、entity 亲授 SAN 下限。
-- [ ] 实现 → 通过 → Commit: `feat(magic): pushed-cast consequences, interruption, entity-taught spells (p.177-179)`
+- [x] 失败测试：推骰失败双损+副作用两档、interrupted、entity 亲授 SAN 下限。
+- [x] 实现 → 通过 → Commit: `feat(magic): pushed-cast consequences, interruption, entity-taught spells (p.177-179)`
 
 ### Task W2-3: 推骰门闩进 apply 层（p.83-85, p.163）
 
@@ -111,8 +111,8 @@ class TomeSession:
 - underlying 期推骰失败：若 investigator-state `temporary_insane/indefinite_insane` 且非 bout —— 事件附 `delusion_consequence_allowed: True`（叙事层可用妄想作后果，p.163；只加标志不生成内容）。
 
 **TDD 步骤：**
-- [ ] 失败测试：四类 kind 的 push_eligible=False、门闩缺字段拒绝、pushed_fail_pending 写入、underlying 标志。
-- [ ] 实现 → 通过 → Commit: `feat(rules): push-roll gate in apply layer, auto push-ineligible kinds (p.83-85)`
+- [x] 失败测试：四类 kind 的 push_eligible=False、门闩缺字段拒绝、pushed_fail_pending 写入、underlying 标志。
+- [x] 实现 → 通过 → Commit: `feat(rules): push-roll gate in apply layer, auto push-ineligible kinds (p.83-85)`
 
 ### Task W2-6: 信徒流程接线（p.167, p.179, p.212）
 
@@ -128,8 +128,8 @@ class TomeSession:
 - 首次神话目击强制转化：`become_believer(first_hand=True)` 已有 `is_first` 逻辑则对齐；director 在 `build_director_context` 读 `believer`，为 True 时 `narrative_directives["tone"]` 追加 `"mythos_bleak"`（Ch10 p.212 世界色调切换）。
 
 **TDD 步骤：**
-- [ ] 失败测试：believer 持久化往返、choose_disbelief 减半、director tone 注入（believer=False 不注入）。
-- [ ] 实现 → 通过 → Commit: `feat(mythos): believer flag wiring, disbelief choice, bleak tone shift (p.167, p.212)`
+- [x] 失败测试：believer 持久化往返、choose_disbelief 减半、director tone 注入（believer=False 不注入）。
+- [x] 实现 → 通过 → Commit: `feat(mythos): believer flag wiring, disbelief choice, bleak tone shift (p.167, p.212)`
 
 ### Task W2-2: 成长阶段结算引擎（p.94-95）
 
@@ -159,8 +159,8 @@ def run_development_phase(campaign_dir, investigator_id, *, rng=None) -> dict
 **apply 接线：** 在 rules_results 掷骰结果落地处（找 `skill_check_earned` 已有写点对齐 payload 形状——playtest 侧已消费该字段）调 `record_skill_tick`。
 
 **TDD 步骤：**
-- [ ] 失败测试：排除规则逐条（幸运/Mythos/CR/对抗负方）、>95 必升、+1D10 写回、90 阈值 SAN 奖励、awfulness 回潮、清 ticks、apply 自动记 tick。
-- [ ] 实现 → 通过 → Commit: `feat(development): investigator development phase engine + auto ticks (p.94-95)`
+- [x] 失败测试：排除规则逐条（幸运/Mythos/CR/对抗负方）、>95 必升、+1D10 写回、90 阈值 SAN 奖励、awfulness 回潮、清 ticks、apply 自动记 tick。
+- [x] 实现 → 通过 → Commit: `feat(development): investigator development phase engine + auto ticks (p.94-95)`
 
 ### Task W2-8: Idea Roll 失败代价结构化（p.199）
 
@@ -170,7 +170,7 @@ def run_development_phase(campaign_dir, investigator_id, *, rng=None) -> dict
 
 **要点：** idea_roll 成败都推进（现状确认），失败时 plan 附 `failure_delivery: "worst_possible_way"` + `directive`（叙事层以最糟方式交付信息：代价/暴露/警觉）。只加结构化字段。
 
-- [ ] 失败测试 → 实现 → Commit: `feat(director): idea roll failure delivers info the worst way (p.199)`
+- [x] 失败测试 → 实现 → Commit: `feat(director): idea roll failure delivers info the worst way (p.199)`
 
 ### Task W2-7: Fair Warning 结构化（p.209）
 
@@ -184,13 +184,13 @@ def run_development_phase(campaign_dir, investigator_id, *, rng=None) -> dict
 - apply 层落地 fair_warning 事件时 `pacing-state.lethal_chances_used += 1`（幂等：同 decision_id 不重复计）；
 - `>= 3` 后放行致命结果（`death_allowed` 已有读者）。
 
-- [ ] 失败测试 → 实现 → Commit: `feat(pacing): structured fair-warning ladder before lethal outcomes (p.209)`
+- [x] 失败测试 → 实现 → Commit: `feat(pacing): structured fair-warning ladder before lethal outcomes (p.209)`
 
 ### Task W2-9: 全量验证 + 收尾
 
-- [ ] `pytest tests/ -q` 全绿 + `test_plugin_metadata`
-- [ ] 回主蓝图 Wave 2 打勾、写波次日志
-- [ ] Commit: `chore(blueprint): wave 2 complete`
+- [x] `pytest tests/ -q` 全绿 + `test_plugin_metadata`
+- [x] 回主蓝图 Wave 2 打勾、写波次日志
+- [x] Commit: `chore(blueprint): wave 2 complete`
 
 ## Self-Review
 
