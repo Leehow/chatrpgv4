@@ -49,6 +49,7 @@ def _load_sibling(name: str, filename: str):
 
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
+coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 
 coc_memory = None
 try:
@@ -1146,7 +1147,12 @@ def _process_push_roll_gates(
                 "ts": ts,
             })
             continue
-        if not _rules_result_is_failure(result):
+        outcome = "failure" if _rules_result_is_failure(result) else str(
+            result.get("outcome") or "success"
+        )
+        if not coc_rule_signals.read_pushed_fail_pending(
+            is_pushed=True, outcome=outcome,
+        ):
             continue
         pushed_fail_pending = True
         fail_ev: dict[str, Any] = {
@@ -1449,8 +1455,12 @@ def _apply_plan_impl(
     horror = plan.get("narrative_directives", {}).get("horror_escalation_stage")
     if horror:
         pacing["horror_stage"] = horror
-    # W2-3: pushed failure pending drives next-turn PRESSURE (field written here;
-    # coc_story_director has no pacing consumer yet — see task report).
+    # W2-3: one-shot pushed-fail flag. Clear when this plan's context already
+    # consumed it (rule_signals.pushed_fail_pending), then re-set if *this*
+    # apply also produced a new legal pushed failure. Duplicate decision_ids
+    # never reach here (apply ledger), so the clear is idempotent per decision.
+    if (plan.get("rule_signals") or {}).get("pushed_fail_pending"):
+        pacing["pushed_fail_pending"] = False
     if pushed_fail_pending:
         pacing["pushed_fail_pending"] = True
     _write_json(pacing_path, pacing)

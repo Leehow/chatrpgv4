@@ -505,6 +505,10 @@ def build_director_context(
         "tension_clock": coc_rule_signals.read_tension_clock(
             pacing.get("tension_level", "low"), pacing.get("lethal_chances_used", 0),
         ),
+        # W2-3 leftover: one-shot pacing flag from a legal pushed-roll failure
+        # (apply writes via read_pushed_fail_pending; PRESSURE scoring consumes;
+        # apply clears when the plan's rule_signals carried the flag).
+        "pushed_fail_pending": bool(pacing.get("pushed_fail_pending")),
         "bout_active": bool(inv_state.get("bout_active")) or "bout_active" in conditions,
         "delusion_active": bool(inv_state.get("active_delusion")),
     }
@@ -1164,6 +1168,11 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
                 base = min(0.95, base + 0.1)
             elif posture == "cautious":
                 base = max(0.05, base - 0.1)
+        # p.83-85: legal pushed-roll failure pending → nudge PRESSURE once.
+        # Flag is a structured pacing bool (set by apply); cleared when apply
+        # lands a plan whose rule_signals carried the consumed signal.
+        if sig.get("pushed_fail_pending"):
+            base = min(0.95, round(base + 0.1, 4))
         return base
 
     if action == "CHARACTER":

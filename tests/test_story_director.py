@@ -510,6 +510,74 @@ def test_rich_intent_risk_posture_adjusts_pressure(tmp_path):
     assert p_neutral == p_legacy  # neutral rich == no rich (backward compat)
 
 
+def test_pushed_fail_pending_boosts_pressure_score(tmp_path):
+    """p.83-85: pacing pushed_fail_pending raises PRESSURE by +0.1 once."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    base_ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert base_ctx["rule_signals"].get("pushed_fail_pending") is not True
+    base_score = coc_story_director._base_score("PRESSURE", base_ctx)
+
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["pushed_fail_pending"] = True
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+    pending_ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert pending_ctx["rule_signals"]["pushed_fail_pending"] is True
+    pending_score = coc_story_director._base_score("PRESSURE", pending_ctx)
+    assert pending_score == pytest.approx(base_score + 0.1)
+    assert pending_score > base_score
+
+
+def test_pushed_fail_pending_consumed_no_repeat_boost(tmp_path):
+    """After apply consumes the flag, the next context no longer boosts PRESSURE."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["pushed_fail_pending"] = True
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["pushed_fail_pending"] is True
+    plan = coc_story_director.generate_director_plan(ctx, decision_id="consume-push-fail")
+    assert plan["rule_signals"].get("pushed_fail_pending") is True
+
+    coc_director_apply = _load(
+        "coc_director_apply_push_consume",
+        "plugins/coc-keeper/scripts/coc_director_apply.py",
+    )
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1", rules_results=[])
+
+    pacing_after = json.loads((camp / "save" / "pacing-state.json").read_text())
+    assert pacing_after.get("pushed_fail_pending") is not True
+
+    ctx2 = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert ctx2["rule_signals"].get("pushed_fail_pending") is not True
+    # Same baseline as a fresh campaign without the flag.
+    fresh_camp, fresh_char = _make_minimal_campaign(tmp_path / "fresh")
+    fresh_ctx = coc_story_director.build_director_context(
+        campaign_dir=fresh_camp, character_path=fresh_char, investigator_id="inv1",
+        player_intent="x", player_intent_class="investigate",
+        rng=random.Random(42),
+    )
+    assert coc_story_director._base_score("PRESSURE", ctx2) == (
+        coc_story_director._base_score("PRESSURE", fresh_ctx)
+    )
+
+
 def test_rich_intent_indefinite_insane_signal_read(tmp_path):
     """The director surfaces indefinite_insane from investigator-state."""
     camp, char_path = _make_minimal_campaign(tmp_path)
