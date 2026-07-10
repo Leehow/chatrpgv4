@@ -59,15 +59,22 @@ summary, and source page instead.
 
 当用户要"编译模组"/"生成剧情图"/"为 <模组> 准备 director"时：
 
-1. 读模组 PDF（用 read/grep；中文模组直接读）。
+0. **先识别模组身份（强制）**：只读扉页/TOC，产出结构化 `module_identity`
+   `{canonical_module_id, canonical_title, publisher, edition, locale, chapter?}`
+   （巨章按章给 id，如 `masks-of-nyarlathotep-ch-peru`）。用
+   `scripts/coc_module_registry.py lookup --identity '<json>'` 查
+   `.coc/module-library/`：**命中则 `install` 到战役并 STOP**（不重解析 PDF）；
+   未命中再全文编译。身份匹配只走结构化 id / 规范化 alias，禁止模糊标题扫描。
+1. 读模组 PDF（用 read/grep；中文模组直接读；巨章只抽本章页）。
 2. 判定 structure_type（参考 references/compile-protocol.md 的 7 种原型判定）。
 3. 按顺序产出 7 个 JSON 到 campaigns/<id>/scenario/（schema 见 references/story-graph-schema.md）：
-   module-meta / story-graph / clue-graph / npc-agendas / threat-fronts / pacing-map / improvisation-boundaries
+   module-meta（含 `module_identity`）/ story-graph / clue-graph / npc-agendas / threat-fronts / pacing-map / improvisation-boundaries
    - **story-graph.json 的 social/investigation 场景必须带 ≥2 条 `affordances`（含语义 `route_type`）；开场场景带 `storylet_tags`。** 详见 references/compile-protocol.md「场景多路线与 storylet 标签」。这让玩家在每个调查/社交场景都有选择权、不被线性推向单一出口。
    - **新编译剧本应显式产出 `scene_edges`（`to` + 结构化 `when` + `kind`）**，不要依赖 `scenes` 数组顺序当线性轨道。详见 story-graph-schema.md 的 unlock 模型。
 4. 对 npc-agendas.json 跑 `coc_npc_roles.expand_from_dir`（按 relationship_to_investigators 注入 social_role，详见 references/compile-protocol.md）。
 5. 跑 `scripts/coc_scenario_compile.py --validate <dir>` 校验结构完整性。
 6. 校验报告的缺漏逐个补，直到 errors 为空。
 7. 写 player-safe recap + keeper-only recap。
+8. `coc_module_registry.py register` 写入模块库，并把当前 title/locale 记为 alias。
 
 关键约束：每个 critical conclusion 至少 3 条线索路径；keeper_secrets 与 player-safe 物理隔离。

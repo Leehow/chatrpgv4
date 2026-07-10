@@ -29,6 +29,11 @@
 - `content_flags` (string[])：内容警告标签（如 `supernatural_horror`、`child_endangerment`）。
 - `win_condition` (string)：胜利条件简述。
 - `source_pdf` (string)：来源 PDF 路径。
+- `module_identity` (object, optional)：结构化模组身份，供 `.coc/module-library/` 按 **module identity**（非文件名）复用编译结果。缺省时校验器发 warning。字段：
+  - `canonical_module_id` (string)：kebab-case 规范 id（巨章模组按章注册，如 `masks-of-nyarlathotep-ch-peru`）。
+  - `canonical_title` (string)：规范标题（通常为原版/主语言标题）。
+  - `publisher` / `edition` / `locale` / `chapter` (string, optional)。
+  - `aliases` (object[], optional)：`{title, locale, source_label?}`——其它译名/版次标签；运行时只做规范化精确匹配，禁止模糊标题扫描。
 
 **示例：**
 
@@ -41,7 +46,14 @@
   "era": "1920s",
   "content_flags": ["supernatural_horror", "child_endangerment"],
   "win_condition": "resolve_corbitt_or_survive",
-  "source_pdf": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf"
+  "source_pdf": "pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf",
+  "module_identity": {
+    "canonical_module_id": "the-haunting",
+    "canonical_title": "The Haunting",
+    "publisher": "Chaosium",
+    "edition": "7e",
+    "locale": "en"
+  }
 }
 ```
 

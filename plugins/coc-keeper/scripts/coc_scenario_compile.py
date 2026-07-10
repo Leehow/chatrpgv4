@@ -744,6 +744,54 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
     if meta.get("structure_type") not in VALID_STRUCTURE_TYPES:
         errors.append(f"module-meta.structure_type '{meta.get('structure_type')}' not in {sorted(VALID_STRUCTURE_TYPES)}")
 
+    # Optional module_identity block (registry / cache key). Missing -> warning;
+    # present but malformed -> warning (shape only; never fuzzy-match titles).
+    identity = meta.get("module_identity")
+    if identity is None:
+        warnings.append(
+            "module-meta.module_identity missing; "
+            "new compiles should emit structured identity for module-library reuse"
+        )
+    elif not isinstance(identity, dict):
+        warnings.append("module-meta.module_identity must be an object when present")
+    else:
+        cid = identity.get("canonical_module_id")
+        if cid is not None and (
+            not isinstance(cid, str)
+            or not cid.strip()
+            or not all(c.isalnum() or c == "-" for c in cid)
+        ):
+            warnings.append(
+                "module-meta.module_identity.canonical_module_id must be a non-empty kebab-case slug"
+            )
+        for field in ("canonical_title", "edition"):
+            val = identity.get(field)
+            if val is not None and (not isinstance(val, str) or not val.strip()):
+                warnings.append(
+                    f"module-meta.module_identity.{field} must be a non-empty string when present"
+                )
+        for field in ("publisher", "locale", "chapter"):
+            val = identity.get(field)
+            if val is not None and not isinstance(val, str):
+                warnings.append(
+                    f"module-meta.module_identity.{field} must be a string when present"
+                )
+        aliases = identity.get("aliases")
+        if aliases is not None:
+            if not isinstance(aliases, list):
+                warnings.append("module-meta.module_identity.aliases must be a list when present")
+            else:
+                for i, alias in enumerate(aliases):
+                    if not isinstance(alias, dict):
+                        warnings.append(
+                            f"module-meta.module_identity.aliases[{i}] must be an object"
+                        )
+                        continue
+                    if not str(alias.get("title") or "").strip():
+                        warnings.append(
+                            f"module-meta.module_identity.aliases[{i}].title is required"
+                        )
+
     story = _read(scenario_dir / "story-graph.json")
     for scene in story.get("scenes", []):
         if not scene.get("dramatic_question"):
