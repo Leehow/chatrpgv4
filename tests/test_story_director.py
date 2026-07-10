@@ -2130,3 +2130,53 @@ def test_pacing_mode_stays_action_derived_when_tension_target_present(tmp_path):
     assert plan["pacing_mode"] == "investigation"
     assert plan["tension_target"] == "climax"
     assert plan["pacing_mode"] not in ("low", "medium", "high", "climax")
+
+
+# --------------------------------------------------------------------------- #
+# Believer → mythos_bleak tone (p.212 / W2-6)
+# --------------------------------------------------------------------------- #
+def test_believer_injects_mythos_bleak_tone(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    state = json.loads(inv_path.read_text(encoding="utf-8"))
+    state["believer"] = True
+    inv_path.write_text(json.dumps(state), encoding="utf-8")
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42),
+    )
+    assert ctx.get("believer") is True
+    plan = coc_story_director.generate_director_plan(ctx, "believer-tone")
+    tone = plan["narrative_directives"]["tone"]
+    assert isinstance(tone, list)
+    assert "mythos_bleak" in tone
+    assert "tense" in tone  # scene tone preserved
+
+
+def test_non_believer_does_not_inject_mythos_bleak(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    # Default fixture has no believer field
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42),
+    )
+    assert ctx.get("believer") is not True
+    plan = coc_story_director.generate_director_plan(ctx, "no-believer-tone")
+    tone = plan["narrative_directives"]["tone"]
+    assert "mythos_bleak" not in tone
+
+
+def test_believer_false_does_not_inject_mythos_bleak(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    state = json.loads(inv_path.read_text(encoding="utf-8"))
+    state["believer"] = False
+    inv_path.write_text(json.dumps(state), encoding="utf-8")
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="search", player_intent_class="investigate", rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "believer-false-tone")
+    assert "mythos_bleak" not in plan["narrative_directives"]["tone"]

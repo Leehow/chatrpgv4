@@ -13,7 +13,8 @@ Rulebook basis (7e 40th Anniversary, Chapter 11):
 - Full study: requires initial; CMF + Mythos Rating + full_study_weeks +
   spells glimpsed; repeat full doubles time, zero new CM.
 - Research: after full, Mythos Rating as percentile target (contract only).
-- Non-believer may defer SAN (believer_gate); choose_disbelief halves CM.
+- Non-believer may defer SAN (believer_gate); choose_disbelief halves CM
+  and SAN (SAN via san_loss_multiplier=0.5; expr unchanged for callers).
 
 Files managed:
   save/tomes.json  — {investigator_id, tome_name, phases_completed, cm_gained, weeks_spent}
@@ -185,6 +186,9 @@ class TomeSession:
         result["weeks"] = weeks
         if choose_disbelief:
             result["disbelief_chosen"] = True
+            # Keep san_loss_expr raw; callers apply multiplier when settling SAN.
+            # No dice-expr rewrite helper in coc_roll/coc_rules — multiplier is cleaner.
+            result["san_loss_multiplier"] = 0.5
 
         self.cm_gained += cm_gain
         self.weeks_spent += weeks
@@ -197,6 +201,7 @@ class TomeSession:
             "san_loss_expr": san_expr,
             "weeks": weeks,
             "disbelief_chosen": bool(choose_disbelief),
+            **({"san_loss_multiplier": 0.5} if choose_disbelief else {}),
             "summary": (
                 f"{self.investigator_id} initial-read {self.tome_name}: "
                 f"+{cm_gain} CM, SAN {san_expr}, {weeks} weeks."
@@ -236,7 +241,8 @@ class TomeSession:
             result["san_loss_expr"] = self.tome["sanity_cost"]
             if choose_disbelief:
                 result["disbelief_chosen"] = True
-                # Disbelief halves CM (already applied); SAN expr unchanged.
+                # Disbelief halves CM (already applied) and SAN via multiplier.
+                result["san_loss_multiplier"] = 0.5
         else:
             result["repeat_full"] = True
 

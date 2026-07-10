@@ -188,13 +188,38 @@ def test_believer_gate_no_defer_when_believer_true(tmp_path):
     assert result["believer_gate"]["can_defer_san"] is False
 
 
-def test_choose_disbelief_halves_cm_keeps_san_expr():
+def test_choose_disbelief_halves_cm_and_san_via_multiplier():
+    """Disbelief halves CM (floor, min 1) and SAN via san_loss_multiplier.
+
+    san_loss_expr stays the raw table expression; callers apply the 0.5
+    multiplier when settling SAN (no dice-expr rewrite helper in coc_roll).
+    """
     sess = _session()
     result = sess.read("initial", choose_disbelief=True)
-    assert result["san_loss_expr"] == "2D10"  # unchanged
+    assert result["san_loss_expr"] == "2D10"  # unchanged raw expr
+    assert result["san_loss_multiplier"] == 0.5
     assert result["cm_gain"] == 3  # floor(6/2)
     assert result["disbelief_chosen"] is True
     assert sess.cm_gained == 3
+
+
+def test_choose_disbelief_no_multiplier_when_believing():
+    sess = _session()
+    result = sess.read("initial", choose_disbelief=False)
+    assert result["san_loss_expr"] == "2D10"
+    assert "san_loss_multiplier" not in result
+    assert result["cm_gain"] == 6
+
+
+def test_choose_disbelief_full_also_sets_san_multiplier():
+    sess = _session()
+    sess.read("initial")
+    result = sess.read("full", choose_disbelief=True)
+    assert result["disbelief_chosen"] is True
+    assert result["san_loss_multiplier"] == 0.5
+    assert result["san_loss_expr"] == "2D10"
+    # Al Azif CMF=12 → floor(12/2)=6
+    assert result["cm_gain"] == 6
 
 
 def test_choose_disbelief_cm_floor_min_one():
@@ -203,6 +228,7 @@ def test_choose_disbelief_cm_floor_min_one():
     result = sess.read("initial", choose_disbelief=True)
     assert result["cm_gain"] == 1
     assert result["disbelief_chosen"] is True
+    assert result["san_loss_multiplier"] == 0.5
 
 
 # --------------------------------------------------------------------------- #

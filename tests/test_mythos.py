@@ -142,6 +142,42 @@ def test_persisted_preserves_other_fields(campaign):
 
 
 # --------------------------------------------------------------------------- #
+# become_believer — believer flag (p.179 / W2-6)
+# --------------------------------------------------------------------------- #
+def test_become_believer_sets_believer_flag_in_memory():
+    state = {"cm_value": 10, "current_san": 70, "max_san": 89}
+    ev = coc_mythos.become_believer(state, source="first_hand_encounter", is_first=False)
+    assert state["believer"] is True
+    assert ev["event_type"] == "become_believer"
+
+
+def test_become_believer_persisted_writes_believer_flag(campaign):
+    coc_mythos._write_inv_state(campaign, "inv1", {
+        "investigator_id": "inv1", "cm_value": 10, "current_san": 70, "max_san": 89,
+    })
+    coc_mythos.become_believer_persisted(
+        campaign, "inv1", source="first_hand_encounter", is_first=False,
+    )
+    data = json.loads(
+        (campaign / "save" / "investigator-state" / "inv1.json").read_text(encoding="utf-8")
+    )
+    assert data["believer"] is True
+    assert data["cm_value"] == 11
+
+
+def test_become_believer_persisted_roundtrip_load(campaign):
+    """believer flag survives write → _read_inv_state roundtrip."""
+    coc_mythos._write_inv_state(campaign, "inv1", {
+        "investigator_id": "inv1", "cm_value": 5, "current_san": 60, "max_san": 94,
+    })
+    coc_mythos.become_believer_persisted(
+        campaign, "inv1", source="tome", is_first=False,
+    )
+    loaded = coc_mythos._read_inv_state(campaign, "inv1")
+    assert loaded["believer"] is True
+
+
+# --------------------------------------------------------------------------- #
 # Bout result resolution in SanitySession
 # --------------------------------------------------------------------------- #
 def _make_session(rng_seed=1, san_max=70, int_value=60):

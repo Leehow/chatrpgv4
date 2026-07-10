@@ -192,7 +192,7 @@ def become_believer(
     Parameters:
         investigator_state: mutable dict carrying ``cm_value`` (default 0),
             ``current_san`` (optional), and ``max_san`` (optional). Updated
-            in place.
+            in place; always sets ``believer=True``.
         source: "first_hand_encounter" or "tome".
         mythos_gain: explicit CM gain; None derives from ``is_first`` (+5/+1).
         is_first: True for the investigator's first Mythos encounter.
@@ -218,6 +218,9 @@ def become_believer(
     # Then gain CM (which drops max SAN and may clamp current SAN further).
     gain_event = gain_mythos(investigator_state, amount=mythos_gain, is_first=is_first)
 
+    # Persist the believer flag on investigator-state (p.179 / W2-6).
+    investigator_state["believer"] = True
+
     return {
         "event_type": "become_believer",
         "source": source,
@@ -228,6 +231,7 @@ def become_believer(
         "permanently_insane": permanently_insane,
         "max_san_after": gain_event["max_san_after"],
         "is_first": is_first,
+        "believer": True,
         "mythos_gain_event": gain_event,
         "rule_ref": "core.mythos.become_believer",
         "summary": (

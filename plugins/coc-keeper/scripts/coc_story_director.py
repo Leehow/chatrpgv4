@@ -578,6 +578,8 @@ def build_director_context(
         # W1-2: structured personal-horror hooks (p.193-194). CHARACTER beats
         # weave unwoven hooks; PAYOFF echoes woven ones.
         "personal_horror_hooks": list(inv_state.get("personal_horror_hooks") or []),
+        # W2-6 / p.212: believer flag drives mythos_bleak tone injection.
+        "believer": inv_state.get("believer") is True,
         "active_scene_id": active_scene_id,
         "active_scene": active_scene,
         "structure_type": module_meta.get("structure_type", "branching_investigation"),
@@ -2120,8 +2122,13 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     mythos_presentation = _mythos_presentation_directive(ctx, action)
     trope_boosts = _early_horror_trope_boosts(horror_stage, action)
 
+    # tone is a list of scene tone tags; believer appends mythos_bleak (p.212).
+    tone = list(scene.get("tone") or [])
+    if ctx.get("believer") is True and "mythos_bleak" not in tone:
+        tone.append("mythos_bleak")
+
     narrative_directives = {
-        "tone": scene.get("tone", []),
+        "tone": tone,
         "must_include": _collect_anchors(
             clue_policy.get("reveal", []) + clue_policy.get("fallback_routes", []),
             ctx.get("clue_graph", {}),
