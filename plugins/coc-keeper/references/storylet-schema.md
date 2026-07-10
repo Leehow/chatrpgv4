@@ -25,6 +25,35 @@ These tags are also folded into `_scene_tags`, so existing `scene_tags` hard
 filters and the `scene_tag_beat` 5× weight boost can use them when authors put
 the same labels on `scene_tags`.
 
+`setting_tags` is the **world-flavor** gate (military vs domestic vs wilderness).
+It is distinct from scene-function location gating below.
+
+## Storylet `context_requirements`
+
+Optional object on each storylet. Structured scene-function gate — tags only,
+never free-text matching.
+
+```json
+{
+  "context_requirements": {
+    "location_tags_any": ["archive", "records-office", "library", "office"]
+  }
+}
+```
+
+- `location_tags_any` (string[], optional): storylet is eligible only when the
+  active scene's structured `location_tags` (see story-graph-schema.md)
+  intersects this list.
+- **Absent / empty block / empty list:** no location gate — eligible in any
+  scene (subject to other gates such as `setting_tags`).
+- Shape: object whose known keys hold lists of non-empty strings. Unknown keys
+  are reserved; `location_tags_any` must be a list of non-empty strings when
+  present. Malformed values fail library load.
+
+Authoring rule of thumb: use `setting_tags` for world flavor; use
+`context_requirements.location_tags_any` when the beat only makes sense in a
+scene function (archive/records, briefing room, safe house, etc.).
+
 ## Module-meta `setting_tags`
 
 Optional string array on `module-meta.json`. Starter examples:

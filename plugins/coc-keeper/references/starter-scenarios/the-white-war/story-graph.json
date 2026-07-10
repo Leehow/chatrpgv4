@@ -6,7 +6,10 @@
         "briefing",
         "commander",
         "简报",
-        "指挥部"
+        "指挥部",
+        "military-camp",
+        "field-hq",
+        "office"
       ],
       "scene_type": "social",
       "dramatic_question": "Will the patrol accept a reconnaissance mission whose true nature is being kept from them?",
@@ -67,7 +70,11 @@
         "saddle",
         "crossing",
         "鞍部",
-        "山口"
+        "山口",
+        "wilderness",
+        "outdoor",
+        "arrival",
+        "terrain"
       ],
       "scene_type": "exploration",
       "storylet_tags": [
@@ -105,7 +112,12 @@
         "austrian positions",
         "austrian",
         "奥军阵地",
-        "阵地"
+        "阵地",
+        "wilderness",
+        "outdoor",
+        "arrival",
+        "terrain",
+        "trench"
       ],
       "scene_type": "investigation",
       "storylet_tags": [
@@ -159,7 +171,11 @@
         "glacier",
         "tunnels",
         "冰川",
-        "隧道"
+        "隧道",
+        "wilderness",
+        "indoor",
+        "mythos-site",
+        "terrain"
       ],
       "scene_type": "exploration",
       "dramatic_question": "How deep does this honeycomb go, and what drove the Austrians out?",
@@ -194,7 +210,11 @@
         "blast chamber",
         "shaft",
         "爆破室",
-        "竖井"
+        "竖井",
+        "wilderness",
+        "indoor",
+        "mythos-site",
+        "confrontation"
       ],
       "scene_type": "investigation",
       "storylet_tags": [
@@ -268,7 +288,10 @@
         "whistle",
         "approaches",
         "哨声",
-        "逼近"
+        "逼近",
+        "wilderness",
+        "outdoor",
+        "mythos-site"
       ],
       "scene_type": "exploration",
       "storylet_tags": [
@@ -309,7 +332,10 @@
         "blizzard",
         "withdrawal",
         "暴风雪",
-        "撤退"
+        "撤退",
+        "wilderness",
+        "outdoor",
+        "terrain"
       ],
       "scene_type": "combat",
       "dramatic_question": "Can the patrol outrun an unnatural gale across the open saddle?",
@@ -362,7 +388,10 @@
         "via ferrata",
         "climb",
         "铁索",
-        "攀爬"
+        "攀爬",
+        "wilderness",
+        "outdoor",
+        "terrain"
       ],
       "scene_type": "exploration",
       "dramatic_question": "Can the exhausted patrol scale the rock chimney to safety before the snow overhang gives way?",
@@ -395,7 +424,12 @@
         "shelter",
         "siege",
         "庇护所",
-        "围困"
+        "围困",
+        "camp",
+        "lodging",
+        "safe-house",
+        "wilderness",
+        "indoor"
       ],
       "scene_type": "combat",
       "dramatic_question": "Can the patrol hold the shelter through the night against something that wants to examine them?",
@@ -452,7 +486,10 @@
         "dawn",
         "counterstroke",
         "黎明",
-        "反击"
+        "反击",
+        "wilderness",
+        "outdoor",
+        "confrontation"
       ],
       "scene_type": "combat",
       "dramatic_question": "At dawn, with the entity weakened by daylight, can the patrol seize a way out?",
@@ -504,7 +541,9 @@
         "aftermath",
         "white friday",
         "余波",
-        "白色星期五"
+        "白色星期五",
+        "wilderness",
+        "outdoor"
       ],
       "scene_type": "resolution",
       "dramatic_question": "Did the patrol's choices save them — or doom ten thousand men to the White Friday avalanches?",

@@ -6,7 +6,9 @@
         "briefing",
         "knott",
         "委托",
-        "见面"
+        "见面",
+        "office",
+        "social-hub"
       ],
       "is_start": true,
       "scene_type": "social",
@@ -122,7 +124,12 @@
         "newspaper morgue",
         "newspaper",
         "报馆",
-        "morgue"
+        "morgue",
+        "archive",
+        "records-office",
+        "library",
+        "office",
+        "newspaper-morgue"
       ],
       "scene_type": "investigation",
       "origin": "source",
@@ -225,7 +232,11 @@
         "hall of records",
         "archives",
         "档案厅",
-        "records"
+        "records",
+        "archive",
+        "records-office",
+        "library",
+        "office"
       ],
       "scene_type": "investigation",
       "origin": "source",
@@ -322,7 +333,10 @@
         "neighborhood",
         "neighbors",
         "邻居",
-        "街坊"
+        "街坊",
+        "street",
+        "public",
+        "crowd"
       ],
       "scene_type": "social",
       "origin": "source",
@@ -417,7 +431,11 @@
         "previous tenants",
         "macario",
         "前租客",
-        "tenants"
+        "tenants",
+        "lodging",
+        "hospital",
+        "clinic",
+        "institutional"
       ],
       "scene_type": "social",
       "origin": "source",
@@ -513,7 +531,13 @@
         "corbitt house",
         "old house",
         "boarding house",
-        "科比特老宅"
+        "科比特老宅",
+        "house",
+        "domestic",
+        "investigation-site",
+        "indoor",
+        "entrance",
+        "threshold"
       ],
       "scene_type": "investigation",
       "origin": "source",
@@ -624,7 +648,11 @@
         "upper floor",
         "bedroom",
         "楼上",
-        "卧室"
+        "卧室",
+        "house",
+        "domestic",
+        "indoor",
+        "investigation-site"
       ],
       "scene_type": "exploration",
       "origin": "source",
@@ -715,7 +743,12 @@
         "basement",
         "cellar",
         "地下室",
-        "地窖"
+        "地窖",
+        "house",
+        "indoor",
+        "mythos-site",
+        "crime-scene",
+        "confrontation"
       ],
       "scene_type": "investigation",
       "origin": "source",
@@ -804,7 +837,11 @@
         "corbitt",
         "confrontation",
         "对峙",
-        "walter corbitt"
+        "walter corbitt",
+        "house",
+        "basement",
+        "mythos-site",
+        "crime-scene"
       ],
       "is_final": true,
       "scene_type": "resolution",

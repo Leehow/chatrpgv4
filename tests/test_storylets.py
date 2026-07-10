@@ -1029,3 +1029,131 @@ def test_shipped_military_opening_storylets_declare_setting_tags():
     assert set(found) == military_ids
     for sid, storylet in found.items():
         assert "military" in (storylet.get("setting_tags") or []), sid
+
+
+def _archive_misfiled_storylet(**overrides):
+    base = {
+        "storylet_id": "low-object-misfiled",
+        "title": "错位的档案",
+        "family_id": "clue_delivery_shift",
+        "trope_id": "misfiled_record",
+        "conflict_level": "low",
+        "conflict_score": 1,
+        "base_weight": 1.0,
+        "dramatic_function": ["REVEAL", "DEEPEN"],
+        "scene_actions": ["REVEAL", "DEEPEN"],
+        "scope": "scene",
+        "structure_affinity": ["any"],
+        "eligible_scene_types": ["any"],
+        "horror_stage": ["any"],
+        "scene_tags": [],
+        "context_requirements": {
+            "location_tags_any": ["archive", "records-office", "library", "office"],
+        },
+        "requires": {},
+        "serves": {"mainline": True},
+        "anti_repeat": {"cooldown_turns": 6, "max_per_session": 1},
+        "cue": "关键资料没有丢，只是被放在错误分类下。",
+        "beat": "档案错位。",
+        "effects": {"narrative_move": "档案错位。"},
+        "story_functions": ["clue_texture"],
+        "deck_tags": ["clue_texture", "investigation"],
+    }
+    base.update(overrides)
+    return base
+
+
+def _ctx_for_location(*, location_tags, setting_tags=None, scene_type="investigation"):
+    return {
+        "active_scene": {
+            "scene_type": scene_type,
+            "location_tags": list(location_tags),
+            "setting_tags": list(setting_tags or []),
+            "npc_ids": ["npc-clerk"],
+        },
+        "module_meta": {"setting_tags": list(setting_tags or [])},
+        "storylet_policy": {
+            "allow_unanchored_storylets": True,
+            "ignore_story_need": True,
+        },
+        "story_need": {"candidate_decks": ["clue_texture"]},
+    }
+
+
+def test_context_requirements_location_tags_any_excludes_nonmatching_scene():
+    storylet = _archive_misfiled_storylet()
+    plan = {"scene_action": "REVEAL"}
+    ctx = _ctx_for_location(location_tags=["bar", "social-hub", "dinner"])
+    assert storylets._matches_context(storylet, plan, ctx, "low") is False
+
+
+def test_context_requirements_location_tags_any_includes_matching_scene():
+    storylet = _archive_misfiled_storylet()
+    plan = {"scene_action": "REVEAL"}
+    ctx = _ctx_for_location(location_tags=["archive", "newspaper-morgue"])
+    assert storylets._matches_context(storylet, plan, ctx, "low") is True
+
+
+def test_storylet_without_context_requirements_unaffected_by_location_gate():
+    storylet = _archive_misfiled_storylet()
+    storylet.pop("context_requirements", None)
+    plan = {"scene_action": "REVEAL"}
+    ctx = _ctx_for_location(location_tags=["bar", "social-hub"])
+    assert storylets._matches_context(storylet, plan, ctx, "low") is True
+
+
+def test_load_storylet_library_rejects_malformed_context_requirements(tmp_path):
+    import pytest
+
+    lib_path = tmp_path / "storylet-library.json"
+    lib_path.write_text(json.dumps({
+        "schema_version": 1,
+        "storylets": [
+            {
+                "storylet_id": "bad-ctx",
+                "context_requirements": {"location_tags_any": "archive"},
+            },
+        ],
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="bad-ctx.*context_requirements"):
+        storylets.load_storylet_library(lib_path)
+
+    lib_path.write_text(json.dumps({
+        "schema_version": 1,
+        "storylets": [
+            {
+                "storylet_id": "bad-ctx-items",
+                "context_requirements": {"location_tags_any": ["archive", 3, ""]},
+            },
+        ],
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="bad-ctx-items.*context_requirements"):
+        storylets.load_storylet_library(lib_path)
+
+
+def test_load_storylet_library_accepts_valid_context_requirements(tmp_path):
+    lib_path = tmp_path / "storylet-library.json"
+    lib_path.write_text(json.dumps({
+        "schema_version": 1,
+        "storylets": [
+            {"storylet_id": "neutral"},
+            {
+                "storylet_id": "gated",
+                "context_requirements": {
+                    "location_tags_any": ["archive", "library"],
+                },
+            },
+            {"storylet_id": "empty-block", "context_requirements": {}},
+        ],
+    }), encoding="utf-8")
+    library = storylets.load_storylet_library(lib_path)
+    assert len(library["storylets"]) == 3
+
+
+def test_shipped_low_object_misfiled_declares_location_gate():
+    library = storylets.load_storylet_library()
+    by_id = {s["storylet_id"]: s for s in library["storylets"]}
+    assert "low-object-misfiled" in by_id
+    req = by_id["low-object-misfiled"].get("context_requirements") or {}
+    tags = set(req.get("location_tags_any") or [])
+    assert tags & {"archive", "records-office", "library", "office"}

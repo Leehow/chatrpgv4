@@ -111,7 +111,15 @@
         "clue_delivery",
         "clue_reinforcement",
         "investigation"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "archive",
+          "records-office",
+          "library",
+          "office"
+        ]
+      }
     },
     {
       "storylet_id": "low-npc-small-lie",
@@ -308,7 +316,16 @@
         "clue_delivery",
         "clue_reinforcement",
         "investigation"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor"
+        ]
+      }
     },
     {
       "storylet_id": "low-repeated-phrase",
@@ -604,7 +621,17 @@
         "choice_pressure",
         "choice",
         "route_cost"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "archive",
+          "records-office",
+          "library",
+          "office",
+          "shop",
+          "institutional"
+        ]
+      }
     },
     {
       "storylet_id": "low-missing-ordinary-object",
@@ -703,7 +730,16 @@
         "clue_delivery",
         "clue_reinforcement",
         "investigation"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor"
+        ]
+      }
     },
     {
       "storylet_id": "low-wrong-smell",
@@ -999,7 +1035,25 @@
         "route_cost",
         "scene_pressure",
         "pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "venue",
+          "public",
+          "bar",
+          "social-hub",
+          "shop",
+          "archive",
+          "records-office",
+          "library",
+          "office",
+          "authority",
+          "institutional",
+          "checkpoint",
+          "office",
+          "transit"
+        ]
+      }
     },
     {
       "storylet_id": "low-echo-of-last-scene",
@@ -1295,7 +1349,15 @@
         "clue_delivery",
         "clue_reinforcement",
         "investigation"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "archive",
+          "records-office",
+          "library",
+          "office"
+        ]
+      }
     },
     {
       "storylet_id": "low-distant-observer",
@@ -1394,7 +1456,16 @@
         "front_pressure",
         "pressure",
         "threat_front"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "street",
+          "public",
+          "crowd",
+          "neighborhood",
+          "venue"
+        ]
+      }
     },
     {
       "storylet_id": "low-unreliable-rumor",
@@ -1592,7 +1663,18 @@
         "pressure",
         "theme_echo",
         "ambience"
-      ]
+      ],
+      "setting_tags": [
+        "domestic"
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "domestic",
+          "lodging",
+          "safe-house",
+          "house"
+        ]
+      }
     },
     {
       "storylet_id": "medium-witness-loses-nerve",
@@ -1805,7 +1887,15 @@
         "failure_consequence",
         "pressure",
         "scene_pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "authority",
+          "institutional",
+          "checkpoint",
+          "office"
+        ]
+      }
     },
     {
       "storylet_id": "medium-evidence-contaminated",
@@ -1910,7 +2000,18 @@
         "complication",
         "failure_consequence",
         "pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor",
+          "crime-scene",
+          "outdoor"
+        ]
+      }
     },
     {
       "storylet_id": "medium-local-argument",
@@ -2112,7 +2213,16 @@
         "front_pressure",
         "pressure",
         "threat_front"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "street",
+          "public",
+          "crowd",
+          "neighborhood",
+          "venue"
+        ]
+      }
     },
     {
       "storylet_id": "medium-false-lead-price",
@@ -2415,7 +2525,21 @@
         "route_cost",
         "scene_pressure",
         "pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "venue",
+          "public",
+          "bar",
+          "social-hub",
+          "shop",
+          "archive",
+          "records-office",
+          "library",
+          "office",
+          "institutional"
+        ]
+      }
     },
     {
       "storylet_id": "medium-npc-asks-protection",
@@ -2617,7 +2741,16 @@
         "front_pressure",
         "pressure",
         "threat_front"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "street",
+          "public",
+          "crowd",
+          "neighborhood",
+          "venue"
+        ]
+      }
     },
     {
       "storylet_id": "medium-resource-drained",
@@ -2721,7 +2854,17 @@
         "failure_consequence",
         "pressure",
         "scene_pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "vehicle",
+          "lodging",
+          "safe-house",
+          "office",
+          "street",
+          "camp"
+        ]
+      }
     },
     {
       "storylet_id": "medium-private-note",
@@ -3431,7 +3574,17 @@
         "failure_consequence",
         "pressure",
         "scene_pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "authority",
+          "institutional",
+          "checkpoint",
+          "office",
+          "street",
+          "venue"
+        ]
+      }
     },
     {
       "storylet_id": "high-evidence-about-to-burn",
@@ -3541,7 +3694,18 @@
         "complication",
         "failure_consequence",
         "pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor",
+          "crime-scene",
+          "archive"
+        ]
+      }
     },
     {
       "storylet_id": "high-enemy-tests-boundary",
@@ -3844,7 +4008,16 @@
         "front_pressure",
         "pressure",
         "threat_front"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "street",
+          "public",
+          "crowd",
+          "neighborhood",
+          "venue"
+        ]
+      }
     },
     {
       "storylet_id": "high-chase-seed",
@@ -4253,7 +4426,16 @@
         "front_pressure",
         "pressure",
         "threat_front"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "safe-house",
+          "lodging",
+          "vehicle",
+          "camp",
+          "office"
+        ]
+      }
     },
     {
       "storylet_id": "high-npc-forced-choice",
@@ -4556,7 +4738,19 @@
         "route_cost",
         "scene_pressure",
         "pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "authority",
+          "institutional",
+          "checkpoint",
+          "office",
+          "street",
+          "public",
+          "crowd",
+          "neighborhood"
+        ]
+      }
     },
     {
       "storylet_id": "high-critical-clue-price",
@@ -4978,7 +5172,19 @@
         "route_cost",
         "scene_pressure",
         "pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor",
+          "street",
+          "wilderness",
+          "venue"
+        ]
+      }
     },
     {
       "storylet_id": "climax-clock-breaks",
@@ -5488,7 +5694,18 @@
         "pressure",
         "theme_echo",
         "ambience"
-      ]
+      ],
+      "setting_tags": [
+        "domestic"
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "domestic",
+          "lodging",
+          "safe-house",
+          "house"
+        ]
+      }
     },
     {
       "storylet_id": "climax-ally-reveals-limit",
@@ -5794,7 +6011,19 @@
         "route_cost",
         "scene_pressure",
         "pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor",
+          "street",
+          "wilderness",
+          "venue"
+        ]
+      }
     },
     {
       "storylet_id": "climax-last-clue-under-fire",
@@ -5900,7 +6129,18 @@
         "complication",
         "failure_consequence",
         "pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor",
+          "crime-scene",
+          "confrontation"
+        ]
+      }
     },
     {
       "storylet_id": "climax-mythos-manifestation",
@@ -6107,7 +6347,15 @@
         "failure_consequence",
         "pressure",
         "scene_pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "authority",
+          "institutional",
+          "checkpoint",
+          "office"
+        ]
+      }
     },
     {
       "storylet_id": "climax-bargain-with-evidence",
@@ -6209,7 +6457,17 @@
         "clue_delivery",
         "clue_reinforcement",
         "investigation"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "archive",
+          "records-office",
+          "library",
+          "office",
+          "office",
+          "social-hub"
+        ]
+      }
     },
     {
       "storylet_id": "climax-npc-breaks-script",
@@ -6413,7 +6671,16 @@
         "front_pressure",
         "pressure",
         "threat_front"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "street",
+          "public",
+          "crowd",
+          "neighborhood",
+          "venue"
+        ]
+      }
     },
     {
       "storylet_id": "climax-final-exit-cost",
@@ -6515,7 +6782,19 @@
         "route_cost",
         "scene_pressure",
         "pressure"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor",
+          "wilderness",
+          "mythos-site",
+          "venue"
+        ]
+      }
     },
     {
       "storylet_id": "climax-aftermath-mark",
@@ -6715,7 +6994,15 @@
       ],
       "setting_tags": [
         "military"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "briefing",
+          "military-camp",
+          "trench",
+          "field-hq"
+        ]
+      }
     },
     {
       "storylet_id": "opening-briefing-comrade-glance",
@@ -6811,7 +7098,15 @@
       ],
       "setting_tags": [
         "military"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "briefing",
+          "military-camp",
+          "trench",
+          "field-hq"
+        ]
+      }
     },
     {
       "storylet_id": "arrival-terrain-wrong-note",
@@ -6908,7 +7203,18 @@
         "ambience",
         "scene_pressure",
         "investigation"
-      ]
+      ],
+      "setting_tags": [
+        "wilderness"
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "wilderness",
+          "outdoor",
+          "arrival",
+          "terrain"
+        ]
+      }
     },
     {
       "storylet_id": "arrival-predecessor-trace",
@@ -7005,7 +7311,20 @@
         "investigation",
         "clue_reinforcement",
         "ambience"
-      ]
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "wilderness",
+          "outdoor",
+          "arrival",
+          "terrain",
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor"
+        ]
+      }
     },
     {
       "storylet_id": "first-contact-sound-answers-back",
@@ -7102,7 +7421,18 @@
         "pressure",
         "theme_echo",
         "ambience"
-      ]
+      ],
+      "setting_tags": [
+        "wilderness"
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "wilderness",
+          "outdoor",
+          "arrival",
+          "terrain"
+        ]
+      }
     },
     {
       "storylet_id": "first-contact-scale-collapse",
@@ -7199,7 +7529,19 @@
         "scene_pressure",
         "ambience",
         "investigation"
-      ]
+      ],
+      "setting_tags": [
+        "wilderness"
+      ],
+      "context_requirements": {
+        "location_tags_any": [
+          "wilderness",
+          "outdoor",
+          "arrival",
+          "terrain",
+          "mythos-site"
+        ]
+      }
     },
     {
       "conflict_level": "low",
@@ -7298,7 +7640,18 @@
       "family_id": "mundane_expectation_break",
       "trope_id": "mundane_expectation_break",
       "cue": "刚才确认关上的门，又像有人从另一侧轻轻推开了一条缝。",
-      "beat": "用一个刚完成的日常动作被重演，制造无需命名的不安。"
+      "beat": "用一个刚完成的日常动作被重演，制造无需命名的不安。",
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor",
+          "house",
+          "lodging"
+        ]
+      }
     },
     {
       "conflict_level": "low",
@@ -7397,7 +7750,17 @@
       "family_id": "mundane_expectation_break",
       "trope_id": "mundane_expectation_break",
       "cue": "明明空着的椅子扶手仍带着体温，杯沿也有刚碰过的湿痕。",
-      "beat": "用“人刚离开”的日常痕迹，在无人在场时重复出现。"
+      "beat": "用“人刚离开”的日常痕迹，在无人在场时重复出现。",
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor",
+          "social-hub"
+        ]
+      }
     },
     {
       "conflict_level": "low",
@@ -7496,7 +7859,18 @@
       "family_id": "mundane_expectation_break",
       "trope_id": "mundane_expectation_break",
       "cue": "墙上的钟刚敲过整点，过了几秒又以完全相同的节奏再敲一遍。",
-      "beat": "让一个可核对的日常节律错误地重复一次。"
+      "beat": "让一个可核对的日常节律错误地重复一次。",
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor",
+          "venue",
+          "office"
+        ]
+      }
     },
     {
       "conflict_level": "low",
@@ -7595,7 +7969,21 @@
       "family_id": "cognitive_dissonance",
       "trope_id": "cognitive_dissonance",
       "cue": "两只刚对过的表都显示正确时间，彼此却整整差了一个小时。",
-      "beat": "让两个可核验的事实同时成立，却互相否定。"
+      "beat": "让两个可核验的事实同时成立，却互相否定。",
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "office",
+          "lodging",
+          "investigation-site",
+          "indoor",
+          "archive",
+          "records-office",
+          "library",
+          "office",
+          "venue"
+        ]
+      }
     },
     {
       "conflict_level": "low",
@@ -7694,7 +8082,16 @@
       "family_id": "cognitive_dissonance",
       "trope_id": "cognitive_dissonance",
       "cue": "门槛内外的湿脚印方向相反，却像同一个人、同一时刻留下的。",
-      "beat": "用同一套物证支持两个互斥的行动轨迹。"
+      "beat": "用同一套物证支持两个互斥的行动轨迹。",
+      "context_requirements": {
+        "location_tags_any": [
+          "house",
+          "lodging",
+          "indoor",
+          "threshold",
+          "entrance"
+        ]
+      }
     },
     {
       "conflict_level": "low",
@@ -7793,7 +8190,15 @@
       "family_id": "cognitive_dissonance",
       "trope_id": "cognitive_dissonance",
       "cue": "一份可靠记录证明某人整晚在场；另一份同样可靠的记录证明他整晚不在。",
-      "beat": "让两份都经得起核对的记录互相拆台。"
+      "beat": "让两份都经得起核对的记录互相拆台。",
+      "context_requirements": {
+        "location_tags_any": [
+          "archive",
+          "records-office",
+          "library",
+          "office"
+        ]
+      }
     }
   ]
 }

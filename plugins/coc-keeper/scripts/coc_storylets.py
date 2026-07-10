@@ -78,6 +78,16 @@ def _stable_int_seed(seed: Any, *parts: Any) -> int:
     return int(digest[:16], 16)
 
 
+def _check_tag_list(storylet_id: Any, field_name: str, tags: Any) -> None:
+    if not isinstance(tags, list) or any(
+        not isinstance(t, str) or not t.strip() for t in tags
+    ):
+        raise ValueError(
+            f"storylet '{storylet_id}' {field_name} must be "
+            "a list of non-empty strings"
+        )
+
+
 def _check_library_setting_tags(library: dict[str, Any]) -> None:
     """Shape-check optional ``setting_tags`` on library storylets.
 
@@ -89,14 +99,36 @@ def _check_library_setting_tags(library: dict[str, Any]) -> None:
     for storylet in library.get("storylets", []) or []:
         if not isinstance(storylet, dict) or "setting_tags" not in storylet:
             continue
-        tags = storylet.get("setting_tags")
-        if not isinstance(tags, list) or any(
-            not isinstance(t, str) or not t.strip() for t in tags
-        ):
+        _check_tag_list(
+            storylet.get("storylet_id"),
+            "setting_tags",
+            storylet.get("setting_tags"),
+        )
+
+
+def _check_library_context_requirements(library: dict[str, Any]) -> None:
+    """Shape-check optional ``context_requirements`` on library storylets.
+
+    ``context_requirements.location_tags_any`` is a scene-function gate
+    (storylet-schema.md): absent/empty means no location gate; present must be
+    a list of non-empty strings. Structured tags only — no free-text matching.
+    """
+    for storylet in library.get("storylets", []) or []:
+        if not isinstance(storylet, dict) or "context_requirements" not in storylet:
+            continue
+        req = storylet.get("context_requirements")
+        sid = storylet.get("storylet_id")
+        if not isinstance(req, dict):
             raise ValueError(
-                f"storylet '{storylet.get('storylet_id')}' setting_tags must be "
-                "a list of non-empty strings"
+                f"storylet '{sid}' context_requirements must be an object"
             )
+        if "location_tags_any" not in req:
+            continue
+        _check_tag_list(
+            sid,
+            "context_requirements.location_tags_any",
+            req.get("location_tags_any"),
+        )
 
 
 def load_storylet_library(path: Path | None = None) -> dict[str, Any]:
@@ -106,6 +138,7 @@ def load_storylet_library(path: Path | None = None) -> dict[str, Any]:
         return {"schema_version": _SCHEMA_VERSION, "storylets": []}
     library = coc_cache.load_json_cached(lib_path)
     _check_library_setting_tags(library)
+    _check_library_context_requirements(library)
     return library
 
 
@@ -413,6 +446,12 @@ def _scene_setting_tags(ctx: dict[str, Any]) -> set[str]:
     return {str(t) for t in tags if t}
 
 
+def _scene_location_tags(ctx: dict[str, Any]) -> set[str]:
+    """Structured scene-function location tags (no prose scanning)."""
+    scene = ctx.get("active_scene") or {}
+    return {str(t) for t in _as_list(scene.get("location_tags")) if t}
+
+
 def _scene_tags(ctx: dict[str, Any]) -> set[str]:
     scene = ctx.get("active_scene") or {}
     tags = set(_as_list(scene.get("tags")))
@@ -606,6 +645,15 @@ def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[s
     required_setting = set(_as_list(storylet.get("setting_tags")))
     if required_setting and not (required_setting & _scene_setting_tags(ctx)):
         return False
+
+    # Scene-function axis: context_requirements.location_tags_any gates beats
+    # that only fit certain place functions (archive vs bar). Absent/empty means
+    # no location gate. Structured tags only — never free-text matching.
+    context_req = storylet.get("context_requirements") or {}
+    if isinstance(context_req, dict):
+        required_locations = set(_as_list(context_req.get("location_tags_any")))
+        if required_locations and not (required_locations & _scene_location_tags(ctx)):
+            return False
 
     intent_tags = _intent_tags(ctx)
     eligible_intents = set(_as_list(storylet.get("eligible_intent_classes")))
