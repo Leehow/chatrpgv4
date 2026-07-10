@@ -151,16 +151,16 @@ Modules add scenario-specific weapons (Corbitt's ritual dagger, a chapel artifac
 
 Participants then reference weapons by `weapon_id` only — either a bare string (resolved from the catalog) or a dict that overrides fields like `special` for that participant. **Callers never hardcode damage expressions.** This keeps the Table XVII numbers in one place (the catalog) and lets every module add weapons with the same calling logic.
 
-## Maneuvers: Disarm, Grapple, Build Penalty (p.117-119)
+## Maneuvers: Goals, Build Penalty, Counters (p.117-119)
 
-A maneuver is a Fighting attack whose goal is something other than raw damage. Pass `action="maneuver"` with a `maneuver_kind`:
+A maneuver is a Fighting attack whose goal is something other than raw damage. Pass `action="maneuver"` (or `resolution_hint="maneuver"`) with a **`goal`** from the rulebook p.119 set (legacy `maneuver_kind` is an alias for `goal`):
 
-| maneuver_kind | Effect on success |
-|---|---|
-| `disarm` | The target's `target_weapon_id` transfers from target's `weapons[]` to the attacker's. Recorded in `effect_applied: {effect: "disarmed", weapon_id, transferred_to}`. |
-| `grapple` | Target gains the `grappled` condition. Held until the attacker releases, is incapacitated, or suffers a major wound. The grappled character may use `maneuver_kind="break_free"` on their turn to escape. |
-| `break_free` | Used by a grappled character to escape a hold. On success, removes the `grappled` condition. |
-| `other` | Generic maneuver (knockdown, push, etc.) — applies `effect_applied.effect` but no structured transfer/condition. |
+| goal (canonical) | Effect on success | Legacy aliases |
+|---|---|---|
+| `disarm` | Target's `target_weapon_id` transfers to the attacker. | — |
+| `ongoing_disadvantage` | Target gains a `restrained` effect (physical hold / knockdown disadvantage). Held until attacker releases, is incapacitated, or takes a major wound. | `grapple`, `restrain` |
+| `escape` | Break free of a `restrained` hold on yourself. | `break_free` |
+| `push` | Target is pushed/thrown/knocked down (`prone`). Falling damage is a separate `damage_only` turn. | `other`, `knockdown` |
 
 **Build penalty (p.117)**: compare attacker Build vs target Build.
 
@@ -170,7 +170,23 @@ A maneuver is a Fighting attack whose goal is something other than raw damage. P
 
 Recorded on the turn as `maneuver_build_difference` and `maneuver_penalty_dice`. The thresholds come from `combat.json` (`melee_combat.maneuver.build_difference_impossible_at=3`, `penalty_die_per_build_difference=1`).
 
-A successful grapple is a powerful tactical option: a grappled spellcaster cannot gesture to cast, a grappled gunman can be disarmed next round at bonus, and the restraint persists across rounds until broken.
+**Defender maneuver counter (p.117)**: the target may respond with `defense_kind="maneuver"` and `defender_goal=<goal>`. Resolve as fighting back (Fighting vs Fighting); if the defender achieves a higher success level, apply the defender's goal instead of dealing fight-back damage.
+
+A successful `ongoing_disadvantage` (grapple/restrain) is a powerful tactical option: a restrained spellcaster cannot gesture to cast, a restrained gunman can be disarmed next round, and the hold persists across rounds until broken with `goal="escape"`.
+
+## Thrown Weapons (p.108)
+
+Weapons whose skill is `Throw` (e.g. `rock_thrown`, `spear_thrown`) are resolved as opposed attacks:
+
+- Target may **Dodge** (same tie rule as Fighting dodge).
+- Target may **fight back** only at point-blank (within DEX/5 feet).
+- Damage uses **half** the attacker's damage bonus (`half:DB` via `_weapon_db_expr`).
+
+## Prone Modifiers (p.127-128)
+
+- Melee (Fighting) attacks **against** a prone target: +1 bonus die.
+- Firearms attacks **against** a prone target: +1 penalty die (ignored at point-blank).
+- A prone shooter gains +1 bonus die on Firearms rolls.
 
 ## Conditions (p.119, p.131)
 

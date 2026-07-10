@@ -1077,3 +1077,124 @@ def test_suppressive_fire_offers_dive_for_cover():
     assert t["outcome"] == "suppressive_fire"
     assert "a" in (t.get("dived_for_cover") or [])
     assert t.get("suppression_targets")
+
+
+# --------------------------------------------------------------------------- #
+# W3-4 Melee patches: thrown, prone, maneuver unification, counters
+# --------------------------------------------------------------------------- #
+def test_thrown_weapon_can_be_dodged_and_uses_half_db():
+    """p.108: thrown weapons opposed with Dodge; half damage bonus applied."""
+    rng = random.Random(301)
+    s = coc_combat.CombatSession("thrown", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=80, build=0, hp_max=12,
+                      damage_bonus="+1D4",
+                      weapons=["rock_thrown"])
+    s.add_participant("foe", "monster", dex=50, combat_skill=40, build=0, hp_max=12,
+                      dodge_skill=10)  # low dodge so hits are likely when not dodging well
+    s.begin_round()
+    t = s.declare_and_resolve_turn(
+        "hero", "hurl a rock", "attack",
+        target_actor_id="foe", defense_kind="dodge", weapon_id="rock_thrown")
+    assert t["defense_kind"] == "dodge"
+    assert t["resolution_hint"] == "opposed_melee"
+    # On a hit, damage_chain should record half DB metadata when DB applied.
+    if t["outcome"] == "hit":
+        d = s.damage_chain[-1]
+        assert d.get("half_damage_bonus") is not None or "+1D4" not in d["die"] or "half" in str(d)
+
+
+def test_thrown_weapon_half_db_expr_tag():
+    """_weapon_db_expr tags Throw weapons as half DB."""
+    rng = random.Random(302)
+    s = coc_combat.CombatSession("halfdb", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=80, build=0, hp_max=12,
+                      damage_bonus="+1D4", weapons=["rock_thrown"])
+    w = s._weapon("hero", "rock_thrown")
+    expr = s._weapon_db_expr(s.participants["hero"], w)
+    assert expr is not None and expr.startswith("half:")
+
+
+def test_prone_melee_attacker_gets_bonus_die():
+    """p.127: fighting attacks vs prone gain one bonus die."""
+    rng = random.Random(303)
+    s = coc_combat.CombatSession("prone-melee", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=70, build=0, hp_max=12,
+                      weapons=[{"weapon_id": "club", "skill": "Fighting (Brawl)",
+                                "damage": "1D8", "adds_damage_bonus": False}])
+    s.add_participant("foe", "monster", dex=40, combat_skill=40, build=0, hp_max=12,
+                      conditions=["prone"])
+    s.begin_round()
+    t = s.declare_and_resolve_turn(
+        "hero", "kick the prone foe", "attack",
+        target_actor_id="foe", defense_kind="none", weapon_id="club")
+    assert t["attack_modifiers"]["bonus"] >= 1
+    assert t["attack_modifiers"].get("vs_prone_melee") is True
+
+
+def test_prone_ranged_attacker_gets_penalty_die():
+    """p.128: firearms vs prone get one penalty die (ignored at point-blank)."""
+    rng = random.Random(304)
+    s = coc_combat.CombatSession("prone-ranged", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=70, build=0, hp_max=12,
+                      firearms_skill=70, weapons=["revolver_38"])
+    s.add_participant("foe", "monster", dex=40, combat_skill=40, build=0, hp_max=12,
+                      conditions=["prone"])
+    s.begin_round()
+    t = s.declare_and_resolve_turn(
+        "hero", "shoot the prone foe", "attack",
+        target_actor_id="foe", defense_kind="none", weapon_id="revolver_38")
+    assert t["attack_modifiers"]["penalty"] >= 1
+    assert t["attack_modifiers"].get("vs_prone_ranged") is True
+    # Point-blank ignores the prone penalty.
+    s2 = coc_combat.CombatSession("prone-pb", "test", 1, rng=random.Random(305))
+    s2.add_participant("hero", "investigator", dex=70, combat_skill=70, build=0, hp_max=12,
+                       firearms_skill=70, weapons=["revolver_38"])
+    s2.add_participant("foe", "monster", dex=40, combat_skill=40, build=0, hp_max=12,
+                       conditions=["prone"])
+    s2.begin_round()
+    t2 = s2.declare_and_resolve_turn(
+        "hero", "point-blank on prone", "attack",
+        target_actor_id="foe", defense_kind="none", weapon_id="revolver_38",
+        point_blank=True)
+    assert t2["attack_modifiers"].get("vs_prone_ranged") is not True
+
+
+def test_maneuver_goal_aliases_grapple_and_break_free():
+    """Legacy SKILL.md names map to p.119 goals; canonical set unchanged."""
+    assert "grapple" not in coc_combat.CombatSession.VALID_MANEUVER_GOALS
+    assert "break_free" not in coc_combat.CombatSession.VALID_MANEUVER_GOALS
+    assert coc_combat.CombatSession._MANEUVER_GOAL_ALIASES["grapple"] == "ongoing_disadvantage"
+    assert coc_combat.CombatSession._MANEUVER_GOAL_ALIASES["break_free"] == "escape"
+    rng = random.Random(306)
+    s = coc_combat.CombatSession("alias", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=90, build=1, hp_max=12)
+    s.add_participant("foe", "monster", dex=40, combat_skill=20, build=0, hp_max=12)
+    s.begin_round()
+    t = s.declare_and_resolve_turn(
+        "hero", "grapple", "maneuver",
+        target_actor_id="foe", defense_kind="none",
+        maneuver_kind="grapple")
+    assert t.get("goal") == "ongoing_disadvantage"
+    if t["outcome"] in ("restrain_success", "maneuver_success"):
+        assert any(e["effect"] == "restrained" for e in s.participants["foe"]["active_effects"])
+
+
+def test_defender_may_counter_with_maneuver():
+    """p.117: target of an attack/maneuver may respond with their own maneuver."""
+    rng = random.Random(307)
+    s = coc_combat.CombatSession("counter", "test", 1, rng=rng)
+    s.add_participant("hero", "investigator", dex=70, combat_skill=30, build=0, hp_max=12)
+    s.add_participant("foe", "monster", dex=50, combat_skill=90, build=0, hp_max=12)
+    s.begin_round()
+    t = s.declare_and_resolve_turn(
+        "hero", "try to shove", "maneuver",
+        target_actor_id="foe", defense_kind="maneuver",
+        goal="push", defender_goal="disarm")
+    # With foe skill 90 vs hero 30, defender often wins → counter_* outcome.
+    assert t["defense_kind"] == "maneuver"
+    assert t.get("defender_goal") == "disarm"
+    assert t["outcome"] in (
+        "push_success", "maneuver_failed", "counter_disarm_success",
+        "counter_disarm_nothing_to_take", "maneuver_failed_fight_back_damage",
+        "counter_restrain_success", "counter_push_success",
+    )

@@ -1769,7 +1769,20 @@ class CombatSession:
             actor_id, "Fighting", attacker["combat_skill"],
             f"{goal} maneuver vs {target_id}", bonus=atk_bonus, penalty=penalty_dice)
         turn["roll_id"] = atk_rec["roll_id"]
-        dk = defense_kind or "fight_back"
+        dk = defense_kind if defense_kind not in (None, "none") else "none"
+        if dk == "none":
+            # Unopposed maneuver (surprised / non-resisting target).
+            turn["defense_kind"] = "none"
+            turn["opposed_outcome"] = "unopposed"
+            if LVL[atk_oc] >= LVL["regular"]:
+                self._apply_maneuver_goal(
+                    turn, actor_id=actor_id, target_id=target_id,
+                    goal=goal, target_weapon_id=target_weapon_id, as_counter=False)
+            else:
+                turn["outcome"] = "maneuver_failed"
+            if target_id:
+                self._mark_defended(target_id)
+            return
         turn["defense_kind"] = dk
         if target_id:
             if dk == "maneuver":
