@@ -47,8 +47,8 @@
 ### Known Issues
 
 - 极寒场景中的普通 `REVEAL` / 环境观察仍会继承通用
-  `single_room_search` 20 分钟推进，可能放大寒冷暴露；该问题仍在
-  `docs/live-playtest-notes.md` 中保持 Open，尚未修复。
+  `single_room_search` 20 分钟推进，可能放大寒冷暴露，尚未修复。
+  `docs/live-playtest-notes.md` is historical evidence only; live status remains in `docs/status/CURRENT.md`.
 - 当前自动 playtest driver 不是 live LLM-vs-KP；已有 suite/completion 产物不能
   替代项目要求的真实战报证据。外部模型证据状态见 `docs/status/CURRENT.md`。
 

@@ -42,6 +42,16 @@
 - The full-hardening acceptance ledger remains open beyond A01-A06; later task
   commits must update this file when their status changes.
 
+### Open: Extreme-cold REVEAL time advance
+
+An ordinary `REVEAL` or observe-surroundings action in an outdoor extreme cold
+scene still inherits the generic `single_room_search` time cost of 20 minutes.
+That can over-advance cold exposure or require manual correction when the
+fiction calls for a short scan rather than a full room search. This issue
+remains unresolved; no Task 4 fix is claimed. The dated observation in
+`docs/live-playtest-notes.md` is historical evidence only, while this section
+owns its live status.
+
 ## Verification entry points
 
 ```bash
