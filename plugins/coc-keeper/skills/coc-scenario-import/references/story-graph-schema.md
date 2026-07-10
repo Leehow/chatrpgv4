@@ -58,11 +58,21 @@
   - `scene_type` (string)：场景类型（如 `investigation`、`social`、`combat`、`exploration`）。
   - `dramatic_question` (string)：该场景要回答的戏剧问题（非空，编译期硬断言）。
   - `entry_conditions` (string[])：进入场景的条件。
-  - `exit_conditions` ((object|string)[])：退出场景的条件。**新编译剧本一律用结构化对象**（Semantic Matcher Constitution：运行时禁止扫自由文本判断语义），三种 `kind`：
+  - `exit_conditions` ((object|string)[])：退出场景的条件。**新编译剧本一律用结构化对象**（Semantic Matcher Constitution：运行时禁止扫自由文本判断语义），`kind`：
     - `{"kind": "clue_discovered", "clue_id": "clue-chapel-link"}` — 指定线索被发现即满足（机器可判）。
     - `{"kind": "clock_reaches", "threshold": 3}` — 任一威胁时钟达到阈值即满足；可选 `clock_id` 只看某一个时钟（机器可判）。
+    - `{"kind": "flag_set", "flag_id": "met_informant"}` — `save/flags.json` 的结构化 `flags` 映射中该键为真（机器可判）。
+    - `{"kind": "always"}` — 无条件满足（开放 travel 边 / 遗留线性边）。
     - `{"kind": "narrative", "description": "investigators accept the job"}` — 叙事性条件，机器永远判 False，需要 Keeper 显式 CUT / force_transition。
     - 兼容旧格式：字符串 `"<clue_id> discovered"` / `"pressure clock reaches N"` 会在 `coc_exit_conditions.py` 单一入口被转换为上述结构化对象（标记 `legacy_source`，属技术债，勿在新剧本中使用）；其余任意字符串按 `narrative` 处理。
+  - `scene_edges` (object[], optional，R-3)：场景真图出边。每条边：
+    - `to` (string)：目标 `scene_id`（必须存在）。
+    - `kind` (string)：`travel` | `unlock` | `cut`。`unlock` 在 `when` 满足时把目标写入 world-state `unlocked_scene_ids`；`travel`/`cut` 在 `when` 满足时同样解锁目标，使导演/CUT 可到达；`cut` 仅表示电影式转场语义，**不是**解锁机制。
+    - `when` (object)：结构化条件，复用上方 `exit_conditions` 的 `kind` 词汇（`coc_exit_conditions`），禁止自由文本关键词。
+    - **向后兼容 / LEGACY**：若整张图没有任何 scene 声明 `scene_edges` 字段，运行时按 `scenes` 数组顺序派生隐式线性 `travel` 边（标记 `legacy: true`）。新编译剧本应显式产出 `scene_edges`，不要依赖数组顺序。
+    - 终局判定：`is_final` / `scene_type == "resolution"` / 无出边；无 `scene_edges` 的遗留图仍把数组最后一项视为终局。
+  - `is_start` (bool, optional)：开场场景；缺省时运行时把数组第一项当作 start 并默认解锁。
+  - `is_final` (bool, optional)：终局场景标记。
   - `available_clues` (string[])：该场景可交付的 clue_id 列表（引用 clue-graph.json）。
   - `affordances` (object[], optional)：该场景自然露出的可行动线（diegetic routes，非玩家菜单）。开场与多分叉场景应至少 2 条，让玩家有选择权、不被线性推向单一出口。每条含 `id`（route 标识）、`cue`（可行动的感官/叙事提示）、可选 `route_type`（**固定枚举**，选最贴切的：`tenant_history` 前租客/房史、`reward_scope` 报酬范围、`direct_entry` 直接进入、`npc_question` 向 NPC 追问、`environment` 环境调查、`investigative_lead` 调查线索、`scene_affordance` 场景通用——运行时 focus 提取按此枚举匹配玩家结构化意图）、可选 `status`（`open`/`suggested`/`exhausted`/`locked`，缺省视为 `open`）。引擎据此结构化计算 `is_real_fork`（≥2 条 open route），仅在真分叉时才把选择交给玩家。
   - `storylet_tags` (string[], optional)：该场景在进入时可触发的 storylet 语义标签（如 `opening_briefing`/`arrival`/`first_contact`）。当玩家首次进入该场景（source_event_type 为 `scene_transition`/`scene_enter`）时，引擎会触发 `storylet_tags` 匹配的 storylet beat（storylet 端用其 `scene_tags` 字段匹配）。调查/社交开场场景宜标 1-2 个，让开场不只靠骰子事件也能调度剧情片段。
@@ -82,6 +92,7 @@
   "scenes": [
     {
       "scene_id": "archive-research",
+      "is_start": true,
       "scene_type": "investigation",
       "dramatic_question": "玩家能否把公开记录和隐藏邪教联系起来？",
       "entry_conditions": ["player asks about public records", "director uses fallback clue after stalled investigation"],
@@ -89,6 +100,18 @@
         {"kind": "clue_discovered", "clue_id": "clue-chapel-link"},
         {"kind": "narrative", "description": "player abandons research"},
         {"kind": "clock_reaches", "threshold": 3}
+      ],
+      "scene_edges": [
+        {
+          "to": "warehouse",
+          "kind": "unlock",
+          "when": {"kind": "clue_discovered", "clue_id": "clue-chapel-link"}
+        },
+        {
+          "to": "street-exit",
+          "kind": "travel",
+          "when": {"kind": "always"}
+        }
       ],
       "available_clues": ["clue-chapel-link", "clue-lawsuit"],
       "npc_ids": ["npc-archivist"],
@@ -99,6 +122,17 @@
   ]
 }
 ```
+
+### Unlock 模型（world-state，R-3）
+
+`save/world-state.json` 增补：
+
+- `unlocked_scene_ids` (string[])：已解锁场景；start / 当前 active 默认解锁。
+- `visited_scene_ids` (string[])：曾进入过的场景。
+- `exhausted_scene_ids` (string[])：已离开且视为耗尽的场景（CUT/转场时标记前一场景）。
+- `scene_history` (object[])：`{scene_id, entered_at_decision_id?, ts?}` 进入履历。
+
+Apply 层在线索揭示 / flag 变化后评估 `scene_edges.when`，满足则追加 `unlocked_scene_ids` 并写 `scene_unlocked` 事件。导演 CUT 候选仅来自当前场景出边 ∩ 已解锁 ∩ 非 exhausted；显式 `transition_to` 指向未解锁目标时拒绝转场（不回退到其它候选）。
 
 ---
 

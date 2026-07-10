@@ -568,6 +568,10 @@ def _initialize_campaign_runtime_files(
             "active_subsystem": "setup",
             "current_phase": None,
             "discovered_clue_ids": [],
+            "unlocked_scene_ids": [],
+            "visited_scene_ids": [],
+            "exhausted_scene_ids": [],
+            "scene_history": [],
             "major_decisions": [],
             "current_status": None,
             "san_triggers_fired": [],
@@ -606,6 +610,7 @@ def _initialize_campaign_runtime_files(
             "clues_found": {},
             "decisions": [],
             "spoiler_reveals": [],
+            "flags": {},
         },
     )
     _write_json_if_missing(

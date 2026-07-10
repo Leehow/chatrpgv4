@@ -31,6 +31,7 @@ coc_narration_style = _load_sibling("coc_narration_style", "coc_narration_style.
 coc_narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
 coc_npc_persona = _load_sibling("coc_npc_persona", "coc_npc_persona.py")
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
+coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 
 coc_time = None
 try:
@@ -1189,7 +1190,15 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         return 0.7 if len(avail) >= 2 else 0.0
 
     if action == "CUT":
-        # dramatic question answered OR exit condition met
+        # dramatic question answered OR exit condition met — but only when
+        # at least one unlocked, non-exhausted edge target exists (R-3).
+        candidates = coc_scene_graph.transition_candidates(
+            ctx.get("active_scene_id") or scene.get("scene_id"),
+            ctx.get("story_graph"),
+            ctx.get("world_state") or {},
+        )
+        if not candidates:
+            return 0.0
         exit_met = any(_eval_exit(e, ctx) for e in scene.get("exit_conditions", []))
         return 0.8 if exit_met else 0.0
 
@@ -1222,11 +1231,14 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
 def _eval_exit(condition: Any, ctx: dict[str, Any]) -> bool:
     """Structured exit-condition eval (shared normalizer in coc_exit_conditions).
 
-    Machine-checkable kinds: ``clue_discovered`` and ``clock_reaches``.
-    ``narrative`` conditions always evaluate False — such scenes wait for an
-    explicit CUT / force_transition.
+    Machine-checkable kinds: ``clue_discovered``, ``clock_reaches``,
+    ``flag_set``, ``always``. ``narrative`` conditions always evaluate False —
+    such scenes wait for an explicit CUT / force_transition.
     """
     discovered = set(ctx["world_state"].get("discovered_clue_ids", []))
+    flags_doc = ctx.get("flags") if isinstance(ctx.get("flags"), dict) else {}
+    raw_flags = flags_doc.get("flags") if isinstance(flags_doc.get("flags"), dict) else {}
+    flags_set = {str(k) for k, v in raw_flags.items() if v}
 
     def clock_reached(clock_id: str | None, threshold: int) -> bool:
         fronts = ctx.get("threat_fronts", {}).get("fronts", [])
@@ -1242,6 +1254,7 @@ def _eval_exit(condition: Any, ctx: dict[str, Any]) -> bool:
         condition,
         discovered_clue_ids=discovered,
         clock_reached=clock_reached,
+        flags_set=flags_set,
     )
 
 
@@ -2320,7 +2333,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
 
     time_advance = _derive_time_advance(action, ctx.get("time_signals", {}))
 
-    return {
+    plan: dict[str, Any] = {
         "decision_id": decision_id,
         "turn_input": {
             "player_intent": ctx["player_intent"],
@@ -2348,3 +2361,13 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "handoff": handoff,
         "rationale": overrides["rationale"] if overrides else f"top-scored action {action} (score={scores.get(action, 0)})",
     }
+    if action == "CUT":
+        candidates = coc_scene_graph.transition_candidates(
+            ctx.get("active_scene_id") or scene.get("scene_id"),
+            ctx.get("story_graph"),
+            ctx.get("world_state") or {},
+        )
+        if candidates:
+            plan["transition_to"] = candidates[0]
+            plan["transition_candidates"] = candidates
+    return plan

@@ -578,3 +578,39 @@ def test_validate_compiled_clean_fixture_has_no_errors():
     findings = coc_scenario_compile.validate_compiled_scenario(_minimal_compiled())
     errors = [f for f in findings if f["severity"] == "error"]
     assert errors == []
+
+
+def test_validate_compiled_scene_edges_broken_target():
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][0]["scene_edges"] = [
+        {
+            "to": "no-such-scene",
+            "kind": "unlock",
+            "when": {"kind": "clue_discovered", "clue_id": "clue-a"},
+        }
+    ]
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    broken = _findings_by_code(findings, "broken_reference")
+    assert any("scene_edges" in f["path"] for f in broken)
+
+
+def test_validate_compiled_scene_edges_reachability():
+    compiled = _minimal_compiled()
+    # Prefer scene_edges over exit_targets for reachability.
+    compiled["story_graph"]["scenes"][0].pop("exit_targets", None)
+    compiled["story_graph"]["scenes"][0]["scene_edges"] = [
+        {"to": "finale", "kind": "travel", "when": {"kind": "always"}}
+    ]
+    compiled["story_graph"]["scenes"].append(
+        {
+            "scene_id": "orphan",
+            "dramatic_question": "unreachable?",
+            "available_clues": [],
+            "npc_ids": [],
+            "scene_edges": [],
+            "origin": "source",
+        }
+    )
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    orphans = _findings_by_code(findings, "unreachable_scene")
+    assert any("orphan" in f["message"] for f in orphans)

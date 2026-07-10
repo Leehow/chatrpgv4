@@ -242,16 +242,30 @@ def _scene_edges(
     compiled: dict[str, Any],
     clue_by_id: dict[str, dict[str, Any]],
 ) -> dict[str, set[str]]:
-    """Build scene→scene adjacency from structured exit_targets and clue leads_to."""
+    """Build scene→scene adjacency for reachability checks.
+
+    Preference order (R-3):
+    1. Explicit ``scene_edges[].to`` when any scene declares ``scene_edges``
+    2. Structured ``exit_targets`` + clue ``leads_to`` (compile-time hints)
+    """
     edges: dict[str, set[str]] = {}
     scenes = [
         s for s in ((compiled.get("story_graph") or {}).get("scenes") or [])
         if isinstance(s, dict) and s.get("scene_id")
     ]
     scene_ids = {str(s["scene_id"]) for s in scenes}
+    declares_edges = any("scene_edges" in s for s in scenes)
     for scene in scenes:
         sid = str(scene["scene_id"])
         edges.setdefault(sid, set())
+        if declares_edges:
+            for raw in scene.get("scene_edges") or []:
+                if not isinstance(raw, dict):
+                    continue
+                target = raw.get("to")
+                if target in scene_ids:
+                    edges[sid].add(str(target))
+            continue
         for target in scene.get("exit_targets") or []:
             if target in scene_ids:
                 edges[sid].add(str(target))
@@ -263,6 +277,40 @@ def _scene_edges(
                 if target in scene_ids:
                     edges[sid].add(str(target))
     return edges
+
+
+def _check_scene_edge_targets(
+    compiled: dict[str, Any],
+    id_maps: dict[str, dict[str, list[str]]],
+) -> list[dict[str, str]]:
+    """Validate ``scene_edges[].to`` resolve to known scene_ids."""
+    findings: list[dict[str, str]] = []
+    scene_ids = set(id_maps["scene"])
+    for i, scene in enumerate((compiled.get("story_graph") or {}).get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        for j, raw in enumerate(scene.get("scene_edges") or []):
+            if not isinstance(raw, dict):
+                findings.append(
+                    _finding(
+                        "invalid_scene_edge",
+                        "error",
+                        "scene_edges entry must be an object with to/when/kind",
+                        path=f"story_graph.scenes[{i}].scene_edges[{j}]",
+                    )
+                )
+                continue
+            target = raw.get("to")
+            if not target or target not in scene_ids:
+                findings.append(
+                    _finding(
+                        "broken_reference",
+                        "error",
+                        f"scene_edges.to '{target}' does not resolve to a scene_id",
+                        path=f"story_graph.scenes[{i}].scene_edges[{j}].to",
+                    )
+                )
+    return findings
 
 
 def _check_reachability(compiled: dict[str, Any]) -> list[dict[str, str]]:
@@ -541,6 +589,7 @@ def validate_compiled_scenario(
     findings: list[dict[str, str]] = []
     findings.extend(_check_id_uniqueness(id_maps))
     findings.extend(_check_reference_integrity(compiled, id_maps))
+    findings.extend(_check_scene_edge_targets(compiled, id_maps))
     findings.extend(_check_start_finale(compiled))
     findings.extend(_check_reachability(compiled))
     findings.extend(_check_multi_route_independence(compiled))

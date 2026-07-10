@@ -451,7 +451,8 @@ Close a scenario the way a human Keeper would (p.212-213):
 
 1. **Recognize the finale.** A final scene resolved, or a deliberate
    cliffhanger, are both legitimate endings. Prefer structured evidence
-   (`scene_type: resolution`, `is_final`, last story-graph scene, or an apply
+   (`scene_type: resolution`, `is_final`, no outgoing `scene_edges`, legacy last
+   story-graph scene when edges undeclared, or an apply
    layer `session_ending` event) over guessing from prose.
 2. **Give each investigator a short epilogue.** Invite the player to co-write
    it — one beat of aftermath, consequence, or unresolved dread per person.

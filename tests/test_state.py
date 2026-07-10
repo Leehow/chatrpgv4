@@ -191,6 +191,10 @@ def test_create_campaign_initializes_resume_state_files(tmp_path):
     assert world_state["campaign_id"] == "haunting-test"
     assert world_state["status"] == "setup"
     assert world_state["active_scene_id"] is None
+    assert world_state["unlocked_scene_ids"] == []
+    assert world_state["visited_scene_ids"] == []
+    assert world_state["exhausted_scene_ids"] == []
+    assert world_state["scene_history"] == []
     assert world_state["memory_refs"] == ["memory/session-summaries.jsonl"]
     assert world_state["log_refs"] == ["logs/events.jsonl", "logs/rolls.jsonl"]
     assert world_state["investigator_state_refs"] == []
@@ -210,6 +214,7 @@ def test_create_campaign_initializes_resume_state_files(tmp_path):
         "clues_found": {},
         "decisions": [],
         "spoiler_reveals": [],
+        "flags": {},
     }
     assert (campaign_dir / "logs" / "events.jsonl").read_text() == ""
     assert (campaign_dir / "logs" / "rolls.jsonl").read_text() == ""

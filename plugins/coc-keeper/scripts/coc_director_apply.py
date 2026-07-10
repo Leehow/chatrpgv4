@@ -20,7 +20,9 @@ evidence is structured only — never prose keywords:
 
 - ``scene.is_final is True``, or
 - ``scene.scene_type == "resolution"``, or
-- the scene is the last entry in ``story-graph.json`` ``scenes``.
+- the scene has no outgoing ``scene_edges`` (R-3 graph), or
+- LEGACY: the scene is the last entry in ``story-graph.json`` ``scenes``
+  when the graph never declares ``scene_edges``.
 
 Spec: docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md
 """
@@ -48,6 +50,7 @@ def _load_sibling(name: str, filename: str):
 
 
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
+coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 
@@ -221,24 +224,30 @@ def _resolve_scenario_id(campaign_dir: Path, world: dict[str, Any]) -> str | Non
     return None
 
 
-def _is_terminal_scene(scene: dict[str, Any], scenes: list[dict[str, Any]]) -> bool:
+def _is_terminal_scene(
+    scene: dict[str, Any],
+    scenes: list[dict[str, Any]] | None = None,
+    story_graph: dict[str, Any] | None = None,
+) -> bool:
     """True when structured scene evidence marks a scenario ending beat.
 
     Uses only structured fields (Semantic Matcher Constitution):
-    ``is_final``, ``scene_type == "resolution"``, or last story-graph entry.
+    ``is_final``, ``scene_type == "resolution"``, no outgoing scene_edges,
+    or LEGACY last story-graph entry when edges are undeclared.
     """
-    if not isinstance(scene, dict):
-        return False
-    if scene.get("is_final") is True:
-        return True
-    if str(scene.get("scene_type") or "") == "resolution":
-        return True
-    if scenes and scenes[-1] is scene:
-        return True
-    scene_id = scene.get("scene_id")
-    if scene_id and scenes and scenes[-1].get("scene_id") == scene_id:
-        return True
-    return False
+    if story_graph is None and scenes is not None:
+        story_graph = {"scenes": scenes}
+    return coc_scene_graph.is_terminal_scene(scene, story_graph)
+
+
+def _truthy_flag_ids(flags_doc: dict[str, Any] | None) -> set[str]:
+    """Structured flag ids that are currently set (truthy values)."""
+    if not isinstance(flags_doc, dict):
+        return set()
+    raw = flags_doc.get("flags")
+    if not isinstance(raw, dict):
+        return set()
+    return {str(k) for k, v in raw.items() if v}
 
 
 def _maybe_emit_session_ending(
@@ -254,7 +263,7 @@ def _maybe_emit_session_ending(
 
     Trigger (structured only; see module docstring): ``scene_action == "PAYOFF"``
     and the active story-graph scene is terminal via ``is_final``,
-    ``scene_type == "resolution"``, or last-in-``scenes``.
+    ``scene_type == "resolution"``, no outgoing edges, or legacy last-in-``scenes``.
     """
     if plan.get("scene_action") != "PAYOFF":
         return None
@@ -268,7 +277,9 @@ def _maybe_emit_session_ending(
         (s for s in scenes if s.get("scene_id") == current_scene_id),
         None,
     )
-    if current_scene is None or not _is_terminal_scene(current_scene, scenes):
+    if current_scene is None or not _is_terminal_scene(
+        current_scene, scenes, story_graph=story
+    ):
         return None
     scenario_id = _resolve_scenario_id(campaign_dir, world)
     return {
@@ -1024,7 +1035,14 @@ def flush_pending_records(campaign_dir: Path, *, limit: int | None = None) -> di
     return coc_async_recorder.flush_pending_records(campaign_dir, limit=limit)
 
 
-def _director_exit_eval(condition, discovered, campaign_dir, save_dir):
+def _director_exit_eval(
+    condition,
+    discovered,
+    campaign_dir,
+    save_dir,
+    *,
+    flags_set: set[str] | None = None,
+):
     """Evaluate a scene exit_condition for apply-layer auto-advance.
 
     Delegates to ``coc_exit_conditions`` with the same semantics as
@@ -1033,6 +1051,8 @@ def _director_exit_eval(condition, discovered, campaign_dir, save_dir):
     - ``clue_discovered`` — clue id in the discovered set
     - ``clock_reaches`` — any (or named) threat clock's persisted
       ``current_segments`` >= threshold
+    - ``flag_set`` — structured flag id present/truthy
+    - ``always`` — unconditionally True
     - ``narrative`` — always False (wait for CUT / force_transition)
 
     Legacy string DSL forms are normalized inside coc_exit_conditions.
@@ -1059,7 +1079,62 @@ def _director_exit_eval(condition, discovered, campaign_dir, save_dir):
         condition,
         discovered_clue_ids=discovered_set,
         clock_reached=clock_reached,
+        flags_set=flags_set,
     )
+
+
+def _apply_scene_unlock_pass(
+    campaign_dir: Path,
+    save: Path,
+    world: dict[str, Any],
+    story: dict[str, Any],
+    *,
+    discovered: list[str],
+    decision_id: str,
+    investigator_id: str,
+    ts: str,
+    events: list[dict[str, Any]],
+    logs: Path,
+) -> list[str]:
+    """Evaluate scene_edges unlock conditions; emit ``scene_unlocked`` events."""
+    flags_doc = _read_json(save / "flags.json", {})
+    flags_set = _truthy_flag_ids(flags_doc)
+
+    def clock_reached(clock_id: str | None, threshold: int) -> bool:
+        if coc_threat_state is None:
+            return False
+        fronts_path = campaign_dir / "scenario" / "threat-fronts.json"
+        fronts = _read_json(fronts_path, {}).get("fronts", [])
+        for front in fronts:
+            for clock in front.get("clocks", []):
+                cid = str(clock.get("clock_id") or "")
+                if not cid:
+                    continue
+                if clock_id and cid != str(clock_id):
+                    continue
+                if coc_threat_state.get_clock_segments(save, cid) >= threshold:
+                    return True
+        return False
+
+    newly = coc_scene_graph.evaluate_unlocks(
+        story,
+        world,
+        discovered_clue_ids={str(c) for c in discovered},
+        clock_reached=clock_reached,
+        flags_set=flags_set,
+    )
+    added = coc_scene_graph.apply_unlocks_to_world(world, newly)
+    for sid in added:
+        ev = {
+            "event_type": "scene_unlocked",
+            "decision_id": decision_id,
+            "to_scene": sid,
+            "investigator_id": investigator_id,
+            "ts": ts,
+        }
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
+    return added
 
 
 def _apply_ledger_path(save_dir: Path) -> Path:
@@ -1367,6 +1442,28 @@ def _apply_plan_impl(
     signpost_updates = _collect_signpost_updates(plan, resolution_events)
     if signpost_updates or isinstance(world.get("clue_signposts"), dict):
         world["clue_signposts"] = _merge_clue_signposts(world, signpost_updates)
+
+    # R-3: ensure unlock/visit/history fields; evaluate scene_edges unlocks
+    # after clue/flag-affecting events land (idempotent via unlocked set).
+    story_graph_path_early = campaign_dir / "scenario" / "story-graph.json"
+    story_early = (
+        _read_json(story_graph_path_early, {"scenes": []})
+        if story_graph_path_early.exists()
+        else {"scenes": []}
+    )
+    coc_scene_graph.ensure_world_scene_fields(world, story_early)
+    _apply_scene_unlock_pass(
+        campaign_dir,
+        save,
+        world,
+        story_early,
+        discovered=discovered,
+        decision_id=decision_id,
+        investigator_id=investigator_id,
+        ts=ts,
+        events=events,
+        logs=logs,
+    )
     _write_json(world_path, world)
 
     # 1b. spoiler reveals — warning-gated Keeper-only disclosures.
@@ -1588,11 +1685,10 @@ def _apply_plan_impl(
     # or scene-progress governance explicitly forces a transition/montage.
     # "Exhausted" means all available_clues are discovered AND the scene's
     # exit_conditions are satisfiable: machine-checkable exit_conditions
-    # ("clue-x discovered", "pressure clock reaches N") must hold; narrative
-    # exit_conditions (e.g. "investigators accept the job") are not machine-
-    # checkable, so they block clue-reveal auto-advance and the scene waits for
-    # an explicit CUT / force_transition. Scenes with no exit_conditions advance
-    # on clue exhaustion alone. A CUT always forces the advance regardless.
+    # must hold; narrative exit_conditions block clue-reveal auto-advance
+    # until an explicit CUT / force_transition. Targets come from the scene
+    # graph (R-3): only unlocked, non-exhausted edge destinations. CUT is
+    # cinematic travel among already-unlocked targets — never an unlock.
     story_graph_path = campaign_dir / "scenario" / "story-graph.json"
     if story_graph_path.exists():
         story = _read_json(story_graph_path, {"scenes": []})
@@ -1608,42 +1704,70 @@ def _apply_plan_impl(
                 should_advance = True
             elif available and all(c in discovered for c in available):
                 # Clue exhaustion alone is not a scene goal met: a scene with a
-                # *narrative* exit_condition (e.g. "investigators accept the
-                # job") that _director_exit_eval can't machine-check must NOT
-                # auto-advance on clue reveal — it waits for an explicit CUT /
-                # force_transition. Only scenes whose exit_conditions are empty
-                # (nothing to block on) or machine-checkable & satisfied advance.
+                # *narrative* exit_condition that _director_exit_eval can't
+                # machine-check must NOT auto-advance on clue reveal — it waits
+                # for an explicit CUT / force_transition. Only scenes whose
+                # exit_conditions are empty or machine-checkable & satisfied
+                # advance.
+                flags_set = _truthy_flag_ids(_read_json(save / "flags.json", {}))
                 exit_conditions = current_scene.get("exit_conditions", [])
                 exit_met = (
                     not exit_conditions
                     or any(
-                        _director_exit_eval(e, discovered, campaign_dir, save)
+                        _director_exit_eval(
+                            e, discovered, campaign_dir, save, flags_set=flags_set
+                        )
                         for e in exit_conditions
                     )
                 )
                 should_advance = exit_met
             if should_advance:
-                # find current scene's position; fall back to -1 if missing
-                try:
-                    idx = scenes.index(current_scene)
-                except ValueError:
-                    idx = -1
-                # advance to the first following scene that has undiscovered
-                # clues, or has no clues at all (e.g. a terminal aftermath scene)
-                for next_scene in scenes[idx + 1:]:
-                    next_clues = next_scene.get("available_clues", [])
-                    if not next_clues or any(c not in discovered for c in next_clues):
-                        world["active_scene_id"] = next_scene["scene_id"]
+                requested = plan.get("transition_to")
+                if not requested and isinstance(scene_progress, dict):
+                    requested = scene_progress.get("to_scene")
+                next_id = coc_scene_graph.pick_transition_target(
+                    current_scene_id,
+                    story,
+                    world,
+                    requested=str(requested) if requested else None,
+                    discovered_clue_ids={str(c) for c in discovered},
+                )
+                if next_id:
+                    next_scene = next(
+                        (s for s in scenes if s.get("scene_id") == next_id),
+                        None,
+                    )
+                    if next_scene is not None:
+                        coc_scene_graph.record_scene_enter(
+                            world,
+                            next_id,
+                            decision_id=decision_id,
+                            ts=ts,
+                            mark_previous_exhausted=str(current_scene_id)
+                            if current_scene_id
+                            else None,
+                        )
+                        world["active_scene_id"] = next_id
                         _write_json(world_path, world)
-                        ev = {"event_type": "scene_transition", "decision_id": decision_id,
-                              "from_scene": current_scene_id, "to_scene": next_scene["scene_id"],
-                              "investigator_id": investigator_id, "ts": ts}
+                        ev = {
+                            "event_type": "scene_transition",
+                            "decision_id": decision_id,
+                            "from_scene": current_scene_id,
+                            "to_scene": next_id,
+                            "investigator_id": investigator_id,
+                            "ts": ts,
+                        }
                         events.append(ev)
                         _append_jsonl(logs / "events.jsonl", ev)
-                        # on_enter hook: tick clocks + emit scene_enter event.
-                        _apply_scene_on_enter(campaign_dir, next_scene, decision_id,
-                                              investigator_id, ts, events, logs)
-                        break
+                        _apply_scene_on_enter(
+                            campaign_dir,
+                            next_scene,
+                            decision_id,
+                            investigator_id,
+                            ts,
+                            events,
+                            logs,
+                        )
 
     # 7b. session ending — PAYOFF on a terminal story-graph scene (W1-6 / p.212-213).
     # Re-read world in case a prior step advanced active_scene_id; terminal
