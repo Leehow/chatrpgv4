@@ -758,6 +758,31 @@ def test_development_rule_uses_structured_table():
     assert rule["improvement_roll"]["cap_for_san_reward"] == 90
 
 
+def test_development_rule_carries_over_95_auto_improve():
+    """p.94: a development roll higher than the skill OR over 95 improves the
+    skill; Cthulhu Mythos and Credit Rating never receive ticks."""
+    rule = coc_rules.development_rule()
+    assert rule["improvement_roll"]["always_improves_above"] == 95
+    assert "Cthulhu Mythos" in rule["tick"]["never_tick_skills"]
+    assert "Credit Rating" in rule["tick"]["never_tick_skills"]
+    # Rulebook has no pushed-roll tick exclusion; but a success bought with
+    # Luck points earns no improvement check (p.99).
+    assert "pushed_roll_that_would_not_otherwise_tick" not in rule["tick"]["excluded_outcomes"]
+    assert "success_obtained_by_spending_luck" in rule["tick"]["excluded_outcomes"]
+
+
+def test_luck_rule_exposes_spend_constraints():
+    """p.99: Luck spend restrictions are structured constraints."""
+    rule = coc_rules.luck_rule()
+    cons = rule["spend"]["constraints"]
+    assert "luck_may_not_be_spent_on_sanity_rolls" in cons
+    assert "luck_may_not_be_spent_on_luck_rolls" in cons
+    assert "push_or_spend_luck_but_not_both" in cons
+    assert "criticals_fumbles_malfunctions_cannot_be_bought_off" in cons
+    assert "no_improvement_check_if_luck_spent" in cons
+    assert rule["recovery"]["applies_when"] == "after_each_session"
+
+
 def test_rule_index_exposes_luck_and_development_and_max_san_ids():
     ids = coc_rules.rule_ids()
     for rule_id in [

@@ -1,14 +1,22 @@
 {
-  "source_note": "Keeper Rulebook Luck (p.93-95): investigators may spend Luck points to lower a roll toward a target number, roll Luck as a group, and optionally recover Luck during the Investigator Development Phase.",
+  "source_note": "Keeper Rulebook, Optional Rules: Spending Luck (p.99) + Luck rolls (p.93): investigators may spend Luck points to lower a roll toward a target number, roll Luck as a group, and recover Luck after each session of play.",
   "spend": {
     "cost_per_point_off_roll": 1,
     "luck_point_value": 1,
     "applies": "lower_total_roll_toward_target",
-    "source_note": "Keeper Rulebook p.93: spending Luck reduces the rolled total by one for each Luck point spent, potentially turning a failure into a success.",
+    "source_note": "Keeper Rulebook p.99: after a skill/characteristic roll, Luck points may be spent 1-for-1 to alter the result, up to the investigator's current Luck value.",
     "constraints": [
       "luck_may_be_spent_after_roll",
       "luck_may_push_total_below_target_to_succeed",
-      "luck_may_not_be_spent_on_damage_rolls"
+      "luck_may_not_be_spent_on_luck_rolls",
+      "luck_may_not_be_spent_on_damage_rolls",
+      "luck_may_not_be_spent_on_sanity_rolls",
+      "luck_may_not_be_spent_on_sanity_loss_amount_rolls",
+      "push_or_spend_luck_but_not_both",
+      "luck_may_not_alter_a_pushed_roll",
+      "criticals_fumbles_malfunctions_cannot_be_bought_off",
+      "no_improvement_check_if_luck_spent",
+      "only_own_rolls"
     ]
   },
   "roll": {
@@ -17,11 +25,11 @@
     "source_note": "Keeper Rulebook p.93: when several investigators make a Luck roll as a group, use the single lowest individual Luck roll to represent the whole group."
   },
   "recovery": {
-    "applies_when": "investigator_development_phase",
+    "applies_when": "after_each_session",
     "check": "1D100 > current_luck",
     "gain_on_success": "1D10",
     "cap": 99,
     "optional_rule": true,
-    "source_note": "Keeper Rulebook p.95 (optional): during the Investigator Development Phase, roll 1D100 against current Luck; if the roll is higher than Luck, gain 1D10 Luck points, capped at 99."
+    "source_note": "Keeper Rulebook p.99 (optional): after each session of play, roll 1D100 against current Luck; if the roll is higher than Luck, gain 1D10 Luck points, capped at 99. No resets; the starting value can be exceeded."
   }
 }

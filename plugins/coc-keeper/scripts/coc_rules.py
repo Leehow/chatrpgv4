@@ -678,13 +678,14 @@ def luck_rule() -> dict[str, Any]:
             "luck_point_value": int(spend.get("luck_point_value", 1)),
             "cost_per_point_off_roll": int(spend.get("cost_per_point_off_roll", 1)),
             "applies": spend.get("applies", "lower_total_roll_toward_target"),
+            "constraints": [str(c) for c in spend.get("constraints", [])],
         },
         "roll": {
             "use": roll.get("use", "group_luck_check"),
             "group_roll_policy": roll.get("group_roll_policy", "take_lowest"),
         },
         "recovery": {
-            "applies_when": recovery.get("applies_when", "investigator_development_phase"),
+            "applies_when": recovery.get("applies_when", "after_each_session"),
             "check": recovery.get("check", "1D100 > current_luck"),
             "gain_on_success": recovery.get("gain_on_success", "1D10"),
             "cap": int(recovery.get("cap", 99)),
@@ -702,9 +703,11 @@ def development_rule() -> dict[str, Any]:
             "awarded_when": tick.get("awarded_when", "regular_or_hard_or_extreme_success"),
             "ticks_per_qualifying_success": int(tick.get("ticks_per_qualifying_success", 1)),
             "excluded_outcomes": tick.get("excluded_outcomes", []),
+            "never_tick_skills": [str(s) for s in tick.get("never_tick_skills", [])],
         },
         "improvement_roll": {
-            "check": improvement.get("check", "1D100 > current_skill"),
+            "check": improvement.get("check", "1D100 > current_skill or 1D100 > 95"),
+            "always_improves_above": int(improvement.get("always_improves_above", 95)),
             "gain_on_success": improvement.get("gain_on_success", "1D10"),
             "cap_for_san_reward": int(improvement.get("cap_for_san_reward", 90)),
         },

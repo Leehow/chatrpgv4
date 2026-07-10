@@ -1,15 +1,16 @@
 {
-  "source_note": "Keeper Rulebook Investigator Development Phase (pp.94-95): skill ticks and improvement rolls are the mechanism by which investigators advance between sessions.",
+  "source_note": "Keeper Rulebook, Rewards of Experience: The Investigator Development Phase (pp.94-95): skill ticks and improvement rolls are the mechanism by which investigators advance between sessions.",
   "tick": {
     "awarded_when": "regular_or_hard_or_extreme_success",
     "excluded_outcomes": [
       "bonus_die_only_success",
       "opposed_roll_loser",
       "combined_roll_participant",
-      "pushed_roll_that_would_not_otherwise_tick"
+      "success_obtained_by_spending_luck"
     ],
+    "never_tick_skills": ["Cthulhu Mythos", "Credit Rating"],
     "ticks_per_qualifying_success": 1,
-    "source_note": "Keeper Rulebook pp.94-95: a skill earns one tick for each regular, hard, or extreme success rolled during play. Bonus-die-only successes, opposed-roll losers, and combined-roll participants do not earn ticks.",
+    "source_note": "Keeper Rulebook p.94: a skill earns one tick for a successful use during play; no matter how many successes, only one check per skill. Cthulhu Mythos and Credit Rating never receive a skill check. A success bought by spending Luck points earns no improvement check (p.99).",
     "constraints": [
       "one_tick_per_single_die_outcome",
       "recorded_against_skill_not_characteristic"
@@ -17,21 +18,23 @@
   },
   "improvement_roll": {
     "trigger": "during_investigator_development_phase",
-    "check": "1D100 > current_skill",
+    "check": "1D100 > current_skill or 1D100 > 95",
+    "always_improves_above": 95,
     "gain_on_success": "1D10",
+    "san_reward_threshold": 90,
     "cap_for_san_reward": 90,
-    "source_note": "Keeper Rulebook p.95: for each skill with at least one tick, roll 1D100 during the development phase. If the result is higher than the current skill, the skill increases by 1D10. Skills raised to 90% or above via a Sanity reward may not be improved further by development.",
+    "source_note": "Keeper Rulebook p.94: for each ticked skill roll 1D100; if the result is higher than the current skill, OR the result is over 95, the skill increases by 1D10. Skills may rise above 100% by this method.",
     "constraints": [
       "skill_must_have_at_least_one_tick",
       "gain_applied_once_per_skill_per_development_phase",
-      "skill_at_or_above_cap_via_san_reward_may_not_improve"
+      "skills_may_exceed_100"
     ]
   },
   "sanity_reward": {
     "applies_when": "skill_reaches_90_or_above_via_development",
     "reward": "2D6",
     "constraint": "cannot_exceed_max_san",
-    "source_note": "Keeper Rulebook p.95: when a skill reaches 90% or above as the result of a development improvement roll, the investigator gains 2D6 Sanity points (up to their maximum Sanity).",
+    "source_note": "Keeper Rulebook p.94: when a skill reaches 90% or more during an investigator development phase, add 2D6 points to current Sanity (discipline and self-esteem gained in mastering a skill).",
     "constraints": [
       "granted_once_per_skill_reaching_90",
       "capped_at_investigator_max_san"
