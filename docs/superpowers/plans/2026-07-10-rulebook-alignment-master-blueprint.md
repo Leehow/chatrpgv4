@@ -825,8 +825,8 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 
 ## R-4 体验纵深（G1/G3 + A1 残留 + D1 联动）
 
-- [ ] G1 线索 affordance（target_entities/verbs/skills 可计算匹配玩家动作）；G3 NPC 持久心理状态（trust/fear/suspicion/known_facts/lies/promises）；playtest driver 收口到 run_live_turn。
-  - 状态：G1 已完成（`f2d12d4`：clue `affordance` 块 + `match_clue_affordances` 集合交集匹配 + 导演 REVEAL 加权 + `matched_affordance` 入 plan + 编译器形状校验）；G3 已完成（`dfd414c`：`coc_npc_state.py` psych 持久层 + apply 层 `npc_effects` 幂等落地 + `_build_npc_moves` 消费 stance/drivers）。playtest driver 收口由并行 agent 负责，完成后整项打勾。
+- [x] G1 线索 affordance（target_entities/verbs/skills 可计算匹配玩家动作）；G3 NPC 持久心理状态（trust/fear/suspicion/known_facts/lies/promises）；playtest driver 收口到 run_live_turn。☑ 2026-07-10
+  - G1 完成（`f2d12d4`：clue `affordance` 块 + `match_clue_affordances` 集合交集匹配 + 导演 REVEAL 加权 + `matched_affordance` 入 plan + 编译器形状校验）；G3 完成（`dfd414c`：`coc_npc_state.py` psych 持久层 + apply 层 `npc_effects` 幂等落地 + `_build_npc_moves` 消费 stance/drivers）；A1 完成（`932fedf`：playtest driver 收口 `run_live_turn`，删平行管线 192 行，`simulation_method` 保持非 live 标注）。
 
 ## R-5 PDF 编译器硬化（F1-F4）+ CI
 
@@ -880,6 +880,8 @@ Expected: 全绿（基线 1162 个用例 + 本波新增）。
 - 理智可选规则：Insane Insight、Multiple Sanity rolls、Spontaneous Mythos 施法、POW 增长
 - playtest 三巨头（1.3 万行）拆分重构
 - 多人桌支持（当前单玩家假设）
+- 编译校验 schema 演进（R-5 遗留）：多路线独立需 `alternate_route` 身份（现用去重 clue_id 近似）；`source_refs` 锚点校验依赖调用方传 `source_segments`，无则跳过
+- 场景边自动编译（R-3 遗留）：编译器暂不强制为旧模组生成 `scene_edges`，新剧本按 compile-protocol 要求产出
 
 ---
 
