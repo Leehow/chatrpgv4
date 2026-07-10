@@ -91,6 +91,7 @@ def player_visible_narration(
     campaign_dir: Path,
     *,
     play_language: str = "zh-Hans",
+    previous_affordance_ids: list[str] | None = None,
 ) -> str:
     """Derive player-visible narration text from a live turn (no keeper secrets)."""
     if not turn:
@@ -107,7 +108,12 @@ def player_visible_narration(
 
     clue_names = playtest_driver._clue_lookup(campaign_dir)
     npc_names = playtest_driver._npc_lookup(campaign_dir)
-    return playtest_driver._keeper_turn_text(turn, clue_names, npc_names)
+    return playtest_driver._keeper_turn_text(
+        turn,
+        clue_names,
+        npc_names,
+        previous_affordance_ids=previous_affordance_ids,
+    )
 
 
 def build_player_request(
@@ -217,7 +223,11 @@ def _enrich_transcript_with_player_notes(
     run_dir: Path,
     player_turns: list[dict[str, Any]],
 ) -> None:
-    """Attach per-turn player_notes onto player transcript rows (report artifact)."""
+    """Attach per-turn player_notes onto player transcript rows (report artifact).
+
+    Notes stay on the structured ``player_notes`` field so the battle report can
+    render them as a sub-bullet; do not inline into quoted player_text.
+    """
     path = run_dir / "transcript.jsonl"
     if not path.exists():
         return
@@ -246,10 +256,11 @@ def _enrich_transcript_with_player_notes(
             notes = note_by_text.get(str(row.get("text") or ""))
         if notes:
             row["player_notes"] = notes
-            # Surface notes in visible text so battle-report.md includes them.
+            # Strip legacy inline pollution if a prior run inlined notes.
             base = str(row.get("text") or "")
-            if str(notes) not in base:
-                row["text"] = f"{base}\n[player_notes] {notes}"
+            marker = "\n[player_notes] "
+            if marker in base:
+                row["text"] = base.split(marker, 1)[0]
         player_idx += 1
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -306,6 +317,7 @@ def run_live_match(
     scene_path: list[str] = []
     stop_reason = "max_turns_reached"
     last_turn: dict[str, Any] | None = None
+    previous_affordance_ids: list[str] | None = None
 
     campaign_meta = _read_json(camp / "campaign.json", {})
     play_language = str(
@@ -319,7 +331,10 @@ def run_live_match(
             break
 
         narration = player_visible_narration(
-            last_turn, camp, play_language=play_language
+            last_turn,
+            camp,
+            play_language=play_language,
+            previous_affordance_ids=previous_affordance_ids,
         )
         request = build_player_request(
             ws,
@@ -385,9 +400,17 @@ def run_live_match(
             if not scene_path or scene_path[-1] != current_scene:
                 scene_path.append(str(current_scene))
             tension_curve.append(projected.get("tension") or "low")
-            keeper_text = player_visible_narration(
-                projected, camp, play_language=play_language
+            current_ids = playtest_driver._choice_frame_route_ids(
+                projected.get("choice_frame", {}) or {}
             )
+            keeper_text = player_visible_narration(
+                projected,
+                camp,
+                play_language=play_language,
+                previous_affordance_ids=previous_affordance_ids,
+            )
+            if current_ids:
+                previous_affordance_ids = current_ids
             transcript_tail.append({"role": "keeper", "text": keeper_text})
 
         if _result_has_session_ending(live_result):

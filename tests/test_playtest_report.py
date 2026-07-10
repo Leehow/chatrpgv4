@@ -699,3 +699,105 @@ def test_battle_report_uses_selected_language_profile_and_localized_text(tmp_pat
     assert "エイダ・キングはコービット屋敷に着き、入口を調べた。" in battle_text
     assert "KP は緊張感を保ってくれた。" in battle_text
     assert "Ada King arrives at Corbitt House." not in battle_text
+
+
+def test_actual_play_renders_player_notes_as_sub_bullet(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "notes-run"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "notes-run"
+    (campaign_dir / "logs").mkdir(parents=True)
+    (campaign_dir / "memory").mkdir(parents=True)
+    (campaign_dir / "scenario").mkdir(parents=True)
+    (run_dir / "artifacts").mkdir(parents=True)
+    write_json(run_dir / "playtest.json", {
+        "run_id": "notes-run",
+        "campaign_id": "notes-run",
+        "scenario": "Notes",
+        "play_language": "zh-Hans",
+    })
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "notes-run",
+        "title": "Notes",
+        "play_language": "zh-Hans",
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {
+            "turn": 1,
+            "role": "player_simulator",
+            "speaker": "Investigator",
+            "mode": "play",
+            "intent": "我检查门框。",
+            "text": "我检查门框。",
+            "player_notes": "turn 1: look for tool marks",
+        },
+        {
+            "turn": 2,
+            "role": "keeper_under_test",
+            "speaker": "KP",
+            "mode": "play",
+            "ruling": "揭示线索",
+            "text": "你确认了线索：门框划痕。",
+        },
+    ])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+
+    battle_path = coc_playtest_report.generate_battle_report(run_dir)
+    battle_text = battle_path.read_text(encoding="utf-8")
+    assert "[player_notes]" not in battle_text
+    assert "玩家笔记" in battle_text or "player notes" in battle_text.lower()
+    assert "turn 1: look for tool marks" in battle_text
+
+
+def test_state_changes_include_scene_unlock_and_game_time_payload(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "state-payload"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "state-payload"
+    (campaign_dir / "logs").mkdir(parents=True)
+    (campaign_dir / "memory").mkdir(parents=True)
+    (campaign_dir / "scenario").mkdir(parents=True)
+    (run_dir / "artifacts").mkdir(parents=True)
+    write_json(run_dir / "playtest.json", {
+        "run_id": "state-payload",
+        "campaign_id": "state-payload",
+        "scenario": "State",
+        "play_language": "zh-Hans",
+    })
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "state-payload",
+        "title": "State",
+        "play_language": "zh-Hans",
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [
+        {
+            "event_type": "scene_unlocked",
+            "decision_id": "turn-001",
+            "to_scene": "crossing-saddle",
+            "investigator_id": "inv1",
+            "ts": "2026-07-10T05:47:16Z",
+        },
+        {
+            "event_type": "game_time",
+            "investigator_id": "inv1",
+            "decision_id": "turn-001",
+            "from_elapsed": 0,
+            "to_elapsed": 30,
+            "delta_minutes": 30,
+            "mode": "elapsed",
+            "category": "local_travel",
+            "reason": "director proposal for CUT",
+            "player_visible": "",
+            "fired_triggers": [],
+        },
+    ])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+
+    battle_path = coc_playtest_report.generate_battle_report(run_dir)
+    battle_text = battle_path.read_text(encoding="utf-8")
+    assert "scene unlocked recorded" not in battle_text
+    assert "game time recorded" not in battle_text
+    assert "crossing-saddle" in battle_text
+    assert "+30" in battle_text or "30m" in battle_text

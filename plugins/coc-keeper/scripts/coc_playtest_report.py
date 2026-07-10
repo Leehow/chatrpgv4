@@ -604,6 +604,41 @@ def _format_scene_transition_event(event: dict[str, Any], play_language: str = "
     return f"- {_sentence(label, play_language)}{_inline_anchors(('from-scene', _event_value(event, 'from_scene')), ('to-scene', _event_value(event, 'to_scene')))}"
 
 
+def _format_scene_unlocked_event(event: dict[str, Any], play_language: str = "en-US") -> str:
+    to_scene = _event_value(event, "to_scene") or _event_value(event, "scene_id") or "unknown"
+    if play_language == "zh-Hans":
+        return f"- scene unlocked: {to_scene}"
+    return f"- scene unlocked: {to_scene}"
+
+
+def _format_game_time_event(event: dict[str, Any], play_language: str = "en-US") -> str:
+    delta = _event_value(event, "delta_minutes")
+    to_elapsed = _event_value(event, "to_elapsed")
+    from_elapsed = _event_value(event, "from_elapsed")
+    player_visible = str(_event_value(event, "player_visible") or "").strip()
+    if delta is None and to_elapsed is None and not player_visible:
+        return "- game time recorded"
+    parts: list[str] = []
+    if delta is not None:
+        try:
+            parts.append(f"+{int(delta)}m")
+        except (TypeError, ValueError):
+            parts.append(f"+{delta}m")
+    if player_visible:
+        parts.append(f"→ {player_visible}")
+    elif to_elapsed is not None:
+        try:
+            parts.append(f"→ elapsed {int(to_elapsed)}m")
+        except (TypeError, ValueError):
+            parts.append(f"→ elapsed {to_elapsed}m")
+    elif from_elapsed is not None:
+        parts.append(f"(from {from_elapsed})")
+    detail = " ".join(parts) if parts else "updated"
+    if play_language == "zh-Hans":
+        return f"- game time {detail}"
+    return f"- game time {detail}"
+
+
 def _format_state_event(
     event: dict[str, Any],
     localized_terms: dict[str, str] | None = None,
@@ -620,6 +655,10 @@ def _format_state_event(
         return _format_clue_reveal_event(event, terms, play_language, clue_lookup, label=label)
     if event_type == "scene_transition":
         return _format_scene_transition_event(event, play_language)
+    if event_type == "scene_unlocked":
+        return _format_scene_unlocked_event(event, play_language)
+    if event_type == "game_time":
+        return _format_game_time_event(event, play_language)
     event_type = event.get("type") or event_type
     event_label = event_type.replace("_", " ")
     payload = event.get("payload", {})
@@ -1817,7 +1856,12 @@ def _format_transcript_event(
 
     turn = event.get("turn", "?")
     text = _display_transcript_text(rendered_text if rendered_text is not None else event.get("text", ""))
+    text = _strip_inline_player_notes(text)
     lines = [f"- {_transcript_turn_label(language_profile, turn)} {speaker}: {text}"]
+    notes = event.get("player_notes")
+    if notes:
+        note_label = "玩家笔记" if play_language == "zh-Hans" else "Player notes"
+        lines.append(f"  - {note_label}: {notes}")
     if event.get("mode"):
         mode = _transcript_mode_label(language_profile, event["mode"])
         lines.append(f"  - {_transcript_label(language_profile, 'mode', 'Mode')}: {mode}")
@@ -1828,6 +1872,15 @@ def _format_transcript_event(
         ruling = _localized_field(event, "ruling", terms, play_language) or str(event["ruling"])
         lines.append(f"  - {_transcript_label(language_profile, 'ruling', 'Ruling')}: {ruling}")
     return lines
+
+
+def _strip_inline_player_notes(text: str) -> str:
+    marker = "\n[player_notes] "
+    if marker in text:
+        return text.split(marker, 1)[0]
+    if text.startswith("[player_notes] "):
+        return ""
+    return text
 
 
 def _format_actual_play_event(
@@ -1844,10 +1897,15 @@ def _format_actual_play_event(
 
     turn = event.get("turn", "?")
     text = _display_transcript_text(rendered_text if rendered_text is not None else event.get("text", ""))
+    text = _strip_inline_player_notes(text)
     if role in {"keeper_under_test", "player_simulator"}:
         lines = [f"- {_transcript_turn_label(language_profile, turn)} {speaker}: \"{text}\""]
     else:
         lines = [f"- {_transcript_turn_label(language_profile, turn)} {speaker}: {text}"]
+    notes = event.get("player_notes")
+    if notes:
+        note_label = "玩家笔记" if play_language == "zh-Hans" else "Player notes"
+        lines.append(f"  - {note_label}: {notes}")
     if event.get("intent"):
         intent = _localized_field(event, "intent", terms, play_language) or str(event["intent"])
         lines.append(f"  - {_transcript_label(language_profile, 'intent', 'Intent')}: {intent}")

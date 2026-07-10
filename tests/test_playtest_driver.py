@@ -493,3 +493,43 @@ def test_driver_writes_battle_report_with_gameplay_evidence(tmp_path):
     assert "Driver playtest executed" not in battle_text
     assert "场景路径 archive-room" not in battle_text
     assert "本次驱动实测收束" in battle_text
+
+
+def test_keeper_turn_text_dedupes_unchanged_affordance_cues():
+    """Identical choice_frame routes across turns must not repeat affordance prose."""
+    frame = {
+        "routes": [
+            {"id": "a", "cue": "追问指挥官真实目的"},
+            {"id": "b", "cue": "检查装备与补给"},
+        ]
+    }
+    turn1 = {"choice_frame": frame, "clue_revealed": [], "storylet_moves": [], "npc_moves": []}
+    turn2 = {"choice_frame": frame, "clue_revealed": [], "storylet_moves": [], "npc_moves": []}
+    text1 = driver._keeper_turn_text(turn1, {}, {}, previous_affordance_ids=["__none__"])
+    text2 = driver._keeper_turn_text(turn2, {}, {}, previous_affordance_ids=["a", "b"])
+    assert "可行动" in text1
+    assert "可行动" not in text2
+
+
+def test_transcript_omits_repeated_affordance_block(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    # Narrative exit keeps the party in scene-1 so affordance ids stay stable.
+    story["scenes"][0].update({
+        "exit_conditions": ["investigators accept the job"],
+        "affordances": [
+            {"id": "dusty-ledger", "cue": "登记簿边缘有新鲜灰尘断痕"},
+            {"id": "side-door", "cue": "侧门缝里有冷风"},
+        ],
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    choices = [
+        {"intent": "我翻登记簿", "intent_class": "investigate"},
+        {"intent": "我再看一眼侧门", "intent_class": "investigate"},
+    ]
+    result = driver.run_full_session(camp, char_path, "inv1", player_choices=choices, max_turns=2)
+    assert all(t.get("scene_id") == "scene-1" for t in result["turns"])
+    transcript = driver._transcript_from_driver_result(result, choices, camp)
+    keeper_texts = [row["text"] for row in transcript if row.get("role") == "keeper_under_test"]
+    affordance_hits = sum(1 for t in keeper_texts if "可行动" in t)
+    assert affordance_hits <= 1

@@ -410,17 +410,47 @@ def _npc_reaction_prose(npc_moves: list[dict[str, Any]], npc_names: dict[str, st
     return lines
 
 
-def _choice_frame_prose(choice_frame: dict[str, Any]) -> list[str]:
+def _choice_frame_route_ids(choice_frame: dict[str, Any]) -> list[str]:
+    routes = choice_frame.get("routes", []) if isinstance(choice_frame, dict) else []
+    ids: list[str] = []
+    for route in routes:
+        if not isinstance(route, dict):
+            continue
+        rid = route.get("id") or route.get("route_id") or route.get("route") or route.get("cue")
+        if rid:
+            ids.append(str(rid))
+    return ids
+
+
+def _choice_frame_prose(
+    choice_frame: dict[str, Any],
+    *,
+    previous_affordance_ids: list[str] | None = None,
+) -> list[str]:
     routes = choice_frame.get("routes", []) if isinstance(choice_frame, dict) else []
     cues = [str(route.get("cue")) for route in routes if isinstance(route, dict) and route.get("cue")]
     if not cues:
         return []
+    current_ids = _choice_frame_route_ids(choice_frame)
+    if previous_affordance_ids is not None and current_ids and current_ids == list(previous_affordance_ids):
+        return []
     return ["现场同时露出这些可行动线索：" + "；".join(cues) + "。"]
 
 
-def _keeper_turn_text(turn: dict[str, Any], clue_names: dict[str, str], npc_names: dict[str, str]) -> str:
+def _keeper_turn_text(
+    turn: dict[str, Any],
+    clue_names: dict[str, str],
+    npc_names: dict[str, str],
+    *,
+    previous_affordance_ids: list[str] | None = None,
+) -> str:
     parts: list[str] = []
-    parts.extend(_choice_frame_prose(turn.get("choice_frame", {})))
+    parts.extend(
+        _choice_frame_prose(
+            turn.get("choice_frame", {}),
+            previous_affordance_ids=previous_affordance_ids,
+        )
+    )
     for clue_id in turn.get("clue_revealed", []):
         clue_name = clue_names.get(str(clue_id), str(clue_id))
         parts.append(f"你确认了线索：{clue_name}。")
@@ -487,6 +517,7 @@ def _transcript_from_driver_result(
     npc_names = _npc_lookup(campaign_dir)
     transcript: list[dict[str, Any]] = []
     turn_counter = 1
+    previous_affordance_ids: list[str] | None = None
     for index, turn in enumerate(result.get("turns", []), start=1):
         choice = player_choices[min(index - 1, len(player_choices) - 1)] if player_choices else {}
         player_text = str(choice.get("intent") or choice.get("text") or "继续调查。")
@@ -499,14 +530,23 @@ def _transcript_from_driver_result(
             "text": player_text,
         })
         turn_counter += 1
+        choice_frame = turn.get("choice_frame", {}) or {}
+        current_ids = _choice_frame_route_ids(choice_frame)
         transcript.append({
             "turn": turn_counter,
             "role": "keeper_under_test",
             "speaker": "KP",
             "mode": "play",
             "ruling": _scene_action_label(turn.get("action", "director_plan"), play_language),
-            "text": _keeper_turn_text(turn, clue_names, npc_names),
+            "text": _keeper_turn_text(
+                turn,
+                clue_names,
+                npc_names,
+                previous_affordance_ids=previous_affordance_ids,
+            ),
         })
+        if current_ids:
+            previous_affordance_ids = current_ids
         turn_counter += 1
         roll_count = len([
             r for r in turn.get("rule_results", [])
