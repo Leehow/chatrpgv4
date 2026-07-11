@@ -1,7 +1,7 @@
-import copy
 import hashlib
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -31,7 +31,17 @@ def _seed_workspace(
     campaign_id: str = "masks-run-a",
     investigator_id: str = "inv-a",
 ) -> dict[str, Path]:
-    campaign = workspace / "campaigns" / campaign_id
+    coc = workspace / ".coc"
+    campaign = coc / "campaigns" / campaign_id
+    _write_json(
+        campaign / "campaign.json",
+        {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "play_language": "zh-CN",
+        },
+    )
+    _write_json(campaign / "party.json", {"investigator_ids": [investigator_id]})
     source_pdf = campaign / "source" / "masks.pdf"
     source_pdf.parent.mkdir(parents=True, exist_ok=True)
     source_pdf.write_bytes(b"masks source pdf\n")
@@ -40,10 +50,72 @@ def _seed_workspace(
         campaign / "scenario" / "hotel.json",
         {"id": "hotel", "clues": ["ledger"]},
     )
-    investigator = workspace / "investigators" / f"{investigator_id}.json"
-    _write_json(investigator, {"id": investigator_id, "hp": 10})
-    sessions = workspace / ".coc" / "runtime" / "sessions.json"
-    _write_json(sessions, {"sess_123": {"campaign_id": campaign_id}})
+    _write_json(campaign / "index" / "page-map.json", {"pages": []})
+    _write_json(campaign / "save" / "world-state.json", {"turn": 0})
+    _write_json(campaign / "memory" / "beliefs.json", {"beliefs": []})
+    (campaign / "logs").mkdir(parents=True, exist_ok=True)
+    (campaign / "logs" / "events.jsonl").write_text("", encoding="utf-8")
+
+    investigator_dir = coc / "investigators" / investigator_id
+    investigator_files = {
+        "creation.json": {"schema_version": 1, "id": investigator_id},
+        "character.json": {"schema_version": 1, "id": investigator_id, "hp": 10},
+        "history.jsonl": {"kind": "created"},
+        "development.jsonl": {"kind": "development"},
+        "inventory-history.jsonl": {"kind": "inventory"},
+    }
+    for name, value in investigator_files.items():
+        path = investigator_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if name.endswith(".jsonl"):
+            path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+        else:
+            _write_json(path, value)
+
+    sessions = coc / "runtime" / "sessions.json"
+    _write_json(
+        sessions,
+        {
+            "schema_version": 1,
+            "sessions": [
+                {
+                    "session_id": "sess_123",
+                    "campaign_id": campaign_id,
+                    "investigator_id": investigator_id,
+                    "character_relpath": (
+                        f".coc/investigators/{investigator_id}/character.json"
+                    ),
+                    "resolved_config": {"schema_version": 1, "brain": "debug"},
+                    "brain_at_create": "debug",
+                }
+            ],
+            "closed_session_ids": [],
+        },
+    )
+    _write_json(
+        coc / "indexes" / "campaigns.json",
+        {
+            "schema_version": 1,
+            "campaigns": {
+                campaign_id: {
+                    "campaign_id": campaign_id,
+                    "path": f".coc/campaigns/{campaign_id}/campaign.json",
+                }
+            },
+        },
+    )
+    _write_json(
+        coc / "indexes" / "investigators.json",
+        {
+            "schema_version": 1,
+            "investigators": {
+                investigator_id: {
+                    "id": investigator_id,
+                    "path": f".coc/investigators/{investigator_id}/character.json",
+                }
+            },
+        },
+    )
 
     # These are deliberately in the workspace but outside the checkpoint allowlist.
     (workspace / ".env").write_text("SECRET=do-not-copy\n", encoding="utf-8")
@@ -54,12 +126,59 @@ def _seed_workspace(
     )
     return {
         "campaign": campaign,
+        "campaign_json": campaign / "campaign.json",
+        "party": campaign / "party.json",
         "source_pdf": source_pdf,
         "scenario_index": campaign / "scenario" / "index.json",
         "scenario": campaign / "scenario" / "hotel.json",
-        "investigator": investigator,
+        "index": campaign / "index" / "page-map.json",
+        "save": campaign / "save" / "world-state.json",
+        "memory": campaign / "memory" / "beliefs.json",
+        "logs": campaign / "logs" / "events.jsonl",
+        "investigator": investigator_dir / "character.json",
+        "investigator_creation": investigator_dir / "creation.json",
+        "investigator_history": investigator_dir / "history.jsonl",
+        "investigator_development": investigator_dir / "development.jsonl",
+        "investigator_inventory": investigator_dir / "inventory-history.jsonl",
         "sessions": sessions,
     }
+
+
+def _prepare_fresh_generation(
+    workspace: Path,
+    *,
+    campaign_id: str = "masks-run-a",
+    investigator_id: str = "inv-a",
+) -> None:
+    coc = workspace / ".coc"
+    _write_json(
+        coc / "runtime.json",
+        {"schema_version": 1, "brain": "debug"},
+    )
+    _write_json(
+        coc / "indexes" / "campaigns.json",
+        {
+            "schema_version": 1,
+            "campaigns": {
+                campaign_id: {
+                    "campaign_id": campaign_id,
+                    "path": f".coc/campaigns/{campaign_id}/campaign.json",
+                }
+            },
+        },
+    )
+    _write_json(
+        coc / "indexes" / "investigators.json",
+        {
+            "schema_version": 1,
+            "investigators": {
+                investigator_id: {
+                    "id": investigator_id,
+                    "path": f".coc/investigators/{investigator_id}/character.json",
+                }
+            },
+        },
+    )
 
 
 def _provenance(*, player_mode: str = "whitebox") -> dict[str, object]:
@@ -69,6 +188,9 @@ def _provenance(*, player_mode: str = "whitebox") -> dict[str, object]:
             "provider": "openai",
             "id": "gpt-test",
         },
+        "recording_mode": "sync",
+        "recording_flush": "manual",
+        "runtime_receipt_sha256": "a" * 64,
         "request_id": "req-1",
     }
 
@@ -91,9 +213,7 @@ def _checkpoint(tmp_path: Path):
     workspace = tmp_path / "workspace"
     paths = _seed_workspace(workspace)
     run_dir = tmp_path / "runs" / "masks-run-a"
-    store = checkpoint.CheckpointStore(
-        run_dir, workspace, "masks-run-a", "inv-a"
-    )
+    store = checkpoint.CheckpointStore(run_dir, workspace, "masks-run-a", "inv-a")
     turn_path = _append_one(store)
     checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
     return store, checkpoint_dir, turn_path, workspace, paths
@@ -113,7 +233,9 @@ def test_append_turn_is_durable_and_manifest_is_complete(tmp_path: Path):
     store, checkpoint_dir, turn_path, _, _ = _checkpoint(tmp_path)
 
     assert turn_path.is_file()
-    rows = [json.loads(line) for line in turn_path.read_text(encoding="utf-8").splitlines()]
+    rows = [
+        json.loads(line) for line in turn_path.read_text(encoding="utf-8").splitlines()
+    ]
     assert len(rows) == 1
     row = rows[0]
     assert row["turn_number"] == 1
@@ -124,14 +246,20 @@ def test_append_turn_is_durable_and_manifest_is_complete(tmp_path: Path):
     assert store.action_chain_sha256 == row["row_sha256"]
     assert not list(store.run_dir.rglob("*.tmp"))
 
-    manifest = json.loads((checkpoint_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
     required = {
         "schema_version",
         "run_id",
         "turn_number",
         "git_head",
         "source_pdf_sha256",
+        "source_hashes",
         "scenario_hashes",
+        "index_hashes",
+        "managed_mutable_trees",
+        "managed_file_presence",
         "state_files",
         "session_snapshot_sha256",
         "action_chain_sha256",
@@ -141,11 +269,324 @@ def test_append_turn_is_durable_and_manifest_is_complete(tmp_path: Path):
     }
     assert required <= manifest.keys()
     assert manifest["run_id"] == "masks-run-a"
+    assert manifest["schema_version"] == 2
     assert manifest["turn_number"] == 1
     assert manifest["action_chain_sha256"] == store.action_chain_sha256
     assert manifest["model_identity"] == {"provider": "openai", "id": "gpt-test"}
     assert manifest["invalidation_state"] == {"invalidated": False, "segments": []}
     assert manifest["state_files"]
+
+
+def test_turn_zero_manifest_records_an_absent_action_journal(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+
+    checkpoint_dir = store.write_checkpoint("sess_123", 0, "initial_state")
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    journal = ".coc/playtest-runs/masks-run-a/actions.jsonl"
+
+    assert manifest["turn_number"] == 0
+    assert manifest["action_chain_sha256"] == checkpoint.GENESIS_SHA256
+    assert manifest["managed_file_presence"][journal] is False
+    assert journal not in {entry["workspace_path"] for entry in manifest["state_files"]}
+
+
+def test_checkpoint_uses_only_the_canonical_public_runtime_allowlist(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    other_campaign = workspace / ".coc" / "campaigns" / "other"
+    _write_json(other_campaign / "campaign.json", {"campaign_id": "other"})
+    other_investigator = workspace / ".coc" / "investigators" / "other"
+    _write_json(other_investigator / "character.json", {"id": "other"})
+    (workspace / ".coc" / "credentials.json").write_text(
+        "do-not-copy", encoding="utf-8"
+    )
+    (paths["campaign"] / "snapshots" / "old" / "state.json").parent.mkdir(parents=True)
+    (paths["campaign"] / "snapshots" / "old" / "state.json").write_text(
+        "do-not-copy", encoding="utf-8"
+    )
+    (paths["campaign"] / "artifacts").mkdir()
+    (paths["campaign"] / "artifacts" / "receipt.json").write_text(
+        "do-not-copy", encoding="utf-8"
+    )
+    portrait = workspace / ".coc" / "investigators" / "inv-a" / "portrait.png"
+    portrait.write_bytes(b"portrait")
+    sessions = json.loads(paths["sessions"].read_text(encoding="utf-8"))
+    sessions["sessions"].append(
+        {
+            "session_id": "sess_other",
+            "campaign_id": "other",
+            "investigator_id": "other",
+            "character_relpath": ".coc/investigators/other/character.json",
+            "resolved_config": {"schema_version": 1, "brain": "debug"},
+            "brain_at_create": "debug",
+        }
+    )
+    sessions["closed_session_ids"] = ["sess_closed"]
+    _write_json(paths["sessions"], sessions)
+
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+    checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    workspace_paths = {entry["workspace_path"] for entry in manifest["state_files"]}
+
+    expected_prefix = ".coc/campaigns/masks-run-a/"
+    assert all(
+        path.startswith(expected_prefix)
+        or path.startswith(".coc/investigators/inv-a/")
+        or path == ".coc/runtime/sessions.json"
+        or path == ".coc/playtest-runs/masks-run-a/actions.jsonl"
+        for path in workspace_paths
+    )
+    assert not any("/other/" in path for path in workspace_paths)
+    assert ".coc/runtime.json" not in workspace_paths
+    assert ".coc/credentials.json" not in workspace_paths
+    assert not any("/snapshots/" in path for path in workspace_paths)
+    assert not any("/artifacts/" in path for path in workspace_paths)
+    assert not any(path.endswith("portrait.png") for path in workspace_paths)
+    sessions_entry = next(
+        entry
+        for entry in manifest["state_files"]
+        if entry["workspace_path"] == ".coc/runtime/sessions.json"
+    )
+    sanitized = json.loads((checkpoint_dir / sessions_entry["path"]).read_text())
+    assert [record["session_id"] for record in sanitized["sessions"]] == ["sess_123"]
+    assert sanitized["closed_session_ids"] == []
+
+
+@pytest.mark.parametrize(
+    ("recording_mode", "recording_flush"),
+    [("fast", "background"), ("sync", "background"), ("fast", "manual")],
+)
+def test_checkpoint_requires_a_quiescent_sync_recording_boundary(
+    tmp_path: Path, recording_mode: str, recording_flush: str
+):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    provenance = _provenance()
+    provenance["recording_mode"] = recording_mode
+    provenance["recording_flush"] = recording_flush
+    _append_with_provenance(store, provenance)
+
+    with pytest.raises(ValueError, match="recording|durable|quiescent"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert not (store.run_dir / "checkpoints").exists()
+
+
+def test_checkpoint_requires_a_bound_runtime_recording_receipt(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    provenance = _provenance()
+    provenance.pop("runtime_receipt_sha256")
+    _append_with_provenance(store, provenance)
+
+    with pytest.raises(ValueError, match="receipt|recording"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert not (store.run_dir / "checkpoints").exists()
+
+
+def test_checkpoint_rejects_leftover_async_pending_batches(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    pending = paths["campaign"] / "logs" / "pending-turns" / "turn.json"
+    _write_json(pending, {"entries": []})
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+
+    with pytest.raises(ValueError, match="pending|quiescent|background"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert not (store.run_dir / "checkpoints").exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("session_id", "sess_wrong"),
+        ("campaign_id", "other"),
+        ("investigator_id", "other"),
+        ("character_relpath", ".coc/investigators/other/character.json"),
+    ],
+)
+def test_checkpoint_rejects_a_session_snapshot_not_bound_to_the_requested_run(
+    tmp_path: Path, field: str, replacement: str
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    sessions = json.loads(paths["sessions"].read_text(encoding="utf-8"))
+    sessions["sessions"][0][field] = replacement
+    _write_json(paths["sessions"], sessions)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+
+    with pytest.raises(ValueError, match="session"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert not (store.run_dir / "checkpoints").exists()
+
+
+def test_checkpoint_strictly_rejects_malformed_unrelated_session_records(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    sessions = json.loads(paths["sessions"].read_text(encoding="utf-8"))
+    sessions["sessions"].append(
+        {
+            "session_id": "sess_other",
+            "campaign_id": "other",
+            "investigator_id": "other",
+            "character_relpath": ".coc/investigators/other/character.json",
+            "resolved_config": {
+                "schema_version": 1,
+                "brain": "debug",
+                "api_token": "must-not-be-ignored",
+            },
+            "brain_at_create": "debug",
+        }
+    )
+    _write_json(paths["sessions"], sessions)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+
+    with pytest.raises(ValueError, match="session"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert not (store.run_dir / "checkpoints").exists()
+
+
+@pytest.mark.parametrize("identity_case", ["campaign", "party", "save", "scenario"])
+def test_checkpoint_rejects_structured_cross_file_identity_mismatches(
+    tmp_path: Path, identity_case: str
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+    if identity_case == "campaign":
+        _write_json(paths["campaign_json"], {"campaign_id": "other"})
+    elif identity_case == "party":
+        _write_json(paths["party"], {"investigator_ids": ["other"]})
+    elif identity_case == "save":
+        _write_json(
+            paths["campaign"] / "save" / "investigator-state" / "inv-a.json",
+            {"campaign_id": "other", "investigator_id": "inv-a"},
+        )
+    else:
+        _write_json(
+            paths["campaign"] / "save" / "world-state.json",
+            {"scenario_id": "scenario-a"},
+        )
+        _write_json(
+            paths["campaign"] / "scenario" / "module-meta.json",
+            {"scenario_id": "scenario-b"},
+        )
+
+    with pytest.raises(
+        ValueError, match="campaign|party|investigator|scenario|identity"
+    ):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert not (store.run_dir / "checkpoints").exists()
+
+
+def test_restore_exactly_mirrors_mutable_trees_and_absent_optional_files(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    paths["party"].unlink()
+    paths["investigator_history"].unlink()
+    shutil.rmtree(paths["campaign"] / "memory")
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+    checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
+
+    # A later turn only mutates the old generation.  Rollback is installed in
+    # a fresh generation so a crash can never leave half-deleted live state.
+    stale_save = paths["campaign"] / "save" / "later.json"
+    stale_log = paths["campaign"] / "logs" / "later.jsonl"
+    stale_save.write_text("later", encoding="utf-8")
+    stale_log.write_text("later", encoding="utf-8")
+
+    target = tmp_path / "target"
+    _prepare_fresh_generation(target)
+
+    manifest = store.restore_checkpoint(checkpoint_dir, target)
+
+    assert (
+        manifest["managed_mutable_trees"][".coc/campaigns/masks-run-a/memory"][
+            "present"
+        ]
+        is False
+    )
+    restored_campaign = target / ".coc" / "campaigns" / "masks-run-a"
+    restored_investigator = target / ".coc" / "investigators" / "inv-a"
+    assert not (restored_campaign / "save" / "later.json").exists()
+    assert not (restored_campaign / "logs" / "later.jsonl").exists()
+    assert not (restored_campaign / "memory").exists()
+    assert not (restored_campaign / "party.json").exists()
+    assert not (restored_investigator / "history.jsonl").exists()
+    assert stale_save.read_text(encoding="utf-8") == "later"
+    assert stale_log.read_text(encoding="utf-8") == "later"
+
+
+def test_restore_rejects_any_preexisting_managed_generation_before_writes(
+    tmp_path: Path,
+):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    target = tmp_path / "target"
+    paths = _seed_workspace(target)
+    before = paths["save"].read_bytes()
+    sentinel = tmp_path / "outside-stale.txt"
+    sentinel.write_text("outside", encoding="utf-8")
+    stale = paths["campaign"] / "save" / "later.json"
+    stale.symlink_to(sentinel)
+
+    with pytest.raises(ValueError, match="fresh|managed|symlink"):
+        store.restore_checkpoint(checkpoint_dir, target)
+
+    assert paths["save"].read_bytes() == before
+    assert sentinel.read_text(encoding="utf-8") == "outside"
+
+
+@pytest.mark.parametrize("immutable_tree", ["source", "scenario", "index"])
+def test_restore_rejects_preexisting_immutable_target_trees_before_mutation(
+    tmp_path: Path, immutable_tree: str
+):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    target = tmp_path / "target"
+    paths = _seed_workspace(target)
+    paths["save"].write_text("target-before", encoding="utf-8")
+    extra = paths["campaign"] / immutable_tree / "later.json"
+    extra.write_text("immutable drift", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="fresh|managed|immutable"):
+        store.restore_checkpoint(checkpoint_dir, target)
+
+    assert paths["save"].read_text(encoding="utf-8") == "target-before"
 
 
 def test_action_rows_form_a_canonical_hash_chain(tmp_path: Path):
@@ -163,7 +604,9 @@ def test_action_rows_form_a_canonical_hash_chain(tmp_path: Path):
         _provenance(),
     )
 
-    rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    rows = [
+        json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()
+    ]
     assert [row["turn_number"] for row in rows] == [1, 2]
     assert rows[1]["previous_sha256"] == rows[0]["row_sha256"]
     for row in rows:
@@ -181,9 +624,7 @@ def test_truncated_final_jsonl_row_is_discarded_before_next_append(tmp_path: Pat
     with ledger.open("ab") as handle:
         handle.write(b'{"turn_number":2,"action":')
 
-    resumed = checkpoint.CheckpointStore(
-        run_dir, workspace, "masks-run-a", "inv-a"
-    )
+    resumed = checkpoint.CheckpointStore(run_dir, workspace, "masks-run-a", "inv-a")
     resumed.append_turn(
         {"kind": "listen"},
         [],
@@ -192,14 +633,18 @@ def test_truncated_final_jsonl_row_is_discarded_before_next_append(tmp_path: Pat
         _provenance(),
     )
 
-    rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    rows = [
+        json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()
+    ]
     assert [row["turn_number"] for row in rows] == [1, 2]
     assert rows[1]["previous_sha256"] == rows[0]["row_sha256"]
 
 
 def test_restore_rejects_a_checkpoint_file_checksum_mismatch(tmp_path: Path):
     store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
-    manifest = json.loads((checkpoint_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
     protected = checkpoint_dir / manifest["state_files"][0]["path"]
     protected.write_bytes(protected.read_bytes() + b"corrupt")
 
@@ -232,7 +677,8 @@ def test_target_component_symlink_is_rejected_without_outside_writes(tmp_path: P
     outside.mkdir()
     sentinel = outside / "sentinel.txt"
     sentinel.write_text("unchanged", encoding="utf-8")
-    (target / "campaigns").symlink_to(outside, target_is_directory=True)
+    (target / ".coc").mkdir()
+    (target / ".coc" / "campaigns").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ValueError, match="symlink"):
         store.restore_checkpoint(checkpoint_dir, target)
@@ -275,20 +721,24 @@ def test_manifest_traversal_is_rejected_before_outside_file_access(tmp_path: Pat
 def test_checkpoint_restores_allowlisted_files_into_a_fresh_workspace(tmp_path: Path):
     store, checkpoint_dir, _, workspace, paths = _checkpoint(tmp_path)
     fresh = tmp_path / "fresh"
+    _prepare_fresh_generation(fresh)
+    runtime_config = fresh / ".coc" / "runtime.json"
+    runtime_config_before = runtime_config.read_bytes()
 
     restored = store.restore_checkpoint(checkpoint_dir, fresh)
 
     assert restored["turn_number"] == 1
     assert restored["action_chain_sha256"] == store.action_chain_sha256
-    for source in paths.values():
-        if not source.is_file():
-            continue
-        relative = source.relative_to(workspace)
-        assert (fresh / relative).read_bytes() == source.read_bytes()
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    for entry in manifest["state_files"]:
+        expected = checkpoint_dir / entry["path"]
+        assert (fresh / entry["workspace_path"]).read_bytes() == expected.read_bytes()
     assert (fresh / ".coc" / "playtest-runs" / "masks-run-a").is_dir()
     assert not (fresh / ".env").exists()
     assert not (fresh / "node_modules").exists()
-    assert not (fresh / ".coc" / "runtime.json").exists()
+    assert runtime_config.read_bytes() == runtime_config_before
 
 
 @pytest.mark.parametrize(
@@ -325,7 +775,21 @@ def test_restore_rejects_scenario_hash_mismatch(tmp_path: Path):
         store.restore_checkpoint(checkpoint_dir, tmp_path / "fresh")
 
 
-def test_existing_target_sources_must_match_checkpoint(tmp_path: Path):
+def test_restore_rejects_index_hash_or_membership_mismatch(tmp_path: Path):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    index_path = next(iter(manifest["index_hashes"]))
+    manifest["index_hashes"][index_path] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="index"):
+        store.restore_checkpoint(checkpoint_dir, tmp_path / "fresh")
+
+
+def test_existing_target_generation_is_rejected_even_when_source_differs(
+    tmp_path: Path,
+):
     store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
     target = tmp_path / "target"
     paths = _seed_workspace(target)
@@ -333,7 +797,7 @@ def test_existing_target_sources_must_match_checkpoint(tmp_path: Path):
     sentinel = target / "keep.txt"
     sentinel.write_text("unchanged", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="source"):
+    with pytest.raises(ValueError, match="fresh|managed"):
         store.restore_checkpoint(checkpoint_dir, target)
 
     assert sentinel.read_text(encoding="utf-8") == "unchanged"
@@ -364,7 +828,9 @@ def test_git_head_change_requires_an_explicit_matching_invalidated_segment(
         ],
     }
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    restored = store.restore_checkpoint(checkpoint_dir, tmp_path / "allowed")
+    allowed = tmp_path / "allowed"
+    _prepare_fresh_generation(allowed)
+    restored = store.restore_checkpoint(checkpoint_dir, allowed)
 
     assert restored["git_head"] == old_head
     assert restored["invalidation_state"]["invalidated"] is True
@@ -479,7 +945,9 @@ def test_snapshot_open_rejects_source_swapped_to_symlink(
 ):
     workspace = tmp_path / "workspace"
     paths = _seed_workspace(workspace)
-    store = checkpoint.CheckpointStore(tmp_path / "run", workspace, "masks-run-a", "inv-a")
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
     _append_one(store)
     sentinel = tmp_path / "outside-source.pdf"
     sentinel.write_bytes(b"outside")
@@ -488,7 +956,9 @@ def test_snapshot_open_rejects_source_swapped_to_symlink(
 
     def attack(root_fd, relative, *args, **kwargs):
         nonlocal attacked
-        if not attacked and Path(relative) == Path("campaigns/masks-run-a/source/masks.pdf"):
+        if not attacked and Path(relative) == Path(
+            ".coc/campaigns/masks-run-a/source/masks.pdf"
+        ):
             attacked = True
             paths["source_pdf"].unlink()
             paths["source_pdf"].symlink_to(sentinel)
@@ -500,13 +970,43 @@ def test_snapshot_open_rejects_source_swapped_to_symlink(
     assert sentinel.read_bytes() == b"outside"
 
 
+def test_checkpoint_revalidates_identity_from_the_bytes_it_snapshotted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+    campaign_relative = Path(".coc/campaigns/masks-run-a/campaign.json")
+    original = checkpoint._open_regular_at
+    opens = 0
+
+    def attack(root_fd, relative, *args, **kwargs):
+        nonlocal opens
+        if Path(relative) == campaign_relative:
+            opens += 1
+            if opens == 2:
+                _write_json(paths["campaign_json"], {"campaign_id": "other"})
+        return original(root_fd, relative, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint, "_open_regular_at", attack)
+    with pytest.raises(ValueError, match="campaign.*identity|identity.*campaign"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert not (store.run_dir / "checkpoints" / "turn-000001").exists()
+
+
 def test_restore_uses_verified_fd_when_checkpoint_source_is_swapped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
-    manifest = json.loads((checkpoint_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
     entry = next(
-        item for item in manifest["state_files"]
+        item
+        for item in manifest["state_files"]
         if item["workspace_path"].endswith("/source/masks.pdf")
     )
     protected = checkpoint_dir / entry["path"]
@@ -544,10 +1044,12 @@ def test_every_source_file_path_and_hash_is_manifest_compatible(tmp_path: Path):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert set(manifest["source_hashes"]) == {
-        "campaigns/masks-run-a/source/appendix.pdf",
-        "campaigns/masks-run-a/source/masks.pdf",
+        ".coc/campaigns/masks-run-a/source/appendix.pdf",
+        ".coc/campaigns/masks-run-a/source/masks.pdf",
     }
-    manifest["source_hashes"]["campaigns/masks-run-a/source/appendix.pdf"] = "0" * 64
+    manifest["source_hashes"][".coc/campaigns/masks-run-a/source/appendix.pdf"] = (
+        "0" * 64
+    )
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="source"):
         store.restore_checkpoint(checkpoint_dir, tmp_path / "fresh")
@@ -555,11 +1057,16 @@ def test_every_source_file_path_and_hash_is_manifest_compatible(tmp_path: Path):
 
 def test_checkpoint_contains_and_restores_a_valid_action_journal(tmp_path: Path):
     store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
-    manifest = json.loads((checkpoint_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
     journal_path = f".coc/playtest-runs/{store.campaign_id}/actions.jsonl"
-    assert any(entry["workspace_path"] == journal_path for entry in manifest["state_files"])
+    assert any(
+        entry["workspace_path"] == journal_path for entry in manifest["state_files"]
+    )
 
     fresh = tmp_path / "fresh"
+    _prepare_fresh_generation(fresh)
     store.restore_checkpoint(checkpoint_dir, fresh)
     resumed = checkpoint.CheckpointStore(
         fresh / journal_path.rsplit("/", 1)[0],
@@ -569,6 +1076,31 @@ def test_checkpoint_contains_and_restores_a_valid_action_journal(tmp_path: Path)
     )
     assert resumed.action_chain_sha256 == store.action_chain_sha256
     assert resumed._turn_number == 1
+
+
+def test_restore_accepts_an_older_checkpoint_that_is_a_prefix_of_outer_journal(
+    tmp_path: Path,
+):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    store.append_turn(
+        {"kind": "later"},
+        [{"kind": "later_event"}],
+        {"turn": 1},
+        {"turn": 2},
+        _provenance(),
+    )
+    assert store._turn_number == 2
+    target = tmp_path / "fresh"
+    _prepare_fresh_generation(target)
+
+    manifest = store.restore_checkpoint(checkpoint_dir, target)
+
+    assert manifest["turn_number"] == 1
+    restored_journal = (
+        target / ".coc" / "playtest-runs" / "masks-run-a" / "actions.jsonl"
+    )
+    assert len(restored_journal.read_text(encoding="utf-8").splitlines()) == 1
+    assert len(store.action_ledger.read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_checkpoint_write_rejects_checkpoints_directory_swapped_after_open(
@@ -591,7 +1123,7 @@ def test_checkpoint_write_rejects_checkpoints_directory_swapped_after_open(
     def attack(root_fd, relative, *args, **kwargs):
         nonlocal attacked
         if not attacked and Path(relative) == Path(
-            "campaigns/masks-run-a/source/masks.pdf"
+            ".coc/campaigns/masks-run-a/source/masks.pdf"
         ):
             attacked = True
             checkpoints = store.run_dir / "checkpoints"
@@ -614,7 +1146,8 @@ def test_restore_rejects_target_ancestor_swapped_before_temp_open(
 ):
     store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
     target = tmp_path / "fresh"
-    (target / "campaigns").mkdir(parents=True)
+    _prepare_fresh_generation(target)
+    (target / ".coc" / "campaigns").mkdir(parents=True, exist_ok=True)
     held = target / "held-campaigns"
     victim = tmp_path / "outside-target-victim"
     victim_source = victim / "masks-run-a" / "source"
@@ -626,13 +1159,14 @@ def test_restore_rejects_target_ancestor_swapped_before_temp_open(
         nonlocal attacked
         if (
             not attacked
+            and path != ".campaign.lock"
             and flags & checkpoint.os.O_WRONLY
             and flags & checkpoint.os.O_CREAT
             and flags & checkpoint.os.O_EXCL
         ):
             attacked = True
-            (target / "campaigns").rename(held)
-            (target / "campaigns").symlink_to(victim, target_is_directory=True)
+            (target / ".coc" / "campaigns").rename(held)
+            (target / ".coc" / "campaigns").symlink_to(victim, target_is_directory=True)
         return original_open(path, flags, mode, dir_fd=dir_fd)
 
     monkeypatch.setattr(checkpoint.os, "open", attack)
@@ -655,7 +1189,7 @@ def test_restore_hashes_live_sources_through_verified_workspace_fd(
     def attack(root_fd, relative, *args, **kwargs):
         nonlocal attacked
         if not attacked and Path(relative) == Path(
-            "campaigns/masks-run-a/source/masks.pdf"
+            ".coc/campaigns/masks-run-a/source/masks.pdf"
         ):
             attacked = True
             paths["source_pdf"].unlink()
@@ -725,9 +1259,13 @@ def test_workspace_ancestor_aba_cannot_select_names_from_replacement_root(
 
     monkeypatch.setattr(store, "_workspace_files", aba_workspace_files)
     checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
-    manifest = json.loads((checkpoint_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
 
-    assert "campaigns/masks-run-a/scenario/hotel.json" in manifest["scenario_hashes"]
+    assert (
+        ".coc/campaigns/masks-run-a/scenario/hotel.json" in manifest["scenario_hashes"]
+    )
 
 
 def test_checkpoint_validates_live_journal_before_publication(tmp_path: Path):
@@ -879,6 +1417,9 @@ def test_checkpoint_rejects_unsafe_model_identity_before_publication(
     provenance = {
         "player_mode": "whitebox",
         "model_identity": model_identity,
+        "recording_mode": "sync",
+        "recording_flush": "manual",
+        "runtime_receipt_sha256": "a" * 64,
         "request_id": "req-1",
     }
     _append_with_provenance(store, provenance)
@@ -899,6 +1440,9 @@ def test_checkpoint_normalizes_absent_or_empty_model_identity(
     )
     provenance: dict[str, object] = {
         "player_mode": "whitebox",
+        "recording_mode": "sync",
+        "recording_flush": "manual",
+        "runtime_receipt_sha256": "a" * 64,
         "request_id": "req-1",
     }
     if identity_mode == "none":
@@ -908,7 +1452,9 @@ def test_checkpoint_normalizes_absent_or_empty_model_identity(
     _append_with_provenance(store, provenance)
 
     checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
-    manifest = json.loads((checkpoint_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
     assert manifest["model_identity"] == {}
 
 

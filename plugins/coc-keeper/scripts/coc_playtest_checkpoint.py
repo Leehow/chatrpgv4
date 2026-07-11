@@ -13,13 +13,15 @@ import re
 import stat
 import subprocess
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 GENESIS_SHA256 = "0" * 64
 MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}\Z")
+RUNTIME_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 ACTION_ROW_KEYS = {
     "turn_number",
     "previous_sha256",
@@ -29,6 +31,23 @@ ACTION_ROW_KEYS = {
     "state_after",
     "provenance",
     "row_sha256",
+}
+CAMPAIGN_MUTABLE_TREES = ("save", "memory", "logs")
+CAMPAIGN_IMMUTABLE_TREES = ("source", "scenario", "index")
+INVESTIGATOR_FILES = (
+    "creation.json",
+    "character.json",
+    "history.jsonl",
+    "development.jsonl",
+    "inventory-history.jsonl",
+)
+SESSION_SNAPSHOT_KEYS = {
+    "session_id",
+    "campaign_id",
+    "investigator_id",
+    "character_relpath",
+    "resolved_config",
+    "brain_at_create",
 }
 
 
@@ -60,7 +79,9 @@ def _validated_model_identity(value: Any) -> dict[str, str]:
         and isinstance(model_id, str)
         and MODEL_IDENTIFIER.fullmatch(model_id)
     ):
-        raise ValueError("model identity provider and id must be safe non-empty identifiers")
+        raise ValueError(
+            "model identity provider and id must be safe non-empty identifiers"
+        )
     return {"provider": provider, "id": model_id}
 
 
@@ -156,7 +177,9 @@ def _open_directory_at(root_fd: int, relative: Path | str) -> int:
         directory_fd = -1
         return result
     except OSError as exc:
-        raise ValueError("checkpoint directory symlink or replacement is not allowed") from exc
+        raise ValueError(
+            "checkpoint directory symlink or replacement is not allowed"
+        ) from exc
     finally:
         if directory_fd >= 0:
             os.close(directory_fd)
@@ -262,10 +285,14 @@ def _regular_files_under_at(root_fd: int, relative: Path) -> list[Path]:
             try:
                 info = os.stat(name, dir_fd=current_fd, follow_symlinks=False)
             except OSError as exc:
-                raise ValueError("workspace directory changed during enumeration") from exc
+                raise ValueError(
+                    "workspace directory changed during enumeration"
+                ) from exc
             entry_relative = prefix / name
             if stat.S_ISLNK(info.st_mode):
-                raise ValueError(f"workspace source symlink is not allowed: {entry_relative}")
+                raise ValueError(
+                    f"workspace source symlink is not allowed: {entry_relative}"
+                )
             if stat.S_ISREG(info.st_mode):
                 files.append(entry_relative)
                 continue
@@ -276,13 +303,190 @@ def _regular_files_under_at(root_fd: int, relative: Path) -> list[Path]:
                 finally:
                     os.close(child_fd)
                 continue
-            raise ValueError(f"workspace source is not a regular file: {entry_relative}")
+            raise ValueError(
+                f"workspace source is not a regular file: {entry_relative}"
+            )
 
     try:
         walk(directory_fd, relative)
     finally:
         os.close(directory_fd)
     return files
+
+
+def _tree_inventory_at(
+    root_fd: int, relative: Path
+) -> tuple[bool, list[Path], list[str]]:
+    """Return safe regular files and exact directory membership for one tree."""
+
+    directory_fd = _open_existing_directory_at(root_fd, relative)
+    if directory_fd is None:
+        return False, [], []
+    files: list[Path] = []
+    directories: list[str] = ["."]
+
+    def walk(current_fd: int, prefix: Path, directory_prefix: Path) -> None:
+        try:
+            names = sorted(os.listdir(current_fd))
+        except OSError as exc:
+            raise ValueError("workspace directory cannot be enumerated safely") from exc
+        for name in names:
+            if not name or name in {".", ".."} or "/" in name or "\x00" in name:
+                raise ValueError("workspace directory contains an invalid entry name")
+            try:
+                info = os.stat(name, dir_fd=current_fd, follow_symlinks=False)
+            except OSError as exc:
+                raise ValueError(
+                    "workspace directory changed during enumeration"
+                ) from exc
+            entry_relative = prefix / name
+            member_relative = directory_prefix / name
+            if stat.S_ISLNK(info.st_mode):
+                raise ValueError(
+                    f"workspace source symlink is not allowed: {entry_relative}"
+                )
+            if stat.S_ISREG(info.st_mode):
+                files.append(entry_relative)
+                continue
+            if stat.S_ISDIR(info.st_mode):
+                directories.append(member_relative.as_posix())
+                child_fd = _open_directory_at(current_fd, name)
+                try:
+                    walk(child_fd, entry_relative, member_relative)
+                finally:
+                    os.close(child_fd)
+                continue
+            raise ValueError(
+                f"workspace source is not a regular file: {entry_relative}"
+            )
+
+    try:
+        walk(directory_fd, relative, Path())
+    finally:
+        os.close(directory_fd)
+    return True, files, sorted(directories)
+
+
+def _read_fd_bytes(descriptor: int) -> bytes:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    chunks: list[bytes] = []
+    while True:
+        chunk = os.read(descriptor, 1024 * 1024)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    return b"".join(chunks)
+
+
+def _read_json_fd(descriptor: int, field: str) -> dict[str, Any]:
+    try:
+        value = json.loads(_read_fd_bytes(descriptor).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid {field}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid {field}")
+    return value
+
+
+def _brain_label_for_config(config: Any) -> str:
+    if not isinstance(config, dict):
+        raise ValueError("session resolved config is invalid")
+    if set(config) == {"schema_version", "brain"} and config.get("schema_version") == 1:
+        brain = config.get("brain")
+        if brain in {"debug", "pi"}:
+            return str(brain)
+        raise ValueError("session resolved config is invalid")
+    expected = {"schema_version", "planner", "rules", "narrator", "player"}
+    if set(config) != expected or config.get("schema_version") != 2:
+        raise ValueError("session resolved config is invalid")
+    allowed = {
+        "planner": {"deterministic"},
+        "rules": {"deterministic"},
+        "narrator": {"template", "pi"},
+        "player": {"human", "pi"},
+    }
+    for component, kinds in allowed.items():
+        value = config.get(component)
+        if not isinstance(value, dict) or set(value) != {"kind"}:
+            raise ValueError("session resolved config is invalid")
+        if value.get("kind") not in kinds:
+            raise ValueError("session resolved config is invalid")
+    return "pi" if config["narrator"]["kind"] == "pi" else "debug"
+
+
+def _sanitized_session_payload(
+    payload: dict[str, Any],
+    *,
+    session_id: str,
+    campaign_id: str,
+    investigator_id: str,
+) -> tuple[bytes, dict[str, Any]]:
+    if (
+        set(payload) != {"schema_version", "sessions", "closed_session_ids"}
+        or payload.get("schema_version") != 1
+        or isinstance(payload.get("schema_version"), bool)
+        or not isinstance(payload.get("sessions"), list)
+        or not isinstance(payload.get("closed_session_ids"), list)
+        or not all(isinstance(item, str) for item in payload["closed_session_ids"])
+    ):
+        raise ValueError("invalid session snapshot")
+    active_ids: set[str] = set()
+    validated_records: list[dict[str, Any]] = []
+    for item in payload["sessions"]:
+        if not isinstance(item, dict) or set(item) != SESSION_SNAPSHOT_KEYS:
+            raise ValueError("invalid session snapshot record")
+        sid = item.get("session_id")
+        campaign = item.get("campaign_id")
+        investigator = item.get("investigator_id")
+        if not all(
+            isinstance(value, str) and RUNTIME_IDENTIFIER.fullmatch(value)
+            for value in (sid, campaign, investigator)
+        ):
+            raise ValueError("invalid session snapshot identity")
+        if sid in active_ids:
+            raise ValueError("duplicate session snapshot identity")
+        active_ids.add(sid)
+        expected_relpath = f".coc/investigators/{investigator}/character.json"
+        if (
+            item.get("character_relpath") != expected_relpath
+            or item.get("brain_at_create") not in {"debug", "pi"}
+            or _brain_label_for_config(item.get("resolved_config"))
+            != item["brain_at_create"]
+        ):
+            raise ValueError("invalid session snapshot record")
+        validated_records.append(item)
+    closed_ids = payload["closed_session_ids"]
+    if (
+        len(set(closed_ids)) != len(closed_ids)
+        or any(not RUNTIME_IDENTIFIER.fullmatch(item) for item in closed_ids)
+        or active_ids.intersection(closed_ids)
+    ):
+        raise ValueError("invalid closed session snapshot identities")
+    matches = [item for item in validated_records if item["session_id"] == session_id]
+    if len(matches) != 1:
+        raise ValueError("session snapshot must contain exactly the requested session")
+    record = matches[0]
+    expected_character = f".coc/investigators/{investigator_id}/character.json"
+    if (
+        set(record) != SESSION_SNAPSHOT_KEYS
+        or record.get("campaign_id") != campaign_id
+        or record.get("investigator_id") != investigator_id
+        or record.get("character_relpath") != expected_character
+        or record.get("brain_at_create") not in {"debug", "pi"}
+    ):
+        raise ValueError("session snapshot identity mismatch")
+    resolved_config = record.get("resolved_config")
+    if _brain_label_for_config(resolved_config) != record["brain_at_create"]:
+        raise ValueError("session snapshot resolved config mismatch")
+    # Exact pipeline schemas above deliberately exclude credentials, absolute
+    # paths, process handles, and every unrelated session/tombstone.
+    sanitized = {
+        "schema_version": 1,
+        "sessions": [record],
+        "closed_session_ids": [],
+    }
+    return _canonical_json(sanitized) + b"\n", record
 
 
 def _regular_file_exists_at(root_fd: int, relative: Path) -> bool:
@@ -409,7 +613,9 @@ def _validate_action_journal_fd(
         if terminal_turn != expected_turn_number:
             raise ValueError("action journal terminal turn does not match manifest")
         if previous != expected_chain_sha256:
-            raise ValueError("action journal terminal action chain does not match manifest")
+            raise ValueError(
+                "action journal terminal action chain does not match manifest"
+            )
         if terminal_model_identity != expected_model_identity:
             raise ValueError("action journal model identity does not match manifest")
     finally:
@@ -454,13 +660,88 @@ def _remove_tree_at(parent_fd: int, name: str) -> None:
     try:
         for child in os.listdir(directory_fd):
             child_info = os.stat(child, dir_fd=directory_fd, follow_symlinks=False)
-            if stat.S_ISDIR(child_info.st_mode) and not stat.S_ISLNK(child_info.st_mode):
+            if stat.S_ISDIR(child_info.st_mode) and not stat.S_ISLNK(
+                child_info.st_mode
+            ):
                 _remove_tree_at(directory_fd, child)
             else:
                 os.unlink(child, dir_fd=directory_fd)
     finally:
         os.close(directory_fd)
     os.rmdir(relative.name, dir_fd=parent_fd)
+
+
+def _unlink_file_at(root_fd: int, relative: Path) -> None:
+    parent_fd = _open_existing_directory_at(root_fd, relative.parent)
+    if parent_fd is None:
+        return
+    try:
+        try:
+            info = os.stat(relative.name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode):
+            raise ValueError(f"expected a file during cleanup: {relative}")
+        os.unlink(relative.name, dir_fd=parent_fd)
+    finally:
+        os.close(parent_fd)
+
+
+def _remove_relative_tree_at(root_fd: int, relative: Path) -> None:
+    parent_fd = _open_existing_directory_at(root_fd, relative.parent)
+    if parent_fd is None:
+        return
+    try:
+        _remove_tree_at(parent_fd, relative.name)
+    finally:
+        os.close(parent_fd)
+
+
+@contextmanager
+def _campaign_lock_at(root_fd: int, campaign_relative: Path):
+    """Hold the same `.campaign.lock` exclusion boundary as live turns."""
+
+    campaign_fd = _open_or_create_directory_at(root_fd, campaign_relative)
+    lock_fd = -1
+    lock_identity: tuple[int, int] | None = None
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            lock_fd = os.open(".campaign.lock", flags, 0o600, dir_fd=campaign_fd)
+        except FileExistsError as exc:
+            raise ValueError(
+                "campaign lock is held; checkpoint boundary is not quiescent"
+            ) from exc
+        _write_all(
+            lock_fd,
+            _canonical_json({"pid": os.getpid(), "owner": "playtest-checkpoint"}),
+        )
+        os.fsync(lock_fd)
+        info = os.fstat(lock_fd)
+        lock_identity = (info.st_dev, info.st_ino)
+        os.close(lock_fd)
+        lock_fd = -1
+        os.fsync(campaign_fd)
+        yield campaign_fd
+    finally:
+        if lock_fd >= 0:
+            os.close(lock_fd)
+        if lock_identity is not None:
+            try:
+                current = os.stat(
+                    ".campaign.lock", dir_fd=campaign_fd, follow_symlinks=False
+                )
+            except FileNotFoundError:
+                current = None
+            if current is not None:
+                if (current.st_dev, current.st_ino) != lock_identity:
+                    os.close(campaign_fd)
+                    raise ValueError("campaign lock was replaced")
+                os.unlink(".campaign.lock", dir_fd=campaign_fd)
+                os.fsync(campaign_fd)
+        os.close(campaign_fd)
 
 
 def _open_directory_path(path: Path, field: str) -> int:
@@ -645,7 +926,9 @@ class CheckpointStore:
             descriptor = -1
             return result
         except OSError as exc:
-            raise ValueError("run directory symlink or replacement is not allowed") from exc
+            raise ValueError(
+                "run directory symlink or replacement is not allowed"
+            ) from exc
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
@@ -688,7 +971,9 @@ class CheckpointStore:
         for part in path.relative_to(self.workspace).parts:
             current = current / part
             if current.is_symlink():
-                raise ValueError(f"symlink is not allowed in checkpoint source: {current}")
+                raise ValueError(
+                    f"symlink is not allowed in checkpoint source: {current}"
+                )
 
     def _read_git_head(self) -> str:
         try:
@@ -742,9 +1027,14 @@ class CheckpointStore:
                 break
 
             expected = _sha256_bytes(
-                _canonical_json({key: value for key, value in row.items() if key != "row_sha256"})
+                _canonical_json(
+                    {key: value for key, value in row.items() if key != "row_sha256"}
+                )
             )
-            if row.get("previous_sha256") != previous or row.get("row_sha256") != expected:
+            if (
+                row.get("previous_sha256") != previous
+                or row.get("row_sha256") != expected
+            ):
                 raise ValueError("action ledger checksum mismatch")
             previous = expected
             turn_number = int(row["turn_number"])
@@ -755,6 +1045,42 @@ class CheckpointStore:
         self.action_chain_sha256 = previous
         self._turn_number = turn_number
         self._last_provenance = last_provenance
+
+    def _outer_journal_boundary(self, turn_number: int) -> tuple[str, dict[str, Any]]:
+        """Return the authenticated outer-journal prefix named by a checkpoint."""
+
+        if turn_number == 0:
+            return GENESIS_SHA256, {}
+        if turn_number < 0 or turn_number > self._turn_number:
+            raise ValueError(
+                "checkpoint turn is not present in the outer action journal"
+            )
+        run_fd = self._open_run_dir()
+        descriptor = -1
+        try:
+            self._validate_action_ledger_entry(run_fd)
+            descriptor = _open_regular_at(run_fd, "actions.jsonl")
+            _validate_action_journal_fd(
+                descriptor,
+                self.action_chain_sha256,
+                self._turn_number,
+                _validated_model_identity(self._last_provenance.get("model_identity")),
+            )
+            payload = _read_fd_bytes(descriptor)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            os.close(run_fd)
+        rows = payload[:-1].split(b"\n") if payload else []
+        if len(rows) < turn_number:
+            raise ValueError(
+                "checkpoint turn is not present in the outer action journal"
+            )
+        row = json.loads(rows[turn_number - 1].decode("utf-8"))
+        provenance = row.get("provenance")
+        if not isinstance(provenance, dict):
+            raise ValueError("outer action journal provenance is invalid")
+        return str(row["row_sha256"]), provenance
 
     def _truncate_ledger(self, length: int) -> None:
         run_fd = self._open_run_dir()
@@ -825,8 +1151,14 @@ class CheckpointStore:
         return self.action_ledger
 
     def _workspace_files(self) -> Iterable[Path]:
-        campaign = self.workspace / "campaigns" / self.campaign_id
-        for directory in (campaign / "source", campaign / "scenario"):
+        campaign = self.workspace / ".coc" / "campaigns" / self.campaign_id
+        for leaf in ("campaign.json", "party.json"):
+            path = campaign / leaf
+            self._reject_symlink_components(path)
+            if path.is_file():
+                yield path
+        for name in (*CAMPAIGN_MUTABLE_TREES, *CAMPAIGN_IMMUTABLE_TREES):
+            directory = campaign / name
             self._reject_symlink_components(directory)
             if directory.is_dir():
                 for path in sorted(directory.rglob("*")):
@@ -834,10 +1166,12 @@ class CheckpointStore:
                     if path.is_file():
                         yield path
 
-        investigator = self.workspace / "investigators" / f"{self.investigator_id}.json"
-        self._reject_symlink_components(investigator)
-        if investigator.is_file():
-            yield investigator
+        investigator = self.workspace / ".coc" / "investigators" / self.investigator_id
+        for name in INVESTIGATOR_FILES:
+            path = investigator / name
+            self._reject_symlink_components(path)
+            if path.is_file():
+                yield path
 
         sessions = self.workspace / ".coc" / "runtime" / "sessions.json"
         self._reject_symlink_components(sessions)
@@ -845,19 +1179,190 @@ class CheckpointStore:
             yield sessions
 
     def _workspace_relative_files(self, workspace_fd: int) -> list[Path]:
-        campaign = Path("campaigns") / self.campaign_id
+        campaign = Path(".coc") / "campaigns" / self.campaign_id
         files: list[Path] = []
-        for directory in (campaign / "source", campaign / "scenario"):
-            files.extend(_regular_files_under_at(workspace_fd, directory))
+        campaign_state = campaign / "campaign.json"
+        if not _regular_file_exists_at(workspace_fd, campaign_state):
+            raise ValueError("campaign.json is required for a checkpoint")
+        files.append(campaign_state)
+        party = campaign / "party.json"
+        if _regular_file_exists_at(workspace_fd, party):
+            files.append(party)
+        for name in (*CAMPAIGN_MUTABLE_TREES, *CAMPAIGN_IMMUTABLE_TREES):
+            _present, tree_files, _directories = _tree_inventory_at(
+                workspace_fd, campaign / name
+            )
+            files.extend(tree_files)
 
-        investigator = Path("investigators") / f"{self.investigator_id}.json"
-        if _regular_file_exists_at(workspace_fd, investigator):
-            files.append(investigator)
+        investigator = Path(".coc") / "investigators" / self.investigator_id
+        for name in INVESTIGATOR_FILES:
+            candidate = investigator / name
+            if _regular_file_exists_at(workspace_fd, candidate):
+                files.append(candidate)
 
         sessions = Path(".coc") / "runtime" / "sessions.json"
-        if _regular_file_exists_at(workspace_fd, sessions):
-            files.append(sessions)
-        return files
+        if not _regular_file_exists_at(workspace_fd, sessions):
+            raise ValueError("session snapshot is required for a checkpoint")
+        files.append(sessions)
+        return sorted(set(files))
+
+    @staticmethod
+    def _json_object_at(root_fd: int, relative: Path, field: str) -> dict[str, Any]:
+        descriptor = _open_regular_at(root_fd, relative)
+        try:
+            return _read_json_fd(descriptor, field)
+        finally:
+            os.close(descriptor)
+
+    def _campaign_relative(self) -> Path:
+        return Path(".coc") / "campaigns" / self.campaign_id
+
+    def _investigator_relative(self) -> Path:
+        return Path(".coc") / "investigators" / self.investigator_id
+
+    def _tree_metadata(
+        self, workspace_fd: int, names: tuple[str, ...]
+    ) -> dict[str, dict[str, Any]]:
+        campaign = self._campaign_relative()
+        metadata: dict[str, dict[str, Any]] = {}
+        for name in names:
+            root = campaign / name
+            present, _files, directories = _tree_inventory_at(workspace_fd, root)
+            metadata[root.as_posix()] = {
+                "present": present,
+                "directories": directories,
+            }
+        return metadata
+
+    def _validate_workspace_identities(self, workspace_fd: int) -> None:
+        campaign = self._campaign_relative()
+        campaign_state = self._json_object_at(
+            workspace_fd, campaign / "campaign.json", "campaign state"
+        )
+        if campaign_state.get("campaign_id") != self.campaign_id:
+            raise ValueError("campaign identity mismatch")
+
+        party_path = campaign / "party.json"
+        if _regular_file_exists_at(workspace_fd, party_path):
+            party = self._json_object_at(workspace_fd, party_path, "party state")
+            membership = party.get("investigator_ids")
+            active = party.get("active_investigator_ids")
+            if (
+                not isinstance(membership, list)
+                or self.investigator_id not in membership
+                or (
+                    active is not None
+                    and (
+                        not isinstance(active, list)
+                        or self.investigator_id not in active
+                    )
+                )
+            ):
+                raise ValueError("party does not contain the selected investigator")
+            if party.get("campaign_id") not in {None, self.campaign_id}:
+                raise ValueError("party campaign identity mismatch")
+
+        investigator_state_path = (
+            campaign / "save" / "investigator-state" / f"{self.investigator_id}.json"
+        )
+        if _regular_file_exists_at(workspace_fd, investigator_state_path):
+            state = self._json_object_at(
+                workspace_fd, investigator_state_path, "investigator save state"
+            )
+            if (
+                state.get("campaign_id") != self.campaign_id
+                or state.get("investigator_id") != self.investigator_id
+            ):
+                raise ValueError("investigator save identity mismatch")
+
+        world_path = campaign / "save" / "world-state.json"
+        module_path = campaign / "scenario" / "module-meta.json"
+        if _regular_file_exists_at(
+            workspace_fd, world_path
+        ) and _regular_file_exists_at(workspace_fd, module_path):
+            world = self._json_object_at(workspace_fd, world_path, "world state")
+            module = self._json_object_at(workspace_fd, module_path, "module metadata")
+            world_scenario = world.get("scenario_id")
+            module_scenario = module.get("scenario_id")
+            if (
+                isinstance(world_scenario, str)
+                and isinstance(module_scenario, str)
+                and world_scenario != module_scenario
+            ):
+                raise ValueError("scenario identity mismatch")
+
+    def _session_snapshot_bytes(
+        self, workspace_fd: int, session_id: str
+    ) -> tuple[bytes, dict[str, Any]]:
+        relative = Path(".coc") / "runtime" / "sessions.json"
+        descriptor = _open_regular_at(workspace_fd, relative)
+        try:
+            payload = _read_json_fd(descriptor, "session snapshot")
+        finally:
+            os.close(descriptor)
+        return _sanitized_session_payload(
+            payload,
+            session_id=session_id,
+            campaign_id=self.campaign_id,
+            investigator_id=self.investigator_id,
+        )
+
+    def _validate_recording_boundary(self) -> None:
+        if self._turn_number == 0:
+            return
+        if (
+            self._last_provenance.get("recording_mode") != "sync"
+            or self._last_provenance.get("recording_flush") != "manual"
+        ):
+            raise ValueError(
+                "checkpoint requires a durable quiescent recording boundary "
+                "(recording_mode=sync, recording_flush=manual)"
+            )
+        receipt = self._last_provenance.get("runtime_receipt_sha256")
+        if (
+            not isinstance(receipt, str)
+            or re.fullmatch(r"[0-9a-f]{64}", receipt) is None
+        ):
+            raise ValueError(
+                "checkpoint requires a SHA-256-bound runtime recording receipt"
+            )
+
+    def _validate_no_pending_background_records(self, workspace_fd: int) -> None:
+        pending = self._campaign_relative() / "logs" / "pending-turns"
+        _present, files, _directories = _tree_inventory_at(workspace_fd, pending)
+        if files:
+            raise ValueError(
+                "checkpoint recording boundary is not quiescent: "
+                "pending background recorder batches remain"
+            )
+
+    def _validate_snapshotted_state_at(
+        self,
+        checkpoint_fd: int,
+        state_files: list[dict[str, Any]],
+        session_id: str,
+    ) -> None:
+        entry_fds: dict[str, int] = {}
+        try:
+            for entry in state_files:
+                descriptor = _open_regular_at(checkpoint_fd, entry["path"])
+                entry_fds[entry["workspace_path"]] = descriptor
+            self._validate_snapshot_identities(entry_fds)
+            session_fd = entry_fds.get(".coc/runtime/sessions.json")
+            if session_fd is None:
+                raise ValueError("snapshotted session state is missing")
+            payload = _read_json_fd(session_fd, "snapshotted session state")
+            sanitized, _record = _sanitized_session_payload(
+                payload,
+                session_id=session_id,
+                campaign_id=self.campaign_id,
+                investigator_id=self.investigator_id,
+            )
+            if _read_fd_bytes(session_fd) != sanitized:
+                raise ValueError("snapshotted session state is not canonical")
+        finally:
+            for descriptor in entry_fds.values():
+                os.close(descriptor)
 
     def write_checkpoint(
         self,
@@ -876,6 +1381,8 @@ class CheckpointStore:
             raise ValueError(
                 f"checkpoint turn must equal current integer turn {self._turn_number}"
             )
+        self._validate_identifier(session_id, "session_id")
+        self._validate_recording_boundary()
         model_identity = _validated_model_identity(
             self._last_provenance.get("model_identity")
         )
@@ -888,14 +1395,23 @@ class CheckpointStore:
         ledger_fd = -1
         checkpoints_fd = -1
         temporary_fd = -1
+        campaign_lock = None
         checkpoint_name = f"turn-{turn_number:06d}"
         temporary_name = f".{checkpoint_name}.{uuid.uuid4().hex}.tmp"
         published = False
         state_files: list[dict[str, Any]] = []
         scenario_hashes: dict[str, str] = {}
         source_hashes: dict[str, str] = {}
+        index_hashes: dict[str, str] = {}
+        managed_mutable_trees: dict[str, dict[str, Any]] = {}
+        immutable_trees: dict[str, dict[str, Any]] = {}
+        managed_file_presence: dict[str, bool] = {}
         session_snapshot_sha256 = ""
         try:
+            lock_candidate = _campaign_lock_at(workspace_fd, self._campaign_relative())
+            lock_candidate.__enter__()
+            campaign_lock = lock_candidate
+            self._validate_no_pending_background_records(workspace_fd)
             self._validate_action_ledger_entry(run_fd)
             try:
                 ledger_info = os.stat(
@@ -916,6 +1432,35 @@ class CheckpointStore:
                     self._turn_number,
                     model_identity,
                 )
+
+            self._validate_workspace_identities(workspace_fd)
+            workspace_files = self._workspace_relative_files(workspace_fd)
+            character_relative = self._investigator_relative() / "character.json"
+            if character_relative not in workspace_files:
+                raise ValueError("selected investigator character.json is required")
+            session_payload, _session_record = self._session_snapshot_bytes(
+                workspace_fd, session_id
+            )
+            managed_mutable_trees = self._tree_metadata(
+                workspace_fd, CAMPAIGN_MUTABLE_TREES
+            )
+            immutable_trees = self._tree_metadata(
+                workspace_fd, CAMPAIGN_IMMUTABLE_TREES
+            )
+            optional_paths = [
+                self._campaign_relative() / "party.json",
+                *(self._investigator_relative() / name for name in INVESTIGATOR_FILES),
+                Path(".coc") / "runtime" / "sessions.json",
+                Path(".coc") / "playtest-runs" / self.campaign_id / "actions.jsonl",
+            ]
+            managed_file_presence = {
+                path.as_posix(): (
+                    ledger_fd >= 0
+                    if path.parts[-1:] == ("actions.jsonl",)
+                    else path in workspace_files
+                )
+                for path in optional_paths
+            }
 
             checkpoints_fd = _open_or_create_directory_at(run_fd, "checkpoints")
             os.fsync(run_fd)
@@ -988,27 +1533,60 @@ class CheckpointStore:
                 finally:
                     os.close(source_fd)
 
-            for relative in self._workspace_relative_files(workspace_fd):
+            def snapshot_payload(
+                payload: bytes, workspace_relative: Path
+            ) -> tuple[str, int]:
+                source_fd = -1
+                try:
+                    # The payload is already validated and contains no source
+                    # path.  A private anonymous temporary FD lets the existing
+                    # verified-FD copy path remain the single snapshot writer.
+                    source_fd = os.open(
+                        temporary_name,
+                        os.O_RDWR | os.O_CREAT | os.O_EXCL,
+                        0o600,
+                        dir_fd=temporary_fd,
+                    )
+                    os.unlink(temporary_name, dir_fd=temporary_fd)
+                    _write_all(source_fd, payload)
+                    os.lseek(source_fd, 0, os.SEEK_SET)
+                    return snapshot_fd(source_fd, workspace_relative)
+                finally:
+                    if source_fd >= 0:
+                        os.close(source_fd)
+
+            sessions_relative = Path(".coc") / "runtime" / "sessions.json"
+            for relative in workspace_files:
+                if relative == sessions_relative:
+                    continue
                 checksum, _size = snapshot_file(workspace_fd, relative, relative)
-                if relative.parts[:3] == ("campaigns", self.campaign_id, "scenario"):
+                campaign_prefix = (".coc", "campaigns", self.campaign_id)
+                if relative.parts[:4] == (*campaign_prefix, "scenario"):
                     scenario_hashes[relative.as_posix()] = checksum
-                if relative.parts[:3] == ("campaigns", self.campaign_id, "source"):
+                if relative.parts[:4] == (*campaign_prefix, "source"):
                     source_hashes[relative.as_posix()] = checksum
-                if relative == Path(".coc/runtime/sessions.json"):
-                    session_snapshot_sha256 = checksum
+                if relative.parts[:4] == (*campaign_prefix, "index"):
+                    index_hashes[relative.as_posix()] = checksum
+
+            session_snapshot_sha256, _session_size = snapshot_payload(
+                session_payload, sessions_relative
+            )
 
             if ledger_fd >= 0:
                 journal_relative = (
-                    Path(".coc")
-                    / "playtest-runs"
-                    / self.campaign_id
-                    / "actions.jsonl"
+                    Path(".coc") / "playtest-runs" / self.campaign_id / "actions.jsonl"
                 )
                 snapshot_fd(
                     ledger_fd,
                     journal_relative,
                     validate_journal=True,
                 )
+
+            # Bind structured identities to the exact bytes inside the
+            # unpublished checkpoint, not merely to earlier live-workspace
+            # reads that could have changed before their snapshot FD opened.
+            self._validate_snapshotted_state_at(temporary_fd, state_files, session_id)
+            self._validate_no_pending_background_records(workspace_fd)
 
             legacy_source_hash = ""
             if source_hashes:
@@ -1023,6 +1601,10 @@ class CheckpointStore:
                 "source_pdf_sha256": legacy_source_hash,
                 "source_hashes": source_hashes,
                 "scenario_hashes": scenario_hashes,
+                "index_hashes": index_hashes,
+                "immutable_trees": immutable_trees,
+                "managed_mutable_trees": managed_mutable_trees,
+                "managed_file_presence": managed_file_presence,
                 "state_files": state_files,
                 "session_snapshot_sha256": session_snapshot_sha256,
                 "action_chain_sha256": self.action_chain_sha256,
@@ -1061,6 +1643,8 @@ class CheckpointStore:
             os.fsync(checkpoints_fd)
             os.fsync(run_fd)
         finally:
+            if campaign_lock is not None:
+                campaign_lock.__exit__(None, None, None)
             if ledger_fd >= 0:
                 os.close(ledger_fd)
             if workspace_fd >= 0:
@@ -1078,7 +1662,9 @@ class CheckpointStore:
 
         return self.run_dir / "checkpoints" / checkpoint_name
 
-    def restore_checkpoint(self, checkpoint_dir: Path | str, target: Path | str) -> dict[str, Any]:
+    def restore_checkpoint(
+        self, checkpoint_dir: Path | str, target: Path | str
+    ) -> dict[str, Any]:
         """Validate an immutable checkpoint completely, then restore it.
 
         Validation is intentionally completed before the first target write.
@@ -1098,6 +1684,10 @@ class CheckpointStore:
         run_fd = self._open_run_dir()
         checkpoint_fd = -1
         target_fd = -1
+        workspace_fd = -1
+        source_lock = None
+        target_lock = None
+        target_mutated = False
         entries: list[tuple[dict[str, Any], int]] = []
         try:
             checkpoint_fd = _open_directory_at(
@@ -1116,12 +1706,37 @@ class CheckpointStore:
             if not isinstance(manifest, dict):
                 raise ValueError("invalid checkpoint manifest")
 
+            workspace_fd = self._open_workspace_root()
+            source_lock_candidate = _campaign_lock_at(
+                workspace_fd, self._campaign_relative()
+            )
+            source_lock_candidate.__enter__()
+            source_lock = source_lock_candidate
             self._validate_manifest_identity(manifest, checkpoint_path)
             entries = self._validate_state_files(manifest, checkpoint_fd)
 
             target_path = Path(target).absolute()
-            target_fd = _open_or_create_directory_path(target_path, "target")
-            self._validate_existing_target_at(entries, target_fd)
+            target_fd = _open_directory_path(target_path, "target")
+            self._validate_fresh_target_at(entries, target_fd)
+
+            target_lock_candidate = _campaign_lock_at(
+                target_fd, self._campaign_relative()
+            )
+            # The lock helper creates the selected campaign directory.  From
+            # this point onward cleanup owns only the fresh-generation paths
+            # that preflight proved absent, even if lock acquisition is raced.
+            target_mutated = True
+            target_lock_candidate.__enter__()
+            target_lock = target_lock_candidate
+
+            for field in ("managed_mutable_trees", "immutable_trees"):
+                for root, metadata in manifest[field].items():
+                    if not metadata["present"]:
+                        continue
+                    for member in metadata["directories"]:
+                        relative = Path(root) if member == "." else Path(root) / member
+                        directory_fd = _open_or_create_directory_at(target_fd, relative)
+                        os.close(directory_fd)
 
             # Every source FD stays open from checksum validation through the
             # atomic, target-dirfd-relative copy.
@@ -1135,16 +1750,40 @@ class CheckpointStore:
                     entry["sha256"],
                     entry["size"],
                 )
-            marker_fd = _open_or_create_directory_at(
-                target_fd, Path(".coc") / "playtest-runs" / self.campaign_id
-            )
-            os.close(marker_fd)
             _require_directory_path_identity(target_path, target_fd, "target")
             os.fsync(target_fd)
+            target_lock.__exit__(None, None, None)
+            target_lock = None
             return manifest
+        except Exception:
+            if target_lock is not None:
+                target_lock.__exit__(None, None, None)
+                target_lock = None
+            if target_mutated and target_fd >= 0:
+                for relative in (
+                    self._campaign_relative(),
+                    self._investigator_relative(),
+                    Path(".coc") / "playtest-runs" / self.campaign_id,
+                ):
+                    try:
+                        _remove_relative_tree_at(target_fd, relative)
+                    except (OSError, ValueError):
+                        pass
+                for relative in (Path(".coc") / "runtime" / "sessions.json",):
+                    try:
+                        _unlink_file_at(target_fd, relative)
+                    except (OSError, ValueError):
+                        pass
+            raise
         finally:
+            if target_lock is not None:
+                target_lock.__exit__(None, None, None)
+            if source_lock is not None:
+                source_lock.__exit__(None, None, None)
             for _entry, source_fd in entries:
                 os.close(source_fd)
+            if workspace_fd >= 0:
+                os.close(workspace_fd)
             if target_fd >= 0:
                 os.close(target_fd)
             if checkpoint_fd >= 0:
@@ -1156,44 +1795,67 @@ class CheckpointStore:
         if not isinstance(value, str) or not value or "\x00" in value:
             raise ValueError(f"invalid {field}: containment violation")
         relative = Path(value)
-        if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        if relative.is_absolute() or any(
+            part in {"", ".", ".."} for part in relative.parts
+        ):
             raise ValueError(f"invalid {field}: traversal is not allowed")
         return relative
 
-    def _current_workspace_hashes(self) -> tuple[dict[str, str], dict[str, str]]:
+    def _current_workspace_hashes(
+        self,
+    ) -> tuple[
+        dict[str, str],
+        dict[str, str],
+        dict[str, str],
+        dict[str, dict[str, Any]],
+    ]:
         """Hash live immutable inputs through one verified workspace descriptor."""
 
         workspace_fd = self._open_workspace_root()
         source_hashes: dict[str, str] = {}
         scenario_hashes: dict[str, str] = {}
+        index_hashes: dict[str, str] = {}
         try:
-            for relative in self._workspace_relative_files(workspace_fd):
-                parts = relative.parts
-                if parts[:3] not in {
-                    ("campaigns", self.campaign_id, "source"),
-                    ("campaigns", self.campaign_id, "scenario"),
-                }:
-                    continue
-                source_fd = _open_regular_at(workspace_fd, relative)
-                try:
-                    checksum, _size = _sha256_fd(source_fd)
-                finally:
-                    os.close(source_fd)
-                if parts[2] == "source":
-                    source_hashes[relative.as_posix()] = checksum
-                else:
-                    scenario_hashes[relative.as_posix()] = checksum
+            campaign = self._campaign_relative()
+            for name, target in (
+                ("source", source_hashes),
+                ("scenario", scenario_hashes),
+                ("index", index_hashes),
+            ):
+                _present, files, _directories = _tree_inventory_at(
+                    workspace_fd, campaign / name
+                )
+                for relative in files:
+                    source_fd = _open_regular_at(workspace_fd, relative)
+                    try:
+                        checksum, _size = _sha256_fd(source_fd)
+                    finally:
+                        os.close(source_fd)
+                    target[relative.as_posix()] = checksum
+            immutable_trees = self._tree_metadata(
+                workspace_fd, CAMPAIGN_IMMUTABLE_TREES
+            )
             self._require_workspace_root_identity(workspace_fd)
         finally:
             os.close(workspace_fd)
-        return source_hashes, scenario_hashes
+        return source_hashes, scenario_hashes, index_hashes, immutable_trees
 
-    def _validate_manifest_identity(self, manifest: dict[str, Any], checkpoint_path: Path) -> None:
+    def _validate_manifest_identity(
+        self, manifest: dict[str, Any], checkpoint_path: Path
+    ) -> None:
         version = manifest.get("schema_version")
-        if isinstance(version, bool) or not isinstance(version, int) or version != SCHEMA_VERSION:
+        if (
+            isinstance(version, bool)
+            or not isinstance(version, int)
+            or version != SCHEMA_VERSION
+        ):
             raise ValueError("checkpoint schema version mismatch")
         if manifest.get("run_id") != self.campaign_id:
             raise ValueError("checkpoint run id mismatch")
+        try:
+            self._validate_identifier(manifest.get("session_id"), "session_id")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("checkpoint session id mismatch") from exc
         manifest_turn = manifest.get("turn_number")
         if (
             isinstance(manifest_turn, bool)
@@ -1201,13 +1863,25 @@ class CheckpointStore:
             or manifest_turn < 0
         ):
             raise ValueError("checkpoint turn number is invalid")
-        _validated_model_identity(manifest.get("model_identity"))
-        if manifest.get("player_mode") != self._last_provenance.get("player_mode"):
+        manifest_model = _validated_model_identity(manifest.get("model_identity"))
+        expected_chain, boundary_provenance = self._outer_journal_boundary(
+            manifest_turn
+        )
+        if manifest.get("player_mode") != boundary_provenance.get("player_mode"):
             raise ValueError("checkpoint player mode mismatch")
-        if manifest.get("action_chain_sha256") != self.action_chain_sha256:
+        if manifest_model != _validated_model_identity(
+            boundary_provenance.get("model_identity")
+        ):
+            raise ValueError("checkpoint model identity mismatch")
+        if manifest.get("action_chain_sha256") != expected_chain:
             raise ValueError("checkpoint action chain checksum mismatch")
 
-        expected_sources, expected_scenarios = self._current_workspace_hashes()
+        (
+            expected_sources,
+            expected_scenarios,
+            expected_indexes,
+            expected_immutable_trees,
+        ) = self._current_workspace_hashes()
         if manifest.get("source_hashes") != expected_sources:
             raise ValueError("checkpoint source hashes mismatch")
         expected_source = ""
@@ -1218,6 +1892,10 @@ class CheckpointStore:
 
         if manifest.get("scenario_hashes") != expected_scenarios:
             raise ValueError("checkpoint scenario hash mismatch")
+        if manifest.get("index_hashes") != expected_indexes:
+            raise ValueError("checkpoint index hash mismatch")
+        if manifest.get("immutable_trees") != expected_immutable_trees:
+            raise ValueError("checkpoint immutable tree membership mismatch")
 
         old_head = manifest.get("git_head")
         if old_head != self.git_head:
@@ -1225,9 +1903,8 @@ class CheckpointStore:
             segments = state.get("segments") if isinstance(state, dict) else None
             valid = isinstance(segments, list) and any(
                 isinstance(segment, dict)
-                and set(segment) == {
-                    "kind", "old_commit", "new_commit", "replay_start_checkpoint"
-                }
+                and set(segment)
+                == {"kind", "old_commit", "new_commit", "replay_start_checkpoint"}
                 and segment.get("kind") == "invalidated_segment"
                 and segment.get("old_commit") == old_head
                 and segment.get("new_commit") == self.git_head
@@ -1235,11 +1912,14 @@ class CheckpointStore:
                 for segment in segments
             )
             if not valid:
-                raise ValueError("checkpoint Git HEAD mismatch requires an exact invalidated segment")
+                raise ValueError(
+                    "checkpoint Git HEAD mismatch requires an exact invalidated segment"
+                )
 
     def _restore_destination_is_allowlisted(self, relative: Path) -> bool:
         parts = relative.parts
-        campaign_prefix = ("campaigns", self.campaign_id)
+        campaign_prefix = (".coc", "campaigns", self.campaign_id)
+        investigator_prefix = (".coc", "investigators", self.investigator_id)
         journal = (
             ".coc",
             "playtest-runs",
@@ -1247,11 +1927,23 @@ class CheckpointStore:
             "actions.jsonl",
         )
         return (
-            len(parts) >= 4
-            and parts[:2] == campaign_prefix
-            and parts[2] in {"source", "scenario"}
+            parts == (*campaign_prefix, "campaign.json")
+            or parts == (*campaign_prefix, "party.json")
+            or (
+                len(parts) >= 5
+                and parts[:3] == campaign_prefix
+                and parts[3]
+                in {
+                    *CAMPAIGN_MUTABLE_TREES,
+                    *CAMPAIGN_IMMUTABLE_TREES,
+                }
+            )
+            or (
+                len(parts) == 4
+                and parts[:3] == investigator_prefix
+                and parts[3] in INVESTIGATOR_FILES
+            )
         ) or parts in {
-            ("investigators", f"{self.investigator_id}.json"),
             (".coc", "runtime", "sessions.json"),
             journal,
         }
@@ -1266,15 +1958,21 @@ class CheckpointStore:
         seen_workspace_paths: set[str] = set()
         source_from_entries: dict[str, str] = {}
         scenario_from_entries: dict[str, str] = {}
+        index_from_entries: dict[str, str] = {}
         session_hash = ""
         journal_fd: int | None = None
+        session_fd: int | None = None
+        entry_fds: dict[str, int] = {}
         journal_workspace = (
             Path(".coc") / "playtest-runs" / self.campaign_id / "actions.jsonl"
         )
         try:
             for raw in raw_entries:
                 if not isinstance(raw, dict) or set(raw) != {
-                    "path", "workspace_path", "sha256", "size"
+                    "path",
+                    "workspace_path",
+                    "sha256",
+                    "size",
                 }:
                     raise ValueError("invalid checkpoint state file entry")
                 stored_relative = self._safe_relative(raw["path"], "checkpoint path")
@@ -1286,7 +1984,9 @@ class CheckpointStore:
                         f"checkpoint restore destination is outside allowlist: {workspace_relative}"
                     )
                 if stored_relative != Path("state") / workspace_relative:
-                    raise ValueError("checkpoint state path does not match restore destination")
+                    raise ValueError(
+                        "checkpoint state path does not match restore destination"
+                    )
                 canonical_workspace = workspace_relative.as_posix()
                 if canonical_workspace in seen_workspace_paths:
                     raise ValueError("duplicate checkpoint workspace path")
@@ -1304,17 +2004,20 @@ class CheckpointStore:
                 try:
                     checksum, size = _sha256_fd(source_fd)
                     if size != raw["size"] or checksum != raw["sha256"]:
-                        raise ValueError(
-                            f"checkpoint checksum mismatch: {raw['path']}"
-                        )
+                        raise ValueError(f"checkpoint checksum mismatch: {raw['path']}")
                     parts = workspace_relative.parts
-                    if parts[:3] == ("campaigns", self.campaign_id, "source"):
+                    prefix = (".coc", "campaigns", self.campaign_id)
+                    if parts[:4] == (*prefix, "source"):
                         source_from_entries[canonical_workspace] = checksum
-                    if parts[:3] == ("campaigns", self.campaign_id, "scenario"):
+                    if parts[:4] == (*prefix, "scenario"):
                         scenario_from_entries[canonical_workspace] = checksum
+                    if parts[:4] == (*prefix, "index"):
+                        index_from_entries[canonical_workspace] = checksum
                     if workspace_relative == Path(".coc/runtime/sessions.json"):
                         session_hash = checksum
+                        session_fd = source_fd
                     entries.append((raw, source_fd))
+                    entry_fds[canonical_workspace] = source_fd
                     if workspace_relative == journal_workspace:
                         journal_fd = source_fd
                     source_fd = -1
@@ -1325,8 +2028,66 @@ class CheckpointStore:
                 raise ValueError("checkpoint source manifest mismatch")
             if scenario_from_entries != manifest.get("scenario_hashes"):
                 raise ValueError("checkpoint scenario manifest mismatch")
+            if index_from_entries != manifest.get("index_hashes"):
+                raise ValueError("checkpoint index manifest mismatch")
             if session_hash != manifest.get("session_snapshot_sha256"):
                 raise ValueError("checkpoint session snapshot checksum mismatch")
+            campaign_state_path = (
+                self._campaign_relative() / "campaign.json"
+            ).as_posix()
+            if campaign_state_path not in seen_workspace_paths:
+                raise ValueError("checkpoint campaign state is missing")
+
+            mutable_trees = self._validate_tree_manifest(
+                manifest.get("managed_mutable_trees"),
+                CAMPAIGN_MUTABLE_TREES,
+                "managed mutable tree",
+            )
+            immutable_trees = self._validate_tree_manifest(
+                manifest.get("immutable_trees"),
+                CAMPAIGN_IMMUTABLE_TREES,
+                "immutable tree",
+            )
+            for root, metadata in {**mutable_trees, **immutable_trees}.items():
+                has_files = any(
+                    path.startswith(root + "/") for path in seen_workspace_paths
+                )
+                if not metadata["present"] and has_files:
+                    raise ValueError(f"absent checkpoint tree contains files: {root}")
+
+            expected_presence_paths = {
+                (self._campaign_relative() / "party.json").as_posix(),
+                *(
+                    (self._investigator_relative() / name).as_posix()
+                    for name in INVESTIGATOR_FILES
+                ),
+                ".coc/runtime/sessions.json",
+                journal_workspace.as_posix(),
+            }
+            presence = manifest.get("managed_file_presence")
+            if (
+                not isinstance(presence, dict)
+                or set(presence) != expected_presence_paths
+                or not all(type(value) is bool for value in presence.values())
+            ):
+                raise ValueError("invalid managed file presence manifest")
+            for path, expected_present in presence.items():
+                if (path in seen_workspace_paths) != expected_present:
+                    raise ValueError(f"managed file presence mismatch: {path}")
+
+            if session_fd is None:
+                raise ValueError("checkpoint session snapshot is missing")
+            session_payload = _read_json_fd(session_fd, "session snapshot")
+            sanitized, _record = _sanitized_session_payload(
+                session_payload,
+                session_id=manifest.get("session_id"),
+                campaign_id=self.campaign_id,
+                investigator_id=self.investigator_id,
+            )
+            if _read_fd_bytes(session_fd) != sanitized:
+                raise ValueError("checkpoint session snapshot is not canonical")
+
+            self._validate_snapshot_identities(entry_fds)
             manifest_turn = manifest["turn_number"]
             manifest_chain = manifest.get("action_chain_sha256")
             manifest_model_identity = _validated_model_identity(
@@ -1334,7 +2095,9 @@ class CheckpointStore:
             )
             if journal_fd is None:
                 if manifest_turn != 0 or manifest_chain != GENESIS_SHA256:
-                    raise ValueError("action journal is missing for a non-empty checkpoint")
+                    raise ValueError(
+                        "action journal is missing for a non-empty checkpoint"
+                    )
             else:
                 _validate_action_journal_fd(
                     journal_fd,
@@ -1348,43 +2111,192 @@ class CheckpointStore:
                 os.close(source_fd)
             raise
 
-    def _validate_existing_target_at(
-        self, entries: list[tuple[dict[str, Any], int]], target_fd: int
-    ) -> None:
-        for entry, _source_fd in entries:
-            relative = Path(entry["workspace_path"])
-            parent_fd = _open_existing_directory_at(target_fd, relative.parent)
-            if parent_fd is None:
-                continue
-            try:
-                try:
-                    info = os.stat(
-                        relative.name, dir_fd=parent_fd, follow_symlinks=False
-                    )
-                except FileNotFoundError:
+    def _validate_tree_manifest(
+        self,
+        raw: Any,
+        names: tuple[str, ...],
+        field: str,
+    ) -> dict[str, dict[str, Any]]:
+        expected_roots = {
+            (self._campaign_relative() / name).as_posix() for name in names
+        }
+        if not isinstance(raw, dict) or set(raw) != expected_roots:
+            raise ValueError(f"invalid {field} manifest")
+        validated: dict[str, dict[str, Any]] = {}
+        for root, value in raw.items():
+            if (
+                not isinstance(value, dict)
+                or set(value) != {"present", "directories"}
+                or type(value.get("present")) is not bool
+                or not isinstance(value.get("directories"), list)
+                or not all(isinstance(item, str) for item in value["directories"])
+                or value["directories"] != sorted(set(value["directories"]))
+            ):
+                raise ValueError(f"invalid {field} membership")
+            directories = value["directories"]
+            if value["present"] != ("." in directories):
+                raise ValueError(f"invalid {field} presence")
+            for member in directories:
+                if member == ".":
                     continue
-                if stat.S_ISLNK(info.st_mode):
-                    raise ValueError(f"target symlink is not allowed: {relative}")
-                if not stat.S_ISREG(info.st_mode):
-                    raise ValueError(f"target path is not a regular file: {relative}")
-                parts = relative.parts
-                immutable = parts[:3] in {
-                    ("campaigns", self.campaign_id, "source"),
-                    ("campaigns", self.campaign_id, "scenario"),
-                }
-                if immutable:
-                    destination_fd = _open_regular_at(parent_fd, relative.name)
-                    try:
-                        checksum, _size = _sha256_fd(destination_fd)
-                    finally:
-                        os.close(destination_fd)
-                    label = "source" if parts[2] == "source" else "scenario"
-                    if checksum != entry["sha256"]:
-                        raise ValueError(
-                            f"existing target {label} does not match checkpoint"
-                        )
-            finally:
-                os.close(parent_fd)
+                self._safe_relative(member, f"{field} directory")
+            validated[root] = {
+                "present": value["present"],
+                "directories": list(directories),
+            }
+        return validated
+
+    def _validate_snapshot_identities(self, entry_fds: dict[str, int]) -> None:
+        def optional_json(path: Path, field: str) -> dict[str, Any] | None:
+            descriptor = entry_fds.get(path.as_posix())
+            return None if descriptor is None else _read_json_fd(descriptor, field)
+
+        campaign = self._campaign_relative()
+        campaign_state = optional_json(campaign / "campaign.json", "campaign state")
+        if (
+            campaign_state is None
+            or campaign_state.get("campaign_id") != self.campaign_id
+        ):
+            raise ValueError("checkpoint campaign identity mismatch")
+        party = optional_json(campaign / "party.json", "party state")
+        if party is not None:
+            members = party.get("investigator_ids")
+            active = party.get("active_investigator_ids")
+            if (
+                not isinstance(members, list)
+                or self.investigator_id not in members
+                or (
+                    active is not None
+                    and (
+                        not isinstance(active, list)
+                        or self.investigator_id not in active
+                    )
+                )
+                or party.get("campaign_id") not in {None, self.campaign_id}
+            ):
+                raise ValueError("checkpoint party identity mismatch")
+        investigator = optional_json(
+            campaign / "save" / "investigator-state" / f"{self.investigator_id}.json",
+            "investigator save state",
+        )
+        if investigator is not None and (
+            investigator.get("campaign_id") != self.campaign_id
+            or investigator.get("investigator_id") != self.investigator_id
+        ):
+            raise ValueError("checkpoint investigator identity mismatch")
+        world = optional_json(campaign / "save" / "world-state.json", "world state")
+        module = optional_json(
+            campaign / "scenario" / "module-meta.json", "module metadata"
+        )
+        if world is not None and module is not None:
+            world_scenario = world.get("scenario_id")
+            module_scenario = module.get("scenario_id")
+            if (
+                isinstance(world_scenario, str)
+                and isinstance(module_scenario, str)
+                and world_scenario != module_scenario
+            ):
+                raise ValueError("checkpoint scenario identity mismatch")
+
+    def _validate_fresh_target_at(
+        self,
+        entries: list[tuple[dict[str, Any], int]],
+        target_fd: int,
+    ) -> None:
+        try:
+            root_names = sorted(os.listdir(target_fd))
+        except OSError as exc:
+            raise ValueError("target generation cannot be enumerated") from exc
+        if root_names != [".coc"]:
+            raise ValueError("restore target must be a fresh workspace generation")
+        present, files, directories = _tree_inventory_at(target_fd, Path(".coc"))
+        if not present:
+            raise ValueError("restore target must provide local .coc configuration")
+        for relative in files:
+            parts = relative.parts
+            allowed = (
+                parts == (".coc", "runtime.json")
+                or parts[:2] == (".coc", "indexes")
+                or parts[:2] == (".coc", "module-library")
+            )
+            if not allowed:
+                raise ValueError(
+                    f"restore target contains a managed or unrelated file: {relative}"
+                )
+        for member in directories:
+            if member == ".":
+                continue
+            parts = Path(member).parts
+            if parts in {
+                ("campaigns",),
+                ("investigators",),
+                ("runtime",),
+                ("playtest-runs",),
+                ("indexes",),
+                ("module-library",),
+            }:
+                continue
+            if parts[:1] in {("indexes",), ("module-library",)}:
+                continue
+            raise ValueError("restore target contains an existing managed generation")
+
+        runtime = self._json_object_at(
+            target_fd, Path(".coc") / "runtime.json", "target runtime config"
+        )
+        session_entry = next(
+            (
+                source_fd
+                for entry, source_fd in entries
+                if entry["workspace_path"] == ".coc/runtime/sessions.json"
+            ),
+            None,
+        )
+        if session_entry is None:
+            raise ValueError("checkpoint session snapshot is missing")
+        session_payload = _read_json_fd(session_entry, "session snapshot")
+        _sanitized, session_record = _sanitized_session_payload(
+            session_payload,
+            session_id=session_payload["sessions"][0].get("session_id"),
+            campaign_id=self.campaign_id,
+            investigator_id=self.investigator_id,
+        )
+        if _brain_label_for_config(runtime) != session_record["brain_at_create"]:
+            raise ValueError("target runtime configuration is incompatible")
+
+        campaign_index = self._json_object_at(
+            target_fd,
+            Path(".coc") / "indexes" / "campaigns.json",
+            "target campaign index",
+        )
+        investigator_index = self._json_object_at(
+            target_fd,
+            Path(".coc") / "indexes" / "investigators.json",
+            "target investigator index",
+        )
+        campaigns = campaign_index.get("campaigns")
+        investigators = investigator_index.get("investigators")
+        campaign_item = (
+            campaigns.get(self.campaign_id) if isinstance(campaigns, dict) else None
+        )
+        investigator_item = (
+            investigators.get(self.investigator_id)
+            if isinstance(investigators, dict)
+            else None
+        )
+        if (
+            not isinstance(campaign_item, dict)
+            or campaign_item.get("campaign_id") != self.campaign_id
+            or campaign_item.get("path")
+            != f".coc/campaigns/{self.campaign_id}/campaign.json"
+        ):
+            raise ValueError("target campaign index is not prepared")
+        if (
+            not isinstance(investigator_item, dict)
+            or investigator_item.get("id") != self.investigator_id
+            or investigator_item.get("path")
+            != f".coc/investigators/{self.investigator_id}/character.json"
+        ):
+            raise ValueError("target investigator index is not prepared")
 
     @staticmethod
     def _restore_file_atomic_at(
