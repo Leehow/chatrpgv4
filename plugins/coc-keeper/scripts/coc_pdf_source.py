@@ -2,7 +2,7 @@
 """Structured PDF source-evidence bundle for compiled COC scenarios.
 
 This module owns page identity, parse-manifest quality, and local evidence
-segments.  It never interprets module prose: all decisions use source IDs,
+segments. It never interprets module prose: all decisions use source IDs,
 locators, hashes, review states, confidence numbers, and explicit anchors.
 """
 from __future__ import annotations
@@ -11,8 +11,13 @@ import copy
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_fileio
 
