@@ -41,6 +41,84 @@ def _record(tmp_path: Path, *, campaign_id: str = "case", investigator_id: str =
     }
 
 
+def _valid_player_intent() -> dict:
+    return {
+        "primary_intent": "investigate",
+        "secondary_intents": [],
+        "target_entities": ["scene"],
+        "risk_posture": "cautious",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "action_atoms": [{"topic": "room", "verb": "search"}],
+        "npc_interactions": [],
+    }
+
+
+def test_player_intent_validator_accepts_exact_public_shape_without_aliasing():
+    session = _load_session()
+    intent = _valid_player_intent()
+
+    normalized = session._validate_player_intent(intent)
+
+    assert normalized == intent
+    assert normalized is not intent
+    assert normalized["action_atoms"] is not intent["action_atoms"]
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("primary_intent", "interpret-prose-locally"),
+        ("primary_intent", 1),
+        ("secondary_intents", ["follow_up", 1]),
+        ("target_entities", "scene"),
+        ("risk_posture", "desperate"),
+        ("explicit_roll_request", 1),
+        ("player_hypothesis", {"guess": "hidden door"}),
+        ("action_atoms", [{"path": ("room", "desk")}]),
+        ("npc_interactions", [{"difficulty": math.nan}]),
+    ],
+)
+def test_player_intent_validator_rejects_malformed_public_fields(field, bad_value):
+    session = _load_session()
+    intent = _valid_player_intent()
+    intent[field] = bad_value
+
+    with pytest.raises((TypeError, ValueError)):
+        session._validate_player_intent(intent)
+
+
+def test_player_intent_validator_requires_exact_public_fields():
+    session = _load_session()
+    missing = _valid_player_intent()
+    missing.pop("npc_interactions")
+    extra = {**_valid_player_intent(), "intent_detail": "careful_investigation"}
+
+    with pytest.raises(ValueError):
+        session._validate_player_intent(missing)
+    with pytest.raises(ValueError):
+        session._validate_player_intent(extra)
+
+
+@pytest.mark.parametrize("seed", [0, -1, 2**128, "", "run-a:0001"])
+def test_rng_seed_validator_preserves_exact_integer_or_string(seed):
+    session = _load_session()
+
+    assert session._validate_rng_seed(seed) == seed
+    assert type(session._validate_rng_seed(seed)) is type(seed)
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [True, False, None, 1.0, [], {}, {"seed"}, ("run-a", 1)],
+)
+def test_rng_seed_validator_rejects_boolean_collection_and_non_exact_scalars(seed):
+    session = _load_session()
+
+    with pytest.raises((TypeError, ValueError)):
+        session._validate_rng_seed(seed)
+
+
 def test_registry_expires_and_tombstones_session_without_revival(tmp_path):
     session = _load_session()
     clock = FakeClock()

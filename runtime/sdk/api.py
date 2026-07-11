@@ -52,6 +52,8 @@ def send(
     session_id: str,
     player_input: str,
     *,
+    player_intent: dict[str, Any] | None = None,
+    rng_seed: int | str | None = None,
     subsystem_request: dict[str, Any] | None = None,
     pending_choice_response: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
@@ -63,7 +65,8 @@ def send(
     """
     _load_paths_module().validate_id(session_id, "session_id")
     return _session.send(
-        session_id, player_input, subsystem_request=subsystem_request,
+        session_id, player_input, player_intent=player_intent,
+        rng_seed=rng_seed, subsystem_request=subsystem_request,
         pending_choice_response=pending_choice_response,
     )
 

@@ -135,6 +135,37 @@ def _build_live_campaign(tmp_path: Path):
     return camp, char_path
 
 
+def _structured_player_intent(primary_intent: str = "investigate") -> dict:
+    return {
+        "primary_intent": primary_intent,
+        "secondary_intents": [],
+        "target_entities": ["scene"],
+        "risk_posture": "cautious",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "action_atoms": [{"topic": "room", "verb": "search"}],
+        "npc_interactions": [],
+    }
+
+
+def _campaign_snapshot(campaign_dir: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(campaign_dir).as_posix(): path.read_bytes()
+        for path in campaign_dir.rglob("*")
+        if path.is_file()
+    }
+
+
+def _roll_payloads(campaign_dir: Path) -> list[dict]:
+    return [
+        json.loads(line)["payload"]
+        for line in (campaign_dir / "logs" / "rolls.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+
+
 def test_sdk_debug_create_send_state_close(tmp_path):
     camp, _char = _build_live_campaign(tmp_path)
     (tmp_path / ".coc" / "runtime.json").write_text(
@@ -183,6 +214,127 @@ def test_sdk_debug_create_send_state_close(tmp_path):
     api.close_session(sid)
     with pytest.raises(Exception):
         api.send(sid, "再试一次。")
+
+
+@pytest.mark.parametrize(
+    ("primary_intent", "player_input"),
+    [
+        ("investigate", "我仔细搜查房间。"),
+        ("social", "我谨慎地询问在场的人。"),
+    ],
+)
+def test_sdk_records_structured_caller_intent_and_turn_seed(
+    tmp_path, primary_intent, player_input,
+):
+    camp, _char = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(
+        json.dumps({"schema_version": 1, "brain": "debug"}),
+        encoding="utf-8",
+    )
+    api = _load(
+        f"runtime_sdk_api_structured_{primary_intent}", "runtime/sdk/api.py"
+    )
+    sid = api.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+    intent = _structured_player_intent(primary_intent)
+    seed = f"run-a:{primary_intent}:0001"
+
+    events = api.send(
+        sid,
+        player_input,
+        player_intent=intent,
+        rng_seed=seed,
+    )
+
+    assert events
+    receipt = json.loads(
+        (camp / "logs" / "live-turn-runtime.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[-1]
+    )
+    assert receipt["intent_resolution"] == {
+        "source": "caller_intent_class",
+        "intent_class": primary_intent,
+    }
+    assert receipt["rng_seed"] == seed
+    assert seed not in json.dumps(events, ensure_ascii=False)
+
+
+def test_sdk_same_seed_and_pre_turn_snapshot_replay_identical_roll_payloads(
+    tmp_path,
+):
+    payloads: list[list[dict]] = []
+    for run_name in ("first", "replay"):
+        workspace = tmp_path / run_name
+        camp, _char = _build_live_campaign(workspace)
+        (workspace / ".coc" / "runtime.json").write_text(
+            json.dumps({"schema_version": 1, "brain": "debug"}),
+            encoding="utf-8",
+        )
+        api = _load(f"runtime_sdk_api_seed_{run_name}", "runtime/sdk/api.py")
+        sid = api.create_session(
+            workspace, campaign_id="live", investigator_id="inv1"
+        )
+        intent = _structured_player_intent()
+        intent["explicit_roll_request"] = True
+        intent["action_atoms"] = [{
+            "id": "search-room",
+            "topic": "room",
+            "verb": "search",
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+            "stakes": "The search costs time.",
+        }]
+
+        api.send(
+            sid,
+            "我仔细搜查房间。",
+            player_intent=intent,
+            rng_seed="run-a:roll:0001",
+        )
+        payloads.append(_roll_payloads(camp))
+
+    assert payloads[0]
+    assert payloads[0] == payloads[1]
+
+
+@pytest.mark.parametrize(
+    ("player_intent", "rng_seed"),
+    [
+        ({"primary_intent": "investigate"}, None),
+        ({**_structured_player_intent(), "unexpected": "field"}, None),
+        ({**_structured_player_intent(), "primary_intent": "guess"}, None),
+        (
+            {
+                **_structured_player_intent(),
+                "action_atoms": [{"topic": "room", "opaque": object()}],
+            },
+            None,
+        ),
+        (_structured_player_intent(), True),
+        (_structured_player_intent(), ["run-a", 1]),
+    ],
+)
+def test_sdk_rejects_malformed_structured_turn_before_campaign_mutation(
+    tmp_path, player_intent, rng_seed,
+):
+    camp, _char = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(
+        json.dumps({"schema_version": 1, "brain": "debug"}),
+        encoding="utf-8",
+    )
+    api = _load("runtime_sdk_api_reject_structured", "runtime/sdk/api.py")
+    sid = api.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+    before = _campaign_snapshot(camp)
+
+    with pytest.raises((TypeError, ValueError)):
+        api.send(
+            sid,
+            "我仔细搜查房间。",
+            player_intent=player_intent,
+            rng_seed=rng_seed,
+        )
+
+    assert _campaign_snapshot(camp) == before
 
 
 def test_sdk_debug_accepts_typed_rescue_request(tmp_path):

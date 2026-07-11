@@ -17,9 +17,41 @@ Third-party web-search vendors are out of scope.
 | Operation | Semantics |
 |---|---|
 | `create_session(workspace)` | Returns `session_id`. Reads project brain config when the session starts. |
-| `send(session_id, player_input)` | Returns `events[]` (or async iterator of events). One player turn. |
+| `send(session_id, player_input, *, player_intent=None, rng_seed=None, subsystem_request=None, pending_choice_response=None)` | Returns `events[]` (or async iterator of events). One player turn or typed subsystem continuation. |
 | `get_state(session_id)` | Returns `PublicState` — player-safe snapshot without replaying the full log. |
 | `close_session(session_id)` | Ends the session. |
+
+### One-turn player input
+
+A caller may attach structured semantic evidence and a deterministic seed to
+one player turn. The JSON-equivalent shape is:
+
+```json
+{
+  "player_input": "我仔细搜查房间。",
+  "player_intent": {
+    "primary_intent": "investigate",
+    "secondary_intents": [],
+    "target_entities": ["scene"],
+    "risk_posture": "cautious",
+    "explicit_roll_request": false,
+    "player_hypothesis": null,
+    "action_atoms": [{"topic": "room", "verb": "search"}],
+    "npc_interactions": []
+  },
+  "rng_seed": "run-a:0001"
+}
+```
+
+`player_intent` is the caller's own structured statement of the intended
+action. The runtime validates its exact public fields and canonical enums; it
+does not derive or repair the structure by interpreting `player_input`.
+`action_atoms` and `npc_interactions` must be lists of JSON-only objects.
+
+`rng_seed` is an exact non-boolean integer or string scoped to this turn. The
+same seed and pre-turn snapshot reproduce the same rule rolls. The seed is
+recorded as `rng_seed` in `logs/live-turn-runtime.jsonl`, but is never added to
+player-visible events or narration. Omitting it keeps production entropy.
 
 ## Event envelope
 
