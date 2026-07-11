@@ -1,6 +1,7 @@
 """Boundary hardening for semantic requests, source evidence, and confidence IDs."""
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -107,7 +108,14 @@ def test_compile_request_excludes_raw_npc_and_front_keeper_prose(tmp_path: Path)
     assert "clock-alert" in serialized
 
 
-def _source_inputs(*, segment_review="auto_accepted", segment_hash="text-a"):
+def _source_inputs(
+    *,
+    segment_review="auto_accepted",
+    segment_text="Evidence segment A",
+    segment_hash=None,
+):
+    if segment_hash is None:
+        segment_hash = hashlib.sha256(segment_text.encode("utf-8")).hexdigest()
     page_map = {
         "sources": [
             {
@@ -132,7 +140,7 @@ def _source_inputs(*, segment_review="auto_accepted", segment_hash="text-a"):
                 "source_id": "pdf:x",
                 "pdf_indices": [11],
                 "file_sha256": "file-a",
-                "text_sha256": "text-a",
+                "text_sha256": "range-text-a",
                 "quality": {"overall": 0.95},
                 "review_state": "auto_accepted",
             }
@@ -147,6 +155,7 @@ def _source_inputs(*, segment_review="auto_accepted", segment_hash="text-a"):
             "parse_confidence": 0.91,
             "review_state": segment_review,
             "grep_anchors": ["Anchor A"],
+            "text": segment_text,
         }
     ]
     ref = {"source_id": "pdf:x", "printed_page": 7, "grep_anchor": "Anchor A"}
@@ -164,8 +173,8 @@ def test_critical_source_rejects_unreviewed_evidence_segment():
     assert "source_needs_review" in {finding["code"] for finding in result["findings"]}
 
 
-def test_critical_source_rejects_segment_manifest_text_hash_mismatch():
-    ref, page_map, manifest, segments = _source_inputs(segment_hash="text-b")
+def test_critical_source_rejects_tampered_segment_text_hash():
+    ref, page_map, manifest, segments = _source_inputs(segment_hash="0" * 64)
 
     result = coc_pdf_source.critical_source_allowed(
         [ref], manifest, segments, page_map=page_map
