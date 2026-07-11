@@ -25,6 +25,29 @@ jobs:
         run: |
           python scripts/apply_cognitive_storylets_narration_patch.py
           python scripts/apply_epistemic_report_patch.py
+      - name: Correct mixed-effect fixture focus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/test_epistemic_blueprint_e2e.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    fixture = _fixture("branching-investigation")
+              campaign = _campaign(tmp_path, fixture)
+              planned = coc_epistemic_policy.plan_epistemic_contract(
+          '''.replace("              ", "    ")
+          new = '''    fixture = _fixture("branching-investigation")
+              campaign = _campaign(tmp_path, fixture)
+              focused_state = coc_belief_state.read_belief_state(campaign)
+              focused_state["active_question_ids"] = ["q-motive"]
+              _write_json(campaign / "save" / "belief-state.json", focused_state)
+              planned = coc_epistemic_policy.plan_epistemic_contract(
+          '''.replace("              ", "    ")
+          if new not in text:
+              if old not in text:
+                  raise SystemExit("mixed-effect fixture marker not found")
+              text = text.replace(old, new, 1)
+              path.write_text(text, encoding="utf-8")
+          PY
       - name: Run focused cognitive, narration, metrics, report, and E2E suites
         id: focused
         continue-on-error: true
@@ -60,7 +83,8 @@ jobs:
             plugins/coc-keeper/scripts/coc_narration_contract.py \
             plugins/coc-keeper/scripts/coc_playtest_report.py \
             plugins/coc-keeper/references/rules-json/storylet-library.json \
-            plugins/coc-keeper/skills/coc-scenario-import/references/storylet-schema.md; then
+            plugins/coc-keeper/skills/coc-scenario-import/references/storylet-schema.md \
+            tests/test_epistemic_blueprint_e2e.py; then
             echo "no epistemic integration changes"
             exit 0
           fi
@@ -71,6 +95,7 @@ jobs:
             plugins/coc-keeper/scripts/coc_narration_contract.py \
             plugins/coc-keeper/scripts/coc_playtest_report.py \
             plugins/coc-keeper/references/rules-json/storylet-library.json \
-            plugins/coc-keeper/skills/coc-scenario-import/references/storylet-schema.md
-          git commit -m "feat(report): add epistemic experience section"
+            plugins/coc-keeper/skills/coc-scenario-import/references/storylet-schema.md \
+            tests/test_epistemic_blueprint_e2e.py
+          git commit -m "test(epistemic): focus mixed effect on active motive question"
           git push origin HEAD:feature/scenario-epistemic-blueprint-completion
