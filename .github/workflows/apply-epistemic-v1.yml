@@ -39,9 +39,12 @@ jobs:
       - name: Run full test suite
         run: |
           set +e
-          PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider --tb=short > /tmp/full-test.log 2>&1
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider --tb=no > /tmp/full-test.log 2>&1
           status=$?
-          tail -n 240 /tmp/full-test.log
+          echo "---- failing tests ----"
+          grep -E '^(FAILED|ERROR) ' /tmp/full-test.log || true
+          echo "---- summary ----"
+          tail -n 8 /tmp/full-test.log
           exit $status
       - name: Commit generated source changes
         run: |
