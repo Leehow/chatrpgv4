@@ -649,6 +649,64 @@ def _gate_social_clues_and_persist_disclosure(
     events: list[dict[str, Any]] = []
     approved: list[str] = []
     planned = [str(cid) for cid in (policy.get("reveal") or []) if cid]
+    npc_agendas = _read_json(
+        campaign_dir / "scenario" / "npc-agendas.json", {"npcs": []}
+    )
+    clue_graph = _read_json(
+        campaign_dir / "scenario" / "clue-graph.json", {"conclusions": []}
+    )
+    contract_findings = coc_npc_state.validate_a21_contract(npc_agendas, clue_graph)
+    agenda_rows: dict[str, list[dict[str, Any]]] = {}
+    for agenda in (npc_agendas.get("npcs") or []) if isinstance(npc_agendas, dict) else []:
+        if isinstance(agenda, dict) and agenda.get("npc_id"):
+            agenda_rows.setdefault(str(agenda["npc_id"]), []).append(agenda)
+    clue_rows: dict[str, list[dict[str, Any]]] = {}
+    for conclusion in (clue_graph.get("conclusions") or []) if isinstance(clue_graph, dict) else []:
+        if not isinstance(conclusion, dict):
+            continue
+        for clue in conclusion.get("clues") or []:
+            if isinstance(clue, dict) and clue.get("clue_id"):
+                clue_rows.setdefault(str(clue["clue_id"]), []).append(clue)
+
+    decision_keys = [
+        (str(d.get("npc_id") or ""), str(d.get("fact_id") or ""), str(d.get("clue_id") or ""))
+        for d in decisions
+    ]
+    reveal_keys = [key for key, decision in zip(decision_keys, decisions)
+                   if decision.get("outcome") == "reveal"]
+    reveal_clues = [key[2] for key in reveal_keys]
+    decision_clues = [key[2] for key in decision_keys if key[2]]
+    ambiguous_decisions = (
+        len(decision_keys) != len(set(decision_keys))
+        or len(decision_clues) != len(set(decision_clues))
+        or len(planned) != len(set(planned))
+    )
+
+    def canonical_reveal(decision: dict[str, Any]) -> bool:
+        if contract_findings or ambiguous_decisions:
+            return False
+        npc_id = str(decision.get("npc_id") or "").strip()
+        fact_id = str(decision.get("fact_id") or "").strip()
+        clue_id = str(decision.get("clue_id") or "").strip()
+        if len(agenda_rows.get(npc_id, [])) != 1 or len(clue_rows.get(clue_id, [])) != 1:
+            return False
+        agenda = agenda_rows[npc_id][0]
+        knowledge = agenda.get("knowledge") if isinstance(agenda.get("knowledge"), dict) else {}
+        facts = agenda.get("facts") if isinstance(agenda.get("facts"), list) else knowledge.get("facts", [])
+        matches = [
+            fact for fact in facts
+            if isinstance(fact, dict) and fact.get("fact_id") == fact_id
+            and fact.get("clue_id") == clue_id
+        ]
+        clue = clue_rows[clue_id][0]
+        sources = clue.get("source_npc_ids")
+        return (
+            len(matches) == 1
+            and isinstance(sources, list)
+            and sources.count(npc_id) == 1
+            and clue.get("delivery_kind") in {"npc_dialogue", "social"}
+        )
+
     for decision in decisions:
         npc_id = str(decision.get("npc_id") or "").strip()
         outcome = str(decision.get("outcome") or "withhold")
@@ -663,19 +721,25 @@ def _gate_social_clues_and_persist_disclosure(
                 campaign_dir, npc_id, str(decision["deflect_id"]),
                 about=str(decision.get("fact_id") or "") or None,
             )
-        if outcome == "reveal" and clue_id and clue_id in planned:
+        reveal_valid = outcome == "reveal" and canonical_reveal(decision)
+        if reveal_valid and clue_id and clue_id in planned:
             approved.append(clue_id)
+        recorded_outcome = outcome if outcome != "reveal" or reveal_valid else "withhold"
         record = {
             "event_type": (
-                "npc_disclosure_approved" if outcome == "reveal"
+                "npc_disclosure_approved" if recorded_outcome == "reveal"
                 else "npc_disclosure_withheld"
             ),
             "decision_id": decision_id,
             "npc_id": npc_id or None,
             "fact_id": decision.get("fact_id"),
             "clue_id": clue_id or None,
-            "outcome": outcome,
-            "reason_code": decision.get("reason_code"),
+            "outcome": recorded_outcome,
+            "reason_code": (
+                decision.get("reason_code")
+                if recorded_outcome == outcome
+                else "apply_disclosure_validation_failed"
+            ),
             "investigator_id": investigator_id,
             "ts": ts,
         }

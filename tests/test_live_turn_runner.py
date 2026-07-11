@@ -1635,6 +1635,59 @@ def test_live_turn_post_rule_npc_interaction_persists_and_gates_disclosure(tmp_p
     assert "schedule" not in envelope_blob
 
 
+@pytest.mark.parametrize("response_kind", ["lie", "deflect", "withhold"])
+def test_live_social_non_reveal_never_leaks_true_clue_to_narrator(tmp_path, response_kind):
+    camp, char_path = _build_live_campaign(tmp_path)
+    scn = camp / "scenario"
+    story = json.loads((scn / "story-graph.json").read_text())
+    story["scenes"][0]["npc_ids"] = ["npc-knott"]
+    (scn / "story-graph.json").write_text(json.dumps(story))
+    clues = json.loads((scn / "clue-graph.json").read_text())
+    clues["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "npc_dialogue", "source_npc_ids": ["npc-knott"],
+        "player_safe_summary": "TRUE CLUE: Knott knows the hidden address.",
+    })
+    (scn / "clue-graph.json").write_text(json.dumps(clues))
+    lie_options = ([{"lie_id": "lie-cover", "fact_id": "fact-secret",
+                     "player_safe_line": "Knott offers a harmless cover story."}]
+                   if response_kind == "lie" else [])
+    deflect_options = ([{"deflect_id": "deflect-cover", "fact_id": "fact-secret",
+                         "player_safe_line": "Knott changes the subject."}]
+                       if response_kind == "deflect" else [])
+    (scn / "npc-agendas.json").write_text(json.dumps({"npcs": [{
+        "npc_id": "npc-knott", "name": "Steven Knott", "agenda": "commission",
+        "known_fact_ids": ["fact-secret"], "revealable_fact_ids": ["fact-secret"],
+        "disclosure_order": ["fact-secret"],
+        "facts": [{"fact_id": "fact-secret", "clue_id": "c1", "min_trust": 5}],
+        "lie_options": lie_options, "deflect_options": deflect_options,
+        "leverage_ids": [], "active_reactions": [],
+        "availability": {"status": "available"}, "schedule": [],
+    }]}))
+    rich = {
+        "primary_intent": "social", "secondary_intents": [],
+        "target_entities": ["npc-knott"], "risk_posture": "neutral",
+        "explicit_roll_request": False, "player_hypothesis": None, "action_atoms": [],
+        "npc_interactions": [{
+            "npc_id": "npc-knott", "tactic": "build_rapport", "request_id": "social-private",
+            "fact_id": "fact-secret", "skill": "Credit Rating", "difficulty": "regular",
+        }],
+    }
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "I ask Knott what he knows.",
+        intent_class="social", player_intent_rich=rich,
+        recording_mode="sync", rng_seed=2,
+    )
+    turn = result["turns"][0]
+    assert turn["disclosure_decisions"][0]["outcome"] == response_kind
+    assert "c1" not in json.loads((camp / "save" / "world-state.json").read_text())["discovered_clue_ids"]
+    blob = json.dumps(turn["narration_envelope"])
+    assert "TRUE CLUE" not in blob
+    assert "fact-secret" not in blob
+    assert '"clue_id": "c1"' not in blob
+    assert "clue:c1" not in blob
+    assert '"cue": "c1"' not in blob
+
+
 def test_live_turn_exposes_normalized_subsystem_results_and_passes_them_to_apply(
     tmp_path,
     monkeypatch,

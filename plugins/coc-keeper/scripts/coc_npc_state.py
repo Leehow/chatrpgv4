@@ -48,6 +48,10 @@ WARY_FEAR_MIN = 2           # fear >= 2 -> wary
 WARY_SUSPICION_MIN = 1      # suspicion >= 1 -> wary
 WARY_TRUST_MAX = -1         # trust <= -1 -> wary
 
+A21_LIST_FIELDS = (
+    "known_fact_ids", "revealable_fact_ids", "disclosure_order", "leverage_ids",
+)
+
 
 def _state_path(campaign_dir: Path) -> Path:
     return Path(campaign_dir) / "save" / "npc-state.json"
@@ -101,6 +105,211 @@ def _dict_list(value: Any, *, id_keys: tuple[str, ...] = ()) -> list[dict[str, A
             seen.add(identity)
         result.append(copy)
     return result
+
+
+def _valid_string_list(value: Any, *, unique: bool = True) -> bool:
+    if not isinstance(value, list):
+        return False
+    strings = [item for item in value if isinstance(item, str) and item.strip()]
+    return len(strings) == len(value) and (not unique or len(set(strings)) == len(strings))
+
+
+def validate_a21_contract(
+    npc_agendas: Any, clue_graph: Any,
+) -> list[dict[str, str]]:
+    """Canonical A21 authoring validator used by compile, runtime and apply.
+
+    Legacy NPCs without A21 fields remain valid. Once an NPC declares any A21
+    field, every declared field is checked by exact structured type and all
+    fact/clue/NPC references are checked without prose inference.
+    """
+    findings: list[dict[str, str]] = []
+
+    def fail(path: str, message: str) -> None:
+        findings.append({
+            "code": "npc_a21_contract_invalid", "severity": "error",
+            "path": path, "message": f"A21 {message}",
+        })
+
+    if not isinstance(npc_agendas, dict) or not isinstance(npc_agendas.get("npcs", []), list):
+        fail("npc_agendas.npcs", "npc_agendas.npcs must be a list")
+        return findings
+    if not isinstance(clue_graph, dict) or not isinstance(clue_graph.get("conclusions", []), list):
+        fail("clue_graph.conclusions", "clue_graph.conclusions must be a list")
+        return findings
+
+    clues: dict[str, list[dict[str, Any]]] = {}
+    for ci, conclusion in enumerate(clue_graph.get("conclusions") or []):
+        if not isinstance(conclusion, dict) or not isinstance(conclusion.get("clues", []), list):
+            continue
+        for li, clue in enumerate(conclusion.get("clues") or []):
+            if not isinstance(clue, dict):
+                continue
+            clue_id = clue.get("clue_id")
+            if isinstance(clue_id, str) and clue_id.strip():
+                clues.setdefault(clue_id.strip(), []).append(clue)
+
+    npcs = npc_agendas.get("npcs") or []
+    npc_ids = [
+        npc.get("npc_id").strip() for npc in npcs
+        if isinstance(npc, dict) and isinstance(npc.get("npc_id"), str)
+        and npc.get("npc_id").strip()
+    ]
+    if len(set(npc_ids)) != len(npc_ids):
+        fail("npc_agendas.npcs", "npc_id values must be globally unique")
+    npc_id_set = set(npc_ids)
+
+    for clue_id, rows in clues.items():
+        for clue in rows:
+            if clue.get("delivery_kind") not in {"npc_dialogue", "social"}:
+                continue
+            sources = clue.get("source_npc_ids")
+            if not _valid_string_list(sources):
+                fail(f"clue_graph.clues[{clue_id}].source_npc_ids",
+                     "social clue source_npc_ids must be a unique non-empty string list")
+            elif any(source not in npc_id_set for source in sources):
+                fail(f"clue_graph.clues[{clue_id}].source_npc_ids",
+                     "social clue has unknown source NPC; source_npc_ids must reference authored NPCs")
+
+    a21_markers = {
+        *A21_LIST_FIELDS, "facts", "lie_options", "deflect_options",
+        "active_reactions", "availability", "schedule", "knowledge",
+    }
+    for index, npc in enumerate(npcs):
+        if not isinstance(npc, dict):
+            continue
+        path = f"npc_agendas.npcs[{index}]"
+        if not (a21_markers & set(npc)):
+            continue
+        knowledge = npc.get("knowledge", {})
+        if "knowledge" in npc and not isinstance(knowledge, dict):
+            fail(f"{path}.knowledge", "knowledge must be an object")
+            knowledge = {}
+        source = {**knowledge, **npc}
+        for field in A21_LIST_FIELDS:
+            if field in source and not _valid_string_list(source[field]):
+                fail(f"{path}.{field}", f"{field} must be a unique non-empty string list")
+
+        facts = source.get("facts", [])
+        if not isinstance(facts, list):
+            fail(f"{path}.facts", "facts must be a list")
+            facts = []
+        authored_fact_ids = {
+            fact["fact_id"].strip()
+            for fact in facts
+            if isinstance(fact, dict) and isinstance(fact.get("fact_id"), str)
+            and fact["fact_id"].strip()
+        }
+        fact_ids: list[str] = []
+        for fi, fact in enumerate(facts):
+            fpath = f"{path}.facts[{fi}]"
+            if not isinstance(fact, dict):
+                fail(fpath, "fact must be an object")
+                continue
+            fact_id = fact.get("fact_id")
+            clue_id = fact.get("clue_id")
+            if not isinstance(fact_id, str) or not fact_id.strip():
+                fail(f"{fpath}.fact_id", "fact_id must be a non-empty string")
+            else:
+                fact_ids.append(fact_id.strip())
+            if not isinstance(clue_id, str) or clue_id not in clues or len(clues.get(clue_id, [])) != 1:
+                fail(f"{fpath}.clue_id", "clue_id must reference exactly one authored clue")
+            min_trust = fact.get("min_trust", 0)
+            if isinstance(min_trust, bool) or not isinstance(min_trust, int) or not FIELD_MIN <= min_trust <= FIELD_MAX:
+                fail(f"{fpath}.min_trust", "min_trust must be an integer from -5 to 5")
+            required = fact.get("required_leverage_ids", [])
+            if not _valid_string_list(required):
+                fail(f"{fpath}.required_leverage_ids", "required_leverage_ids must be a unique string list")
+            for option_field, id_field in (("lie_option", "lie_id"), ("deflect_option", "deflect_id")):
+                option = fact.get(option_field)
+                if option is not None and not _valid_disclosure_option(option, id_field, authored_fact_ids):
+                    fail(f"{fpath}.{option_field}", f"{option_field} has invalid exact types or fact reference")
+        if len(fact_ids) != len(set(fact_ids)):
+            fail(f"{path}.facts", "fact_id values must be unique per NPC")
+        fact_set = set(fact_ids)
+        for field in ("known_fact_ids", "revealable_fact_ids", "disclosure_order"):
+            values = source.get(field, [])
+            if isinstance(values, list) and any(value not in fact_set for value in values):
+                fail(f"{path}.{field}", f"{field} must reference authored facts")
+        revealable = source.get("revealable_fact_ids", [])
+        known = source.get("known_fact_ids", [])
+        if isinstance(revealable, list) and isinstance(known, list) and not set(revealable) <= set(known):
+            fail(f"{path}.revealable_fact_ids", "revealable facts must also be known")
+
+        for option_field, id_field in (("lie_options", "lie_id"), ("deflect_options", "deflect_id")):
+            options = source.get(option_field, [])
+            if not isinstance(options, list):
+                fail(f"{path}.{option_field}", f"{option_field} must be a list")
+                continue
+            ids: list[str] = []
+            for oi, option in enumerate(options):
+                if not _valid_disclosure_option(option, id_field, fact_set):
+                    fail(f"{path}.{option_field}[{oi}]", f"{option_field} item has invalid exact types or fact reference")
+                elif isinstance(option, dict):
+                    ids.append(str(option[id_field]))
+            if len(ids) != len(set(ids)):
+                fail(f"{path}.{option_field}", f"{id_field} values must be unique")
+
+        reactions = source.get("active_reactions", [])
+        if not isinstance(reactions, list):
+            fail(f"{path}.active_reactions", "active_reactions must be a list")
+        else:
+            reaction_ids: list[str] = []
+            for ri, reaction in enumerate(reactions):
+                if (not isinstance(reaction, dict)
+                        or not isinstance(reaction.get("reaction_id"), str)
+                        or not reaction["reaction_id"].strip()
+                        or not isinstance(reaction.get("blocks_disclosure"), bool)):
+                    fail(f"{path}.active_reactions[{ri}]", "reaction requires reaction_id and boolean blocks_disclosure")
+                else:
+                    reaction_ids.append(reaction["reaction_id"])
+            if len(reaction_ids) != len(set(reaction_ids)):
+                fail(f"{path}.active_reactions", "reaction_id values must be unique")
+
+        availability = source.get("availability")
+        if availability is not None and (
+            not isinstance(availability, dict)
+            or set(availability) != {"status"}
+            or availability.get("status") not in {"available", "unavailable"}
+        ):
+            fail(f"{path}.availability", "availability must be exactly {status: available|unavailable}")
+        schedule = source.get("schedule", [])
+        if not isinstance(schedule, list):
+            fail(f"{path}.schedule", "schedule must be a list")
+        else:
+            schedule_ids: list[str] = []
+            for si, slot in enumerate(schedule):
+                spath = f"{path}.schedule[{si}]"
+                if not isinstance(slot, dict) or not isinstance(slot.get("schedule_id"), str) or not slot["schedule_id"].strip():
+                    fail(spath, "schedule item requires schedule_id")
+                    continue
+                allowed = {"schedule_id", "scene_ids", "time_categories", "status"}
+                if set(slot) - allowed or slot.get("status") not in {"available", "unavailable"}:
+                    fail(spath, "schedule item has unknown fields or invalid status")
+                if "scene_ids" in slot and not _valid_string_list(slot["scene_ids"]):
+                    fail(f"{spath}.scene_ids", "scene_ids must be a unique string list")
+                if "time_categories" in slot and not _valid_string_list(slot["time_categories"]):
+                    fail(f"{spath}.time_categories", "time_categories must be a unique string list")
+                schedule_ids.append(slot["schedule_id"])
+            if len(schedule_ids) != len(set(schedule_ids)):
+                fail(f"{path}.schedule", "schedule_id values must be unique")
+    return findings
+
+
+def _valid_disclosure_option(option: Any, id_field: str, fact_ids: set[str]) -> bool:
+    if not isinstance(option, dict):
+        return False
+    allowed = {id_field, "fact_id", "about", "player_safe_line"}
+    if set(option) - allowed:
+        return False
+    if not isinstance(option.get(id_field), str) or not option[id_field].strip():
+        return False
+    if "fact_id" in option and option["fact_id"] not in fact_ids:
+        return False
+    return all(
+        field not in option or (isinstance(option[field], str) and option[field].strip())
+        for field in ("about", "player_safe_line")
+    )
 
 
 def normalize_entry(value: Any) -> dict[str, Any]:
@@ -267,6 +476,9 @@ def derive_interaction_effects(
 ) -> list[dict[str, Any]]:
     """Compile successful/failed structured social tactics into bounded effects."""
     results = [r for r in (rule_results or []) if isinstance(r, dict)]
+    bindings = _interaction_result_bindings(interactions, results)
+    if bindings is None:
+        return []
     effects: list[dict[str, Any]] = []
     for interaction in interactions or []:
         if not isinstance(interaction, dict):
@@ -276,16 +488,7 @@ def derive_interaction_effects(
         tactic = interaction.get("tactic")
         if not npc_id or not request_id or not isinstance(tactic, str):
             continue
-        matches = [
-            row for row in results
-            if request_id in {
-                row.get("request_id"), row.get("rule_request_id"),
-                row.get("source_request_id"), row.get("command_id"),
-            }
-        ]
-        if len(matches) != 1:
-            continue
-        success = matches[0].get("success")
+        success = bindings[str(request_id)].get("success")
         if not isinstance(success, bool):
             continue
         for field, delta in _INTERACTION_EFFECTS.get((tactic, success), ()):
@@ -300,6 +503,35 @@ def derive_interaction_effects(
                 "interaction_request_id": str(request_id),
             })
     return effects
+
+
+def _interaction_result_bindings(
+    interactions: Any, results: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]] | None:
+    rows = [row for row in (interactions or []) if isinstance(row, dict)]
+    ids = [str(row.get("request_id") or "").strip() for row in rows]
+    if not ids or any(not rid for rid in ids) or len(ids) != len(set(ids)):
+        return None
+    wanted = set(ids)
+    bindings: dict[str, dict[str, Any]] = {}
+    used_rows: set[int] = set()
+    for rid in ids:
+        matches: list[tuple[int, dict[str, Any]]] = []
+        for index, result in enumerate(results):
+            aliases = {
+                str(result.get(key) or "").strip()
+                for key in ("request_id", "rule_request_id", "source_request_id", "command_id")
+            } - {""}
+            bound = aliases & wanted
+            if len(bound) > 1:
+                return None
+            if rid in bound:
+                matches.append((index, result))
+        if len(matches) != 1 or matches[0][0] in used_rows:
+            return None
+        used_rows.add(matches[0][0])
+        bindings[rid] = matches[0][1]
+    return bindings
 
 
 def _authored_fact_specs(agenda: dict[str, Any]) -> list[dict[str, Any]]:
@@ -343,10 +575,14 @@ def effective_npc_entry(
         *entry["leverage"],
         *_string_list(authored.get("leverage_ids", authored.get("leverage"))),
     ])
+    persisted_has_availability = (
+        isinstance(persisted, dict) and isinstance(persisted.get("availability"), dict)
+        and persisted["availability"].get("status") in {"available", "unavailable"}
+    )
     authored_availability = authored.get("availability")
     if isinstance(authored_availability, str):
         authored_availability = {"status": authored_availability}
-    if isinstance(authored_availability, dict):
+    if isinstance(authored_availability, dict) and not persisted_has_availability:
         status = str(authored_availability.get("status") or "available")
         entry["availability"] = {"status": status if status in {"available", "unavailable"} else "unavailable"}
     schedule = _dict_list(authored.get("schedule"), id_keys=("schedule_id",))
@@ -392,6 +628,16 @@ def enrich_plan_after_rules(
     valid: list[dict[str, Any]] = []
     decisions: list[dict[str, Any]] = []
     warnings = list(enriched.get("validation_warnings") or [])
+    if _interaction_result_bindings(interactions, [r for r in (rule_results or []) if isinstance(r, dict)]) is None:
+        warnings.append({
+            "field": "player_intent_rich.npc_interactions",
+            "reason_code": "interaction_request_binding_invalid",
+        })
+        enriched["validation_warnings"] = warnings
+        enriched["npc_effects"] = list(enriched.get("npc_effects") or [])
+        enriched["npc_interactions"] = []
+        enriched["disclosure_decisions"] = []
+        return enriched
     psych = ((ctx.get("npc_state") or {}).get("psych") or {})
     for interaction in interactions:
         npc_id = str(interaction.get("npc_id") or "").strip()
@@ -407,12 +653,10 @@ def enrich_plan_after_rules(
         normalized["npc_id"] = npc_id
         valid.append(normalized)
         fact_id = str(normalized.get("fact_id") or "").strip()
-        if not fact_id:
-            continue
         agenda = agendas[npc_id]
         specs = _authored_fact_specs(agenda)
         spec = next((s for s in specs if str(s.get("fact_id") or "") == fact_id), None)
-        if spec is None:
+        if not fact_id:
             order = _string_list(
                 agenda.get("disclosure_order")
                 or ((agenda.get("knowledge") or {}).get("disclosure_order") if isinstance(agenda.get("knowledge"), dict) else [])

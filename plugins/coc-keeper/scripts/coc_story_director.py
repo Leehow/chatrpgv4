@@ -670,6 +670,11 @@ def build_director_context(
     merged_threats = coc_threat_state.merge_threat_fronts(
         authored_threats, persisted_threats
     )
+    clue_graph = _read_json(scenario / "clue-graph.json", {"conclusions": []})
+    npc_agendas = _read_json(scenario / "npc-agendas.json", {"npcs": []})
+    a21_findings = coc_npc_state.validate_a21_contract(npc_agendas, clue_graph)
+    if a21_findings:
+        raise ValueError(a21_findings[0]["message"])
 
     return {
         "campaign_dir": campaign_dir,
@@ -695,8 +700,8 @@ def build_director_context(
         "structure_type": module_meta.get("structure_type", "branching_investigation"),
         "module_meta": module_meta,
         "story_graph": story_graph,
-        "clue_graph": _read_json(scenario / "clue-graph.json", {"conclusions": []}),
-        "npc_agendas": _read_json(scenario / "npc-agendas.json", {"npcs": []}),
+        "clue_graph": clue_graph,
+        "npc_agendas": npc_agendas,
         "npc_state": _read_json(save / "npc-state.json", {"schema_version": 1, "npcs": {}}),
         "npc_state_writes": [],
         "threat_fronts": merged_threats,

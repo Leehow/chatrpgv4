@@ -108,7 +108,6 @@ def test_context_merges_persisted_threat_progress_and_normalizes_scene_function(
         coc_story_director.coc_threat_state.tick_clock(
             camp / "save", "doom", 6, source_id=f"setup:{i}"
         )
-
     ctx = coc_story_director.build_director_context(
         camp, character, "inv1", "wait", "idle", rng=random.Random(1)
     )
@@ -126,6 +125,17 @@ def test_context_merges_persisted_threat_progress_and_normalizes_scene_function(
     plan = coc_story_director.generate_director_plan(ctx, "normalized-scene")
     assert plan["scene_function"] == ctx["active_scene_function"]
     assert ctx["active_scene"]["goals"] == ["locate-ledger"]
+
+
+def test_build_context_fails_closed_on_invalid_runtime_a21_contract(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({"npcs": [{
+        "npc_id": "npc-a", "agenda": "structured", "known_fact_ids": "not-a-list",
+    }]}))
+    with pytest.raises(ValueError, match="A21"):
+        coc_story_director.build_director_context(
+            camp, character, "inv1", "I ask.", "social"
+        )
 
 
 def test_pressure_selects_structurally_relevant_clock_with_reason(tmp_path):
@@ -1268,10 +1278,14 @@ def test_reveal_social_intent_surfaces_structured_npc_dialogue_clue(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
     clue_graph["conclusions"][0]["clues"][0]["delivery_kind"] = "npc_dialogue"
+    clue_graph["conclusions"][0]["clues"][0]["source_npc_ids"] = ["npc-source"]
     clue_graph["conclusions"][0]["clues"][0]["route_priority"] = 0.9
     clue_graph["conclusions"][0]["clues"][1]["delivery_kind"] = "environmental"
     clue_graph["conclusions"][0]["clues"][1]["route_priority"] = 0.1
     (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [{"npc_id": "npc-source", "agenda": "offers a public lead"}],
+    }))
 
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=char_path, investigator_id="inv1",

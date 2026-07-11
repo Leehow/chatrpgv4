@@ -404,8 +404,17 @@ def _clue_lookup_player_safe(clue_graph: dict[str, Any] | None) -> dict[str, str
     return lookup
 
 
-def _approved_reveal_clue_ids(plan: dict[str, Any]) -> list[str]:
+def _approved_reveal_clue_ids(
+    plan: dict[str, Any], applied_events: list[dict[str, Any]] | None = None,
+) -> list[str]:
     """Prefer committed reveals after rules backfill; else planned reveal ids."""
+    if applied_events is not None:
+        return list(dict.fromkeys(
+            str(event.get("clue_id"))
+            for event in applied_events
+            if isinstance(event, dict) and event.get("event_type") == "clue_reveal"
+            and event.get("clue_id")
+        ))
     resolved = plan.get("resolved_clue_policy") or {}
     if isinstance(resolved, dict):
         committed = [
@@ -425,10 +434,11 @@ def _approved_reveal_clue_ids(plan: dict[str, Any]) -> list[str]:
 def _project_approved_reveal_clues(
     plan: dict[str, Any],
     clue_graph: dict[str, Any] | None,
+    applied_events: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     lookup = _clue_lookup_player_safe(clue_graph)
     clues: list[dict[str, str]] = []
-    for clue_id in _approved_reveal_clue_ids(plan):
+    for clue_id in _approved_reveal_clue_ids(plan, applied_events):
         summary = lookup.get(clue_id, "")
         entry: dict[str, str] = {"clue_id": clue_id}
         if summary:
@@ -752,7 +762,17 @@ def _project_rules_requests(plan: dict[str, Any]) -> list[dict[str, Any]]:
     for request in plan.get("rules_requests") or []:
         if not isinstance(request, dict):
             continue
-        safe_request = dict(request)
+        # A request may carry ``resolution_context`` containing the whole
+        # pre-gate DirectorPlan. Narration needs only the public roll prompt;
+        # settled fictional consequences arrive separately in rule_results.
+        safe_request = {
+            key: request.get(key)
+            for key in (
+                "kind", "skill", "characteristic", "difficulty", "reason",
+                "request_id", "bonus_penalty_dice",
+            )
+            if request.get(key) is not None
+        }
         if request.get("kind") == "push_offer":
             consequence = request.get("announced_consequence")
             if isinstance(consequence, dict):
@@ -772,6 +792,7 @@ def build_narration_envelope(
     clue_graph: dict[str, Any] | None = None,
     active_scene: dict[str, Any] | None = None,
     investigator_display_name: str | None = None,
+    applied_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the minimum-privilege narrator payload from a DirectorPlan.
 
@@ -783,7 +804,24 @@ def build_narration_envelope(
     directives = plan.get("narrative_directives") or {}
     clue_policy = plan.get("clue_policy") or {}
     mnr_refs = normalize_keeper_secret_refs(directives.get("must_not_reveal") or [])
-    clue_ids = _approved_reveal_clue_ids(plan)
+    clue_ids = _approved_reveal_clue_ids(plan, applied_events)
+    disclosure_decisions = list(plan.get("disclosure_decisions") or [])
+    if applied_events is not None:
+        approved_set = set(clue_ids)
+        disclosure_decisions = [
+            ({**decision, "outcome": "withhold"}
+             if isinstance(decision, dict) and decision.get("outcome") == "reveal"
+             and str(decision.get("clue_id") or "") not in approved_set
+             else decision)
+            for decision in disclosure_decisions
+        ]
+    reveal_must_include = list(directives.get("must_include") or [])
+    social_post_apply = applied_events is not None and bool(plan.get("disclosure_decisions"))
+    if social_post_apply:
+        # Social prose may have been compiled before the apply-side disclosure
+        # gate. Only canonical clue summaries from actual clue_reveal events are
+        # authorized here; lie/deflect lines travel through their safe field.
+        reveal_must_include = []
     npc_moves = [
         _sanitize_npc_move(move)
         for move in (plan.get("npc_moves") or [])
@@ -799,10 +837,12 @@ def build_narration_envelope(
         "handoff": plan.get("handoff"),
         "approved_reveals": {
             "clue_ids": list(clue_ids),
-            "clues": _project_approved_reveal_clues(plan, clue_graph),
-            "must_include": list(directives.get("must_include") or []),
-            "leads": list(clue_policy.get("leads") or []),
-            "fallback_routes": list(clue_policy.get("fallback_routes") or []),
+            "clues": _project_approved_reveal_clues(plan, clue_graph, applied_events),
+            "must_include": reveal_must_include,
+            "leads": [] if social_post_apply else list(clue_policy.get("leads") or []),
+            "fallback_routes": (
+                [] if social_post_apply else list(clue_policy.get("fallback_routes") or [])
+            ),
         },
         "tone": list(directives.get("tone") or []),
         "must_not_reveal": mnr_refs,
@@ -812,11 +852,13 @@ def build_narration_envelope(
         "player_facing_style": directives.get("player_facing_style"),
         "npc_moves": npc_moves,
         "disclosure_decisions": _sanitize_disclosure_decisions(
-            plan.get("disclosure_decisions")
+            disclosure_decisions
         ),
         "pressure_moves": list(plan.get("pressure_moves") or []),
         "storylet_moves": list(plan.get("storylet_moves") or []),
-        "choice_frame": plan.get("choice_frame") or {},
+        # Pre-gate clue routes may name a withheld social clue. The actual
+        # response line and post-apply reveal summaries are sufficient.
+        "choice_frame": {} if social_post_apply else (plan.get("choice_frame") or {}),
         "rules_requests": _project_rules_requests(plan),
         "rule_results": _project_rule_results(
             plan, investigator_display_name=investigator_display_name

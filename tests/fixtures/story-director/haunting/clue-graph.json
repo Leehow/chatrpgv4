@@ -46,6 +46,7 @@
         {
           "clue_id": "clue-neighbor-rumor",
           "delivery_kind": "npc_dialogue",
+          "source_npc_ids": ["npc-archivist"],
           "visibility": "player-safe",
           "player_safe_summary": "邻居提到的一则传闻"
         },

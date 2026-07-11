@@ -18,6 +18,20 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name: str, filename: str):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / filename)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_npc_state = _load_sibling("coc_npc_state_scenario_compile", "coc_npc_state.py")
+
 VALID_STRUCTURE_TYPES = {
     "linear_acts", "time_loop", "branching_investigation", "hub_sandbox",
     "multi_faction", "campaign_sequel", "hybrid_mega",
@@ -246,46 +260,32 @@ def _check_threat_affinity_contract(compiled: dict[str, Any]) -> list[dict[str, 
 
 
 def _check_npc_disclosure_contract(compiled: dict[str, Any]) -> list[dict[str, str]]:
-    """Validate A21 authored facts and exact social-clue source identities."""
-    findings: list[dict[str, str]] = []
-    npcs = (compiled.get("npc_agendas") or {}).get("npcs") or []
-    npc_ids = {
-        str(npc.get("npc_id")) for npc in npcs
-        if isinstance(npc, dict) and npc.get("npc_id")
-    }
-    clue_ids: set[str] = set()
-    for conclusion in (compiled.get("clue_graph") or {}).get("conclusions") or []:
-        if not isinstance(conclusion, dict):
-            continue
-        for clue in conclusion.get("clues") or []:
-            if not isinstance(clue, dict):
-                continue
-            clue_id = str(clue.get("clue_id") or "")
-            if clue_id:
-                clue_ids.add(clue_id)
-            if clue.get("delivery_kind") not in {"npc_dialogue", "social"}:
-                continue
-            sources = clue.get("source_npc_ids")
-            if not _is_string_list(sources):
-                findings.append({"code": "social_clue_sources_missing", "message": f"social clue '{clue_id}' requires source_npc_ids"})
-                continue
-            unknown = [str(source) for source in sources if str(source) not in npc_ids]
-            if unknown:
-                findings.append({"code": "social_clue_source_unknown", "message": f"social clue '{clue_id}' references unknown source NPCs {unknown}"})
-    for npc in npcs:
-        if not isinstance(npc, dict):
-            continue
-        npc_id = str(npc.get("npc_id") or "")
-        facts = npc.get("facts")
-        if facts is None:
-            continue
-        if not isinstance(facts, list):
-            findings.append({"code": "npc_facts_invalid", "message": f"npc '{npc_id}' facts must be a list"})
-            continue
-        for index, fact in enumerate(facts):
-            if not isinstance(fact, dict) or not fact.get("fact_id") or fact.get("clue_id") not in clue_ids:
-                findings.append({"code": "npc_fact_reference_invalid", "message": f"npc '{npc_id}' facts[{index}] requires fact_id and a registered clue_id"})
-    return findings
+    """Delegate all A21 checks to the single canonical structured validator."""
+    findings = validate_npc_a21_contract(
+        compiled.get("npc_agendas") or {}, compiled.get("clue_graph") or {}
+    )
+    # Preserve stable diagnostic codes for existing compiler consumers while
+    # all validation decisions still originate in the canonical validator.
+    projected: list[dict[str, str]] = []
+    for finding in findings:
+        row = dict(finding)
+        path = row.get("path", "")
+        if ".facts[" in path and path.endswith(".clue_id"):
+            row["code"] = "npc_fact_reference_invalid"
+        elif path.endswith(".source_npc_ids"):
+            row["code"] = (
+                "social_clue_source_unknown"
+                if "unknown source NPC" in row.get("message", "")
+                else "social_clue_sources_missing"
+            )
+        projected.append(row)
+    return projected
+
+
+def validate_npc_a21_contract(
+    npc_agendas: Any, clue_graph: Any,
+) -> list[dict[str, str]]:
+    return coc_npc_state.validate_a21_contract(npc_agendas, clue_graph)
 
 
 def _check_clue_bonus(clue: dict[str, Any]) -> list[str]:
@@ -1127,65 +1127,13 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
                     )
 
     npcs = _read(scenario_dir / "npc-agendas.json")
-    registered_clue_ids = {
-        str(clue.get("clue_id"))
-        for conclusion in clue_graph.get("conclusions", [])
-        if isinstance(conclusion, dict)
-        for clue in conclusion.get("clues", [])
-        if isinstance(clue, dict) and clue.get("clue_id")
-    }
-    npc_ids = {
-        str(npc.get("npc_id")) for npc in npcs.get("npcs", [])
-        if isinstance(npc, dict) and npc.get("npc_id")
-    }
     for npc in npcs.get("npcs", []):
         if not npc.get("agenda"):
             errors.append(f"npc '{npc.get('npc_id')}' missing agenda")
-        if "known_fact_ids" in npc and not _is_string_list(npc.get("known_fact_ids")):
-            errors.append(f"npc '{npc.get('npc_id')}' known_fact_ids must be a list of non-empty strings")
-        if "revealable_fact_ids" in npc and not _is_string_list(npc.get("revealable_fact_ids")):
-            errors.append(f"npc '{npc.get('npc_id')}' revealable_fact_ids must be a list of non-empty strings")
-        facts = npc.get("facts")
-        if facts is not None:
-            if not isinstance(facts, list):
-                errors.append(f"npc '{npc.get('npc_id')}' facts must be a list")
-            else:
-                for index, fact in enumerate(facts):
-                    if not isinstance(fact, dict) or not fact.get("fact_id") or not fact.get("clue_id"):
-                        errors.append(
-                            f"npc '{npc.get('npc_id')}' facts[{index}] requires fact_id and clue_id"
-                        )
-                    elif str(fact.get("clue_id")) not in registered_clue_ids:
-                        errors.append(
-                            f"npc '{npc.get('npc_id')}' facts[{index}] references unknown clue_id '{fact.get('clue_id')}'"
-                        )
-        availability = npc.get("availability")
-        if availability is not None and (
-            not isinstance(availability, dict)
-            or availability.get("status") not in {"available", "unavailable"}
-        ):
-            errors.append(
-                f"npc '{npc.get('npc_id')}' availability.status must be available or unavailable"
-            )
-        schedule = npc.get("schedule")
-        if schedule is not None and not isinstance(schedule, list):
-            errors.append(f"npc '{npc.get('npc_id')}' schedule must be a list")
-
-    for concl in clue_graph.get("conclusions", []):
-        for clue in concl.get("clues", []):
-            if clue.get("delivery_kind") not in {"npc_dialogue", "social"}:
-                continue
-            sources = clue.get("source_npc_ids")
-            if not _is_string_list(sources):
-                errors.append(
-                    f"social clue '{clue.get('clue_id')}' requires source_npc_ids"
-                )
-                continue
-            unknown = [str(source) for source in sources if str(source) not in npc_ids]
-            if unknown:
-                errors.append(
-                    f"social clue '{clue.get('clue_id')}' references unknown source NPCs {unknown}"
-                )
+    errors.extend(
+        finding["message"]
+        for finding in validate_npc_a21_contract(npcs, clue_graph)
+    )
 
     fronts_data = _read(scenario_dir / "threat-fronts.json")
     scene_affinity_findings = _check_scene_affinity_contract({

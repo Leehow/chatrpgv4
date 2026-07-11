@@ -375,6 +375,19 @@ def test_derive_interaction_effects_is_bounded_exact_and_fail_closed():
 
 def test_apply_social_clue_requires_approved_disclosure(tmp_path):
     camp = _campaign(tmp_path)
+    scenario = camp / "scenario"
+    scenario.mkdir()
+    (scenario / "npc-agendas.json").write_text(json.dumps({"npcs": [{
+        "npc_id": "npc-a", "agenda": "structured",
+        "known_fact_ids": ["fact-a"], "revealable_fact_ids": ["fact-a"],
+        "disclosure_order": ["fact-a"],
+        "facts": [{"fact_id": "fact-a", "clue_id": "clue-social", "min_trust": 0}],
+        "availability": {"status": "available"}, "schedule": [],
+    }]}))
+    (scenario / "clue-graph.json").write_text(json.dumps({"conclusions": [{
+        "clues": [{"clue_id": "clue-social", "delivery_kind": "npc_dialogue",
+                   "source_npc_ids": ["npc-a"]}]
+    }]}))
     denied = {
         "decision_id": "d-denied", "scene_action": "CHARACTER",
         "clue_policy": {"reveal": ["clue-social"], "delivery_kind": "npc_dialogue"},
@@ -484,3 +497,119 @@ def test_schedule_gate_overrides_default_availability():
                       "status": "available"}],
     }, {}, scene_id="scene-b")
     assert outside["availability"] == {"status": "unavailable"}
+
+
+def test_persisted_availability_override_beats_authored_baseline_but_schedule_is_current_gate():
+    authored = {
+        "availability": {"status": "available"},
+        "schedule": [{"schedule_id": "night", "scene_ids": ["scene-a"],
+                      "status": "available"}],
+    }
+    persisted = {"availability": {"status": "unavailable"}}
+    outside = coc_npc_state.effective_npc_entry(
+        authored, persisted, scene_id="scene-b"
+    )
+    assert outside["availability"] == {"status": "unavailable"}
+    inside = coc_npc_state.effective_npc_entry(
+        authored, persisted, scene_id="scene-a"
+    )
+    assert inside["availability"] == {"status": "available"}
+
+
+def test_duplicate_interaction_request_ids_fail_the_whole_interaction_set():
+    interactions = [
+        {"npc_id": "npc-a", "tactic": "build_rapport", "request_id": "same"},
+        {"npc_id": "npc-b", "tactic": "intimidate", "request_id": "same"},
+    ]
+    results = [{"request_id": "same", "success": True}]
+    assert coc_npc_state.derive_interaction_effects(interactions, results) == []
+
+
+def test_duplicate_rule_result_binding_fails_the_whole_interaction_set():
+    interactions = [
+        {"npc_id": "npc-a", "tactic": "build_rapport", "request_id": "r1"},
+        {"npc_id": "npc-b", "tactic": "intimidate", "request_id": "r2"},
+    ]
+    results = [
+        {"request_id": "r1", "source_request_id": "r2", "success": True},
+        {"request_id": "r2", "success": False},
+    ]
+    assert coc_npc_state.derive_interaction_effects(interactions, results) == []
+
+
+def test_disclosure_order_selects_next_only_when_fact_is_omitted():
+    agenda = {
+        "npc_id": "npc-a", "known_fact_ids": ["fact-a", "fact-b"],
+        "revealable_fact_ids": ["fact-a", "fact-b"],
+        "disclosure_order": ["fact-b", "fact-a"],
+        "facts": [
+            {"fact_id": "fact-a", "clue_id": "clue-a", "min_trust": 0},
+            {"fact_id": "fact-b", "clue_id": "clue-b", "min_trust": 0},
+        ],
+        "availability": {"status": "available"}, "schedule": [],
+    }
+    base_ctx = {
+        "active_scene": {"npc_ids": ["npc-a"]}, "active_scene_id": "scene-a",
+        "npc_agendas": {"npcs": [agenda]}, "npc_state": {"psych": {}},
+        "clue_graph": {"conclusions": [{"clues": [
+            {"clue_id": "clue-a", "source_npc_ids": ["npc-a"]},
+            {"clue_id": "clue-b", "source_npc_ids": ["npc-a"]},
+        ]}]},
+    }
+    omitted = dict(base_ctx)
+    omitted["player_intent_rich"] = {"npc_interactions": [{
+        "npc_id": "npc-a", "tactic": "build_rapport", "request_id": "r1",
+    }]}
+    result = coc_npc_state.enrich_plan_after_rules(
+        {"decision_id": "d1"}, omitted, [{"request_id": "r1", "success": True}]
+    )
+    assert result["disclosure_decisions"][0]["fact_id"] == "fact-b"
+
+    explicit = dict(base_ctx)
+    explicit["player_intent_rich"] = {"npc_interactions": [{
+        "npc_id": "npc-a", "tactic": "build_rapport", "request_id": "r2",
+        "fact_id": "not-authored",
+    }]}
+    result = coc_npc_state.enrich_plan_after_rules(
+        {"decision_id": "d2"}, explicit, [{"request_id": "r2", "success": True}]
+    )
+    assert result["disclosure_decisions"][0]["reason_code"] == "fact_not_authored"
+    assert result["disclosure_decisions"][0]["fact_id"] == "not-authored"
+
+
+def test_apply_revalidates_social_reveal_against_canonical_disk_contract(tmp_path):
+    camp = _campaign(tmp_path)
+    scenario = camp / "scenario"
+    scenario.mkdir()
+    (scenario / "npc-agendas.json").write_text(json.dumps({"npcs": [{
+        "npc_id": "npc-a", "agenda": "structured",
+        "known_fact_ids": ["fact-a"], "revealable_fact_ids": ["fact-a"],
+        "disclosure_order": ["fact-a"],
+        "facts": [{"fact_id": "fact-a", "clue_id": "clue-a", "min_trust": 0}],
+        "availability": {"status": "available"}, "schedule": [],
+    }]}))
+    (scenario / "clue-graph.json").write_text(json.dumps({"conclusions": [{
+        "clues": [{"clue_id": "clue-a", "delivery_kind": "npc_dialogue",
+                   "source_npc_ids": ["npc-a"]}]
+    }]}))
+    base = {
+        "decision_id": "d-forged", "scene_action": "CHARACTER",
+        "clue_policy": {"reveal": ["clue-a"], "delivery_kind": "npc_dialogue"},
+        "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+    }
+    for forged in (
+        {"outcome": "reveal", "npc_id": "npc-b", "fact_id": "fact-a", "clue_id": "clue-a"},
+        {"outcome": "reveal", "npc_id": "npc-a", "fact_id": "fact-x", "clue_id": "clue-a"},
+        {"outcome": "reveal", "npc_id": "npc-a", "fact_id": "fact-a", "clue_id": "clue-x"},
+    ):
+        plan = {**base, "decision_id": base["decision_id"] + forged["npc_id"] + forged["fact_id"],
+                "disclosure_decisions": [forged]}
+        events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+        assert not any(e.get("event_type") == "clue_reveal" for e in events)
+
+    duplicate = {**base, "decision_id": "d-duplicate", "disclosure_decisions": [
+        {"outcome": "reveal", "npc_id": "npc-a", "fact_id": "fact-a", "clue_id": "clue-a"},
+        {"outcome": "reveal", "npc_id": "npc-a", "fact_id": "fact-a", "clue_id": "clue-a"},
+    ]}
+    events = coc_director_apply.apply_plan(camp, duplicate, investigator_id="inv1")
+    assert not any(e.get("event_type") == "clue_reveal" for e in events)

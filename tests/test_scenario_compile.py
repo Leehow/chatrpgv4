@@ -96,6 +96,48 @@ def test_npc_fact_requires_registered_clue_in_both_validators(tmp_path):
     findings = coc_scenario_compile.validate_compiled_scenario(compiled)
     assert any(f["code"] == "npc_fact_reference_invalid" for f in findings)
 
+
+@pytest.mark.parametrize("mutate", [
+    lambda npc: npc.update({"known_fact_ids": "fact-a"}),
+    lambda npc: npc.update({"revealable_fact_ids": ["missing"]}),
+    lambda npc: npc.update({"disclosure_order": ["missing"]}),
+    lambda npc: npc.update({"leverage_ids": [1]}),
+    lambda npc: npc.update({"active_reactions": [{"reaction_id": "r", "blocks_disclosure": "yes"}]}),
+    lambda npc: npc.update({"availability": {"status": "maybe"}}),
+    lambda npc: npc.update({"schedule": [{"schedule_id": "s", "scene_ids": "s1", "status": "available"}]}),
+    lambda npc: npc.update({"facts": [{"fact_id": "fact-a", "clue_id": "a", "min_trust": True}]}),
+    lambda npc: npc.update({"lie_options": [{"lie_id": "l", "fact_id": "missing"}]}),
+    lambda npc: npc.update({"deflect_options": [{"deflect_id": "d", "player_safe_line": 3}]}),
+])
+def test_complete_a21_contract_fails_closed_in_disk_and_compiled_validators(tmp_path, mutate):
+    sc = _make_valid_scenario(tmp_path)
+    doc = json.loads((sc / "npc-agendas.json").read_text())
+    npc = doc["npcs"][0]
+    npc.update({
+        "known_fact_ids": ["fact-a"], "revealable_fact_ids": ["fact-a"],
+        "disclosure_order": ["fact-a"],
+        "facts": [{"fact_id": "fact-a", "clue_id": "a", "min_trust": 0}],
+        "leverage_ids": [], "active_reactions": [], "lie_options": [],
+        "deflect_options": [], "availability": {"status": "available"}, "schedule": [],
+    })
+    mutate(npc)
+    (sc / "npc-agendas.json").write_text(json.dumps(doc))
+    disk = coc_scenario_compile.validate_scenario(sc)
+    compiled = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+    assert any("A21" in error for error in disk["errors"])
+    assert any(f.get("severity") == "error" and "A21" in f["message"] for f in compiled)
+
+
+def test_runtime_context_rejects_invalid_a21_contract(tmp_path):
+    # The same canonical validator used by compile must reject runtime payloads.
+    findings = coc_scenario_compile.validate_npc_a21_contract(
+        {"npcs": [{"npc_id": "n1", "agenda": "x", "known_fact_ids": "bad"}]},
+        {"conclusions": []},
+    )
+    assert findings and findings[0]["code"] == "npc_a21_contract_invalid"
+
 def test_validate_bad_structure_type(tmp_path):
     sc = _make_valid_scenario(tmp_path)
     m = json.loads((sc/"module-meta.json").read_text())

@@ -128,6 +128,27 @@ def test_missing_tone_fails_check_1(tmp_path):
     assert findings["tone_present"]["passed"] is False
 
 
+def test_applied_events_are_the_only_authority_for_disclosure_reveals():
+    plan = _good_plan()
+    plan["clue_policy"].update({"delivery_kind": "npc_dialogue"})
+    plan["narrative_directives"]["must_include"] = ["THE TRUE CLUE"]
+    plan["disclosure_decisions"] = [{
+        "npc_id": "npc-a", "outcome": "lie", "fact_id": "fact-a",
+        "clue_id": "clue-public-1", "player_safe_line": "A harmless cover story.",
+    }]
+    graph = {"conclusions": [{"clues": [{
+        "clue_id": "clue-public-1", "player_safe_summary": "THE TRUE CLUE",
+    }]}]}
+    env = cnc.build_narration_envelope(plan, clue_graph=graph, applied_events=[])
+    blob = json.dumps(env)
+    assert env["approved_reveals"]["clue_ids"] == []
+    assert env["approved_reveals"]["clues"] == []
+    assert env["approved_reveals"]["must_include"] == []
+    assert "THE TRUE CLUE" not in blob
+    assert "fact-a" not in blob
+    assert "A harmless cover story." in blob
+
+
 def test_invalid_horror_stage_fails_check_4(tmp_path):
     scenario_dir = _make_scenario(tmp_path)
     plan = _good_plan()

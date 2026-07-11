@@ -629,6 +629,7 @@ def _run_one_turn(
         clue_graph=ctx.get("clue_graph"),
         active_scene=ctx.get("active_scene"),
         investigator_display_name=investigator_display_name,
+        applied_events=events,
     )
     event_types = [event.get("event_type") for event in events if isinstance(event, dict)]
     tension = pacing.get("tension_level")
@@ -1069,6 +1070,7 @@ def _run_pending_choice_response(
         clue_graph=clue_graph,
         active_scene=active_scene,
         investigator_display_name=display_name,
+        applied_events=events,
     )
     event_types = [
         event.get("event_type") for event in events if isinstance(event, dict)
