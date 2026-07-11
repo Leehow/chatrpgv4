@@ -874,6 +874,31 @@ def test_push_history_binds_exact_terminal_command_receipts(tmp_path, action):
         state["command_hashes"][command["command_id"]]
         for command in history["terminal_commands"]
     ] == [executor._canonical_command_hash(command) for command in commands]
+    assert history["terminal_results"] == [
+        state["result_snapshots"][command["command_id"]] for command in commands
+    ]
+
+
+def test_push_result_rejects_coordinated_invalid_percentile_relationships(tmp_path):
+    executor = _executor("coc_subsystem_invalid_percentile_relationship")
+    campaign, character = _campaign_and_character(tmp_path)
+    response, commands, index = _terminal_history_variant(
+        executor, campaign, character, "push_resolve"
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    history = state["choice_history"][response["choice_id"]]
+    command_id = commands[index]["command_id"]
+    for result in (state["result_snapshots"][command_id], history["terminal_results"][index]):
+        result["events"][0]["roll"] = 99
+        result["events"][0]["outcome"] = "critical"
+        result["events"][0]["success"] = True
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
 
 
 def test_bout_history_binds_exact_terminal_command_receipt(tmp_path):
@@ -891,7 +916,87 @@ def test_bout_history_binds_exact_terminal_command_receipt(tmp_path):
     _execute(executor, campaign, character, commands, random.Random(218))
     state = json.loads((campaign / "save" / "subsystem-state.json").read_text())
 
-    assert state["choice_history"][response["choice_id"]]["terminal_commands"] == commands
+    history = state["choice_history"][response["choice_id"]]
+    assert history["terminal_commands"] == commands
+    assert history["terminal_results"] == [
+        state["result_snapshots"][command["command_id"]] for command in commands
+    ]
+
+
+@pytest.mark.parametrize(
+    ("variant", "field", "value"),
+    [
+        ("push_resolve", "roll", 99),
+        ("push_resolve", "outcome", "critical"),
+        ("push_resolve", "success", False),
+        ("bout_end", "event_id", "se999"),
+        ("bout_end", "summary", "forged ending"),
+        ("bout_end", "backstory_amend_suggestion", {"keeper_note": "forged"}),
+        ("bout_tick", "event_id", "se999"),
+    ],
+)
+def test_terminal_result_receipt_rejects_exact_field_tampering(
+    tmp_path, variant, field, value,
+):
+    executor = _executor(f"coc_subsystem_exact_result_{variant}_{field}")
+    campaign, character = _campaign_and_character(tmp_path)
+    response, commands, index = _terminal_history_variant(
+        executor, campaign, character, variant
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    command_id = commands[index]["command_id"]
+    event = state["result_snapshots"][command_id]["events"][-1]
+    event[field] = value
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+
+
+@pytest.mark.parametrize("variant", ["push_resolve", "bout_end", "bout_tick"])
+def test_terminal_result_closed_schema_rejects_coordinated_snapshot_receipt_tamper(
+    tmp_path, variant,
+):
+    executor = _executor(f"coc_subsystem_closed_result_{variant}")
+    campaign, character = _campaign_and_character(tmp_path)
+    response, commands, index = _terminal_history_variant(
+        executor, campaign, character, variant
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    history = state["choice_history"][response["choice_id"]]
+    command_id = commands[index]["command_id"]
+    state["result_snapshots"][command_id]["events"][-1]["keeper_secret"] = "leak"
+    history["terminal_results"][index]["events"][-1]["keeper_secret"] = "leak"
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+
+
+def test_bout_result_rejects_coordinated_backstory_receipt_tamper(tmp_path):
+    executor = _executor("coc_subsystem_bout_backstory_exact_receipt")
+    campaign, character = _campaign_and_character(tmp_path)
+    response, commands, index = _terminal_history_variant(
+        executor, campaign, character, "bout_end"
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    history = state["choice_history"][response["choice_id"]]
+    command_id = commands[index]["command_id"]
+    for result in (state["result_snapshots"][command_id], history["terminal_results"][index]):
+        result["events"][-1]["backstory_amend_suggestion"]["keeper_note"] = "forged but shaped"
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
 
 
 @pytest.mark.parametrize(

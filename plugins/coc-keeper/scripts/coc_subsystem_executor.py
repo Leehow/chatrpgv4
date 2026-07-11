@@ -271,6 +271,7 @@ PUSH_HISTORY_EXTRA_KEYS = frozenset({
     "terminal_revision",
     "terminal_command_ids",
     "terminal_commands",
+    "terminal_results",
     "response_changed_method_evidence",
 })
 BOUT_CONTEXT_KEYS = frozenset({
@@ -289,6 +290,7 @@ BOUT_HISTORY_EXTRA_KEYS = frozenset({
     "terminal_revision",
     "terminal_command_ids",
     "terminal_commands",
+    "terminal_results",
 })
 CHANGED_METHOD_SOURCES = frozenset({
     "player_proposal",
@@ -962,6 +964,7 @@ def _validate_history_terminal_snapshot(
     entry: dict[str, Any],
     command: dict[str, Any],
     snapshot: dict[str, Any],
+    all_snapshots: dict[str, Any],
 ) -> None:
     """Bind a consumed choice to the exact terminal result contract."""
     command_id = command["command_id"]
@@ -1045,13 +1048,22 @@ def _validate_history_terminal_snapshot(
             for key, value in expected_static.items()
         ):
             raise _state_error(f"choice history {choice_id!r} has forged push-roll evidence")
+        expected_effective_target = coc_roll._effective_target(
+            int(original.get("target")), str(original.get("difficulty") or "regular")
+        )
+        expected_outcome = (
+            coc_roll.coc_rules.success_level(event.get("roll"), expected_effective_target)
+            if isinstance(event.get("roll"), int) and not isinstance(event.get("roll"), bool)
+            else None
+        )
         if (
             isinstance(event.get("roll"), bool)
             or not isinstance(event.get("roll"), int)
             or not 1 <= event["roll"] <= 100
             or isinstance(event.get("effective_target"), bool)
             or not isinstance(event.get("effective_target"), int)
-            or not isinstance(event.get("outcome"), str)
+            or event.get("effective_target") != expected_effective_target
+            or event.get("outcome") != expected_outcome
             or event.get("success") != (event.get("outcome") in SUCCESS_OUTCOMES)
         ):
             raise _state_error(f"choice history {choice_id!r} has invalid pushed-roll outcome")
@@ -1081,11 +1093,44 @@ def _validate_history_terminal_snapshot(
     }:
         raise _state_error(f"choice history {choice_id!r} has forged bout-tick evidence")
     ended = events[-1]
+    origin_events = all_snapshots[entry["origin_command_id"]].get("events") or []
+    origin_bout = next(
+        (
+            event for event in origin_events
+            if isinstance(event, dict)
+            and event.get("event_type") == "bout_of_madness"
+            and event.get("bout_id") == entry["bout_id"]
+        ),
+        None,
+    )
+    if not isinstance(origin_bout, dict):
+        raise _state_error(f"choice history {choice_id!r} lacks canonical bout origin evidence")
+    expected_suggestion = origin_bout.get("backstory_amend_suggestion")
+    ended_keys = {"event_id", "bout_id", "summary", "event_type"}
+    if "backstory_amend_suggestion" in ended:
+        ended_keys.add("backstory_amend_suggestion")
+        suggestion = ended.get("backstory_amend_suggestion")
+        if (
+            not isinstance(suggestion, dict)
+            or set(suggestion) != {"mode", "backstory_field", "keeper_note"}
+            or suggestion.get("mode") not in {"corrupt_existing", "add_irrational"}
+            or not isinstance(suggestion.get("backstory_field"), str)
+            or not suggestion.get("backstory_field")
+            or not isinstance(suggestion.get("keeper_note"), str)
+            or not suggestion.get("keeper_note")
+        ):
+            raise _state_error(f"choice history {choice_id!r} has forged bout backstory evidence")
+    if not _json_deep_equal(ended.get("backstory_amend_suggestion"), expected_suggestion):
+        raise _state_error(f"choice history {choice_id!r} diverges from canonical bout backstory evidence")
     if (
-        ended.get("bout_id") != entry["bout_id"]
+        set(ended) != ended_keys
+        or ended.get("bout_id") != entry["bout_id"]
         or not isinstance(ended.get("event_id"), str)
-        or not isinstance(ended.get("summary"), str)
-        or not ended["summary"]
+        or not re.fullmatch(r"se[1-9][0-9]*", ended["event_id"])
+        or ended.get("summary") != (
+            f"{entry['investigator_id']} bout of madness ends; control returns "
+            "to the player (underlying insanity continues)."
+        )
     ):
         raise _state_error(f"choice history {choice_id!r} has forged bout-end evidence")
 
@@ -1198,6 +1243,7 @@ def _validate_state(state: Any) -> dict[str, Any]:
         revision = entry.get("terminal_revision")
         command_ids = entry.get("terminal_command_ids")
         terminal_commands = entry.get("terminal_commands")
+        terminal_results = entry.get("terminal_results")
         if public_choice.get("kind") == "push_confirm":
             expected_keys = set(PUSH_CONTEXT_KEYS) | set(PUSH_HISTORY_EXTRA_KEYS)
             allowed_actions = {"confirm", "cancel"}
@@ -1250,6 +1296,8 @@ def _validate_state(state: Any) -> dict[str, Any]:
             ] != expected_command_ids
         ):
             raise _state_error(f"choice history {choice_id!r} lacks exact terminal command receipts")
+        if not isinstance(terminal_results, list) or len(terminal_results) != expected_count:
+            raise _state_error(f"choice history {choice_id!r} lacks exact terminal result receipts")
         response = {
             "choice_id": choice_id,
             "responder": public_choice["responder"],
@@ -1268,8 +1316,8 @@ def _validate_state(state: Any) -> dict[str, Any]:
             ) from exc
         if not _json_deep_equal(validated_commands, expected_commands):
             raise _state_error(f"choice history {choice_id!r} terminal receipts are non-canonical")
-        for terminal_id, expected_kind, terminal_command in zip(
-            command_ids, expected_kinds, terminal_commands
+        for terminal_id, expected_kind, terminal_command, terminal_result in zip(
+            command_ids, expected_kinds, terminal_commands, terminal_results
         ):
             if (
                 snapshots[terminal_id].get("kind") != expected_kind
@@ -1281,8 +1329,10 @@ def _validate_state(state: Any) -> dict[str, Any]:
                 or hashes[terminal_id] != _canonical_command_hash(terminal_command)
             ):
                 raise _state_error(f"choice history {choice_id!r} has invalid terminal provenance")
+            if not _json_deep_equal(terminal_result, snapshots[terminal_id]):
+                raise _state_error(f"choice history {choice_id!r} terminal result receipt diverges")
             _validate_history_terminal_snapshot(
-                choice_id, entry, terminal_command, snapshots[terminal_id]
+                choice_id, entry, terminal_command, snapshots[terminal_id], snapshots
             )
         if public_choice.get("kind") == "push_confirm":
             changed = entry.get("response_changed_method_evidence")
@@ -3201,6 +3251,7 @@ def _dispatch(
                 "terminal_revision": payload["revision"],
                 "terminal_command_ids": _json_copy(payload["terminal_command_ids"]),
                 "terminal_commands": [],
+                "terminal_results": [],
             }
         return {
             "command_id": command_id,
@@ -3229,6 +3280,7 @@ def _dispatch(
             "terminal_revision": payload["revision"],
             "terminal_command_ids": _json_copy(payload["terminal_command_ids"]),
             "terminal_commands": [],
+            "terminal_results": [],
             "response_changed_method_evidence": (
                 _json_copy(context["changed_method_evidence"])
                 if action == "confirm"
@@ -3817,6 +3869,10 @@ def execute_commands(
             if all(command_id in current_commands for command_id in terminal_ids):
                 history_entry["terminal_commands"] = [
                     _json_copy(current_commands[command_id])
+                    for command_id in terminal_ids
+                ]
+                history_entry["terminal_results"] = [
+                    _json_copy(next_state["result_snapshots"][command_id])
                     for command_id in terminal_ids
                 ]
 

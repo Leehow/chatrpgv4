@@ -13,6 +13,7 @@ clocks were perpetually at 0 and ``on_full`` consequences never fired.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,196 @@ def _load_fileio():
 coc_fileio = _load_fileio()
 
 THREAT_STATE_FILENAME = "threat-state.json"
+THREAT_STATE_SCHEMA_VERSION = 2
+_GENESIS_HASH = "0" * 64
+
+
+def _empty_state() -> dict[str, Any]:
+    return {
+        "schema_version": THREAT_STATE_SCHEMA_VERSION,
+        "clocks": {},
+        "applied_effects": {},
+        "transitions": [],
+        "ledger_head": _GENESIS_HASH,
+    }
+
+
+def _transition_hash(transition: dict[str, Any]) -> str:
+    material = {key: value for key, value in transition.items() if key != "transition_hash"}
+    return hashlib.sha256(
+        json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _append_transition(
+    state: dict[str, Any], *, kind: str, clock_id: str, segments: int,
+    ticks: int, effect_id: str | None,
+) -> dict[str, Any]:
+    clock = state["clocks"].get(clock_id, {"current_segments": 0, "full": False})
+    before = int(clock.get("current_segments", 0))
+    before_full = bool(clock.get("full", False)) or before >= segments
+    after = before if before_full else min(segments, before + ticks)
+    after_full = after >= segments
+    transitions = state["transitions"]
+    transition = {
+        "transition_id": f"clock-transition:{len(transitions) + 1}",
+        "kind": kind,
+        "clock_id": clock_id,
+        "segments": segments,
+        "ticks": ticks,
+        "effect_id": effect_id,
+        "before_segments": before,
+        "before_full": before_full,
+        "after_segments": after,
+        "after_full": after_full,
+        "became_full": not before_full and after_full,
+        "previous_hash": state["ledger_head"],
+    }
+    transition["transition_hash"] = _transition_hash(transition)
+    transitions.append(transition)
+    state["ledger_head"] = transition["transition_hash"]
+    state["clocks"][clock_id] = {
+        "current_segments": after,
+        "full": after_full,
+    }
+    return transition
+
+
+def _migrate_v1(data: dict[str, Any]) -> dict[str, Any]:
+    receipts = data.get("applied_effects") or {}
+    if receipts:
+        raise ValueError(
+            "legacy threat effect receipts cannot be migrated with verifiable transitions"
+        )
+    clocks = data.get("clocks") or {}
+    if not isinstance(clocks, dict):
+        raise ValueError("legacy threat-state clocks must be an object")
+    migrated = _empty_state()
+    for clock_id in sorted(clocks):
+        clock = clocks[clock_id]
+        if not isinstance(clock_id, str) or not clock_id or not isinstance(clock, dict):
+            raise ValueError("legacy threat-state clock has an invalid contract")
+        current = clock.get("current_segments", 0)
+        full = clock.get("full", False)
+        if isinstance(current, bool) or not isinstance(current, int) or current < 0:
+            raise ValueError("legacy threat-state clock has invalid segments")
+        if not isinstance(full, bool):
+            raise ValueError("legacy threat-state clock has invalid full flag")
+        if current == 0 and not full:
+            continue
+        # A one-time, hashed bootstrap receipt preserves pre-v2 state. All
+        # subsequent mutations use ordinary/effect transitions.
+        segments = max(1, current if full else current + 1)
+        transition = _append_transition(
+            migrated, kind="bootstrap", clock_id=clock_id,
+            segments=segments, ticks=max(1, current), effect_id=None,
+        )
+        if transition["after_segments"] != current or transition["after_full"] != full:
+            raise ValueError("legacy threat-state clock cannot be migrated exactly")
+    return migrated
+
+
+def _validate_state(data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        raise ValueError("threat-state root must be an object")
+    if data.get("schema_version") == 1:
+        data = _migrate_v1(data)
+    expected_root = {
+        "schema_version", "clocks", "applied_effects", "transitions", "ledger_head",
+    }
+    if data.get("schema_version") != THREAT_STATE_SCHEMA_VERSION or set(data) != expected_root:
+        raise ValueError("unsupported or malformed threat-state schema")
+    clocks = data["clocks"]
+    receipts = data["applied_effects"]
+    transitions = data["transitions"]
+    if not isinstance(clocks, dict) or not isinstance(receipts, dict) or not isinstance(transitions, list):
+        raise ValueError("threat-state indexes must be objects and transitions a list")
+    replay: dict[str, dict[str, Any]] = {}
+    by_id: dict[str, dict[str, Any]] = {}
+    previous_hash = _GENESIS_HASH
+    transition_keys = {
+        "transition_id", "kind", "clock_id", "segments", "ticks", "effect_id",
+        "before_segments", "before_full", "after_segments", "after_full",
+        "became_full", "previous_hash", "transition_hash",
+    }
+    for index, transition in enumerate(transitions, 1):
+        if not isinstance(transition, dict) or set(transition) != transition_keys:
+            raise ValueError("threat transition has an invalid contract")
+        transition_id = f"clock-transition:{index}"
+        if transition.get("transition_id") != transition_id:
+            raise ValueError("threat transition sequence is non-canonical")
+        kind = transition.get("kind")
+        clock_id = transition.get("clock_id")
+        segments = transition.get("segments")
+        ticks = transition.get("ticks")
+        effect_id = transition.get("effect_id")
+        if kind not in {"bootstrap", "tick", "effect"}:
+            raise ValueError("threat transition kind is unsupported")
+        if not isinstance(clock_id, str) or not clock_id:
+            raise ValueError("threat transition clock_id is invalid")
+        if isinstance(segments, bool) or not isinstance(segments, int) or segments < 1:
+            raise ValueError("threat transition segments are invalid")
+        if isinstance(ticks, bool) or not isinstance(ticks, int) or ticks < 1:
+            raise ValueError("threat transition ticks are invalid")
+        if kind == "effect":
+            if not isinstance(effect_id, str) or not effect_id:
+                raise ValueError("effect transition lacks effect_id")
+        elif effect_id is not None:
+            raise ValueError("non-effect transition cannot carry effect_id")
+        prior = replay.get(clock_id, {"current_segments": 0, "full": False})
+        before = int(prior["current_segments"])
+        before_full = bool(prior["full"]) or before >= segments
+        after = before if before_full else min(segments, before + ticks)
+        after_full = after >= segments
+        expected_values = {
+            "before_segments": before,
+            "before_full": before_full,
+            "after_segments": after,
+            "after_full": after_full,
+            "became_full": not before_full and after_full,
+            "previous_hash": previous_hash,
+        }
+        if any(transition.get(key) != value for key, value in expected_values.items()):
+            raise ValueError("threat transition does not match its persisted clock transition")
+        if transition.get("transition_hash") != _transition_hash(transition):
+            raise ValueError("threat transition hash is invalid")
+        if kind == "bootstrap" and clock_id in replay:
+            raise ValueError("bootstrap transition must be the first clock transition")
+        replay[clock_id] = {"current_segments": after, "full": after_full}
+        previous_hash = transition["transition_hash"]
+        by_id[transition_id] = transition
+    if data["ledger_head"] != previous_hash:
+        raise ValueError("threat transition ledger head is invalid")
+    if clocks != replay:
+        raise ValueError("persisted clock state diverges from transition ledger")
+    receipt_keys = {
+        "clock_id", "segments", "ticks", "transition_id", "transition_hash",
+        "before_segments", "after_segments", "became_full",
+    }
+    for effect_id, receipt in receipts.items():
+        if not isinstance(effect_id, str) or not effect_id or not isinstance(receipt, dict):
+            raise ValueError("threat effect receipt is invalid")
+        if set(receipt) != receipt_keys:
+            raise ValueError("threat effect receipt has an invalid contract")
+        transition = by_id.get(receipt.get("transition_id"))
+        expected = None if transition is None else {
+            "clock_id": transition["clock_id"],
+            "segments": transition["segments"],
+            "ticks": transition["ticks"],
+            "transition_id": transition["transition_id"],
+            "transition_hash": transition["transition_hash"],
+            "before_segments": transition["before_segments"],
+            "after_segments": transition["after_segments"],
+            "became_full": transition["became_full"],
+        }
+        if transition is None or transition.get("kind") != "effect" or transition.get("effect_id") != effect_id or receipt != expected:
+            raise ValueError("threat effect receipt does not match its transition")
+    effect_transitions = {
+        transition["effect_id"] for transition in transitions if transition["kind"] == "effect"
+    }
+    if effect_transitions != set(receipts):
+        raise ValueError("threat effect transition lacks an exact receipt")
+    return data
 
 
 def _state_path(save_dir: Path) -> Path:
@@ -41,17 +232,12 @@ def load_threat_state(save_dir: Path) -> dict[str, Any]:
     """Load threat-state.json, returning a well-formed shell if absent."""
     path = _state_path(save_dir)
     if not path.is_file():
-        return {"schema_version": 1, "clocks": {}, "applied_effects": {}}
+        return _empty_state()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {"schema_version": 1, "clocks": {}, "applied_effects": {}}
-    if not isinstance(data, dict):
-        return {"schema_version": 1, "clocks": {}, "applied_effects": {}}
-    data.setdefault("schema_version", 1)
-    data.setdefault("clocks", {})
-    data.setdefault("applied_effects", {})
-    return data
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"could not load threat-state: {exc}") from exc
+    return _validate_state(data)
 
 
 def _save_state(save_dir: Path, state: dict[str, Any]) -> None:
@@ -67,7 +253,7 @@ def init_threat_state(save_dir: Path) -> None:
     if not path.is_file():
         _save_state(
             save_dir,
-            {"schema_version": 1, "clocks": {}, "applied_effects": {}},
+            _empty_state(),
         )
 
 
@@ -89,26 +275,12 @@ def tick_clock(save_dir: Path, clock_id: str, segments: int) -> bool:
     already-full clock is a no-op returning False.
     """
     state = load_threat_state(save_dir)
-    clocks = state["clocks"]
-    clock = clocks.get(clock_id, {"current_segments": 0, "full": False})
-    current = int(clock.get("current_segments", 0))
-    was_full = bool(clock.get("full", False))
-    if was_full or current >= segments:
-        # Already full — no-op.
-        clock["full"] = True
-        clock["current_segments"] = min(current, segments)
-        clocks[clock_id] = clock
-        state["clocks"] = clocks
-        _save_state(save_dir, state)
-        return False
-    current += 1
-    became_full = current >= segments
-    clock["current_segments"] = current
-    clock["full"] = became_full
-    clocks[clock_id] = clock
-    state["clocks"] = clocks
+    transition = _append_transition(
+        state, kind="tick", clock_id=clock_id, segments=segments,
+        ticks=1, effect_id=None,
+    )
     _save_state(save_dir, state)
-    return became_full
+    return bool(transition["became_full"])
 
 
 def apply_clock_effect_once(
@@ -138,33 +310,39 @@ def apply_clock_effect_once(
     receipts = state.setdefault("applied_effects", {})
     if not isinstance(receipts, dict):
         raise ValueError("threat-state applied_effects must be an object")
-    receipt = {
+    existing = receipts.get(effect_id)
+    if existing is not None:
+        if any(existing.get(key) != value for key, value in {
+            "clock_id": clock_id, "segments": segments, "ticks": ticks,
+        }.items()):
+            raise ValueError("threat effect ID was reused with different content")
+        return False, False
+    transition = _append_transition(
+        state, kind="effect", clock_id=clock_id, segments=segments,
+        ticks=ticks, effect_id=effect_id,
+    )
+    receipts[effect_id] = {
         "clock_id": clock_id,
         "segments": segments,
         "ticks": ticks,
+        "transition_id": transition["transition_id"],
+        "transition_hash": transition["transition_hash"],
+        "before_segments": transition["before_segments"],
+        "after_segments": transition["after_segments"],
+        "became_full": transition["became_full"],
     }
-    existing = receipts.get(effect_id)
-    if existing is not None:
-        if existing != receipt:
-            raise ValueError("threat effect ID was reused with different content")
-        return False, False
-
-    clocks = state.setdefault("clocks", {})
-    if not isinstance(clocks, dict):
-        raise ValueError("threat-state clocks must be an object")
-    clock = clocks.get(clock_id, {"current_segments": 0, "full": False})
-    current = int(clock.get("current_segments", 0))
-    was_full = bool(clock.get("full", False)) or current >= segments
-    next_segments = min(segments, current + ticks)
-    became_full = not was_full and next_segments >= segments
-    clock["current_segments"] = next_segments
-    clock["full"] = next_segments >= segments
-    clocks[clock_id] = clock
-    receipts[effect_id] = receipt
-    state["clocks"] = clocks
     state["applied_effects"] = receipts
     _save_state(save_dir, state)
-    return True, became_full
+    return True, bool(transition["became_full"])
+
+
+def get_clock_effect_receipt(save_dir: Path, effect_id: str) -> dict[str, Any]:
+    """Return an exact verified effect transition receipt."""
+    state = load_threat_state(save_dir)
+    receipt = state["applied_effects"].get(effect_id)
+    if not isinstance(receipt, dict):
+        raise ValueError(f"unknown threat effect receipt: {effect_id}")
+    return json.loads(json.dumps(receipt))
 
 
 def is_clock_full(save_dir: Path, clock_id: str) -> bool:

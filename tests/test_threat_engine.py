@@ -362,6 +362,53 @@ def test_get_clock_segments_returns_live_or_zero(tmp_path):
     assert coc_threat_state.get_clock_segments(save, "unknown") == 0
 
 
+def test_effect_receipt_detects_clock_tampering_and_fails_closed(tmp_path):
+    save = _save_with_clocks(tmp_path, {})
+    applied, _ = coc_threat_state.apply_clock_effect_once(
+        save, "doom", 6, ticks=2, effect_id="pushed-consequence:resolve-1"
+    )
+    assert applied is True
+    path = save / "threat-state.json"
+    state = json.loads(path.read_text())
+    state["clocks"]["doom"]["current_segments"] = 5
+    state["clocks"]["doom"]["full"] = False
+    path.write_text(json.dumps(state))
+
+    with pytest.raises(ValueError, match="transition|clock"):
+        coc_threat_state.load_threat_state(save)
+
+
+def test_effect_retry_after_legitimate_clock_mutation_is_noop(tmp_path):
+    save = _save_with_clocks(tmp_path, {})
+    effect_id = "pushed-consequence:resolve-2"
+    assert coc_threat_state.apply_clock_effect_once(
+        save, "doom", 6, ticks=2, effect_id=effect_id
+    ) == (True, False)
+    assert coc_threat_state.tick_clock(save, "doom", 6) is False
+
+    assert coc_threat_state.apply_clock_effect_once(
+        save, "doom", 6, ticks=2, effect_id=effect_id
+    ) == (False, False)
+    state = coc_threat_state.load_threat_state(save)
+    assert state["clocks"]["doom"]["current_segments"] == 3
+    assert len(state["transitions"]) == 2
+
+
+def test_effect_receipt_binds_exact_persisted_transition(tmp_path):
+    save = _save_with_clocks(tmp_path, {})
+    effect_id = "pushed-consequence:resolve-3"
+    coc_threat_state.apply_clock_effect_once(
+        save, "doom", 6, ticks=2, effect_id=effect_id
+    )
+    path = save / "threat-state.json"
+    state = json.loads(path.read_text())
+    state["applied_effects"][effect_id]["after_segments"] = 4
+    path.write_text(json.dumps(state))
+
+    with pytest.raises(ValueError, match="receipt|transition"):
+        coc_threat_state.load_threat_state(save)
+
+
 def test_init_threat_state_creates_file(tmp_path):
     """Initialization creates an empty threat-state.json."""
     save = tmp_path / "save"

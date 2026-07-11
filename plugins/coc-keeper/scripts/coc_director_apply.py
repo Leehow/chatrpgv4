@@ -1536,9 +1536,12 @@ def _apply_typed_push_consequences(
         consequence = failure.get("announced_consequence")
         effect = consequence.get("effect") if isinstance(consequence, dict) else None
         summary = str(consequence.get("summary") or "") if isinstance(consequence, dict) else ""
-        if not isinstance(effect, dict) or source_id in known:
+        if not isinstance(effect, dict):
             continue
         kind = effect.get("kind")
+        already_recorded = source_id in known
+        if already_recorded and kind != "pressure_tick":
+            continue
         record: dict[str, Any] = {
             "source_command_id": source_id,
             "decision_id": decision_id,
@@ -1584,10 +1587,23 @@ def _apply_typed_push_consequences(
                 ticks=ticks,
                 effect_id=f"pushed-consequence:{source_id}",
             )
+            transition_receipt = coc_threat_state.get_clock_effect_receipt(
+                campaign_dir / "save", f"pushed-consequence:{source_id}"
+            )
             record.update({"clock_id": clock_id, "ticks": ticks})
+            record["clock_transition"] = transition_receipt
             evidence.update({"clock_id": clock_id, "ticks": ticks})
+            evidence["clock_transition"] = transition_receipt
         else:
             raise ValueError(f"unsupported pushed consequence effect kind: {kind!r}")
+        if already_recorded:
+            existing_record = next(
+                row for row in records
+                if isinstance(row, dict) and str(row.get("source_command_id")) == source_id
+            )
+            if existing_record.get("clock_transition") != record.get("clock_transition"):
+                raise ValueError("world pushed-consequence receipt diverges from threat transition")
+            continue
         records.append(record)
         known.add(source_id)
         applied.append(evidence)

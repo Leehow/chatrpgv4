@@ -2381,6 +2381,41 @@ def test_pressure_tick_push_consequence_retry_after_target_write_is_exactly_once
     ) == 2
     assert len(recovered_world["pushed_consequences"]) == 1
     assert len(applied) == 1
+    receipt = recovered_world["pushed_consequences"][0]["clock_transition"]
+    assert receipt["before_segments"] == 0
+    assert receipt["after_segments"] == 2
+    assert receipt["transition_id"].startswith("clock-transition:")
+
+
+def test_pressure_consequence_existing_world_receipt_still_verifies_clock_ledger(
+    tmp_path,
+):
+    camp = _campaign(tmp_path)
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"clocks": [{"clock_id": "doom", "segments": 6}]}],
+    }))
+    failure = {
+        "event_type": "pushed_roll_failure",
+        "source_command_id": "push-resolve-tamper",
+        "announced_consequence": {
+            "summary": "the doom clock advances",
+            "effect": {"kind": "pressure_tick", "clock_id": "doom", "ticks": 2},
+        },
+    }
+    world = {}
+    coc_director_apply._apply_typed_push_consequences(
+        camp, "inv1", [failure], world=world, decision_id="d-tamper", ts="first"
+    )
+    threat_path = camp / "save" / "threat-state.json"
+    threat = json.loads(threat_path.read_text())
+    threat["clocks"]["doom"]["current_segments"] = 4
+    threat_path.write_text(json.dumps(threat))
+
+    with pytest.raises(ValueError, match="transition|clock"):
+        coc_director_apply._apply_typed_push_consequences(
+            camp, "inv1", [failure], world=world,
+            decision_id="d-tamper", ts="retry",
+        )
 
 
 # =============================================================================
