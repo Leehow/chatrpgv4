@@ -21,6 +21,13 @@ _TREATMENT_EVENT = {
     "REFRAME": "belief_reframed",
     "PAYOFF": "belief_payoff",
 }
+_STATUS_FOR_MODE = {
+    "CONFIRM": "confirmed",
+    "EXPAND": "expanded",
+    "COMPLICATE": "complicated",
+    "REFRAME": "reframed",
+    "PAYOFF": "answered",
+}
 
 
 def _load_sibling(name: str, filename: str):
@@ -97,6 +104,18 @@ def _ordered_strings(values: Any) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
+
+
+def _treatment_history(values: Any, treatment: str, limit: int = 8) -> list[str]:
+    """Keep recent treatments in order, including repeated confirmations."""
+    source = values if isinstance(values, list) else []
+    history = [
+        str(value).strip().lower()
+        for value in source
+        if isinstance(value, str) and str(value).strip()
+    ]
+    history.append(treatment)
+    return history[-limit:]
 
 
 def _bounded_confidence(value: Any, default: float = 0.5) -> float:
@@ -231,15 +250,34 @@ def _assert_hypothesis(
 def _targets_for_contract(
     state: dict[str, Any],
     contract: dict[str, Any],
+    *,
+    newly_asserted_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    refs = set(_ordered_strings(contract.get("belief_refs")))
+    mode = str(contract.get("mode") or "NONE").upper()
+    if mode == "REFRAME" and _ordered_strings(contract.get("revise_hypothesis_refs")):
+        refs = set(_ordered_strings(contract.get("revise_hypothesis_refs")))
+    else:
+        refs = set(_ordered_strings(contract.get("belief_refs")))
+
+    question_id = contract.get("target_question_id")
+    if newly_asserted_id and mode != "REFRAME":
+        new_record = next(
+            (
+                hypothesis
+                for hypothesis in state.get("hypotheses", [])
+                if hypothesis.get("hypothesis_id") == newly_asserted_id
+            ),
+            None,
+        )
+        if isinstance(new_record, dict) and new_record.get("question_id") == question_id:
+            refs.add(newly_asserted_id)
+
     if refs:
         return [
             hypothesis
             for hypothesis in state.get("hypotheses", [])
             if hypothesis.get("hypothesis_id") in refs
         ]
-    question_id = contract.get("target_question_id")
     if question_id:
         return [
             hypothesis
@@ -259,6 +297,7 @@ def _apply_treatment(
     turn_number: int,
     investigator_id: str,
     ts: str,
+    newly_asserted_id: str | None = None,
 ) -> list[dict[str, Any]]:
     mode = str(contract.get("mode") or "NONE").upper()
     event_type = _TREATMENT_EVENT.get(mode)
@@ -269,7 +308,11 @@ def _apply_treatment(
     if not committed:
         return []
 
-    targets = _targets_for_contract(state, contract)
+    targets = _targets_for_contract(
+        state,
+        contract,
+        newly_asserted_id=newly_asserted_id,
+    )
     treatment = mode.lower()
     for hypothesis in targets:
         support = _ordered_strings(hypothesis.get("supporting_clue_ids"))
@@ -278,19 +321,13 @@ def _apply_treatment(
             support = _ordered_strings([*support, *committed])
         else:
             challenge = _ordered_strings([*challenge, *committed])
-        history = _ordered_strings([*(hypothesis.get("recent_treatments") or []), treatment])[-8:]
         hypothesis["supporting_clue_ids"] = support
         hypothesis["challenging_clue_ids"] = challenge
-        hypothesis["recent_treatments"] = history
+        hypothesis["recent_treatments"] = _treatment_history(
+            hypothesis.get("recent_treatments"), treatment
+        )
         hypothesis["updated_turn"] = turn_number
-        if mode == "CONFIRM":
-            hypothesis["status"] = "confirmed"
-        elif mode == "REFRAME":
-            hypothesis["status"] = "reframed"
-        elif mode == "PAYOFF":
-            hypothesis["status"] = "answered"
-        else:
-            hypothesis.setdefault("status", "active")
+        hypothesis["status"] = _STATUS_FOR_MODE[mode]
 
     events: list[dict[str, Any]] = [{
         "schema_version": SCHEMA_VERSION,
@@ -361,9 +398,10 @@ def apply_belief_turn(
         turn_number = 0
 
     events: list[dict[str, Any]] = []
+    newly_asserted_id: str | None = None
     candidate = _candidate_from_plan(plan)
     if candidate is not None:
-        _, event = _assert_hypothesis(
+        record, event = _assert_hypothesis(
             state,
             candidate,
             decision_id=decision_id,
@@ -371,6 +409,7 @@ def apply_belief_turn(
             investigator_id=investigator_id,
             ts=ts,
         )
+        newly_asserted_id = record.get("hypothesis_id")
         events.append(event)
 
     contract = plan.get("epistemic_contract")
@@ -384,6 +423,7 @@ def apply_belief_turn(
                 turn_number=turn_number,
                 investigator_id=investigator_id,
                 ts=ts,
+                newly_asserted_id=newly_asserted_id,
             )
         )
 
