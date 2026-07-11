@@ -207,6 +207,12 @@ session snapshot contains only the already sanitized resolved pipeline, and the
 driver switches its active-generation pointer only after restore plus SDK
 validation succeeds.
 
+Generation activation is an atomic run-metadata update.  Before that update, a
+fresh session registry must restore the one expected session ID and PublicState
+must match the checkpoint.  Failure leaves the previous active generation and
+metadata untouched; successful activation retains the previous generation for
+diagnosis/retry instead of deleting it.
+
 Before checkpoint publication, the turn receipt must attest synchronous
 recording with no background flush.  The sanitized session snapshot is filtered
 to the one exact session, campaign, investigator, and character path named by

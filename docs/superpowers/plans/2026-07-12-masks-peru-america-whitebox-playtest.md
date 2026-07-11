@@ -270,6 +270,12 @@ The driver must:
 8. stop without another model call at the hard ceiling; and
 9. close the runtime session/worker pool on every normal or exceptional exit.
 
+On resume, restore into a new workspace generation.  In a fresh registry,
+require restoration of the exact expected session ID and verify PublicState
+against the checkpoint before atomically replacing the run metadata's
+`active_workspace_generation`.  Keep the previous generation unchanged for
+diagnosis/retry; a failed validation must not move the pointer.
+
 Do not place Keeper events, raw NarrationEnvelope, scenario paths, or evaluator output in stdout.
 
 The public SDK must expose player-safe structured terminal evidence rather than
