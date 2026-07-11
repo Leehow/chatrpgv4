@@ -6,6 +6,9 @@ on:
       - feature/scenario-epistemic-director-v1
     paths:
       - .github/epistemic-v1-trigger
+  pull_request:
+    branches:
+      - release/0.2-alpha
 
 permissions:
   contents: write
