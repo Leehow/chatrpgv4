@@ -41,18 +41,6 @@ def _write_json(path: Path, payload) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def _character() -> dict:
-    return {
-        "schema_version": 1, "id": "inv-smoke", "name": "Smoke Investigator",
-        "occupation": "Journalist", "era": "ww1",
-        "characteristics": {"STR": 60, "CON": 60, "SIZ": 60, "DEX": 70,
-                            "APP": 50, "INT": 70, "POW": 60, "EDU": 70, "LUCK": 60},
-        "derived": {"HP": 12, "MP": 12, "SAN": 60, "MOV": 8},
-        "skills": {"Spot Hidden": 60, "Library Use": 60, "Persuade": 50},
-        "backstory": {},
-    }
-
-
 def _load_session_module():
     path = REPO / "runtime" / "engine" / "session.py"
     spec = importlib.util.spec_from_file_location("product_smoke_runtime_session", path)
@@ -80,18 +68,27 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
     _write_json(coc_root / "runtime.json", {"schema_version": 2,
         "planner": {"kind": "deterministic"}, "rules": {"kind": "deterministic"},
         "narrator": {"kind": "template"}, "player": {"kind": "human"}})
-    coc_state.create_campaign(coc_root, campaign_id, "Product Smoke", era="ww1")
-    character_path = coc_state.create_investigator(coc_root, "inv-smoke", _character())
-    scenario_dir = coc_starter.install_starter(coc_root, campaign_id, "the-white-war")
+    quick = coc_starter.quick_start(
+        coc_root, "the-haunting", "thomas-hayes",
+        campaign_id=campaign_id, title="Product Smoke")
+    assert quick["scenario_id"] == "the-haunting" and quick["pregen_id"] == "thomas-hayes"
+    assert coc_starter.lookup_known_starter_pregen("thomas-hayes")["scenario_id"] == "the-haunting"
+    character_path = Path(quick["character_path"])
+    installed_pregen = json.loads(character_path.read_text(encoding="utf-8"))
+    assert installed_pregen["id"] == "thomas-hayes"
+    assert installed_pregen["backstory"]["scenario_id"] == "the-haunting"
+    assert installed_pregen["backstory"]["scenario_bound"]
+    scenario_dir = Path(quick["campaign_dir"]) / "scenario"
     starter_story = json.loads((scenario_dir / "story-graph.json").read_text(encoding="utf-8"))
+    starter_story["scenes"][0]["available_clues"] = []
     starter_story["scenes"][0]["on_enter"] = {"san_triggers": [{
         "trigger_id": "product-smoke-horror", "source": "structured-horror",
         "san_loss_success": 0, "san_loss_fail_expr": "1", "alone": False}]}
     _write_json(scenario_dir / "story-graph.json", starter_story)
     campaign = coc_root / "campaigns" / campaign_id
-    inv_state = campaign / "save" / "investigator-state" / "inv-smoke.json"
+    inv_state = campaign / "save" / "investigator-state" / "thomas-hayes.json"
     _write_json(inv_state, {"schema_version": 1, "campaign_id": campaign_id,
-                           "investigator_id": "inv-smoke", "current_hp": 12,
+                           "investigator_id": "thomas-hayes", "current_hp": 12,
                            "current_san": 60, "current_mp": 12, "conditions": [],
                            "skill_checks_earned": []})
 
@@ -110,12 +107,12 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
             if player_text == "ask":
                 kwargs.update({"intent_class": "social", "player_intent_rich": {
                     "primary_intent": "social", "secondary_intents": [],
-                    "target_entities": ["npc-company-commander"], "risk_posture": "neutral",
+                    "target_entities": ["npc-steven-knott"], "risk_posture": "neutral",
                     "explicit_roll_request": False, "player_hypothesis": None,
                     "action_atoms": [], "npc_interactions": [{
-                        "npc_id": "npc-company-commander", "tactic": "request_fact",
+                        "npc_id": "npc-steven-knott", "tactic": "request_fact",
                         "request_id": "product-social-1",
-                        "fact_id": "fact-briefing-strange-sounds",
+                        "fact_id": "fact-knott-commission",
                         "skill": "Credit Rating", "difficulty": "regular"}]}})
             elif player_text:
                 kwargs.update({"intent_class": "investigate", "player_intent_rich": {
@@ -129,8 +126,11 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
 
     runtime_session._load_debug_adapter = lambda: _StructuredRuntimeAdapter
     session_id = runtime_session.create_session(
-        workspace, campaign_id=campaign_id, investigator_id="inv-smoke")
+        workspace, campaign_id=campaign_id, investigator_id="thomas-hayes")
     investigation_events = runtime_session.send(session_id, "inspect")
+    social_story = json.loads((scenario_dir / "story-graph.json").read_text(encoding="utf-8"))
+    social_story["scenes"][0]["available_clues"] = ["clue-knott-commission"]
+    _write_json(scenario_dir / "story-graph.json", social_story)
     social_events = runtime_session.send(session_id, "ask")
     assert investigation_events and social_events
     assert runtime_session.get_state(session_id)["campaign_id"] == campaign_id
@@ -142,12 +142,12 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
     assert all(row["intent_resolution"]["source"] == "caller_intent_class" for row in runtime_rows[:2])
     assert all(row["intent_resolution"]["intent_class"] != "ambiguous" for row in runtime_rows[:2])
     npc_state = json.loads((campaign / "save" / "npc-state.json").read_text(encoding="utf-8"))
-    assert "npc-company-commander" in npc_state["npcs"]
+    assert "npc-steven-knott" in npc_state["npcs"]
     disclosure_rows = [json.loads(line) for line in
                        (campaign / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()
                        if line.strip()]
     assert any(row.get("event_type") in {"npc_disclosure_approved", "npc_disclosure_withheld"}
-               and row.get("npc_id") == "npc-company-commander" for row in disclosure_rows)
+               and row.get("npc_id") == "npc-steven-knott" for row in disclosure_rows)
     subsystem_rows = [json.loads(line) for line in
                       (campaign / "logs" / "subsystem-results.jsonl").read_text(encoding="utf-8").splitlines()
                       if line.strip()]
@@ -202,7 +202,7 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
     assert runtime_session.get_state(session_id)["pending_choice"] is None
 
     combatants = [
-        {"actor_id": "inv-smoke", "side": "investigator", "dex": 70,
+        {"actor_id": "thomas-hayes", "side": "investigator", "dex": 70,
          "combat_skill": 60, "dodge_skill": 40, "build": 0, "hp_max": 12,
          "hp_current": 12, "con": 60, "weapons": [{"weapon_id": "unarmed"}], "conditions": []},
         {"actor_id": "foe", "side": "npc", "dex": 80, "combat_skill": 40,
@@ -214,7 +214,7 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
     assert combat
     assert json.loads((campaign / "save" / "combat.json").read_text(encoding="utf-8"))["combat_id"] == "smoke-fight"
     attack_events = send("combat_attack", {"decision_id": "smoke-combat", "revision": 1,
-        "actor_id": "foe", "target_actor_id": "inv-smoke", "declared_intent": "structured strike",
+        "actor_id": "foe", "target_actor_id": "thomas-hayes", "declared_intent": "structured strike",
         "resolution_hint": "opposed_melee", "weapon_id": "unarmed"}, 1071)
     assert attack_events
     defense = runtime_session.get_state(session_id)["pending_choice"]
@@ -227,7 +227,7 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
     assert combat_state["revision"] >= 2 and combat_state["pending_attack"] is None
     authoritative_inv = json.loads(inv_state.read_text(encoding="utf-8"))
     chase_people = [
-        {"actor_id": "inv-smoke", "side": "quarry", "mov": 8, "dex": 70, "con": 60,
+        {"actor_id": "thomas-hayes", "side": "quarry", "mov": 8, "dex": 70, "con": 60,
          "hp": authoritative_inv["current_hp"], "fight": 60, "dodge": 40, "build": 0,
          "current_position": 0, "conditions": authoritative_inv["conditions"]},
         {"actor_id": "foe", "side": "pursuer", "mov": 8, "dex": 50, "con": 50,
@@ -242,7 +242,7 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
     assert chase
     chase_revision = json.loads((campaign / "save" / "chase.json").read_text(encoding="utf-8"))["revision"]
     assert send("chase_move", {"decision_id": "smoke-chase", "revision": chase_revision,
-        "actor_id": "inv-smoke", "action_id": "move:advance"}, 1081)
+        "actor_id": "thomas-hayes", "action_id": "move:advance"}, 1081)
     chase_revision = json.loads((campaign / "save" / "chase.json").read_text(encoding="utf-8"))["revision"]
     assert send("chase_move", {"decision_id": "smoke-chase", "revision": chase_revision,
         "actor_id": "foe", "action_id": "move:advance"}, 1082)
@@ -405,9 +405,9 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
     _write_json(run_dir / "playtest.json", {"run_id": "product-smoke", "campaign_id": campaign_id,
         "play_language": "en-US", "player_profile": "deterministic-fake-adapter",
         "evidence_class": "NON-GAMEPLAY verification evidence"})
-    _write_json(campaign / "party.json", {"investigator_ids": ["inv-smoke"]})
-    _write_json(campaign / "scenario" / "scenario.json", {"scenario_id": "the-white-war",
-        "title": "Product Smoke", "opening_scene": "arrival"})
+    _write_json(campaign / "party.json", {"investigator_ids": ["thomas-hayes"]})
+    _write_json(campaign / "scenario" / "scenario.json", {"scenario_id": "the-haunting",
+        "title": "Product Smoke", "opening_scene": "commission-briefing"})
     (run_dir / "transcript.jsonl").write_text("", encoding="utf-8")
     receipt = coc_playtest_evidence.build_evidence_receipt(run_dir, {
         "started_at": "2026-07-12T00:00:00Z", "ended_at": "2026-07-12T00:01:00Z",
