@@ -6,6 +6,9 @@ on:
       - feature/scenario-epistemic-blueprint-completion
     paths:
       - .github/source-evidence-trigger
+  pull_request:
+    branches:
+      - feature/scenario-epistemic-director-v1
 
 permissions:
   contents: write
@@ -23,8 +26,13 @@ jobs:
           python-version: "3.11"
       - name: Install test dependencies
         run: python -m pip install pytest pypdf
-      - name: Apply source evidence patch
-        run: python scripts/apply_source_evidence_compile_patch.py
+      - name: Apply source evidence patch once
+        run: |
+          if grep -q "def _check_source_evidence" plugins/coc-keeper/scripts/coc_scenario_compile.py; then
+            echo "source evidence patch already applied"
+          else
+            python scripts/apply_source_evidence_compile_patch.py
+          fi
       - name: Run focused source evidence tests
         run: >-
           PYTHONDONTWRITEBYTECODE=1 python -m pytest
@@ -35,8 +43,12 @@ jobs:
           -q -p no:cacheprovider
       - name: Run full test suite
         run: PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
-      - name: Commit generated changes
+      - name: Commit generated changes when present
         run: |
+          if git diff --quiet -- plugins/coc-keeper/scripts/coc_scenario_compile.py tests/test_pdf_cache.py; then
+            echo "no generated source changes"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add plugins/coc-keeper/scripts/coc_scenario_compile.py tests/test_pdf_cache.py
