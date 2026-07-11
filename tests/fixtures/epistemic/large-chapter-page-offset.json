@@ -90,7 +90,7 @@
           "printed_page": 300
         },
         "segment_kind": "clue",
-        "text_sha256": "fixture-text-high",
+        "text_sha256": "0531fc18b0c332167599502409bde56a6ead1b7ed5260ffe0c8244ebc196dcb2",
         "parse_confidence": 0.91,
         "review_state": "auto_accepted",
         "grep_anchors": [
@@ -106,7 +106,7 @@
           "printed_page": 301
         },
         "segment_kind": "clue",
-        "text_sha256": "fixture-text-low",
+        "text_sha256": "0d77cf63646024d16097b5ed927b04463a13d7488fedb4a42d06eaebdb959eb0",
         "parse_confidence": 0.5,
         "review_state": "needs_review",
         "grep_anchors": [

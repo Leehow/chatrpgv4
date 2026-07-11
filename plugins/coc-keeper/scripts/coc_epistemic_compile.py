@@ -136,35 +136,85 @@ def _safe_conclusions(document: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _safe_npcs(document: dict[str, Any]) -> list[dict[str, Any]]:
+    """Project NPCs to IDs, surface presentation, and explicit safe summaries.
+
+    Raw agenda/fear/secret prose is planner-only.  An author may opt in a
+    player-safe ``agenda_summary`` for semantic compilation; absence never
+    falls back to the raw agenda.
+    """
     allowed = {
         "npc_id", "name", "display_name", "relationship_to_investigators",
-        "social_role", "agenda", "voice", "source_refs", "origin", "importance",
-        "secret_id",
+        "social_role", "voice", "source_refs", "origin", "importance",
+        "secret_id", "has_secret",
     }
     result: list[dict[str, Any]] = []
     for npc in document.get("npcs") or []:
         if not isinstance(npc, dict):
             continue
         safe = {key: copy.deepcopy(npc[key]) for key in allowed if key in npc}
-        # Agenda is authored meaning required by the semantic compiler but may
-        # contain Keeper-only detail. Prefer a compiled agenda_summary when present.
-        if npc.get("agenda_summary"):
-            safe["agenda"] = str(npc["agenda_summary"])
+        summary = npc.get("agenda_summary") or npc.get("player_safe_agenda")
+        if isinstance(summary, str) and summary.strip():
+            safe["agenda_summary"] = summary.strip()
+        persona = npc.get("persona")
+        if isinstance(persona, dict):
+            safe_persona: dict[str, Any] = {}
+            for key in ("tags", "surface_cues"):
+                values = persona.get(key)
+                if isinstance(values, list):
+                    safe_persona[key] = [
+                        str(value) for value in values if str(value or "").strip()
+                    ]
+            if safe_persona:
+                safe["persona"] = safe_persona
         if "source_refs" in safe:
             safe["source_refs"] = _safe_source_refs(safe["source_refs"])
         result.append(safe)
     return result
 
 
+def _safe_danger(danger: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "id", "danger_id", "kind", "tags", "lethal", "lethality",
+        "player_safe_summary", "source_refs", "origin", "importance",
+    }
+    safe = {key: copy.deepcopy(danger[key]) for key in allowed if key in danger}
+    if "source_refs" in safe:
+        safe["source_refs"] = _safe_source_refs(safe["source_refs"])
+    return safe
+
+
+def _safe_clock(clock: dict[str, Any]) -> dict[str, Any]:
+    # on_tick_visible is explicitly player-facing; on_full remains Keeper-only.
+    allowed = {
+        "clock_id", "segments", "on_tick_visible", "tags", "source_refs",
+        "origin", "importance",
+    }
+    safe = {key: copy.deepcopy(clock[key]) for key in allowed if key in clock}
+    if "source_refs" in safe:
+        safe["source_refs"] = _safe_source_refs(safe["source_refs"])
+    return safe
+
+
 def _safe_fronts(document: dict[str, Any]) -> list[dict[str, Any]]:
     allowed = {
-        "front_id", "scope", "dangers", "clocks", "source_refs", "origin", "importance",
+        "front_id", "scope", "tags", "setting_tags", "source_refs",
+        "origin", "importance",
     }
     result: list[dict[str, Any]] = []
     for front in document.get("fronts") or []:
         if not isinstance(front, dict):
             continue
         safe = {key: copy.deepcopy(front[key]) for key in allowed if key in front}
+        safe["dangers"] = [
+            _safe_danger(danger)
+            for danger in (front.get("dangers") or [])
+            if isinstance(danger, dict)
+        ]
+        safe["clocks"] = [
+            _safe_clock(clock)
+            for clock in (front.get("clocks") or [])
+            if isinstance(clock, dict)
+        ]
         if "source_refs" in safe:
             safe["source_refs"] = _safe_source_refs(safe["source_refs"])
         result.append(safe)

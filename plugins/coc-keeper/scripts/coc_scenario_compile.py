@@ -950,6 +950,85 @@ def _check_epistemic_sidecars(
             f"reframe evidence ({question_id}, {clue_id}) has no matching reveal contract",
             path="epistemic_graph.evidence_links",
         ))
+
+    confidence_doc = compiled.get("compile_confidence")
+    if confidence_doc is not None and not isinstance(confidence_doc, dict):
+        findings.append(_finding(
+            "invalid_compile_confidence_node", "error",
+            "compile_confidence must be an object when present",
+            path="compile_confidence",
+        ))
+        confidence_doc = {}
+    confidence_doc = confidence_doc if isinstance(confidence_doc, dict) else {}
+    valid_targets = {
+        "question": set(questions),
+        "reveal_contract": set(reveal_contract_ids),
+    }
+    accepted_review_states = {
+        "auto_accepted", "manual_accepted", "needs_review", "rejected",
+    }
+    seen_confidence_nodes: set[tuple[str, str]] = set()
+    for index, record in enumerate(confidence_doc.get("nodes") or []):
+        path = f"compile_confidence.nodes[{index}]"
+        if not isinstance(record, dict):
+            findings.append(_finding(
+                "invalid_compile_confidence_node", "error",
+                "compile confidence node must be an object", path=path,
+            ))
+            continue
+        node_type = str(record.get("node_type") or "").strip()
+        node_id = str(record.get("node_id") or "").strip()
+        if node_type not in valid_targets:
+            findings.append(_finding(
+                "invalid_compile_confidence_node", "error",
+                f"compile confidence node_type '{node_type}' is not supported",
+                path=f"{path}.node_type",
+            ))
+            continue
+        if not node_id:
+            findings.append(_finding(
+                "invalid_compile_confidence_node", "error",
+                "compile confidence node requires node_id",
+                path=f"{path}.node_id",
+            ))
+            continue
+        key = (node_type, node_id)
+        if key in seen_confidence_nodes:
+            findings.append(_finding(
+                "duplicate_compile_confidence_node", "error",
+                f"duplicate compile confidence node ({node_type}, {node_id})",
+                path=path,
+            ))
+        else:
+            seen_confidence_nodes.add(key)
+        if node_id not in valid_targets[node_type]:
+            findings.append(_finding(
+                "broken_epistemic_reference", "error",
+                f"compile confidence {node_type} node_id '{node_id}' does not resolve",
+                path=f"{path}.node_id",
+            ))
+        review_state = str(record.get("review_state") or "needs_review")
+        if review_state not in accepted_review_states:
+            findings.append(_finding(
+                "invalid_compile_confidence_node", "error",
+                f"compile confidence review_state '{review_state}' is not supported",
+                path=f"{path}.review_state",
+            ))
+        for field in (
+            "semantic_confidence", "source_confidence", "effective_confidence",
+        ):
+            if field not in record:
+                continue
+            try:
+                value = float(record[field])
+            except (TypeError, ValueError):
+                value = -1.0
+            if value < 0.0 or value > 1.0:
+                findings.append(_finding(
+                    "invalid_compile_confidence_node", "error",
+                    f"{field} for ({node_type}, {node_id}) must be within 0..1",
+                    path=f"{path}.{field}",
+                ))
     return findings
 
 

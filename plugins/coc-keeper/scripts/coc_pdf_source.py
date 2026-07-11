@@ -342,11 +342,52 @@ def critical_source_allowed(
             ref_findings.append(_finding("stale_source_hash", "page map and parse manifest file hashes differ", ref))
         segments = _segments_for_locator(locator, evidence_segments)
         anchor = str(ref.get("grep_anchor") or "").strip()
-        if anchor and not _anchor_present(anchor, segments):
+        relevant_segments = [
+            segment
+            for segment in segments
+            if not anchor or _anchor_present(anchor, [segment])
+        ]
+        if anchor and not relevant_segments:
             ref_findings.append(_finding("missing_source_anchor", f"grep anchor {anchor!r} not found", ref))
-        confidence = effective_source_confidence(
-            ref, parse_manifest, evidence_segments, page_map=page_map
-        )
+
+        usable_segments: list[dict[str, Any]] = []
+        segment_findings: list[dict[str, Any]] = []
+        for segment in relevant_segments:
+            issues: list[dict[str, Any]] = []
+            segment_id = str(segment.get("segment_id") or "unknown")
+            segment_review = str(segment.get("review_state") or "needs_review")
+            if segment_review not in _ACCEPTED_REVIEW_STATES:
+                issues.append(_finding(
+                    "source_needs_review",
+                    f"evidence segment {segment_id!r} review_state={segment_review}",
+                    ref,
+                ))
+            local_text = segment.get("text")
+            declared_text_hash = str(segment.get("text_sha256") or "").strip()
+            if isinstance(local_text, str) and declared_text_hash:
+                actual_text_hash = hashlib.sha256(local_text.encode("utf-8")).hexdigest()
+                if actual_text_hash != declared_text_hash:
+                    issues.append(_finding(
+                        "stale_source_hash",
+                        f"evidence segment {segment_id!r} text hash does not match local text",
+                        ref,
+                    ))
+            if issues:
+                segment_findings.extend(issues)
+            else:
+                usable_segments.append(segment)
+        if relevant_segments and not usable_segments:
+            ref_findings.extend(segment_findings)
+
+        confidence_values: list[float] = []
+        range_confidence = _confidence((range_record.get("quality") or {}).get("overall"))
+        if range_confidence is not None:
+            confidence_values.append(range_confidence)
+        for segment in usable_segments:
+            segment_confidence = _confidence(segment.get("parse_confidence"))
+            if segment_confidence is not None:
+                confidence_values.append(segment_confidence)
+        confidence = min(confidence_values) if confidence_values else None
         if confidence is None or confidence < threshold_value:
             ref_findings.append(
                 _finding(
