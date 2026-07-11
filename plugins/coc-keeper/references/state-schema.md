@@ -108,6 +108,23 @@ classes; do not hand-edit them mid-session. `pacing-state.json`,
 by the director apply layer each turn — treat `run_live_turn(...)` as their
 single writer during live play.
 
+`save/npc-state.json["psych"][npc_id]` is the canonical A20/A21 conversation
+state. Its closed fields are `trust`, `fear`, `suspicion` (-5..5),
+`known_facts`, `revealable_facts`, `lies_told`, `promises`, `lie_options`,
+`deflect_options`, `deflections`, `leverage`, `active_reactions`, `availability`, and
+`schedule`. Reads normalize malformed legacy values conservatively; that
+normalization is not a repository-wide migration. Ordinary live turns may
+change this state only through structured `npc_interactions` and typed
+`npc_effects`. Free prose, skill names, agendas, and clue summaries are never
+scanned to infer a tactic, target, or disclosure decision.
+
+Social disclosure uses this exact order: NPC availability, fact knowledge,
+fact revealability, active reaction, willingness (trust or authored leverage),
+then reveal. A social clue is committed only when a matching decision is
+`outcome=reveal`; lie/deflect outcomes may update NPC memory but never commit
+the clue. Narrator envelopes expose a field-level public projection and omit
+raw agendas, fact registries, lies, schedules, secrets, and internal agency.
+
 Memory has two complementary tracks: `memory/session-summaries.jsonl` is the
 append-only player-safe recap stream consumed by resume flows and battle
 reports; `memory/cards/` + `context-packs/` + `index.json` is the retrievable

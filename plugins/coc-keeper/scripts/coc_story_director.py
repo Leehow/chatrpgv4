@@ -2075,6 +2075,12 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     policy = {"reveal": reveal, "withhold": list(secret_ids), "fallback_routes": fallback,
               "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff,
               "leads": leads, "delivery_warnings": delivery_warnings}
+    if selected_clue_id and isinstance(selected_clue, dict):
+        policy["delivery_kind"] = selected_clue.get("delivery_kind")
+        policy["source_npc_ids"] = [
+            str(npc_id) for npc_id in (selected_clue.get("source_npc_ids") or [])
+            if isinstance(npc_id, str) and npc_id.strip()
+        ]
     # G1: attach the winning affordance match so the narrator can make the
     # discovery feel earned (structured entities/verbs/skills only, no prose).
     if selected_clue_id and selected_clue_id in hit_by_clue:
@@ -3027,6 +3033,31 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     # emitted plan (Spec v1.1 gap #1: obvious clues should not roll Spot Hidden).
     clue_policy = _select_clue_policy(ctx, action)
     rules_requests = _build_rules_requests(ctx, action, clue_policy)
+    rich = ctx.get("player_intent_rich") if isinstance(ctx.get("player_intent_rich"), dict) else {}
+    for interaction in rich.get("npc_interactions") or []:
+        if not isinstance(interaction, dict):
+            continue
+        skill = interaction.get("skill")
+        request_id = interaction.get("request_id")
+        if not isinstance(skill, str) or not skill.strip() or not isinstance(request_id, str) or not request_id.strip():
+            continue
+        rules_requests.append({
+            "kind": "skill_check",
+            "skill": skill.strip(),
+            "difficulty": interaction.get("difficulty")
+            if interaction.get("difficulty") in {"regular", "hard", "extreme"}
+            else "regular",
+            "request_id": request_id.strip(),
+            "reason": "structured_npc_interaction",
+            "roll_contract": _roll_contract(
+                goal="resolve the declared NPC interaction tactic",
+                success_effect="apply the tactic's bounded structured success effect",
+                failure_effect="apply the tactic's bounded structured failure effect",
+                failure_outcome_mode="social_position_change",
+                roll_density_group=f"npc-interaction:{request_id.strip()}",
+                push_eligible=False,
+            ),
+        })
     npc_moves = _build_npc_moves(ctx, action)
     npc_agency_requests: list[dict[str, Any]] = []
     for move in npc_moves:
@@ -3153,6 +3184,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "turn_input": {
             "player_intent": ctx["player_intent"],
             "player_intent_class": ctx["player_intent_class"],
+            "player_intent_rich": ctx.get("player_intent_rich") or {},
             "active_scene_id": ctx["active_scene_id"],
             "turn_number": ctx["turn_number"],
         },

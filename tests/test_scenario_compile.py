@@ -72,6 +72,30 @@ def test_validate_npc_without_agenda(tmp_path):
     result = coc_scenario_compile.validate_scenario(sc)
     assert any("agenda" in e for e in result["errors"])
 
+
+def test_social_clue_requires_registered_source_npc_in_both_validators(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    graph = json.loads((sc / "clue-graph.json").read_text())
+    graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "npc_dialogue", "source_npc_ids": ["missing-npc"],
+    })
+    (sc / "clue-graph.json").write_text(json.dumps(graph))
+    disk = coc_scenario_compile.validate_scenario(sc)
+    compiled = coc_scenario_compile.load_compiled_from_dir(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert any("unknown source NPC" in error for error in disk["errors"])
+    assert any(f["code"] == "social_clue_source_unknown" for f in findings)
+
+
+def test_npc_fact_requires_registered_clue_in_both_validators(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    npcs = json.loads((sc / "npc-agendas.json").read_text())
+    npcs["npcs"][0]["facts"] = [{"fact_id": "fact-a", "clue_id": "missing"}]
+    (sc / "npc-agendas.json").write_text(json.dumps(npcs))
+    compiled = coc_scenario_compile.load_compiled_from_dir(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert any(f["code"] == "npc_fact_reference_invalid" for f in findings)
+
 def test_validate_bad_structure_type(tmp_path):
     sc = _make_valid_scenario(tmp_path)
     m = json.loads((sc/"module-meta.json").read_text())

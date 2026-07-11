@@ -293,3 +293,194 @@ def test_build_npc_moves_forced_adversary_stays_hostile_despite_warm_psych():
     }
     moves = coc_story_director._build_npc_moves(ctx, "CHARACTER")
     assert moves[0]["emotional_tone"] == "hostile"
+
+
+# --------------------------------------------------------------------------- #
+# A20/A21: live interactions, disclosure, and availability
+# --------------------------------------------------------------------------- #
+
+def test_load_normalizes_legacy_malformed_npc_psych_fields(tmp_path):
+    camp = _campaign(tmp_path)
+    (camp / "save" / "npc-state.json").write_text(json.dumps({
+        "psych": {"npc-a": {
+            "trust": "2", "fear": None, "suspicion": 99,
+            "known_facts": "fact-a", "revealable_facts": ["fact-a", "fact-a", 3],
+            "lie_options": None, "deflect_options": "nope", "leverage": "token",
+            "active_reactions": [{"reaction_id": "r-open", "blocks_disclosure": False}, None],
+            "availability": "available", "schedule": None,
+        }}
+    }))
+    entry = coc_npc_state.get_npc_entry(camp, "npc-a")
+    assert entry["trust"] == 2
+    assert entry["fear"] == 0
+    assert entry["suspicion"] == 5
+    assert entry["known_facts"] == ["fact-a"]
+    assert entry["revealable_facts"] == ["fact-a"]
+    assert entry["lie_options"] == []
+    assert entry["leverage"] == ["token"]
+    assert entry["availability"] == {"status": "available"}
+
+
+def test_disclosure_decision_uses_strict_gate_order():
+    base = {
+        "trust": 2,
+        "known_facts": ["fact-a"],
+        "revealable_facts": ["fact-a"],
+        "availability": {"status": "available"},
+        "active_reactions": [],
+        "leverage": [],
+    }
+    assert coc_npc_state.disclosure_decision(
+        {**base, "availability": {"status": "unavailable"}}, "fact-a"
+    )["reason_code"] == "npc_unavailable"
+    assert coc_npc_state.disclosure_decision(base, "fact-missing")["reason_code"] == "fact_not_known"
+    assert coc_npc_state.disclosure_decision(
+        {**base, "revealable_facts": []}, "fact-a"
+    )["reason_code"] == "fact_not_revealable"
+    assert coc_npc_state.disclosure_decision(
+        {**base, "active_reactions": [{"reaction_id": "r", "blocks_disclosure": True}]},
+        "fact-a",
+    )["reason_code"] == "active_reaction_blocks"
+    assert coc_npc_state.disclosure_decision(
+        base, "fact-a", min_trust=3, required_leverage_ids=["badge"]
+    )["reason_code"] == "willingness_insufficient"
+    reveal = coc_npc_state.disclosure_decision(
+        {**base, "leverage": ["badge"]}, "fact-a", min_trust=3,
+        required_leverage_ids=["badge"], clue_id="clue-a",
+    )
+    assert reveal == {
+        "outcome": "reveal", "reason_code": "approved_reveal",
+        "fact_id": "fact-a", "clue_id": "clue-a",
+    }
+
+
+def test_derive_interaction_effects_is_bounded_exact_and_fail_closed():
+    interactions = [
+        {"npc_id": "npc-a", "tactic": "build_rapport", "request_id": "r1"},
+        {"npc_id": "npc-b", "tactic": "intimidate", "request_id": "r2"},
+        {"npc_id": "npc-c", "tactic": "unknown", "request_id": "r3"},
+    ]
+    effects = coc_npc_state.derive_interaction_effects(interactions, [
+        {"request_id": "r1", "success": True},
+        {"request_id": "r2", "success": False},
+        {"request_id": "r3", "success": True},
+    ])
+    assert effects == [
+        {"npc_id": "npc-a", "kind": "adjust", "field": "trust", "delta": 1,
+         "interaction_request_id": "r1"},
+        {"npc_id": "npc-b", "kind": "adjust", "field": "suspicion", "delta": 1,
+         "interaction_request_id": "r2"},
+    ]
+
+
+def test_apply_social_clue_requires_approved_disclosure(tmp_path):
+    camp = _campaign(tmp_path)
+    denied = {
+        "decision_id": "d-denied", "scene_action": "CHARACTER",
+        "clue_policy": {"reveal": ["clue-social"], "delivery_kind": "npc_dialogue"},
+        "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+        "disclosure_decisions": [{"outcome": "deflect", "npc_id": "npc-a",
+                                  "fact_id": "fact-a", "clue_id": "clue-social"}],
+    }
+    events = coc_director_apply.apply_plan(camp, denied, investigator_id="inv1")
+    assert not any(e.get("event_type") == "clue_reveal" for e in events)
+    assert any(e.get("event_type") == "npc_disclosure_withheld" for e in events)
+
+    approved = dict(denied)
+    approved["decision_id"] = "d-approved"
+    approved["disclosure_decisions"] = [{"outcome": "reveal", "npc_id": "npc-a",
+                                         "fact_id": "fact-a", "clue_id": "clue-social"}]
+    events = coc_director_apply.apply_plan(camp, approved, investigator_id="inv1")
+    assert any(e.get("event_type") == "clue_reveal" for e in events)
+
+
+def test_apply_lie_and_deflect_persist_without_revealing_clue(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-lie", "scene_action": "CHARACTER",
+        "clue_policy": {"reveal": ["clue-social"], "delivery_kind": "npc_dialogue"},
+        "pressure_moves": [], "memory_writes": [], "rule_signals": {},
+        "disclosure_decisions": [{
+            "outcome": "lie", "npc_id": "npc-a", "fact_id": "fact-a",
+            "clue_id": "clue-social", "lie_id": "lie-a", "about": "fact-a",
+        }],
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    assert coc_npc_state.get_npc_entry(camp, "npc-a")["lies_told"] == [
+        {"lie_id": "lie-a", "about": "fact-a"}
+    ]
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert "clue-social" not in world["discovered_clue_ids"]
+    deflect = dict(plan)
+    deflect["decision_id"] = "d-deflect"
+    deflect["disclosure_decisions"] = [{
+        "outcome": "deflect", "npc_id": "npc-a", "fact_id": "fact-a",
+        "clue_id": "clue-social", "deflect_id": "deflect-a",
+    }]
+    coc_director_apply.apply_plan(camp, deflect, investigator_id="inv1")
+    assert coc_npc_state.get_npc_entry(camp, "npc-a")["deflections"] == [
+        {"deflect_id": "deflect-a", "about": "fact-a"}
+    ]
+
+
+def test_post_rule_enrichment_targets_exact_npc_and_approves_authored_source():
+    agenda = {
+        "npc_id": "npc-a", "known_fact_ids": ["fact-a"],
+        "revealable_fact_ids": ["fact-a"],
+        "facts": [{"fact_id": "fact-a", "clue_id": "clue-a", "min_trust": 1}],
+        "availability": {"status": "available"},
+    }
+    ctx = {
+        "player_intent_rich": {"npc_interactions": [{
+            "npc_id": "npc-a", "tactic": "build_rapport", "request_id": "r1",
+            "fact_id": "fact-a",
+        }]},
+        "active_scene": {"npc_ids": ["npc-a", "npc-b"]},
+        "active_scene_id": "scene-a",
+        "npc_agendas": {"npcs": [agenda, {"npc_id": "npc-b"}]},
+        "npc_state": {"psych": {"npc-a": {"trust": 0}}},
+        "clue_graph": {"conclusions": [{"clues": [{
+            "clue_id": "clue-a", "source_npc_ids": ["npc-a"],
+        }]}]},
+    }
+    enriched = coc_npc_state.enrich_plan_after_rules(
+        {"decision_id": "d1", "clue_policy": {"reveal": ["clue-a"],
+         "delivery_kind": "npc_dialogue"}}, ctx,
+        [{"request_id": "r1", "success": True}],
+    )
+    assert enriched["npc_effects"][0]["npc_id"] == "npc-a"
+    assert enriched["disclosure_decisions"][0]["outcome"] == "reveal"
+
+
+def test_post_rule_enrichment_multi_npc_ambiguity_fails_closed():
+    ctx = {
+        "player_intent_rich": {"npc_interactions": [{
+            "npc_id": "", "tactic": "build_rapport", "request_id": "r1",
+        }]},
+        "active_scene": {"npc_ids": ["npc-a", "npc-b"]},
+        "npc_agendas": {"npcs": [{"npc_id": "npc-a"}, {"npc_id": "npc-b"}]},
+        "npc_state": {"psych": {}},
+    }
+    enriched = coc_npc_state.enrich_plan_after_rules(
+        {"decision_id": "d1"}, ctx, [{"request_id": "r1", "success": True}]
+    )
+    assert enriched["npc_effects"] == []
+    assert enriched["npc_interactions"] == []
+    assert enriched["validation_warnings"][-1]["reason_code"] == "npc_target_missing_or_ambiguous"
+
+
+def test_schedule_gate_overrides_default_availability():
+    entry = coc_npc_state.effective_npc_entry({
+        "known_fact_ids": ["fact-a"], "revealable_fact_ids": ["fact-a"],
+        "availability": {"status": "available"},
+        "schedule": [{"schedule_id": "night-only", "scene_ids": ["scene-a"],
+                      "time_categories": ["overnight"], "status": "unavailable"}],
+    }, {}, scene_id="scene-a", time_category="overnight")
+    assert coc_npc_state.disclosure_decision(entry, "fact-a")["reason_code"] == "npc_unavailable"
+    outside = coc_npc_state.effective_npc_entry({
+        "known_fact_ids": ["fact-a"], "revealable_fact_ids": ["fact-a"],
+        "availability": {"status": "available"},
+        "schedule": [{"schedule_id": "scene-only", "scene_ids": ["scene-a"],
+                      "status": "available"}],
+    }, {}, scene_id="scene-b")
+    assert outside["availability"] == {"status": "unavailable"}

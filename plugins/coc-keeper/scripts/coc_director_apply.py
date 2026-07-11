@@ -588,6 +588,26 @@ def _apply_npc_effects(
                 campaign_dir, str(npc_id), str(effect["promise_id"]), kept=effect.get("kept")
             )
             applied = {"promise_id": effect["promise_id"], "kept": effect.get("kept")}
+        elif kind == "record_leverage" and effect.get("leverage_id"):
+            coc_npc_state.record_leverage(
+                campaign_dir, str(npc_id), str(effect["leverage_id"])
+            )
+            applied = {"leverage_id": effect["leverage_id"]}
+        elif kind == "set_active_reaction" and isinstance(effect.get("reaction"), dict):
+            coc_npc_state.set_active_reaction(
+                campaign_dir, str(npc_id), effect["reaction"]
+            )
+            applied = {"reaction_id": effect["reaction"].get("reaction_id")}
+        elif kind == "clear_active_reaction" and effect.get("reaction_id"):
+            coc_npc_state.clear_active_reaction(
+                campaign_dir, str(npc_id), str(effect["reaction_id"])
+            )
+            applied = {"reaction_id": effect["reaction_id"]}
+        elif kind == "set_availability" and effect.get("status") in {"available", "unavailable"}:
+            coc_npc_state.set_availability(
+                campaign_dir, str(npc_id), str(effect["status"])
+            )
+            applied = {"status": effect["status"]}
         if applied is None:
             continue
         record = {
@@ -603,6 +623,69 @@ def _apply_npc_effects(
         events.append(record)
         _append_jsonl(logs / "events.jsonl", record)
     return events
+
+
+def _gate_social_clues_and_persist_disclosure(
+    campaign_dir: Path,
+    plan: dict[str, Any],
+    *,
+    investigator_id: str,
+    decision_id: str,
+    ts: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Apply A21 decisions and return a clue-gated plan copy.
+
+    A social/NPC-delivered clue is committed only when the matching structured
+    disclosure decision says ``reveal``. Missing or ambiguous evidence fails
+    closed. Lie/deflect state is persisted without exposing its authored text.
+    """
+    policy = plan.get("clue_policy") if isinstance(plan.get("clue_policy"), dict) else {}
+    decisions = [d for d in (plan.get("disclosure_decisions") or []) if isinstance(d, dict)]
+    delivery = str(policy.get("delivery_kind") or policy.get("delivery") or "")
+    social = delivery in {"npc_dialogue", "social"} or bool(decisions)
+    if not social:
+        return plan, []
+
+    events: list[dict[str, Any]] = []
+    approved: list[str] = []
+    planned = [str(cid) for cid in (policy.get("reveal") or []) if cid]
+    for decision in decisions:
+        npc_id = str(decision.get("npc_id") or "").strip()
+        outcome = str(decision.get("outcome") or "withhold")
+        clue_id = str(decision.get("clue_id") or "").strip()
+        if outcome == "lie" and npc_id and decision.get("lie_id"):
+            coc_npc_state.record_lie(
+                campaign_dir, npc_id, str(decision["lie_id"]),
+                about=str(decision.get("about") or decision.get("fact_id") or "") or None,
+            )
+        if outcome == "deflect" and npc_id and decision.get("deflect_id"):
+            coc_npc_state.record_deflection(
+                campaign_dir, npc_id, str(decision["deflect_id"]),
+                about=str(decision.get("fact_id") or "") or None,
+            )
+        if outcome == "reveal" and clue_id and clue_id in planned:
+            approved.append(clue_id)
+        record = {
+            "event_type": (
+                "npc_disclosure_approved" if outcome == "reveal"
+                else "npc_disclosure_withheld"
+            ),
+            "decision_id": decision_id,
+            "npc_id": npc_id or None,
+            "fact_id": decision.get("fact_id"),
+            "clue_id": clue_id or None,
+            "outcome": outcome,
+            "reason_code": decision.get("reason_code"),
+            "investigator_id": investigator_id,
+            "ts": ts,
+        }
+        events.append(record)
+
+    gated = _copy_jsonable(plan)
+    gated_policy = dict(gated.get("clue_policy") or {})
+    gated_policy["reveal"] = [cid for cid in planned if cid in set(approved)]
+    gated["clue_policy"] = gated_policy
+    return gated, events
 
 
 def _storylet_scheduler_debug_enabled(campaign_dir: Path | None = None) -> bool:
@@ -1789,8 +1872,18 @@ def _apply_plan_impl(
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)
     discovered = list(world.get("discovered_clue_ids", []))
+    clue_plan, disclosure_events = _gate_social_clues_and_persist_disclosure(
+        campaign_dir,
+        plan,
+        investigator_id=investigator_id,
+        decision_id=decision_id,
+        ts=ts,
+    )
+    for ev in disclosure_events:
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
     committed_clues, resolution_events, extra_pressure = _resolve_committed_clues(
-        plan, rules_results, ts, investigator_id
+        clue_plan, rules_results, ts, investigator_id
     )
     for ev in resolution_events:
         events.append(ev)

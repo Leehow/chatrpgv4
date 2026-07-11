@@ -568,12 +568,12 @@ def test_envelope_drops_agenda_prose_for_secret_bearing_npcs():
     corbitt, knott = envelope["npc_moves"]
     assert "agenda" not in corbitt
     assert corbitt["has_secret"] is True
-    assert corbitt["secret_id"] == "secret-corbitt-undead"
+    assert "secret_id" not in corbitt
     # keeper-only agency moves and non-whitelisted persona keys are stripped
     assert [m["move_id"] for m in corbitt["agency_moves"]] == ["knock"]
     assert set(corbitt["persona"].keys()) <= {"tags", "surface_cues"}
-    # non-secret NPC keeps its surface agenda
-    assert knott["agenda"] == "wants the house rented"
+    # A21 uses a field-level whitelist: even benign raw agenda prose stays out.
+    assert "agenda" not in knott
 
 
 def test_envelope_npc_moves_keep_display_name_and_dialogue_seed():
@@ -602,9 +602,8 @@ def test_envelope_npc_moves_keep_display_name_and_dialogue_seed():
     assert move["dialogue_seed"] == "钥匙在桌上，今天就定下来吧。"
     assert move["has_secret"] is True
     assert "secret" not in move or move.get("secret") in (None, "")
-    # Secret prose / keeper agenda desire may be stripped or kept structural;
-    # secret id refs are ok, secret body is not present on the move.
-    assert "secret-knott-doubts" == move.get("secret_id")
+    # Secret bodies and ids are Keeper-only and never cross this envelope.
+    assert "secret_id" not in move
 
 
 def test_iter_player_visible_text_fields_covers_new_envelope_prose():

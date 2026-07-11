@@ -8,6 +8,18 @@
       "secret": "He has been ordered to treat the patrol as expendable; the reconnaissance matters more to the battalion than any single squad.",
       "voice": "Curt, military, hides urgency behind procedure. Speaks in short declarative orders.",
       "relationship_to_investigators": "superior_officer",
+      "known_fact_ids": ["fact-briefing-strange-sounds"],
+      "revealable_fact_ids": ["fact-briefing-strange-sounds"],
+      "disclosure_order": ["fact-briefing-strange-sounds"],
+      "facts": [{"fact_id": "fact-briefing-strange-sounds", "clue_id": "clue-briefing-mention-strange-sounds", "min_trust": 0}],
+      "lie_options": [],
+      "deflect_options": [{"deflect_id": "deflect-cardone-orders", "player_safe_line": "Your orders contain every fact you need for the patrol."}],
+      "leverage_ids": ["military-duty"], "active_reactions": [],
+      "availability": {"status": "available"},
+      "schedule": [
+        {"schedule_id": "cardone-briefing", "scene_ids": ["mission-briefing"], "status": "available"},
+        {"schedule_id": "cardone-aftermath", "scene_ids": ["aftermath-white-friday"], "status": "available"}
+      ],
       "keeper_note": "Cardone knows only what briefing said: strange sounds and explosions, then silence. He has no idea anything supernatural is involved and would not believe it.",
       "social_role": {
         "authority_scope": [
@@ -78,6 +90,19 @@
       "secret": "He is one of the civilian prisoners the Austrians conscripted to dig their fortifications. He knows the whistler only as a folk demon, not its true nature.",
       "voice": "Old, regional dialect, switches between lucid warning and frantic prayer. Names the thing by a local folk word for 'the whistler.'",
       "relationship_to_investigators": "victim",
+      "known_fact_ids": ["fact-survivor-folklore"],
+      "revealable_fact_ids": ["fact-survivor-folklore"],
+      "disclosure_order": ["fact-survivor-folklore"],
+      "facts": [{"fact_id": "fact-survivor-folklore", "clue_id": "clue-survivor-folklore-of-seal", "min_trust": 1,
+                 "required_leverage_ids": ["safe-escort"]}],
+      "lie_options": [],
+      "deflect_options": [{"deflect_id": "deflect-survivor-panic", "player_safe_line": "He folds into prayer and cannot force out another word."}],
+      "leverage_ids": [],
+      "active_reactions": [], "availability": {"status": "available"},
+      "schedule": [
+        {"schedule_id": "survivor-whistle", "scene_ids": ["whistle-approaches"], "status": "available"},
+        {"schedule_id": "survivor-shelter", "scene_ids": ["shelter-night-siege"], "status": "available"}
+      ],
       "keeper_note": "STR 12 CON 09 DEX 11 INT 12 POW 13 CHA 09, HP 11, SAN 45. Makeshift club (Fighting 50%, 1D6). Knows folklore: the whistler is a mountain demon that calls the winds and takes travelers who linger too high at night; he knows of no weakness except a vague aversion to daylight.",
       "social_role": {
         "authority_scope": [

@@ -148,6 +148,12 @@ def iter_player_visible_text_fields(
         env.get("npc_moves"),
         dict_keys=("display_name", "dialogue_seed", "emotional_tone", "voice"),
     )
+    _append_list_text_fields(
+        fields,
+        "narration_envelope.disclosure_decisions",
+        env.get("disclosure_decisions"),
+        dict_keys=("player_safe_line",),
+    )
 
     choice_frame = env.get("choice_frame")
     if not isinstance(choice_frame, dict):
@@ -638,7 +644,12 @@ def _sanitize_agency_moves(agency_moves: Any) -> list[dict[str, Any]]:
         visibility = str(move.get("visibility") or "player_visible").strip().lower()
         if visibility not in {"player_visible", "player-safe", "public"}:
             continue
-        safe.append(move)
+        safe.append({
+            key: move.get(key) for key in (
+                "move_id", "kind", "player_safe_summary", "line_seed",
+                "requires_player_decision",
+            ) if move.get(key) is not None
+        })
     return safe
 
 
@@ -666,11 +677,29 @@ def _sanitize_npc_move(move: dict[str, Any]) -> dict[str, Any]:
         "persona": _sanitize_persona(move.get("persona")),
         "agency_moves": _sanitize_agency_moves(move.get("agency_moves")),
     }
-    if not has_secret:
-        safe_move["agenda"] = move.get("agenda")
-    if move.get("secret_id"):
-        safe_move["secret_id"] = move["secret_id"]
     return safe_move
+
+
+def _sanitize_disclosure_decisions(value: Any) -> list[dict[str, Any]]:
+    """Whitelist public outcome metadata; drop facts, lies, gates and schedules."""
+    safe: list[dict[str, Any]] = []
+    for decision in value or []:
+        if not isinstance(decision, dict):
+            continue
+        row = {
+            "npc_id": decision.get("npc_id"),
+            # Never tell the narrator that a spoken line is a lie. Only an
+            # approved reveal is semantically distinguished in the public view.
+            "outcome": (
+                "reveal" if decision.get("outcome") == "reveal" else "response"
+            ),
+            "clue_id": decision.get("clue_id") if decision.get("outcome") == "reveal" else None,
+        }
+        line = decision.get("player_safe_line")
+        if isinstance(line, str) and line.strip():
+            row["player_safe_line"] = line.strip()
+        safe.append(row)
+    return safe
 
 
 _REDIRECTION_PLAYER_SAFE_STRATEGIES = frozenset({
@@ -782,6 +811,9 @@ def build_narration_envelope(
         "content_constraints": list(directives.get("content_constraints") or []),
         "player_facing_style": directives.get("player_facing_style"),
         "npc_moves": npc_moves,
+        "disclosure_decisions": _sanitize_disclosure_decisions(
+            plan.get("disclosure_decisions")
+        ),
         "pressure_moves": list(plan.get("pressure_moves") or []),
         "storylet_moves": list(plan.get("storylet_moves") or []),
         "choice_frame": plan.get("choice_frame") or {},

@@ -36,6 +36,7 @@
           "clue_id": "clue-survivor-folklore-of-seal",
           "delivery": "the shelter survivor's tale",
           "delivery_kind": "npc_dialogue",
+          "source_npc_ids": ["npc-tomasso-like-survivor"],
           "visibility": "player-safe",
           "player_safe_summary": "A local folk tradition holds that something ancient sleeps beneath the highest glaciers, sealed since before the long winter that covered the world."
         }
@@ -52,6 +53,7 @@
           "clue_id": "clue-briefing-mention-strange-sounds",
           "delivery": "the mission briefing",
           "delivery_kind": "npc_dialogue",
+          "source_npc_ids": ["npc-company-commander"],
           "visibility": "player-safe",
           "player_safe_summary": "The company commander lets slip that the Austrians reported strange sounds and muffled explosions in the days before contact was lost — before everything on that ridge went quiet."
         },

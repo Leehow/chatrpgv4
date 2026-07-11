@@ -191,7 +191,15 @@ class LLMIntentEvaluator:
                 ],
                 "primary_intent_enum": list(_PRIMARY_INTENT_ENUM),
                 "risk_posture_enum": ["cautious", "neutral", "reckless"],
-                "optional": ["intent_detail"],
+                "optional": ["intent_detail", "npc_interactions"],
+                "npc_interaction_schema": {
+                    "required": ["npc_id", "tactic", "request_id"],
+                    "tactic_enum": [
+                        "build_rapport", "intimidate", "deceive", "reassure",
+                        "request_fact", "offer_leverage",
+                    ],
+                    "optional": ["fact_id", "leverage_id", "skill", "difficulty"],
+                },
                 "intent_detail_enum": list(_TIME_CATEGORY_ENUM),
                 "evaluation_provenance": {
                     "kind": "llm",
@@ -285,6 +293,7 @@ class LLMIntentEvaluator:
             "explicit_roll_request": bool(result.get("explicit_roll_request", False)),
             "player_hypothesis": result.get("player_hypothesis"),
             "action_atoms": [a for a in (result.get("action_atoms") or []) if isinstance(a, dict)],
+            "npc_interactions": _normalize_npc_interactions(result.get("npc_interactions")),
         }
         if result.get("intent_detail") in _TIME_CATEGORY_ENUM:
             parsed["intent_detail"] = result["intent_detail"]
@@ -362,6 +371,9 @@ def parse_intent(
 def _normalize_evaluator_result(result: dict[str, Any]) -> dict[str, Any]:
     """Fail closed on optional structured fields from injected evaluators."""
     normalized = dict(result)
+    normalized["npc_interactions"] = _normalize_npc_interactions(
+        normalized.get("npc_interactions")
+    )
     intent_detail = normalized.get("intent_detail")
     if intent_detail is not None and intent_detail not in _TIME_CATEGORY_ENUM:
         normalized.pop("intent_detail", None)
@@ -374,6 +386,37 @@ def _normalize_evaluator_result(result: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+_NPC_TACTICS = frozenset({
+    "build_rapport", "intimidate", "deceive", "reassure",
+    "request_fact", "offer_leverage",
+})
+
+
+def _normalize_npc_interactions(value: Any) -> list[dict[str, Any]]:
+    """Closed-schema semantic output; never infer omitted fields from prose."""
+    normalized: list[dict[str, Any]] = []
+    for item in value or []:
+        if not isinstance(item, dict):
+            continue
+        npc_id = item.get("npc_id")
+        tactic = item.get("tactic")
+        request_id = item.get("request_id")
+        if tactic not in _NPC_TACTICS or not isinstance(request_id, str) or not request_id.strip():
+            continue
+        row = {
+            "npc_id": str(npc_id).strip() if isinstance(npc_id, str) else "",
+            "tactic": tactic,
+            "request_id": request_id.strip(),
+        }
+        for key in ("fact_id", "leverage_id", "skill"):
+            if isinstance(item.get(key), str) and item[key].strip():
+                row[key] = item[key].strip()
+        if item.get("difficulty") in {"regular", "hard", "extreme"}:
+            row["difficulty"] = item["difficulty"]
+        normalized.append(row)
+    return normalized
+
+
 def _idle_result() -> dict[str, Any]:
     return {
         "primary_intent": "idle",
@@ -383,6 +426,7 @@ def _idle_result() -> dict[str, Any]:
         "explicit_roll_request": False,
         "player_hypothesis": None,
         "action_atoms": [],
+        "npc_interactions": [],
     }
 
 
@@ -395,4 +439,5 @@ def _meta_result() -> dict[str, Any]:
         "explicit_roll_request": False,
         "player_hypothesis": None,
         "action_atoms": [],
+        "npc_interactions": [],
     }

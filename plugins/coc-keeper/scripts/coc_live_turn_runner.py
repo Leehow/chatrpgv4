@@ -591,6 +591,12 @@ def _run_one_turn(
     rules_pending = _commit_rules_recorder(rules_recorder)
 
     resolved_plan = apply_mod.backfill_rule_results(plan, rule_results)
+    # A20/A21 ordering is deliberate: social tactic outcomes and disclosure
+    # gates are compiled only after rule settlement, but before clue backfill
+    # is committed by apply_plan.
+    resolved_plan = director.coc_npc_state.enrich_plan_after_rules(
+        resolved_plan, ctx, rule_results
+    )
     if hasattr(narrative_enrichment, "enrich_storylets_after_rules"):
         resolved_plan = narrative_enrichment.enrich_storylets_after_rules(resolved_plan, ctx)
     _recording_defaults(resolved_plan, recording_mode, recording_flush)
@@ -665,6 +671,8 @@ def _run_one_turn(
             or []
         ),
         "npc_moves": resolved_plan.get("npc_moves", []),
+        "npc_interactions": resolved_plan.get("npc_interactions", []),
+        "disclosure_decisions": resolved_plan.get("disclosure_decisions", []),
         "storylet_moves": resolved_plan.get("storylet_moves", []),
         "incident_moves": resolved_plan.get("incident_moves", []),
         "narrative_enrichment": resolved_plan.get("narrative_enrichment", {}),

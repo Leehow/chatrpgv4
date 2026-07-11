@@ -245,6 +245,49 @@ def _check_threat_affinity_contract(compiled: dict[str, Any]) -> list[dict[str, 
     return findings
 
 
+def _check_npc_disclosure_contract(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    """Validate A21 authored facts and exact social-clue source identities."""
+    findings: list[dict[str, str]] = []
+    npcs = (compiled.get("npc_agendas") or {}).get("npcs") or []
+    npc_ids = {
+        str(npc.get("npc_id")) for npc in npcs
+        if isinstance(npc, dict) and npc.get("npc_id")
+    }
+    clue_ids: set[str] = set()
+    for conclusion in (compiled.get("clue_graph") or {}).get("conclusions") or []:
+        if not isinstance(conclusion, dict):
+            continue
+        for clue in conclusion.get("clues") or []:
+            if not isinstance(clue, dict):
+                continue
+            clue_id = str(clue.get("clue_id") or "")
+            if clue_id:
+                clue_ids.add(clue_id)
+            if clue.get("delivery_kind") not in {"npc_dialogue", "social"}:
+                continue
+            sources = clue.get("source_npc_ids")
+            if not _is_string_list(sources):
+                findings.append({"code": "social_clue_sources_missing", "message": f"social clue '{clue_id}' requires source_npc_ids"})
+                continue
+            unknown = [str(source) for source in sources if str(source) not in npc_ids]
+            if unknown:
+                findings.append({"code": "social_clue_source_unknown", "message": f"social clue '{clue_id}' references unknown source NPCs {unknown}"})
+    for npc in npcs:
+        if not isinstance(npc, dict):
+            continue
+        npc_id = str(npc.get("npc_id") or "")
+        facts = npc.get("facts")
+        if facts is None:
+            continue
+        if not isinstance(facts, list):
+            findings.append({"code": "npc_facts_invalid", "message": f"npc '{npc_id}' facts must be a list"})
+            continue
+        for index, fact in enumerate(facts):
+            if not isinstance(fact, dict) or not fact.get("fact_id") or fact.get("clue_id") not in clue_ids:
+                findings.append({"code": "npc_fact_reference_invalid", "message": f"npc '{npc_id}' facts[{index}] requires fact_id and a registered clue_id"})
+    return findings
+
+
 def _check_clue_bonus(clue: dict[str, Any]) -> list[str]:
     """Shape-check an optional clue ``bonus`` block (storylet-schema.md).
 
@@ -881,6 +924,7 @@ def validate_compiled_scenario(
     findings.extend(_check_scene_affinity_contract(compiled))
     findings.extend(_check_threat_affinity_contract(compiled))
     findings.extend(_check_threat_clock_identity_contract(compiled))
+    findings.extend(_check_npc_disclosure_contract(compiled))
     return findings
 
 
@@ -1083,9 +1127,65 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
                     )
 
     npcs = _read(scenario_dir / "npc-agendas.json")
+    registered_clue_ids = {
+        str(clue.get("clue_id"))
+        for conclusion in clue_graph.get("conclusions", [])
+        if isinstance(conclusion, dict)
+        for clue in conclusion.get("clues", [])
+        if isinstance(clue, dict) and clue.get("clue_id")
+    }
+    npc_ids = {
+        str(npc.get("npc_id")) for npc in npcs.get("npcs", [])
+        if isinstance(npc, dict) and npc.get("npc_id")
+    }
     for npc in npcs.get("npcs", []):
         if not npc.get("agenda"):
             errors.append(f"npc '{npc.get('npc_id')}' missing agenda")
+        if "known_fact_ids" in npc and not _is_string_list(npc.get("known_fact_ids")):
+            errors.append(f"npc '{npc.get('npc_id')}' known_fact_ids must be a list of non-empty strings")
+        if "revealable_fact_ids" in npc and not _is_string_list(npc.get("revealable_fact_ids")):
+            errors.append(f"npc '{npc.get('npc_id')}' revealable_fact_ids must be a list of non-empty strings")
+        facts = npc.get("facts")
+        if facts is not None:
+            if not isinstance(facts, list):
+                errors.append(f"npc '{npc.get('npc_id')}' facts must be a list")
+            else:
+                for index, fact in enumerate(facts):
+                    if not isinstance(fact, dict) or not fact.get("fact_id") or not fact.get("clue_id"):
+                        errors.append(
+                            f"npc '{npc.get('npc_id')}' facts[{index}] requires fact_id and clue_id"
+                        )
+                    elif str(fact.get("clue_id")) not in registered_clue_ids:
+                        errors.append(
+                            f"npc '{npc.get('npc_id')}' facts[{index}] references unknown clue_id '{fact.get('clue_id')}'"
+                        )
+        availability = npc.get("availability")
+        if availability is not None and (
+            not isinstance(availability, dict)
+            or availability.get("status") not in {"available", "unavailable"}
+        ):
+            errors.append(
+                f"npc '{npc.get('npc_id')}' availability.status must be available or unavailable"
+            )
+        schedule = npc.get("schedule")
+        if schedule is not None and not isinstance(schedule, list):
+            errors.append(f"npc '{npc.get('npc_id')}' schedule must be a list")
+
+    for concl in clue_graph.get("conclusions", []):
+        for clue in concl.get("clues", []):
+            if clue.get("delivery_kind") not in {"npc_dialogue", "social"}:
+                continue
+            sources = clue.get("source_npc_ids")
+            if not _is_string_list(sources):
+                errors.append(
+                    f"social clue '{clue.get('clue_id')}' requires source_npc_ids"
+                )
+                continue
+            unknown = [str(source) for source in sources if str(source) not in npc_ids]
+            if unknown:
+                errors.append(
+                    f"social clue '{clue.get('clue_id')}' references unknown source NPCs {unknown}"
+                )
 
     fronts_data = _read(scenario_dir / "threat-fronts.json")
     scene_affinity_findings = _check_scene_affinity_contract({
