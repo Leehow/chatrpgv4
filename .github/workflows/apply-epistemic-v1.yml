@@ -1,0 +1,44 @@
+name: apply-epistemic-v1
+
+on:
+  push:
+    branches:
+      - feature/scenario-epistemic-director-v1
+    paths:
+      - .github/epistemic-v1-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/scenario-epistemic-director-v1
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependency
+        run: python -m pip install pytest
+      - name: Apply asserted source patch
+        run: python scripts/apply_epistemic_v1_patch.py
+      - name: Run focused epistemic tests
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest
+          tests/test_epistemic_policy.py
+          tests/test_belief_state.py
+          tests/test_epistemic_scenario_compile.py
+          tests/test_epistemic_runtime_integration.py
+          -q -p no:cacheprovider
+      - name: Run full test suite
+        run: PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
+      - name: Commit generated source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(director): integrate epistemic scenario state"
+          git push origin HEAD:feature/scenario-epistemic-director-v1
