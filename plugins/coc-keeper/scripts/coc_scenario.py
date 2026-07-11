@@ -13,6 +13,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_fileio
+import coc_pdf_source
 
 
 EMPTY_SCENARIO_LISTS = (
@@ -32,18 +33,7 @@ def _write_json(path: Path, payload: dict[str, Any] | list[Any]) -> None:
 
 
 def load_handout_assets(campaign_dir: Path) -> dict[str, dict[str, Any]]:
-    """Read index/handout-assets.json and return a {asset_id: asset} map.
-
-    Returns an empty dict when the file is missing, unreadable, or contains no
-    assets. This is the reader for the scaffold written by
-    `create_scenario_skeleton` (which starts with `assets: []`); once a module
-    extracts player-safe images/clippings/maps into `assets/handouts/` and
-    registers them, this resolves their display info (title/summary/source/
-    player_visible) for clue_reveal events and narration contracts.
-
-    Asset entries are keyed by their `asset_id`; entries missing an `asset_id`
-    are skipped (defensive against partial registrations).
-    """
+    """Read index/handout-assets.json and return a {asset_id: asset} map."""
     index_path = campaign_dir / "index" / "handout-assets.json"
     if not index_path.exists():
         return {}
@@ -73,10 +63,12 @@ def catalog_pdfs(pdf_dir: Path) -> list[dict[str, Any]]:
         metadata = reader.metadata or {}
         catalog.append(
             {
+                "source_id": coc_pdf_source.default_source_id(path),
                 "filename": path.name,
                 "path": str(path),
                 "page_count": len(reader.pages),
                 "title": metadata.get("/Title"),
+                "file_sha256": coc_pdf_source.sha256_file(path),
             }
         )
     return catalog
@@ -109,12 +101,22 @@ def create_scenario_skeleton(
     for filename in EMPTY_SCENARIO_LISTS:
         _write_json(scenario_dir / filename, [])
 
+    normalized_source = dict(source or {})
+    if normalized_source.get("path") and not normalized_source.get("source_id"):
+        normalized_source["source_id"] = coc_pdf_source.default_source_id(
+            normalized_source["path"]
+        )
+    if normalized_source.get("path") and not normalized_source.get("file_sha256"):
+        file_hash = coc_pdf_source.sha256_file(normalized_source["path"])
+        if file_hash:
+            normalized_source["file_sha256"] = file_hash
+
     _write_json(
         index_dir / "source-map.json",
         {
             "schema_version": 1,
             "scenario_id": scenario_id,
-            "sources": [source],
+            "sources": [normalized_source],
             "entries": [],
         },
     )
@@ -130,5 +132,10 @@ def create_scenario_skeleton(
                 "text_only": "show title, summary, and source page when inline image display is unavailable",
             },
         },
+    )
+    coc_pdf_source.initialize_source_indexes(
+        campaign_dir,
+        scenario_id,
+        sources=[normalized_source],
     )
     return scenario

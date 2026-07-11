@@ -15,6 +15,7 @@ from coc_language import BASE_REPORT_LABELS
 from coc_language import language_profile as build_language_profile
 from coc_playtest_evidence import read_evidence_receipt
 from coc_roll import format_percentile_result
+import coc_epistemic_metrics
 
 
 SCENE_REPLAY_EVENT_TYPES = {
@@ -2282,6 +2283,32 @@ def _format_combat_tracker(
     return lines
 
 
+def _render_epistemic_experience_section(
+    metrics: dict[str, Any],
+    language_profile: dict[str, Any],
+) -> list[str]:
+    """Render deterministic belief/question diagnostics without prose inference."""
+    keys = (
+        "belief_gain",
+        "curiosity_load",
+        "explanation_compression",
+        "reframe_fairness",
+        "confirmation_saturation",
+        "unexplained_surprise",
+        "parse_risk_exposure",
+        "epistemic_health",
+    )
+    lines = [_report_heading(2, "Epistemic Experience", language_profile)]
+    for key in keys:
+        payload = metrics.get(key, {}) if isinstance(metrics, dict) else {}
+        lines.append(
+            f"- {key}: "
+            + json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        )
+    lines.append("")
+    return lines
+
+
 def _render_narrative_adherence_section(adherence: Any) -> list[str]:
     """Optional 叙事贴合 / Narrative Adherence section (SENNA checklist).
 
@@ -2389,6 +2416,38 @@ def generate_battle_report(run_dir: Path) -> Path:
     campaign = context["campaign"]
     scenario = context["scenario"]
     characters = context["characters"]
+    campaign_dir = context["campaign_dir"]
+    belief_events = (
+        _read_jsonl(campaign_dir / "logs" / "belief-events.jsonl")
+        if campaign_dir
+        else []
+    )
+    belief_state = (
+        _read_json(campaign_dir / "save" / "belief-state.json", {})
+        if campaign_dir
+        else {}
+    )
+    compile_confidence = (
+        _read_json(campaign_dir / "scenario" / "compile-confidence.json", {})
+        if campaign_dir
+        else {}
+    )
+    parse_manifest = (
+        _read_json(campaign_dir / "index" / "parse-manifest.json", {})
+        if campaign_dir
+        else {}
+    )
+    epistemic_metrics = coc_epistemic_metrics.compute_epistemic_metrics(
+        belief_events,
+        belief_state=belief_state,
+        compile_confidence=compile_confidence,
+        parse_manifest=parse_manifest,
+    )
+    metadata["epistemic_metrics"] = epistemic_metrics
+    (run_dir / "playtest.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     handouts = (
         _read_json(context["campaign_dir"] / "scenario" / "handouts.json", [])
         if context["campaign_dir"]
@@ -2707,6 +2766,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_heading(2, "Clues Found", language_profile),
         *_list_lines(clue_lines, "- No clues recorded."),
         "",
+        *_render_epistemic_experience_section(epistemic_metrics, language_profile),
         *_render_narrative_adherence_section(metadata.get("narrative_adherence")),
         _report_heading(2, "Session Ending", language_profile),
         *_list_lines(ending_lines, "- Session ending not recorded."),

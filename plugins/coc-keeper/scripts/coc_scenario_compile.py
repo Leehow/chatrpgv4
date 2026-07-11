@@ -19,8 +19,6 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-
-
 def _load_sibling(name: str, filename: str):
     import importlib.util
     spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / filename)
@@ -34,6 +32,11 @@ coc_npc_state = _load_sibling("coc_npc_state_scenario_compile", "coc_npc_state.p
 coc_director_strategies = _load_sibling(
     "coc_director_strategies_scenario_compile", "coc_director_strategies.py"
 )
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import coc_pdf_source
+import coc_epistemic_lifecycle
 
 VALID_STRUCTURE_TYPES = {
     "linear_acts", "time_loop", "branching_investigation", "hub_sandbox",
@@ -54,6 +57,14 @@ NON_FRAGILE_DELIVERY_KINDS = {
 }
 VALID_ORIGINS = frozenset({"source", "inferred", "improvised"})
 VALID_PAGE_KINDS = frozenset({"printed", "pdf_index"})
+VALID_EPISTEMIC_LAYERS = frozenset({
+    "fact", "identity", "method", "motive", "causal", "structure",
+    "world", "personal",
+})
+VALID_EPISTEMIC_EFFECTS = frozenset({
+    "confirm", "expand", "complicate", "reframe", "payoff",
+})
+VALID_REVEAL_MODES = VALID_EPISTEMIC_EFFECTS
 DOCTOR_RULES_JSON_FILES = (
     "structure-weights.json",
     "rule-index.json",
@@ -930,9 +941,434 @@ def annotate_provenance(compiled: dict[str, Any]) -> dict[str, Any]:
     return compiled
 
 
+
+def _check_epistemic_sidecars(
+    compiled: dict[str, Any],
+    id_maps: dict[str, dict[str, list[str]]],
+) -> list[dict[str, str]]:
+    """Validate optional question/evidence/reveal sidecars.
+
+    The check is ID- and enum-driven only. Missing sidecars are valid legacy
+    mode; malformed opt-in sidecars fail closed for core references.
+    """
+    raw_graph = compiled.get("epistemic_graph")
+    raw_contracts = compiled.get("reveal_contracts")
+    if raw_graph in (None, {}) and raw_contracts in (None, {}):
+        return []
+
+    findings: list[dict[str, str]] = []
+    if raw_graph is not None and not isinstance(raw_graph, dict):
+        findings.append(_finding(
+            "invalid_epistemic_sidecar", "error",
+            "epistemic_graph must be an object when present",
+            path="epistemic_graph",
+        ))
+    if raw_contracts is not None and not isinstance(raw_contracts, dict):
+        findings.append(_finding(
+            "invalid_epistemic_sidecar", "error",
+            "reveal_contracts must be an object when present",
+            path="reveal_contracts",
+        ))
+    graph = raw_graph if isinstance(raw_graph, dict) else {}
+    contracts_doc = raw_contracts if isinstance(raw_contracts, dict) else {}
+    clue_ids = set(id_maps.get("clue", {}))
+
+    questions: dict[str, dict[str, Any]] = {}
+    duplicate_questions: set[str] = set()
+    for index, question in enumerate(graph.get("questions") or []):
+        path = f"epistemic_graph.questions[{index}]"
+        if not isinstance(question, dict):
+            findings.append(_finding(
+                "invalid_epistemic_question", "error",
+                "epistemic question must be an object", path=path,
+            ))
+            continue
+        question_id = str(question.get("question_id") or "").strip()
+        if not question_id:
+            findings.append(_finding(
+                "invalid_epistemic_question", "error",
+                "epistemic question requires question_id", path=path,
+            ))
+            continue
+        if question_id in questions:
+            duplicate_questions.add(question_id)
+        questions[question_id] = question
+        if not str(question.get("player_facing_question") or "").strip():
+            findings.append(_finding(
+                "invalid_epistemic_question", "error",
+                f"question '{question_id}' requires player_facing_question",
+                path=f"{path}.player_facing_question",
+            ))
+        if not str(question.get("truth_ref") or "").strip():
+            findings.append(_finding(
+                "invalid_epistemic_question", "error",
+                f"question '{question_id}' requires truth_ref",
+                path=f"{path}.truth_ref",
+            ))
+        layer = question.get("layer")
+        if layer not in VALID_EPISTEMIC_LAYERS:
+            findings.append(_finding(
+                "invalid_epistemic_layer", "error",
+                f"question '{question_id}' layer '{layer}' not in {sorted(VALID_EPISTEMIC_LAYERS)}",
+                path=f"{path}.layer",
+            ))
+        for opened in question.get("opens_questions") or []:
+            if not isinstance(opened, str):
+                findings.append(_finding(
+                    "broken_epistemic_reference", "error",
+                    f"question '{question_id}' opens_questions entries must be ids",
+                    path=f"{path}.opens_questions",
+                ))
+        if question.get("importance") == "critical" and not question.get("source_refs"):
+            findings.append(_finding(
+                "critical_question_missing_source", "warning",
+                f"critical question '{question_id}' has no source_refs",
+                path=path,
+            ))
+    for question_id in sorted(duplicate_questions):
+        findings.append(_finding(
+            "duplicate_epistemic_question", "error",
+            f"duplicate epistemic question id '{question_id}'",
+            path="epistemic_graph.questions",
+        ))
+
+    links_by_question: dict[str, int] = {}
+    reframe_pairs: set[tuple[str, str]] = set()
+    for index, link in enumerate(graph.get("evidence_links") or []):
+        path = f"epistemic_graph.evidence_links[{index}]"
+        if not isinstance(link, dict):
+            findings.append(_finding(
+                "invalid_epistemic_link", "error",
+                "evidence link must be an object", path=path,
+            ))
+            continue
+        clue_id = link.get("clue_id")
+        question_id = link.get("question_id")
+        effect = link.get("effect")
+        if clue_id not in clue_ids:
+            findings.append(_finding(
+                "broken_epistemic_reference", "error",
+                f"evidence link clue_id '{clue_id}' does not resolve",
+                path=f"{path}.clue_id",
+            ))
+        if question_id not in questions:
+            findings.append(_finding(
+                "broken_epistemic_reference", "error",
+                f"evidence link question_id '{question_id}' does not resolve",
+                path=f"{path}.question_id",
+            ))
+        else:
+            links_by_question[str(question_id)] = links_by_question.get(str(question_id), 0) + 1
+        if effect not in VALID_EPISTEMIC_EFFECTS:
+            findings.append(_finding(
+                "invalid_epistemic_effect", "error",
+                f"evidence effect '{effect}' not in {sorted(VALID_EPISTEMIC_EFFECTS)}",
+                path=f"{path}.effect",
+            ))
+        elif effect == "reframe" and isinstance(question_id, str) and isinstance(clue_id, str):
+            reframe_pairs.add((question_id, clue_id))
+        strength = link.get("strength")
+        if strength is not None:
+            try:
+                numeric = float(strength)
+            except (TypeError, ValueError):
+                numeric = -1.0
+            if numeric < 0.0 or numeric > 1.0:
+                findings.append(_finding(
+                    "invalid_epistemic_strength", "warning",
+                    f"evidence strength for clue '{clue_id}' should be within 0..1",
+                    path=f"{path}.strength",
+                ))
+
+    for question_id, question in questions.items():
+        if question.get("importance") == "critical" and links_by_question.get(question_id, 0) == 0:
+            findings.append(_finding(
+                "critical_question_without_evidence", "warning",
+                f"critical question '{question_id}' has no evidence links",
+                path=f"epistemic_graph.questions/{question_id}",
+            ))
+        for opened in question.get("opens_questions") or []:
+            if isinstance(opened, str) and opened not in questions:
+                findings.append(_finding(
+                    "broken_epistemic_reference", "error",
+                    f"question '{question_id}' opens missing question '{opened}'",
+                    path=f"epistemic_graph.questions/{question_id}.opens_questions",
+                ))
+
+    covered_reframes: set[tuple[str, str]] = set()
+    reveal_contract_ids: set[str] = set()
+    for index, contract in enumerate(contracts_doc.get("contracts") or []):
+        path = f"reveal_contracts.contracts[{index}]"
+        if not isinstance(contract, dict):
+            findings.append(_finding(
+                "invalid_reveal_contract", "error",
+                "reveal contract must be an object", path=path,
+            ))
+            continue
+        reveal_contract_id = str(contract.get("reveal_contract_id") or "").strip()
+        if not reveal_contract_id:
+            findings.append(_finding(
+                "invalid_reveal_contract", "error",
+                "reveal contract requires reveal_contract_id",
+                path=f"{path}.reveal_contract_id",
+            ))
+        elif reveal_contract_id in reveal_contract_ids:
+            findings.append(_finding(
+                "duplicate_reveal_contract", "error",
+                f"duplicate reveal contract id '{reveal_contract_id}'",
+                path=f"{path}.reveal_contract_id",
+            ))
+        else:
+            reveal_contract_ids.add(reveal_contract_id)
+        mode = str(contract.get("mode") or "").lower()
+        if mode not in VALID_REVEAL_MODES:
+            findings.append(_finding(
+                "invalid_reveal_contract", "error",
+                f"reveal mode '{mode}' not in {sorted(VALID_REVEAL_MODES)}",
+                path=f"{path}.mode",
+            ))
+        question_id = contract.get("target_question_id")
+        if question_id not in questions:
+            findings.append(_finding(
+                "broken_epistemic_reference", "error",
+                f"reveal contract target_question_id '{question_id}' does not resolve",
+                path=f"{path}.target_question_id",
+            ))
+        trigger_ids = [
+            value for value in contract.get("trigger_clue_ids") or []
+            if isinstance(value, str) and value.strip()
+        ]
+        if mode == "reframe" and not trigger_ids:
+            findings.append(_finding(
+                "invalid_reframe_contract", "error",
+                "reframe contract requires at least one trigger_clue_id",
+                path=f"{path}.trigger_clue_ids",
+            ))
+        for clue_id in trigger_ids:
+            if clue_id not in clue_ids:
+                findings.append(_finding(
+                    "broken_epistemic_reference", "error",
+                    f"reveal contract trigger clue '{clue_id}' does not resolve",
+                    path=f"{path}.trigger_clue_ids",
+                ))
+            if mode == "reframe" and isinstance(question_id, str):
+                covered_reframes.add((question_id, clue_id))
+        for clue_id in contract.get("setup_refs") or []:
+            if clue_id not in clue_ids:
+                findings.append(_finding(
+                    "broken_epistemic_reference", "error",
+                    f"reveal contract setup ref '{clue_id}' does not resolve",
+                    path=f"{path}.setup_refs",
+                ))
+        for opened in contract.get("opens_questions") or []:
+            if opened not in questions:
+                findings.append(_finding(
+                    "broken_epistemic_reference", "error",
+                    f"reveal contract opens missing question '{opened}'",
+                    path=f"{path}.opens_questions",
+                ))
+        if mode == "reframe":
+            setup_refs = [value for value in contract.get("setup_refs") or [] if isinstance(value, str)]
+            if len(set(setup_refs)) < 2:
+                findings.append(_finding(
+                    "invalid_reframe_contract", "error",
+                    "reframe contract requires at least two setup_refs",
+                    path=f"{path}.setup_refs",
+                ))
+            preserve = [value for value in contract.get("preserve_as_true") or [] if isinstance(value, str) and value.strip()]
+            if not preserve:
+                findings.append(_finding(
+                    "invalid_reframe_contract", "error",
+                    "reframe contract requires non-empty preserve_as_true",
+                    path=f"{path}.preserve_as_true",
+                ))
+
+    for question_id, clue_id in sorted(reframe_pairs - covered_reframes):
+        findings.append(_finding(
+            "reframe_missing_contract", "warning",
+            f"reframe evidence ({question_id}, {clue_id}) has no matching reveal contract",
+            path="epistemic_graph.evidence_links",
+        ))
+
+    confidence_doc = compiled.get("compile_confidence")
+    if confidence_doc is not None and not isinstance(confidence_doc, dict):
+        findings.append(_finding(
+            "invalid_compile_confidence_node", "error",
+            "compile_confidence must be an object when present",
+            path="compile_confidence",
+        ))
+        confidence_doc = {}
+    confidence_doc = confidence_doc if isinstance(confidence_doc, dict) else {}
+    valid_targets = {
+        "question": set(questions),
+        "reveal_contract": set(reveal_contract_ids),
+    }
+    accepted_review_states = {
+        "auto_accepted", "manual_accepted", "needs_review", "rejected",
+    }
+    seen_confidence_nodes: set[tuple[str, str]] = set()
+    for index, record in enumerate(confidence_doc.get("nodes") or []):
+        path = f"compile_confidence.nodes[{index}]"
+        if not isinstance(record, dict):
+            findings.append(_finding(
+                "invalid_compile_confidence_node", "error",
+                "compile confidence node must be an object", path=path,
+            ))
+            continue
+        node_type = str(record.get("node_type") or "").strip()
+        node_id = str(record.get("node_id") or "").strip()
+        if node_type not in valid_targets:
+            findings.append(_finding(
+                "invalid_compile_confidence_node", "error",
+                f"compile confidence node_type '{node_type}' is not supported",
+                path=f"{path}.node_type",
+            ))
+            continue
+        if not node_id:
+            findings.append(_finding(
+                "invalid_compile_confidence_node", "error",
+                "compile confidence node requires node_id",
+                path=f"{path}.node_id",
+            ))
+            continue
+        key = (node_type, node_id)
+        if key in seen_confidence_nodes:
+            findings.append(_finding(
+                "duplicate_compile_confidence_node", "error",
+                f"duplicate compile confidence node ({node_type}, {node_id})",
+                path=path,
+            ))
+        else:
+            seen_confidence_nodes.add(key)
+        if node_id not in valid_targets[node_type]:
+            findings.append(_finding(
+                "broken_epistemic_reference", "error",
+                f"compile confidence {node_type} node_id '{node_id}' does not resolve",
+                path=f"{path}.node_id",
+            ))
+        review_state = str(record.get("review_state") or "needs_review")
+        if review_state not in accepted_review_states:
+            findings.append(_finding(
+                "invalid_compile_confidence_node", "error",
+                f"compile confidence review_state '{review_state}' is not supported",
+                path=f"{path}.review_state",
+            ))
+        for field in (
+            "semantic_confidence", "source_confidence", "effective_confidence",
+        ):
+            if field not in record:
+                continue
+            try:
+                value = float(record[field])
+            except (TypeError, ValueError):
+                value = -1.0
+            if value < 0.0 or value > 1.0:
+                findings.append(_finding(
+                    "invalid_compile_confidence_node", "error",
+                    f"{field} for ({node_type}, {node_id}) must be within 0..1",
+                    path=f"{path}.{field}",
+                ))
+    return findings
+
+
+
+def _iter_source_owned_nodes(compiled: dict[str, Any]):
+    """Yield (path, refs, critical) for structured authored nodes."""
+    for i, question in enumerate((compiled.get("epistemic_graph") or {}).get("questions") or []):
+        if isinstance(question, dict) and question.get("source_refs"):
+            yield (
+                f"epistemic_graph.questions[{i}]",
+                question.get("source_refs") or [],
+                question.get("importance") == "critical",
+            )
+    for ci, conclusion in enumerate((compiled.get("clue_graph") or {}).get("conclusions") or []):
+        if not isinstance(conclusion, dict):
+            continue
+        critical = conclusion.get("importance") == "critical"
+        for qi, clue in enumerate(conclusion.get("clues") or []):
+            if isinstance(clue, dict) and clue.get("source_refs"):
+                yield (
+                    f"clue_graph.conclusions[{ci}].clues[{qi}]",
+                    clue.get("source_refs") or [],
+                    critical or clue.get("importance") == "critical",
+                )
+    for i, scene in enumerate((compiled.get("story_graph") or {}).get("scenes") or []):
+        if isinstance(scene, dict) and scene.get("source_refs"):
+            yield (
+                f"story_graph.scenes[{i}]",
+                scene.get("source_refs") or [],
+                scene.get("importance") == "critical" or scene.get("is_final") is True,
+            )
+    for i, npc in enumerate((compiled.get("npc_agendas") or {}).get("npcs") or []):
+        if isinstance(npc, dict) and npc.get("source_refs"):
+            yield (
+                f"npc_agendas.npcs[{i}]",
+                npc.get("source_refs") or [],
+                npc.get("importance") == "critical",
+            )
+    for i, front in enumerate((compiled.get("threat_fronts") or {}).get("fronts") or []):
+        if isinstance(front, dict) and front.get("source_refs"):
+            yield (
+                f"threat_fronts.fronts[{i}]",
+                front.get("source_refs") or [],
+                front.get("importance") == "critical",
+            )
+
+
+def _check_source_evidence(
+    compiled: dict[str, Any],
+    source_bundle: dict[str, Any] | None,
+    *,
+    strict_sources: bool,
+) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    nodes = list(_iter_source_owned_nodes(compiled))
+    if not nodes:
+        return findings
+    if not isinstance(source_bundle, dict):
+        if strict_sources:
+            for owner_path, _refs, critical in nodes:
+                findings.append(_finding(
+                    "unresolved_source_locator",
+                    "error" if critical else "warning",
+                    "source refs are present but no source evidence bundle was supplied",
+                    path=owner_path,
+                ))
+        return findings
+    page_map = source_bundle.get("page_map") or {}
+    manifest = source_bundle.get("parse_manifest") or {}
+    segments = source_bundle.get("evidence_segments") or []
+    if not (page_map.get("sources") or manifest.get("ranges")) and not strict_sources:
+        return findings
+    for owner_path, refs, critical in nodes:
+        result = coc_pdf_source.critical_source_allowed(
+            [ref for ref in refs if isinstance(ref, dict)],
+            manifest,
+            [seg for seg in segments if isinstance(seg, dict)],
+            page_map=page_map,
+        )
+        if result.get("allowed"):
+            continue
+        source_findings = result.get("findings") or [{
+            "code": "unresolved_source_locator",
+            "message": "source evidence did not resolve",
+        }]
+        for source_finding in source_findings:
+            findings.append(_finding(
+                str(source_finding.get("code") or "unresolved_source_locator"),
+                "error" if critical else "warning",
+                str(source_finding.get("message") or "source evidence did not resolve"),
+                path=owner_path,
+            ))
+    return findings
+
+
 def validate_compiled_scenario(
     compiled: dict[str, Any],
     source_segments: list[dict[str, Any]] | None = None,
+    *,
+    source_bundle: dict[str, Any] | None = None,
+    strict_sources: bool = False,
 ) -> list[dict[str, str]]:
     """Structured validation pass over an in-memory compiled scenario.
 
@@ -957,6 +1393,15 @@ def validate_compiled_scenario(
     findings.extend(_check_threat_clock_identity_contract(compiled))
     findings.extend(_check_npc_disclosure_contract(compiled))
     findings.extend(_check_time_loop_signal_contract(compiled))
+    findings.extend(_check_epistemic_sidecars(compiled, id_maps))
+    findings.extend(_check_source_evidence(
+        compiled, source_bundle, strict_sources=strict_sources
+    ))
+    findings.extend(coc_epistemic_lifecycle.validate_question_lifecycle(
+        compiled.get("epistemic_graph"),
+        clue_ids=set(id_maps.get("clue", {})),
+        scene_ids=set(id_maps.get("scene", {})),
+    ))
     return findings
 
 
@@ -1017,6 +1462,9 @@ def load_compiled_from_dir(scenario_dir: Path) -> dict[str, Any]:
         "clue_graph": _read(scenario_dir / "clue-graph.json") if (scenario_dir / "clue-graph.json").exists() else {"conclusions": []},
         "npc_agendas": _read(scenario_dir / "npc-agendas.json") if (scenario_dir / "npc-agendas.json").exists() else {"npcs": []},
         "threat_fronts": _read(scenario_dir / "threat-fronts.json") if (scenario_dir / "threat-fronts.json").exists() else {"fronts": []},
+        "epistemic_graph": _read(scenario_dir / "epistemic-graph.json") if (scenario_dir / "epistemic-graph.json").exists() else {},
+        "reveal_contracts": _read(scenario_dir / "reveal-contracts.json") if (scenario_dir / "reveal-contracts.json").exists() else {},
+        "compile_confidence": _read(scenario_dir / "compile-confidence.json") if (scenario_dir / "compile-confidence.json").exists() else {},
     }
 
 
@@ -1230,8 +1678,15 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
         for ref in refs or []:
             if not isinstance(ref, dict):
                 continue
-            if not ref.get("path") or not isinstance(ref.get("page"), int):
-                warnings.append(f"{owner_label} source_ref missing path or integer page")
+            legacy_ok = bool(ref.get("path")) and isinstance(ref.get("page"), int)
+            structured_ok = bool(ref.get("source_id")) and (
+                isinstance(ref.get("printed_page"), int)
+                or isinstance(ref.get("pdf_index"), int)
+            )
+            if not legacy_ok and not structured_ok:
+                warnings.append(
+                    f"{owner_label} source_ref needs path+page or source_id+printed_page/pdf_index"
+                )
             page_kind = ref.get("page_kind")
             if page_kind is not None and page_kind not in VALID_PAGE_KINDS:
                 warnings.append(
@@ -1282,6 +1737,22 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
                 if rank > max_rank:
                     max_rank = rank
                     max_stage = stage
+
+    compiled = load_compiled_from_dir(scenario_dir)
+    epi_findings = _check_epistemic_sidecars(compiled, _collect_id_maps(compiled))
+    index_dir = scenario_dir.parent / "index"
+    source_bundle = None
+    if (index_dir / "page-map.json").exists() or (index_dir / "parse-manifest.json").exists():
+        source_bundle = coc_pdf_source.load_source_bundle(scenario_dir.parent)
+    epi_findings.extend(_check_source_evidence(
+        compiled, source_bundle, strict_sources=False
+    ))
+    for finding in epi_findings:
+        rendered = f"{finding.get('code')}: {finding.get('message')}"
+        if finding.get("severity") == "error":
+            errors.append(rendered)
+        else:
+            warnings.append(rendered)
 
     return {"errors": errors, "warnings": warnings}
 

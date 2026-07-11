@@ -212,3 +212,18 @@ When `playtest.json` sets `audit_profile: chase_drill`, the audit must also reje
 - let the quarry escape with a carried objective without an `item_transfer` event proving `item_id`, `from_actor`, `to_actor`, `source_turn`, and matching `chase_id`; otherwise emit `chase_object_transfer_missing`
 - omit Chinese visible KP/player dialogue, leak unlocalized glossary terms or skill display names, or omit the `## Actual Play Replay` section
 - render a thin `## Scene-by-Scene Replay` that omits significant structured play events
+
+## Epistemic Experience Metrics
+
+`coc_playtest_report.py` reads structured belief events/state plus compile and
+parse provenance, persists `playtest.json.epistemic_metrics`, and renders the
+`Epistemic Experience` section defined in
+`references/battle-report-template.md`.
+
+The report includes `belief_gain`, `curiosity_load`,
+`explanation_compression`, `reframe_fairness`, `confirmation_saturation`,
+`unexplained_surprise`, `parse_risk_exposure`, and the aggregate
+`epistemic_health`. These are deterministic diagnostics, not prose judgments.
+`parse_risk_exposure` is scoped to cognitive nodes and parse ranges actually
+delivered to the player. Legacy runs without belief events remain valid and
+produce zero-event metrics.

@@ -62,6 +62,9 @@ coc_subsystem_executor = _load_sibling(
     "coc_subsystem_executor_director_apply",
     "coc_subsystem_executor.py",
 )
+coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
+coc_epistemic_resolve = _load_sibling("coc_epistemic_resolve", "coc_epistemic_resolve.py")
+coc_epistemic_lifecycle = _load_sibling("coc_epistemic_lifecycle", "coc_epistemic_lifecycle.py")
 
 coc_memory = None
 try:
@@ -1432,6 +1435,16 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
     else:
         directives.pop("failure_consequence", None)
 
+    planned_epistemic = resolved_plan.get("epistemic_contract")
+    resolved_epistemic = coc_epistemic_resolve.resolve_epistemic_contract(
+        planned_epistemic, committed
+    )
+    if isinstance(planned_epistemic, dict) and isinstance(resolved_epistemic, dict):
+        resolved_plan["planned_epistemic_contract"] = _copy_jsonable(planned_epistemic)
+        resolved_plan["epistemic_contract"] = resolved_epistemic
+        resolved_plan["resolved_epistemic_contract"] = resolved_epistemic
+        directives["belief_update_contract"] = resolved_epistemic
+
     return resolved_plan
 
 
@@ -1983,6 +1996,40 @@ def _apply_plan_impl(
             events.append(ev)
             _append_jsonl(logs / "events.jsonl", ev)
     world["discovered_clue_ids"] = discovered
+    # Epistemic state updates only after clue commitment is resolved. Question
+    # opening/closure is evaluated from structured authored conditions.
+    epistemic_graph = _read_json(
+        campaign_dir / "scenario" / "epistemic-graph.json",
+        {"questions": [], "evidence_links": []},
+    )
+    current_belief = coc_belief_state.read_belief_state(campaign_dir)
+    flags_set = _truthy_flag_ids(_read_json(save / "flags.json", {}))
+    epistemic_contract = plan.get("epistemic_contract") or {}
+    resolved_effects = epistemic_contract.get("resolved_effects")
+    if not isinstance(resolved_effects, list):
+        resolved_effects = epistemic_contract.get("effects")
+    if not isinstance(resolved_effects, list):
+        resolved_effects = [epistemic_contract] if isinstance(epistemic_contract, dict) else []
+    question_transitions = coc_epistemic_lifecycle.evaluate_question_transitions(
+        epistemic_graph,
+        current_belief,
+        world,
+        committed_clues,
+        flags_set=flags_set,
+        visited_scene_ids=world.get("visited_scene_ids") or [],
+        resolved_effects=[effect for effect in resolved_effects if isinstance(effect, dict)],
+    )
+    belief_events = coc_belief_state.apply_belief_turn(
+        campaign_dir,
+        plan,
+        committed_clues,
+        investigator_id,
+        ts,
+        question_transitions=question_transitions,
+    )
+    for ev in belief_events:
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
     # Mark scene-level SAN triggers as fired (dedup: director won't re-request).
     fired = list(world.get("san_triggers_fired", []))
     for rr in (rules_results or []):

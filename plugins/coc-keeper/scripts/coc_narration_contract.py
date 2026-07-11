@@ -31,6 +31,7 @@ from coc_narration_style import (
     validate_crisis_scene_render_frame,
 )
 import coc_npc_state
+import coc_epistemic_narration
 
 # guard_player_visible_text findings use severity "rewrite" (advisory).
 # Only "block" would gate a turn; the prose guard does not emit it today.
@@ -846,6 +847,7 @@ def build_narration_envelope(
     plan: dict[str, Any],
     *,
     clue_graph: dict[str, Any] | None = None,
+    epistemic_graph: dict[str, Any] | None = None,
     active_scene: dict[str, Any] | None = None,
     investigator_display_name: str | None = None,
     applied_events: list[dict[str, Any]] | None = None,
@@ -952,6 +954,11 @@ def build_narration_envelope(
             envelope["render_mode"] = "pressure"
         else:
             envelope["render_frame"] = frame
+    belief_update = coc_epistemic_narration.build_belief_update_projection(
+        plan.get("epistemic_contract"), epistemic_graph
+    )
+    if belief_update is not None:
+        envelope["belief_update"] = belief_update
     redirection = _sanitize_redirection(plan.get("redirection"))
     if redirection is not None:
         envelope["redirection"] = redirection

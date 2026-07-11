@@ -42,6 +42,8 @@ coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_threat_state = _load_sibling("coc_threat_state", "coc_threat_state.py")
 coc_scenario_compile = _load_sibling("coc_scenario_compile", "coc_scenario_compile.py")
 coc_director_strategies = _load_sibling("coc_director_strategies", "coc_director_strategies.py")
+coc_epistemic_policy = _load_sibling("coc_epistemic_policy", "coc_epistemic_policy.py")
+coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
 
 coc_time = None
 try:
@@ -703,6 +705,10 @@ def build_director_context(
         "story_graph": story_graph,
         "clue_graph": clue_graph,
         "npc_agendas": npc_agendas,
+        "epistemic_graph": _read_json(scenario / "epistemic-graph.json", {"questions": [], "evidence_links": []}),
+        "reveal_contracts": _read_json(scenario / "reveal-contracts.json", {"contracts": []}),
+        "compile_confidence": _read_json(scenario / "compile-confidence.json", {"schema_version": 1, "nodes": []}),
+        "belief_state": coc_belief_state.read_belief_state(campaign_dir),
         "npc_state": _read_json(save / "npc-state.json", {"schema_version": 1, "npcs": {}}),
         "director_strategy_state": _read_json(
             save / "director-strategy-state.json", {"schema_version": 1}
@@ -3041,6 +3047,9 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     # the REVEAL skill-check decision matches the clue_type that lands in the
     # emitted plan (Spec v1.1 gap #1: obvious clues should not roll Spot Hidden).
     clue_policy = _select_clue_policy(ctx, action)
+    epistemic_contract = coc_epistemic_policy.plan_epistemic_contract(
+        ctx, clue_policy, action
+    )
     rules_requests = _build_rules_requests(ctx, action, clue_policy)
     rich = ctx.get("player_intent_rich") if isinstance(ctx.get("player_intent_rich"), dict) else {}
     for interaction in rich.get("npc_interactions") or []:
@@ -3252,6 +3261,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "time_advance": time_advance,
         "validation_warnings": list(ctx.get("validation_warnings") or []),
         "clue_policy": clue_policy,
+        "epistemic_contract": epistemic_contract,
         "npc_moves": npc_moves,
         "npc_state_writes": ctx.get("npc_state_writes", []),
         "pressure_moves": pressure_moves,

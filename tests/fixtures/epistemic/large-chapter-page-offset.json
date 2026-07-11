@@ -1,0 +1,332 @@
+{
+  "scenario_id": "fixture-large-chapter-offset",
+  "source_ref": {
+    "source_id": "pdf:invented-chapter",
+    "printed_page": 300,
+    "grep_anchor": "Anchor A"
+  },
+  "low_confidence_source_ref": {
+    "source_id": "pdf:invented-chapter",
+    "printed_page": 301,
+    "grep_anchor": "Anchor B"
+  },
+  "expected_locator": {
+    "source_id": "pdf:invented-chapter",
+    "pdf_index": 347,
+    "printed_page": 300,
+    "printed_label": "300"
+  },
+  "source_bundle": {
+    "page_map": {
+      "schema_version": 1,
+      "scenario_id": "fixture-large-chapter-offset",
+      "sources": [
+        {
+          "source_id": "pdf:invented-chapter",
+          "path": "pdf/invented-chapter.pdf",
+          "file_sha256": "fixture-file-hash",
+          "pages": [
+            {
+              "pdf_index": 347,
+              "printed_page": 300,
+              "printed_label": "300",
+              "chapter": "Invented Chapter"
+            },
+            {
+              "pdf_index": 348,
+              "printed_page": 301,
+              "printed_label": "301",
+              "chapter": "Invented Chapter"
+            }
+          ]
+        }
+      ]
+    },
+    "parse_manifest": {
+      "schema_version": 1,
+      "scenario_id": "fixture-large-chapter-offset",
+      "default_threshold": 0.8,
+      "ranges": [
+        {
+          "range_id": "range-high",
+          "source_id": "pdf:invented-chapter",
+          "pdf_indices": [
+            347
+          ],
+          "file_sha256": "fixture-file-hash",
+          "text_sha256": "fixture-text-high",
+          "backend": "fixture-parser",
+          "backend_version": "1",
+          "pipeline_version": 2,
+          "quality": {
+            "overall": 0.94
+          },
+          "review_state": "auto_accepted"
+        },
+        {
+          "range_id": "range-low",
+          "source_id": "pdf:invented-chapter",
+          "pdf_indices": [
+            348
+          ],
+          "file_sha256": "fixture-file-hash",
+          "text_sha256": "fixture-text-low",
+          "backend": "fixture-parser",
+          "backend_version": "1",
+          "pipeline_version": 2,
+          "quality": {
+            "overall": 0.55
+          },
+          "review_state": "needs_review"
+        }
+      ]
+    },
+    "evidence_segments": [
+      {
+        "segment_id": "seg-high",
+        "source_id": "pdf:invented-chapter",
+        "locator": {
+          "pdf_index": 347,
+          "printed_page": 300
+        },
+        "segment_kind": "clue",
+        "text_sha256": "0531fc18b0c332167599502409bde56a6ead1b7ed5260ffe0c8244ebc196dcb2",
+        "parse_confidence": 0.91,
+        "review_state": "auto_accepted",
+        "grep_anchors": [
+          "Anchor A"
+        ],
+        "text": "LOCAL ONLY EVIDENCE PROSE"
+      },
+      {
+        "segment_id": "seg-low",
+        "source_id": "pdf:invented-chapter",
+        "locator": {
+          "pdf_index": 348,
+          "printed_page": 301
+        },
+        "segment_kind": "clue",
+        "text_sha256": "0d77cf63646024d16097b5ed927b04463a13d7488fedb4a42d06eaebdb959eb0",
+        "parse_confidence": 0.5,
+        "review_state": "needs_review",
+        "grep_anchors": [
+          "Anchor B"
+        ],
+        "text": "LOCAL ONLY EVIDENCE PROSE LOW"
+      }
+    ]
+  },
+  "scenario_files": {
+    "module-meta.json": {
+      "schema_version": 1,
+      "scenario_id": "fixture-large-chapter-offset",
+      "title": "Invented Offset Chapter",
+      "structure_type": "branching_investigation",
+      "era": "invented-era",
+      "content_flags": [],
+      "win_condition": "resolve the invented question",
+      "module_identity": {
+        "canonical_module_id": "fixture-large-chapter-offset",
+        "canonical_title": "Invented Offset Chapter",
+        "rules_edition": "fixture"
+      }
+    },
+    "story-graph.json": {
+      "schema_version": 1,
+      "scenes": [
+        {
+          "scene_id": "start",
+          "is_start": true,
+          "scene_type": "investigation",
+          "dramatic_question": "Which record matters?",
+          "entry_conditions": [],
+          "exit_conditions": [],
+          "available_clues": [
+            "clue-page-a",
+            "clue-page-b",
+            "clue-page-c"
+          ],
+          "npc_ids": [],
+          "pressure_moves": [],
+          "tone": [
+            "measured"
+          ],
+          "allowed_improvisation": [],
+          "scene_edges": [
+            {
+              "to": "finale",
+              "when": {
+                "kind": "always"
+              },
+              "kind": "route"
+            }
+          ],
+          "origin": "source"
+        },
+        {
+          "scene_id": "finale",
+          "is_final": true,
+          "scene_type": "resolution",
+          "dramatic_question": "Can the record be interpreted?",
+          "entry_conditions": [],
+          "exit_conditions": [],
+          "available_clues": [],
+          "npc_ids": [],
+          "pressure_moves": [],
+          "tone": [
+            "clear"
+          ],
+          "allowed_improvisation": [],
+          "scene_edges": [],
+          "origin": "source"
+        }
+      ]
+    },
+    "clue-graph.json": {
+      "schema_version": 1,
+      "conclusions": [
+        {
+          "conclusion_id": "conclusion-page",
+          "importance": "critical",
+          "minimum_routes": 3,
+          "fallback_policy": "RECOVER may surface another invented route",
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-page-a",
+              "delivery_kind": "obvious",
+              "visibility": "player-safe",
+              "player_safe_summary": "A page reference resolves to a record.",
+              "leads_to": [
+                "finale"
+              ],
+              "source_refs": [
+                {
+                  "source_id": "pdf:invented-chapter",
+                  "printed_page": 300,
+                  "grep_anchor": "Anchor A"
+                }
+              ],
+              "origin": "source"
+            },
+            {
+              "clue_id": "clue-page-b",
+              "delivery_kind": "handout",
+              "visibility": "player-safe",
+              "player_safe_summary": "A second independent record route.",
+              "leads_to": [
+                "finale"
+              ],
+              "origin": "source"
+            },
+            {
+              "clue_id": "clue-page-c",
+              "delivery_kind": "environmental",
+              "visibility": "player-safe",
+              "player_safe_summary": "A third independent record route.",
+              "leads_to": [
+                "finale"
+              ],
+              "origin": "source"
+            }
+          ]
+        }
+      ]
+    },
+    "npc-agendas.json": {
+      "schema_version": 1,
+      "npcs": []
+    },
+    "threat-fronts.json": {
+      "schema_version": 1,
+      "fronts": []
+    },
+    "pacing-map.json": {
+      "schema_version": 1,
+      "pacing_curve": []
+    },
+    "improvisation-boundaries.json": {
+      "schema_version": 1,
+      "invent_allowed": [],
+      "never_invent": [],
+      "keeper_secrets": [
+        {
+          "id": "secret-offset",
+          "category": "fixture",
+          "description": "KEEPER FIXTURE PROSE MUST NOT ENTER THE REQUEST"
+        }
+      ]
+    }
+  },
+  "compile_result": {
+    "schema_version": 1,
+    "evaluator_id": "codex-epistemic-compiler-v1",
+    "evaluation_provenance": {
+      "kind": "llm",
+      "request_sha256": "filled-by-test",
+      "reviewed_artifact": "epistemic-compile-request.json"
+    },
+    "epistemic_graph": {
+      "schema_version": 2,
+      "questions": [
+        {
+          "question_id": "q-page",
+          "layer": "fact",
+          "player_facing_question": "Which printed page identifies the record?",
+          "truth_ref": "truth-page-identity",
+          "importance": "critical",
+          "source_refs": [
+            {
+              "source_id": "pdf:invented-chapter",
+              "printed_page": 300,
+              "grep_anchor": "Anchor A"
+            }
+          ],
+          "closes_when": {
+            "kind": "clue_any",
+            "clue_ids": [
+              "clue-page-a"
+            ]
+          }
+        }
+      ],
+      "evidence_links": [
+        {
+          "clue_id": "clue-page-a",
+          "question_id": "q-page",
+          "effect": "confirm",
+          "strength": 0.91
+        }
+      ]
+    },
+    "reveal_contracts": {
+      "schema_version": 2,
+      "contracts": []
+    },
+    "compile_confidence": {
+      "schema_version": 1,
+      "default_threshold": 0.8,
+      "nodes": [
+        {
+          "node_type": "question",
+          "node_id": "q-page",
+          "semantic_confidence": 0.93,
+          "source_confidence": 0.91,
+          "effective_confidence": 0.91,
+          "review_state": "auto_accepted",
+          "importance": "critical",
+          "source_refs": [
+            {
+              "source_id": "pdf:invented-chapter",
+              "printed_page": 300,
+              "grep_anchor": "Anchor A"
+            }
+          ]
+        }
+      ]
+    },
+    "reasons": {
+      "q-page": "The invented source locator and clue ID explicitly bind this critical question."
+    }
+  }
+}

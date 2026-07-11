@@ -166,7 +166,7 @@ def test_extract_markdown_writes_meta_schema(tmp_path, monkeypatch):
     meta = json.loads(
         pdf_cache.cache_path("pdf/Book.pdf", [10, 11], cache_root=tmp_path)
         .with_suffix(".meta.json").read_text())
-    assert meta["schema_version"] == 1
+    assert meta["schema_version"] == 2
     assert meta["pdf"] == "pdf/Book.pdf"
     assert meta["pages"] == [10, 11]
     assert meta["backend"] == "pymupdf4llm"
