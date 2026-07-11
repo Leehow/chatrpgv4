@@ -1577,10 +1577,13 @@ def _apply_typed_push_consequences(
             total_segments = int(clock_def.get("segments", 0) or 0)
             if total_segments < 1:
                 raise ValueError(f"invalid pushed-consequence threat clock: {clock_id}")
-            for _ in range(ticks):
-                coc_threat_state.tick_clock(
-                    campaign_dir / "save", clock_id, total_segments
-                )
+            coc_threat_state.apply_clock_effect_once(
+                campaign_dir / "save",
+                clock_id,
+                total_segments,
+                ticks=ticks,
+                effect_id=f"pushed-consequence:{source_id}",
+            )
             record.update({"clock_id": clock_id, "ticks": ticks})
             evidence.update({"clock_id": clock_id, "ticks": ticks})
         else:

@@ -270,6 +270,7 @@ PUSH_HISTORY_EXTRA_KEYS = frozenset({
     "terminal_action",
     "terminal_revision",
     "terminal_command_ids",
+    "terminal_commands",
     "response_changed_method_evidence",
 })
 BOUT_CONTEXT_KEYS = frozenset({
@@ -287,6 +288,7 @@ BOUT_HISTORY_EXTRA_KEYS = frozenset({
     "terminal_action",
     "terminal_revision",
     "terminal_command_ids",
+    "terminal_commands",
 })
 CHANGED_METHOD_SOURCES = frozenset({
     "player_proposal",
@@ -955,6 +957,139 @@ def _validate_private_choice_context(
     )
 
 
+def _validate_history_terminal_snapshot(
+    choice_id: str,
+    entry: dict[str, Any],
+    command: dict[str, Any],
+    snapshot: dict[str, Any],
+) -> None:
+    """Bind a consumed choice to the exact terminal result contract."""
+    command_id = command["command_id"]
+    kind = command["kind"]
+    action = entry["terminal_action"]
+    history_ref = f"save/subsystem-state.json#choice_history/{choice_id}"
+    if snapshot.get("pending_choice") is not None:
+        raise _state_error(f"choice history {choice_id!r} terminal result cannot remain pending")
+
+    if kind == "push_confirm":
+        expected_status = "cancelled" if action == "cancel" else "completed"
+        expected_events: list[dict[str, Any]] = []
+        if action == "confirm":
+            expected_events = [{
+                "event_type": "push_confirmed",
+                "kind": "push_confirm",
+                "choice_id": choice_id,
+                "revision": entry["terminal_revision"],
+                "source_command_id": command_id,
+                "original_command_id": entry["origin_command_id"],
+                "changed_method_evidence": _json_copy(
+                    entry["response_changed_method_evidence"]
+                ),
+            }]
+        if (
+            snapshot.get("status") != expected_status
+            or not _json_deep_equal(snapshot.get("events"), expected_events)
+            or snapshot.get("state_refs") != [history_ref]
+        ):
+            raise _state_error(f"choice history {choice_id!r} has an invalid push-confirm result")
+        return
+
+    if kind == "push_resolve":
+        events = snapshot.get("events")
+        if (
+            snapshot.get("status") != "completed"
+            or snapshot.get("state_refs")
+            != [f"logs/rolls.jsonl#{command_id}", history_ref]
+            or not isinstance(events, list)
+            or len(events) != 1
+        ):
+            raise _state_error(f"choice history {choice_id!r} has an invalid push-resolve result")
+        event = events[0]
+        original = entry["original_roll"]
+        expected_keys = {
+            "roll_id", "decision_id", "kind", "skill", "target", "difficulty",
+            "reason", "request_id", "bonus_penalty_dice", "roll",
+            "effective_target", "outcome", "success", "roll_contract",
+            "resolution_context", "pushed", "push_gate", "original_command_id",
+            "original_roll_id", "announced_consequence", "changed_method_evidence",
+            "source_command_id",
+        }
+        expected_static = {
+            "roll_id": command["payload"]["roll_id"],
+            "decision_id": command["payload"]["decision_id"],
+            "kind": original.get("kind"),
+            "skill": original.get("skill"),
+            "target": original.get("target"),
+            "difficulty": str(original.get("difficulty") or "regular"),
+            "reason": original.get("reason"),
+            "request_id": original.get("request_id"),
+            "bonus_penalty_dice": int(original.get("bonus_penalty_dice", 0) or 0),
+            "roll_contract": _json_copy(original.get("roll_contract")),
+            "resolution_context": _json_copy(entry["resolution_context"]),
+            "pushed": True,
+            "push_gate": {
+                "method_changed": True,
+                "consequence_announced": True,
+                "player_confirmed": True,
+            },
+            "original_command_id": entry["origin_command_id"],
+            "original_roll_id": original.get("roll_id"),
+            "announced_consequence": _json_copy(entry["announced_consequence"]),
+            "changed_method_evidence": _json_copy(
+                entry["response_changed_method_evidence"]
+            ),
+            "source_command_id": command_id,
+        }
+        if set(event) != expected_keys or any(
+            not _json_deep_equal(event.get(key), value)
+            for key, value in expected_static.items()
+        ):
+            raise _state_error(f"choice history {choice_id!r} has forged push-roll evidence")
+        if (
+            isinstance(event.get("roll"), bool)
+            or not isinstance(event.get("roll"), int)
+            or not 1 <= event["roll"] <= 100
+            or isinstance(event.get("effective_target"), bool)
+            or not isinstance(event.get("effective_target"), int)
+            or not isinstance(event.get("outcome"), str)
+            or event.get("success") != (event.get("outcome") in SUCCESS_OUTCOMES)
+        ):
+            raise _state_error(f"choice history {choice_id!r} has invalid pushed-roll outcome")
+        return
+
+    if kind not in BOUT_COMMAND_KINDS:
+        raise _state_error(f"choice history {choice_id!r} has unsupported terminal kind")
+    expected_refs = [
+        f"save/sanity.json#{entry['bout_id']}",
+        f"save/investigator-state/{entry['investigator_id']}.json#bout_active",
+        history_ref,
+    ]
+    events = snapshot.get("events")
+    expected_types = ["bout_ended"] if kind == "bout_end" else ["bout_tick", "bout_ended"]
+    if (
+        snapshot.get("status") != "completed"
+        or snapshot.get("state_refs") != expected_refs
+        or not isinstance(events, list)
+        or [event.get("event_type") for event in events] != expected_types
+    ):
+        raise _state_error(f"choice history {choice_id!r} has an invalid terminal bout result")
+    if kind == "bout_tick" and events[0] != {
+        "event_type": "bout_tick",
+        "bout_id": entry["bout_id"],
+        "remaining_rounds": 0,
+        "source_command_id": command_id,
+    }:
+        raise _state_error(f"choice history {choice_id!r} has forged bout-tick evidence")
+    ended = events[-1]
+    if (
+        ended.get("bout_id") != entry["bout_id"]
+        or not isinstance(ended.get("event_id"), str)
+        or not isinstance(ended.get("summary"), str)
+        or not ended["summary"]
+    ):
+        raise _state_error(f"choice history {choice_id!r} has forged bout-end evidence")
+
+
 def _validate_state(state: Any) -> dict[str, Any]:
     if not isinstance(state, dict):
         raise _state_error("state root must be an object")
@@ -1062,6 +1197,7 @@ def _validate_state(state: Any) -> dict[str, Any]:
         action = entry.get("terminal_action")
         revision = entry.get("terminal_revision")
         command_ids = entry.get("terminal_command_ids")
+        terminal_commands = entry.get("terminal_commands")
         if public_choice.get("kind") == "push_confirm":
             expected_keys = set(PUSH_CONTEXT_KEYS) | set(PUSH_HISTORY_EXTRA_KEYS)
             allowed_actions = {"confirm", "cancel"}
@@ -1105,7 +1241,36 @@ def _validate_state(state: Any) -> dict[str, Any]:
             expected_kinds.append("push_resolve")
         if command_ids != expected_command_ids:
             raise _state_error(f"choice history {choice_id!r} has non-canonical terminal command IDs")
-        for terminal_id, expected_kind in zip(command_ids, expected_kinds):
+        if (
+            not isinstance(terminal_commands, list)
+            or len(terminal_commands) != expected_count
+            or [
+                command.get("command_id") if isinstance(command, dict) else None
+                for command in terminal_commands
+            ] != expected_command_ids
+        ):
+            raise _state_error(f"choice history {choice_id!r} lacks exact terminal command receipts")
+        response = {
+            "choice_id": choice_id,
+            "responder": public_choice["responder"],
+            "revision": revision,
+            "action": action,
+        }
+        try:
+            expected_plan = _pending_resume_plan_from_state(
+                state, entry["investigator_id"], response
+            )
+            expected_commands = commands_from_rules_requests(expected_plan)
+            validated_commands = _validate_batch(terminal_commands)
+        except SubsystemExecutorError as exc:
+            raise _state_error(
+                f"choice history {choice_id!r} has invalid terminal command receipts: {exc}"
+            ) from exc
+        if not _json_deep_equal(validated_commands, expected_commands):
+            raise _state_error(f"choice history {choice_id!r} terminal receipts are non-canonical")
+        for terminal_id, expected_kind, terminal_command in zip(
+            command_ids, expected_kinds, terminal_commands
+        ):
             if (
                 snapshots[terminal_id].get("kind") != expected_kind
                 or provenance[terminal_id].get("investigator_id")
@@ -1113,8 +1278,12 @@ def _validate_state(state: Any) -> dict[str, Any]:
                 or provenance[terminal_id].get("character_id")
                 != entry.get("character_id")
                 or provenance[terminal_id].get("decision_id") != ids["decision_id"]
+                or hashes[terminal_id] != _canonical_command_hash(terminal_command)
             ):
                 raise _state_error(f"choice history {choice_id!r} has invalid terminal provenance")
+            _validate_history_terminal_snapshot(
+                choice_id, entry, terminal_command, snapshots[terminal_id]
+            )
         if public_choice.get("kind") == "push_confirm":
             changed = entry.get("response_changed_method_evidence")
             if action == "confirm" and not isinstance(changed, dict):
@@ -3031,6 +3200,7 @@ def _dispatch(
                 "terminal_action": payload["action"],
                 "terminal_revision": payload["revision"],
                 "terminal_command_ids": _json_copy(payload["terminal_command_ids"]),
+                "terminal_commands": [],
             }
         return {
             "command_id": command_id,
@@ -3058,6 +3228,7 @@ def _dispatch(
             "terminal_action": action,
             "terminal_revision": payload["revision"],
             "terminal_command_ids": _json_copy(payload["terminal_command_ids"]),
+            "terminal_commands": [],
             "response_changed_method_evidence": (
                 _json_copy(context["changed_method_evidence"])
                 if action == "confirm"
@@ -3631,6 +3802,23 @@ def execute_commands(
                             choice=pending_choice,
                         )
                     )
+
+        current_commands = {
+            command["command_id"]: command for command, _result in new_results
+        }
+        for history_entry in next_state["choice_history"].values():
+            if not isinstance(history_entry, dict):
+                continue
+            terminal_ids = history_entry.get("terminal_command_ids")
+            if history_entry.get("terminal_commands") != [] or not isinstance(
+                terminal_ids, list
+            ):
+                continue
+            if all(command_id in current_commands for command_id in terminal_ids):
+                history_entry["terminal_commands"] = [
+                    _json_copy(current_commands[command_id])
+                    for command_id in terminal_ids
+                ]
 
         for command, result in new_results:
             if command["kind"] not in ROLL_EVIDENCE_COMMAND_KINDS:

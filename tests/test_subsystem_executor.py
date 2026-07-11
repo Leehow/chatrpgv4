@@ -856,6 +856,163 @@ def test_choice_history_rejects_unrelated_applied_terminal_command(tmp_path):
     assert exc_info.value.code == "malformed_subsystem_state"
 
 
+@pytest.mark.parametrize("action", ["cancel", "confirm"])
+def test_push_history_binds_exact_terminal_command_receipts(tmp_path, action):
+    executor = _executor(f"coc_subsystem_executor_history_receipt_push_{action}")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], action)
+    commands = executor.commands_from_rules_requests(
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    )
+    _execute(executor, campaign, character, commands, random.Random(212))
+    state = json.loads((campaign / "save" / "subsystem-state.json").read_text())
+    history = state["choice_history"][response["choice_id"]]
+
+    assert history["terminal_commands"] == commands
+    assert [
+        state["command_hashes"][command["command_id"]]
+        for command in history["terminal_commands"]
+    ] == [executor._canonical_command_hash(command) for command in commands]
+
+
+def test_bout_history_binds_exact_terminal_command_receipt(tmp_path):
+    executor = _executor("coc_subsystem_executor_history_receipt_bout_end")
+    campaign, character = _campaign_and_character(tmp_path)
+    _set_high_san_and_int(character)
+    started = _execute(
+        executor, campaign, character,
+        [_realtime_bout_command("san-history-receipt")], random.Random(1),
+    )[0]
+    response = _keeper_response(started["pending_choice"], "end")
+    commands = executor.commands_from_rules_requests(
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    )
+    _execute(executor, campaign, character, commands, random.Random(218))
+    state = json.loads((campaign / "save" / "subsystem-state.json").read_text())
+
+    assert state["choice_history"][response["choice_id"]]["terminal_commands"] == commands
+
+
+@pytest.mark.parametrize(
+    ("tamper", "value"),
+    [
+        ("hash", "0" * 64),
+        ("status", "completed"),
+        ("event", [{"event_type": "forged"}]),
+        ("refs", []),
+    ],
+)
+def test_cancelled_push_history_rejects_tampered_terminal_receipt_or_result(
+    tmp_path, tamper, value,
+):
+    executor = _executor(f"coc_subsystem_executor_history_tamper_{tamper}")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "cancel")
+    commands = executor.commands_from_rules_requests(
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    )
+    _execute(executor, campaign, character, commands, random.Random(212))
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    command_id = commands[0]["command_id"]
+    if tamper == "hash":
+        state["command_hashes"][command_id] = value
+    elif tamper == "status":
+        state["result_snapshots"][command_id]["status"] = value
+    elif tamper == "event":
+        state["result_snapshots"][command_id]["events"] = value
+    else:
+        state["result_snapshots"][command_id]["state_refs"] = value
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+
+
+def _terminal_history_variant(executor, campaign, character, variant):
+    if variant.startswith("push_"):
+        offered = _offer_push(executor, campaign, character)
+        action = "cancel" if variant == "push_cancel" else "confirm"
+        response = _push_response(offered["pending_choice"], action)
+        commands = executor.commands_from_rules_requests(
+            executor.plan_from_pending_choice_response(campaign, "inv1", response)
+        )
+        _execute(executor, campaign, character, commands, random.Random(212))
+        index = 1 if variant == "push_resolve" else 0
+        return response, commands, index
+
+    _set_high_san_and_int(character)
+    started = _execute(
+        executor, campaign, character,
+        [_realtime_bout_command(f"san-{variant}")], random.Random(1),
+    )[0]
+    choice = started["pending_choice"]
+    if variant == "bout_end":
+        response = _keeper_response(choice, "end")
+        commands = executor.commands_from_rules_requests(
+            executor.plan_from_pending_choice_response(campaign, "inv1", response)
+        )
+        _execute(executor, campaign, character, commands, random.Random(218))
+        return response, commands, 0
+    for seed in range(300, 320):
+        response = _keeper_response(choice, "tick")
+        commands = executor.commands_from_rules_requests(
+            executor.plan_from_pending_choice_response(campaign, "inv1", response)
+        )
+        result = _execute(
+            executor, campaign, character, commands, random.Random(seed)
+        )[0]
+        if result["status"] == "completed":
+            return response, commands, 0
+        choice = result["pending_choice"]
+    raise AssertionError("test bout did not reach its terminal tick")
+
+
+@pytest.mark.parametrize(
+    "variant",
+    ["push_cancel", "push_confirm", "push_resolve", "bout_end", "bout_tick"],
+)
+@pytest.mark.parametrize(
+    "tamper",
+    ["receipt", "hash", "status", "choice", "event", "refs"],
+)
+def test_all_choice_history_terminal_variants_reject_receipt_and_snapshot_tampering(
+    tmp_path, variant, tamper,
+):
+    executor = _executor(f"coc_subsystem_executor_terminal_{variant}_{tamper}")
+    campaign, character = _campaign_and_character(tmp_path)
+    response, commands, index = _terminal_history_variant(
+        executor, campaign, character, variant
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    history = state["choice_history"][response["choice_id"]]
+    command_id = commands[index]["command_id"]
+    snapshot = state["result_snapshots"][command_id]
+    if tamper == "receipt":
+        history["terminal_commands"][index]["payload"]["decision_id"] = "forged"
+    elif tamper == "hash":
+        state["command_hashes"][command_id] = "0" * 64
+    elif tamper == "status":
+        snapshot["status"] = "forged"
+    elif tamper == "choice":
+        snapshot["pending_choice"] = history["public_choice"]
+    elif tamper == "event":
+        snapshot["events"] = [{"event_type": "forged"}]
+    else:
+        snapshot["state_refs"] = []
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+
+
 def test_invalid_pending_response_does_not_recover_or_mutate_prepared_inflight(
     tmp_path,
 ):

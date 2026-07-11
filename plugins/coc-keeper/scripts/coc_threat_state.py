@@ -41,15 +41,16 @@ def load_threat_state(save_dir: Path) -> dict[str, Any]:
     """Load threat-state.json, returning a well-formed shell if absent."""
     path = _state_path(save_dir)
     if not path.is_file():
-        return {"schema_version": 1, "clocks": {}}
+        return {"schema_version": 1, "clocks": {}, "applied_effects": {}}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {"schema_version": 1, "clocks": {}}
+        return {"schema_version": 1, "clocks": {}, "applied_effects": {}}
     if not isinstance(data, dict):
-        return {"schema_version": 1, "clocks": {}}
+        return {"schema_version": 1, "clocks": {}, "applied_effects": {}}
     data.setdefault("schema_version", 1)
     data.setdefault("clocks", {})
+    data.setdefault("applied_effects", {})
     return data
 
 
@@ -64,7 +65,10 @@ def init_threat_state(save_dir: Path) -> None:
     """Create an empty threat-state.json if one does not exist."""
     path = _state_path(save_dir)
     if not path.is_file():
-        _save_state(save_dir, {"schema_version": 1, "clocks": {}})
+        _save_state(
+            save_dir,
+            {"schema_version": 1, "clocks": {}, "applied_effects": {}},
+        )
 
 
 def get_clock_segments(save_dir: Path, clock_id: str) -> int:
@@ -105,6 +109,62 @@ def tick_clock(save_dir: Path, clock_id: str, segments: int) -> bool:
     state["clocks"] = clocks
     _save_state(save_dir, state)
     return became_full
+
+
+def apply_clock_effect_once(
+    save_dir: Path,
+    clock_id: str,
+    segments: int,
+    *,
+    ticks: int,
+    effect_id: str,
+) -> tuple[bool, bool]:
+    """Atomically advance a clock and record a durable idempotency receipt.
+
+    The clock update and receipt share one atomic JSON replacement.  A caller
+    that crashes after this write can safely retry: an identical receipt is a
+    no-op, while reuse of the same effect ID with different content fails
+    closed.
+
+    Returns ``(applied, became_full)``.
+    """
+    if not isinstance(effect_id, str) or not effect_id:
+        raise ValueError("effect_id must be non-empty")
+    if isinstance(ticks, bool) or not isinstance(ticks, int) or ticks < 1:
+        raise ValueError("ticks must be a positive integer")
+    if isinstance(segments, bool) or not isinstance(segments, int) or segments < 1:
+        raise ValueError("segments must be a positive integer")
+    state = load_threat_state(save_dir)
+    receipts = state.setdefault("applied_effects", {})
+    if not isinstance(receipts, dict):
+        raise ValueError("threat-state applied_effects must be an object")
+    receipt = {
+        "clock_id": clock_id,
+        "segments": segments,
+        "ticks": ticks,
+    }
+    existing = receipts.get(effect_id)
+    if existing is not None:
+        if existing != receipt:
+            raise ValueError("threat effect ID was reused with different content")
+        return False, False
+
+    clocks = state.setdefault("clocks", {})
+    if not isinstance(clocks, dict):
+        raise ValueError("threat-state clocks must be an object")
+    clock = clocks.get(clock_id, {"current_segments": 0, "full": False})
+    current = int(clock.get("current_segments", 0))
+    was_full = bool(clock.get("full", False)) or current >= segments
+    next_segments = min(segments, current + ticks)
+    became_full = not was_full and next_segments >= segments
+    clock["current_segments"] = next_segments
+    clock["full"] = next_segments >= segments
+    clocks[clock_id] = clock
+    receipts[effect_id] = receipt
+    state["clocks"] = clocks
+    state["applied_effects"] = receipts
+    _save_state(save_dir, state)
+    return True, became_full
 
 
 def is_clock_full(save_dir: Path, clock_id: str) -> bool:

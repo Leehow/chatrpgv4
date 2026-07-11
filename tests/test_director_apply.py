@@ -2336,6 +2336,53 @@ def test_typed_push_consequence_handlers_materialize_once(
         ) == 2
 
 
+def test_pressure_tick_push_consequence_retry_after_target_write_is_exactly_once(
+    tmp_path, monkeypatch,
+):
+    camp = _campaign(tmp_path)
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"clocks": [{"clock_id": "doom", "segments": 6}]}],
+    }))
+    failure = {
+        "event_type": "pushed_roll_failure",
+        "source_command_id": "push-resolve-crash",
+        "announced_consequence": {
+            "summary": "the doom clock advances",
+            "effect": {"kind": "pressure_tick", "clock_id": "doom", "ticks": 2},
+        },
+    }
+    real_save = coc_director_apply.coc_threat_state._save_state
+    writes = 0
+
+    def persist_then_crash(save_dir, state):
+        nonlocal writes
+        real_save(save_dir, state)
+        writes += 1
+        if writes == 1:
+            raise OSError("injected crash after threat-state target write")
+
+    monkeypatch.setattr(
+        coc_director_apply.coc_threat_state, "_save_state", persist_then_crash
+    )
+    with pytest.raises(OSError, match="after threat-state target write"):
+        coc_director_apply._apply_typed_push_consequences(
+            camp, "inv1", [failure], world={}, decision_id="d-crash", ts="first"
+        )
+
+    monkeypatch.setattr(coc_director_apply.coc_threat_state, "_save_state", real_save)
+    recovered_world = {}
+    applied = coc_director_apply._apply_typed_push_consequences(
+        camp, "inv1", [failure], world=recovered_world,
+        decision_id="d-crash", ts="retry",
+    )
+
+    assert coc_director_apply.coc_threat_state.get_clock_segments(
+        camp / "save", "doom"
+    ) == 2
+    assert len(recovered_world["pushed_consequences"]) == 1
+    assert len(applied) == 1
+
+
 # =============================================================================
 # W2-2: auto skill-tick recording on rules_results landing
 # =============================================================================
