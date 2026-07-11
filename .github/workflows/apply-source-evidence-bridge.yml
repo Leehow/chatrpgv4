@@ -34,13 +34,29 @@ jobs:
             python scripts/apply_source_evidence_compile_patch.py
           fi
       - name: Run focused source evidence tests
-        run: >-
-          PYTHONDONTWRITEBYTECODE=1 python -m pytest
-          tests/test_source_evidence_bridge.py
-          tests/test_pdf_cache.py
-          tests/test_scenario.py
-          tests/test_scenario_compile.py
-          -q -p no:cacheprovider
+        id: focused
+        continue-on-error: true
+        run: |
+          set +e
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest \
+            tests/test_source_evidence_bridge.py \
+            tests/test_pdf_cache.py \
+            tests/test_scenario.py \
+            tests/test_scenario_compile.py \
+            -q -p no:cacheprovider --tb=short > /tmp/source-focused.log 2>&1
+          status=$?
+          cat /tmp/source-focused.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit $status
+      - name: Upload focused diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-evidence-focused-log
+          path: /tmp/source-focused.log
+      - name: Stop after focused failure
+        if: steps.focused.outcome == 'failure'
+        run: exit 1
       - name: Run full test suite
         run: PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
       - name: Commit generated changes when present
