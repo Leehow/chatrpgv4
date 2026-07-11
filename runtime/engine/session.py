@@ -464,16 +464,19 @@ def _load_pi_adapter():
 
 
 def _ensure_worker_pool(registry: SessionRegistry):
-    if registry._worker_pool is None:
-        pool_mod = _load_module(
-            "runtime_session_worker_pool",
-            _repo_root() / "runtime" / "adapters" / "worker_pool.py",
-        )
-        runner = _repo_root() / "runtime" / "adapters" / "pi" / "run_turn.mjs"
-        registry._worker_pool = pool_mod.JsonlWorkerPool(
-            lambda _key: ["node", str(runner), "--server"],
-            cwd=runner.parent,
-        )
+    if registry._worker_pool is not None:
+        return registry._worker_pool
+    with registry._lock:
+        if registry._worker_pool is None:
+            pool_mod = _load_module(
+                "runtime_session_worker_pool",
+                _repo_root() / "runtime" / "adapters" / "worker_pool.py",
+            )
+            runner = _repo_root() / "runtime" / "adapters" / "pi" / "run_turn.mjs"
+            registry._worker_pool = pool_mod.JsonlWorkerPool(
+                lambda _key: ["node", str(runner), "--server"],
+                cwd=runner.parent,
+            )
     return registry._worker_pool
 
 

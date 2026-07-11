@@ -167,6 +167,41 @@ def test_registry_close_and_expiry_retire_registered_worker_scopes(tmp_path):
     assert pool.closed[-1] == expire_key
 
 
+def test_lazy_worker_pool_first_use_is_singleton_under_concurrency(monkeypatch):
+    session = _load_session()
+    registry = session.SessionRegistry(monotonic=FakeClock())
+    created = []
+
+    class Pool:
+        def __init__(self, *_args, **_kwargs):
+            created.append(self)
+
+    class WorkerPoolModule:
+        JsonlWorkerPool = Pool
+
+    original_load = session._load_module
+    monkeypatch.setattr(
+        session, "_load_module",
+        lambda name, path: WorkerPoolModule if path.name == "worker_pool.py"
+        else original_load(name, path),
+    )
+    barrier = threading.Barrier(8)
+    observed = []
+
+    def first_use():
+        barrier.wait()
+        observed.append(session._ensure_worker_pool(registry))
+
+    threads = [threading.Thread(target=first_use) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(created) == 1
+    assert all(pool is created[0] for pool in observed)
+
+
 def test_sdk_unknown_session_is_stable_documented_exception():
     session = _load_session()
     registry = session.SessionRegistry(monotonic=FakeClock())
