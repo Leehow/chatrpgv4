@@ -388,6 +388,39 @@ def test_push_offer_validates_origin_and_keeps_private_context_out_of_public_cho
     )
 
 
+def test_push_offer_final_state_failure_rolls_back_independent_evidence(
+    tmp_path, monkeypatch,
+):
+    executor = _executor("coc_subsystem_executor_push_offer_evidence_rollback")
+    campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_before = state_path.read_bytes()
+    result_log = campaign / "logs" / "subsystem-results.jsonl"
+    result_before = result_log.read_bytes()
+    evidence_log = campaign / "logs" / "push-offers.jsonl"
+    real_write = executor._write_executor_state
+
+    def fail_final_state(campaign_dir, state):
+        if (
+            state.get("inflight") is None
+            and "push-offer-1" in state.get("applied_command_ids", [])
+        ):
+            raise OSError("injected push-offer final state failure")
+        return real_write(campaign_dir, state)
+
+    monkeypatch.setattr(executor, "_write_executor_state", fail_final_state)
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(
+            executor, campaign, character, [_valid_push_offer()], random.Random(211)
+        )
+
+    assert exc_info.value.code == "subsystem_transaction_failed"
+    assert state_path.read_bytes() == state_before
+    assert result_log.read_bytes() == result_before
+    assert not evidence_log.exists()
+
+
 def test_schema_v2_pending_choice_without_private_context_fails_closed(tmp_path):
     executor = _executor("coc_subsystem_executor_schema_v2_pending_reject")
     campaign, character = _campaign_and_character(tmp_path)
@@ -894,6 +927,83 @@ def test_push_history_origin_is_bound_to_immutable_roll_log(tmp_path, action):
 
     assert exc_info.value.code == "malformed_subsystem_state"
     assert "roll" in exc_info.value.message
+
+
+def test_cancelled_push_offer_rejects_coordinated_state_and_result_rewrite(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_offer_independent_evidence")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "cancel")
+    commands = executor.commands_from_rules_requests(
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    )
+    _execute(executor, campaign, character, commands, random.Random(212))
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    history = state["choice_history"][response["choice_id"]]
+    forged = "the investigator is instead trapped behind the sealed door"
+    history["offer_command"]["payload"]["announced_consequence"]["summary"] = forged
+    history["announced_consequence"]["summary"] = forged
+    history["public_choice"]["prompt"] = (
+        "Push the failed Spot Hidden roll? Failure consequence: " + forged
+    )
+    offer_id = history["offer_command_id"]
+    state["result_snapshots"][offer_id]["pending_choice"] = history["public_choice"]
+    state["command_hashes"][offer_id] = executor._canonical_command_hash(
+        history["offer_command"]
+    )
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    def rewrite_offer(result):
+        result["pending_choice"] = history["public_choice"]
+
+    _rewrite_result_receipt(executor, campaign, offer_id, rewrite_offer)
+    receipt_path = campaign / "logs" / "subsystem-results.jsonl"
+    rows = [json.loads(line) for line in receipt_path.read_text().splitlines()]
+    for row in rows:
+        if row["command_id"] == offer_id:
+            row["command_hash"] = state["command_hashes"][offer_id]
+            material = {key: value for key, value in row.items() if key != "receipt_hash"}
+            row["receipt_hash"] = executor._canonical_json_hash(material)
+    receipt_path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+    assert "offer" in exc_info.value.message
+
+
+@pytest.mark.parametrize("damage", ["missing", "duplicate", "cross_choice", "malformed"])
+def test_push_offer_evidence_rejects_missing_duplicate_cross_choice_or_malformed(
+    tmp_path, damage,
+):
+    executor = _executor(f"coc_subsystem_executor_push_offer_evidence_{damage}")
+    campaign, character = _campaign_and_character(tmp_path)
+    _offer_push(executor, campaign, character)
+    path = campaign / "logs" / "push-offers.jsonl"
+    original = path.read_text(encoding="utf-8")
+    if damage == "missing":
+        path.write_text("", encoding="utf-8")
+    elif damage == "duplicate":
+        path.write_text(original + original, encoding="utf-8")
+    elif damage == "malformed":
+        path.write_text(original + "{not-json}\n", encoding="utf-8")
+    else:
+        row = json.loads(original)
+        row["choice_id"] = "another-offer:confirm"
+        material = {key: value for key, value in row.items() if key != "evidence_hash"}
+        row["evidence_hash"] = executor._canonical_json_hash(material)
+        path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+    assert "offer" in exc_info.value.message
 
 
 def test_ordinary_roll_receipt_is_bound_to_immutable_roll_log(tmp_path):

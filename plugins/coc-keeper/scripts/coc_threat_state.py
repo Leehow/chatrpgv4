@@ -293,13 +293,19 @@ def load_threat_state(save_dir: Path) -> dict[str, Any]:
     """Load threat-state.json, returning a well-formed shell if absent."""
     path = _state_path(save_dir)
     if not path.is_file():
-        return _empty_state()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise ValueError(f"could not load threat-state: {exc}") from exc
-    legacy_v1 = data.get("schema_version") == 1 if isinstance(data, dict) else False
-    state = _validate_state(data)
+        if not _ledger_path(save_dir).exists() and not _pending_path(save_dir).exists():
+            return _empty_state()
+        # The first transaction can crash after its append-only receipt is
+        # durable but before threat-state.json has ever been materialized.
+        legacy_v1 = False
+        state = _empty_state()
+    else:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"could not load threat-state: {exc}") from exc
+        legacy_v1 = data.get("schema_version") == 1 if isinstance(data, dict) else False
+        state = _validate_state(data)
     if legacy_v1:
         # One-time migration establishes the independent receipt ledger before
         # ordinary writes begin. Legacy state had no trustworthy source IDs.

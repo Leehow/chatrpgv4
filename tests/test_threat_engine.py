@@ -3,6 +3,7 @@
 and danger attack profiles driven by the Story Director."""
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -487,7 +488,6 @@ def test_pending_transaction_journal_recovers_log_ahead_of_state(tmp_path):
         "transition": transition,
     }
     material = json.dumps(record, sort_keys=True, separators=(",", ":"))
-    import hashlib
     record["receipt_hash"] = hashlib.sha256(material.encode()).hexdigest()
     ledger_path = coc_threat_state._ledger_path(save)
     with ledger_path.open("a", encoding="utf-8") as handle:
@@ -503,6 +503,60 @@ def test_pending_transaction_journal_recovers_log_ahead_of_state(tmp_path):
     assert recovered["clocks"]["doom"]["current_segments"] == 3
     assert recovered["ledger_head"] == transition["transition_hash"]
     assert not coc_threat_state._pending_path(save).exists()
+
+
+def test_pending_first_transaction_recovers_from_genesis_before_state_write(tmp_path):
+    save = tmp_path / "campaign" / "save"
+    save.mkdir(parents=True)
+    next_state = coc_threat_state._empty_state()
+    transition = coc_threat_state._append_transition(
+        next_state, kind="tick", clock_id="doom", segments=6,
+        ticks=1, source_id="test:first-crash",
+    )
+    next_state["applied_effects"]["test:first-crash"] = (
+        coc_threat_state._transition_receipt(transition)
+    )
+    record = {
+        "record_type": "threat_clock_transaction",
+        "sequence": 1,
+        "source_id": "test:first-crash",
+        "previous_receipt_hash": "0" * 64,
+        "transition": transition,
+    }
+    material = json.dumps(record, sort_keys=True, separators=(",", ":"))
+    import hashlib
+    record["receipt_hash"] = hashlib.sha256(material.encode()).hexdigest()
+    ledger = coc_threat_state._ledger_path(save)
+    ledger.parent.mkdir(parents=True)
+    ledger.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+    coc_threat_state.coc_fileio.write_json_atomic(
+        coc_threat_state._pending_path(save),
+        {"transition_hash": transition["transition_hash"],
+         "receipt_hash": record["receipt_hash"]},
+        indent=2, ensure_ascii=False, trailing_newline=True,
+    )
+
+    recovered = coc_threat_state.load_threat_state(save)
+
+    assert recovered == next_state
+    assert json.loads((save / "threat-state.json").read_text()) == next_state
+    assert not coc_threat_state._pending_path(save).exists()
+
+
+def test_missing_snapshot_with_transaction_ledger_but_no_journal_fails_closed(tmp_path):
+    save = _save_with_clocks(tmp_path, {})
+    coc_threat_state.tick_clock(save, "doom", 6, source_id="test:ledger-only")
+    (save / "threat-state.json").unlink()
+
+    with pytest.raises(ValueError, match="transaction|ledger|snapshot"):
+        coc_threat_state.load_threat_state(save)
+
+
+def test_completely_absent_threat_persistence_starts_at_genesis(tmp_path):
+    save = tmp_path / "campaign" / "save"
+    save.mkdir(parents=True)
+
+    assert coc_threat_state.load_threat_state(save) == coc_threat_state._empty_state()
 
 
 def test_init_threat_state_creates_file(tmp_path):

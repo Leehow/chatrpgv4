@@ -743,6 +743,7 @@ def _validate_inflight(inflight: Any) -> None:
         "logs/rolls.jsonl",
         "logs/time.jsonl",
         "logs/subsystem-results.jsonl",
+        "logs/push-offers.jsonl",
     }:
         raise _state_error("inflight.log_offsets contains an unsafe path")
     for relative, offset in offsets.items():
@@ -1417,6 +1418,7 @@ def _validate_state(state: Any) -> dict[str, Any]:
 
 
 _RESULT_RECEIPT_LOG = Path("logs/subsystem-results.jsonl")
+_PUSH_OFFER_EVIDENCE_LOG = Path("logs/push-offers.jsonl")
 
 
 def _result_choice_id(
@@ -1452,6 +1454,32 @@ def _result_receipt_record(
         "result": _json_copy(result),
     }
     material["receipt_hash"] = _canonical_json_hash(material)
+    return material
+
+
+def _push_offer_evidence_record(
+    sequence: int,
+    command: dict[str, Any],
+    result: dict[str, Any],
+    state: dict[str, Any],
+) -> dict[str, Any]:
+    command_id = command["command_id"]
+    public_choice = result["pending_choice"]
+    material = {
+        "record_type": "push_offer_evidence",
+        "sequence": sequence,
+        "actor": state["command_provenance"][command_id]["investigator_id"],
+        "command_id": command_id,
+        "command_hash": state["command_hashes"][command_id],
+        "command_provenance": _json_copy(state["command_provenance"][command_id]),
+        "choice_id": public_choice["choice_id"],
+        "command": _json_copy(command),
+        "public_choice": _json_copy(public_choice),
+        "announced_consequence": _json_copy(
+            command["payload"]["announced_consequence"]
+        ),
+    }
+    material["evidence_hash"] = _canonical_json_hash(material)
     return material
 
 
@@ -1589,6 +1617,63 @@ def _validate_result_source_evidence(
                     )
 
 
+def _validate_push_offer_evidence(
+    campaign_dir: Path,
+    state: dict[str, Any],
+) -> None:
+    records = _read_jsonl_records(
+        campaign_dir / _PUSH_OFFER_EVIDENCE_LOG,
+        label="canonical push offer evidence",
+    )
+    offer_ids = [
+        command_id for command_id in state["applied_command_ids"]
+        if state["result_snapshots"][command_id]["kind"] == "push_offer"
+    ]
+    if len(records) != len(offer_ids):
+        raise _state_error("canonical push offer evidence length diverges")
+    evidence_keys = {
+        "record_type", "sequence", "actor", "command_id", "command_hash",
+        "command_provenance", "choice_id", "command", "public_choice",
+        "announced_consequence", "evidence_hash",
+    }
+    for sequence, (command_id, record) in enumerate(zip(offer_ids, records), 1):
+        result = state["result_snapshots"][command_id]
+        public_choice = result["pending_choice"]
+        choice_id = public_choice["choice_id"]
+        context = (
+            state["pending_contexts"].get(choice_id)
+            or state["choice_history"].get(choice_id)
+        )
+        command = context.get("offer_command") if isinstance(context, dict) else None
+        provenance = state["command_provenance"][command_id]
+        material = {
+            key: _json_copy(value)
+            for key, value in record.items()
+            if key != "evidence_hash"
+        }
+        if (
+            set(record) != evidence_keys
+            or record.get("record_type") != "push_offer_evidence"
+            or record.get("sequence") != sequence
+            or record.get("command_id") != command_id
+            or record.get("actor") != provenance["investigator_id"]
+            or record.get("command_hash") != state["command_hashes"][command_id]
+            or not _json_deep_equal(record.get("command_provenance"), provenance)
+            or record.get("choice_id") != choice_id
+            or not _json_deep_equal(record.get("command"), command)
+            or not _json_deep_equal(record.get("public_choice"), public_choice)
+            or not isinstance(command, dict)
+            or not _json_deep_equal(
+                record.get("announced_consequence"),
+                command.get("payload", {}).get("announced_consequence"),
+            )
+            or record.get("evidence_hash") != _canonical_json_hash(material)
+        ):
+            raise _state_error(
+                f"canonical push offer evidence for {command_id!r} diverges"
+            )
+
+
 def _validate_external_result_receipts(campaign_dir: Path, state: dict[str, Any]) -> None:
     records = _read_jsonl_records(
         campaign_dir / _RESULT_RECEIPT_LOG, label="canonical subsystem result ledger"
@@ -1635,6 +1720,7 @@ def _validate_external_result_receipts(campaign_dir: Path, state: dict[str, Any]
         if history["terminal_result_receipt_hashes"] != expected_hashes:
             raise _state_error(f"choice history {choice_id!r} has wrong canonical receipt references")
     _validate_result_source_evidence(campaign_dir, state, commands_by_id)
+    _validate_push_offer_evidence(campaign_dir, state)
 
 
 def _load_state(campaign_dir: Path) -> dict[str, Any]:
@@ -1722,7 +1808,8 @@ class _AnchoredTransactionTarget:
         if not (
             _allowed_preimage_path(relative)
             or relative in {
-                "logs/rolls.jsonl", "logs/time.jsonl", "logs/subsystem-results.jsonl"
+                "logs/rolls.jsonl", "logs/time.jsonl", "logs/subsystem-results.jsonl",
+                "logs/push-offers.jsonl",
             }
         ):
             raise _unsafe_transaction_path(relative, "target is not transaction-owned")
@@ -2172,6 +2259,8 @@ def _build_inflight(
     )
     log_offsets: dict[str, dict[str, Any]] = {}
     log_relatives: list[str] = ["logs/subsystem-results.jsonl"]
+    if any(command["kind"] == "push_offer" for command, _ in commands_with_hashes):
+        log_relatives.append("logs/push-offers.jsonl")
     if has_roll_evidence:
         log_relatives.append("logs/rolls.jsonl")
     if structured_sanity:
@@ -3774,6 +3863,17 @@ def _append_result_receipt(campaign_dir: Path, receipt: dict[str, Any]) -> None:
         os.fsync(handle.fileno())
 
 
+def _append_push_offer_evidence(
+    campaign_dir: Path, evidence: dict[str, Any]
+) -> None:
+    path = campaign_dir / _PUSH_OFFER_EVIDENCE_LOG
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(evidence, ensure_ascii=False, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def _preflight_new_pending_capacity(
     commands_with_hashes: list[tuple[dict[str, Any], str]],
 ) -> None:
@@ -4138,6 +4238,21 @@ def execute_commands(
             )
             for command, result in new_results
         }
+        existing_offer_count = sum(
+            1 for command_id in state["applied_command_ids"]
+            if state["result_snapshots"][command_id]["kind"] == "push_offer"
+        )
+        push_offer_evidence: list[dict[str, Any]] = []
+        for command, result in new_results:
+            if command["kind"] == "push_offer":
+                push_offer_evidence.append(
+                    _push_offer_evidence_record(
+                        existing_offer_count + len(push_offer_evidence) + 1,
+                        command,
+                        result,
+                        next_state,
+                    )
+                )
         for history_entry in next_state["choice_history"].values():
             if not isinstance(history_entry, dict):
                 continue
@@ -4164,6 +4279,9 @@ def execute_commands(
             _append_result_receipt(
                 campaign, receipt_records[command["command_id"]]
             )
+
+        for evidence in push_offer_evidence:
+            _append_push_offer_evidence(campaign, evidence)
 
         for command, result in new_results:
             if command["kind"] not in ROLL_EVIDENCE_COMMAND_KINDS:
