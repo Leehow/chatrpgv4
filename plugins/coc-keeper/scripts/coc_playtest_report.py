@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -102,6 +104,95 @@ def _artifacts_dir(run_dir: Path) -> Path:
     path = run_dir / "artifacts"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _write_report_artifact_atomic(
+    run_dir: Path,
+    basename: str,
+    sibling_basename: str,
+    text: str,
+) -> Path:
+    """Write a fixed report artifact without following attacker-controlled links."""
+    if basename not in {"battle-report.md", "verification-sample.md"}:
+        raise ValueError("unsupported report artifact")
+    root = Path(run_dir).resolve(strict=True)
+    artifacts = root / "artifacts"
+    try:
+        artifacts.mkdir(mode=0o755, exist_ok=True)
+        named = os.stat(artifacts, follow_symlinks=False)
+    except OSError as exc:
+        raise RuntimeError("unsafe playtest artifacts directory") from exc
+    if not stat.S_ISDIR(named.st_mode) or artifacts.resolve(strict=True) != artifacts:
+        raise RuntimeError("unsafe playtest artifacts directory")
+    directory_flag = getattr(os, "O_DIRECTORY", None)
+    nofollow_flag = getattr(os, "O_NOFOLLOW", None)
+    if directory_flag is None or nofollow_flag is None:
+        raise RuntimeError("runtime lacks safe artifact write primitives")
+    directory_fd = os.open(
+        artifacts,
+        os.O_RDONLY | directory_flag | nofollow_flag | getattr(os, "O_CLOEXEC", 0),
+    )
+    identity = (named.st_dev, named.st_ino)
+
+    def verify_directory() -> None:
+        opened = os.fstat(directory_fd)
+        current = os.stat(artifacts, follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or not stat.S_ISDIR(current.st_mode)
+            or (opened.st_dev, opened.st_ino) != identity
+            or (current.st_dev, current.st_ino) != identity
+            or artifacts.resolve(strict=True) != artifacts
+        ):
+            raise RuntimeError("playtest artifacts directory changed during report write")
+
+    temp_name: str | None = None
+    temp_fd: int | None = None
+    replaced = False
+    try:
+        verify_directory()
+        for _ in range(16):
+            candidate = f".{basename}.{secrets.token_hex(12)}.tmp"
+            try:
+                temp_fd = os.open(
+                    candidate,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow_flag | getattr(os, "O_CLOEXEC", 0),
+                    0o600,
+                    dir_fd=directory_fd,
+                )
+                temp_name = candidate
+                break
+            except FileExistsError:
+                continue
+        if temp_fd is None or temp_name is None:
+            raise RuntimeError("could not allocate safe report temporary file")
+        payload = text.encode("utf-8")
+        view = memoryview(payload)
+        while view:
+            view = view[os.write(temp_fd, view):]
+        os.fsync(temp_fd)
+        os.close(temp_fd)
+        temp_fd = None
+        verify_directory()
+        os.replace(temp_name, basename, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        replaced = True
+        verify_directory()
+        try:
+            os.unlink(sibling_basename, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+        os.fsync(directory_fd)
+        verify_directory()
+    finally:
+        if temp_fd is not None:
+            os.close(temp_fd)
+        if temp_name is not None and not replaced:
+            try:
+                os.unlink(temp_name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+        os.close(directory_fd)
+    return artifacts / basename
 
 
 def _is_non_percentile_die_roll(event: dict[str, Any]) -> bool:
@@ -2800,18 +2891,16 @@ def generate_battle_report(run_dir: Path) -> Path:
     ]
     # Drop empty strings left by optional sections that emitted nothing.
     body = [line for line in body if line is not None]
-    artifacts_dir = output.parent.resolve(strict=True)
     sibling_name = (
         "battle-report.md" if output.name == "verification-sample.md"
         else "verification-sample.md"
     )
-    stale = artifacts_dir / sibling_name
-    if stale.exists() or stale.is_symlink():
-        stale.unlink()
-    temporary = artifacts_dir / f".{output.name}.tmp"
-    temporary.write_text("\n".join(body), encoding="utf-8")
-    os.replace(temporary, output)
-    return output
+    return _write_report_artifact_atomic(
+        run_dir,
+        output.name,
+        sibling_name,
+        "\n".join(body),
+    )
 
 
 def generate_evaluation_report(run_dir: Path) -> Path:

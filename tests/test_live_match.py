@@ -561,11 +561,52 @@ def test_canonical_player_with_absent_template_narrator_is_eligible(
     assert result["evidence"]["fallback_turns"] >= 1
     assert Path(result["run_dir"], "runner-invocations.jsonl").is_file()
     stale_verification = Path(result["run_dir"], "artifacts", "verification-sample.md")
-    stale_verification.write_text("stale downgrade", encoding="utf-8")
+    outside_stale_target = tmp_path / "outside-stale-verification.md"
+    outside_stale_target.write_text("outside must survive", encoding="utf-8")
+    stale_verification.symlink_to(outside_stale_target)
     report_path = match.playtest_report.generate_battle_report(Path(result["run_dir"]))
     assert report_path.name == "battle-report.md"
     assert "report-anchor: Battle Report" in report_path.read_text(encoding="utf-8")
     assert not stale_verification.exists()
+    assert outside_stale_target.read_text(encoding="utf-8") == "outside must survive"
+
+
+def test_report_atomic_temp_symlink_cannot_overwrite_outside_file(tmp_path, monkeypatch):
+    result = _run_canonical_player_match(tmp_path, monkeypatch)
+    run_dir = Path(result["run_dir"])
+    sentinel = tmp_path / "outside-sentinel.txt"
+    sentinel.write_text("unchanged", encoding="utf-8")
+    malicious_temp = run_dir / "artifacts" / ".battle-report.md.attack.tmp"
+    malicious_temp.symlink_to(sentinel)
+    monkeypatch.setattr(match.playtest_report.secrets, "token_hex", lambda _size: "attack")
+
+    with pytest.raises(RuntimeError, match="temporary file"):
+        match.playtest_report.generate_battle_report(run_dir)
+
+    assert sentinel.read_text(encoding="utf-8") == "unchanged"
+    assert malicious_temp.is_symlink()
+
+
+def test_report_rejects_artifacts_directory_symlink_without_outside_mutation(
+    tmp_path, monkeypatch
+):
+    result = _run_canonical_player_match(tmp_path, monkeypatch)
+    run_dir = Path(result["run_dir"])
+    artifacts = run_dir / "artifacts"
+    artifacts.rename(run_dir / "original-artifacts")
+    outside = tmp_path / "outside-artifacts"
+    outside.mkdir()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("unchanged", encoding="utf-8")
+    (outside / "verification-sample.md").write_text("outside sibling", encoding="utf-8")
+    artifacts.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(RuntimeError, match="unsafe playtest artifacts directory"):
+        match.playtest_report.generate_battle_report(run_dir)
+
+    assert sentinel.read_text(encoding="utf-8") == "unchanged"
+    assert (outside / "verification-sample.md").read_text(encoding="utf-8") == "outside sibling"
+    assert not (outside / "battle-report.md").exists()
 
 
 def test_canonical_narrator_mixed_fallback_remains_eligible(tmp_path, monkeypatch):
