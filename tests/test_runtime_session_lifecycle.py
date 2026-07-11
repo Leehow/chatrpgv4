@@ -139,6 +139,34 @@ def test_registry_lock_serializes_concurrent_create_and_get(tmp_path):
     assert len(registry) == 24
 
 
+def test_registry_close_and_expiry_retire_registered_worker_scopes(tmp_path):
+    session = _load_session()
+    clock = FakeClock()
+
+    class Pool:
+        def __init__(self):
+            self.closed = []
+        def close_scope(self, key):
+            self.closed.append(key)
+
+    pool = Pool()
+    registry = session.SessionRegistry(ttl_seconds=10, monotonic=clock, worker_pool=pool)
+    registry.create(_record(tmp_path), session_id="sess-close-worker")
+    close_key = {"session_id": "sess-close-worker", "campaign_id": "camp-1",
+                 "match_id": "camp-1", "role": "narrator:/runner"}
+    registry.register_worker_scope("sess-close-worker", close_key)
+    registry.close("sess-close-worker")
+    assert pool.closed == [close_key]
+
+    registry.create(_record(tmp_path), session_id="sess-expire-worker")
+    expire_key = {"session_id": "sess-expire-worker", "campaign_id": "camp-1",
+                  "match_id": "camp-1", "role": "narrator:/runner"}
+    registry.register_worker_scope("sess-expire-worker", expire_key)
+    clock.advance(11)
+    assert registry.expire() == ["sess-expire-worker"]
+    assert pool.closed[-1] == expire_key
+
+
 def test_sdk_unknown_session_is_stable_documented_exception():
     session = _load_session()
     registry = session.SessionRegistry(monotonic=FakeClock())

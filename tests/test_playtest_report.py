@@ -266,7 +266,7 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "## Module" in battle_text
     assert "scenario-id: the-haunting" in battle_text
     assert "Scenario ID: the-haunting" in visible_markdown_text(battle_text)
-    assert "Source: pdf/the-haunting.pdf" in battle_text
+    assert "Source: the-haunting.pdf" in battle_text
     assert "## Character Dossier" in battle_text
     assert "Ada King" in battle_text
     assert "investigator-id: ada-king" in battle_text

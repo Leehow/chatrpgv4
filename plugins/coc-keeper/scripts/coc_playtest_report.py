@@ -2406,8 +2406,14 @@ def _evidence_sensitive_metadata(
 
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
-    non_gameplay_sample = metadata.get("evidence_class") == "NON-GAMEPLAY verification evidence"
     evidence_receipt = read_evidence_receipt(run_dir)
+    simulation_class = str(metadata.get("simulation_method") or "").lower()
+    audit_class = str(metadata.get("audit_profile") or "").lower()
+    non_gameplay_sample = (
+        metadata.get("evidence_class") == "NON-GAMEPLAY verification evidence"
+        or any(token in simulation_class for token in ("scripted", "fixture", "fake", "unknown", "unattested"))
+        or any(token in audit_class for token in ("automation", "scripted", "fixture", "fake"))
+    )
     display_metadata = {
         **metadata,
         **_evidence_sensitive_metadata(evidence_receipt, metadata),
@@ -2496,6 +2502,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         scenario.get("source_pdf"),
         metadata.get("module_source"),
     )
+    if module_source not in (None, "unknown"):
+        raw_source = str(module_source)
+        module_source = Path(raw_source.replace("\\", "/")).name or "source withheld"
     era = _first_value("unknown", campaign.get("era"), metadata.get("era"))
     dice_mode = _first_value("unknown", campaign.get("dice_mode"), metadata.get("dice_mode"))
     spoiler_policy = _first_value(
@@ -2720,7 +2729,8 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_heading(2, "Scene-by-Scene Replay", language_profile),
         *_list_lines(scene_replay_lines, "- No scene replay recorded."),
         "",
-        _report_heading(2, "Actual Play Replay", language_profile),
+        ("## Verification Replay" if non_gameplay_sample
+         else _report_heading(2, "Actual Play Replay", language_profile)),
         *_list_lines(actual_play_lines, "- No actual play events recorded."),
         "",
         _report_heading(2, "Session Transcript", language_profile),

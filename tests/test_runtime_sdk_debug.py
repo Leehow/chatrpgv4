@@ -239,16 +239,38 @@ def test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only(tmp_path,
 
     class Pi:
         @staticmethod
-        def pi_narrate(request):
+        def pi_narrate(request, *, worker_pool, worker_key):
             calls.append(request)
+            assert worker_pool is session._REGISTRY._worker_pool
+            assert worker_key["session_id"] == sid
+            assert worker_key["campaign_id"] == "live"
+            assert worker_key["role"].startswith("narrator:")
             assert "keeper_secrets" not in request["narration_envelope"]
+            return worker_pool.request(worker_key, request)
+
+    class Pool:
+        def __init__(self):
+            self.keys = []
+            self.closed = []
+        def request(self, key, _request):
+            self.keys.append(dict(key))
             return {"ok": True, "final_text": "雨声压住了门后的脚步。"}
+        def close_scope(self, key):
+            self.closed.append(dict(key))
 
     monkeypatch.setattr(session, "_load_debug_adapter", lambda: Debug)
     monkeypatch.setattr(session, "_load_pi_adapter", lambda: Pi)
+    pool = Pool()
+    session._REGISTRY._worker_pool = pool
     sid = session.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
     events = session.send(sid, "我等着听门后。")
+    session.send(sid, "我再听一轮。")
     assert calls and events[-1]["payload"]["text"].startswith("雨声")
+    assert len(pool.keys) == 2 and pool.keys[0] == pool.keys[1]
+    telemetry = session.get_telemetry_receipts(sid)[-1]["telemetry"]
+    assert telemetry["runner"]["worker"] == "jsonl_pool"
+    session.close_session(sid)
+    assert pool.closed == [pool.keys[0]]
 
 
 def test_sdk_debug_resolves_chase_pending_choice_action_only(tmp_path):

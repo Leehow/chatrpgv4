@@ -146,6 +146,25 @@ def test_report_handles_legacy_run_without_belief_events(tmp_path: Path):
     assert "## Epistemic Experience" in output.read_text(encoding="utf-8")
 
 
+def test_scripted_fixture_without_receipt_is_forced_to_sanitized_verification_sample(tmp_path: Path):
+    run_dir, _campaign_dir = _run_dir(tmp_path)
+    metadata = json.loads((run_dir / "playtest.json").read_text(encoding="utf-8"))
+    metadata.update({
+        "simulation_method": "scripted_fixture",
+        "module_source": "/Users/alice/private/modules/secret.pdf",
+    })
+    _write_json(run_dir / "playtest.json", metadata)
+
+    output = report.generate_battle_report(run_dir)
+    text = output.read_text(encoding="utf-8")
+
+    assert output.name == "verification-sample.md"
+    assert text.startswith("# NON-GAMEPLAY Verification Sample")
+    assert "Actual Play" not in text and "# Battle Report" not in text
+    assert "/Users/alice" not in text and "private/modules" not in text
+    assert "secret.pdf" in text
+
+
 def test_report_flags_unfair_reframe_and_parse_risk(tmp_path: Path):
     run_dir, campaign_dir = _run_dir(tmp_path)
     _write_jsonl(

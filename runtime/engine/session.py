@@ -60,6 +60,7 @@ class SessionRegistry:
         *,
         ttl_seconds: float = 30 * 60,
         monotonic: Callable[[], float] = time.monotonic,
+        worker_pool: Any | None = None,
     ) -> None:
         if (
             isinstance(ttl_seconds, bool)
@@ -75,6 +76,20 @@ class SessionRegistry:
         # ID -> owning workspace. ``None`` is an in-process tombstone for an
         # unknown ID and is intentionally never serialized into a workspace.
         self._tombstones: dict[str, Path | None] = {}
+        self._worker_pool = worker_pool
+        self._worker_scopes: dict[str, list[Any]] = {}
+
+    def register_worker_scope(self, session_id: str, worker_key: Any) -> None:
+        with self._lock:
+            scopes = self._worker_scopes.setdefault(session_id, [])
+            if worker_key not in scopes:
+                scopes.append(worker_key)
+
+    def _close_worker_scopes(self, session_id: str) -> None:
+        scopes = self._worker_scopes.pop(session_id, [])
+        if self._worker_pool is not None:
+            for worker_key in scopes:
+                self._worker_pool.close_scope(worker_key)
 
     def __len__(self) -> int:
         with self._lock:
@@ -103,6 +118,7 @@ class SessionRegistry:
         ]
         for session_id in expired:
             record = self._sessions.pop(session_id, None)
+            self._close_worker_scopes(session_id)
             workspace = record.get("workspace")
             self._tombstones[session_id] = (
                 Path(workspace).resolve(strict=False)
@@ -180,6 +196,7 @@ class SessionRegistry:
         sid = self._require_session_id(session_id)
         with self._lock:
             record = self._sessions.pop(sid, None)
+            self._close_worker_scopes(sid)
             workspace = record.get("workspace") if isinstance(record, dict) else None
             self._tombstones[sid] = (
                 Path(workspace).resolve(strict=False)
@@ -446,6 +463,30 @@ def _load_pi_adapter():
     return _load_module("runtime_pi_adapter", path)
 
 
+def _ensure_worker_pool(registry: SessionRegistry):
+    if registry._worker_pool is None:
+        pool_mod = _load_module(
+            "runtime_session_worker_pool",
+            _repo_root() / "runtime" / "adapters" / "worker_pool.py",
+        )
+        runner = _repo_root() / "runtime" / "adapters" / "pi" / "run_turn.mjs"
+        registry._worker_pool = pool_mod.JsonlWorkerPool(
+            lambda _key: ["node", str(runner), "--server"],
+            cwd=runner.parent,
+        )
+    return registry._worker_pool
+
+
+def _narrator_worker_key(record: Mapping[str, Any]) -> dict[str, str]:
+    runner = _repo_root() / "runtime" / "adapters" / "pi" / "run_turn.mjs"
+    return {
+        "session_id": str(record["session_id"]),
+        "campaign_id": str(record["campaign_id"]),
+        "match_id": str(record["campaign_id"]),
+        "role": f"narrator:{runner.resolve()}",
+    }
+
+
 def _load_events_module():
     path = _engine_dir() / "events.py"
     return _load_module("runtime_session_events", path)
@@ -638,6 +679,9 @@ def send(
         return events
     usage_input: int | None = None
     usage_output: int | None = None
+    worker_pool = _ensure_worker_pool(_REGISTRY)
+    worker_key = _narrator_worker_key(record)
+    _REGISTRY.register_worker_scope(session_id, worker_key)
     for raw_turn in raw_result.get("turns") or []:
         if not isinstance(raw_turn, dict):
             continue
@@ -651,7 +695,7 @@ def send(
                 "last_player_text": player_input,
                 "play_language": "zh-Hans",
                 "recent_narrations": [],
-            })
+            }, worker_pool=worker_pool, worker_key=worker_key)
         except Exception:  # narration rendering fails open to deterministic events
             narrator_ms += (time.perf_counter() - narrator_started) * 1000.0
             fallback = True
@@ -694,7 +738,10 @@ def _record_turn_telemetry(
         and isinstance(component, dict)
         and isinstance(component.get("kind"), str)
     }
-    runner["worker"] = "in_process"
+    runner["worker"] = (
+        "jsonl_pool" if pipeline.get("narrator", {}).get("kind") == "pi"
+        else "in_process"
+    )
     total_ms = max(0.0, (time.perf_counter() - total_started) * 1000.0)
     parts = (
         float(phase.get("intent_ms") or 0.0),
