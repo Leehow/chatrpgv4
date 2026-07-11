@@ -225,6 +225,9 @@ def test_failed_obscured_clue_produces_hold_and_no_belief_gain(tmp_path: Path):
 def test_storylet_and_narration_follow_resolved_primary_effect(tmp_path: Path):
     fixture = _fixture("branching-investigation")
     campaign = _campaign(tmp_path, fixture)
+    focused_state = coc_belief_state.read_belief_state(campaign)
+    focused_state["active_question_ids"] = ["q-motive"]
+    _write_json(campaign / "save" / "belief-state.json", focused_state)
     planned = coc_epistemic_policy.plan_epistemic_contract(
         _context(fixture, campaign, []),
         {"reveal": ["clue-mixed"]},
