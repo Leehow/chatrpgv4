@@ -71,6 +71,22 @@ def test_registry_returns_deep_copies_and_freezes_creation_config(tmp_path):
     assert again["workspace"] == tmp_path.resolve()
 
 
+def test_registry_rejects_non_integer_frozen_pipeline_schema_version(tmp_path):
+    session = _load_session()
+    registry = session.SessionRegistry(monotonic=FakeClock())
+    record = _record(tmp_path)
+    record["resolved_config"] = {
+        "schema_version": 2.0,
+        "planner": {"kind": "deterministic"},
+        "rules": {"kind": "deterministic"},
+        "narrator": {"kind": "template"},
+        "player": {"kind": "human"},
+    }
+    record["brain_at_create"] = "debug"
+    with pytest.raises(ValueError, match="not recoverable"):
+        registry.create(record, session_id="sess-float-schema")
+
+
 def test_registry_snapshot_restore_is_workspace_scoped_and_secret_free(tmp_path):
     session = _load_session()
     clock = FakeClock()

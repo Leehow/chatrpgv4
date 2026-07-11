@@ -82,6 +82,15 @@ def test_sanitize_envelope_drops_rationale_and_secrets():
     assert cleaned["approved_reveals"]["must_include"] == ["门框有划痕"]
 
 
+def test_sanitize_envelope_recursively_drops_keeper_only_fields():
+    adapter = _load_adapter()
+    cleaned = adapter.sanitize_narration_envelope({
+        "nested": {"keeper_secrets": ["hidden"], "ok": {"rationale": "x"}},
+        "routes": [{"director_rationale": "hidden", "cue": "visible"}],
+    })
+    assert cleaned == {"nested": {"ok": {}}, "routes": [{"cue": "visible"}]}
+
+
 def test_parse_runner_response_requires_ok_and_final_text():
     adapter = _load_adapter()
     parsed = adapter.parse_runner_response(

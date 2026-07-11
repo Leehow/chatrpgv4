@@ -85,10 +85,17 @@ function summarizeEnvelope(envelope) {
     return "(empty envelope)";
   }
   // Send structured JSON; rationale already stripped by the Python adapter.
-  const safe = { ...envelope };
-  delete safe.rationale;
-  delete safe.keeper_secrets;
-  delete safe.director_rationale;
+  function sanitize(value) {
+    if (Array.isArray(value)) return value.map(sanitize);
+    if (!value || typeof value !== "object") return value;
+    const safe = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (["rationale", "keeper_secrets", "director_rationale"].includes(key)) continue;
+      safe[key] = sanitize(item);
+    }
+    return safe;
+  }
+  const safe = sanitize(envelope);
   try {
     return JSON.stringify(safe, null, 2);
   } catch {
@@ -325,7 +332,7 @@ function withRuntimeProvenance(result, modelIdentity, responseMode) {
   return enriched;
 }
 
-function buildNarrationTool(capture) {
+function buildNarrationTool(holder) {
   return defineTool({
     name: "coc_keeper_narration",
     label: "COC Keeper Narration",
@@ -365,6 +372,7 @@ function buildNarrationTool(capture) {
       ),
     }),
     async execute(_toolCallId, params) {
+      const capture = holder.capture;
       capture.usedTool = true;
       const finalText =
         typeof params.final_text === "string" ? params.final_text.trim() : "";
@@ -407,7 +415,7 @@ function buildNarrationTool(capture) {
   });
 }
 
-export async function runNarration(request) {
+export async function runNarration(request, serverState = null) {
   const required = [
     "narration_envelope",
     "last_player_text",
@@ -426,7 +434,9 @@ export async function runNarration(request) {
     error: null,
     assistantProse: "",
   };
-  const tool = buildNarrationTool(capture);
+  const holder = serverState || { capture };
+  holder.capture = capture;
+  const tool = serverState?.tool || buildNarrationTool(holder);
   const cwd = __dirname;
   const agentDir = getAgentDir();
 
@@ -445,16 +455,21 @@ export async function runNarration(request) {
       runtime: createExtensionRuntime(),
     }),
   });
-  await loader.reload();
-
-  const { session } = await createAgentSession({
-    cwd,
-    agentDir,
-    tools: ["coc_keeper_narration"],
-    customTools: [tool],
-    resourceLoader: loader,
-    sessionManager: SessionManager.inMemory(cwd),
-  });
+  let session = serverState?.session;
+  let ownsSession = false;
+  if (!session) {
+    await loader.reload();
+    const created = await createAgentSession({
+      cwd, agentDir, tools: ["coc_keeper_narration"], customTools: [tool],
+      resourceLoader: loader, sessionManager: SessionManager.inMemory(cwd),
+    });
+    session = created.session;
+    ownsSession = true;
+    if (serverState) {
+      serverState.session = session;
+      serverState.tool = tool;
+    }
+  }
 
   let modelIdentity;
 
@@ -481,7 +496,7 @@ export async function runNarration(request) {
     }
     modelIdentity = selectedModelIdentity(session);
   } finally {
-    session.dispose();
+    if (ownsSession && !serverState) session.dispose();
   }
 
   if (capture.usedTool) {
@@ -524,6 +539,7 @@ async function main() {
 
 async function serveJsonl() {
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const serverState = {};
   for await (const line of lines) {
     let envelope;
     try {
@@ -531,13 +547,14 @@ async function serveJsonl() {
       if (!envelope || typeof envelope !== "object" || typeof envelope.request_id !== "string") {
         throw new Error("server request requires request_id");
       }
-      const result = await runNarration(envelope.payload);
+      const result = await runNarration(envelope.payload, serverState);
       writeResult({ request_id: envelope.request_id, ...result });
     } catch (err) {
       const message = err && err.message ? err.message : String(err);
       writeResult({ request_id: envelope && envelope.request_id, ok: false, error: message });
     }
   }
+  if (serverState.session) serverState.session.dispose();
 }
 
 const isEntrypoint =

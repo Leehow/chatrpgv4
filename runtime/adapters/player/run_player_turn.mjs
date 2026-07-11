@@ -281,7 +281,7 @@ function normalizeIntentClass(value) {
   return INTENT_CLASSES.includes(value) ? value : undefined;
 }
 
-function buildPlayerActionTool(capture, pendingChoice) {
+function buildPlayerActionTool(holder) {
   const intentUnion = Type.Union(
     INTENT_CLASSES.map((v) => Type.Literal(v)),
     {
@@ -326,6 +326,8 @@ function buildPlayerActionTool(capture, pendingChoice) {
       ),
     }),
     async execute(_toolCallId, params) {
+      const capture = holder.capture;
+      const pendingChoice = holder.pendingChoice;
       capture.usedTool = true;
       const playerText =
         typeof params.player_text === "string" ? params.player_text.trim() : "";
@@ -399,7 +401,7 @@ function buildPlayerActionTool(capture, pendingChoice) {
   });
 }
 
-export async function runPlayerTurn(request) {
+export async function runPlayerTurn(request, serverState = null) {
   const required = [
     "public_state",
     "narration",
@@ -426,10 +428,15 @@ export async function runPlayerTurn(request) {
     error: null,
     assistantProse: "",
   };
-  const tool = buildPlayerActionTool(capture, pendingChoice);
+  const holder = serverState || { capture, pendingChoice };
+  holder.capture = capture;
+  holder.pendingChoice = pendingChoice;
+  const tool = serverState?.tool || buildPlayerActionTool(holder);
   const cwd = __dirname;
   const agentDir = getAgentDir();
 
+  let session = serverState?.session;
+  let ownsSession = false;
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir,
@@ -445,16 +452,19 @@ export async function runPlayerTurn(request) {
       runtime: createExtensionRuntime(),
     }),
   });
-  await loader.reload();
-
-  const { session } = await createAgentSession({
-    cwd,
-    agentDir,
-    tools: ["coc_player_action"],
-    customTools: [tool],
-    resourceLoader: loader,
-    sessionManager: SessionManager.inMemory(cwd),
-  });
+  if (!session) {
+    await loader.reload();
+    const created = await createAgentSession({
+      cwd, agentDir, tools: ["coc_player_action"], customTools: [tool],
+      resourceLoader: loader, sessionManager: SessionManager.inMemory(cwd),
+    });
+    session = created.session;
+    ownsSession = true;
+    if (serverState) {
+      serverState.session = session;
+      serverState.tool = tool;
+    }
+  }
 
   let modelIdentity;
 
@@ -481,7 +491,7 @@ export async function runPlayerTurn(request) {
     }
     modelIdentity = selectedModelIdentity(session);
   } finally {
-    session.dispose();
+    if (ownsSession && !serverState) session.dispose();
   }
 
   if (capture.usedTool) {
@@ -532,6 +542,7 @@ async function main() {
 
 async function serveJsonl() {
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const serverState = {};
   for await (const line of lines) {
     let envelope;
     try {
@@ -539,13 +550,14 @@ async function serveJsonl() {
       if (!envelope || typeof envelope !== "object" || typeof envelope.request_id !== "string") {
         throw new Error("server request requires request_id");
       }
-      const result = await runPlayerTurn(envelope.payload);
+      const result = await runPlayerTurn(envelope.payload, serverState);
       writeResult({ request_id: envelope.request_id, ...result });
     } catch (err) {
       const message = err && err.message ? err.message : String(err);
       writeResult({ request_id: envelope && envelope.request_id, ok: false, error: message });
     }
   }
+  if (serverState.session) serverState.session.dispose();
 }
 
 if (process.argv.includes("--server")) {

@@ -7,6 +7,7 @@ request and exactly one framed JSON response per call; crashes, timeouts and
 protocol violations retire the process before a later request can reuse it.
 """
 import json
+import math
 import os
 import select
 import subprocess
@@ -174,8 +175,19 @@ class JsonlWorkerPool:
             raise ValueError("worker payload must be a JSON object")
         key = _normalize_key(worker_key)
         timeout = self._default_timeout_s if timeout_s is None else timeout_s
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+        if (
+            isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout) or timeout <= 0
+        ):
             raise ValueError("timeout_s must be positive")
+        request_id = uuid.uuid4().hex
+        try:
+            encoded = json.dumps(
+                {"request_id": request_id, "payload": dict(payload)},
+                ensure_ascii=False, separators=(",", ":"), allow_nan=False,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("worker payload must be JSON serializable") from exc
         with self._lock:
             if self._closed:
                 raise RuntimeError("worker pool is closed")
@@ -184,15 +196,6 @@ class JsonlWorkerPool:
                 if worker is not None:
                     self._retire(key, worker)
                 worker = self._start(key)
-        request_id = uuid.uuid4().hex
-        try:
-            encoded = json.dumps(
-                {"request_id": request_id, "payload": dict(payload)},
-                ensure_ascii=False, separators=(",", ":"), allow_nan=False,
-            )
-        except (TypeError, ValueError) as exc:
-            self._retire(key, worker)
-            raise ValueError("worker payload must be JSON serializable") from exc
         try:
             with worker.lock:
                 if worker.process.poll() is not None:

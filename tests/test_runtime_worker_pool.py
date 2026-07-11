@@ -82,3 +82,18 @@ def test_timeout_crash_or_bad_protocol_retires_worker(tmp_path, behavior):
         assert pool.worker_count == 0
     finally:
         pool.close()
+
+
+def test_bad_payload_does_not_retire_healthy_worker(tmp_path):
+    worker = tmp_path / "echo.py"
+    _write_worker(worker)
+    pool = _pool(worker)
+    key = {"session_id": "s1", "campaign_id": "c1", "match_id": "m1", "role": "player"}
+    try:
+        first = pool.request(key, {"turn": 1})
+        with pytest.raises(ValueError, match="JSON serializable"):
+            pool.request(key, {"bad": object()})
+        second = pool.request(key, {"turn": 2})
+        assert first["pid"] == second["pid"]
+    finally:
+        pool.close()

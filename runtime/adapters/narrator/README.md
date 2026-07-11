@@ -10,7 +10,8 @@ adjudicates rules or invents outcomes.
 
 **Key insight:** the live “KP narrator LLM” is the same class of brain as the
 player bridge — Pi Coding Agent (`@earendil-works/pi-coding-agent@0.79.9`),
-one process per turn, single allowlisted custom tool, auth via Pi’s normal
+one scoped server worker across turns (with one-shot compatibility), a single
+allowlisted custom tool, auth via Pi’s normal
 discovery.
 
 ## Install

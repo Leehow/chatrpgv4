@@ -40,6 +40,7 @@ async function oneShot() {
 
 async function serveJsonl() {
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const serverState = {};
   for await (const line of lines) {
     let envelope;
     try {
@@ -47,12 +48,14 @@ async function serveJsonl() {
       if (!envelope || typeof envelope !== "object" || typeof envelope.request_id !== "string") {
         throw new Error("server request requires request_id");
       }
-      writeResult({ request_id: envelope.request_id, ...(await runNarration(envelope.payload)) });
+      writeResult({ request_id: envelope.request_id,
+        ...(await runNarration(envelope.payload, serverState)) });
     } catch (err) {
       writeResult({ request_id: envelope && envelope.request_id, ok: false,
         error: err && err.message ? err.message : String(err) });
     }
   }
+  if (serverState.session) serverState.session.dispose();
 }
 
 if (process.argv.includes("--server")) {

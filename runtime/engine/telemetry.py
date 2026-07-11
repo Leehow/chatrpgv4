@@ -65,6 +65,14 @@ def make_telemetry(**values: Any) -> dict[str, Any]:
         raise ValueError("telemetry fallback must be boolean")
     telemetry["fallback"] = values["fallback"]
     telemetry["runner"] = _safe_runner(values["runner"])
+    phase_total = sum(
+        telemetry[name] for name in (
+            "intent_ms", "director_ms", "rules_ms", "persistence_ms",
+            "player_llm_ms", "narrator_llm_ms",
+        )
+    )
+    if telemetry["total_ms"] < phase_total:
+        raise ValueError("telemetry total_ms must bound all phase spans")
     return telemetry
 
 
@@ -83,7 +91,11 @@ def write_receipt(
     ids = list(decision_ids or [])
     if not all(isinstance(value, str) and value for value in ids):
         raise ValueError("telemetry decision_ids must be non-empty strings")
-    target = Path(campaign_dir) / "logs" / "runtime-telemetry.jsonl"
+    campaign_root = Path(campaign_dir).resolve(strict=False)
+    logs_dir = campaign_root / "logs"
+    if logs_dir.exists() and logs_dir.resolve(strict=False) != logs_dir:
+        raise ValueError("telemetry logs path escapes campaign directory")
+    target = logs_dir / "runtime-telemetry.jsonl"
     target.parent.mkdir(parents=True, exist_ok=True)
     receipt = {
         "schema_version": 1,
@@ -106,7 +118,11 @@ def write_receipt(
 
 def read_receipts(campaign_dir: Path | str) -> list[dict[str, Any]]:
     """Load only fully-valid historical telemetry receipts, oldest first."""
-    target = Path(campaign_dir) / "logs" / "runtime-telemetry.jsonl"
+    campaign_root = Path(campaign_dir).resolve(strict=False)
+    logs_dir = campaign_root / "logs"
+    if logs_dir.exists() and logs_dir.resolve(strict=False) != logs_dir:
+        raise ValueError("telemetry logs path escapes campaign directory")
+    target = logs_dir / "runtime-telemetry.jsonl"
     if not target.exists():
         return []
     receipts: list[dict[str, Any]] = []

@@ -71,6 +71,7 @@ NON_LIVE_EVIDENCE_DISCLAIMER = (
     "Non-live artifacts are never gameplay evidence per AGENTS.md "
     "Playtest Battle Report Evidence Standard."
 )
+_ACTIVE_WORKER_POOLS: list[Any] = []
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -574,7 +575,7 @@ def _apply_narrator_or_template(
     }
 
 
-def run_live_match(
+def _run_live_match_impl(
     workspace: Path | str,
     campaign_id: str,
     investigator_id: str,
@@ -611,8 +612,10 @@ def run_live_match(
 
     character_card = load_character_card(char_path)
     rng = random.Random(rng_seed if rng_seed is not None else f"{campaign_id}|{time.time_ns()}")
-    runner = Path(player_runner)
-    narrator_path = Path(narrator_runner) if narrator_runner is not None else None
+    runner = Path(player_runner).resolve()
+    narrator_path = (
+        Path(narrator_runner).resolve() if narrator_runner is not None else None
+    )
 
     if run_dir is None:
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -625,11 +628,13 @@ def run_live_match(
     def _server_pool(path: Path | None):
         if path is None or path.suffix.lower() not in {".mjs", ".js"}:
             return None
-        return worker_pool_mod.JsonlWorkerPool(
+        pool = worker_pool_mod.JsonlWorkerPool(
             command_factory=lambda _key: ["node", str(path), "--server"],
             cwd=path.parent,
             default_timeout_s=timeout_s,
         )
+        _ACTIVE_WORKER_POOLS.append(pool)
+        return pool
 
     player_worker_pool = _server_pool(runner)
     narrator_worker_pool = _server_pool(narrator_path)
@@ -1172,6 +1177,20 @@ def run_live_match(
         "narration_method": narration_method,
         "fallback_turns": fallback_turns,
     }
+
+
+def run_live_match(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Run a match and always clean persistent adapter workers on exit."""
+    start = len(_ACTIVE_WORKER_POOLS)
+    try:
+        return _run_live_match_impl(*args, **kwargs)
+    finally:
+        for pool in _ACTIVE_WORKER_POOLS[start:]:
+            try:
+                pool.close()
+            finally:
+                if pool in _ACTIVE_WORKER_POOLS:
+                    _ACTIVE_WORKER_POOLS.remove(pool)
 
 
 def _main() -> int:

@@ -6,7 +6,7 @@
       "kind": "external_model_bridge",
       "identity": "coc-runtime-player-adapter@0.79.9",
       "path": "runtime/adapters/player/run_player_turn.mjs",
-      "sha256": "ae6bc46ede01363ea789ed041d9c766de4af82536546ef9103771c285eb8e51f",
+      "sha256": "4a03f70e8d38511d45d23ddb2c0699009d53435e95a87c1277ce168096ad2693",
       "package_identity": {
         "name": "@earendil-works/pi-coding-agent",
         "version": "0.79.9"
@@ -17,7 +17,7 @@
       "kind": "external_model_bridge",
       "identity": "coc-runtime-narrator-adapter@0.79.9",
       "path": "runtime/adapters/narrator/run_narration.mjs",
-      "sha256": "6dccc4b297ca155070fbfb15d9555a5f625ec8edc3b64ff96a3ee91c47820eec",
+      "sha256": "581184c0a70f9dcd3aae4dbb28458d3f6a65be65a8eb3569d45d1a46c222a26a",
       "package_identity": {
         "name": "@earendil-works/pi-coding-agent",
         "version": "0.79.9"

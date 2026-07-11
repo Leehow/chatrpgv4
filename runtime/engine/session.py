@@ -135,6 +135,9 @@ class SessionRegistry:
         if not isinstance(record, Mapping):
             raise TypeError("session record must be a mapping")
         candidate = self._copy_record(record)
+        # Freeze/validate the resolved pipeline at creation, not only when a
+        # later snapshot happens to be requested.
+        self._brain_label_for_config(candidate.get("resolved_config"))
         now = self._now()
         with self._lock:
             self._expire_locked(now)
@@ -226,13 +229,18 @@ class SessionRegistry:
         """
         if not isinstance(config, Mapping):
             raise ValueError("session record is not recoverable")
-        if config.get("schema_version") == 1:
+        if config.get("schema_version") == 1 and isinstance(config.get("schema_version"), int):
             brain = config.get("brain")
             if brain in {"debug", "pi"}:
                 return str(brain)
             raise ValueError("session record is not recoverable")
         expected = {"schema_version", "planner", "rules", "narrator", "player"}
-        if set(config) != expected or config.get("schema_version") != 2:
+        if (
+            set(config) != expected
+            or isinstance(config.get("schema_version"), bool)
+            or not isinstance(config.get("schema_version"), int)
+            or config.get("schema_version") != 2
+        ):
             raise ValueError("session record is not recoverable")
         for name, kinds in {
             "planner": {"deterministic"},
@@ -476,10 +484,17 @@ def _replace_turn_narration(
 
 def _safe_narration_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
     """Defense in depth before an optional narrator adapter sees the envelope."""
-    safe = copy.deepcopy(envelope)
-    for field in ("rationale", "keeper_secrets", "director_rationale"):
-        safe.pop(field, None)
-    return safe
+    def clean(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: clean(item)
+                for key, item in value.items()
+                if key not in {"rationale", "keeper_secrets", "director_rationale"}
+            }
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        return copy.deepcopy(value)
+    return clean(envelope)
 
 
 def _validated_session_record(session_id: str, record: dict[str, Any]) -> dict[str, Any]:

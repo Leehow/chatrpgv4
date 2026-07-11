@@ -10,7 +10,8 @@ for the Keeper). The player adapter is a separate match-harness bridge.
 **Key insight:** this repo is an AI-coding plugin, so the live “player LLM” is
 the same class of brain as the KP — the AI coding tool’s own LLM via
 [Pi Coding Agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
-(`@earendil-works/pi-coding-agent@0.79.9`), one process per turn, single
+(`@earendil-works/pi-coding-agent@0.79.9`), a scoped persistent server worker
+across turns (with one-shot compatibility), single
 allowlisted custom tool, auth via Pi’s normal discovery.
 
 ## Install

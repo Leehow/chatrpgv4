@@ -42,10 +42,17 @@ def sanitize_narration_envelope(envelope: Any) -> dict[str, Any]:
     """
     if not isinstance(envelope, dict):
         return {}
-    cleaned = copy.deepcopy(envelope)
-    for key in _ENVELOPE_DROP_KEYS:
-        cleaned.pop(key, None)
-    return cleaned
+    def clean(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: clean(item)
+                for key, item in value.items()
+                if key not in _ENVELOPE_DROP_KEYS
+            }
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        return copy.deepcopy(value)
+    return clean(envelope)
 
 
 def prepare_narrator_request(request: dict[str, Any]) -> dict[str, Any]:

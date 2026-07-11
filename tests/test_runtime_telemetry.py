@@ -49,6 +49,12 @@ def test_telemetry_rejects_secretish_runner_values_and_negative_timings():
         mod.make_telemetry(**_telemetry(rules_ms=-0.1))
 
 
+def test_telemetry_total_must_bound_all_phase_spans():
+    mod = _load()
+    with pytest.raises(ValueError, match="total_ms"):
+        mod.make_telemetry(**_telemetry(total_ms=1.0))
+
+
 def test_receipts_reload_without_player_text_prompt_or_secret(tmp_path):
     mod = _load()
     campaign = tmp_path / ".coc" / "campaigns" / "case"

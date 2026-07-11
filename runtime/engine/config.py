@@ -82,7 +82,7 @@ def migrate_legacy_brain(raw: dict[str, Any]) -> dict[str, Any]:
     if isinstance(version, bool) or not isinstance(version, int) or version != 1:
         raise ValueError("runtime.json schema_version must be integer 1 or 2")
     brain = raw.get("brain", "debug")
-    if brain not in ALLOWED_BRAINS:
+    if not isinstance(brain, str) or brain not in ALLOWED_BRAINS:
         raise ValueError(f"invalid brain: {brain!r}; allowed={sorted(ALLOWED_BRAINS)}")
     resolved = default_runtime_config()
     if brain == "pi":
