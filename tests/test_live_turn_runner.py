@@ -2145,7 +2145,9 @@ def test_live_combat_injury_reload_rescue_and_treatment_journey_is_replay_safe(t
         f"wound-{resolved['turn']['damage_roll_id'].replace(':', '-')}"
     )
     reloaded = live_runner.subsystem_executor.coc_combat.CombatSession.load(
-        camp, rng=random.Random(999)
+        camp, rng=random.Random(999), damage_evidence=(
+            live_runner.subsystem_executor.load_combat_damage_evidence(camp)
+        )
     )
     assert reloaded.participants["inv1"]["conditions"] == participant["conditions"]
     reloaded_wound = json.loads(inv_path.read_text(encoding="utf-8"))["wound_ledger"][0]
@@ -2188,7 +2190,9 @@ def test_live_combat_injury_reload_rescue_and_treatment_journey_is_replay_safe(t
     assert stabilized["current_hp"] == 1
     assert {"dying", "stabilized"} <= set(stabilized["conditions"])
     reloaded_after_aid = live_runner.subsystem_executor.coc_combat.CombatSession.load(
-        camp, rng=random.Random(998)
+        camp, rng=random.Random(998), damage_evidence=(
+            live_runner.subsystem_executor.load_combat_damage_evidence(camp)
+        )
     )
     assert "stabilized" in reloaded_after_aid.participants["inv1"]["conditions"]
 

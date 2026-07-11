@@ -1521,6 +1521,32 @@ def _read_jsonl_records(path: Path, *, label: str) -> list[dict[str, Any]]:
     return records
 
 
+def load_combat_damage_evidence(
+    campaign_dir: Path | str,
+) -> list[dict[str, Any]]:
+    """Return canonical roll rows carrying externally anchored combat damage."""
+    rows = _read_jsonl_records(
+        Path(campaign_dir) / "logs" / "rolls.jsonl",
+        label="canonical combat damage roll log",
+    )
+    return [
+        _json_copy(row) for row in rows
+        if isinstance(row.get("payload"), dict)
+        and isinstance(row["payload"].get("combat_damage_receipt"), dict)
+    ]
+
+
+def _load_combat_session(
+    campaign_dir: Path | str, *, rng: random.Random,
+    investigator_id: str | None = None,
+) -> Any:
+    return coc_combat.CombatSession.load(
+        Path(campaign_dir), rng=rng,
+        damage_evidence=load_combat_damage_evidence(campaign_dir),
+        damage_evidence_actor=investigator_id,
+    )
+
+
 def _validate_result_source_evidence(
     campaign_dir: Path,
     state: dict[str, Any],
@@ -1823,7 +1849,9 @@ def project_player_combat_defense(
     path = campaign / "save" / "combat.json"
     if not path.exists():
         return None
-    session = coc_combat.CombatSession.load(campaign, rng=random.Random(0))
+    session = _load_combat_session(
+        campaign, rng=random.Random(0), investigator_id=investigator_id,
+    )
     pending = session.pending_attack
     if session.status != "active" or not isinstance(pending, dict):
         return None
@@ -3959,7 +3987,9 @@ def _dispatch_combat(
 
     if kind == "combat_start":
         if combat_path.exists():
-            existing = coc_combat.CombatSession.load(campaign_dir, rng=random.Random(0))
+            existing = _load_combat_session(
+                campaign_dir, rng=random.Random(0), investigator_id=investigator_id,
+            )
             if existing.status == "active":
                 raise _error("combat_already_active", "save/combat.json", "end the active combat first")
         own_spec = next(
@@ -4005,7 +4035,9 @@ def _dispatch_combat(
             "source_command_id": command_id,
         }
     elif kind == "combat_attack":
-        session = coc_combat.CombatSession.load(campaign_dir, rng=rng)
+        session = _load_combat_session(
+            campaign_dir, rng=rng, investigator_id=investigator_id,
+        )
         if session.status != "active" or session.pending_attack is not None:
             raise _error("combat_not_ready", "save/combat.json", "combat cannot accept an attack declaration")
         if payload["revision"] != session.revision:
@@ -4042,7 +4074,9 @@ def _dispatch_combat(
             "source_command_id": command_id,
         }
     elif kind == "combat_defend":
-        session = coc_combat.CombatSession.load(campaign_dir, rng=rng)
+        session = _load_combat_session(
+            campaign_dir, rng=rng, investigator_id=investigator_id,
+        )
         pending = session.pending_attack
         if not isinstance(pending, dict):
             raise _error("combat_defense_not_pending", "save/combat.json", "no attack awaits defense")
@@ -4059,6 +4093,7 @@ def _dispatch_combat(
             target_actor_id=pending["target_actor_id"], defense_kind=defense,
             weapon_id=pending.get("weapon_id"),
             resolution_hint=pending["resolution_hint"],
+            resolution_command_id=command_id,
         )
         rolls, engine_events = session.drain_pending()
         session.pending_attack = None
@@ -4075,28 +4110,47 @@ def _dispatch_combat(
             "engine_events": _json_copy(engine_events),
             "source_command_id": command_id,
         }
+        damage_payloads = {
+            row["payload"]["roll_id"]: row["payload"]
+            for row in session.damage_evidence_rows(
+                command_actor_id=investigator_id
+            )
+            if row.get("command_id") == command_id
+        }
         roll_events = [
             {
                 "event_type": "combat_roll", **_json_copy(record),
                 "source_command_id": command_id,
-                "target": record.get("target"),
+                "target": (
+                    damage_payloads.get(record.get("roll_id"), {}).get("target")
+                    if record.get("skill") == "HP Damage"
+                    else record.get("target")
+                ),
                 "difficulty": record.get("difficulty") or (
                     "damage" if record.get("skill") == "HP Damage" else "regular"
                 ),
                 "raw_roll": record.get("roll"),
                 "dice": {
                     "expression": (
-                        record.get("die") or "damage"
+                        damage_payloads.get(record.get("roll_id"), {})
+                        .get("dice", {}).get("expression", record.get("die") or "damage")
                         if record.get("skill") == "HP Damage" else "1D100"
                     ),
                     "raw": (
-                        list(record.get("die_rolls") or [])
+                        damage_payloads.get(record.get("roll_id"), {})
+                        .get("dice", {}).get("raw", list(record.get("die_rolls") or []))
                         if record.get("skill") == "HP Damage"
                         else [record.get("roll")]
                         if isinstance(record.get("roll"), int) else []
                     ),
                     "total": record.get("roll"),
                 },
+                **(
+                    {"combat_damage_receipt": _json_copy(
+                        damage_payloads[record["roll_id"]]["combat_damage_receipt"]
+                    )}
+                    if record.get("roll_id") in damage_payloads else {}
+                ),
             }
             for record in rolls
             if isinstance(record, dict) and isinstance(record.get("roll_id"), str)
@@ -4142,7 +4196,9 @@ def _dispatch_combat(
             "roll_evidence": _json_copy(roll_evidence),
         }
         if combat_path.exists():
-            session = coc_combat.CombatSession.load(campaign_dir, rng=random.Random(0))
+            session = _load_combat_session(
+                campaign_dir, rng=random.Random(0), investigator_id=investigator_id,
+            )
             if session.status == "active" and investigator_id in session.participants:
                 participant = session.participants[investigator_id]
                 participant["hp_current"] = healing.current_hp
@@ -4152,7 +4208,9 @@ def _dispatch_combat(
                 event["combat_revision"] = session.revision
                 _sync_investigator_from_combat(campaign_dir, investigator_id, session)
     else:
-        session = coc_combat.CombatSession.load(campaign_dir, rng=rng)
+        session = _load_combat_session(
+            campaign_dir, rng=rng, investigator_id=investigator_id,
+        )
         if session.pending_attack is not None:
             raise _error("combat_defense_pending", "save/combat.json", "resolve defense before ending combat")
         if payload["revision"] != session.revision:
@@ -5030,6 +5088,7 @@ __all__ = [
     "get_current_pending_choices",
     "normalize_rule_results",
     "load_canonical_state_readonly",
+    "load_combat_damage_evidence",
     "project_player_pending_choice",
     "project_player_combat_defense",
     "plan_from_pending_choice_response",

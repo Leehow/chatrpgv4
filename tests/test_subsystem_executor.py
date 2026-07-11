@@ -201,7 +201,10 @@ def test_combat_commands_persist_defense_and_reload_hp_atomically(tmp_path):
         executor, campaign, character, [defend], random.Random(7)
     )[0]
     assert resolved["events"][0]["event_type"] == "combat_turn_resolved"
-    saved = executor.coc_combat.CombatSession.load(campaign, rng=random.Random(9))
+    saved = executor.coc_combat.CombatSession.load(
+        campaign, rng=random.Random(9),
+        damage_evidence=executor.load_combat_damage_evidence(campaign),
+    )
     assert saved.pending_attack is None
     assert saved.revision == 3
     mirror = json.loads(state_path.read_text(encoding="utf-8"))

@@ -635,6 +635,7 @@ class CombatSession:
                 "roll_id": turn.get("roll_id"),
                 "damage_roll_id": turn.get("damage_roll_id"),
                 "fight_back_damage_roll_id": turn.get("fight_back_damage_roll_id"),
+                "resolution_command_id": turn.get("resolution_command_id"),
             },
             "binding": dict(binding),
             "damage": {
@@ -653,6 +654,77 @@ class CombatSession:
             "binding_index": binding["binding_index"],
             "transaction_sha256": hashlib.sha256(encoded).hexdigest(),
         }
+
+    @staticmethod
+    def _external_damage_receipt(
+        *, turn: dict[str, Any], damage: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build the canonical cross-file receipt for one HP transition."""
+        return {
+            "kind": "combat_damage_external_v1",
+            "command_id": turn.get("resolution_command_id"),
+            "roll_id": damage.get("damage_roll_id"),
+            "source_turn_id": damage.get("source_turn_id"),
+            "source_actor_id": damage.get("source_actor_id"),
+            "target_actor_id": damage.get("target_actor_id"),
+            "weapon_id": damage.get("weapon_id"),
+            "die": damage.get("die"),
+            "die_rolls": list(damage.get("die_rolls") or []),
+            "raw_damage": damage.get("raw_damage"),
+            "total": damage.get("raw_damage"),
+            "hp_before": damage.get("hp_before"),
+            "hp_delta": damage.get("hp_delta"),
+            "hp_after": damage.get("hp_after"),
+            "status_after": dict(damage.get("status_after") or {}),
+            "internal_provenance": dict(damage.get("provenance") or {}),
+        }
+
+    def damage_evidence_rows(self, *, command_actor_id: str) -> list[dict[str, Any]]:
+        """Export trusted in-memory damage evidence in canonical roll-log shape.
+
+        This is primarily useful to component tests and embedding hosts that
+        persist their own append-only evidence ledger.  Reload never derives
+        these rows from ``combat.json`` itself.
+        """
+        turns = {
+            turn["turn_id"]: turn
+            for round_row in self.rounds
+            for turn in round_row.get("turns", [])
+            if isinstance(turn, dict) and isinstance(turn.get("turn_id"), str)
+        }
+        rows: list[dict[str, Any]] = []
+        for damage in self.damage_chain:
+            roll_id = damage.get("damage_roll_id")
+            if not isinstance(roll_id, str):
+                continue
+            turn = turns.get(damage.get("source_turn_id"))
+            if not isinstance(turn, dict):
+                raise ValueError("combat damage lacks its source turn")
+            receipt = self._external_damage_receipt(turn=turn, damage=damage)
+            if not isinstance(receipt["command_id"], str) or not receipt["command_id"]:
+                raise ValueError("combat damage lacks a resolution command ID")
+            rows.append({
+                "type": "roll",
+                "actor": command_actor_id,
+                "command_id": receipt["command_id"],
+                "payload": {
+                    "event_type": "combat_roll",
+                    "roll_id": roll_id,
+                    "actor_id": damage["source_actor_id"],
+                    "skill": "HP Damage",
+                    "source_command_id": receipt["command_id"],
+                    "target": damage["target_actor_id"],
+                    "raw_roll": damage["raw_damage"],
+                    "dice": {
+                        "expression": damage["die"],
+                        "raw": list(damage["die_rolls"]),
+                        "total": damage["raw_damage"],
+                    },
+                    "combat_damage_receipt": receipt,
+                },
+                "ts": "trusted-in-memory",
+            })
+        return rows
 
     @staticmethod
     def _reconstruct_damage_roll(die_expr: Any, die_rolls: Any) -> int:
@@ -1110,7 +1182,8 @@ class CombatSession:
                                  load_and_fire: bool = False,
                                  suppress_targets: list[str] | None = None,
                                  dive_for_cover_actors: list[str] | None = None,
-                                 defender_goal: str | None = None) -> dict[str, Any]:
+                                 defender_goal: str | None = None,
+                                 resolution_command_id: str | None = None) -> dict[str, Any]:
         """Resolve one combatant's turn per the rulebook's semantic model.
 
         The primary inputs are ``declared_intent`` (open-ended natural language
@@ -1170,6 +1243,10 @@ class CombatSession:
         turn["resolution_hint"] = resolution_hint
         turn["action"] = action or resolution_hint  # backward-compat field
         turn["target_actor_id"] = target_actor_id
+        if resolution_command_id is not None:
+            if not isinstance(resolution_command_id, str) or not resolution_command_id:
+                raise ValueError("resolution_command_id must be a non-empty string")
+            turn["resolution_command_id"] = resolution_command_id
         if goal:
             turn["goal"] = goal
         # Mechanism 4: outnumbered — if target already defended this round,
@@ -2292,6 +2369,82 @@ class CombatSession:
         self.status = "concluded"
         self.outcome = outcome
 
+    @classmethod
+    def _validate_external_damage_evidence(
+        cls, *, session: "CombatSession",
+        evidence: list[dict[str, Any]] | None,
+        turns_by_id: dict[str, tuple[int, dict[str, Any]]],
+        damage_roll_ids: set[str],
+        expected_command_actor: str | None,
+    ) -> None:
+        """Cross-check every damage transition against append-only roll rows."""
+        if not isinstance(evidence, list):
+            raise ValueError("combat external damage evidence is required")
+        evidence_by_roll: dict[str, list[dict[str, Any]]] = {}
+        for row in evidence:
+            if not isinstance(row, dict) or set(row) != {
+                "type", "actor", "command_id", "payload", "ts",
+            }:
+                raise ValueError("combat external damage evidence contract is invalid")
+            payload = row.get("payload")
+            receipt = (
+                payload.get("combat_damage_receipt")
+                if isinstance(payload, dict) else None
+            )
+            if not isinstance(receipt, dict):
+                continue
+            roll_id = receipt.get("roll_id")
+            if isinstance(roll_id, str):
+                evidence_by_roll.setdefault(roll_id, []).append(row)
+        damage_by_roll = {
+            damage["damage_roll_id"]: damage
+            for damage in session.damage_chain
+            if isinstance(damage.get("damage_roll_id"), str)
+        }
+        for roll_id in damage_roll_ids:
+            rows = evidence_by_roll.get(roll_id, [])
+            if len(rows) != 1:
+                raise ValueError(
+                    "combat external damage evidence is missing or duplicated"
+                )
+            row = rows[0]
+            payload = row["payload"]
+            damage = damage_by_roll[roll_id]
+            linked = turns_by_id.get(damage["source_turn_id"])
+            turn = linked[1] if linked is not None else None
+            if not isinstance(turn, dict):
+                raise ValueError("combat external damage evidence source is invalid")
+            expected = cls._external_damage_receipt(turn=turn, damage=damage)
+            command_id = turn.get("resolution_command_id")
+            if (
+                not isinstance(command_id, str)
+                or not command_id
+                or row.get("type") != "roll"
+                or not isinstance(row.get("actor"), str)
+                or not row["actor"]
+                or (
+                    expected_command_actor is not None
+                    and row.get("actor") != expected_command_actor
+                )
+                or row.get("command_id") != command_id
+                or not isinstance(row.get("ts"), str)
+                or not row["ts"]
+                or payload.get("event_type") != "combat_roll"
+                or payload.get("roll_id") != roll_id
+                or payload.get("actor_id") != damage["source_actor_id"]
+                or payload.get("skill") != "HP Damage"
+                or payload.get("source_command_id") != command_id
+                or payload.get("target") != damage["target_actor_id"]
+                or payload.get("raw_roll") != damage["raw_damage"]
+                or payload.get("dice") != {
+                    "expression": damage["die"],
+                    "raw": damage["die_rolls"],
+                    "total": damage["raw_damage"],
+                }
+                or payload.get("combat_damage_receipt") != expected
+            ):
+                raise ValueError("combat external damage evidence diverges")
+
     # ------------------------------------------------------------------ #
     # Persistence
     # ------------------------------------------------------------------ #
@@ -2334,7 +2487,12 @@ class CombatSession:
         return path
 
     @classmethod
-    def load(cls, campaign_dir: Path, *, rng: random.Random) -> "CombatSession":
+    def load(
+        cls, campaign_dir: Path, *, rng: random.Random,
+        damage_evidence: list[dict[str, Any]] | None = None,
+        damage_evidence_actor: str | None = None,
+        trusted_in_memory: bool = False,
+    ) -> "CombatSession":
         """Load and validate the live combat snapshot without consuming RNG."""
         path = Path(campaign_dir) / "save" / "combat.json"
         data = load_combat_state(path)
@@ -2487,6 +2645,7 @@ class CombatSession:
             "suppression_targets", "dive_rolls", "maneuver_build_difference",
             "maneuver_penalty_dice", "ammo_loaded", "ammo_after",
             "reload_rounds_remaining",
+            "resolution_command_id",
         }
         turns_by_id: dict[str, tuple[int, dict[str, Any]]] = {}
         bindings_by_damage_roll: dict[str, tuple[int, dict[str, Any], dict[str, Any]]] = {}
@@ -2521,6 +2680,12 @@ class CombatSession:
                     value = turn.get(roll_field)
                     if value is not None and (not isinstance(value, str) or not value):
                         raise ValueError("combat turn roll provenance is invalid")
+                resolution_command_id = turn.get("resolution_command_id")
+                if resolution_command_id is not None and (
+                    not isinstance(resolution_command_id, str)
+                    or not resolution_command_id
+                ):
+                    raise ValueError("combat turn command provenance is invalid")
                 turns_by_id[turn_id] = (round_number, turn)
                 for binding in cls._damage_bindings_for_turn(turn):
                     roll_id = binding["damage_roll_id"]
@@ -2666,6 +2831,14 @@ class CombatSession:
                 raise ValueError("combat damage provenance receipt diverges")
         if set(bindings_by_damage_roll) != seen_damage_rolls:
             raise ValueError("combat turn references missing damage provenance")
+        if seen_damage_rolls and not trusted_in_memory:
+            cls._validate_external_damage_evidence(
+                session=session,
+                evidence=damage_evidence,
+                turns_by_id=turns_by_id,
+                damage_roll_ids=seen_damage_rolls,
+                expected_command_actor=damage_evidence_actor,
+            )
         if session._turn_counter < sum(len(row["turns"]) for row in session.rounds):
             raise ValueError("combat turn counter is behind round history")
         if any(

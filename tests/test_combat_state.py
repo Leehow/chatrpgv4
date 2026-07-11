@@ -1079,7 +1079,9 @@ def test_combat_load_strictly_validates_current_and_historical_skip_evidence(
         )["skip_evidence"] = replacement
     path.write_text(json.dumps(forged), encoding="utf-8")
     with pytest.raises(ValueError, match="initiative skip"):
-        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+        coc_combat.CombatSession.load(
+            tmp_path, rng=random.Random(999), trusted_in_memory=True,
+        )
 
 
 @pytest.mark.parametrize("scope", ["current", "historical"])
@@ -1102,7 +1104,9 @@ def test_combat_load_rejects_skip_evidence_on_excluded_initiative_entries(tmp_pa
         )["skip_evidence"] = {"hp_current": 0, "conditions": ["unconscious"]}
     path.write_text(json.dumps(forged), encoding="utf-8")
     with pytest.raises(ValueError, match="excluded initiative actor"):
-        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+        coc_combat.CombatSession.load(
+            tmp_path, rng=random.Random(999), trusted_in_memory=True,
+        )
 
 
 @pytest.mark.parametrize("scope", ["current", "historical"])
@@ -1134,7 +1138,9 @@ def test_combat_load_rejects_coordinated_valid_looking_skip_replacement(tmp_path
         mirrored["skip_evidence"]["source_receipt"].update(replacement)
     path.write_text(json.dumps(forged), encoding="utf-8")
     with pytest.raises(ValueError, match="initiative skip.*source|source.*initiative skip"):
-        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+        coc_combat.CombatSession.load(
+            tmp_path, rng=random.Random(999), trusted_in_memory=True,
+        )
 
 
 @pytest.mark.parametrize("scope", ["current", "historical"])
@@ -1262,6 +1268,107 @@ def _refresh_damage_receipt(snapshot, damage):
     damage["provenance"] = coc_combat.CombatSession._damage_transaction_receipt(
         round_number=round_number, turn=turn, damage=damage, binding=binding,
     )
+
+
+def _external_damage_rows(session):
+    return session.damage_evidence_rows(command_actor_id="inv")
+
+
+@pytest.mark.parametrize("scope", ["current", "historical"])
+def test_combat_load_rejects_recomputed_internal_damage_receipt_without_external_change(
+    tmp_path, scope
+):
+    """A coordinated combat.json rewrite cannot replace canonical roll evidence."""
+    s = coc_combat.CombatSession("external-anchor", "test", 1, rng=random.Random(8))
+    weapon = [{
+        "weapon_id": "chip", "skill": "Fighting", "damage": "2",
+        "adds_damage_bonus": False, "impales": False, "special": None,
+    }]
+    s.add_participant("source", "monster", 80, 60, 0, 10, weapons=weapon)
+    s.add_participant("target", "investigator", 50, 50, 0, 10)
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "source", "round one", target_actor_id="target", weapon_id="chip",
+        resolution_hint="damage_only", resolution_command_id="defend-r1",
+    )
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "source", "round two", target_actor_id="target", weapon_id="chip",
+        resolution_hint="damage_only", resolution_command_id="defend-r2",
+    )
+    evidence = _external_damage_rows(s)
+    s.save(tmp_path)
+    path = tmp_path / "save" / "combat.json"
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    damage = forged["damage_chain"][1 if scope == "current" else 0]
+    damage["die"] = "1"
+    damage["die_rolls"] = []
+    damage["raw_damage"] = 1
+    damage["hp_delta"] = -1
+    damage["hp_after"] = damage["hp_before"] - 1
+    damage["status_after"]["hp_current"] = damage["hp_after"]
+    # Keep the next record internally continuous for a historical mutation.
+    if scope == "historical":
+        following = forged["damage_chain"][1]
+        following["hp_before"] = damage["hp_after"]
+        following["hp_after"] = following["hp_before"] - following["raw_damage"]
+        following["hp_delta"] = following["hp_after"] - following["hp_before"]
+        following["status_after"]["hp_current"] = following["hp_after"]
+        round_two_progress = next(
+            row for row in forged["rounds"][1]["initiative_progress"]
+            if row["actor_id"] == "target"
+        )
+        round_two_progress["round_start_eligibility"]["hp_current"] = damage["hp_after"]
+        next(
+            row for row in forged["initiative_progress"]
+            if row["actor_id"] == "target"
+        )["round_start_eligibility"]["hp_current"] = damage["hp_after"]
+        _refresh_damage_receipt(forged, following)
+    target = next(row for row in forged["participants"] if row["actor_id"] == "target")
+    target["hp_current"] = forged["damage_chain"][-1]["hp_after"]
+    target["conditions"] = list(forged["damage_chain"][-1]["status_after"]["conditions"])
+    _refresh_damage_receipt(forged, damage)
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="external damage evidence"):
+        coc_combat.CombatSession.load(
+            tmp_path, rng=random.Random(999), damage_evidence=evidence,
+            damage_evidence_actor="inv",
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation", ["missing", "duplicate", "cross_command", "wrong_actor"]
+)
+def test_combat_load_requires_unique_command_bound_external_damage_evidence(
+    tmp_path, mutation
+):
+    s = coc_combat.CombatSession("external-contract", "test", 1, rng=random.Random(8))
+    weapon = [{
+        "weapon_id": "chip", "skill": "Fighting", "damage": "2",
+        "adds_damage_bonus": False, "impales": False, "special": None,
+    }]
+    s.add_participant("source", "monster", 80, 60, 0, 10, weapons=weapon)
+    s.add_participant("target", "investigator", 50, 50, 0, 10)
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "source", "hit", target_actor_id="target", weapon_id="chip",
+        resolution_hint="damage_only", resolution_command_id="defend-one",
+    )
+    evidence = _external_damage_rows(s)
+    s.save(tmp_path)
+    if mutation == "missing":
+        evidence = []
+    elif mutation == "duplicate":
+        evidence.append(json.loads(json.dumps(evidence[0])))
+    elif mutation == "cross_command":
+        evidence[0]["command_id"] = "different-command"
+    else:
+        evidence[0]["actor"] = "different-investigator"
+    with pytest.raises(ValueError, match="external damage evidence"):
+        coc_combat.CombatSession.load(
+            tmp_path, rng=random.Random(999), damage_evidence=evidence,
+            damage_evidence_actor="inv",
+        )
 
 
 def test_combat_load_rejects_adjacent_damage_gap_even_with_refreshed_receipt(tmp_path):
