@@ -37,6 +37,14 @@ NON_FRAGILE_DELIVERY_KINDS = {
 }
 VALID_ORIGINS = frozenset({"source", "inferred", "improvised"})
 VALID_PAGE_KINDS = frozenset({"printed", "pdf_index"})
+VALID_EPISTEMIC_LAYERS = frozenset({
+    "fact", "identity", "method", "motive", "causal", "structure",
+    "world", "personal",
+})
+VALID_EPISTEMIC_EFFECTS = frozenset({
+    "confirm", "expand", "complicate", "reframe", "payoff",
+})
+VALID_REVEAL_MODES = VALID_EPISTEMIC_EFFECTS
 DOCTOR_RULES_JSON_FILES = (
     "structure-weights.json",
     "rule-index.json",
@@ -687,6 +695,207 @@ def annotate_provenance(compiled: dict[str, Any]) -> dict[str, Any]:
     return compiled
 
 
+
+def _check_epistemic_sidecars(
+    compiled: dict[str, Any],
+    id_maps: dict[str, dict[str, list[str]]],
+) -> list[dict[str, str]]:
+    """Validate optional question/evidence/reveal sidecars.
+
+    The check is ID- and enum-driven only. Missing sidecars are valid legacy
+    mode; malformed opt-in sidecars fail closed for core references.
+    """
+    graph = compiled.get("epistemic_graph")
+    contracts_doc = compiled.get("reveal_contracts")
+    if not isinstance(graph, dict) and not isinstance(contracts_doc, dict):
+        return []
+    graph = graph if isinstance(graph, dict) else {}
+    contracts_doc = contracts_doc if isinstance(contracts_doc, dict) else {}
+    findings: list[dict[str, str]] = []
+    clue_ids = set(id_maps.get("clue", {}))
+
+    questions: dict[str, dict[str, Any]] = {}
+    duplicate_questions: set[str] = set()
+    for index, question in enumerate(graph.get("questions") or []):
+        path = f"epistemic_graph.questions[{index}]"
+        if not isinstance(question, dict):
+            findings.append(_finding(
+                "invalid_epistemic_question", "error",
+                "epistemic question must be an object", path=path,
+            ))
+            continue
+        question_id = str(question.get("question_id") or "").strip()
+        if not question_id:
+            findings.append(_finding(
+                "invalid_epistemic_question", "error",
+                "epistemic question requires question_id", path=path,
+            ))
+            continue
+        if question_id in questions:
+            duplicate_questions.add(question_id)
+        questions[question_id] = question
+        layer = question.get("layer")
+        if layer not in VALID_EPISTEMIC_LAYERS:
+            findings.append(_finding(
+                "invalid_epistemic_layer", "error",
+                f"question '{question_id}' layer '{layer}' not in {sorted(VALID_EPISTEMIC_LAYERS)}",
+                path=f"{path}.layer",
+            ))
+        for opened in question.get("opens_questions") or []:
+            if not isinstance(opened, str):
+                findings.append(_finding(
+                    "broken_epistemic_reference", "error",
+                    f"question '{question_id}' opens_questions entries must be ids",
+                    path=f"{path}.opens_questions",
+                ))
+        if question.get("importance") == "critical" and not question.get("source_refs"):
+            findings.append(_finding(
+                "critical_question_missing_source", "warning",
+                f"critical question '{question_id}' has no source_refs",
+                path=path,
+            ))
+    for question_id in sorted(duplicate_questions):
+        findings.append(_finding(
+            "duplicate_epistemic_question", "error",
+            f"duplicate epistemic question id '{question_id}'",
+            path="epistemic_graph.questions",
+        ))
+
+    links_by_question: dict[str, int] = {}
+    reframe_pairs: set[tuple[str, str]] = set()
+    for index, link in enumerate(graph.get("evidence_links") or []):
+        path = f"epistemic_graph.evidence_links[{index}]"
+        if not isinstance(link, dict):
+            findings.append(_finding(
+                "invalid_epistemic_link", "error",
+                "evidence link must be an object", path=path,
+            ))
+            continue
+        clue_id = link.get("clue_id")
+        question_id = link.get("question_id")
+        effect = link.get("effect")
+        if clue_id not in clue_ids:
+            findings.append(_finding(
+                "broken_epistemic_reference", "error",
+                f"evidence link clue_id '{clue_id}' does not resolve",
+                path=f"{path}.clue_id",
+            ))
+        if question_id not in questions:
+            findings.append(_finding(
+                "broken_epistemic_reference", "error",
+                f"evidence link question_id '{question_id}' does not resolve",
+                path=f"{path}.question_id",
+            ))
+        else:
+            links_by_question[str(question_id)] = links_by_question.get(str(question_id), 0) + 1
+        if effect not in VALID_EPISTEMIC_EFFECTS:
+            findings.append(_finding(
+                "invalid_epistemic_effect", "error",
+                f"evidence effect '{effect}' not in {sorted(VALID_EPISTEMIC_EFFECTS)}",
+                path=f"{path}.effect",
+            ))
+        elif effect == "reframe" and isinstance(question_id, str) and isinstance(clue_id, str):
+            reframe_pairs.add((question_id, clue_id))
+        strength = link.get("strength")
+        if strength is not None:
+            try:
+                numeric = float(strength)
+            except (TypeError, ValueError):
+                numeric = -1.0
+            if numeric < 0.0 or numeric > 1.0:
+                findings.append(_finding(
+                    "invalid_epistemic_strength", "warning",
+                    f"evidence strength for clue '{clue_id}' should be within 0..1",
+                    path=f"{path}.strength",
+                ))
+
+    for question_id, question in questions.items():
+        if question.get("importance") == "critical" and links_by_question.get(question_id, 0) == 0:
+            findings.append(_finding(
+                "critical_question_without_evidence", "warning",
+                f"critical question '{question_id}' has no evidence links",
+                path=f"epistemic_graph.questions/{question_id}",
+            ))
+        for opened in question.get("opens_questions") or []:
+            if isinstance(opened, str) and opened not in questions:
+                findings.append(_finding(
+                    "broken_epistemic_reference", "error",
+                    f"question '{question_id}' opens missing question '{opened}'",
+                    path=f"epistemic_graph.questions/{question_id}.opens_questions",
+                ))
+
+    covered_reframes: set[tuple[str, str]] = set()
+    for index, contract in enumerate(contracts_doc.get("contracts") or []):
+        path = f"reveal_contracts.contracts[{index}]"
+        if not isinstance(contract, dict):
+            findings.append(_finding(
+                "invalid_reveal_contract", "error",
+                "reveal contract must be an object", path=path,
+            ))
+            continue
+        mode = str(contract.get("mode") or "").lower()
+        if mode not in VALID_REVEAL_MODES:
+            findings.append(_finding(
+                "invalid_reveal_contract", "error",
+                f"reveal mode '{mode}' not in {sorted(VALID_REVEAL_MODES)}",
+                path=f"{path}.mode",
+            ))
+        question_id = contract.get("target_question_id")
+        if question_id not in questions:
+            findings.append(_finding(
+                "broken_epistemic_reference", "error",
+                f"reveal contract target_question_id '{question_id}' does not resolve",
+                path=f"{path}.target_question_id",
+            ))
+        trigger_ids = [value for value in contract.get("trigger_clue_ids") or [] if isinstance(value, str)]
+        for clue_id in trigger_ids:
+            if clue_id not in clue_ids:
+                findings.append(_finding(
+                    "broken_epistemic_reference", "error",
+                    f"reveal contract trigger clue '{clue_id}' does not resolve",
+                    path=f"{path}.trigger_clue_ids",
+                ))
+            if mode == "reframe" and isinstance(question_id, str):
+                covered_reframes.add((question_id, clue_id))
+        for clue_id in contract.get("setup_refs") or []:
+            if clue_id not in clue_ids:
+                findings.append(_finding(
+                    "broken_epistemic_reference", "error",
+                    f"reveal contract setup ref '{clue_id}' does not resolve",
+                    path=f"{path}.setup_refs",
+                ))
+        for opened in contract.get("opens_questions") or []:
+            if opened not in questions:
+                findings.append(_finding(
+                    "broken_epistemic_reference", "error",
+                    f"reveal contract opens missing question '{opened}'",
+                    path=f"{path}.opens_questions",
+                ))
+        if mode == "reframe":
+            setup_refs = [value for value in contract.get("setup_refs") or [] if isinstance(value, str)]
+            if len(set(setup_refs)) < 2:
+                findings.append(_finding(
+                    "invalid_reframe_contract", "error",
+                    "reframe contract requires at least two setup_refs",
+                    path=f"{path}.setup_refs",
+                ))
+            preserve = [value for value in contract.get("preserve_as_true") or [] if isinstance(value, str) and value.strip()]
+            if not preserve:
+                findings.append(_finding(
+                    "invalid_reframe_contract", "error",
+                    "reframe contract requires non-empty preserve_as_true",
+                    path=f"{path}.preserve_as_true",
+                ))
+
+    for question_id, clue_id in sorted(reframe_pairs - covered_reframes):
+        findings.append(_finding(
+            "reframe_missing_contract", "warning",
+            f"reframe evidence ({question_id}, {clue_id}) has no matching reveal contract",
+            path="epistemic_graph.evidence_links",
+        ))
+    return findings
+
+
 def validate_compiled_scenario(
     compiled: dict[str, Any],
     source_segments: list[dict[str, Any]] | None = None,
@@ -708,6 +917,7 @@ def validate_compiled_scenario(
     findings.extend(_check_provenance(compiled))
     findings.extend(_check_clue_affordances(compiled))
     findings.extend(_check_location_tags(compiled))
+    findings.extend(_check_epistemic_sidecars(compiled, id_maps))
     return findings
 
 
@@ -768,6 +978,8 @@ def load_compiled_from_dir(scenario_dir: Path) -> dict[str, Any]:
         "clue_graph": _read(scenario_dir / "clue-graph.json") if (scenario_dir / "clue-graph.json").exists() else {"conclusions": []},
         "npc_agendas": _read(scenario_dir / "npc-agendas.json") if (scenario_dir / "npc-agendas.json").exists() else {"npcs": []},
         "threat_fronts": _read(scenario_dir / "threat-fronts.json") if (scenario_dir / "threat-fronts.json").exists() else {"fronts": []},
+        "epistemic_graph": _read(scenario_dir / "epistemic-graph.json") if (scenario_dir / "epistemic-graph.json").exists() else {},
+        "reveal_contracts": _read(scenario_dir / "reveal-contracts.json") if (scenario_dir / "reveal-contracts.json").exists() else {},
     }
 
 
@@ -990,6 +1202,15 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
                 if rank > max_rank:
                     max_rank = rank
                     max_stage = stage
+
+    compiled = load_compiled_from_dir(scenario_dir)
+    epi_findings = _check_epistemic_sidecars(compiled, _collect_id_maps(compiled))
+    for finding in epi_findings:
+        rendered = f"{finding.get('code')}: {finding.get('message')}"
+        if finding.get("severity") == "error":
+            errors.append(rendered)
+        else:
+            warnings.append(rendered)
 
     return {"errors": errors, "warnings": warnings}
 

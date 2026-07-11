@@ -39,6 +39,8 @@ coc_npc_persona = _load_sibling("coc_npc_persona", "coc_npc_persona.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
+coc_epistemic_policy = _load_sibling("coc_epistemic_policy", "coc_epistemic_policy.py")
+coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
 
 coc_time = None
 try:
@@ -599,6 +601,9 @@ def build_director_context(
         "module_meta": module_meta,
         "story_graph": story_graph,
         "clue_graph": _read_json(scenario / "clue-graph.json", {"conclusions": []}),
+        "epistemic_graph": _read_json(scenario / "epistemic-graph.json", {"questions": [], "evidence_links": []}),
+        "reveal_contracts": _read_json(scenario / "reveal-contracts.json", {"contracts": []}),
+        "belief_state": coc_belief_state.read_belief_state(campaign_dir),
         "npc_agendas": _read_json(scenario / "npc-agendas.json", {"npcs": []}),
         "npc_state": _read_json(save / "npc-state.json", {"schema_version": 1, "npcs": {}}),
         "npc_state_writes": [],
@@ -2664,6 +2669,9 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     # the REVEAL skill-check decision matches the clue_type that lands in the
     # emitted plan (Spec v1.1 gap #1: obvious clues should not roll Spot Hidden).
     clue_policy = _select_clue_policy(ctx, action)
+    epistemic_contract = coc_epistemic_policy.plan_epistemic_contract(
+        ctx, clue_policy, action
+    )
     rules_requests = _build_rules_requests(ctx, action, clue_policy)
     npc_moves = _build_npc_moves(ctx, action)
     npc_agency_requests: list[dict[str, Any]] = []
@@ -2787,6 +2795,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "turn_input": {
             "player_intent": ctx["player_intent"],
             "player_intent_class": ctx["player_intent_class"],
+            "player_intent_rich": ctx.get("player_intent_rich"),
             "active_scene_id": ctx["active_scene_id"],
             "turn_number": ctx["turn_number"],
         },
@@ -2800,6 +2809,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "time_signals": ctx.get("time_signals", {}),
         "time_advance": time_advance,
         "clue_policy": clue_policy,
+        "epistemic_contract": epistemic_contract,
         "npc_moves": npc_moves,
         "npc_state_writes": ctx.get("npc_state_writes", []),
         "pressure_moves": pressure_moves,

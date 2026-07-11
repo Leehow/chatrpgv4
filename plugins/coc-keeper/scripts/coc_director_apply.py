@@ -55,6 +55,7 @@ coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
+coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
 
 coc_memory = None
 try:
@@ -1661,6 +1662,13 @@ def _apply_plan_impl(
             events.append(ev)
             _append_jsonl(logs / "events.jsonl", ev)
     world["discovered_clue_ids"] = discovered
+    # Epistemic state updates only after clue commitment is resolved.
+    belief_events = coc_belief_state.apply_belief_turn(
+        campaign_dir, plan, committed_clues, investigator_id, ts
+    )
+    for ev in belief_events:
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
     # Mark scene-level SAN triggers as fired (dedup: director won't re-request).
     fired = list(world.get("san_triggers_fired", []))
     for rr in (rules_results or []):

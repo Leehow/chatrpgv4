@@ -87,3 +87,11 @@ summary, and source page instead.
 - **可入库 / 可缓存：** 结构化 ID、标签、枚举、机制字段、为游玩撰写的 player-safe 摘要、`source_refs`（path + **印刷页**）。
 - **不得提交到 git 的源散文：** 从 PDF 原样抄录的模组正文、handout 全文、keeper-secret 叙事段落。Chaosium 等出版社的 Product Identity 留在本地 PDF；registry 注册时会在每个库条目写入 `LICENSE-note.md` 提醒此边界。
 - 源 PDF 路径只作本地引用，不要把受版权保护的模组文件推进仓库。
+
+## Epistemic Sidecars
+
+After the seven canonical scenario files validate, a belief-aware compile may
+also emit optional `epistemic-graph.json` and `reveal-contracts.json`. Questions
+must reference structured clue ids; `reframe` evidence requires a reveal
+contract with at least two setup clue refs and non-empty `preserve_as_true`.
+Missing sidecars preserve legacy Director behavior.
