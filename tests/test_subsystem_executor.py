@@ -234,6 +234,41 @@ def _offer_push(module, campaign: Path, character: Path) -> dict:
     )[0]
 
 
+def _rewrite_result_receipt(
+    executor,
+    campaign: Path,
+    command_id: str,
+    mutate,
+) -> None:
+    path = campaign / "logs" / "subsystem-results.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    row = next(item for item in rows if item["command_id"] == command_id)
+    mutate(row["result"])
+    material = {key: value for key, value in row.items() if key != "receipt_hash"}
+    row["receipt_hash"] = executor._canonical_json_hash(material)
+    path.write_text(
+        "".join(json.dumps(item, sort_keys=True) + "\n" for item in rows),
+        encoding="utf-8",
+    )
+
+
+def _rewrite_roll_copies(
+    executor,
+    campaign: Path,
+    command_id: str,
+    mutate,
+    *,
+    choice_id: str | None = None,
+) -> None:
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    mutate(state["result_snapshots"][command_id])
+    if choice_id is not None:
+        mutate({"events": [state["choice_history"][choice_id]["original_roll"]]})
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    _rewrite_result_receipt(executor, campaign, command_id, mutate)
+
+
 def _push_response(
     choice: dict,
     action: str,
@@ -828,6 +863,100 @@ def test_historical_push_private_context_is_anchored_to_creator_command(tmp_path
 
     assert exc_info.value.code == "malformed_subsystem_state"
     assert state_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("action", ["cancel", "confirm"])
+def test_push_history_origin_is_bound_to_immutable_roll_log(tmp_path, action):
+    executor = _executor(f"coc_subsystem_executor_push_origin_roll_log_{action}")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], action)
+    commands = executor.commands_from_rules_requests(
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    )
+    _execute(executor, campaign, character, commands, random.Random(212))
+
+    def forge_origin(result):
+        result["events"][0]["roll"] = 66
+        result["events"][0]["outcome"] = "failure"
+        result["events"][0]["success"] = False
+
+    _rewrite_roll_copies(
+        executor,
+        campaign,
+        "original-failed-roll",
+        forge_origin,
+        choice_id=response["choice_id"],
+    )
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+    assert "roll" in exc_info.value.message
+
+
+def test_ordinary_roll_receipt_is_bound_to_immutable_roll_log(tmp_path):
+    executor = _executor("coc_subsystem_executor_ordinary_roll_log")
+    campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
+
+    def forge_origin(result):
+        result["events"][0]["roll"] = 66
+        result["events"][0]["outcome"] = "failure"
+        result["events"][0]["success"] = False
+
+    _rewrite_roll_copies(
+        executor, campaign, "original-failed-roll", forge_origin
+    )
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+    assert "roll" in exc_info.value.message
+
+
+def test_roll_log_rejects_cross_command_payload_substitution(tmp_path):
+    executor = _executor("coc_subsystem_executor_cross_roll_substitution")
+    campaign, character = _campaign_and_character(tmp_path)
+    first = _pushable_roll_command("first-roll")
+    second = _pushable_roll_command("second-roll")
+    second["payload"]["decision_id"] = "second-decision"
+    _execute(executor, campaign, character, [first, second], random.Random(5))
+    log_path = campaign / "logs" / "rolls.jsonl"
+    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    rows[0]["payload"], rows[1]["payload"] = rows[1]["payload"], rows[0]["payload"]
+    log_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+    assert "roll" in exc_info.value.message
+
+
+@pytest.mark.parametrize("damage", ["missing", "duplicate", "malformed"])
+def test_canonical_roll_log_rejects_missing_duplicate_or_malformed_entry(
+    tmp_path, damage,
+):
+    executor = _executor(f"coc_subsystem_executor_roll_log_{damage}")
+    campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
+    log_path = campaign / "logs" / "rolls.jsonl"
+    original = log_path.read_text()
+    if damage == "missing":
+        log_path.write_text("")
+    elif damage == "duplicate":
+        log_path.write_text(original + original)
+    else:
+        log_path.write_text(original + "{not-json}\n")
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+    assert "roll" in exc_info.value.message
 
 
 def test_choice_history_rejects_unrelated_applied_terminal_command(tmp_path):

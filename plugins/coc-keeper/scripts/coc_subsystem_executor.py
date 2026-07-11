@@ -1479,10 +1479,55 @@ def _validate_result_source_evidence(
     roll_records = _read_jsonl_records(
         campaign_dir / "logs" / "rolls.jsonl", label="canonical roll log"
     )
-    rolls_by_command = {
-        row.get("command_id"): row for row in roll_records
-        if isinstance(row.get("command_id"), str)
-    }
+    rolls_by_command: dict[str, list[dict[str, Any]]] = {}
+    for row in roll_records:
+        command_id = row.get("command_id")
+        if isinstance(command_id, str):
+            rolls_by_command.setdefault(command_id, []).append(row)
+
+    # The executor state and subsystem-result ledger are mutually redundant
+    # copies and can therefore be rewritten together.  Bind every executor
+    # percentile result to the separately persisted append-only roll evidence,
+    # including ordinary rolls later used as pushed-roll origins.  Validate the
+    # complete payload so roll identity, request/source context, target,
+    # modifier, percentile and derived outcome cannot be substituted piecemeal.
+    seen_roll_ids: dict[str, str] = {}
+    expected_row_keys = {"type", "actor", "command_id", "payload", "ts"}
+    for command_id in state["applied_command_ids"]:
+        result = state["result_snapshots"][command_id]
+        if result.get("kind") not in ROLL_EVIDENCE_COMMAND_KINDS:
+            continue
+        expected_events = [
+            event for event in result.get("events") or []
+            if isinstance(event, dict) and isinstance(event.get("roll_id"), str)
+        ]
+        rows = rolls_by_command.get(command_id, [])
+        if not expected_events or len(rows) != len(expected_events):
+            raise _state_error(
+                f"canonical roll evidence for {command_id!r} is missing or duplicated"
+            )
+        provenance = state["command_provenance"][command_id]
+        for event, row in zip(expected_events, rows):
+            roll_id = event["roll_id"]
+            previous = seen_roll_ids.get(roll_id)
+            if previous is not None:
+                raise _state_error(
+                    f"canonical roll_id {roll_id!r} is shared by "
+                    f"{previous!r} and {command_id!r}"
+                )
+            seen_roll_ids[roll_id] = command_id
+            if (
+                set(row) != expected_row_keys
+                or row.get("type") != "roll"
+                or row.get("actor") != provenance.get("investigator_id")
+                or row.get("command_id") != command_id
+                or not isinstance(row.get("ts"), str)
+                or not row["ts"]
+                or not _json_deep_equal(row.get("payload"), event)
+            ):
+                raise _state_error(
+                    f"canonical roll evidence for {command_id!r} diverges"
+                )
     sanity_path = campaign_dir / "save" / "sanity.json"
     sanity = None
     if sanity_path.is_file():
@@ -1494,7 +1539,8 @@ def _validate_result_source_evidence(
         for command_id in history["terminal_command_ids"]:
             result = state["result_snapshots"][command_id]
             if result["kind"] == "push_resolve":
-                row = rolls_by_command.get(command_id)
+                rows = rolls_by_command.get(command_id, [])
+                row = rows[0] if len(rows) == 1 else None
                 if not isinstance(row, dict) or not _json_deep_equal(
                     row.get("payload"), result["events"][0]
                 ):
