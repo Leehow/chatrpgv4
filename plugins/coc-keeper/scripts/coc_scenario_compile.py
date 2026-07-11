@@ -734,6 +734,18 @@ def _check_epistemic_sidecars(
         if question_id in questions:
             duplicate_questions.add(question_id)
         questions[question_id] = question
+        if not str(question.get("player_facing_question") or "").strip():
+            findings.append(_finding(
+                "invalid_epistemic_question", "error",
+                f"question '{question_id}' requires player_facing_question",
+                path=f"{path}.player_facing_question",
+            ))
+        if not str(question.get("truth_ref") or "").strip():
+            findings.append(_finding(
+                "invalid_epistemic_question", "error",
+                f"question '{question_id}' requires truth_ref",
+                path=f"{path}.truth_ref",
+            ))
         layer = question.get("layer")
         if layer not in VALID_EPISTEMIC_LAYERS:
             findings.append(_finding(
@@ -825,6 +837,7 @@ def _check_epistemic_sidecars(
                 ))
 
     covered_reframes: set[tuple[str, str]] = set()
+    reveal_contract_ids: set[str] = set()
     for index, contract in enumerate(contracts_doc.get("contracts") or []):
         path = f"reveal_contracts.contracts[{index}]"
         if not isinstance(contract, dict):
@@ -833,6 +846,21 @@ def _check_epistemic_sidecars(
                 "reveal contract must be an object", path=path,
             ))
             continue
+        reveal_contract_id = str(contract.get("reveal_contract_id") or "").strip()
+        if not reveal_contract_id:
+            findings.append(_finding(
+                "invalid_reveal_contract", "error",
+                "reveal contract requires reveal_contract_id",
+                path=f"{path}.reveal_contract_id",
+            ))
+        elif reveal_contract_id in reveal_contract_ids:
+            findings.append(_finding(
+                "duplicate_reveal_contract", "error",
+                f"duplicate reveal contract id '{reveal_contract_id}'",
+                path=f"{path}.reveal_contract_id",
+            ))
+        else:
+            reveal_contract_ids.add(reveal_contract_id)
         mode = str(contract.get("mode") or "").lower()
         if mode not in VALID_REVEAL_MODES:
             findings.append(_finding(
@@ -847,7 +875,16 @@ def _check_epistemic_sidecars(
                 f"reveal contract target_question_id '{question_id}' does not resolve",
                 path=f"{path}.target_question_id",
             ))
-        trigger_ids = [value for value in contract.get("trigger_clue_ids") or [] if isinstance(value, str)]
+        trigger_ids = [
+            value for value in contract.get("trigger_clue_ids") or []
+            if isinstance(value, str) and value.strip()
+        ]
+        if mode == "reframe" and not trigger_ids:
+            findings.append(_finding(
+                "invalid_reframe_contract", "error",
+                "reframe contract requires at least one trigger_clue_id",
+                path=f"{path}.trigger_clue_ids",
+            ))
         for clue_id in trigger_ids:
             if clue_id not in clue_ids:
                 findings.append(_finding(

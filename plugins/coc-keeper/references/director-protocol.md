@@ -26,3 +26,5 @@ of `NONE|CONFIRM|EXPAND|COMPLICATE|REFRAME|HOLD|PAYOFF`. The apply layer commits
 a treatment only when a clue in `deliver_clue_ids` actually lands after rules
 resolution. `REFRAME` carries `preserve_fact_refs`, `setup_refs`, and
 `must_not`; it never invalidates earlier confirmed facts by default.
+
+Post-rule backfill preserves the original under `planned_epistemic_contract` and exposes the narrator-safe result as both `epistemic_contract` and `narrative_directives.belief_update_contract`. If no supporting clue commits, an effective treatment becomes `HOLD`.

@@ -56,6 +56,7 @@ coc_development = _load_sibling("coc_development", "coc_development.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
 coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
+coc_epistemic_resolve = _load_sibling("coc_epistemic_resolve", "coc_epistemic_resolve.py")
 
 coc_memory = None
 try:
@@ -1262,6 +1263,16 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
         }
     else:
         directives.pop("failure_consequence", None)
+
+    planned_epistemic = resolved_plan.get("epistemic_contract")
+    resolved_epistemic = coc_epistemic_resolve.resolve_epistemic_contract(
+        planned_epistemic, committed
+    )
+    if isinstance(planned_epistemic, dict) and isinstance(resolved_epistemic, dict):
+        resolved_plan["planned_epistemic_contract"] = _copy_jsonable(planned_epistemic)
+        resolved_plan["epistemic_contract"] = resolved_epistemic
+        resolved_plan["resolved_epistemic_contract"] = resolved_epistemic
+        directives["belief_update_contract"] = resolved_epistemic
 
     return resolved_plan
 
