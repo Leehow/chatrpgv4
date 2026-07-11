@@ -1,6 +1,6 @@
 # COC Keeper Current Status
 
-**Last updated:** 2026-07-10
+**Last updated:** 2026-07-12
 **Current manifest version:** `0.16.0-alpha.1`
 **Release tag:** none for this manifest version
 
@@ -10,9 +10,9 @@
 
 ## Current release posture
 
-- The full-hardening initiative is active. Release-governance acceptance
-  A01-A06 is represented in current HEAD; A07-A34 remain open unless this file
-  explicitly adopts an item below. A11 is adopted as resolved here.
+- The full-hardening implementation is complete through A01-A34 and is in its
+  terminal independent-review/validation gate. The exact root-cause mapping is
+  in `DIAGNOSIS-LEDGER.md`; no original diagnosis is silently deferred.
 - `plugins/coc-keeper/` is the only canonical plugin implementation. Codex,
   Claude Code, and Cursor use thin host metadata over that single tree.
 - Two play-ready starters are packaged: **The White War** and **The Haunting**.
@@ -28,9 +28,14 @@
 
 - Ordinary COC play enters through `run_live_turn(...)` and the canonical
   plugin skills under `plugins/coc-keeper/skills/`.
-- The open headless runtime exposes Event/PublicState contracts and supports
-  the current debug/Pi adapter configuration while the broader composition and
-  lifecycle hardening work remains in progress.
+- The open headless runtime exposes Event/PublicState contracts, explicit
+  planner/rules/narrator/player composition, durable sessions, scoped reusable
+  adapter workers and privacy-safe per-turn telemetry. Legacy `brain` config is
+  migrated with an explicit warning.
+- Optional epistemic scenario sidecars now carry PDF page/hash provenance,
+  artifact-bound semantic compilation, multi-effect belief updates, structured
+  question lifecycle, cognitive Storylets, least-privilege Narrator projection
+  and replayable epistemic metrics.
 - Deterministic automated tests and scripted playtest fixtures are verification
   evidence, not live LLM-vs-KP battle reports.
 
@@ -39,8 +44,9 @@
 - The Haunting rights posture and plugin-image provenance are `UNVERIFIED`.
 - An evidence-grade external-model playtest is not claimed by this release
   governance task.
-- The full-hardening acceptance ledger remains open beyond A01-A06; later task
-  commits must update this file when their status changes.
+- A credentialed 10–20-turn external-model journey is not present. The product
+  smoke is deterministic **NON-GAMEPLAY verification evidence** and is never
+  represented as a battle report.
 
 ## Resolved hardening items
 
@@ -60,6 +66,7 @@ five-minute cold-exposure trigger pending.
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_release_consistency.py tests/test_plugin_metadata.py tests/test_starter_scenarios.py tests/test_runtime_sdk_debug.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_product_smoke.py -q -p no:cacheprovider
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests -q -p no:cacheprovider
 git ls-files 'checks/ocr-cached/**' 'checks/py4llm-cached/**'
 ```

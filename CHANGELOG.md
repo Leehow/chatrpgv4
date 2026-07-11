@@ -49,6 +49,17 @@
   默认值」选择时间档；`quick_observation` 最多推进 5 分钟，显式或普通
   `single_room_search` 仍保持 20 分钟，并由真实 `run_live_turn(...)` 回归覆盖。
   `docs/live-playtest-notes.md` remains historical evidence only; live status remains in `docs/status/CURRENT.md`.
+- 完成 A01-A34 全量硬化：live SAN/Push/战斗/追逐与救援、结构化终局、可信
+  evidence receipt、持久化威胁/NPC/策略状态、crisis frame、恐怖风格与秘密审计，
+  以及 runtime 路径/存档迁移/会话恢复/显式组合/worker 复用/telemetry。
+- 合入 scenario epistemic blueprint：PDF 页码与 hash 来源桥、artifact-bound 语义
+  编译、compile confidence、多效果认知合同、Question Lifecycle、belief reducer、
+  Cognitive Storylets、Narrator 最小权限投影，以及认知指标和条件式报告章节。
+- 新增跨 starter、调查/社交、SAN、Push、战斗、追逐、保存恢复、结构化终局、
+  evidence/report 和完整 epistemic 链的确定性 product smoke。该产物明确标记为
+  **NON-GAMEPLAY verification evidence**，不冒充真实战报。
+- 新增 `docs/status/DIAGNOSIS-LEDGER.md`，逐项说明两份原始审查中真实缺陷、
+  live wiring/test gap、过期文档和误导性元数据的根因与当前证据。
 ### Known Issues
 
 - 当前自动 playtest driver 不是 live LLM-vs-KP；已有 suite/completion 产物不能
