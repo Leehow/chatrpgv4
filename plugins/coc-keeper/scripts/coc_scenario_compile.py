@@ -23,6 +23,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_pdf_source
+import coc_epistemic_lifecycle
 
 VALID_STRUCTURE_TYPES = {
     "linear_acts", "time_loop", "branching_investigation", "hub_sandbox",
@@ -1072,6 +1073,11 @@ def validate_compiled_scenario(
     findings.extend(_check_source_evidence(
         compiled, source_bundle, strict_sources=strict_sources
     ))
+    findings.extend(coc_epistemic_lifecycle.validate_question_lifecycle(
+        compiled.get("epistemic_graph"),
+        clue_ids=set(id_maps.get("clue", {})),
+        scene_ids=set(id_maps.get("scene", {})),
+    ))
     return findings
 
 
@@ -1134,6 +1140,7 @@ def load_compiled_from_dir(scenario_dir: Path) -> dict[str, Any]:
         "threat_fronts": _read(scenario_dir / "threat-fronts.json") if (scenario_dir / "threat-fronts.json").exists() else {"fronts": []},
         "epistemic_graph": _read(scenario_dir / "epistemic-graph.json") if (scenario_dir / "epistemic-graph.json").exists() else {},
         "reveal_contracts": _read(scenario_dir / "reveal-contracts.json") if (scenario_dir / "reveal-contracts.json").exists() else {},
+        "compile_confidence": _read(scenario_dir / "compile-confidence.json") if (scenario_dir / "compile-confidence.json").exists() else {},
     }
 
 

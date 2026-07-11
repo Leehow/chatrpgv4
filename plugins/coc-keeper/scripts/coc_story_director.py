@@ -603,6 +603,7 @@ def build_director_context(
         "clue_graph": _read_json(scenario / "clue-graph.json", {"conclusions": []}),
         "epistemic_graph": _read_json(scenario / "epistemic-graph.json", {"questions": [], "evidence_links": []}),
         "reveal_contracts": _read_json(scenario / "reveal-contracts.json", {"contracts": []}),
+        "compile_confidence": _read_json(scenario / "compile-confidence.json", {"schema_version": 1, "nodes": []}),
         "belief_state": coc_belief_state.read_belief_state(campaign_dir),
         "npc_agendas": _read_json(scenario / "npc-agendas.json", {"npcs": []}),
         "npc_state": _read_json(save / "npc-state.json", {"schema_version": 1, "npcs": {}}),

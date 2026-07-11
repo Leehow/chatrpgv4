@@ -57,6 +57,7 @@ coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
 coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
 coc_epistemic_resolve = _load_sibling("coc_epistemic_resolve", "coc_epistemic_resolve.py")
+coc_epistemic_lifecycle = _load_sibling("coc_epistemic_lifecycle", "coc_epistemic_lifecycle.py")
 
 coc_memory = None
 try:
@@ -1673,9 +1674,36 @@ def _apply_plan_impl(
             events.append(ev)
             _append_jsonl(logs / "events.jsonl", ev)
     world["discovered_clue_ids"] = discovered
-    # Epistemic state updates only after clue commitment is resolved.
+    # Epistemic state updates only after clue commitment is resolved. Question
+    # opening/closure is evaluated from structured authored conditions.
+    epistemic_graph = _read_json(
+        campaign_dir / "scenario" / "epistemic-graph.json",
+        {"questions": [], "evidence_links": []},
+    )
+    current_belief = coc_belief_state.read_belief_state(campaign_dir)
+    flags_set = _truthy_flag_ids(_read_json(save / "flags.json", {}))
+    epistemic_contract = plan.get("epistemic_contract") or {}
+    resolved_effects = epistemic_contract.get("resolved_effects")
+    if not isinstance(resolved_effects, list):
+        resolved_effects = epistemic_contract.get("effects")
+    if not isinstance(resolved_effects, list):
+        resolved_effects = [epistemic_contract] if isinstance(epistemic_contract, dict) else []
+    question_transitions = coc_epistemic_lifecycle.evaluate_question_transitions(
+        epistemic_graph,
+        current_belief,
+        world,
+        committed_clues,
+        flags_set=flags_set,
+        visited_scene_ids=world.get("visited_scene_ids") or [],
+        resolved_effects=[effect for effect in resolved_effects if isinstance(effect, dict)],
+    )
     belief_events = coc_belief_state.apply_belief_turn(
-        campaign_dir, plan, committed_clues, investigator_id, ts
+        campaign_dir,
+        plan,
+        committed_clues,
+        investigator_id,
+        ts,
+        question_transitions=question_transitions,
     )
     for ev in belief_events:
         events.append(ev)
