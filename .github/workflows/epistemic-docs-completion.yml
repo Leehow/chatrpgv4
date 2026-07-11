@@ -1,0 +1,43 @@
+name: epistemic-docs-completion
+
+on:
+  pull_request:
+    branches:
+      - feature/scenario-epistemic-director-v1
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/scenario-epistemic-blueprint-completion
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: python -m pip install pytest pypdf
+      - name: Apply protocol documentation
+        run: python scripts/apply_epistemic_docs_completion.py
+      - name: Verify plugin metadata
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest
+          tests/test_plugin_metadata.py
+          -q -p no:cacheprovider
+      - name: Run final full repository suite
+        run: PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
+      - name: Commit completed protocol documentation
+        run: |
+          if git diff --quiet -- docs/ plugins/coc-keeper/; then
+            echo "no documentation changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/ plugins/coc-keeper/
+          git commit -m "docs(epistemic): complete blueprint protocols"
+          git push origin HEAD:feature/scenario-epistemic-blueprint-completion
