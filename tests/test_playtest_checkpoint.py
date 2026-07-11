@@ -723,7 +723,7 @@ def test_restore_exactly_mirrors_mutable_trees_and_absent_optional_files(
     paths = _seed_workspace(workspace)
     paths["party"].unlink()
     paths["investigator_history"].unlink()
-    shutil.rmtree(paths["campaign"] / "memory")
+    paths["memory"].unlink()
     store = checkpoint.CheckpointStore(
         tmp_path / "run", workspace, "masks-run-a", "inv-a"
     )
@@ -746,13 +746,13 @@ def test_restore_exactly_mirrors_mutable_trees_and_absent_optional_files(
         manifest["managed_mutable_trees"][".coc/campaigns/masks-run-a/memory"][
             "present"
         ]
-        is False
+        is True
     )
     restored_campaign = target / ".coc" / "campaigns" / "masks-run-a"
     restored_investigator = target / ".coc" / "investigators" / "inv-a"
     assert not (restored_campaign / "save" / "later.json").exists()
     assert not (restored_campaign / "logs" / "later.jsonl").exists()
-    assert not (restored_campaign / "memory").exists()
+    assert (restored_campaign / "memory").is_dir()
     assert not (restored_campaign / "party.json").exists()
     assert not (restored_investigator / "history.jsonl").exists()
     assert stale_save.read_text(encoding="utf-8") == "later"
@@ -850,6 +850,52 @@ def test_empty_mutable_root_restores_only_its_root_directory(tmp_path: Path):
     restored_memory = target / memory_root
     assert restored_memory.is_dir()
     assert not (restored_memory / "phantom-empty").exists()
+
+
+@pytest.mark.parametrize("root_name", ["save", "memory", "logs"])
+def test_checkpoint_writer_requires_every_canonical_mutable_root(
+    tmp_path: Path, root_name: str
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    shutil.rmtree(paths["campaign"] / root_name)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+
+    with pytest.raises(ValueError, match="canonical mutable|save|memory|logs|required"):
+        store.write_checkpoint("sess_123", 0, "initial_state")
+
+
+def test_restore_rejects_absent_mutable_root_forged_from_false_to_true(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    paths["memory"].unlink()
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    checkpoint_dir = store.write_checkpoint("sess_123", 0, "initial_state")
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    memory_root = ".coc/campaigns/masks-run-a/memory"
+    stored_memory = checkpoint_dir / "state" / memory_root
+    if stored_memory.exists():
+        stored_memory.rmdir()
+
+    # Model a checkpoint whose root was absent, then forge only its manifest
+    # from false -> true.  A required root must also exist in the checkpoint
+    # state tree; manifest presence alone is not sufficient evidence.
+    metadata = manifest["managed_mutable_trees"][memory_root]
+    metadata.update({"present": False, "directories": []})
+    metadata.update({"present": True, "directories": ["."]})
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    target = tmp_path / "fresh"
+    _prepare_fresh_generation(target)
+
+    with pytest.raises(ValueError, match="canonical mutable|state root|required"):
+        store.restore_checkpoint(checkpoint_dir, target)
 
 
 def test_action_rows_form_a_canonical_hash_chain(tmp_path: Path):

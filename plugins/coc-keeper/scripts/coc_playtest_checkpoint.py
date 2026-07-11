@@ -1411,12 +1411,15 @@ class CheckpointStore:
         names: tuple[str, ...],
         *,
         derive_directories_from_files: bool = False,
+        require_present: bool = False,
     ) -> dict[str, dict[str, Any]]:
         campaign = self._campaign_relative()
         metadata: dict[str, dict[str, Any]] = {}
         for name in names:
             root = campaign / name
             present, files, directories = _tree_inventory_at(workspace_fd, root)
+            if require_present and not present:
+                raise ValueError(f"canonical mutable root is required: {root}")
             if derive_directories_from_files:
                 directories = _tree_directories_from_files(root, files, present=present)
             metadata[root.as_posix()] = {
@@ -1697,6 +1700,7 @@ class CheckpointStore:
                 workspace_fd,
                 CAMPAIGN_MUTABLE_TREES,
                 derive_directories_from_files=True,
+                require_present=True,
             )
             immutable_trees = self._tree_metadata(
                 workspace_fd, CAMPAIGN_IMMUTABLE_TREES
@@ -1729,6 +1733,25 @@ class CheckpointStore:
 
             os.mkdir(temporary_name, 0o700, dir_fd=checkpoints_fd)
             temporary_fd = _open_directory_at(checkpoints_fd, temporary_name)
+
+            # Empty mutable roots carry canonical state: unlike optional
+            # immutable inputs, absence must not be interchangeable with an
+            # empty tree. Materialize only the root and file-derived parent
+            # directories, never arbitrary empty workspace subdirectories.
+            for root, metadata in managed_mutable_trees.items():
+                for member in metadata["directories"]:
+                    relative = (
+                        Path("state") / root
+                        if member == "."
+                        else Path("state") / root / member
+                    )
+                    directory_fd = _open_or_create_directory_at(
+                        temporary_fd, relative
+                    )
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
 
             def snapshot_fd(
                 source_fd: int,
@@ -2309,6 +2332,11 @@ class CheckpointStore:
                 CAMPAIGN_IMMUTABLE_TREES,
                 "immutable tree",
             )
+            for root, metadata in mutable_trees.items():
+                if metadata["present"] is not True:
+                    raise ValueError(
+                        f"canonical mutable root is required in checkpoint: {root}"
+                    )
             for root, metadata in {**mutable_trees, **immutable_trees}.items():
                 has_files = any(
                     path.startswith(root + "/") for path in seen_workspace_paths
@@ -2327,6 +2355,31 @@ class CheckpointStore:
                 if metadata["directories"] != expected_directories:
                     raise ValueError(
                         f"managed mutable tree directory membership mismatch: {root}"
+                    )
+                state_root = Path("state") / root
+                present, stored_files, stored_directories = _tree_inventory_at(
+                    checkpoint_fd, state_root
+                )
+                if not present:
+                    raise ValueError(
+                        f"canonical mutable state root is required: {root}"
+                    )
+                if stored_directories != metadata["directories"]:
+                    raise ValueError(
+                        f"managed mutable tree directory membership mismatch: {root}"
+                    )
+                stored_workspace_paths = {
+                    path.relative_to(Path("state")).as_posix()
+                    for path in stored_files
+                }
+                expected_workspace_paths = {
+                    path
+                    for path in seen_workspace_paths
+                    if path.startswith(root + "/")
+                }
+                if stored_workspace_paths != expected_workspace_paths:
+                    raise ValueError(
+                        f"managed mutable tree state membership mismatch: {root}"
                     )
 
             expected_presence_paths = {
