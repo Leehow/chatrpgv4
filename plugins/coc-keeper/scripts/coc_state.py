@@ -36,7 +36,10 @@ def _migrate_world_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
     """
     out = dict(data)
     terminal_state = out.get("terminal_state")
-    if terminal_state not in {None, "completed", "failed", "abandoned"}:
+    if terminal_state is not None and (
+        not isinstance(terminal_state, str)
+        or terminal_state not in ("completed", "failed", "abandoned")
+    ):
         terminal_state = None
     out["terminal_state"] = terminal_state
     # v1 world files sometimes carried a convenience copy.  The executor's
@@ -202,10 +205,14 @@ def migrate_state(data: dict[str, Any], kind: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise TypeError(f"migrate_state expects dict, got {type(data).__name__}")
     current = int(CURRENT_SCHEMA_VERSIONS.get(kind, 1))
-    try:
-        version = int(data.get("schema_version", 1) or 1)
-    except (TypeError, ValueError):
-        version = 1
+    raw_version = data.get("schema_version", 1)
+    if (
+        isinstance(raw_version, bool)
+        or not isinstance(raw_version, int)
+        or raw_version < 1
+    ):
+        raise ValueError(f"invalid schema_version for kind={kind!r}")
+    version = raw_version
     if version > current:
         raise ValueError(
             f"schema_version {version} for kind={kind!r} exceeds current {current}"
@@ -222,12 +229,15 @@ def migrate_state(data: dict[str, Any], kind: str) -> dict[str, Any]:
             raise TypeError(
                 f"migration {kind}:{version} returned {type(out).__name__}, expected dict"
             )
-        try:
-            next_version = int(out.get("schema_version", version + 1) or (version + 1))
-        except (TypeError, ValueError) as exc:
+        next_version = out.get("schema_version", version + 1)
+        if (
+            isinstance(next_version, bool)
+            or not isinstance(next_version, int)
+            or next_version < 1
+        ):
             raise ValueError(
                 f"migration {kind}:{version} produced invalid schema_version"
-            ) from exc
+            )
         if next_version <= version:
             raise ValueError(
                 f"migration {kind}:{version} did not advance schema_version"

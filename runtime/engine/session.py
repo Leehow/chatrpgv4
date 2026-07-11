@@ -4,6 +4,8 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import math
+import re
 import threading
 import time
 import uuid
@@ -40,8 +42,17 @@ class SessionRegistry:
         "brain_at_create",
     )
     _UNRECOVERABLE_CONFIG_KEY_PARTS = (
-        "secret", "token", "password", "api_key", "credential", "input",
-        "handle", "process", "socket",
+        "secret", "token", "password", "apikey", "credential", "input",
+        "handle", "process", "socket", "authorization", "cookie",
+        "privatekey", "accesskey", "signingkey", "passphrase", "bearer",
+        "jwt",
+    )
+    _UNRECOVERABLE_CONFIG_VALUE_PATTERNS = (
+        re.compile(r"(?:^|\s)(?:proxy-)?authorization\s*:", re.IGNORECASE),
+        re.compile(r"(?:^|\s)(?:set-)?cookie\s*:", re.IGNORECASE),
+        re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{3,}", re.IGNORECASE),
+        re.compile(r"-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----", re.IGNORECASE),
+        re.compile(r"^[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@", re.IGNORECASE),
     )
 
     def __init__(
@@ -50,10 +61,13 @@ class SessionRegistry:
         ttl_seconds: float = 30 * 60,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
-        if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, (int, float)):
-            raise ValueError("ttl_seconds must be a positive number")
-        if ttl_seconds <= 0:
-            raise ValueError("ttl_seconds must be a positive number")
+        if (
+            isinstance(ttl_seconds, bool)
+            or not isinstance(ttl_seconds, (int, float))
+            or not math.isfinite(ttl_seconds)
+            or ttl_seconds <= 0
+        ):
+            raise ValueError("ttl_seconds must be a positive finite number")
         self._ttl_seconds = float(ttl_seconds)
         self._monotonic = monotonic
         self._lock = threading.RLock()
@@ -69,7 +83,11 @@ class SessionRegistry:
 
     def _now(self) -> float:
         value = self._monotonic()
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+        ):
             raise RuntimeError("monotonic clock returned an invalid value")
         return float(value)
 
@@ -116,16 +134,23 @@ class SessionRegistry:
         """
         if not isinstance(record, Mapping):
             raise TypeError("session record must be a mapping")
-        sid = session_id or f"sess_{uuid.uuid4().hex[:16]}"
-        self._require_session_id(sid)
         candidate = self._copy_record(record)
         now = self._now()
         with self._lock:
             self._expire_locked(now)
-            if sid in self._tombstones:
-                raise ValueError("session_id is tombstoned")
-            if sid in self._sessions:
-                raise ValueError("session_id already exists")
+            if session_id is not None:
+                sid = self._require_session_id(session_id)
+                if sid in self._tombstones:
+                    raise ValueError("session_id is tombstoned")
+                if sid in self._sessions:
+                    raise ValueError("session_id already exists")
+            else:
+                for _attempt in range(128):
+                    sid = f"sess_{uuid.uuid4().hex[:16]}"
+                    if sid not in self._tombstones and sid not in self._sessions:
+                        break
+                else:  # pragma: no cover - protects against a broken UUID source.
+                    raise RuntimeError("unable to allocate a unique session_id")
             candidate["session_id"] = sid
             candidate["last_access_monotonic"] = now
             self._sessions[sid] = candidate
@@ -195,12 +220,21 @@ class SessionRegistry:
     def _recoverable_config(cls, value: Any) -> Any:
         """Return a JSON-only frozen config or reject sensitive/pathful state."""
         def visit(current: Any) -> Any:
-            if current is None or isinstance(current, (bool, int, float)):
+            if current is None or isinstance(current, (bool, int)):
+                return current
+            if isinstance(current, float):
+                if not math.isfinite(current):
+                    raise ValueError("session record is not recoverable")
                 return current
             if isinstance(current, str):
                 # Runtime configuration has no legitimate absolute filesystem
                 # value. Relative command/config labels remain recoverable.
                 if Path(current).is_absolute():
+                    raise ValueError("session record is not recoverable")
+                if any(
+                    pattern.search(current)
+                    for pattern in cls._UNRECOVERABLE_CONFIG_VALUE_PATTERNS
+                ):
                     raise ValueError("session record is not recoverable")
                 return current
             if isinstance(current, list):
@@ -208,8 +242,12 @@ class SessionRegistry:
             if isinstance(current, dict):
                 clean: dict[str, Any] = {}
                 for key, item in current.items():
+                    normalized_key = (
+                        re.sub(r"[^a-z0-9]", "", key.lower())
+                        if isinstance(key, str) else ""
+                    )
                     if not isinstance(key, str) or any(
-                        marker in key.lower()
+                        marker in normalized_key
                         for marker in cls._UNRECOVERABLE_CONFIG_KEY_PARTS
                     ):
                         raise ValueError("session record is not recoverable")
@@ -262,21 +300,36 @@ class SessionRegistry:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("invalid session snapshot") from exc
-        if not isinstance(payload, dict) or payload.get("schema_version") != self.SNAPSHOT_SCHEMA_VERSION:
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"schema_version", "sessions", "closed_session_ids"}
+            or isinstance(payload["schema_version"], bool)
+            or not isinstance(payload["schema_version"], int)
+            or payload["schema_version"] != self.SNAPSHOT_SCHEMA_VERSION
+        ):
             raise ValueError("invalid session snapshot")
         serialized = payload.get("sessions")
         closed = payload.get("closed_session_ids")
         if not isinstance(serialized, list) or not isinstance(closed, list) or not all(isinstance(s, str) for s in closed):
             raise ValueError("invalid session snapshot")
         paths = _load_paths()
+        if len(set(closed)) != len(closed):
+            raise ValueError("invalid session snapshot")
         closed_ids = set(closed)
+        try:
+            for sid in closed_ids:
+                paths.validate_id(sid, "session_id")
+        except ValueError as exc:
+            raise ValueError("invalid session snapshot") from exc
         restored: list[tuple[str, dict[str, Any]]] = []
+        restored_ids_seen: set[str] = set()
         for item in serialized:
             if not isinstance(item, dict) or set(item) != set(self._PERSISTED_KEYS):
                 raise ValueError("invalid session snapshot")
             sid = self._require_session_id(item["session_id"])
-            if sid in closed_ids:
-                continue
+            if sid in closed_ids or sid in restored_ids_seen:
+                raise ValueError("invalid session snapshot")
+            restored_ids_seen.add(sid)
             try:
                 paths.validate_id(sid, "session_id")
                 paths.validate_id(item["campaign_id"], "campaign_id")

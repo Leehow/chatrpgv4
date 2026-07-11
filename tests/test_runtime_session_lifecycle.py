@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import threading
 from pathlib import Path
 
@@ -166,3 +167,154 @@ def test_registry_restore_rejects_path_escape_and_sensitive_edited_snapshot(tmp_
 
     with pytest.raises(ValueError, match="invalid session snapshot"):
         session.SessionRegistry(monotonic=FakeClock()).restore(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "sensitive_config",
+    [
+        {"nested": {"Authorization": "opaque"}},
+        {"nested": {"http-cookie": "opaque"}},
+        {"nested": {"privateKeyPem": "opaque"}},
+        {"nested": {"client_secret": "opaque"}},
+        {"nested": {"refresh-token": "opaque"}},
+        {"metadata": {"label": "Authorization: Bearer abc.def.ghi"}},
+        {"metadata": {"label": "Cookie: session=opaque"}},
+        {"metadata": {"label": "-----BEGIN PRIVATE KEY-----\nopaque"}},
+        {"metadata": {"label": "https://user:password@example.invalid/api"}},
+    ],
+)
+def test_registry_snapshot_recursively_rejects_sensitive_keys_and_values(
+    tmp_path, sensitive_config,
+):
+    session = _load_session()
+    registry = session.SessionRegistry(monotonic=FakeClock())
+    record = _record(tmp_path)
+    record["resolved_config"].update(sensitive_config)
+    registry.create(record, session_id="sess-sensitive")
+
+    with pytest.raises(ValueError, match="not recoverable"):
+        registry.snapshot(tmp_path)
+
+
+@pytest.mark.parametrize("ttl", [math.nan, math.inf, -math.inf])
+def test_registry_rejects_non_finite_ttl(ttl):
+    session = _load_session()
+    with pytest.raises(ValueError, match="positive finite number"):
+        session.SessionRegistry(ttl_seconds=ttl)
+
+
+@pytest.mark.parametrize("now", [math.nan, math.inf, -math.inf])
+def test_registry_rejects_non_finite_monotonic_clock(now, tmp_path):
+    session = _load_session()
+    registry = session.SessionRegistry(monotonic=lambda: now)
+    with pytest.raises(RuntimeError, match="invalid value"):
+        registry.create(_record(tmp_path), session_id="sess-clock")
+
+
+def _valid_snapshot_payload(*session_ids: str) -> dict:
+    return {
+        "schema_version": 1,
+        "closed_session_ids": [],
+        "sessions": [
+            {
+                "session_id": sid,
+                "campaign_id": "case",
+                "investigator_id": "ada",
+                "character_relpath": ".coc/investigators/ada/character.json",
+                "resolved_config": {"schema_version": 1, "brain": "debug"},
+                "brain_at_create": "debug",
+            }
+            for sid in session_ids
+        ],
+    }
+
+
+@pytest.mark.parametrize("schema_version", [True, False, "1", None, 1.0])
+def test_registry_restore_requires_exact_snapshot_schema_version(
+    tmp_path, schema_version,
+):
+    session = _load_session()
+    snapshot = tmp_path / ".coc" / "runtime" / "sessions.json"
+    snapshot.parent.mkdir(parents=True)
+    payload = _valid_snapshot_payload("sess-restored")
+    payload["schema_version"] = schema_version
+    snapshot.write_text(json.dumps(payload), encoding="utf-8")
+
+    registry = session.SessionRegistry(monotonic=FakeClock())
+    with pytest.raises(ValueError, match="invalid session snapshot"):
+        registry.restore(tmp_path)
+    assert len(registry) == 0
+
+
+def test_registry_restore_rejects_extra_snapshot_root_fields(tmp_path):
+    session = _load_session()
+    snapshot = tmp_path / ".coc" / "runtime" / "sessions.json"
+    snapshot.parent.mkdir(parents=True)
+    payload = _valid_snapshot_payload("sess-restored")
+    payload["unexpected"] = "must fail closed"
+    snapshot.write_text(json.dumps(payload), encoding="utf-8")
+
+    registry = session.SessionRegistry(monotonic=FakeClock())
+    with pytest.raises(ValueError, match="invalid session snapshot"):
+        registry.restore(tmp_path)
+    assert len(registry) == 0
+
+
+@pytest.mark.parametrize(
+    "sessions,closed",
+    [
+        (["sess-duplicate", "sess-duplicate"], []),
+        ([], ["sess-closed", "sess-closed"]),
+        (["sess-overlap"], ["sess-overlap"]),
+    ],
+)
+def test_registry_restore_rejects_duplicate_or_overlapping_session_ids(
+    tmp_path, sessions, closed,
+):
+    session = _load_session()
+    snapshot = tmp_path / ".coc" / "runtime" / "sessions.json"
+    snapshot.parent.mkdir(parents=True)
+    payload = _valid_snapshot_payload(*sessions)
+    payload["closed_session_ids"] = closed
+    snapshot.write_text(json.dumps(payload), encoding="utf-8")
+
+    registry = session.SessionRegistry(monotonic=FakeClock())
+    with pytest.raises(ValueError, match="invalid session snapshot"):
+        registry.restore(tmp_path)
+    assert len(registry) == 0
+    assert registry._tombstones == {}
+
+
+def test_registry_restore_malformed_batch_is_atomic(tmp_path):
+    session = _load_session()
+    snapshot = tmp_path / ".coc" / "runtime" / "sessions.json"
+    snapshot.parent.mkdir(parents=True)
+    payload = _valid_snapshot_payload("sess-valid", "sess-invalid")
+    payload["sessions"][1]["resolved_config"]["cookie"] = "opaque"
+    snapshot.write_text(json.dumps(payload), encoding="utf-8")
+
+    registry = session.SessionRegistry(monotonic=FakeClock())
+    registry.create(_record(tmp_path), session_id="sess-existing")
+    before = registry.get("sess-existing")
+    with pytest.raises(ValueError, match="invalid session snapshot"):
+        registry.restore(tmp_path)
+    assert registry.get("sess-existing")["campaign_id"] == before["campaign_id"]
+    with pytest.raises(session.UnknownSessionError):
+        registry.get("sess-valid")
+
+
+def test_registry_auto_generated_session_id_retries_uuid_collision(tmp_path, monkeypatch):
+    session = _load_session()
+    registry = session.SessionRegistry(monotonic=FakeClock())
+
+    class FakeUUID:
+        def __init__(self, value: str) -> None:
+            self.hex = value
+
+    values = iter([FakeUUID("a" * 32), FakeUUID("a" * 32), FakeUUID("b" * 32)])
+    monkeypatch.setattr(session.uuid, "uuid4", lambda: next(values))
+
+    first = registry.create(_record(tmp_path))
+    second = registry.create(_record(tmp_path, investigator_id="bea"))
+    assert first == "sess_aaaaaaaaaaaaaaaa"
+    assert second == "sess_bbbbbbbbbbbbbbbb"

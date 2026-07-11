@@ -98,6 +98,31 @@ def test_world_forward_version_fails_closed_without_rewrite(tmp_path, state):
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize(
+    "schema_version",
+    [True, False, "1", None, 1.0, 0, -1, float("nan"), float("inf")],
+)
+def test_world_migration_requires_exact_positive_integer_schema_version(
+    state, schema_version,
+):
+    with pytest.raises(ValueError, match="invalid schema_version"):
+        state.migrate_state({"schema_version": schema_version}, "world")
+
+
+@pytest.mark.parametrize(
+    "terminal_state",
+    [[], {}, ["completed"], {"status": "completed"}, True, 1, 1.5],
+)
+def test_world_migration_normalizes_non_scalar_terminal_state_without_type_error(
+    state, terminal_state,
+):
+    migrated = state.migrate_state(
+        {"schema_version": 1, "terminal_state": terminal_state}, "world"
+    )
+    assert migrated["schema_version"] == 2
+    assert migrated["terminal_state"] is None
+
+
 def test_corrupt_json_backed_up_before_fallback(tmp_path, state):
     path = tmp_path / "campaigns" / "c1" / "campaign.json"
     path.parent.mkdir(parents=True)
