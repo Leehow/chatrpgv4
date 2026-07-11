@@ -560,6 +560,9 @@ def test_canonical_player_with_absent_template_narrator_is_eligible(
     assert result["evidence"]["external_model_turns"] == 1
     assert result["evidence"]["fallback_turns"] >= 1
     assert Path(result["run_dir"], "runner-invocations.jsonl").is_file()
+    report_path = match.playtest_report.generate_battle_report(Path(result["run_dir"]))
+    assert report_path.name == "battle-report.md"
+    assert "report-anchor: Battle Report" in report_path.read_text(encoding="utf-8")
 
 
 def test_canonical_narrator_mixed_fallback_remains_eligible(tmp_path, monkeypatch):
@@ -714,6 +717,9 @@ def test_rehashed_999_row_ledger_fails_transcript_reconciliation(tmp_path, monke
 
     assert validated["eligible_as_gameplay_evidence"] is False
     assert "invocation_transcript_mismatch" in validated["evidence_reasons"]
+    report_path = match.playtest_report.generate_battle_report(run_dir)
+    assert report_path.name == "verification-sample.md"
+    assert "# Battle Report" not in report_path.read_text(encoding="utf-8")
 
 
 def test_spoiler_isolation_player_requests_exclude_keeper_secret_prose(tmp_path):

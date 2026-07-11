@@ -150,7 +150,7 @@ def test_scripted_fixture_without_receipt_is_forced_to_sanitized_verification_sa
     run_dir, _campaign_dir = _run_dir(tmp_path)
     metadata = json.loads((run_dir / "playtest.json").read_text(encoding="utf-8"))
     metadata.update({
-        "simulation_method": "scripted_fixture",
+        "simulation_method": "innocuous_custom_method",
         "module_source": "/Users/alice/private/modules/secret.pdf",
     })
     _write_json(run_dir / "playtest.json", metadata)

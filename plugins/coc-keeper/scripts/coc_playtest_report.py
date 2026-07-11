@@ -2407,13 +2407,9 @@ def _evidence_sensitive_metadata(
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
     evidence_receipt = read_evidence_receipt(run_dir)
-    simulation_class = str(metadata.get("simulation_method") or "").lower()
-    audit_class = str(metadata.get("audit_profile") or "").lower()
-    non_gameplay_sample = (
-        metadata.get("evidence_class") == "NON-GAMEPLAY verification evidence"
-        or any(token in simulation_class for token in ("scripted", "fixture", "fake", "unknown", "unattested"))
-        or any(token in audit_class for token in ("automation", "scripted", "fixture", "fake"))
-    )
+    # Classification is derived only from the recomputed receipt. Metadata is
+    # descriptive and cannot self-attest an unknown/scripted runner as actual play.
+    non_gameplay_sample = evidence_receipt.get("eligible_as_gameplay_evidence") is not True
     display_metadata = {
         **metadata,
         **_evidence_sensitive_metadata(evidence_receipt, metadata),
