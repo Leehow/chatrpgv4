@@ -1043,7 +1043,9 @@ def _run_pending_choice_response(
     after_pending = _pending_record_count(campaign)
     pending_choice = subsystem_executor.get_current_pending_choice(campaign)
     if pending_choice is None:
-        pending_choice = subsystem_executor.project_player_combat_defense(campaign)
+        pending_choice = subsystem_executor.project_player_combat_defense(
+            campaign, investigator_id
+        )
     world = apply_mod._read_json(campaign / "save" / "world-state.json", {})
     pacing = apply_mod._read_json(campaign / "save" / "pacing-state.json", {})
     active_scene = apply_mod._read_json(campaign / "save" / "active-scene.json", {})
@@ -1211,7 +1213,9 @@ def _run_live_turn_impl(
     """Inner live-turn body; caller must already hold ``campaign_lock``."""
     campaign = Path(campaign_dir)
     if pending_choice_response is not None:
-        combat_choice = subsystem_executor.project_player_combat_defense(campaign)
+        combat_choice = subsystem_executor.project_player_combat_defense(
+            campaign, investigator_id
+        )
         if isinstance(combat_choice, dict):
             allowed = {
                 option.get("action") for option in combat_choice.get("options", [])
@@ -1277,7 +1281,9 @@ def _run_live_turn_impl(
         )
     pending_choice = subsystem_executor.get_current_pending_choice(campaign)
     if pending_choice is None:
-        pending_choice = subsystem_executor.project_player_combat_defense(campaign)
+        pending_choice = subsystem_executor.project_player_combat_defense(
+            campaign, investigator_id
+        )
     if (
         isinstance(pending_choice, dict)
         and pending_choice.get("kind") == "combat_defense"

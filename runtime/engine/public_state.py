@@ -63,17 +63,28 @@ def _canonical_player_pending_choice(campaign_dir: Path) -> tuple[bool, dict[str
     return True, choice
 
 
-def _combat_defense_choice(campaign_dir: Path) -> dict[str, Any] | None:
+def _combat_defense_choice(
+    campaign_dir: Path,
+    investigator_id: str | None,
+) -> dict[str, Any] | None:
+    if not investigator_id:
+        return None
     path = campaign_dir / "save" / "combat.json"
     if not path.exists():
         return None
     try:
-        return _load_subsystem_executor().project_player_combat_defense(campaign_dir)
+        return _load_subsystem_executor().project_player_combat_defense(
+            campaign_dir, investigator_id
+        )
     except (OSError, UnicodeError, ValueError, RuntimeError):
         return None
 
 
-def build_public_state(workspace: Path | str, campaign_id: str) -> dict[str, Any]:
+def build_public_state(
+    workspace: Path | str,
+    campaign_id: str,
+    investigator_id: str | None = None,
+) -> dict[str, Any]:
     root = Path(workspace)
     campaign_dir = root / ".coc" / "campaigns" / campaign_id
     save = campaign_dir / "save"
@@ -87,6 +98,8 @@ def build_public_state(workspace: Path | str, campaign_id: str) -> dict[str, Any
     if inv_dir.is_dir():
         for path in sorted(inv_dir.glob("*.json")):
             investigators.append(_investigator_entry(path))
+    if investigator_id is None and len(investigators) == 1:
+        investigator_id = investigators[0]["id"]
 
     clue_ids = world.get("discovered_clue_ids") if isinstance(world, dict) else None
     if not isinstance(clue_ids, list):
@@ -105,7 +118,7 @@ def build_public_state(workspace: Path | str, campaign_id: str) -> dict[str, Any
         elif isinstance(meta, dict) and "pending_choice" in meta:
             pending = meta.get("pending_choice")
     if pending is None:
-        pending = _combat_defense_choice(campaign_dir)
+        pending = _combat_defense_choice(campaign_dir, investigator_id)
 
     cfg = _load_config_module().load_runtime_config(root)
 

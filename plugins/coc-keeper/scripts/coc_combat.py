@@ -246,6 +246,10 @@ class CombatSession:
         self._current_round = 0
         self._current_initiative: list[dict[str, Any]] = []
         self.initiative_cursor = 0
+        # Complete current-round roster/progress.  Unlike the initiative list,
+        # this includes actors excluded at round start and retains structured
+        # evidence for every later eligibility skip.
+        self.initiative_progress: list[dict[str, Any]] = []
         # Monotonic persisted revision used by live command bridges to reject
         # stale defense/rescue actions after a reload.
         self.revision = 0
@@ -334,13 +338,67 @@ class CombatSession:
             {"actor_id": aid, "dex": dex_eff, "dex_reason": reason}
             for _, _, aid, dex_eff, reason in ranked
         ]
+        initiative_by_actor = {
+            row["actor_id"]: dict(row) for row in self._current_initiative
+        }
+        self.initiative_progress = []
+        for actor_id in sorted(self.participants):
+            participant = self.participants[actor_id]
+            eligibility = {
+                "hp_current": participant["hp_current"],
+                "conditions": list(participant["conditions"]),
+                "dex": participant["dex"],
+                "combat_skill": participant["combat_skill"],
+                "firearms_skill": participant["firearms_skill"],
+                "has_ready_firearm": participant["has_ready_firearm"],
+            }
+            initiative = initiative_by_actor.get(actor_id)
+            self.initiative_progress.append({
+                "actor_id": actor_id,
+                "round_start_eligibility": eligibility,
+                "initiative": dict(initiative) if initiative is not None else None,
+                "status": "pending" if initiative is not None else "excluded_at_round_start",
+                "skip_evidence": None,
+            })
         self.rounds.append({
             "round": self._current_round,
             "initiative_order": [dict(item) for item in self._current_initiative],
+            "initiative_progress": [dict(item) for item in self.initiative_progress],
             "turns": [],
         })
         self.initiative_cursor = 0
         return self._current_round
+
+    def mark_current_initiative_acted(self) -> None:
+        if self.initiative_cursor >= len(self._current_initiative):
+            raise ValueError("initiative cursor has no current actor")
+        actor_id = self._current_initiative[self.initiative_cursor]["actor_id"]
+        row = next(item for item in self.initiative_progress if item["actor_id"] == actor_id)
+        if row["status"] != "pending":
+            raise ValueError("initiative actor is not pending")
+        row["status"] = "acted"
+        self._sync_initiative_progress_history()
+
+    def mark_current_initiative_skipped(self) -> None:
+        if self.initiative_cursor >= len(self._current_initiative):
+            raise ValueError("initiative cursor has no current actor")
+        actor_id = self._current_initiative[self.initiative_cursor]["actor_id"]
+        participant = self.participants[actor_id]
+        row = next(item for item in self.initiative_progress if item["actor_id"] == actor_id)
+        if row["status"] != "pending":
+            raise ValueError("initiative actor is not pending")
+        row["status"] = "skipped_ineligible"
+        row["skip_evidence"] = {
+            "hp_current": participant["hp_current"],
+            "conditions": list(participant["conditions"]),
+        }
+        self._sync_initiative_progress_history()
+
+    def _sync_initiative_progress_history(self) -> None:
+        if self.rounds:
+            self.rounds[-1]["initiative_progress"] = [
+                dict(item) for item in self.initiative_progress
+            ]
 
     def _mark_defended(self, target_id: str) -> None:
         """Mark that target has defended this round (mechanism 4: outnumbered)."""
@@ -2012,6 +2070,7 @@ class CombatSession:
             "current_round": self._current_round,
             "current_initiative": [dict(row) for row in self._current_initiative],
             "initiative_cursor": self.initiative_cursor,
+            "initiative_progress": [dict(row) for row in self.initiative_progress],
             "jammed_weapons": sorted(self.jammed_weapons),
             "weapon_catalog": {
                 weapon_id: dict(spec)
@@ -2045,6 +2104,7 @@ class CombatSession:
             "combat_id", "scene_ref", "started_at_turn", "status",
             "participants", "rounds", "damage_chain", "revision",
             "current_round", "current_initiative", "initiative_cursor",
+            "initiative_progress",
             "pending_attack", "ended_at_turn", "outcome", "jammed_weapons",
             "weapon_catalog", "turn_counter", "roll_counter",
         }
@@ -2128,6 +2188,7 @@ class CombatSession:
         session._current_round = strict_int(data["current_round"], "current round")
         session._current_initiative = list(data["current_initiative"])
         session.initiative_cursor = strict_int(data["initiative_cursor"], "initiative cursor")
+        session.initiative_progress = list(data["initiative_progress"])
         if not isinstance(data["jammed_weapons"], list) or not all(isinstance(v, str) for v in data["jammed_weapons"]):
             raise ValueError("combat jammed weapons are invalid")
         session.jammed_weapons = set(data["jammed_weapons"])
@@ -2163,9 +2224,10 @@ class CombatSession:
             raise ValueError("combat initiative does not match current round")
         for index, round_row in enumerate(session.rounds, 1):
             if (
-                set(round_row) != {"round", "initiative_order", "turns"}
+                set(round_row) != {"round", "initiative_order", "initiative_progress", "turns"}
                 or round_row.get("round") != index
                 or not isinstance(round_row.get("initiative_order"), list)
+                or not isinstance(round_row.get("initiative_progress"), list)
                 or not isinstance(round_row.get("turns"), list)
                 or not all(isinstance(turn, dict) for turn in round_row["turns"])
             ):
@@ -2203,6 +2265,143 @@ class CombatSession:
             for row in session._current_initiative
         ):
             raise ValueError("combat initiative order is not canonical")
+        if not session.rounds or session.initiative_progress != session.rounds[-1]["initiative_progress"]:
+            raise ValueError("combat initiative progress does not match current round")
+        progress_keys = {
+            "actor_id", "round_start_eligibility", "initiative", "status",
+            "skip_evidence",
+        }
+        eligibility_keys = {
+            "hp_current", "conditions", "dex", "combat_skill",
+            "firearms_skill", "has_ready_firearm",
+        }
+        progress_by_actor: dict[str, dict[str, Any]] = {}
+        for row in session.initiative_progress:
+            if not isinstance(row, dict) or set(row) != progress_keys:
+                raise ValueError("combat initiative progress is invalid")
+            actor_id = row.get("actor_id")
+            eligibility = row.get("round_start_eligibility")
+            if (
+                actor_id not in session.participants
+                or actor_id in progress_by_actor
+                or not isinstance(eligibility, dict)
+                or set(eligibility) != eligibility_keys
+                or not isinstance(eligibility.get("conditions"), list)
+                or any(value not in VALID_CONDITIONS for value in eligibility["conditions"])
+                or any(isinstance(eligibility.get(field), bool) or not isinstance(eligibility.get(field), int)
+                       for field in ("hp_current", "dex", "combat_skill", "firearms_skill"))
+                or not isinstance(eligibility.get("has_ready_firearm"), bool)
+            ):
+                raise ValueError("combat initiative round-start eligibility is invalid")
+            progress_by_actor[actor_id] = row
+        if set(progress_by_actor) != set(session.participants):
+            raise ValueError("combat initiative roster omits a participant")
+        expected_from_roster: list[dict[str, Any]] = []
+        for actor_id, row in progress_by_actor.items():
+            eligibility = row["round_start_eligibility"]
+            eligible = (
+                eligibility["hp_current"] > 0
+                and not any(value in eligibility["conditions"] for value in
+                            ("dead", "dying", "unconscious", "fled"))
+            )
+            initiative = row["initiative"]
+            if not eligible:
+                if initiative is not None or row["status"] != "excluded_at_round_start" or row["skip_evidence"] is not None:
+                    raise ValueError("combat excluded initiative actor is invalid")
+                continue
+            dex_reason = (
+                "ready_firearm"
+                if eligibility["has_ready_firearm"] and eligibility["firearms_skill"] > 0
+                else None
+            )
+            expected_row = {
+                "actor_id": actor_id,
+                "dex": eligibility["dex"] + (50 if dex_reason else 0),
+                "dex_reason": dex_reason,
+            }
+            if initiative != expected_row or row["status"] not in {"pending", "acted", "skipped_ineligible"}:
+                raise ValueError("combat eligible initiative actor is invalid")
+            if row["status"] == "skipped_ineligible":
+                evidence = row["skip_evidence"]
+                if (
+                    not isinstance(evidence, dict)
+                    or set(evidence) != {"hp_current", "conditions"}
+                    or not isinstance(evidence.get("conditions"), list)
+                    or (evidence.get("hp_current", 0) > 0 and not any(
+                        value in evidence["conditions"] for value in
+                        ("dead", "dying", "unconscious", "fled")
+                    ))
+                ):
+                    raise ValueError("combat initiative skip lacks eligibility evidence")
+            elif row["skip_evidence"] is not None:
+                raise ValueError("combat initiative progress has unexpected skip evidence")
+            expected_from_roster.append(expected_row)
+        expected_from_roster.sort(key=lambda row: (
+            -row["dex"],
+            -progress_by_actor[row["actor_id"]]["round_start_eligibility"]["combat_skill"],
+            row["actor_id"],
+        ))
+        if expected_from_roster != session._current_initiative:
+            raise ValueError("combat initiative order diverges from round-start roster")
+        for index, initiative in enumerate(session._current_initiative):
+            status = progress_by_actor[initiative["actor_id"]]["status"]
+            if (index < session.initiative_cursor and status not in {"acted", "skipped_ineligible"}) or (
+                index >= session.initiative_cursor and status != "pending"
+            ):
+                raise ValueError("combat initiative cursor diverges from persisted progress")
+        # Completed rounds retain the same complete roster evidence.  This
+        # prevents history edits from deleting an eligible actor even after a
+        # later round has replaced the live cursor/progress view.
+        for historical in session.rounds[:-1]:
+            rows = historical["initiative_progress"]
+            if not isinstance(rows, list) or len(rows) != len(session.participants):
+                raise ValueError("combat historical initiative roster is invalid")
+            by_actor: dict[str, dict[str, Any]] = {}
+            reconstructed: list[dict[str, Any]] = []
+            for row in rows:
+                if not isinstance(row, dict) or set(row) != progress_keys:
+                    raise ValueError("combat historical initiative progress is invalid")
+                actor_id = row.get("actor_id")
+                evidence = row.get("round_start_eligibility")
+                if actor_id not in session.participants or actor_id in by_actor or not isinstance(evidence, dict) or set(evidence) != eligibility_keys:
+                    raise ValueError("combat historical initiative roster is invalid")
+                by_actor[actor_id] = row
+                eligible = (
+                    isinstance(evidence.get("hp_current"), int)
+                    and not isinstance(evidence.get("hp_current"), bool)
+                    and evidence["hp_current"] > 0
+                    and isinstance(evidence.get("conditions"), list)
+                    and not any(value in evidence["conditions"] for value in
+                                ("dead", "dying", "unconscious", "fled"))
+                )
+                if not eligible:
+                    if row.get("initiative") is not None or row.get("status") != "excluded_at_round_start":
+                        raise ValueError("combat historical excluded actor is invalid")
+                    continue
+                if row.get("status") not in {"acted", "skipped_ineligible"}:
+                    raise ValueError("combat historical initiative progress is incomplete")
+                dex_reason = (
+                    "ready_firearm"
+                    if evidence.get("has_ready_firearm") is True and evidence.get("firearms_skill", 0) > 0
+                    else None
+                )
+                expected_row = {
+                    "actor_id": actor_id,
+                    "dex": evidence.get("dex", 0) + (50 if dex_reason else 0),
+                    "dex_reason": dex_reason,
+                }
+                if row.get("initiative") != expected_row:
+                    raise ValueError("combat historical initiative entry is invalid")
+                reconstructed.append(expected_row)
+            if set(by_actor) != set(session.participants):
+                raise ValueError("combat historical initiative roster omits a participant")
+            reconstructed.sort(key=lambda row: (
+                -row["dex"],
+                -by_actor[row["actor_id"]]["round_start_eligibility"].get("combat_skill", 0),
+                row["actor_id"],
+            ))
+            if reconstructed != historical["initiative_order"]:
+                raise ValueError("combat historical initiative order diverges from roster")
         if session.status == "active" and session.outcome is not None:
             raise ValueError("active combat cannot have an outcome")
         if session.status == "concluded" and (

@@ -120,6 +120,27 @@ def test_public_state_projects_player_safe_combat_defense(tmp_path):
     assert "declared_intent" not in json.dumps(choice)
 
 
+def test_public_state_only_projects_defense_for_current_investigator(tmp_path):
+    campaign = _seed_campaign(tmp_path)
+    path = Path("plugins/coc-keeper/scripts/coc_combat.py")
+    spec = importlib.util.spec_from_file_location("public_state_npc_combat", path)
+    combat_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(combat_mod)
+    session = combat_mod.CombatSession("fight-npc", "dock", 7, rng=random.Random(1))
+    session.add_participant("inv-alice", "investigator", 70, 50, 0, 11)
+    session.add_participant("cultist", "npc", 60, 50, 0, 9)
+    session.begin_round()
+    session.revision = 2
+    session.pending_attack = {
+        "attack_command_id": "attack-npc", "actor_id": "inv-alice",
+        "target_actor_id": "cultist", "declared_intent": "private keeper context",
+        "resolution_hint": "opposed_melee", "weapon_id": "unarmed",
+        "allowed_defenses": ["dodge", "fight_back"],
+    }
+    session.save(campaign)
+    assert _load().build_public_state(tmp_path, "camp-1")["pending_choice"] is None
+
+
 def test_build_public_state_brain_reflects_runtime_json(tmp_path):
     campaign_id = "camp-debug"
     _seed_campaign(tmp_path, campaign_id)

@@ -207,6 +207,9 @@ def test_combat_commands_persist_defense_and_reload_hp_atomically(tmp_path):
     mirror = json.loads(state_path.read_text(encoding="utf-8"))
     assert mirror["current_hp"] == saved.participants["inv1"]["hp_current"]
     assert mirror["conditions"] == saved.participants["inv1"]["conditions"]
+    for wound in mirror.get("wound_ledger", []):
+        assert wound["source_damage_roll_id"].startswith("fight-1:")
+        assert wound["wound_id"] == f"wound-{wound['source_damage_roll_id'].replace(':', '-')}"
 
     replay = _execute(
         executor, campaign, character, [defend], random.Random(999)
@@ -269,7 +272,7 @@ def test_rescue_updates_active_combat_and_investigator_mirror(tmp_path):
     result = _execute(executor, campaign, character, [_command(
         "aid-mirror", "stabilize", payload={
             "decision_id": "aid-mirror", "method": "first_aid",
-            "skill_value": 99, "wound_id": "wound-1", "day_id": "day-1",
+            "skill_value": 99,
         },
     )], random.Random(1))[0]
     combat = json.loads((campaign / "save" / "combat.json").read_text())
@@ -290,14 +293,12 @@ def test_healing_usage_survives_reload_and_distinct_commands(tmp_path):
     inv_path.write_text(json.dumps(inv))
     payload = {
         "decision_id": "aid-one", "method": "first_aid", "skill_value": 99,
-        "wound_id": "wound-1", "day_id": "day-1",
     }
     first = _execute(executor, campaign, character, [_command("aid-one", "stabilize", payload=payload)], random.Random(2))[0]
     payload = {**payload, "decision_id": "aid-two"}
-    second = _execute(executor, campaign, character, [_command("aid-two", "stabilize", payload=payload)], random.Random(3))[0]
     assert first["events"][0]["already_used_today"] is False
-    assert second["events"][0]["already_used_today"] is True
-    assert second["events"][0]["roll_evidence"] is None
+    with pytest.raises(executor.SubsystemExecutorError, match="already used"):
+        _execute(executor, campaign, character, [_command("aid-two", "stabilize", payload=payload)], random.Random(3))
 
 
 def test_combat_end_does_not_restore_stale_participant_hp(tmp_path):
@@ -318,6 +319,28 @@ def test_combat_end_does_not_restore_stale_participant_hp(tmp_path):
     final = json.loads(inv_path.read_text())
     assert final["current_hp"] == 7
     assert final["conditions"] == ["major_wound"]
+
+
+def test_combat_end_persists_trusted_turn_and_concluded_snapshot_reloads(tmp_path):
+    executor = _executor("coc_subsystem_executor_end_turn")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    (campaign / "save" / "pacing-state.json").write_text(
+        json.dumps({"turn_number": 17}), encoding="utf-8"
+    )
+    _execute(executor, campaign, character, [_combat_start_command()], random.Random(1))
+    ended = _command("combat-end-turn", "combat_end", phase="end", payload={
+        "decision_id": "combat-end-turn", "revision": 1, "outcome": "stalemate",
+    })
+    result = _execute(executor, campaign, character, [ended], random.Random(2))[0]
+    loaded = executor.coc_combat.CombatSession.load(campaign, rng=random.Random(3))
+    assert loaded.status == "concluded"
+    assert loaded.ended_at_turn == 17
+    assert result["events"][0]["ended_at_turn"] == 17
+    assert _execute(executor, campaign, character, [ended], random.Random(999))[0] == result
 
 
 def test_initiative_cursor_advances_round_without_modulo(tmp_path):
@@ -343,6 +366,122 @@ def test_initiative_cursor_advances_round_without_modulo(tmp_path):
     assert combat["current_round"] == 1
     assert combat["initiative_cursor"] == 1
     assert combat["current_initiative"][1]["actor_id"] == "inv1"
+
+
+def test_initiative_progress_persists_skips_and_rejects_deleted_eligible_actor(tmp_path):
+    executor = _executor("coc_subsystem_executor_initiative_progress")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    start = _combat_start_command()
+    start["payload"]["participants"].insert(1, {
+        "actor_id": "fallen", "side": "npc", "dex": 65,
+        "combat_skill": 40, "dodge_skill": 20, "build": 0,
+        "hp_max": 8, "hp_current": 0, "con": 40,
+        "weapons": [{"weapon_id": "unarmed"}], "conditions": ["unconscious"],
+    })
+    _execute(executor, campaign, character, [start], random.Random(1))
+    combat_path = campaign / "save" / "combat.json"
+    combat = json.loads(combat_path.read_text())
+    progress = {row["actor_id"]: row for row in combat["initiative_progress"]}
+    assert progress["fallen"]["status"] == "excluded_at_round_start"
+    assert progress["cultist"]["status"] == "pending"
+    forged = json.loads(combat_path.read_text())
+    forged["current_initiative"] = [
+        row for row in forged["current_initiative"] if row["actor_id"] != "cultist"
+    ]
+    forged["initiative_progress"] = [
+        row for row in forged["initiative_progress"] if row["actor_id"] != "cultist"
+    ]
+    forged["rounds"][-1]["initiative_order"] = forged["current_initiative"]
+    combat_path.write_text(json.dumps(forged))
+    with pytest.raises(ValueError, match="initiative"):
+        executor.coc_combat.CombatSession.load(campaign, rng=random.Random(2))
+
+
+def test_stabilize_scope_is_authoritative_and_swapped_external_ids_fail(tmp_path):
+    executor = _executor("coc_subsystem_executor_treatment_scope")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({
+        "current_hp": 5, "max_hp": 11, "conditions": [],
+        "wound_ledger": [{
+            "wound_id": "wound-canonical", "source_damage_roll_id": "cr7",
+            "occurred_elapsed_minutes": 1500, "status": "active",
+        }],
+    })
+    inv_path.write_text(json.dumps(inv))
+    (campaign / "save" / "time-state.json").write_text(json.dumps({
+        "schema_version": 1, "clock": {"elapsed_minutes": 1600},
+    }))
+    forged = _command("aid-forged-scope", "stabilize", payload={
+        "decision_id": "aid-forged-scope", "method": "first_aid", "skill_value": 99,
+        "wound_id": "wound-swapped", "day_id": "day-1",
+    })
+    with pytest.raises(executor.SubsystemExecutorError, match="authoritative treatment scope"):
+        _execute(executor, campaign, character, [forged], random.Random(1))
+    valid = _command("aid-canonical-scope", "stabilize", payload={
+        "decision_id": "aid-canonical-scope", "method": "first_aid", "skill_value": 99,
+        "wound_id": "wound-canonical", "day_id": "day-1",
+    })
+    result = _execute(executor, campaign, character, [valid], random.Random(1))[0]
+    assert result["events"][0]["treatment_scope"] == {
+        "wound_id": "wound-canonical", "day_id": "day-1",
+    }
+
+
+def test_used_treatment_rejects_before_ledger_and_future_command_remains_valid(tmp_path):
+    executor = _executor("coc_subsystem_executor_treatment_used_preflight")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 5, "max_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    first = _command("aid-first", "stabilize", payload={
+        "decision_id": "aid-first", "method": "first_aid", "skill_value": 99,
+    })
+    _execute(executor, campaign, character, [first], random.Random(2))
+    rolls_before = (campaign / "logs" / "rolls.jsonl").read_text()
+    used = _command("aid-used", "stabilize", payload={
+        "decision_id": "aid-used", "method": "first_aid", "skill_value": 99,
+    })
+    with pytest.raises(executor.SubsystemExecutorError, match="already used"):
+        _execute(executor, campaign, character, [used], random.Random(3))
+    assert (campaign / "logs" / "rolls.jsonl").read_text() == rolls_before
+    state = json.loads((campaign / "save" / "subsystem-state.json").read_text())
+    assert "aid-used" not in state["applied_command_ids"]
+    medicine = _command("medicine-after-reject", "stabilize", payload={
+        "decision_id": "medicine-after-reject", "method": "medicine", "skill_value": 99,
+    })
+    assert _execute(executor, campaign, character, [medicine], random.Random(4))[0]["status"] == "completed"
+
+
+def test_medicine_healing_die_has_separate_canonical_evidence_and_replays(tmp_path):
+    executor = _executor("coc_subsystem_executor_medicine_healing_die")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 5, "max_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    command = _command("medicine-dice", "stabilize", payload={
+        "decision_id": "medicine-dice", "method": "medicine", "skill_value": 99,
+    })
+    first = _execute(executor, campaign, character, [command], random.Random(8))[0]
+    healing = next(event for event in first["events"] if event.get("skill") == "HP Healing")
+    assert healing["roll_id"] == "medicine-dice:healing"
+    assert healing["dice"]["expression"] == "1D3"
+    assert healing["dice"]["raw"]
+    assert healing["dice"]["total"] == first["events"][0]["hp_gained"]
+    rows = [json.loads(line) for line in (campaign / "logs" / "rolls.jsonl").read_text().splitlines()]
+    assert [row["payload"]["roll_id"] for row in rows if row["command_id"] == "medicine-dice"] == [
+        "medicine-dice:roll", "medicine-dice:healing",
+    ]
+    replay = _execute(executor, campaign, character, [command], random.Random(999))[0]
+    assert replay == first
+    assert len([json.loads(line) for line in (campaign / "logs" / "rolls.jsonl").read_text().splitlines()]) == len(rows)
 
 
 def _pushable_roll_command(command_id: str = "original-failed-roll") -> dict:

@@ -96,7 +96,9 @@ def send(
     if pending_choice_response is not None:
         if subsystem_request is not None:
             raise ValueError("submit either subsystem_request or pending_choice_response")
-        state = _load_public_state().build_public_state(workspace, campaign_id)
+        state = _load_public_state().build_public_state(
+            workspace, campaign_id, investigator_id
+        )
         pending = state.get("pending_choice")
         if (
             not isinstance(pending, dict)
@@ -152,6 +154,7 @@ def get_state(session_id: str) -> dict[str, Any]:
     state = _load_public_state().build_public_state(
         record["workspace"],
         record["campaign_id"],
+        record["investigator_id"],
     )
     # Brain is bound at create_session; open sessions ignore later runtime.json edits.
     state["brain"] = record["brain_at_create"]

@@ -287,6 +287,7 @@ class HealingSession:
         success = res.get("outcome") in ("regular", "hard", "extreme", "critical")
         hp_before = self.current_hp
         hp_gained = 0
+        healing_dice: dict[str, Any] | None = None
         if success and not self._medicine_used_today:
             if clearing_dying:
                 # p.121: uncheck the dying box, then heal 1D3.
@@ -294,6 +295,11 @@ class HealingSession:
                 self.conditions.remove("stabilized")
             dice = coc_roll.roll_expression("1D3", rng=self._rng)
             roll_total = int(dice.get("total", 1))
+            healing_dice = {
+                "expression": "1D3",
+                "raw": list(dice.get("rolls") or []),
+                "total": roll_total,
+            }
             hp_gained = self._heal(roll_total)
             self._medicine_used_today = True
         elif not self._medicine_used_today:
@@ -309,6 +315,7 @@ class HealingSession:
             "hp_before": hp_before,
             "hp_gained": hp_gained,
             "hp_after": self.current_hp,
+            "healing_dice": healing_dice,
             "summary": (
                 f"{self.investigator_id} Medicine ({difficulty}) "
                 f"-> {res.get('outcome')}: +{hp_gained} HP."

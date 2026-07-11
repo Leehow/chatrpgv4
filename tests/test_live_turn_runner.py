@@ -1990,6 +1990,54 @@ def test_live_typed_combat_start_attack_and_defense_journey(tmp_path):
     assert event["turn"]["defense_kind"] == "dodge"
 
 
+def test_live_npc_defense_is_keeper_typed_and_not_player_projected(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({"current_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+    live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request={
+            "kind": "combat_start", "payload": {
+                "decision_id": "npc-defense", "combat_id": "npc-fight",
+                "scene_ref": "scene/npc-fight", "turn_number": 1,
+                "participants": [
+                    {"actor_id": "inv1", "side": "investigator", "dex": 80,
+                     "combat_skill": 60, "dodge_skill": 40, "build": 0,
+                     "hp_max": 11, "hp_current": 11, "con": 60,
+                     "weapons": [{"weapon_id": "unarmed"}], "conditions": []},
+                    {"actor_id": "cultist", "side": "npc", "dex": 50,
+                     "combat_skill": 45, "dodge_skill": 25, "build": 0,
+                     "hp_max": 9, "hp_current": 9, "con": 45,
+                     "weapons": [{"weapon_id": "unarmed"}], "conditions": []},
+                ],
+            },
+        }, recording_mode="sync", max_auto_advance=1, rng_seed=601,
+    )
+    declared = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request={
+            "kind": "combat_attack", "payload": {
+                "decision_id": "npc-defense", "revision": 1,
+                "actor_id": "inv1", "target_actor_id": "cultist",
+                "declared_intent": "structured strike",
+                "resolution_hint": "opposed_melee", "weapon_id": "unarmed",
+            },
+        }, recording_mode="sync", max_auto_advance=1, rng_seed=602,
+    )
+    attack_id = declared["subsystem_results"][0]["events"][0]["attack_command_id"]
+    assert declared["turns"][0]["pending_choice"] is None
+    defended = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request={
+            "kind": "combat_defend", "payload": {
+                "decision_id": "keeper-npc-defense", "revision": 2,
+                "actor_id": "cultist", "attack_command_id": attack_id,
+                "defense_kind": "dodge",
+            },
+        }, recording_mode="sync", max_auto_advance=1, rng_seed=603,
+    )
+    assert defended["subsystem_results"][0]["events"][0]["turn"]["defense_kind"] == "dodge"
+
+
 def test_live_director_routes_dying_state_through_rescue_engine(tmp_path):
     camp, char_path = _build_live_campaign(tmp_path)
     inv_path = camp / "save" / "investigator-state" / "inv1.json"

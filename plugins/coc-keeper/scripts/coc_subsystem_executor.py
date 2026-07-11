@@ -1814,7 +1814,10 @@ def project_player_pending_choice(campaign_dir: Path | str) -> dict[str, Any] | 
     return _json_copy(choice)
 
 
-def project_player_combat_defense(campaign_dir: Path | str) -> dict[str, Any] | None:
+def project_player_combat_defense(
+    campaign_dir: Path | str,
+    investigator_id: str,
+) -> dict[str, Any] | None:
     """Project an active attack as an exact player-only defense choice."""
     campaign = Path(campaign_dir)
     path = campaign / "save" / "combat.json"
@@ -1823,6 +1826,11 @@ def project_player_combat_defense(campaign_dir: Path | str) -> dict[str, Any] | 
     session = coc_combat.CombatSession.load(campaign, rng=random.Random(0))
     pending = session.pending_attack
     if session.status != "active" or not isinstance(pending, dict):
+        return None
+    # A defense is player-owned only when this session's investigator is the
+    # target. NPC defenses remain private Keeper continuations and are never
+    # projected through PublicState.
+    if pending.get("target_actor_id") != investigator_id:
         return None
     labels = {
         "dodge": "Dodge", "fight_back": "Fight Back",
@@ -3669,6 +3677,41 @@ def _sync_investigator_from_combat(
     state = _investigator_state(campaign_dir, investigator_id)
     state["current_hp"] = int(participant["hp_current"])
     state["conditions"] = list(participant.get("conditions") or [])
+    had_wound_ledger = "wound_ledger" in state
+    ledger = state.get("wound_ledger")
+    if ledger is None:
+        ledger = []
+    if not isinstance(ledger, list):
+        raise _error("malformed_wound_ledger", "save/investigator-state", "wound ledger must be a list")
+    known_sources = {
+        row.get("source_damage_roll_id") for row in ledger if isinstance(row, dict)
+    }
+    elapsed = _read_authoritative_elapsed_minutes(campaign_dir)
+    for damage in session.damage_chain:
+        source_damage_id = (
+            f"{session.combat_id}:{damage.get('damage_roll_id')}"
+            if isinstance(damage, dict) and isinstance(damage.get("damage_roll_id"), str)
+            else None
+        )
+        if (
+            not isinstance(damage, dict)
+            or damage.get("target_actor_id") != investigator_id
+            or source_damage_id is None
+            or source_damage_id in known_sources
+        ):
+            continue
+        landed = int(damage.get("raw_damage", 0)) - int(damage.get("armor_absorbed", 0))
+        if landed <= 0:
+            continue
+        ledger.append({
+            "wound_id": f"wound-{session.combat_id}-{damage['damage_roll_id']}",
+            "source_damage_roll_id": source_damage_id,
+            "occurred_elapsed_minutes": elapsed,
+            "status": "active",
+        })
+        known_sources.add(source_damage_id)
+    if had_wound_ledger or ledger:
+        state["wound_ledger"] = ledger
     path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
     coc_fileio.write_json_atomic(
         path, state, indent=2, ensure_ascii=False, trailing_newline=True
@@ -3695,8 +3738,120 @@ def _normalize_combat_cursor(session: Any) -> None:
         actor_id = session._current_initiative[session.initiative_cursor]["actor_id"]
         if _combat_actor_eligible(session.participants[actor_id]):
             return
+        session.mark_current_initiative_skipped()
         session.initiative_cursor += 1
     session.begin_round()
+
+
+def _read_authoritative_elapsed_minutes(campaign_dir: Path) -> int:
+    path = campaign_dir / "save" / "time-state.json"
+    if not path.exists():
+        return 0
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+        value = (state.get("clock") or {}).get("elapsed_minutes", 0)
+    except (OSError, UnicodeError, json.JSONDecodeError, AttributeError) as exc:
+        raise _error("malformed_time_state", "save/time-state.json", str(exc)) from exc
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise _error("malformed_time_state", "save/time-state.json", "elapsed_minutes must be non-negative")
+    return value
+
+
+def _authoritative_treatment_scope(
+    campaign_dir: Path,
+    investigator_id: str,
+    payload: dict[str, Any],
+) -> tuple[str, str, bool]:
+    """Derive, and optionally verify, treatment scope from trusted state."""
+    state = _investigator_state(campaign_dir, investigator_id)
+    elapsed = _read_authoritative_elapsed_minutes(campaign_dir)
+    current_day = elapsed // 1440
+    ledger = state.get("wound_ledger")
+    if ledger is None:
+        # Explicit one-time migration for campaigns predating the wound ledger.
+        # The caller cannot select this ID; it is minted from trusted identity
+        # and current authoritative clock.
+        ledger = [{
+            "wound_id": f"wound-legacy-{investigator_id}",
+            "source_damage_roll_id": None,
+            "occurred_elapsed_minutes": elapsed,
+            "status": "active",
+        }]
+    if not isinstance(ledger, list) or not ledger:
+        raise _error("malformed_wound_ledger", "save/investigator-state", "wound ledger must be non-empty")
+    active: list[dict[str, Any]] = []
+    for index, row in enumerate(ledger):
+        if (
+            not isinstance(row, dict)
+            or set(row) != {"wound_id", "source_damage_roll_id", "occurred_elapsed_minutes", "status"}
+            or not isinstance(row.get("wound_id"), str)
+            or not _SAFE_ID.fullmatch(row["wound_id"])
+            or (row.get("source_damage_roll_id") is not None and not isinstance(row.get("source_damage_roll_id"), str))
+            or isinstance(row.get("occurred_elapsed_minutes"), bool)
+            or not isinstance(row.get("occurred_elapsed_minutes"), int)
+            or row["occurred_elapsed_minutes"] < 0
+            or row.get("status") not in {"active", "healed"}
+        ):
+            raise _error("malformed_wound_ledger", f"save/investigator-state.wound_ledger[{index}]", "invalid wound record")
+        if row["status"] == "active":
+            active.append(row)
+    if not active:
+        raise _error("no_active_wound", "save/investigator-state.wound_ledger", "treatment requires an active wound")
+    wound = max(active, key=lambda row: (row["occurred_elapsed_minutes"], row["wound_id"]))
+    wound_id = wound["wound_id"]
+    day_id = f"day-{current_day}"
+    if payload.get("wound_id") is not None and payload["wound_id"] != wound_id:
+        raise _error("treatment_scope_mismatch", "commands[0].payload.wound_id", "external wound ID does not match authoritative treatment scope")
+    if payload.get("day_id") is not None and payload["day_id"] != day_id:
+        raise _error("treatment_scope_mismatch", "commands[0].payload.day_id", "external day ID does not match authoritative treatment scope")
+    return wound_id, day_id, wound["occurred_elapsed_minutes"] // 1440 == current_day
+
+
+def _persist_legacy_wound_ledger_if_needed(
+    campaign_dir: Path,
+    investigator_id: str,
+) -> None:
+    state = _investigator_state(campaign_dir, investigator_id)
+    if state.get("wound_ledger") is not None:
+        return
+    elapsed = _read_authoritative_elapsed_minutes(campaign_dir)
+    state["wound_ledger"] = [{
+        "wound_id": f"wound-legacy-{investigator_id}",
+        "source_damage_roll_id": None,
+        "occurred_elapsed_minutes": elapsed,
+        "status": "active",
+    }]
+    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    coc_fileio.write_json_atomic(path, state, indent=2, ensure_ascii=False, trailing_newline=True)
+
+
+def _preflight_treatment_commands(
+    campaign_dir: Path,
+    investigator_id: str,
+    commands: list[dict[str, Any]],
+    applied: set[str],
+) -> None:
+    seen_new: set[tuple[str, str, str]] = set()
+    for index, command in enumerate(commands):
+        if command["kind"] != "stabilize" or command["command_id"] in applied:
+            continue
+        payload = command["payload"]
+        wound_id, day_id, _same_day = _authoritative_treatment_scope(
+            campaign_dir, investigator_id, payload
+        )
+        state = _investigator_state(campaign_dir, investigator_id)
+        usage = state.get("healing_usage") if isinstance(state.get("healing_usage"), dict) else {}
+        records = usage.get("records") if isinstance(usage.get("records"), dict) else {}
+        flags = records.get(wound_id, {}).get(day_id, {}) if isinstance(records.get(wound_id), dict) else {}
+        flag = "first_aid_used" if payload["method"] == "first_aid" else "medicine_used"
+        scope_key = (wound_id, day_id, payload["method"])
+        if (isinstance(flags, dict) and flags.get(flag) is True) or scope_key in seen_new:
+            raise _error(
+                "treatment_already_used",
+                f"commands[{index}].payload.method",
+                f"{payload['method']} already used for authoritative wound/day scope",
+            )
+        seen_new.add(scope_key)
 
 
 def _healing_roll_evidence(
@@ -3720,6 +3875,40 @@ def _healing_roll_evidence(
         "outcome": event.get("outcome"),
         "bonus_penalty_dice": 0,
         "dice": {"expression": "1D100", "raw": [roll], "total": roll},
+        "source_command_id": command_id,
+    }
+
+
+def _medicine_healing_evidence(
+    command_id: str,
+    payload: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any] | None:
+    dice = event.get("healing_dice")
+    if not isinstance(dice, dict) or dice.get("expression") != "1D3":
+        return None
+    raw = dice.get("raw")
+    total = dice.get("total")
+    if (
+        not isinstance(raw, list)
+        or not raw
+        or any(isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 3 for value in raw)
+        or isinstance(total, bool)
+        or not isinstance(total, int)
+        or total != sum(raw)
+    ):
+        raise _error("invalid_healing_roll", "medicine.healing_dice", "Medicine healing evidence is invalid")
+    return {
+        "event_type": "combat_healing_roll",
+        "roll_id": f"{command_id}:healing",
+        "decision_id": payload.get("decision_id"),
+        "skill": "HP Healing",
+        "target": None,
+        "difficulty": "healing",
+        "roll": total,
+        "outcome": "healing_applied",
+        "bonus_penalty_dice": 0,
+        "dice": {"expression": "1D3", "raw": list(raw), "total": total},
         "source_command_id": command_id,
     }
 
@@ -3872,6 +4061,7 @@ def _dispatch_combat(
         )
         rolls, engine_events = session.drain_pending()
         session.pending_attack = None
+        session.mark_current_initiative_acted()
         session.initiative_cursor += 1
         _normalize_combat_cursor(session)
         session.revision += 1
@@ -3911,6 +4101,8 @@ def _dispatch_combat(
             if isinstance(record, dict) and isinstance(record.get("roll_id"), str)
         ]
     elif kind in {"dying_tick", "stabilize"}:
+        if kind == "stabilize":
+            _persist_legacy_wound_ledger_if_needed(campaign_dir, investigator_id)
         healing = _healing_session(campaign_dir, character, investigator_id, rng)
         if "dead" in healing.conditions:
             raise _error("investigator_dead", "save/investigator-state", "dead investigators cannot be rescued")
@@ -3926,21 +4118,24 @@ def _dispatch_combat(
                     raise _error("wrong_dying_clock", "commands[0].payload.clock_kind", "stabilized state uses the hourly clock")
                 event = healing.dying_con_roll()
         elif payload["method"] == "first_aid":
-            healing.set_usage_scope(
-                str(payload.get("wound_id") or "active-wound"),
-                str(payload.get("day_id") or "day-0"),
+            wound_id, day_id, _same_day = _authoritative_treatment_scope(
+                campaign_dir, investigator_id, payload
             )
+            healing.set_usage_scope(wound_id, day_id)
             event = healing.first_aid(payload["skill_value"])
         else:
-            healing.set_usage_scope(
-                str(payload.get("wound_id") or "active-wound"),
-                str(payload.get("day_id") or "day-0"),
+            wound_id, day_id, same_day = _authoritative_treatment_scope(
+                campaign_dir, investigator_id, payload
             )
+            healing.set_usage_scope(wound_id, day_id)
             event = healing.medicine(
-                payload["skill_value"], same_day=bool(payload.get("same_day", True))
+                payload["skill_value"], same_day=same_day
             )
         healing.save(campaign_dir)
         roll_evidence = _healing_roll_evidence(command_id, payload, event)
+        healing_evidence = _medicine_healing_evidence(command_id, payload, event)
+        if kind == "stabilize":
+            event["treatment_scope"] = {"wound_id": wound_id, "day_id": day_id}
         event = {
             **_json_copy(event), "source_command_id": command_id,
             "roll_evidence": _json_copy(roll_evidence),
@@ -3962,6 +4157,18 @@ def _dispatch_combat(
         if payload["revision"] != session.revision:
             raise _error("stale_combat_revision", "commands[0].payload.revision", "combat revision is stale")
         session.conclude(payload["outcome"])
+        pacing_path = campaign_dir / "save" / "pacing-state.json"
+        turn_number = session.started_at_turn + session._turn_counter
+        if pacing_path.exists():
+            try:
+                pacing_state = json.loads(pacing_path.read_text(encoding="utf-8"))
+                trusted_turn = pacing_state.get("turn_number")
+            except (OSError, UnicodeError, json.JSONDecodeError, AttributeError) as exc:
+                raise _error("malformed_pacing_state", "save/pacing-state.json", str(exc)) from exc
+            if isinstance(trusted_turn, bool) or not isinstance(trusted_turn, int) or trusted_turn < 0:
+                raise _error("malformed_pacing_state", "save/pacing-state.json.turn_number", "turn_number must be non-negative")
+            turn_number = max(turn_number, trusted_turn)
+        session.ended_at_turn = turn_number
         session.revision += 1
         session.save(campaign_dir)
         # Ending combat is metadata-only.  Never overwrite healing/rescue state
@@ -3969,6 +4176,7 @@ def _dispatch_combat(
         event = {
             "event_type": "combat_ended", "combat_id": session.combat_id,
             "revision": session.revision, "outcome": session.outcome,
+            "ended_at_turn": session.ended_at_turn,
             "source_command_id": command_id,
         }
     refs = [f"save/investigator-state/{investigator_id}.json#current_hp"]
@@ -3979,6 +4187,8 @@ def _dispatch_combat(
         events.extend(roll_events)
     elif kind in {"dying_tick", "stabilize"} and event.get("roll_evidence") is not None:
         events.append(event["roll_evidence"])
+        if healing_evidence is not None:
+            events.append(healing_evidence)
     if kind in {"combat_defend", "dying_tick", "stabilize"} and len(events) > 1:
         refs.append(f"logs/rolls.jsonl#{command_id}")
     return {
@@ -4644,6 +4854,12 @@ def execute_commands(
         applied,
         character,
         investigator_id,
+    )
+    _preflight_treatment_commands(
+        campaign,
+        investigator_id,
+        validated,
+        applied,
     )
 
     inflight = _build_inflight(
