@@ -208,7 +208,10 @@ def test_combat_commands_persist_defense_and_reload_hp_atomically(tmp_path):
     assert mirror["current_hp"] == saved.participants["inv1"]["hp_current"]
     assert mirror["conditions"] == saved.participants["inv1"]["conditions"]
     for wound in mirror.get("wound_ledger", []):
-        assert wound["source_damage_roll_id"].startswith("fight-1:")
+        assert wound["source_damage_roll_id"] in {
+            damage["damage_roll_id"] for damage in saved.damage_chain
+            if damage.get("target_actor_id") == "inv1"
+        }
         assert wound["wound_id"] == f"wound-{wound['source_damage_roll_id'].replace(':', '-')}"
 
     replay = _execute(

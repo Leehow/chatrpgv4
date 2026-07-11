@@ -2140,11 +2140,16 @@ def test_live_combat_injury_reload_rescue_and_treatment_journey_is_replay_safe(t
     assert participant["hp_current"] == 0
     assert participant["major_wound_con"]["roll_id"]
     wound = json.loads(inv_path.read_text(encoding="utf-8"))["wound_ledger"][0]
-    assert wound["source_damage_roll_id"].endswith(resolved["turn"]["damage_roll_id"])
+    assert wound["source_damage_roll_id"] == resolved["turn"]["damage_roll_id"]
+    assert wound["wound_id"] == (
+        f"wound-{resolved['turn']['damage_roll_id'].replace(':', '-')}"
+    )
     reloaded = live_runner.subsystem_executor.coc_combat.CombatSession.load(
         camp, rng=random.Random(999)
     )
     assert reloaded.participants["inv1"]["conditions"] == participant["conditions"]
+    reloaded_wound = json.loads(inv_path.read_text(encoding="utf-8"))["wound_ledger"][0]
+    assert reloaded_wound == wound
 
     tick_request = {
         "kind": "dying_tick",
@@ -2166,6 +2171,7 @@ def test_live_combat_injury_reload_rescue_and_treatment_journey_is_replay_safe(t
     )
     assert replayed_tick["subsystem_results"] == ticked["subsystem_results"]
     assert (camp / "logs" / "rolls.jsonl").read_text(encoding="utf-8") == rolls_before_replay
+    assert json.loads(inv_path.read_text(encoding="utf-8"))["wound_ledger"] == [wound]
 
     first_aid = live_runner.run_live_turn(
         camp, char_path, "inv1", "", subsystem_request={

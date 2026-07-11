@@ -3689,7 +3689,7 @@ def _sync_investigator_from_combat(
     elapsed = _read_authoritative_elapsed_minutes(campaign_dir)
     for damage in session.damage_chain:
         source_damage_id = (
-            f"{session.combat_id}:{damage.get('damage_roll_id')}"
+            damage.get("damage_roll_id")
             if isinstance(damage, dict) and isinstance(damage.get("damage_roll_id"), str)
             else None
         )
@@ -3703,8 +3703,9 @@ def _sync_investigator_from_combat(
         landed = int(damage.get("raw_damage", 0)) - int(damage.get("armor_absorbed", 0))
         if landed <= 0:
             continue
+        normalized_damage_id = source_damage_id.replace(":", "-")
         ledger.append({
-            "wound_id": f"wound-{session.combat_id}-{damage['damage_roll_id']}",
+            "wound_id": f"wound-{normalized_damage_id}",
             "source_damage_roll_id": source_damage_id,
             "occurred_elapsed_minutes": elapsed,
             "status": "active",

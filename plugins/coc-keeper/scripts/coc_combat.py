@@ -387,12 +387,85 @@ class CombatSession:
         row = next(item for item in self.initiative_progress if item["actor_id"] == actor_id)
         if row["status"] != "pending":
             raise ValueError("initiative actor is not pending")
+        source_receipt = self._canonical_skip_source_receipt(
+            actor_id, self.rounds[-1]
+        )
+        if source_receipt is None:
+            raise ValueError("initiative skip lacks an authoritative source transition")
         row["status"] = "skipped_ineligible"
         row["skip_evidence"] = {
             "hp_current": participant["hp_current"],
             "conditions": list(participant["conditions"]),
+            "source_receipt": source_receipt,
         }
         self._sync_initiative_progress_history()
+
+    def _canonical_skip_source_receipt(
+        self, actor_id: str, round_row: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Rebuild the exact pre-initiative transition that made an actor skip.
+
+        A skip is not self-authenticating: its HP/condition snapshot must point
+        at a damage/status receipt produced by an earlier turn in the same
+        round.  Limiting eligible source turns to actors earlier in initiative
+        prevents a historical row from being rebound to a later plausible
+        damage record.
+        """
+        initiative = round_row.get("initiative_order") or []
+        positions = {
+            item.get("actor_id"): index
+            for index, item in enumerate(initiative)
+            if isinstance(item, dict)
+        }
+        skip_position = positions.get(actor_id)
+        if not isinstance(skip_position, int):
+            return None
+        allowed_turn_ids: list[str] = []
+        for turn in round_row.get("turns") or []:
+            if not isinstance(turn, dict):
+                continue
+            actor_position = positions.get(turn.get("actor_id"))
+            if not isinstance(actor_position, int) or actor_position >= skip_position:
+                continue
+            turn_id = turn.get("turn_id")
+            if isinstance(turn_id, str):
+                allowed_turn_ids.append(turn_id)
+        candidate: dict[str, Any] | None = None
+        for turn_id in allowed_turn_ids:
+            for damage in self.damage_chain:
+                if (
+                    not isinstance(damage, dict)
+                    or damage.get("source_turn_id") != turn_id
+                    or damage.get("target_actor_id") != actor_id
+                    or not isinstance(damage.get("damage_roll_id"), str)
+                ):
+                    continue
+                status_after = damage.get("status_after")
+                if not isinstance(status_after, dict):
+                    continue
+                hp_current = status_after.get("hp_current")
+                conditions = status_after.get("conditions")
+                if (
+                    isinstance(hp_current, bool)
+                    or not isinstance(hp_current, int)
+                    or not isinstance(conditions, list)
+                    or hp_current != damage.get("hp_after")
+                ):
+                    continue
+                if hp_current > 0 and not any(
+                    value in conditions
+                    for value in ("dead", "dying", "unconscious", "fled")
+                ):
+                    continue
+                candidate = {
+                    "kind": "damage_status",
+                    "round": round_row.get("round"),
+                    "source_turn_id": turn_id,
+                    "damage_roll_id": damage["damage_roll_id"],
+                    "hp_current": hp_current,
+                    "conditions": list(conditions),
+                }
+        return candidate
 
     def _sync_initiative_progress_history(self) -> None:
         if self.rounds:
@@ -994,6 +1067,20 @@ class CombatSession:
             elif resolution_hint == "other":
                 turn["outcome"] = "other"
             self._update_conditions(target_actor_id)
+            # Bind every damage record from this turn to the exact durable
+            # status it produced.  Initiative skip receipts later reference
+            # this canonical history instead of trusting a free-standing HP
+            # and conditions copy.
+            for damage in self.damage_chain:
+                if damage.get("source_turn_id") != turn["turn_id"]:
+                    continue
+                damaged_id = damage.get("target_actor_id")
+                damaged = self.participants.get(damaged_id)
+                if isinstance(damaged, dict):
+                    damage["status_after"] = {
+                        "hp_current": damaged["hp_current"],
+                        "conditions": list(damaged["conditions"]),
+                    }
             self.rounds[-1]["turns"].append(turn)
             return turn
         finally:
@@ -2275,7 +2362,10 @@ class CombatSession:
             "hp_current", "conditions", "dex", "combat_skill",
             "firearms_skill", "has_ready_firearm",
         }
-        def validate_skip_evidence(row: dict[str, Any], *, historical: bool) -> None:
+        def validate_skip_evidence(
+            row: dict[str, Any], *, historical: bool,
+            round_row: dict[str, Any],
+        ) -> None:
             """Validate the same eligibility receipt in live and past rounds."""
             evidence = row.get("skip_evidence")
             status = row.get("status")
@@ -2286,7 +2376,9 @@ class CombatSession:
                         raise ValueError(f"{prefix} excluded initiative actor is invalid")
                     raise ValueError(f"{prefix} initiative progress has unexpected skip evidence")
                 return
-            if not isinstance(evidence, dict) or set(evidence) != {"hp_current", "conditions"}:
+            if not isinstance(evidence, dict) or set(evidence) != {
+                "hp_current", "conditions", "source_receipt",
+            }:
                 raise ValueError(f"{prefix} initiative skip lacks eligibility evidence")
             hp_current = evidence.get("hp_current")
             conditions = evidence.get("conditions")
@@ -2303,6 +2395,18 @@ class CombatSession:
                 ))
             ):
                 raise ValueError(f"{prefix} initiative skip lacks eligibility evidence")
+            expected_source = session._canonical_skip_source_receipt(
+                row["actor_id"], round_row
+            )
+            if (
+                expected_source is None
+                or evidence.get("source_receipt") != expected_source
+                or hp_current != expected_source["hp_current"]
+                or conditions != expected_source["conditions"]
+            ):
+                raise ValueError(
+                    f"{prefix} initiative skip source receipt diverges from history"
+                )
         progress_by_actor: dict[str, dict[str, Any]] = {}
         for row in session.initiative_progress:
             if not isinstance(row, dict) or set(row) != progress_keys:
@@ -2336,7 +2440,9 @@ class CombatSession:
             if not eligible:
                 if initiative is not None or row["status"] != "excluded_at_round_start":
                     raise ValueError("combat excluded initiative actor is invalid")
-                validate_skip_evidence(row, historical=False)
+                validate_skip_evidence(
+                    row, historical=False, round_row=session.rounds[-1]
+                )
                 continue
             dex_reason = (
                 "ready_firearm"
@@ -2350,7 +2456,9 @@ class CombatSession:
             }
             if initiative != expected_row or row["status"] not in {"pending", "acted", "skipped_ineligible"}:
                 raise ValueError("combat eligible initiative actor is invalid")
-            validate_skip_evidence(row, historical=False)
+            validate_skip_evidence(
+                row, historical=False, round_row=session.rounds[-1]
+            )
             expected_from_roster.append(expected_row)
         expected_from_roster.sort(key=lambda row: (
             -row["dex"],
@@ -2393,11 +2501,15 @@ class CombatSession:
                 if not eligible:
                     if row.get("initiative") is not None or row.get("status") != "excluded_at_round_start":
                         raise ValueError("combat historical excluded actor is invalid")
-                    validate_skip_evidence(row, historical=True)
+                    validate_skip_evidence(
+                        row, historical=True, round_row=historical
+                    )
                     continue
                 if row.get("status") not in {"acted", "skipped_ineligible"}:
                     raise ValueError("combat historical initiative progress is incomplete")
-                validate_skip_evidence(row, historical=True)
+                validate_skip_evidence(
+                    row, historical=True, round_row=historical
+                )
                 dex_reason = (
                     "ready_firearm"
                     if evidence.get("has_ready_firearm") is True and evidence.get("firearms_skill", 0) > 0

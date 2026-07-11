@@ -1008,22 +1008,39 @@ def test_combat_snapshot_round_trip_preserves_revision_and_initiative(tmp_path):
 def _save_two_round_initiative_evidence(tmp_path):
     """Persist valid current and historical skip/exclusion evidence."""
     s = coc_combat.CombatSession("initiative-evidence", "test", 1, rng=random.Random(4))
+    lethal_weapon = [{
+        "weapon_id": "lethal", "skill": "Fighting", "damage": "20",
+        "adds_damage_bonus": False, "impales": False, "special": None,
+    }]
+    s.add_participant("fast", "monster", 90, 70, 0, 10, weapons=lethal_weapon)
+    s.add_participant("foe", "monster", 80, 45, 0, 8)
     s.add_participant("hero", "investigator", 70, 60, 0, 10)
-    s.add_participant("foe", "monster", 50, 45, 0, 8)
     s.add_participant(
         "fallen", "npc", 30, 30, 0, 6, conditions=["unconscious"]
     )
     s.participants["fallen"]["hp_current"] = 0
     s.begin_round()
-    s.participants["hero"]["hp_current"] = 0
-    s.participants["hero"]["conditions"] = ["unconscious"]
-    s.mark_current_initiative_skipped()
-    s.initiative_cursor += 1
+    s.declare_and_resolve_turn(
+        "fast", "lethal round-one damage", target_actor_id="hero",
+        weapon_id="lethal", resolution_hint="damage_only",
+    )
     s.mark_current_initiative_acted()
     s.initiative_cursor += 1
+    s.declare_and_resolve_turn(
+        "foe", "hold", resolution_hint="skill_check", skill="Listen",
+        target_value=45,
+    )
+    s.mark_current_initiative_acted()
+    s.initiative_cursor += 1
+    s.mark_current_initiative_skipped()
+    s.initiative_cursor += 1
     s.begin_round()
-    s.participants["foe"]["hp_current"] = 0
-    s.participants["foe"]["conditions"] = ["unconscious"]
+    s.declare_and_resolve_turn(
+        "fast", "lethal round-two damage", target_actor_id="foe",
+        weapon_id="lethal", resolution_hint="damage_only",
+    )
+    s.mark_current_initiative_acted()
+    s.initiative_cursor += 1
     s.mark_current_initiative_skipped()
     s.initiative_cursor += 1
     s.save(tmp_path)
@@ -1085,6 +1102,38 @@ def test_combat_load_rejects_skip_evidence_on_excluded_initiative_entries(tmp_pa
         )["skip_evidence"] = {"hp_current": 0, "conditions": ["unconscious"]}
     path.write_text(json.dumps(forged), encoding="utf-8")
     with pytest.raises(ValueError, match="excluded initiative actor"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+@pytest.mark.parametrize("scope", ["current", "historical"])
+def test_combat_load_rejects_coordinated_valid_looking_skip_replacement(tmp_path, scope):
+    """A plausible participant + skip edit cannot replace the source receipt."""
+    path = _save_two_round_initiative_evidence(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    actor_id = "foe" if scope == "current" else "hero"
+    rows = (
+        forged["initiative_progress"]
+        if scope == "current"
+        else forged["rounds"][0]["initiative_progress"]
+    )
+    row = next(item for item in rows if item["actor_id"] == actor_id)
+    assert row["skip_evidence"]["source_receipt"]["kind"] == "damage_status"
+    replacement = {"hp_current": 1, "conditions": ["unconscious"]}
+    row["skip_evidence"].update(replacement)
+    row["skip_evidence"]["source_receipt"].update(replacement)
+    forged_participant = next(
+        item for item in forged["participants"] if item["actor_id"] == actor_id
+    )
+    forged_participant.update(replacement)
+    if scope == "current":
+        mirrored = next(
+            item for item in forged["rounds"][-1]["initiative_progress"]
+            if item["actor_id"] == actor_id
+        )
+        mirrored["skip_evidence"].update(replacement)
+        mirrored["skip_evidence"]["source_receipt"].update(replacement)
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="initiative skip.*source|source.*initiative skip"):
         coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
 
 
