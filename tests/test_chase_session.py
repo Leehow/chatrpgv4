@@ -676,7 +676,7 @@ def test_persisted_chase_schema_restores_revision_cursor_and_counters(tmp_path):
     c.move_participant("ada", [{"type": "advance"}])
     path = c.save(tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["schema_version"] == 3
+    assert raw["schema_version"] == 4
     assert raw["revision"] == 2
     assert raw["initiative_cursor"] == 1
     assert raw["roll_counter"] == 0
@@ -783,3 +783,229 @@ def test_chase_load_rejects_forged_action_receipts_and_transitions(tmp_path, mut
 
     with pytest.raises(ValueError, match="chase snapshot"):
         coc_chase.ChaseSession.load(path)
+
+
+def test_chase_load_rejects_coordinated_first_advance_and_final_position_forgery(tmp_path):
+    c = _make_chase()
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+    c.set_location_chain([
+        {"label": "start"}, {"label": "middle"}, {"label": "escape"},
+    ])
+    c.begin_round()
+    c.move_participant("ada", [{"type": "advance"}])
+    path = c.save(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    action = state["rounds"][0]["turns"][0]["actions_taken"][0]
+    action.update({"new_position": 2, "location_label": "escape"})
+    state["participants"][0].update({"position": 2, "escaped": True})
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="position history"):
+        coc_chase.ChaseSession.load(path)
+
+
+@pytest.mark.parametrize("middle_kind", ["plain", "hazard", "barrier"])
+def test_chase_load_rejects_first_action_that_skips_an_adjacent_location(
+    tmp_path, middle_kind,
+):
+    middle = {"label": "middle", "hazard": None, "barrier": None}
+    if middle_kind == "hazard":
+        middle["hazard"] = {
+            "hazard_id": "mud", "skill": "DEX", "target": 50,
+            "difficulty": "regular", "damage_dice": "1D3",
+        }
+    elif middle_kind == "barrier":
+        middle["barrier"] = {
+            "barrier_id": "gate", "hp": 5, "hp_max": 5,
+            "skill": "Climb", "target": 50,
+        }
+    c = _make_chase()
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+    c.set_location_chain([
+        {"label": "start"}, {"label": "clear"}, middle,
+        {"label": "escape"},
+    ])
+    c.begin_round()
+    c.move_participant("ada", [{"type": "advance"}])
+    path = c.save(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    action = state["rounds"][0]["turns"][0]["actions_taken"][0]
+    action.update({"new_position": 2, "location_label": "middle"})
+    state["participants"][0]["position"] = 2
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="position history"):
+        coc_chase.ChaseSession.load(path)
+
+
+@pytest.mark.parametrize("special", ["hazard", "barrier"])
+def test_chase_load_rejects_adjacent_advance_that_skips_special_resolution(
+    tmp_path, special,
+):
+    destination = {"label": "middle", "hazard": None, "barrier": None}
+    if special == "hazard":
+        destination["hazard"] = {
+            "hazard_id": "mud", "skill": "DEX", "target": 50,
+            "difficulty": "regular", "damage_dice": "1D3",
+        }
+    else:
+        destination["barrier"] = {
+            "barrier_id": "gate", "hp": 5, "hp_max": 5,
+            "skill": "Climb", "target": 50,
+        }
+    c = _make_chase()
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+    c.set_location_chain([
+        {"label": "start"}, {"label": "clear"}, destination,
+    ])
+    c.begin_round()
+    c.move_participant("ada", [{"type": "advance"}])
+    path = c.save(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    action = state["rounds"][0]["turns"][0]["actions_taken"][0]
+    action.update({"new_position": 2, "location_label": "middle"})
+    state["participants"][0]["position"] = 2
+    action["position_before"] = 1
+    state["participants"][0]["position_origin"] = 1
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="position history"):
+        coc_chase.ChaseSession.load(path)
+
+
+@pytest.mark.parametrize("kind", ["hazard", "barrier", "vehicle"])
+def test_chase_load_rejects_tampered_positional_action_predecessor(tmp_path, kind):
+    c = _make_chase(seed=7)
+    if kind == "vehicle":
+        c.add_participant(
+            "ada", "quarry", mov=14, dex=60, drive_auto=80,
+            is_vehicle=True, build=5,
+        )
+        c.add_participant(
+            "cultist", "pursuer", mov=13, dex=50, drive_auto=50,
+            is_vehicle=True, build=5,
+        )
+        c.set_location_chain([{"label": f"loc{i}"} for i in range(5)])
+        action_input = {"type": "pedal_to_the_metal", "locations": 3}
+    else:
+        c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+        c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+        destination = {"label": kind, "hazard": None, "barrier": None}
+        if kind == "hazard":
+            destination["hazard"] = {
+                "hazard_id": "mud", "skill": "DEX", "target": 90,
+                "difficulty": "regular", "damage_dice": "1D3",
+            }
+            action_input = {"type": "advance"}
+        else:
+            destination["barrier"] = {
+                "barrier_id": "gate", "hp": 5, "hp_max": 5,
+                "skill": "Climb", "target": 90,
+            }
+            action_input = {"type": "barrier"}
+        c.set_location_chain([{"label": "start"}, destination])
+    c.begin_round()
+    c.move_participant("ada", [action_input])
+    path = c.save(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    action = state["rounds"][0]["turns"][0]["actions_taken"][0]
+    action["position_before"] = 1
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="position history"):
+        coc_chase.ChaseSession.load(path)
+
+
+def test_positional_action_receipts_bind_exact_predecessor_for_all_move_kinds():
+    clear = _make_chase()
+    clear.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    clear.set_location_chain([{"label": "start"}, {"label": "clear"}])
+    clear.begin_round()
+    advance = clear.move_participant("ada", [{"type": "advance"}])["actions_taken"][0]
+    assert advance["position_before"] == 0
+
+    hazard_chase = _make_chase(seed=7)
+    hazard_chase.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    hazard_chase.set_location_chain([
+        {"label": "start"},
+        {"label": "mud", "hazard": {
+            "hazard_id": "mud", "skill": "DEX", "target": 90,
+            "difficulty": "regular", "damage_dice": "1D3",
+        }},
+    ])
+    hazard_chase.begin_round()
+    hazard = hazard_chase.move_participant(
+        "ada", [{"type": "advance"}],
+    )["actions_taken"][0]
+    assert hazard["position_before"] == 0
+
+    barrier_chase = _make_chase(seed=7)
+    barrier_chase.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    barrier_chase.set_location_chain([
+        {"label": "start"},
+        {"label": "gate", "barrier": {
+            "barrier_id": "gate", "hp": 5, "hp_max": 5,
+            "skill": "Climb", "target": 90,
+        }},
+    ])
+    barrier_chase.begin_round()
+    barrier = barrier_chase.move_participant(
+        "ada", [{"type": "barrier"}],
+    )["actions_taken"][0]
+    assert barrier["position_before"] == 0
+
+    vehicle = _make_chase(seed=8)
+    vehicle.add_participant(
+        "car", "quarry", mov=14, dex=60, drive_auto=80,
+        is_vehicle=True, build=5,
+    )
+    vehicle.set_location_chain([{"label": f"loc{i}"} for i in range(5)])
+    vehicle.begin_round()
+    pedal = vehicle.move_participant(
+        "car", [{"type": "pedal_to_the_metal", "locations": 3}],
+    )["actions_taken"][0]
+    assert pedal["position_before"] == 0
+    assert pedal["new_position"] == 3
+
+
+def test_chase_schema_v4_rejects_unanchored_v3_snapshots(tmp_path):
+    c = _make_chase()
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.set_location_chain([{"label": "start"}, {"label": "escape"}])
+    c.begin_round()
+    path = c.save(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    assert state["schema_version"] == 4
+    state["schema_version"] = 3
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema_version is unsupported"):
+        coc_chase.ChaseSession.load(path)
+
+
+def test_schema_v4_replays_vehicle_pedal_stopped_by_failed_barrier_break(tmp_path):
+    c = _make_chase(seed=99)
+    c.add_participant(
+        "bike", "quarry", mov=13, dex=60, drive_auto=40,
+        is_vehicle=True, build=1,
+    )
+    c.set_location_chain([
+        {"label": "start"},
+        {"label": "wall", "barrier": {
+            "barrier_id": "wall", "hp": 25, "hp_max": 25,
+            "skill": "Drive Auto", "target": 40,
+        }},
+        {"label": "escape"},
+    ])
+    c.begin_round()
+    action = c.move_participant(
+        "bike", [{"type": "pedal_to_the_metal", "locations": 2}],
+    )["actions_taken"][0]
+    assert action["locations_moved"] == 0
+    assert action["hazard_results"][0]["vehicle_wrecked"] is True
+
+    loaded = coc_chase.ChaseSession.load(c.save(tmp_path), rng=random.Random(99))
+    assert loaded.participants["bike"]["position"] == 0
