@@ -363,6 +363,10 @@ NPC 可额外声明 A21 的结构化交谈合同：`known_fact_ids`、
 `lie_option`、`deflect_option`）、`lie_options`、`deflect_options`、
 `leverage_ids`、`active_reactions`、`availability.status` 与 `schedule[]`。
 `schedule[]` 使用 `scene_ids` / `time_categories` / `status` 的精确字段；
+`facts[]` 只登记事实元数据，不会隐式授予知识或披露权限；这两道门只读取
+`known_fact_ids` 与 `revealable_fact_ids`（空数组保持为空）。两个 schedule
+条目的 scene/time 条件域若有交集，就不得声明互相冲突的 status，以保证
+运行结果与条目顺序无关。
 不得扫描 agenda/fear/secret/keeper_note 的自然语言来判断 NPC 是否知道、
 愿意说、撒谎或在场。`disclosure_order` 是未命中请求时唯一允许的已编排
 fallback 顺序。

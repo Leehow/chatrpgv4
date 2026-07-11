@@ -52,6 +52,31 @@ A21_LIST_FIELDS = (
     "known_fact_ids", "revealable_fact_ids", "disclosure_order", "leverage_ids",
 )
 
+SOCIAL_CLUE_DELIVERY_KINDS = frozenset({"npc_dialogue", "social"})
+
+
+def is_social_clue_plan(plan: Any) -> bool:
+    """Classify an A21-gated plan from structured fields only.
+
+    Apply and narration must use this same predicate: otherwise a social plan
+    with zero disclosure decisions can be denied by apply while its pre-gate
+    prose still crosses the narrator boundary.
+    """
+    if not isinstance(plan, dict):
+        return False
+    policy = plan.get("clue_policy")
+    delivery_kind = policy.get("delivery_kind") if isinstance(policy, dict) else None
+    decisions = plan.get("disclosure_decisions")
+    return delivery_kind in SOCIAL_CLUE_DELIVERY_KINDS or bool(
+        isinstance(decisions, list) and decisions
+    )
+
+
+def _domains_overlap(left: dict[str, Any], right: dict[str, Any], field: str) -> bool:
+    left_values = set(_string_list(left.get(field)))
+    right_values = set(_string_list(right.get(field)))
+    return not left_values or not right_values or bool(left_values & right_values)
+
 
 def _state_path(campaign_dir: Path) -> Path:
     return Path(campaign_dir) / "save" / "npc-state.json"
@@ -278,6 +303,7 @@ def validate_a21_contract(
             fail(f"{path}.schedule", "schedule must be a list")
         else:
             schedule_ids: list[str] = []
+            valid_slots: list[dict[str, Any]] = []
             for si, slot in enumerate(schedule):
                 spath = f"{path}.schedule[{si}]"
                 if not isinstance(slot, dict) or not isinstance(slot.get("schedule_id"), str) or not slot["schedule_id"].strip():
@@ -291,8 +317,22 @@ def validate_a21_contract(
                 if "time_categories" in slot and not _valid_string_list(slot["time_categories"]):
                     fail(f"{spath}.time_categories", "time_categories must be a unique string list")
                 schedule_ids.append(slot["schedule_id"])
+                if (not (set(slot) - allowed)
+                        and slot.get("status") in {"available", "unavailable"}
+                        and ("scene_ids" not in slot or _valid_string_list(slot["scene_ids"]))
+                        and ("time_categories" not in slot or _valid_string_list(slot["time_categories"]))):
+                    valid_slots.append(slot)
             if len(schedule_ids) != len(set(schedule_ids)):
                 fail(f"{path}.schedule", "schedule_id values must be unique")
+            for left_index, left in enumerate(valid_slots):
+                for right in valid_slots[left_index + 1:]:
+                    if (left["status"] != right["status"]
+                            and _domains_overlap(left, right, "scene_ids")
+                            and _domains_overlap(left, right, "time_categories")):
+                        fail(
+                            f"{path}.schedule",
+                            "schedule has overlapping condition domains with conflicting statuses",
+                        )
     return findings
 
 
@@ -488,7 +528,10 @@ def derive_interaction_effects(
         tactic = interaction.get("tactic")
         if not npc_id or not request_id or not isinstance(tactic, str):
             continue
-        success = bindings[str(request_id)].get("success")
+        result = bindings.get(str(request_id))
+        if result is None:
+            continue
+        success = result.get("success")
         if not isinstance(success, bool):
             continue
         for field, delta in _INTERACTION_EFFECTS.get((tactic, success), ()):
@@ -512,6 +555,11 @@ def _interaction_result_bindings(
     ids = [str(row.get("request_id") or "").strip() for row in rows]
     if not ids or any(not rid for rid in ids) or len(ids) != len(set(ids)):
         return None
+    required_ids = {
+        str(row.get("request_id") or "").strip()
+        for row in rows
+        if isinstance(row.get("skill"), str) and row["skill"].strip()
+    }
     wanted = set(ids)
     bindings: dict[str, dict[str, Any]] = {}
     used_rows: set[int] = set()
@@ -527,11 +575,19 @@ def _interaction_result_bindings(
                 return None
             if rid in bound:
                 matches.append((index, result))
+        if not matches and rid not in required_ids:
+            continue
         if len(matches) != 1 or matches[0][0] in used_rows:
             return None
         used_rows.add(matches[0][0])
         bindings[rid] = matches[0][1]
     return bindings
+
+
+def interaction_result_bindings_valid(interactions: Any, results: Any) -> bool:
+    """Public validity predicate for the live post-rule boundary."""
+    rows = [result for result in (results or []) if isinstance(result, dict)]
+    return _interaction_result_bindings(interactions, rows) is not None
 
 
 def _authored_fact_specs(agenda: dict[str, Any]) -> list[dict[str, Any]]:
@@ -555,13 +611,8 @@ def effective_npc_entry(
     knowledge = authored.get("knowledge") if isinstance(authored.get("knowledge"), dict) else {}
     specs = _authored_fact_specs(authored)
     known = _string_list(authored.get("known_fact_ids", knowledge.get("known_fact_ids")))
-    known.extend(str(s["fact_id"]) for s in specs if s.get("fact_id") and str(s["fact_id"]) not in known)
     revealable = _string_list(
         authored.get("revealable_fact_ids", knowledge.get("revealable_fact_ids"))
-    )
-    revealable.extend(
-        str(s["fact_id"]) for s in specs
-        if s.get("fact_id") and s.get("revealable") is not False and str(s["fact_id"]) not in revealable
     )
     for key, values in (("known_facts", known), ("revealable_facts", revealable)):
         entry[key] = _string_list([*entry[key], *values])
@@ -591,6 +642,7 @@ def effective_npc_entry(
         # An authored schedule is an allow-list. Being generally available
         # does not make the NPC appear outside every scheduled slot.
         entry["availability"] = {"status": "unavailable"}
+    matched_statuses: set[str] = set()
     for slot in entry["schedule"]:
         scene_ids = _string_list(slot.get("scene_ids"))
         categories = _string_list(slot.get("time_categories"))
@@ -599,8 +651,13 @@ def effective_npc_entry(
         if categories and str(time_category or "") not in categories:
             continue
         status = str(slot.get("status") or "unavailable")
-        entry["availability"] = {"status": status if status in {"available", "unavailable"} else "unavailable"}
-        break
+        matched_statuses.add(status if status in {"available", "unavailable"} else "unavailable")
+    if len(matched_statuses) == 1:
+        entry["availability"] = {"status": next(iter(matched_statuses))}
+    elif len(matched_statuses) > 1:
+        # Invalid/unvalidated conflicting schedules fail closed and remain
+        # deterministic regardless of authoring order.
+        entry["availability"] = {"status": "unavailable"}
     return entry
 
 
@@ -628,7 +685,7 @@ def enrich_plan_after_rules(
     valid: list[dict[str, Any]] = []
     decisions: list[dict[str, Any]] = []
     warnings = list(enriched.get("validation_warnings") or [])
-    if _interaction_result_bindings(interactions, [r for r in (rule_results or []) if isinstance(r, dict)]) is None:
+    if not interaction_result_bindings_valid(interactions, rule_results or []):
         warnings.append({
             "field": "player_intent_rich.npc_interactions",
             "reason_code": "interaction_request_binding_invalid",

@@ -499,6 +499,77 @@ def test_schedule_gate_overrides_default_availability():
     assert outside["availability"] == {"status": "unavailable"}
 
 
+def test_fact_metadata_does_not_grant_knowledge_or_revealability():
+    authored = {
+        "facts": [{"fact_id": "fact-a", "clue_id": "clue-a", "min_trust": 0}],
+        "known_fact_ids": [], "revealable_fact_ids": [],
+        "availability": {"status": "available"}, "schedule": [],
+    }
+    entry = coc_npc_state.effective_npc_entry(authored, {})
+    assert entry["known_facts"] == []
+    assert entry["revealable_facts"] == []
+    assert coc_npc_state.disclosure_decision(entry, "fact-a")["reason_code"] == "fact_not_known"
+
+
+def test_pure_request_fact_needs_no_rule_result_and_still_runs_disclosure_gate():
+    agenda = {
+        "npc_id": "npc-a", "known_fact_ids": ["fact-a"],
+        "revealable_fact_ids": ["fact-a"], "disclosure_order": ["fact-a"],
+        "facts": [{"fact_id": "fact-a", "clue_id": "clue-a", "min_trust": 0}],
+        "availability": {"status": "available"}, "schedule": [],
+    }
+    ctx = {
+        "player_intent_rich": {"npc_interactions": [{
+            "npc_id": "npc-a", "tactic": "request_fact", "request_id": "ask-1",
+            "fact_id": "fact-a",
+        }]},
+        "active_scene": {"npc_ids": ["npc-a"]}, "active_scene_id": "scene-a",
+        "npc_agendas": {"npcs": [agenda]}, "npc_state": {"psych": {}},
+        "clue_graph": {"conclusions": [{"clues": [{
+            "clue_id": "clue-a", "delivery_kind": "npc_dialogue",
+            "source_npc_ids": ["npc-a"],
+        }]}]},
+    }
+    result = coc_npc_state.enrich_plan_after_rules(
+        {"decision_id": "d-ask", "clue_policy": {
+            "reveal": ["clue-a"], "delivery_kind": "npc_dialogue",
+        }}, ctx, [],
+    )
+    assert result["npc_interactions"][0]["request_id"] == "ask-1"
+    assert result["npc_effects"] == []
+    assert result["disclosure_decisions"][0]["outcome"] == "reveal"
+    assert not any(w.get("reason_code") == "interaction_request_binding_invalid"
+                   for w in result["validation_warnings"])
+
+
+def test_rule_bound_interaction_still_requires_exact_unique_result():
+    interaction = [{
+        "npc_id": "npc-a", "tactic": "build_rapport", "request_id": "r1",
+        "skill": "Charm",
+    }]
+    assert coc_npc_state.derive_interaction_effects(interaction, []) == []
+    assert coc_npc_state.interaction_result_bindings_valid(interaction, []) is False
+
+
+def test_conflicting_overlapping_schedule_domains_are_rejected_and_fail_closed():
+    agenda = {"npcs": [{
+        "npc_id": "npc-a", "known_fact_ids": [], "revealable_fact_ids": [],
+        "facts": [], "availability": {"status": "available"},
+        "schedule": [
+            {"schedule_id": "scene", "scene_ids": ["scene-a"], "status": "available"},
+            {"schedule_id": "night", "time_categories": ["overnight"], "status": "unavailable"},
+        ],
+    }]}
+    findings = coc_npc_state.validate_a21_contract(agenda, {"conclusions": []})
+    assert any("overlapping" in finding["message"] for finding in findings)
+    for schedule in (agenda["npcs"][0]["schedule"], list(reversed(agenda["npcs"][0]["schedule"]))):
+        entry = coc_npc_state.effective_npc_entry(
+            {**agenda["npcs"][0], "schedule": schedule}, {},
+            scene_id="scene-a", time_category="overnight",
+        )
+        assert entry["availability"] == {"status": "unavailable"}
+
+
 def test_persisted_availability_override_beats_authored_baseline_but_schedule_is_current_gate():
     authored = {
         "availability": {"status": "available"},

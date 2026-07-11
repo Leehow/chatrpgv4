@@ -138,6 +138,26 @@ def test_runtime_context_rejects_invalid_a21_contract(tmp_path):
     )
     assert findings and findings[0]["code"] == "npc_a21_contract_invalid"
 
+
+def test_schedule_conflicts_fail_disk_and_compiled_validation(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    doc = json.loads((sc / "npc-agendas.json").read_text())
+    doc["npcs"][0].update({
+        "known_fact_ids": [], "revealable_fact_ids": [], "facts": [],
+        "availability": {"status": "available"},
+        "schedule": [
+            {"schedule_id": "a", "scene_ids": ["s1"], "status": "available"},
+            {"schedule_id": "b", "time_categories": ["overnight"], "status": "unavailable"},
+        ],
+    })
+    (sc / "npc-agendas.json").write_text(json.dumps(doc))
+    disk = coc_scenario_compile.validate_scenario(sc)
+    compiled = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+    assert any("overlapping" in error for error in disk["errors"])
+    assert any("overlapping" in finding["message"] for finding in compiled)
+
 def test_validate_bad_structure_type(tmp_path):
     sc = _make_valid_scenario(tmp_path)
     m = json.loads((sc/"module-meta.json").read_text())

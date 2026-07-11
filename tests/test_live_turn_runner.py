@@ -1635,6 +1635,77 @@ def test_live_turn_post_rule_npc_interaction_persists_and_gates_disclosure(tmp_p
     assert "schedule" not in envelope_blob
 
 
+def test_live_pure_request_fact_without_roll_runs_exact_disclosure_gates(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    scn = camp / "scenario"
+    story = json.loads((scn / "story-graph.json").read_text())
+    story["scenes"][0]["npc_ids"] = ["npc-knott"]
+    (scn / "story-graph.json").write_text(json.dumps(story))
+    clues = json.loads((scn / "clue-graph.json").read_text())
+    clues["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "npc_dialogue", "source_npc_ids": ["npc-knott"],
+        "player_safe_summary": "Knott confirms the public commission.",
+    })
+    (scn / "clue-graph.json").write_text(json.dumps(clues))
+    (scn / "npc-agendas.json").write_text(json.dumps({"npcs": [{
+        "npc_id": "npc-knott", "name": "Steven Knott", "agenda": "commission",
+        "known_fact_ids": ["fact-commission"],
+        "revealable_fact_ids": ["fact-commission"],
+        "disclosure_order": ["fact-commission"],
+        "facts": [{"fact_id": "fact-commission", "clue_id": "c1", "min_trust": 0}],
+        "availability": {"status": "available"}, "schedule": [],
+    }]}))
+    rich = {
+        "primary_intent": "social", "secondary_intents": [],
+        "target_entities": ["npc-knott"], "risk_posture": "neutral",
+        "explicit_roll_request": False, "player_hypothesis": None,
+        "action_atoms": [], "npc_interactions": [{
+            "npc_id": "npc-knott", "tactic": "request_fact",
+            "request_id": "ask-commission", "fact_id": "fact-commission",
+        }],
+    }
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "I ask Knott about the commission.",
+        intent_class="social", player_intent_rich=rich,
+        recording_mode="sync", rng_seed=5,
+    )
+    turn = result["turns"][0]
+    assert not any(row.get("request_id") == "ask-commission"
+                   for row in turn["rules_requests"])
+    assert turn["disclosure_decisions"][0]["outcome"] == "reveal"
+    assert "c1" in turn["clue_revealed"]
+
+
+def test_live_social_clue_with_zero_decisions_leaks_no_pregate_channels(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    scn = camp / "scenario"
+    clues = json.loads((scn / "clue-graph.json").read_text())
+    clues["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "npc_dialogue", "source_npc_ids": ["npc-knott"],
+        "player_safe_summary": "PRIVATE PRE-GATE SOCIAL CLUE",
+    })
+    (scn / "clue-graph.json").write_text(json.dumps(clues))
+    (scn / "npc-agendas.json").write_text(json.dumps({"npcs": [{
+        "npc_id": "npc-knott", "agenda": "private",
+        "known_fact_ids": [], "revealable_fact_ids": [], "facts": [],
+        "availability": {"status": "available"}, "schedule": [],
+    }]}))
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "I look around without speaking to Knott.",
+        intent_class="investigate", recording_mode="sync", rng_seed=5,
+    )
+    turn = result["turns"][0]
+    assert turn["disclosure_decisions"] == []
+    assert "c1" not in turn["clue_revealed"]
+    envelope = turn["narration_envelope"]
+    assert envelope["approved_reveals"]["clue_ids"] == []
+    assert envelope["approved_reveals"]["must_include"] == []
+    assert envelope["approved_reveals"]["leads"] == []
+    assert envelope["approved_reveals"]["fallback_routes"] == []
+    assert envelope["choice_frame"] == {}
+    assert "PRIVATE PRE-GATE SOCIAL CLUE" not in json.dumps(envelope)
+
+
 @pytest.mark.parametrize("response_kind", ["lie", "deflect", "withhold"])
 def test_live_social_non_reveal_never_leaks_true_clue_to_narrator(tmp_path, response_kind):
     camp, char_path = _build_live_campaign(tmp_path)

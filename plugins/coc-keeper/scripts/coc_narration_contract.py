@@ -27,6 +27,7 @@ from coc_narration_style import (
     guard_player_visible_text,
     player_facing_style_contract as _player_facing_style_contract,
 )
+import coc_npc_state
 
 # guard_player_visible_text findings use severity "rewrite" (advisory).
 # Only "block" would gate a turn; the prose guard does not emit it today.
@@ -816,7 +817,9 @@ def build_narration_envelope(
             for decision in disclosure_decisions
         ]
     reveal_must_include = list(directives.get("must_include") or [])
-    social_post_apply = applied_events is not None and bool(plan.get("disclosure_decisions"))
+    social_post_apply = (
+        applied_events is not None and coc_npc_state.is_social_clue_plan(plan)
+    )
     if social_post_apply:
         # Social prose may have been compiled before the apply-side disclosure
         # gate. Only canonical clue summaries from actual clue_reveal events are

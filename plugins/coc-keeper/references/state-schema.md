@@ -122,7 +122,9 @@ Social disclosure uses this exact order: NPC availability, fact knowledge,
 fact revealability, active reaction, willingness (trust or authored leverage),
 then reveal. A social clue is committed only when a matching decision is
 `outcome=reveal`; lie/deflect outcomes may update NPC memory but never commit
-the clue. Narrator envelopes expose a field-level public projection and omit
+the clue. Authored fact metadata does not implicitly populate either knowledge
+list, and conflicting overlapping schedule domains are invalid (runtime reads
+fail closed if an unvalidated conflict reaches them). Narrator envelopes expose a field-level public projection and omit
 raw agendas, fact registries, lies, schedules, secrets, and internal agency.
 
 Memory has two complementary tracks: `memory/session-summaries.jsonl` is the

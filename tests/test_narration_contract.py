@@ -696,3 +696,27 @@ def test_envelope_omits_redirection_when_absent():
     plan = _good_plan()
     envelope = cnc.build_narration_envelope(plan)
     assert "redirection" not in envelope or envelope.get("redirection") is None
+
+
+def test_social_delivery_without_decisions_exposes_only_committed_clue_events():
+    plan = _good_plan()
+    plan["clue_policy"].update({
+        "delivery_kind": "npc_dialogue",
+        "leads": ["clue-public-1"],
+        "fallback_routes": ["clue-secret-fallback"],
+    })
+    plan["narrative_directives"]["must_include"] = ["PRE_GATE_SECRET"]
+    plan["choice_frame"] = {"routes": [{"clue_id": "clue-secret-fallback"}]}
+    envelope = cnc.build_narration_envelope(
+        plan,
+        clue_graph={"conclusions": [{"clues": [{
+            "clue_id": "clue-public-1", "player_safe_summary": "公开摘要",
+        }]}]},
+        applied_events=[],
+    )
+    assert envelope["approved_reveals"] == {
+        "clue_ids": [], "clues": [], "must_include": [], "leads": [],
+        "fallback_routes": [],
+    }
+    assert envelope["choice_frame"] == {}
+    assert "PRE_GATE_SECRET" not in json.dumps(envelope, ensure_ascii=False)

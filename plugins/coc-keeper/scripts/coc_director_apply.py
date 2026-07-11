@@ -641,9 +641,7 @@ def _gate_social_clues_and_persist_disclosure(
     """
     policy = plan.get("clue_policy") if isinstance(plan.get("clue_policy"), dict) else {}
     decisions = [d for d in (plan.get("disclosure_decisions") or []) if isinstance(d, dict)]
-    delivery = str(policy.get("delivery_kind") or policy.get("delivery") or "")
-    social = delivery in {"npc_dialogue", "social"} or bool(decisions)
-    if not social:
+    if not coc_npc_state.is_social_clue_plan(plan):
         return plan, []
 
     events: list[dict[str, Any]] = []
