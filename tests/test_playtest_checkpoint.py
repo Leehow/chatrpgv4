@@ -67,20 +67,23 @@ def _provenance(*, player_mode: str = "whitebox") -> dict[str, object]:
         "player_mode": player_mode,
         "model_identity": {
             "provider": "openai",
-            "model": "gpt-test",
-            "snapshot": "2026-07-12",
+            "id": "gpt-test",
         },
         "request_id": "req-1",
     }
 
 
 def _append_one(store) -> Path:
+    return _append_with_provenance(store, _provenance())
+
+
+def _append_with_provenance(store, provenance: dict[str, object]) -> Path:
     return store.append_turn(
         {"kind": "investigate", "target": "hotel ledger"},
         [{"kind": "clue_discovered", "clue_id": "ledger"}],
         {"turn": 0, "hp": 10},
         {"turn": 1, "hp": 10},
-        _provenance(),
+        provenance,
     )
 
 
@@ -140,7 +143,7 @@ def test_append_turn_is_durable_and_manifest_is_complete(tmp_path: Path):
     assert manifest["run_id"] == "masks-run-a"
     assert manifest["turn_number"] == 1
     assert manifest["action_chain_sha256"] == store.action_chain_sha256
-    assert manifest["model_identity"]["model"] == "gpt-test"
+    assert manifest["model_identity"] == {"provider": "openai", "id": "gpt-test"}
     assert manifest["invalidation_state"] == {"invalidated": False, "segments": []}
     assert manifest["state_files"]
 
@@ -665,4 +668,258 @@ def test_restore_hashes_live_sources_through_verified_workspace_fd(
         store.restore_checkpoint(checkpoint_dir, target)
 
     assert attacked is True
+    assert not target.exists()
+
+
+def test_workspace_root_identity_survives_stable_ancestor_but_rejects_retarget(
+    tmp_path: Path,
+):
+    root_a = tmp_path / "root-a"
+    root_b = tmp_path / "root-b"
+    workspace_a = root_a / "workspace"
+    workspace_b = root_b / "workspace"
+    _seed_workspace(workspace_a)
+    _seed_workspace(workspace_b)
+    alias = tmp_path / "workspace-parent"
+    alias.symlink_to(root_a, target_is_directory=True)
+    workspace = alias / "workspace"
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+
+    alias.unlink()
+    alias.symlink_to(root_b, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="workspace.*replace|replace.*workspace"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert not (store.run_dir / "checkpoints").exists()
+
+
+def test_workspace_ancestor_aba_cannot_select_names_from_replacement_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    root_a = tmp_path / "root-a"
+    root_b = tmp_path / "root-b"
+    workspace_a = root_a / "workspace"
+    workspace_b = root_b / "workspace"
+    _seed_workspace(workspace_a)
+    paths_b = _seed_workspace(workspace_b)
+    paths_b["scenario"].unlink()
+    alias = tmp_path / "workspace-parent"
+    alias.symlink_to(root_a, target_is_directory=True)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", alias / "workspace", "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+    original = store._workspace_files
+
+    def aba_workspace_files():
+        alias.unlink()
+        alias.symlink_to(root_b, target_is_directory=True)
+        try:
+            yield from original()
+        finally:
+            alias.unlink()
+            alias.symlink_to(root_a, target_is_directory=True)
+
+    monkeypatch.setattr(store, "_workspace_files", aba_workspace_files)
+    checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
+    manifest = json.loads((checkpoint_dir / "manifest.json").read_text(encoding="utf-8"))
+
+    assert "campaigns/masks-run-a/scenario/hotel.json" in manifest["scenario_hashes"]
+
+
+def test_checkpoint_validates_live_journal_before_publication(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    ledger = _append_one(store)
+    row = json.loads(ledger.read_text(encoding="utf-8"))
+    row["action"]["target"] = "tampered live journal"
+    row["row_sha256"] = _canonical_sha256(
+        {key: value for key, value in row.items() if key != "row_sha256"}
+    )
+    ledger.write_text(
+        json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="journal|action chain"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert not (store.run_dir / "checkpoints").exists()
+
+
+def test_restore_rejects_tampered_rehashed_action_journal(tmp_path: Path):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    journal_entry = next(
+        entry
+        for entry in manifest["state_files"]
+        if entry["workspace_path"].endswith("/actions.jsonl")
+    )
+    journal = checkpoint_dir / journal_entry["path"]
+    row = json.loads(journal.read_text(encoding="utf-8"))
+    row["action"]["target"] = "tampered target"
+    row["row_sha256"] = _canonical_sha256(
+        {key: value for key, value in row.items() if key != "row_sha256"}
+    )
+    payload = (
+        json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
+    journal.write_bytes(payload)
+    journal_entry["sha256"] = hashlib.sha256(payload).hexdigest()
+    journal_entry["size"] = len(payload)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    target = tmp_path / "fresh"
+    with pytest.raises(ValueError, match="journal|action chain"):
+        store.restore_checkpoint(checkpoint_dir, target)
+    assert not target.exists()
+
+
+def test_restore_rejects_rehashed_journal_with_nonsequential_first_turn(
+    tmp_path: Path,
+):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    journal_entry = next(
+        entry
+        for entry in manifest["state_files"]
+        if entry["workspace_path"].endswith("/actions.jsonl")
+    )
+    journal = checkpoint_dir / journal_entry["path"]
+    row = json.loads(journal.read_text(encoding="utf-8"))
+    row["turn_number"] = 2
+    row["row_sha256"] = _canonical_sha256(
+        {key: value for key, value in row.items() if key != "row_sha256"}
+    )
+    payload = (
+        json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
+    journal.write_bytes(payload)
+    journal_entry["sha256"] = hashlib.sha256(payload).hexdigest()
+    journal_entry["size"] = len(payload)
+    manifest["action_chain_sha256"] = row["row_sha256"]
+    manifest["turn_number"] = 2
+    store.action_chain_sha256 = row["row_sha256"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    target = tmp_path / "fresh"
+    with pytest.raises(ValueError, match="journal.*turn|turn.*journal"):
+        store.restore_checkpoint(checkpoint_dir, target)
+    assert not target.exists()
+
+
+def test_restore_rejects_rehashed_noncanonical_crlf_journal(tmp_path: Path):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    journal_entry = next(
+        entry
+        for entry in manifest["state_files"]
+        if entry["workspace_path"].endswith("/actions.jsonl")
+    )
+    journal = checkpoint_dir / journal_entry["path"]
+    payload = journal.read_bytes().replace(b"\n", b"\r\n")
+    journal.write_bytes(payload)
+    journal_entry["sha256"] = hashlib.sha256(payload).hexdigest()
+    journal_entry["size"] = len(payload)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    target = tmp_path / "fresh"
+    with pytest.raises(ValueError, match="journal.*canonical|canonical.*journal"):
+        store.restore_checkpoint(checkpoint_dir, target)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("turn_number", [True, 1.0, "1", -1, 0, 2])
+def test_checkpoint_turn_must_equal_current_integer_turn_before_publication(
+    tmp_path: Path, turn_number: object
+):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+
+    with pytest.raises(ValueError, match="turn"):
+        store.write_checkpoint("sess_123", turn_number, "turn_complete")
+    assert not (store.run_dir / "checkpoints").exists()
+
+
+@pytest.mark.parametrize(
+    "model_identity",
+    [
+        {"provider": "openai", "id": "gpt-test", "api_key": "not-a-real-secret"},
+        {"provider": "openai", "id": "gpt-test", "token": "not-a-real-token"},
+        {"provider": "", "id": "gpt-test"},
+        {"provider": "open ai", "id": "gpt-test"},
+        {"provider": "openai", "id": ""},
+        {"provider": "openai", "id": "gpt-test\nforged"},
+        ["openai", "gpt-test"],
+    ],
+)
+def test_checkpoint_rejects_unsafe_model_identity_before_publication(
+    tmp_path: Path, model_identity: object
+):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    provenance = {
+        "player_mode": "whitebox",
+        "model_identity": model_identity,
+        "request_id": "req-1",
+    }
+    _append_with_provenance(store, provenance)
+
+    with pytest.raises(ValueError, match="model identity"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert not (store.run_dir / "checkpoints").exists()
+
+
+@pytest.mark.parametrize("identity_mode", ["absent", "none", "empty"])
+def test_checkpoint_normalizes_absent_or_empty_model_identity(
+    tmp_path: Path, identity_mode: str
+):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    provenance: dict[str, object] = {
+        "player_mode": "whitebox",
+        "request_id": "req-1",
+    }
+    if identity_mode == "none":
+        provenance["model_identity"] = None
+    if identity_mode == "empty":
+        provenance["model_identity"] = {}
+    _append_with_provenance(store, provenance)
+
+    checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
+    manifest = json.loads((checkpoint_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["model_identity"] == {}
+
+
+def test_restore_rejects_manifest_model_identity_with_extra_fields(tmp_path: Path):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["model_identity"]["api_key"] = "not-a-real-secret"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    target = tmp_path / "fresh"
+    with pytest.raises(ValueError, match="model identity"):
+        store.restore_checkpoint(checkpoint_dir, target)
     assert not target.exists()
