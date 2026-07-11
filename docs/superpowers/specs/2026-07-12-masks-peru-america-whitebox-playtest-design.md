@@ -183,6 +183,31 @@ The driver writes artifacts after every turn so an interrupted 500-turn process
 does not leave only mutated state. It must support resuming from a validated
 checkpoint without silently joining incompatible model or code versions.
 
+Checkpoint paths are rooted at the public runtime workspace, not at a synthetic
+campaign tree.  The resumable boundary is the canonical `.coc/` layout:
+
+- `.coc/campaigns/<campaign>/campaign.json` and optional `party.json`;
+- the complete contained `save/`, `scenario/`, `index/`, `memory/`, and `logs/`
+  trees (matching the native campaign snapshot boundary);
+- immutable local `source/` inputs when present, with hashes in every manifest;
+- the scenario-bound investigator's `creation.json`, `character.json`,
+  `history.jsonl`, `development.jsonl`, and `inventory-history.jsonl`;
+- the sanitized `.coc/runtime/sessions.json` snapshot; and
+- the hash-linked playtest action journal.
+
+Restore is an exact mirror for mutable managed trees: state created after the
+checkpoint must not survive a rollback.  It must not copy `.coc/runtime.json`,
+credentials, Node worker state, absolute-path configuration, or unrelated
+campaigns/investigators.  A fresh target therefore supplies its own compatible
+runtime configuration; a restored session snapshot contains only the already
+sanitized resolved pipeline.
+
+The public runtime contract must also expose two player-safe structured facts
+needed by the driver: the narrator adapter's observed `{provider, id}` plus
+fallback/response mode in telemetry, and validated session/chapter terminal
+evidence.  The driver may not infer either fact from narration prose or reach
+into Keeper-only raw turns.
+
 ## Checkpoints and Repair Loop
 
 A review checkpoint occurs every ten turns and at every scene or chapter

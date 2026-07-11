@@ -134,6 +134,7 @@ git commit -m "feat(runtime): accept reproducible structured player turns"
 **Files:**
 - Create: `plugins/coc-keeper/scripts/coc_playtest_checkpoint.py`
 - Test: `tests/test_playtest_checkpoint.py`
+- Test: `tests/test_playtest_checkpoint_runtime.py`
 
 **Interfaces:**
 - Produces: `CheckpointStore(run_dir, workspace, campaign_id, investigator_id)`.
@@ -144,7 +145,7 @@ git commit -m "feat(runtime): accept reproducible structured player turns"
 
 - [ ] **Step 1: Write RED tests for atomic journals and hostile paths**
 
-Cover one-turn durability, truncated last JSONL recovery, checksum mismatch rejection, source/target symlink rejection, `../` containment, checkpoint restore into a fresh workspace, and outside sentinels remaining unchanged.
+Cover one-turn durability, truncated last JSONL recovery, checksum mismatch rejection, source/target symlink rejection, `../` containment, checkpoint restore into a fresh workspace, and outside sentinels remaining unchanged.  The fixture must use the real public runtime layout under `.coc/`, not a synthetic top-level `campaigns/` tree.
 
 ```python
 store = checkpoint.CheckpointStore(run_dir, workspace, "masks-run-a", "inv-a")
@@ -166,7 +167,14 @@ Expected: module missing.
 
 - [ ] **Step 3: Implement the checkpoint store**
 
-Use `Path.resolve()`, lexical containment, component symlink rejection, random `O_CREAT|O_EXCL|O_NOFOLLOW` temporary files, directory-FD-relative replace/unlink, and SHA-256 manifests. Copy only the sandbox campaign, scenario/index, investigator source, `.coc/runtime/sessions.json`, and run journals. Never copy credentials, Node worker state, or absolute-path configuration.
+Use `Path.resolve()`, lexical containment, component symlink rejection, random `O_CREAT|O_EXCL|O_NOFOLLOW` temporary files, directory-FD-relative replace/unlink, and SHA-256 manifests.  Root all workspace paths at the canonical public layout.  Copy only:
+
+- `.coc/campaigns/<campaign>/campaign.json`, optional `party.json`, and the complete contained `save/`, `scenario/`, `index/`, `memory/`, `logs/`, and optional local `source/` trees;
+- the exact scenario-bound investigator files `creation.json`, `character.json`, `history.jsonl`, `development.jsonl`, and `inventory-history.jsonl`;
+- sanitized `.coc/runtime/sessions.json`; and
+- the run action journal.
+
+Mutable managed trees restore as an exact mirror, so files created after a checkpoint are removed on rollback.  Immutable source/scenario/index files must match or restore fails closed.  Never copy `.coc/runtime.json`, credentials, Node worker state, absolute-path configuration, another campaign, or another investigator.
 
 Each action ledger row must chain:
 
@@ -179,11 +187,14 @@ row["row_sha256"] = sha256(canonical_json({k: v for k, v in row.items() if k != 
 
 Reject resume when source PDF hash, scenario file hashes, player mode, run ID, or checkpoint schema differs. Allow a different Git HEAD only when an `invalidated_segment` record explicitly names the old/new commits and replay start checkpoint.
 
+Add a real-runtime integration test: create/send through `runtime.sdk.api`, snapshot after an accepted turn with pending/public state, mutate the complete campaign state with a later turn and an extra managed file, restore into a prepared workspace, reload the sanitized session snapshot in a fresh registry, and prove PublicState plus the next seeded SDK turn continue from the checkpoint while the later file is gone.
+
 - [ ] **Step 5: Run checkpoint, path, and state tests**
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest \
-  tests/test_playtest_checkpoint.py tests/test_runtime_paths.py \
+  tests/test_playtest_checkpoint.py tests/test_playtest_checkpoint_runtime.py \
+  tests/test_runtime_paths.py \
   tests/test_state_migration.py -q -p no:cacheprovider
 ```
 
@@ -202,8 +213,16 @@ git commit -m "feat(playtest): add durable turn checkpoints"
 **Files:**
 - Create: `plugins/coc-keeper/scripts/coc_interactive_playtest.py`
 - Modify: `plugins/coc-keeper/references/trusted-playtest-runners.json`
+- Modify: `runtime/engine/session.py`
+- Modify: `runtime/engine/telemetry.py`
+- Modify: `runtime/engine/live_turn_mapper.py`
+- Modify: `runtime/engine/events.py`
+- Modify: `runtime/engine/public_state.py`
+- Modify: `runtime/sdk/api.py`
 - Test: `tests/test_interactive_playtest.py`
 - Test: `tests/test_plugin_metadata.py`
+- Test: `tests/test_runtime_sdk_debug.py`
+- Test: `tests/test_runtime_session_lifecycle.py`
 
 **Interfaces:**
 - CLI `start --workspace --campaign --investigator --run-dir --run-kind --rng-seed --max-turns` enters JSONL stdin/stdout mode.
@@ -242,6 +261,13 @@ The driver must:
 9. close the runtime session/worker pool on every normal or exceptional exit.
 
 Do not place Keeper events, raw NarrationEnvelope, scenario paths, or evaluator output in stdout.
+
+The public SDK must expose player-safe structured terminal evidence rather than
+dropping `session_ending`, and public telemetry/session receipts must preserve
+the narrator adapter's observed identity, response mode, and deterministic
+fallback flag.  Do not expose raw turns or Keeper-only envelopes to achieve
+either requirement.  Session snapshot/restore needed by the driver must be a
+public sanitized workspace operation rather than private registry access.
 
 - [ ] **Step 4: Prove GLM identity attestation is recorded**
 
