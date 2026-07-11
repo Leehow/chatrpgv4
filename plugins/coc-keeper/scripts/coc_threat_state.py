@@ -68,6 +68,7 @@ def merge_threat_fronts(
     clocks_state = persisted.get("clocks", {}) if isinstance(persisted, dict) else {}
     if not isinstance(clocks_state, dict):
         raise ValueError("persisted threat clocks must be an object")
+    seen_clock_ids: set[str] = set()
     for front in fronts:
         if not isinstance(front, dict):
             raise ValueError("threat front must be an object")
@@ -78,8 +79,15 @@ def merge_threat_fronts(
             if not isinstance(clock, dict):
                 raise ValueError("threat clock must be an object")
             clock_id = clock.get("clock_id")
-            if not isinstance(clock_id, str) or not clock_id:
+            if (
+                not isinstance(clock_id, str)
+                or not clock_id.strip()
+                or clock_id != clock_id.strip()
+            ):
                 raise ValueError("authored threat clock requires clock_id")
+            if clock_id in seen_clock_ids:
+                raise ValueError(f"duplicate authored threat clock_id: {clock_id}")
+            seen_clock_ids.add(clock_id)
             runtime = clocks_state.get(clock_id, {})
             if runtime and not isinstance(runtime, dict):
                 raise ValueError("persisted threat clock must be an object")

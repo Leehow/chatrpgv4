@@ -80,6 +80,11 @@ def _is_string_list(value: Any) -> bool:
     )
 
 
+def _is_canonical_string_list(value: Any) -> bool:
+    """True for an exact list of non-empty, already-trimmed strings."""
+    return _is_string_list(value) and all(item == item.strip() for item in value)
+
+
 def normalize_scene_function(scene: dict[str, Any]) -> dict[str, Any]:
     """Return the conservative exact six-field scene-function contract.
 
@@ -88,10 +93,15 @@ def normalize_scene_function(scene: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(scene, dict):
         raise ValueError("scene function source must be an object")
+    authored = [key for key in SCENE_FUNCTION_KEYS if key in scene]
+    if authored and set(authored) != set(SCENE_FUNCTION_KEYS):
+        raise ValueError("authored scene function contract must contain all six fields")
     raw_function = scene.get("scene_function", scene.get("scene_type", "investigation"))
     if not isinstance(raw_function, str) or not raw_function.strip():
         raise ValueError("scene_function must be a non-empty string")
-    fallback_goals = [scene["dramatic_question"]] if (
+    if authored and raw_function != raw_function.strip():
+        raise ValueError("scene_function must be canonical without surrounding whitespace")
+    fallback_goals = [scene["dramatic_question"].strip()] if (
         isinstance(scene.get("dramatic_question"), str)
         and scene["dramatic_question"].strip()
     ) else []
@@ -103,7 +113,7 @@ def normalize_scene_function(scene: dict[str, Any]) -> dict[str, Any]:
             value = fallback_goals
         else:
             value = []
-        if not _is_string_list(value):
+        if not _is_canonical_string_list(value):
             raise ValueError(f"{key} must be a list of non-empty strings")
         result[key] = list(value)
     return result
@@ -133,7 +143,75 @@ def _check_scene_function_contract(compiled: dict[str, Any]) -> list[dict[str, s
     return findings
 
 
+_SCENE_AFFINITY_LIST_FIELDS = ("scene_tags", "faction_ids", "threat_front_ids")
+_SCENE_AFFINITY_ALIASES = ("front_ids",)
 _THREAT_AFFINITY_LIST_FIELDS = ("scene_ids", "scene_tags_any", "faction_ids")
+
+
+def _check_scene_affinity_contract(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    """Validate the one canonical scene-side threat-affinity vocabulary."""
+    findings: list[dict[str, str]] = []
+    for scene_index, scene in enumerate(
+        (compiled.get("story_graph") or {}).get("scenes") or []
+    ):
+        if not isinstance(scene, dict):
+            continue
+        path = f"story_graph.scenes[{scene_index}]"
+        for alias in _SCENE_AFFINITY_ALIASES:
+            if alias in scene:
+                findings.append(_finding(
+                    "scene_affinity_contract_invalid", "error",
+                    f"scene affinity alias {alias} is unsupported; use threat_front_ids",
+                    path=f"{path}.{alias}",
+                ))
+        for field in _SCENE_AFFINITY_LIST_FIELDS:
+            if field in scene and not _is_canonical_string_list(scene[field]):
+                findings.append(_finding(
+                    "scene_affinity_contract_invalid", "error",
+                    f"scene affinity {field} must be a list of non-empty strings",
+                    path=f"{path}.{field}",
+                ))
+    return findings
+
+
+def _check_threat_clock_identity_contract(
+    compiled: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Require globally unique canonical clock IDs across every front."""
+    findings: list[dict[str, str]] = []
+    paths_by_id: dict[str, list[str]] = {}
+    for front_index, front in enumerate(
+        (compiled.get("threat_fronts") or {}).get("fronts") or []
+    ):
+        if not isinstance(front, dict):
+            continue
+        clocks = front.get("clocks") or []
+        if not isinstance(clocks, list):
+            continue
+        for clock_index, clock in enumerate(clocks):
+            if not isinstance(clock, dict):
+                continue
+            path = f"threat_fronts.fronts[{front_index}].clocks[{clock_index}].clock_id"
+            clock_id = clock.get("clock_id")
+            if (
+                not isinstance(clock_id, str)
+                or not clock_id.strip()
+                or clock_id != clock_id.strip()
+            ):
+                findings.append(_finding(
+                    "threat_clock_identity_invalid", "error",
+                    "threat clock_id must be a non-empty canonical string", path=path,
+                ))
+                continue
+            paths_by_id.setdefault(clock_id, []).append(path)
+    for clock_id, paths in paths_by_id.items():
+        if len(paths) > 1:
+            findings.append(_finding(
+                "threat_clock_identity_invalid", "error",
+                f"duplicate threat clock_id '{clock_id}' at {', '.join(paths)}",
+                path=paths[0],
+            ))
+    return findings
 
 
 def _check_threat_affinity_contract(compiled: dict[str, Any]) -> list[dict[str, str]]:
@@ -800,7 +878,9 @@ def validate_compiled_scenario(
     findings.extend(_check_clue_affordances(compiled))
     findings.extend(_check_location_tags(compiled))
     findings.extend(_check_scene_function_contract(compiled))
+    findings.extend(_check_scene_affinity_contract(compiled))
     findings.extend(_check_threat_affinity_contract(compiled))
+    findings.extend(_check_threat_clock_identity_contract(compiled))
     return findings
 
 
@@ -1008,10 +1088,18 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             errors.append(f"npc '{npc.get('npc_id')}' missing agenda")
 
     fronts_data = _read(scenario_dir / "threat-fronts.json")
+    scene_affinity_findings = _check_scene_affinity_contract({
+        "story_graph": story,
+    })
+    errors.extend(finding["message"] for finding in scene_affinity_findings)
     threat_affinity_findings = _check_threat_affinity_contract({
         "threat_fronts": fronts_data,
     })
     errors.extend(finding["message"] for finding in threat_affinity_findings)
+    clock_identity_findings = _check_threat_clock_identity_contract({
+        "threat_fronts": fronts_data,
+    })
+    errors.extend(finding["message"] for finding in clock_identity_findings)
     improv = _read(scenario_dir / "improvisation-boundaries.json")
     # Compare against secret ids only (prose / id:description stay planner-side).
     secrets = set()

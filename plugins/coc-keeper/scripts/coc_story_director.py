@@ -525,6 +525,16 @@ def build_director_context(
             scenario_doc if isinstance(scenario_doc, dict) else {},
         )
     )
+    scene_contract_findings = [
+        *coc_scenario_compile._check_scene_function_contract({
+            "story_graph": story_graph,
+        }),
+        *coc_scenario_compile._check_scene_affinity_contract({
+            "story_graph": story_graph,
+        }),
+    ]
+    if scene_contract_findings:
+        raise ValueError(scene_contract_findings[0]["message"])
     if active_scene_id:
         world = dict(world)
         world["active_scene_id"] = active_scene_id
@@ -650,8 +660,12 @@ def build_director_context(
     affinity_findings = coc_scenario_compile._check_threat_affinity_contract({
         "threat_fronts": authored_threats,
     })
-    if affinity_findings:
-        raise ValueError(affinity_findings[0]["message"])
+    identity_findings = coc_scenario_compile._check_threat_clock_identity_contract({
+        "threat_fronts": authored_threats,
+    })
+    threat_findings = [*affinity_findings, *identity_findings]
+    if threat_findings:
+        raise ValueError(threat_findings[0]["message"])
     persisted_threats = coc_threat_state.load_threat_state(save)
     merged_threats = coc_threat_state.merge_threat_fronts(
         authored_threats, persisted_threats
@@ -2640,11 +2654,7 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
     scene_id = str(ctx.get("active_scene_id") or scene.get("scene_id") or "")
     scene_tags = {str(value) for value in scene.get("scene_tags", []) if value}
     scene_factions = {str(value) for value in scene.get("faction_ids", []) if value}
-    scene_front_ids = {
-        str(value) for value in [
-            *(scene.get("front_ids") or []), *(scene.get("threat_front_ids") or [])
-        ] if value
-    }
+    scene_front_ids = set(scene.get("threat_front_ids") or [])
     candidates: list[tuple[Any, ...]] = []
     for front_index, front in enumerate(ctx.get("threat_fronts", {}).get("fronts", [])):
         if not isinstance(front, dict):
@@ -2678,7 +2688,7 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
             if scene_id and scene_id in scene_ids:
                 affinity_kind, matched, affinity_rank = "scene_ids", [scene_id], 4
             elif front_id and front_id in scene_front_ids:
-                affinity_kind, matched, affinity_rank = "front_ids", [front_id], 3
+                affinity_kind, matched, affinity_rank = "threat_front_ids", [front_id], 3
             elif scene_tags & tags:
                 affinity_kind, matched, affinity_rank = "scene_tags_any", sorted(scene_tags & tags), 2
             elif scene_factions & factions:

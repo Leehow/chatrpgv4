@@ -154,6 +154,58 @@ def test_pressure_selects_structurally_relevant_clock_with_reason(tmp_path):
     }
 
 
+def test_pressure_selects_canonical_scene_threat_front_id(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["threat_front_ids"] = ["cult"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [
+        {"front_id": "other", "severity": 5,
+         "clocks": [{"clock_id": "fallback", "segments": 6}]},
+        {"front_id": "cult", "severity": 1,
+         "clocks": [{"clock_id": "matched", "segments": 6}]},
+    ]}))
+
+    ctx = coc_story_director.build_director_context(
+        camp, character, "inv1", "wait", "idle", rng=random.Random(1)
+    )
+    move = coc_story_director._build_pressure_moves(ctx, "PRESSURE")[0]
+
+    assert move["clock_id"] == "matched"
+    assert move["selection_reason"]["affinity_kind"] == "threat_front_ids"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("scene_tags", "archive"),
+    ("faction_ids", [""]),
+    ("threat_front_ids", [1]),
+    ("front_ids", ["cult"]),
+])
+def test_runtime_rejects_malformed_or_alias_scene_affinity(tmp_path, field, value):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0][field] = value
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+
+    with pytest.raises(ValueError, match="scene affinity"):
+        coc_story_director.build_director_context(
+            camp, character, "inv1", "wait", "idle"
+        )
+
+
+def test_runtime_rejects_duplicate_clock_ids_before_persisted_merge(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [
+        {"front_id": "one", "clocks": [{"clock_id": "same", "segments": 6}]},
+        {"front_id": "two", "clocks": [{"clock_id": "same", "segments": 6}]},
+    ]}))
+
+    with pytest.raises(ValueError, match="clock_id"):
+        coc_story_director.build_director_context(
+            camp, character, "inv1", "wait", "idle"
+        )
+
+
 def test_pressure_affinity_ties_use_severity_then_stable_ids(tmp_path):
     camp, character = _make_minimal_campaign(tmp_path)
     story = json.loads((camp / "scenario" / "story-graph.json").read_text())

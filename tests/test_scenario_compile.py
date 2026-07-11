@@ -83,7 +83,7 @@ def test_validate_bad_structure_type(tmp_path):
 
 def test_normalize_scene_function_has_exact_six_field_contract():
     normalized = coc_scenario_compile.normalize_scene_function({
-        "scene_type": "social", "dramatic_question": "Will she talk?",
+        "scene_type": " social ", "dramatic_question": " Will she talk? ",
         "unknown_extension": {"preserve_on_scene": True},
     })
     assert normalized == {
@@ -134,6 +134,15 @@ def test_valid_scene_function_contract_passes_both_validators(tmp_path):
     ) if f["code"] == "scene_function_contract_invalid"]
 
 
+def test_partial_scene_function_contract_fails_at_runtime(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0]["goals"] = ["partial-is-not-legacy"]
+
+    with pytest.raises(ValueError, match="all six fields"):
+        coc_scenario_compile.normalize_scene_function(story["scenes"][0])
+
+
 @pytest.mark.parametrize("owner,field,value", [
     ("front", "severity", "high"),
     ("front", "scene_tags_any", "archive"),
@@ -154,6 +163,53 @@ def test_threat_affinity_contract_fails_closed_in_both_validators(
     )
     assert any("threat affinity" in error for error in disk["errors"])
     assert any(f["code"] == "threat_affinity_contract_invalid" for f in findings)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("scene_tags", "archive"),
+    ("faction_ids", [""]),
+    ("threat_front_ids", [1]),
+    ("front_ids", ["cult"]),
+])
+def test_scene_affinity_contract_fails_closed_in_both_validators(
+    tmp_path, field, value,
+):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0][field] = value
+    (sc / "story-graph.json").write_text(json.dumps(story))
+
+    disk = coc_scenario_compile.validate_scenario(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+
+    assert any("scene affinity" in error for error in disk["errors"])
+    assert any(f["code"] == "scene_affinity_contract_invalid" for f in findings)
+
+
+@pytest.mark.parametrize("clock_ids", [
+    ["same", "same"],
+    ["same", " same "],
+    ["", "other"],
+])
+def test_clock_identity_is_global_nonempty_and_canonical_in_both_validators(
+    tmp_path, clock_ids,
+):
+    sc = _make_valid_scenario(tmp_path)
+    fronts = {"fronts": [
+        {"front_id": "one", "clocks": [{"clock_id": clock_ids[0], "segments": 6}]},
+        {"front_id": "two", "clocks": [{"clock_id": clock_ids[1], "segments": 6}]},
+    ]}
+    (sc / "threat-fronts.json").write_text(json.dumps(fronts))
+
+    disk = coc_scenario_compile.validate_scenario(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+
+    assert any("clock_id" in error for error in disk["errors"])
+    assert any(f["code"] == "threat_clock_identity_invalid" for f in findings)
 
 
 def _scenario_script_path() -> Path:
