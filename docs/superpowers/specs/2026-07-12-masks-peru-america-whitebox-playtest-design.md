@@ -202,6 +202,14 @@ campaigns/investigators.  A fresh target therefore supplies its own compatible
 runtime configuration; a restored session snapshot contains only the already
 sanitized resolved pipeline.
 
+Before checkpoint publication, the turn receipt must attest synchronous
+recording with no background flush.  The sanitized session snapshot is filtered
+to the one exact session, campaign, investigator, and character path named by
+the checkpoint; unrelated workspace sessions and tombstones never enter the
+artifact.  The manifest records managed roots plus absent optional files so an
+exact restore can delete post-checkpoint state without broadening its deletion
+scope.
+
 The public runtime contract must also expose two player-safe structured facts
 needed by the driver: the narrator adapter's observed `{provider, id}` plus
 fallback/response mode in telemetry, and validated session/chapter terminal

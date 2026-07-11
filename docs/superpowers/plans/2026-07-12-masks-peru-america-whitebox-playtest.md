@@ -176,6 +176,14 @@ Use `Path.resolve()`, lexical containment, component symlink rejection, random `
 
 Mutable managed trees restore as an exact mirror, so files created after a checkpoint are removed on rollback.  Immutable source/scenario/index files must match or restore fails closed.  Never copy `.coc/runtime.json`, credentials, Node worker state, absolute-path configuration, another campaign, or another investigator.
 
+Require the last accepted turn provenance to attest `recording_mode=sync` and
+`recording_flush=manual`; reject checkpoint publication for fast/background
+recording because detached log writes can make a cross-file snapshot
+inconsistent.  Parse `.coc/runtime/sessions.json`, retain exactly the requested
+session bound to this campaign/investigator/character path, and remove unrelated
+sessions and tombstones from the checkpoint copy.  The manifest records every
+managed root and every absent optional file/root needed for exact-mirror restore.
+
 Each action ledger row must chain:
 
 ```python
@@ -187,7 +195,7 @@ row["row_sha256"] = sha256(canonical_json({k: v for k, v in row.items() if k != 
 
 Reject resume when source PDF hash, scenario file hashes, player mode, run ID, or checkpoint schema differs. Allow a different Git HEAD only when an `invalidated_segment` record explicitly names the old/new commits and replay start checkpoint.
 
-Add a real-runtime integration test: create/send through `runtime.sdk.api`, snapshot after an accepted turn with pending/public state, mutate the complete campaign state with a later turn and an extra managed file, restore into a prepared workspace, reload the sanitized session snapshot in a fresh registry, and prove PublicState plus the next seeded SDK turn continue from the checkpoint while the later file is gone.
+Add a real-runtime integration test: create/send through `runtime.sdk.api` with the canonical debug adapter forced to synchronous/manual recording, snapshot after an accepted turn with pending/public state, mutate the complete campaign state with a later turn and an extra managed file, restore into a prepared workspace, reload the filtered sanitized session snapshot in a fresh registry, and prove PublicState plus the next seeded SDK turn continue from the checkpoint while the later file is gone.  Also prove a fast/background receipt and a workspace snapshot containing an unrelated session fail closed.
 
 - [ ] **Step 5: Run checkpoint, path, and state tests**
 
@@ -255,7 +263,9 @@ The driver must:
 4. derive exact seeds such as `masks-run-a-20260712:000001` from the run's
    recorded base seed and accepted turn number;
 5. call only `runtime.sdk.api.send` for gameplay;
-6. write the action and checkpoint before emitting the player-safe result;
+6. request the public checkpoint-durability turn mode (synchronous recording,
+   manual flush), then write the action and checkpoint before emitting the
+   player-safe result;
 7. emit terminal only from structured `session_ending` or validated graph/chapter terminal evidence;
 8. stop without another model call at the hard ceiling; and
 9. close the runtime session/worker pool on every normal or exceptional exit.
