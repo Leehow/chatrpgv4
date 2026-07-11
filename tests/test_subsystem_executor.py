@@ -400,6 +400,82 @@ def test_chase_offer_evidence_tail_rolls_back_on_commit_failure(tmp_path, monkey
     assert json.loads(state_path.read_text())["inflight"] is None
 
 
+def _prepare_canonical_chase_conflict(executor, tmp_path):
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    chase_start = _chase_start("ledger-chase-start")
+    chase_start["payload"]["participants"][0]["hp"] = 11
+    chase_start["payload"]["locations"] = [
+        {"label": "roof", "hazard": None, "barrier": None},
+        {"label": "escape", "hazard": None, "barrier": None},
+    ]
+    _execute(executor, campaign, character, [chase_start], random.Random(1))
+    combat_start = _combat_start_command("ledger-combat-start")
+    combat_start["payload"]["participants"][0]["dex"] = 80
+    _execute(executor, campaign, character, [combat_start], random.Random(2))
+    attack = _command("ledger-combat-attack", "combat_attack", phase="declare", payload={
+        "decision_id": "combat-decision", "revision": 1,
+        "actor_id": "inv1", "target_actor_id": "cultist",
+        "declared_intent": "block pursuit", "resolution_hint": "opposed_melee",
+        "weapon_id": "unarmed",
+    })
+    _execute(executor, campaign, character, [attack], random.Random(3))
+    defend = _command("ledger-combat-defend", "combat_defend", payload={
+        "decision_id": "combat-decision", "revision": 2,
+        "actor_id": "cultist", "attack_command_id": "ledger-combat-attack",
+        "defense_kind": "dodge",
+    })
+    _execute(executor, campaign, character, [defend], random.Random(4))
+    conflict = _command("ledger-chase-conflict", "chase_conflict", payload={
+        "decision_id": "chase-journey", "revision": 1,
+        "actor_id": "inv1", "target_actor_id": "cultist",
+        "action_id": "conflict:cultist", "combat_command_id": "ledger-combat-defend",
+    })
+    result = _execute(executor, campaign, character, [conflict], random.Random(5))[0]
+    return campaign, conflict, result
+
+
+def test_chase_conflict_ledger_rejects_rehashed_actor_substitution(tmp_path):
+    executor = _executor("coc_subsystem_executor_chase_conflict_actor_binding")
+    campaign, command_value, result = _prepare_canonical_chase_conflict(executor, tmp_path)
+    ledger_path = campaign / "logs" / "chase-conflicts.jsonl"
+    record = json.loads(ledger_path.read_text().splitlines()[0])
+    state = json.loads((campaign / "save" / "subsystem-state.json").read_text())
+    assert record["chase_command"] == command_value
+    assert record["chase_command_hash"] == executor._canonical_command_hash(command_value)
+    assert record["chase_command_provenance"] == state["command_provenance"][command_value["command_id"]]
+    assert record["chase_event"] == result["events"][0]
+    assert record["combat_result_receipt"]["result"] == state["result_snapshots"]["ledger-combat-defend"]
+    assert record["combat_result_receipt"]["receipt_hash"] == record["combat_receipt_hash"]
+    record["actor_id"], record["target_actor_id"] = (
+        record["target_actor_id"], record["actor_id"],
+    )
+    material = {key: value for key, value in record.items() if key != "consumption_hash"}
+    record["consumption_hash"] = executor._canonical_json_hash(material)
+    ledger_path.write_text(json.dumps(record) + "\n")
+
+    with pytest.raises(executor.SubsystemExecutorError, match="chase conflict consumption"):
+        executor.get_current_pending_choice(campaign)
+
+
+def test_chase_conflict_ledger_rejects_combat_receipt_cross_field_tampering(tmp_path):
+    executor = _executor("coc_subsystem_executor_chase_conflict_receipt_binding")
+    campaign, _command_value, _result = _prepare_canonical_chase_conflict(executor, tmp_path)
+    ledger_path = campaign / "logs" / "chase-conflicts.jsonl"
+    record = json.loads(ledger_path.read_text().splitlines()[0])
+    record["combat_receipt"]["combat_id"] = "forged-combat"
+    record["combat_result_receipt"]["result"]["events"][0]["combat_id"] = "forged-combat"
+    material = {key: value for key, value in record.items() if key != "consumption_hash"}
+    record["consumption_hash"] = executor._canonical_json_hash(material)
+    ledger_path.write_text(json.dumps(record) + "\n")
+
+    with pytest.raises(executor.SubsystemExecutorError, match="chase conflict consumption"):
+        executor.get_current_pending_choice(campaign)
+
+
 def _keeper_response(choice: dict, action: str = "tick") -> dict:
     return {
         "choice_id": choice["choice_id"],

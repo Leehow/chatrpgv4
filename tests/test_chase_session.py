@@ -750,3 +750,36 @@ def test_chase_load_rejects_noncanonical_nested_state_and_history(tmp_path, muta
     path.write_text(json.dumps(state), encoding="utf-8")
     with pytest.raises(ValueError, match="chase snapshot"):
         coc_chase.ChaseSession.load(path)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda s: s["rounds"][0]["turns"][0]["actions_taken"].append({
+            "type": "advance", "result": "end_of_chain", "actions_spent": 0,
+        }),
+        lambda s: s["rounds"][0]["turns"][0]["actions_taken"][0].update({
+            "damage": 0,
+        }),
+        lambda s: (
+            s["rounds"][0]["turns"][0]["actions_taken"][0].update({
+                "new_position": 0,
+            }),
+            s["participants"][0].update({"position": 0}),
+        ),
+    ],
+)
+def test_chase_load_rejects_forged_action_receipts_and_transitions(tmp_path, mutate):
+    c = _make_chase()
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+    c.set_location_chain([{"label": "start"}, {"label": "middle"}, {"label": "escape"}])
+    c.begin_round()
+    c.move_participant("ada", [{"type": "advance"}])
+    path = c.save(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    mutate(state)
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="chase snapshot"):
+        coc_chase.ChaseSession.load(path)

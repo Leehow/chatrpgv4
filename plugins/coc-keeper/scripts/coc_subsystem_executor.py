@@ -1689,20 +1689,30 @@ def _chase_offer_evidence_record(
 
 
 def _chase_conflict_record(
-    sequence: int, command: dict[str, Any], result: dict[str, Any], state: dict[str, Any],
+    campaign_dir: Path, sequence: int, command: dict[str, Any],
+    result: dict[str, Any], state: dict[str, Any],
 ) -> dict[str, Any]:
     event = result["events"][0]
     receipt = event["combat_receipt"]
+    combat_result_receipt = _canonical_result_receipt(
+        campaign_dir, receipt["combat_command_id"]
+    )
     material = {
         "record_type": "chase_conflict_consumption", "sequence": sequence,
         "chase_command_id": command["command_id"],
         "chase_command_hash": state["command_hashes"][command["command_id"]],
+        "chase_command_provenance": _json_copy(
+            state["command_provenance"][command["command_id"]]
+        ),
+        "chase_command": _json_copy(command),
+        "chase_event": _json_copy(event),
         "chase_id": event["chase_id"], "post_chase_revision": event["revision"],
         "actor_id": command["payload"]["actor_id"],
         "target_actor_id": command["payload"]["target_actor_id"],
         "combat_command_id": receipt["combat_command_id"],
         "combat_receipt_hash": receipt["receipt_hash"],
         "combat_receipt": _json_copy(receipt),
+        "combat_result_receipt": _json_copy(combat_result_receipt),
     }
     material["consumption_hash"] = _canonical_json_hash(material)
     return material
@@ -1981,27 +1991,91 @@ def _validate_chase_conflict_ledger(campaign_dir: Path, state: dict[str, Any]) -
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise _state_error(f"canonical chase conflict source is invalid: {exc}") from exc
     keys = {"record_type", "sequence", "chase_command_id", "chase_command_hash",
+            "chase_command_provenance", "chase_command", "chase_event",
             "chase_id", "post_chase_revision", "actor_id", "target_actor_id",
-            "combat_command_id", "combat_receipt_hash", "combat_receipt", "consumption_hash"}
+            "combat_command_id", "combat_receipt_hash", "combat_receipt",
+            "combat_result_receipt", "consumption_hash"}
+    result_receipts = {
+        row.get("command_id"): row for row in _read_jsonl_records(
+            campaign_dir / _RESULT_RECEIPT_LOG,
+            label="canonical subsystem result ledger",
+        )
+    }
     for sequence, (command_id, record) in enumerate(zip(conflict_ids, records), 1):
         event = state["result_snapshots"][command_id]["events"][0]
         receipt = event.get("combat_receipt")
+        chase_command = record.get("chase_command")
+        chase_payload = chase_command.get("payload") if isinstance(chase_command, dict) else None
+        combat_result_receipt = record.get("combat_result_receipt")
+        canonical_combat_receipt = result_receipts.get(record.get("combat_command_id"))
+        combat_result = (
+            combat_result_receipt.get("result")
+            if isinstance(combat_result_receipt, dict) else None
+        )
+        combat_event = (
+            combat_result.get("events", [None])[0]
+            if isinstance(combat_result, dict) and combat_result.get("events") else None
+        )
+        combat_turn = combat_event.get("turn") if isinstance(combat_event, dict) else None
         material = {key: _json_copy(value) for key, value in record.items() if key != "consumption_hash"}
         key = (record.get("combat_command_id"), record.get("combat_receipt_hash"))
         if (set(record) != keys or record.get("record_type") != "chase_conflict_consumption"
                 or record.get("sequence") != sequence or record.get("chase_command_id") != command_id
                 or record.get("chase_command_hash") != state["command_hashes"][command_id]
+                or not isinstance(chase_command, dict)
+                or chase_command.get("command_id") != command_id
+                or chase_command.get("kind") != "chase_conflict"
+                or _canonical_command_hash(chase_command) != record.get("chase_command_hash")
+                or not _json_deep_equal(
+                    record.get("chase_command_provenance"),
+                    state["command_provenance"][command_id],
+                )
+                or not isinstance(chase_payload, dict)
+                or chase_payload.get("actor_id") != record.get("actor_id")
+                or chase_payload.get("target_actor_id") != record.get("target_actor_id")
+                or chase_payload.get("combat_command_id") != record.get("combat_command_id")
+                or chase_payload.get("action_id") != f"conflict:{record.get('target_actor_id')}"
+                or not _json_deep_equal(record.get("chase_event"), event)
                 or not _json_deep_equal(record.get("combat_receipt"), receipt)
                 or record.get("combat_command_id") != (receipt or {}).get("combat_command_id")
                 or record.get("combat_receipt_hash") != (receipt or {}).get("receipt_hash")
                 or record.get("chase_id") != event.get("chase_id")
                 or record.get("post_chase_revision") != event.get("revision")
+                or not _json_deep_equal(combat_result_receipt, canonical_combat_receipt)
+                or not isinstance(combat_result_receipt, dict)
+                or combat_result_receipt.get("command_id") != record.get("combat_command_id")
+                or combat_result_receipt.get("command_hash") != (receipt or {}).get("command_hash")
+                or combat_result_receipt.get("receipt_hash") != record.get("combat_receipt_hash")
+                or not _json_deep_equal(
+                    combat_result, state["result_snapshots"].get(record.get("combat_command_id"))
+                )
+                or not isinstance(combat_event, dict)
+                or combat_event.get("source_command_id") != record.get("combat_command_id")
+                or combat_event.get("combat_id") != (receipt or {}).get("combat_id")
+                or combat_event.get("revision") != (receipt or {}).get("combat_revision")
+                or not isinstance(combat_turn, dict)
+                or combat_turn.get("actor_id") != record.get("actor_id")
+                or combat_turn.get("target_actor_id") != record.get("target_actor_id")
                 or record.get("consumption_hash") != _canonical_json_hash(material)
                 or key in seen):
             raise _state_error(f"canonical chase conflict consumption {command_id!r} diverges")
         if chase_snapshot.get("chase_id") == record.get("chase_id"):
             persisted_receipts = chase_snapshot.get("consumed_combat_receipts") or []
+            persisted_actions = [
+                action
+                for chase_round in chase_snapshot.get("rounds") or []
+                for turn in chase_round.get("turns") or []
+                for action in turn.get("actions_taken") or []
+                if isinstance(action, dict)
+                and action.get("combat_command_id") == record.get("combat_command_id")
+            ]
             if (not any(_json_deep_equal(row, receipt) for row in persisted_receipts)
+                    or len(persisted_actions) != 1
+                    or persisted_actions[0].get("attacker_id") != record.get("actor_id")
+                    or persisted_actions[0].get("defender_id") != record.get("target_actor_id")
+                    or not _json_deep_equal(persisted_actions[0].get("combat_receipt"), receipt)
+                    or persisted_actions[0].get("combat_id") != (receipt or {}).get("combat_id")
+                    or persisted_actions[0].get("combat_revision") != (receipt or {}).get("combat_revision")
                     or not isinstance(chase_snapshot.get("revision"), int)
                     or chase_snapshot["revision"] < record["post_chase_revision"]):
                 raise _state_error(
@@ -5853,6 +5927,7 @@ def execute_commands(
                 ))
             if command["kind"] == "chase_conflict":
                 chase_conflict_evidence.append(_chase_conflict_record(
+                    campaign_dir,
                     existing_conflict_count + len(chase_conflict_evidence) + 1,
                     command, result, next_state,
                 ))
