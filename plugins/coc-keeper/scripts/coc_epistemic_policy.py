@@ -18,6 +18,7 @@ _EFFECT_TO_MODE = {
     "reframe": "REFRAME",
     "payoff": "PAYOFF",
 }
+_IMPORTANCE_WEIGHT = {"critical": 0.3, "major": 0.2, "minor": 0.1}
 
 
 def empty_contract() -> dict[str, Any]:
@@ -51,13 +52,6 @@ def _find_question(graph: dict[str, Any], question_id: str) -> dict[str, Any] | 
     return None
 
 
-def _find_evidence_link(graph: dict[str, Any], clue_id: str) -> dict[str, Any] | None:
-    for link in _as_list(graph.get("evidence_links")):
-        if isinstance(link, dict) and link.get("clue_id") == clue_id:
-            return link
-    return None
-
-
 def _active_belief_refs(belief_state: dict[str, Any], question_id: str) -> list[str]:
     refs: list[str] = []
     retired = {"abandoned", "retired"}
@@ -72,6 +66,53 @@ def _active_belief_refs(belief_state: dict[str, Any], question_id: str) -> list[
         if isinstance(hypothesis_id, str) and hypothesis_id:
             refs.append(hypothesis_id)
     return refs
+
+
+def _strength(value: Any) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.5
+
+
+def _select_evidence_link(
+    graph: dict[str, Any],
+    clue_id: str,
+    belief_state: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Choose one clue→question effect using the player's active model.
+
+    A clue may legitimately serve several question layers. Source-array order
+    must not decide which cognitive contract wins. Active questions dominate,
+    then questions with live hypotheses, then source strength and importance.
+    Ties remain deterministic through original list order.
+    """
+    active_questions = {
+        str(value)
+        for value in _as_list(belief_state.get("active_question_ids"))
+        if isinstance(value, str) and value
+    }
+    candidates: list[tuple[float, int, dict[str, Any]]] = []
+    for index, link in enumerate(_as_list(graph.get("evidence_links"))):
+        if not isinstance(link, dict) or link.get("clue_id") != clue_id:
+            continue
+        effect = str(link.get("effect") or "").strip().lower()
+        question_id = link.get("question_id")
+        if effect not in VALID_EFFECTS or not isinstance(question_id, str) or not question_id:
+            continue
+        question = _find_question(graph, question_id)
+        if question is None:
+            continue
+        score = _strength(link.get("strength"))
+        if question_id in active_questions:
+            score += 4.0
+        if _active_belief_refs(belief_state, question_id):
+            score += 3.0
+        score += _IMPORTANCE_WEIGHT.get(str(question.get("importance") or "").lower(), 0.0)
+        candidates.append((score, -index, link))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
 
 
 def _find_reframe_contract(
@@ -92,7 +133,7 @@ def _find_reframe_contract(
             for value in _as_list(contract.get("trigger_clue_ids"))
             if isinstance(value, str) and value
         }
-        if triggers and clue_id not in triggers:
+        if clue_id not in triggers:
             continue
         return contract
     return None
@@ -135,26 +176,22 @@ def plan_epistemic_contract(
     if clue_id is None:
         return empty_contract()
 
-    link = _find_evidence_link(graph, clue_id)
+    belief_state = ctx.get("belief_state")
+    if not isinstance(belief_state, dict):
+        belief_state = {}
+    link = _select_evidence_link(graph, clue_id, belief_state)
     if not isinstance(link, dict):
         return empty_contract()
 
     effect = str(link.get("effect") or "").strip().lower()
-    if effect not in VALID_EFFECTS:
-        return empty_contract()
-
     question_id = link.get("question_id")
-    if not isinstance(question_id, str) or not question_id:
+    if effect not in VALID_EFFECTS or not isinstance(question_id, str) or not question_id:
         return empty_contract()
     question = _find_question(graph, question_id)
     if question is None:
         return empty_contract()
 
-    belief_state = ctx.get("belief_state")
-    if not isinstance(belief_state, dict):
-        belief_state = {}
     belief_refs = _active_belief_refs(belief_state, question_id)
-
     base: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "mode": _EFFECT_TO_MODE[effect],
@@ -162,6 +199,7 @@ def plan_epistemic_contract(
         "target_layer": question.get("layer"),
         "belief_refs": belief_refs,
         "deliver_clue_ids": [clue_id],
+        "evidence_strength": _strength(link.get("strength")),
         "preserve_fact_refs": [],
         "revise_hypothesis_refs": [],
         "setup_refs": [],
