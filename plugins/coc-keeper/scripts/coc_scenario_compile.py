@@ -705,13 +705,26 @@ def _check_epistemic_sidecars(
     The check is ID- and enum-driven only. Missing sidecars are valid legacy
     mode; malformed opt-in sidecars fail closed for core references.
     """
-    graph = compiled.get("epistemic_graph")
-    contracts_doc = compiled.get("reveal_contracts")
-    if not isinstance(graph, dict) and not isinstance(contracts_doc, dict):
+    raw_graph = compiled.get("epistemic_graph")
+    raw_contracts = compiled.get("reveal_contracts")
+    if raw_graph in (None, {}) and raw_contracts in (None, {}):
         return []
-    graph = graph if isinstance(graph, dict) else {}
-    contracts_doc = contracts_doc if isinstance(contracts_doc, dict) else {}
+
     findings: list[dict[str, str]] = []
+    if raw_graph is not None and not isinstance(raw_graph, dict):
+        findings.append(_finding(
+            "invalid_epistemic_sidecar", "error",
+            "epistemic_graph must be an object when present",
+            path="epistemic_graph",
+        ))
+    if raw_contracts is not None and not isinstance(raw_contracts, dict):
+        findings.append(_finding(
+            "invalid_epistemic_sidecar", "error",
+            "reveal_contracts must be an object when present",
+            path="reveal_contracts",
+        ))
+    graph = raw_graph if isinstance(raw_graph, dict) else {}
+    contracts_doc = raw_contracts if isinstance(raw_contracts, dict) else {}
     clue_ids = set(id_maps.get("clue", {}))
 
     questions: dict[str, dict[str, Any]] = {}
