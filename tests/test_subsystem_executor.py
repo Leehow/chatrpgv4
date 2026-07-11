@@ -187,7 +187,7 @@ def test_chase_commands_persist_reload_replay_and_conclude(tmp_path):
         "actor_id": "cultist", "action_id": "barrier:door:negotiate", "method": "negotiate",
         "skill": "Climb", "target": 100})], rng=random.Random(8))
     ended = executor.execute_commands(campaign, character, "inv1", [_command(
-        "chase-end", "chase_end", phase="end", payload={"decision_id": "chase-journey",
+        "chase-end", "chase_end", phase="end", payload={"decision_id": "chase-journey", "chase_id": "roof-run",
         "revision": 7, "outcome": "escaped"})], rng=random.Random(9))
     assert ended[0]["events"][0]["event_type"] == "chase_ended"
     assert json.loads(chase_path.read_text())["outcome"] == "escaped"
@@ -302,13 +302,102 @@ def test_chase_end_atomically_cancels_matching_chase_choice(tmp_path):
     offered = _execute(executor, campaign, character, [_command(
         "end-choice", "chase_move", payload={"decision_id": "end-choice", "revision": 1,
         "actor_id": "inv1", "action_id": "choice:offer"})], random.Random(2))[0]
+    state_path = campaign / "save" / "subsystem-state.json"
+    before = state_path.read_bytes()
+    for bad_id, bad_revision in (("another-chase", 1), ("roof-run", 2)):
+        with pytest.raises(executor.SubsystemExecutorError) as blocked:
+            _execute(executor, campaign, character, [_command(
+                f"bad-end-{bad_id}-{bad_revision}", "chase_end", phase="end",
+                payload={"decision_id": "end-choice", "chase_id": bad_id,
+                         "revision": bad_revision, "outcome": "concluded"})], random.Random(3))
+        assert blocked.value.code == "blocked_by_pending_choice"
+        assert state_path.read_bytes() == before
     ended = _execute(executor, campaign, character, [_command(
-        "end-with-choice", "chase_end", phase="end", payload={"decision_id": "end-choice",
+        "end-with-choice", "chase_end", phase="end", payload={"decision_id": "end-choice", "chase_id": "roof-run",
         "revision": 1, "outcome": "concluded"})], random.Random(3))[0]
     assert ended["events"][0]["cancelled_choice_id"] == offered["pending_choice"]["choice_id"]
     assert executor.get_current_pending_choice(campaign) is None
-    state = json.loads((campaign / "save" / "subsystem-state.json").read_text())
+    state = json.loads(state_path.read_text())
     assert not state["pending_choices"] and not state["pending_contexts"]
+    history = state["choice_history"][offered["pending_choice"]["choice_id"]]
+    assert history["terminal_action"] == "cancelled_by_chase_end"
+    assert history["terminal_command_ids"] == ["end-with-choice"]
+    assert history["terminal_results"][0] == ended
+
+
+def test_chase_payloads_and_nested_locations_are_exact_discriminated_contracts(tmp_path):
+    executor = _executor("coc_subsystem_executor_chase_exact_contracts")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 10, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    forged = _chase_start()
+    forged["payload"]["locations"][1]["hazard"]["keeper_secret"] = True
+    with pytest.raises(executor.SubsystemExecutorError, match="hazard contract"):
+        _execute(executor, campaign, character, [forged], random.Random(1))
+    forged = _chase_start()
+    forged["payload"]["unexpected"] = "accepted by the old loose schema"
+    with pytest.raises(executor.SubsystemExecutorError, match="exact chase_start"):
+        _execute(executor, campaign, character, [forged], random.Random(1))
+
+
+def test_chase_offer_context_is_anchored_to_independent_append_only_evidence(tmp_path):
+    executor = _executor("coc_subsystem_executor_chase_offer_evidence")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 10, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    start = _chase_start()
+    start["payload"]["locations"] = [start["payload"]["locations"][0], start["payload"]["locations"][2]]
+    _execute(executor, campaign, character, [start], random.Random(1))
+    offered = _execute(executor, campaign, character, [_command(
+        "anchored-choice", "chase_move", payload={"decision_id": "anchored-choice", "revision": 1,
+        "actor_id": "inv1", "action_id": "choice:offer"})], random.Random(2))[0]
+    evidence_path = campaign / "logs" / "chase-offers.jsonl"
+    evidence = json.loads(evidence_path.read_text().splitlines()[0])
+    assert evidence["chase_id"] == "roof-run"
+    assert evidence["revision"] == 1
+    assert evidence["actor_id"] == "inv1"
+    assert evidence["location"]["barrier"]["barrier_id"] == "door"
+    assert evidence["options"] == offered["pending_choice"]["options"]
+
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    choice_id = offered["pending_choice"]["choice_id"]
+    state["pending_contexts"][choice_id]["action_context"]["barrier"]["target"] = 1
+    state_path.write_text(json.dumps(state))
+    with pytest.raises(executor.SubsystemExecutorError, match="chase offer evidence"):
+        executor.get_current_pending_choice(campaign)
+
+
+def test_chase_offer_evidence_tail_rolls_back_on_commit_failure(tmp_path, monkeypatch):
+    executor = _executor("coc_subsystem_executor_chase_offer_rollback")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 10, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    start = _chase_start()
+    start["payload"]["locations"] = [start["payload"]["locations"][0], start["payload"]["locations"][2]]
+    _execute(executor, campaign, character, [start], random.Random(1))
+    state_path = campaign / "save" / "subsystem-state.json"
+    real_write = executor._write_executor_state
+    calls = 0
+    def fail_final_write(campaign_dir, state):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected final state failure")
+        return real_write(campaign_dir, state)
+    monkeypatch.setattr(executor, "_write_executor_state", fail_final_write)
+    with pytest.raises(executor.SubsystemExecutorError, match="subsystem_transaction_failed"):
+        _execute(executor, campaign, character, [_command(
+            "rollback-choice", "chase_move", payload={"decision_id": "rollback-choice", "revision": 1,
+            "actor_id": "inv1", "action_id": "choice:offer"})], random.Random(2))
+    assert not (campaign / "logs" / "chase-offers.jsonl").exists()
+    assert json.loads(state_path.read_text())["inflight"] is None
 
 
 def _keeper_response(choice: dict, action: str = "tick") -> dict:

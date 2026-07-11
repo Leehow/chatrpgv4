@@ -2694,6 +2694,10 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 return [{
                     "kind": request_kind,
                     **{key: value for key, value in chase_action.items() if key != "kind"},
+                    **(
+                        {"chase_id": chase_state.get("chase_id")}
+                        if action_kind == "end" else {}
+                    ),
                     "reason": "structured semantic chase action",
                 }]
     scene = ctx.get("active_scene") or {}

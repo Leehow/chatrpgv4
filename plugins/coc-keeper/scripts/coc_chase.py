@@ -1724,6 +1724,8 @@ class ChaseSession:
         rounds = data.get("rounds")
         if not isinstance(rounds, list) or data["current_round"] != len(rounds):
             raise ValueError("chase snapshot round counter is invalid")
+        conflict_action_receipts: list[dict[str, Any]] = []
+        action_roll_ids: list[str] = []
         for index, round_row in enumerate(rounds, start=1):
             if (not isinstance(round_row, dict) or set(round_row) != {"round", "dex_order", "turns"}
                     or round_row.get("round") != index
@@ -1760,6 +1762,40 @@ class ChaseSession:
                     if (not isinstance(action, dict) or not isinstance(action.get("type"), str)
                             or not set(action) <= action_keys):
                         raise ValueError("chase snapshot turn action is invalid")
+                    action_type = action["type"]
+                    if action_type not in {
+                        "advance", "assist_driver", "barrier", "break_barrier",
+                        "choose_route", "conflict", "conflict_melee", "conflict_vehicle",
+                        "fire_while_moving", "hazard", "hide", "pedal_to_the_metal",
+                        "random_hazard", "sudden_hazard",
+                    }:
+                        raise ValueError("chase snapshot turn action discriminator is invalid")
+                    spent = action.get("actions_spent")
+                    if isinstance(spent, bool) or not isinstance(spent, int) or spent < 0:
+                        raise ValueError("chase snapshot action cost is invalid")
+                    if isinstance(action.get("roll_id"), str):
+                        action_roll_ids.append(action["roll_id"])
+                    if action_type == "conflict":
+                        required = {"type", "attacker_id", "defender_id", "combat_command_id",
+                                    "combat_revision", "combat_id", "combat_receipt", "actions_spent"}
+                        if not required <= set(action):
+                            raise ValueError("chase snapshot conflict action is incomplete")
+                        receipt = action.get("combat_receipt")
+                        receipt_keys = {"combat_command_id", "combat_id", "combat_revision",
+                                        "command_hash", "receipt_hash"}
+                        if (not isinstance(receipt, dict) or set(receipt) != receipt_keys
+                                or any(receipt.get(key) != action.get(key)
+                                       for key in ("combat_command_id", "combat_id", "combat_revision"))
+                                or action.get("actions_spent") != 1
+                                or action.get("attacker_id") != turn.get("actor_id")
+                                or not isinstance(receipt.get("combat_revision"), int)
+                                or receipt["combat_revision"] < 0
+                                or any(not isinstance(receipt.get(key), str) or not receipt[key]
+                                       for key in receipt_keys - {"combat_revision"})):
+                            raise ValueError("chase snapshot combat receipt is invalid")
+                        conflict_action_receipts.append(receipt)
+                if sum(action["actions_spent"] for action in turn["actions_taken"]) > turn["movement_actions"]:
+                    raise ValueError("chase snapshot turn action budget is inconsistent")
             if turn_actors != round_row["dex_order"][:len(turn_actors)]:
                 raise ValueError("chase snapshot turn order is inconsistent")
             if index < len(rounds) and len(turn_actors) != len(round_row["dex_order"]):
@@ -1793,6 +1829,10 @@ class ChaseSession:
                        or not all(isinstance(row[k], str) and row[k] for k in receipt_keys - {"combat_revision"})
                        for row in receipts)):
             raise ValueError("chase snapshot combat receipts are invalid")
+        if conflict_action_receipts != receipts:
+            raise ValueError("chase snapshot combat receipt/action history diverges")
+        if any(roll_id not in data["roll_history"] for roll_id in action_roll_ids):
+            raise ValueError("chase snapshot action roll history diverges")
 
     def drain_pending(self) -> list[dict[str, Any]]:
         r = self.pending_rolls

@@ -821,9 +821,11 @@ def _validate_inflight(inflight: Any) -> None:
     if not isinstance(offsets, dict) or set(offsets) - {
         "logs/rolls.jsonl",
         "logs/time.jsonl",
-        "logs/subsystem-results.jsonl",
-        "logs/push-offers.jsonl",
-    }:
+            "logs/subsystem-results.jsonl",
+            "logs/push-offers.jsonl",
+            "logs/chase-offers.jsonl",
+            "logs/chase-conflicts.jsonl",
+        }:
         raise _state_error("inflight.log_offsets contains an unsafe path")
     for relative, offset in offsets.items():
         if not isinstance(offset, dict) or set(offset) != {"exists", "size"}:
@@ -1216,6 +1218,22 @@ def _validate_history_terminal_snapshot(
             or history_ref not in (snapshot.get("state_refs") or [])
         ):
             raise _state_error(f"choice history {choice_id!r} has invalid chase result")
+        if kind == "chase_end":
+            events = snapshot.get("events")
+            event = events[0] if isinstance(events, list) and len(events) == 1 else None
+            payload = command["payload"]
+            if (not isinstance(event, dict)
+                    or set(event) != {"event_type", "chase_id", "revision", "outcome",
+                                          "scenario_terminal", "source_command_id", "cancelled_choice_id"}
+                    or event.get("event_type") != "chase_ended"
+                    or event.get("chase_id") != payload.get("chase_id")
+                    or event.get("outcome") != payload.get("outcome")
+                    or event.get("source_command_id") != command_id
+                    or event.get("cancelled_choice_id") != choice_id
+                    or event.get("scenario_terminal") is not False
+                    or not isinstance(event.get("revision"), int)
+                    or event["revision"] != payload.get("revision") + 1):
+                raise _state_error(f"choice history {choice_id!r} has forged chase-end evidence")
         return
     if kind not in BOUT_COMMAND_KINDS:
         raise _state_error(f"choice history {choice_id!r} has unsupported terminal kind")
@@ -1409,6 +1427,7 @@ def _validate_state(state: Any) -> dict[str, Any]:
                 option["action"] for option in public_choice.get("options") or []
                 if isinstance(option, dict) and isinstance(option.get("action"), str)
             }
+            allowed_actions.add("cancelled_by_chase_end")
             expected_count = 1
             base_keys = CHASE_CONTEXT_KEYS
         else:
@@ -1434,12 +1453,22 @@ def _validate_state(state: Any) -> dict[str, Any]:
         ):
             raise _state_error(f"choice history {choice_id!r} has invalid terminal commands")
         ids = _resume_ids(choice_id, int(revision), str(action))
-        expected_command_ids = [ids["confirm_command_id"]]
+        chase_end_cancel = (
+            public_choice.get("kind") == "chase_action"
+            and action == "cancelled_by_chase_end"
+        )
+        expected_command_ids = (
+            [terminal_commands[0].get("command_id")]
+            if chase_end_cancel and isinstance(terminal_commands, list)
+            and len(terminal_commands) == 1 and isinstance(terminal_commands[0], dict)
+            else [ids["confirm_command_id"]]
+        )
         expected_kinds = [
             "push_confirm" if public_choice.get("kind") == "push_confirm"
             else "bout_tick" if public_choice.get("kind") == "bout_keeper_action" and action == "tick"
             else "bout_end" if public_choice.get("kind") == "bout_keeper_action"
             else "chase_barrier" if str(action).startswith("barrier:")
+            else "chase_end" if chase_end_cancel
             else "chase_move"
         ]
         if public_choice.get("kind") == "push_confirm" and action == "confirm":
@@ -1474,11 +1503,18 @@ def _validate_state(state: Any) -> dict[str, Any]:
             "action": action,
         }
         try:
-            expected_plan = _pending_resume_plan_from_state(
-                state, entry["investigator_id"], response
-            )
-            expected_commands = commands_from_rules_requests(expected_plan)
             validated_commands = _validate_batch(terminal_commands)
+            if chase_end_cancel:
+                expected_commands = validated_commands
+                end_payload = validated_commands[0]["payload"]
+                if (validated_commands[0]["kind"] != "chase_end"
+                        or end_payload.get("revision") != entry.get("revision")):
+                    raise _error("invalid_pending_resolution_batch", "commands", "chase end cancellation is not canonical")
+            else:
+                expected_plan = _pending_resume_plan_from_state(
+                    state, entry["investigator_id"], response
+                )
+                expected_commands = commands_from_rules_requests(expected_plan)
         except SubsystemExecutorError as exc:
             raise _state_error(
                 f"choice history {choice_id!r} has invalid terminal command receipts: {exc}"
@@ -1494,7 +1530,10 @@ def _validate_state(state: Any) -> dict[str, Any]:
                 != entry.get("investigator_id")
                 or provenance[terminal_id].get("character_id")
                 != entry.get("character_id")
-                or provenance[terminal_id].get("decision_id") != ids["decision_id"]
+                or provenance[terminal_id].get("decision_id") != (
+                    terminal_command["payload"].get("decision_id")
+                    if chase_end_cancel else ids["decision_id"]
+                )
                 or hashes[terminal_id] != _canonical_command_hash(terminal_command)
             ):
                 raise _state_error(f"choice history {choice_id!r} has invalid terminal provenance")
@@ -1563,6 +1602,8 @@ def _validate_state(state: Any) -> dict[str, Any]:
 
 _RESULT_RECEIPT_LOG = Path("logs/subsystem-results.jsonl")
 _PUSH_OFFER_EVIDENCE_LOG = Path("logs/push-offers.jsonl")
+_CHASE_OFFER_EVIDENCE_LOG = Path("logs/chase-offers.jsonl")
+_CHASE_CONFLICT_LEDGER = Path("logs/chase-conflicts.jsonl")
 
 
 def _result_choice_id(
@@ -1624,6 +1665,46 @@ def _push_offer_evidence_record(
         ),
     }
     material["evidence_hash"] = _canonical_json_hash(material)
+    return material
+
+
+def _chase_offer_evidence_record(
+    sequence: int, command: dict[str, Any], result: dict[str, Any], state: dict[str, Any],
+) -> dict[str, Any]:
+    command_id = command["command_id"]
+    choice = result["pending_choice"]
+    context = state["pending_contexts"][choice["choice_id"]]
+    material = {
+        "record_type": "chase_offer_evidence", "sequence": sequence,
+        "command_id": command_id, "command_hash": state["command_hashes"][command_id],
+        "command_provenance": _json_copy(state["command_provenance"][command_id]),
+        "choice_id": choice["choice_id"], "chase_id": context["chase_id"],
+        "revision": context["revision"], "actor_id": context["actor_id"],
+        "location": _json_copy(context["action_context"]),
+        "options": _json_copy(choice["options"]), "command": _json_copy(command),
+        "public_choice": _json_copy(choice),
+    }
+    material["evidence_hash"] = _canonical_json_hash(material)
+    return material
+
+
+def _chase_conflict_record(
+    sequence: int, command: dict[str, Any], result: dict[str, Any], state: dict[str, Any],
+) -> dict[str, Any]:
+    event = result["events"][0]
+    receipt = event["combat_receipt"]
+    material = {
+        "record_type": "chase_conflict_consumption", "sequence": sequence,
+        "chase_command_id": command["command_id"],
+        "chase_command_hash": state["command_hashes"][command["command_id"]],
+        "chase_id": event["chase_id"], "post_chase_revision": event["revision"],
+        "actor_id": command["payload"]["actor_id"],
+        "target_actor_id": command["payload"]["target_actor_id"],
+        "combat_command_id": receipt["combat_command_id"],
+        "combat_receipt_hash": receipt["receipt_hash"],
+        "combat_receipt": _json_copy(receipt),
+    }
+    material["consumption_hash"] = _canonical_json_hash(material)
     return material
 
 
@@ -1844,6 +1925,91 @@ def _validate_push_offer_evidence(
             )
 
 
+def _validate_chase_offer_evidence(campaign_dir: Path, state: dict[str, Any]) -> None:
+    records = _read_jsonl_records(
+        campaign_dir / _CHASE_OFFER_EVIDENCE_LOG, label="canonical chase offer evidence"
+    )
+    offer_ids = [
+        cid for cid in state["applied_command_ids"]
+        if state["result_snapshots"][cid]["kind"] == "chase_move"
+        and state["result_snapshots"][cid].get("status") == "pending_choice"
+    ]
+    if len(records) != len(offer_ids):
+        raise _state_error("canonical chase offer evidence length diverges")
+    keys = {"record_type", "sequence", "command_id", "command_hash", "command_provenance",
+            "choice_id", "chase_id", "revision", "actor_id", "location", "options",
+            "command", "public_choice", "evidence_hash"}
+    for sequence, (command_id, record) in enumerate(zip(offer_ids, records), 1):
+        choice = state["result_snapshots"][command_id]["pending_choice"]
+        choice_id = choice["choice_id"]
+        context = state["pending_contexts"].get(choice_id) or state["choice_history"].get(choice_id)
+        material = {key: _json_copy(value) for key, value in record.items() if key != "evidence_hash"}
+        expected_context = {
+            "chase_id": record.get("chase_id"), "revision": record.get("revision"),
+            "actor_id": record.get("actor_id"), "action_context": _json_copy(record.get("location")),
+        }
+        if (set(record) != keys or record.get("record_type") != "chase_offer_evidence"
+                or record.get("sequence") != sequence or record.get("command_id") != command_id
+                or record.get("command_hash") != state["command_hashes"][command_id]
+                or not _json_deep_equal(record.get("command_provenance"), state["command_provenance"][command_id])
+                or record.get("choice_id") != choice_id
+                or not _json_deep_equal(record.get("public_choice"), choice)
+                or not _json_deep_equal(record.get("options"), choice.get("options"))
+                or not isinstance(context, dict)
+                or not _json_deep_equal(record.get("command"), context.get("offer_command"))
+                or any(not _json_deep_equal(context.get(key), value) for key, value in expected_context.items())
+                or record.get("evidence_hash") != _canonical_json_hash(material)):
+            raise _state_error(f"canonical chase offer evidence for {command_id!r} diverges")
+
+
+def _validate_chase_conflict_ledger(campaign_dir: Path, state: dict[str, Any]) -> None:
+    records = _read_jsonl_records(
+        campaign_dir / _CHASE_CONFLICT_LEDGER, label="canonical chase conflict ledger"
+    )
+    conflict_ids = [cid for cid in state["applied_command_ids"]
+                    if state["result_snapshots"][cid]["kind"] == "chase_conflict"]
+    if len(records) != len(conflict_ids):
+        raise _state_error("canonical chase conflict ledger length diverges")
+    seen: set[tuple[str, str]] = set()
+    chase_snapshot: dict[str, Any] = {}
+    chase_path = campaign_dir / "save" / "chase.json"
+    if chase_path.is_file():
+        try:
+            loaded = json.loads(chase_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                chase_snapshot = loaded
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise _state_error(f"canonical chase conflict source is invalid: {exc}") from exc
+    keys = {"record_type", "sequence", "chase_command_id", "chase_command_hash",
+            "chase_id", "post_chase_revision", "actor_id", "target_actor_id",
+            "combat_command_id", "combat_receipt_hash", "combat_receipt", "consumption_hash"}
+    for sequence, (command_id, record) in enumerate(zip(conflict_ids, records), 1):
+        event = state["result_snapshots"][command_id]["events"][0]
+        receipt = event.get("combat_receipt")
+        material = {key: _json_copy(value) for key, value in record.items() if key != "consumption_hash"}
+        key = (record.get("combat_command_id"), record.get("combat_receipt_hash"))
+        if (set(record) != keys or record.get("record_type") != "chase_conflict_consumption"
+                or record.get("sequence") != sequence or record.get("chase_command_id") != command_id
+                or record.get("chase_command_hash") != state["command_hashes"][command_id]
+                or not _json_deep_equal(record.get("combat_receipt"), receipt)
+                or record.get("combat_command_id") != (receipt or {}).get("combat_command_id")
+                or record.get("combat_receipt_hash") != (receipt or {}).get("receipt_hash")
+                or record.get("chase_id") != event.get("chase_id")
+                or record.get("post_chase_revision") != event.get("revision")
+                or record.get("consumption_hash") != _canonical_json_hash(material)
+                or key in seen):
+            raise _state_error(f"canonical chase conflict consumption {command_id!r} diverges")
+        if chase_snapshot.get("chase_id") == record.get("chase_id"):
+            persisted_receipts = chase_snapshot.get("consumed_combat_receipts") or []
+            if (not any(_json_deep_equal(row, receipt) for row in persisted_receipts)
+                    or not isinstance(chase_snapshot.get("revision"), int)
+                    or chase_snapshot["revision"] < record["post_chase_revision"]):
+                raise _state_error(
+                    f"canonical chase conflict consumption {command_id!r} diverges from chase snapshot"
+                )
+        seen.add(key)
+
+
 def _validate_external_result_receipts(campaign_dir: Path, state: dict[str, Any]) -> None:
     records = _read_jsonl_records(
         campaign_dir / _RESULT_RECEIPT_LOG, label="canonical subsystem result ledger"
@@ -1891,6 +2057,8 @@ def _validate_external_result_receipts(campaign_dir: Path, state: dict[str, Any]
             raise _state_error(f"choice history {choice_id!r} has wrong canonical receipt references")
     _validate_result_source_evidence(campaign_dir, state, commands_by_id)
     _validate_push_offer_evidence(campaign_dir, state)
+    _validate_chase_offer_evidence(campaign_dir, state)
+    _validate_chase_conflict_ledger(campaign_dir, state)
 
 
 def _load_state(campaign_dir: Path) -> dict[str, Any]:
@@ -2017,7 +2185,8 @@ class _AnchoredTransactionTarget:
             _allowed_preimage_path(relative)
             or relative in {
                 "logs/rolls.jsonl", "logs/time.jsonl", "logs/subsystem-results.jsonl",
-                "logs/push-offers.jsonl",
+                "logs/push-offers.jsonl", "logs/chase-offers.jsonl",
+                "logs/chase-conflicts.jsonl",
             }
         ):
             raise _unsafe_transaction_path(relative, "target is not transaction-owned")
@@ -2491,6 +2660,11 @@ def _build_inflight(
     log_relatives: list[str] = ["logs/subsystem-results.jsonl"]
     if any(command["kind"] == "push_offer" for command, _ in commands_with_hashes):
         log_relatives.append("logs/push-offers.jsonl")
+    if any(command["kind"] == "chase_move" and command["payload"].get("action_id") == "choice:offer"
+           for command, _ in commands_with_hashes):
+        log_relatives.append(_CHASE_OFFER_EVIDENCE_LOG.as_posix())
+    if any(command["kind"] == "chase_conflict" for command, _ in commands_with_hashes):
+        log_relatives.append(_CHASE_CONFLICT_LEDGER.as_posix())
     if has_roll_evidence:
         log_relatives.append("logs/rolls.jsonl")
     if structured_sanity:
@@ -2704,6 +2878,22 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
         elif kind == "combat_end" and payload.get("outcome") not in coc_combat.VALID_OUTCOMES - {None}:
             raise _error("invalid_command_payload", f"{base}.outcome", "invalid combat outcome")
     if kind in CHASE_COMMAND_KINDS:
+        chase_payload_keys = {
+            "chase_start": {"decision_id", "chase_id", "participants", "locations"},
+            "chase_move": {"decision_id", "revision", "actor_id", "action_id"},
+            "chase_hazard": {"decision_id", "revision", "actor_id", "action_id"},
+            "chase_barrier": {"decision_id", "revision", "actor_id", "action_id", "method"},
+            "chase_conflict": {"decision_id", "revision", "actor_id", "action_id", "target_actor_id", "combat_command_id"},
+            "chase_end": {"decision_id", "chase_id", "revision", "outcome"},
+        }
+        optional_keys = {
+            "chase_move": {"choice_id"},
+            "chase_hazard": {"skill", "target", "difficulty", "roll_id"},
+            "chase_barrier": {"choice_id", "skill", "target", "difficulty", "roll_id"},
+        }.get(kind, set())
+        optional_keys |= {"request_index", "reason"}
+        if not chase_payload_keys[kind] <= set(payload) or set(payload) - chase_payload_keys[kind] - optional_keys:
+            raise _error("invalid_command_payload", base, f"expected exact {kind} payload contract")
         if kind == "chase_start":
             if not isinstance(payload.get("chase_id"), str) or not _SAFE_ID.fullmatch(payload["chase_id"]):
                 raise _error("invalid_command_payload", f"{base}.chase_id", "chase_id must be a stable ID")
@@ -2739,6 +2929,40 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                 for location in locations
             ):
                 raise _error("invalid_command_payload", f"{base}.locations", "chase requires structured locations")
+            location_required = {"label", "hazard", "barrier"}
+            location_optional = {"kind", "route_id", "notes"}
+            hazard_keys = {"hazard_id", "skill", "target", "difficulty", "damage_dice",
+                           "collision_severity", "from_wreck", "from_debris", "sudden"}
+            barrier_keys = {"barrier_id", "hp", "hp_max", "skill", "target", "difficulty",
+                            "damage_dice", "description"}
+            for offset, location in enumerate(locations):
+                lpath = f"{base}.locations[{offset}]"
+                if not location_required <= set(location) or set(location) - location_required - location_optional:
+                    raise _error("invalid_command_payload", lpath, "invalid exact chase location contract")
+                hazard = location["hazard"]
+                if hazard is not None:
+                    if (not isinstance(hazard, dict) or not {"hazard_id", "skill", "target"} <= set(hazard)
+                            or set(hazard) - hazard_keys):
+                        raise _error("invalid_command_payload", f"{lpath}.hazard", "invalid exact hazard contract")
+                    if (not isinstance(hazard["hazard_id"], str) or not _SAFE_ID.fullmatch(hazard["hazard_id"])
+                            or not isinstance(hazard["skill"], str) or not hazard["skill"]
+                            or isinstance(hazard["target"], bool) or not isinstance(hazard["target"], int)
+                            or not 0 <= hazard["target"] <= 100
+                            or hazard.get("difficulty", "regular") not in {"regular", "hard", "extreme"}):
+                        raise _error("invalid_command_payload", f"{lpath}.hazard", "invalid exact hazard values")
+                barrier = location["barrier"]
+                if barrier is not None:
+                    if (not isinstance(barrier, dict)
+                            or not {"barrier_id", "hp", "hp_max", "skill", "target"} <= set(barrier)
+                            or set(barrier) - barrier_keys):
+                        raise _error("invalid_command_payload", f"{lpath}.barrier", "invalid exact barrier contract")
+                    if (not isinstance(barrier["barrier_id"], str) or not _SAFE_ID.fullmatch(barrier["barrier_id"])
+                            or any(isinstance(barrier[key], bool) or not isinstance(barrier[key], int)
+                                   or barrier[key] < 0 for key in ("hp", "hp_max", "target"))
+                            or barrier["hp"] > barrier["hp_max"] or barrier["target"] > 100
+                            or not isinstance(barrier["skill"], str) or not barrier["skill"]
+                            or barrier.get("difficulty", "regular") not in {"regular", "hard", "extreme"}):
+                        raise _error("invalid_command_payload", f"{lpath}.barrier", "invalid exact barrier values")
         else:
             revision = payload.get("revision")
             if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
@@ -2755,6 +2979,10 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                     raise _error("invalid_command_payload", f"{base}.{field}", "stable conflict evidence ID required")
         if kind == "chase_end" and payload.get("outcome") not in {"escaped", "captured", "concluded"}:
             raise _error("invalid_command_payload", f"{base}.outcome", "invalid chase outcome")
+        if kind == "chase_end" and (
+            not isinstance(payload.get("chase_id"), str) or not _SAFE_ID.fullmatch(payload["chase_id"])
+        ):
+            raise _error("invalid_command_payload", f"{base}.chase_id", "chase_id must be a stable ID")
     if "bonus_penalty_dice" in payload:
         modifier = payload["bonus_penalty_dice"]
         if (
@@ -4299,6 +4527,8 @@ def _dispatch_chase(
         _sync_chase_from_investigator(campaign_dir, investigator_id, session)
         if payload["revision"] != session.revision:
             raise _error("stale_chase_revision", "commands[0].payload.revision", "chase revision is stale")
+        if kind == "chase_end" and payload["chase_id"] != session.chase_id:
+            raise _error("chase_id_mismatch", "commands[0].payload.chase_id", "chase end targets another chase")
         if session.status != "active":
             raise _error("chase_not_active", "save/chase.json", "chase is already concluded")
         choice_id = payload.get("choice_id")
@@ -4331,8 +4561,16 @@ def _dispatch_chase(
                 if (isinstance(active_context, dict) and active_context.get("kind") == "chase_action"
                         and active_context.get("chase_id") == session.chase_id):
                     cancelled_choice_id = active_choice_id
-                    executor_state["pending_contexts"].pop(active_choice_id, None)
-                    executor_state["pending_choices"].pop(active_choice_id, None)
+                    context = executor_state["pending_contexts"].pop(active_choice_id)
+                    choice = executor_state["pending_choices"].pop(active_choice_id)
+                    executor_state["choice_history"][active_choice_id] = {
+                        **_json_copy(context), "public_choice": _json_copy(choice),
+                        "terminal_action": "cancelled_by_chase_end",
+                        "terminal_revision": choice["revision"],
+                        "terminal_command_ids": [command_id], "terminal_commands": [],
+                        "terminal_results": [], "terminal_result_receipt_hashes": [],
+                    }
+                    history_ref = f"save/subsystem-state.json#choice_history/{active_choice_id}"
             session.conclude(payload["outcome"])
             event = {
                 "event_type": "chase_ended", "chase_id": session.chase_id,
@@ -4447,6 +4685,16 @@ def _dispatch_chase(
                         or receipt.get("command_hash") != executor_state["command_hashes"].get(combat_command_id)
                         or not _json_deep_equal(receipt.get("result"), combat_result)):
                     raise _error("untrusted_combat_evidence", "commands[0].payload.combat_command_id", "combat receipt is stale or does not bind the persisted combat")
+                receipt_key = (combat_command_id, receipt["receipt_hash"])
+                for prior in executor_state["result_snapshots"].values():
+                    if not isinstance(prior, dict) or prior.get("kind") != "chase_conflict":
+                        continue
+                    prior_events = prior.get("events") or []
+                    prior_receipt = prior_events[0].get("combat_receipt") if prior_events and isinstance(prior_events[0], dict) else None
+                    if isinstance(prior_receipt, dict) and (
+                        prior_receipt.get("combat_command_id"), prior_receipt.get("receipt_hash")
+                    ) == receipt_key:
+                        raise _error("combat_receipt_already_consumed", "commands[0].payload.combat_command_id", "combat receipt was consumed by an earlier chase session")
                 action = session.record_external_conflict(
                     actor_id, target_id, combat_command_id=combat_command_id,
                     combat_revision=combat.revision, combat_id=combat.combat_id,
@@ -5152,6 +5400,15 @@ def _append_push_offer_evidence(
         os.fsync(handle.fileno())
 
 
+def _append_integrity_evidence(campaign_dir: Path, relative: Path, evidence: dict[str, Any]) -> None:
+    path = campaign_dir / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(evidence, ensure_ascii=False, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def _preflight_new_pending_capacity(
     commands_with_hashes: list[tuple[dict[str, Any], str]],
 ) -> None:
@@ -5289,6 +5546,25 @@ def _preflight_push_offers(
             )
 
 
+def _preflight_chase_conflict_receipts(
+    commands_with_hashes: list[tuple[dict[str, Any], str]], state: dict[str, Any],
+) -> None:
+    consumed = {
+        event.get("combat_receipt", {}).get("combat_command_id")
+        for snapshot in state["result_snapshots"].values()
+        if isinstance(snapshot, dict) and snapshot.get("kind") == "chase_conflict"
+        for event in (snapshot.get("events") or [])[:1]
+        if isinstance(event, dict) and isinstance(event.get("combat_receipt"), dict)
+    }
+    for index, (command, _command_hash) in enumerate(commands_with_hashes):
+        if command["kind"] == "chase_conflict" and command["payload"]["combat_command_id"] in consumed:
+            raise _error(
+                "combat_receipt_already_consumed",
+                f"commands[{index}].payload.combat_command_id",
+                "combat receipt was consumed by an earlier chase session",
+            )
+
+
 def _preflight_pending_resolution_batch(
     state: dict[str, Any],
     commands_with_hashes: list[tuple[dict[str, Any], str]],
@@ -5301,8 +5577,11 @@ def _preflight_pending_resolution_batch(
     first = commands[0]
     if first["kind"] == "chase_end" and len(commands) == 1:
         contexts = list(state["pending_contexts"].values())
+        payload = first["payload"]
         if (len(contexts) == 1 and isinstance(contexts[0], dict)
-                and contexts[0].get("kind") == "chase_action"):
+                and contexts[0].get("kind") == "chase_action"
+                and contexts[0].get("chase_id") == payload.get("chase_id")
+                and contexts[0].get("revision") == payload.get("revision")):
             return True
         return False
     chase_resolution = (
@@ -5429,6 +5708,7 @@ def execute_commands(
         investigator_id=investigator_id,
         character=character,
     )
+    _preflight_chase_conflict_receipts(new_commands_with_hashes, state)
     resolving_pending = _preflight_pending_resolution_batch(
         state,
         new_commands_with_hashes,
@@ -5545,6 +5825,17 @@ def execute_commands(
             if state["result_snapshots"][command_id]["kind"] == "push_offer"
         )
         push_offer_evidence: list[dict[str, Any]] = []
+        existing_chase_offer_count = sum(
+            1 for command_id in state["applied_command_ids"]
+            if state["result_snapshots"][command_id]["kind"] == "chase_move"
+            and state["result_snapshots"][command_id].get("status") == "pending_choice"
+        )
+        existing_conflict_count = sum(
+            1 for command_id in state["applied_command_ids"]
+            if state["result_snapshots"][command_id]["kind"] == "chase_conflict"
+        )
+        chase_offer_evidence: list[dict[str, Any]] = []
+        chase_conflict_evidence: list[dict[str, Any]] = []
         for command, result in new_results:
             if command["kind"] == "push_offer":
                 push_offer_evidence.append(
@@ -5555,6 +5846,16 @@ def execute_commands(
                         next_state,
                     )
                 )
+            if command["kind"] == "chase_move" and result.get("status") == "pending_choice":
+                chase_offer_evidence.append(_chase_offer_evidence_record(
+                    existing_chase_offer_count + len(chase_offer_evidence) + 1,
+                    command, result, next_state,
+                ))
+            if command["kind"] == "chase_conflict":
+                chase_conflict_evidence.append(_chase_conflict_record(
+                    existing_conflict_count + len(chase_conflict_evidence) + 1,
+                    command, result, next_state,
+                ))
         for history_entry in next_state["choice_history"].values():
             if not isinstance(history_entry, dict):
                 continue
@@ -5584,6 +5885,10 @@ def execute_commands(
 
         for evidence in push_offer_evidence:
             _append_push_offer_evidence(campaign, evidence)
+        for evidence in chase_offer_evidence:
+            _append_integrity_evidence(campaign, _CHASE_OFFER_EVIDENCE_LOG, evidence)
+        for evidence in chase_conflict_evidence:
+            _append_integrity_evidence(campaign, _CHASE_CONFLICT_LEDGER, evidence)
 
         for command, result in new_results:
             if command["kind"] not in ROLL_EVIDENCE_COMMAND_KINDS:

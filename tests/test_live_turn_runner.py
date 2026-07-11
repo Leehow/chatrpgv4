@@ -2067,12 +2067,31 @@ def test_live_typed_chase_journey_persists_hazard_barrier_conflict_and_end(tmp_p
     assert len(receipt["command_hash"]) == 64
     assert len(receipt["receipt_hash"]) == 64
     assert reloaded.revision == 11
-    ended = send("chase_end", {"decision_id": "live-chase", "revision": 11,
+    ended = send("chase_end", {"decision_id": "live-chase", "chase_id": "roof-run", "revision": 11,
         "outcome": "escaped"}, 813)
     event = ended["subsystem_results"][0]["events"][0]
     assert event["event_type"] == "chase_ended"
     assert event["scenario_terminal"] is False
     assert json.loads((camp / "save" / "chase.json").read_text())["outcome"] == "escaped"
+
+    inv_after = json.loads(inv_path.read_text(encoding="utf-8"))
+    second_participants = json.loads(json.dumps(participants))
+    second_participants[0]["hp"] = inv_after["current_hp"]
+    second_participants[0]["conditions"] = inv_after["conditions"]
+    send("chase_start", {"decision_id": "live-chase-2", "chase_id": "roof-run-2",
+         "participants": second_participants,
+         "locations": [{"label": "roof", "hazard": None, "barrier": None},
+                       {"label": "escape", "hazard": None, "barrier": None}]}, 814)
+    with pytest.raises(live_runner.subsystem_executor.SubsystemExecutorError) as reused:
+        send("chase_conflict", {"decision_id": "live-chase-2", "revision": 1,
+            "actor_id": "inv1", "target_actor_id": "cultist", "action_id": "conflict:cultist",
+            "combat_command_id": combat_command_id}, 815)
+    assert reused.value.code == "combat_receipt_already_consumed"
+    conflict_ledger = [json.loads(line) for line in
+                       (camp / "logs" / "chase-conflicts.jsonl").read_text().splitlines()]
+    assert len(conflict_ledger) == 1
+    assert conflict_ledger[0]["combat_command_id"] == combat_command_id
+    assert conflict_ledger[0]["chase_id"] == "roof-run"
 
 
 def test_live_npc_defense_is_keeper_typed_and_not_player_projected(tmp_path):
