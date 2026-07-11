@@ -574,6 +574,8 @@ def test_canonical_narrator_mixed_fallback_remains_eligible(tmp_path, monkeypatc
         return {
             "ok": True,
             "final_text": "雨里传来一声短促的木响。",
+            "asserted_fact_refs": [],
+            "semantic_audit": [],
             "model_identity": {"provider": "fixture", "id": "trusted-narrator-model"},
             "response_mode": "tool",
         }
@@ -605,6 +607,26 @@ def test_canonical_narrator_all_fallback_can_remain_eligible(tmp_path, monkeypat
     assert result["metadata"]["eligible_as_gameplay_evidence"] is True
     assert result["evidence"]["external_model_turns"] == 1
     assert result["evidence"]["fallback_turns"] >= 1
+
+
+def test_live_match_missing_structured_secret_audit_uses_recorded_template_fallback(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(match.narrator_adapter, "narrator_send_turn", lambda *a, **k: {
+        "ok": True, "final_text": "model prose without audit",
+        "secret_audit_complete": False,
+    })
+    text, method, fallback, outcome = match._apply_narrator_or_template(
+        template_text="safe template", projected={"decision_id": "d1"},
+        live_turn={"narration_envelope": {
+            "must_not_reveal": [{"id": "secret-a", "category": "keeper_secret"}]
+        }}, campaign_dir=tmp_path, last_player_text="act", play_language="zh-Hans",
+        recent_narrations=[], narrator_runner=CANONICAL_NARRATOR_RUNNER,
+        timeout_s=1,
+    )
+    assert (text, method) == ("safe template", "template")
+    assert fallback["error"] == "structured_secret_audit_failed"
+    assert outcome["fallback_kind"] == "secret_audit"
 
 
 def test_untrusted_narrator_output_disqualifies_evidence(tmp_path, monkeypatch):
@@ -836,6 +858,8 @@ state_path.write_text(str(idx + 1))
 out = {{
     "ok": True,
     "final_text": "基于以上信息，你确认了线索：门框划痕。雨还在下。",
+    "asserted_fact_refs": [],
+    "semantic_audit": [],
 }}
 if {model_repr} is not None:
     out["model_identity"] = {model_repr}
@@ -857,7 +881,7 @@ assert "rationale" not in env
 assert "keeper_secrets" not in env
 text = lines[min(idx, len(lines) - 1)]
 state_path.write_text(str(idx + 1))
-out = {{"ok": True, "final_text": text}}
+out = {{"ok": True, "final_text": text, "asserted_fact_refs": [], "semantic_audit": []}}
 if {model_repr} is not None:
     out["model_identity"] = {model_repr}
 if {response_mode_repr} is not None:

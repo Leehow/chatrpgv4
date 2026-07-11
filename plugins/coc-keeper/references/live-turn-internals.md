@@ -7,6 +7,12 @@ manual stitching loses auto-advance, fast/background recording,
 `stop_actionability`, cross-turn action signatures, and the
 `logs/live-turn-runtime.jsonl` receipt.**
 
+The canonical narration envelope carries explicit `render_mode`, an optional
+validated `render_frame`, and bounded `horror_profile`. Choice/NPC projections
+are public whitelists. The narrator bridge returns structured fact assertions
+and semantic audit evidence; live match records a template fallback in its
+invocation ledger when that audit fails closed.
+
 Internal pipeline (owned by `scripts/coc_live_turn_runner.py`):
 
 1. Resolve the turn's semantic intent. Caller-supplied `intent_class` /

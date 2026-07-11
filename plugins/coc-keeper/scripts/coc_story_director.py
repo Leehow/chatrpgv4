@@ -41,6 +41,7 @@ coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_threat_state = _load_sibling("coc_threat_state", "coc_threat_state.py")
 coc_scenario_compile = _load_sibling("coc_scenario_compile", "coc_scenario_compile.py")
+coc_director_strategies = _load_sibling("coc_director_strategies", "coc_director_strategies.py")
 
 coc_time = None
 try:
@@ -703,6 +704,9 @@ def build_director_context(
         "clue_graph": clue_graph,
         "npc_agendas": npc_agendas,
         "npc_state": _read_json(save / "npc-state.json", {"schema_version": 1, "npcs": {}}),
+        "director_strategy_state": _read_json(
+            save / "director-strategy-state.json", {"schema_version": 1}
+        ),
         "npc_state_writes": [],
         "threat_fronts": merged_threats,
         "pacing_map": _read_json(scenario / "pacing-map.json", {"pacing_curve": []}),
@@ -3101,6 +3105,26 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     if tension_target in ("high", "climax") and action not in ("RECOVER", "MONTAGE"):
         tension_delta = max(tension_delta, 1)
 
+    explicit_mode = scene.get("render_mode")
+    if explicit_mode not in {"investigation", "social", "pressure", "crisis"}:
+        if scene.get("scene_type") == "crisis" or action == "SUBSYSTEM":
+            explicit_mode = "crisis"
+        elif action == "PRESSURE":
+            explicit_mode = "pressure"
+        elif action in {"REVEAL", "DEEPEN", "RECOVER"}:
+            explicit_mode = "investigation"
+        else:
+            explicit_mode = "social"
+
+    strategy_signals = {
+        "loop_boundary": scene.get("loop_boundary") is True,
+        "player_retained_memory_ids": scene.get("player_retained_memory_ids") or [],
+        "factions": ctx.get("module_meta", {}).get("factions") or [],
+    }
+    strategy_result = coc_director_strategies.compile_strategy(
+        ctx.get("module_meta") or {}, ctx.get("director_strategy_state") or {}, strategy_signals
+    )
+
     # Dying (and any future override carrying extra_pressure) forces PRESSURE
     # clock-ticks even though the chosen action is SUBSYSTEM. _build_pressure_moves
     # gates on action ∈ {PRESSURE, RECOVER}, so feed it "PRESSURE" directly here.
@@ -3135,6 +3159,11 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "horror_escalation_stage": horror_stage,
         "content_constraints": ctx.get("module_meta", {}).get("content_flags", []),
         "player_facing_style": _player_facing_style(ctx.get("play_language") or "zh-Hans"),
+        "render_mode": explicit_mode,
+        "horror_profile": coc_narration_style.build_horror_profile(
+            ctx.get("module_meta") or {}, scene,
+            {"horror_stage": horror_stage},
+        ),
     }
     # Layer-3 Fair Warning (p.209): downgrade lethal structured evidence while
     # lethal_chances_used < 3; attach fair_warning directive for apply/narration.
@@ -3211,6 +3240,9 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "rules_requests": rules_requests,
         "memory_reads": memory_reads,
         "memory_writes": [],
+        "director_strategy_state": strategy_result.get("strategy_state") or {},
+        "faction_rankings": strategy_result.get("faction_rankings") or [],
+        "capability_findings": strategy_result.get("capability_findings") or [],
         "narrative_directives": narrative_directives,
         "handoff": handoff,
         "rationale": overrides["rationale"] if overrides else f"top-scored action {action} (score={scores.get(action, 0)})",

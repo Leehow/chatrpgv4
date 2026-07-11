@@ -102,6 +102,29 @@ def test_validate_crisis_render_frame_requires_force_risk_and_affordance():
     }
 
 
+def test_horror_profile_is_bounded_and_scene_override_wins_module_override():
+    profile = coc_narration_style.build_horror_profile(
+        {"horror_profile": {"dread": 0.3, "isolation": 0.2}},
+        {"horror_tags": ["urgent", "isolated"],
+         "horror_profile": {"dread": 0.8}},
+        {"horror_stage": "revelation"},
+    )
+    assert set(profile) == {
+        "dread", "uncertainty", "isolation", "helplessness",
+        "body_horror", "cosmic_scale", "urgency",
+    }
+    assert profile["dread"] == 0.8
+    assert profile["isolation"] >= 0.2
+    assert all(isinstance(v, float) and 0.0 <= v <= 1.0 for v in profile.values())
+
+
+def test_horror_profile_rejects_secret_or_non_numeric_overrides():
+    import pytest
+    with pytest.raises(ValueError):
+        coc_narration_style.build_horror_profile(
+            {"horror_profile": {"dread": "secret prose"}}, {}, {}
+        )
+
 def test_audit_flags_abstract_psychological_explanation():
     findings = coc_narration_style.audit_player_visible_text(
         "不是不信你，而是恐惧已经盖过了理解。"

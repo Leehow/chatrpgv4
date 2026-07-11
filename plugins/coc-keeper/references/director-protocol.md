@@ -2,6 +2,26 @@
 
 DirectorPlan schema and scoring engine reference. See `docs/superpowers/specs/2026-07-05-story-director-design.md` for full design.
 
+## Narration specialization contract (A22–A25)
+
+Every production plan emits `narrative_directives.render_mode` as one of
+`investigation`, `social`, `pressure`, or `crisis`. A crisis envelope is valid
+only when its `crisis_scene_render` contains all seven ordered, player-safe
+slots; otherwise it fails closed to `pressure` and records frame findings.
+Narration also receives a bounded numeric seven-axis `horror_profile`; module
+overrides are superseded by scene overrides.
+
+`coc_director_strategies.py` owns deterministic `time_loop` and
+`multi_faction` state. Apply persists strategy state in
+`save/director-strategy-state.json`; unsupported `special_mechanics` produce
+explicit capability findings. Strategies consume structured values only.
+
+External narrators return `asserted_fact_refs` and `semantic_audit` with exact
+`same_fact`, `different_fact`, or `uncertain` decisions and reasons. Direct
+matches, same-fact matches, uncertainty, missing evidence, or malformed
+evidence use a recorded template fallback. `final_text` is never scanned to
+classify secret meaning.
+
 ## DirectorPlan Fields
 
 - `scene_action`: REVEAL|DEEPEN|PRESSURE|CHARACTER|CHOICE|CUT|MONTAGE|SUBSYSTEM|RECOVER|PAYOFF

@@ -129,6 +129,24 @@ def test_parse_runner_response_preserves_observed_model_and_response_mode():
     assert parsed["response_mode"] == "tool"
 
 
+def test_parse_runner_response_preserves_structured_secret_audit_fields():
+    adapter = _load_adapter()
+    parsed = adapter.parse_runner_response({
+        "ok": True, "final_text": "雨敲着窗。",
+        "asserted_fact_refs": ["fact-rain"],
+        "semantic_audit": [{"asserted_ref": "fact-rain", "forbidden_ref": "secret-1",
+                            "decision": "different_fact", "reason": "distinct ids"}],
+    })
+    assert parsed["asserted_fact_refs"] == ["fact-rain"]
+    assert parsed["semantic_audit"][0]["decision"] == "different_fact"
+    assert parsed["secret_audit_complete"] is True
+
+
+def test_parse_runner_response_marks_missing_secret_audit_ineligible():
+    parsed = _load_adapter().parse_runner_response({"ok": True, "final_text": "雨敲着窗。"})
+    assert parsed["secret_audit_complete"] is False
+
+
 def test_narrator_send_turn_round_trip_strips_rationale(tmp_path):
     adapter = _load_adapter()
     runner = tmp_path / "fake_narrator"

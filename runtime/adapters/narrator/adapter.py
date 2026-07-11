@@ -82,6 +82,20 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(final_text, str) or not final_text.strip():
         raise RuntimeError("narrator runner response missing non-empty final_text string")
     result: dict[str, Any] = {"ok": True, "final_text": final_text}
+    asserted_present = "asserted_fact_refs" in raw
+    semantic_present = "semantic_audit" in raw
+    asserted = raw.get("asserted_fact_refs")
+    semantic = raw.get("semantic_audit")
+    if asserted_present and not (
+        isinstance(asserted, list)
+        and all(isinstance(value, str) and value.strip() for value in asserted)
+    ):
+        raise RuntimeError("asserted_fact_refs must be a list of non-empty strings")
+    if semantic_present and not isinstance(semantic, list):
+        raise RuntimeError("semantic_audit must be a list")
+    result["asserted_fact_refs"] = [value.strip() for value in (asserted or [])]
+    result["semantic_audit"] = copy.deepcopy(semantic or [])
+    result["secret_audit_complete"] = asserted_present and semantic_present
     notes = raw.get("notes")
     if notes is not None:
         if not isinstance(notes, str):

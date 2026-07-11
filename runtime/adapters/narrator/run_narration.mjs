@@ -48,6 +48,8 @@ const SYSTEM_PROMPT =
   "「现场同时露出这些可行动线索」以及类似日志/摘要腔。" +
   "不得发明 envelope 中没有的掷骰、规则结果或隐藏事实。" +
   "不得揭示 must_not_reveal 中的任何 id/category 所指内容。" +
+  "必须声明 final_text 使用到的 asserted_fact_refs；若断言与禁用事实可能同义，" +
+  "用 semantic_audit 给出 same_fact/different_fact/uncertain 与非空 reason。" +
   "若 envelope 含 rules_requests / 已批准揭示，用虚构后果叙述检定结果，不要报骰面或技能名堆砌。" +
   "优先调用 coc_keeper_narration 一次提交 final_text。";
 
@@ -222,6 +224,20 @@ function formatRedirection(envelope) {
   return lines.join("\n");
 }
 
+function formatRenderContract(envelope) {
+  const mode = String(envelope?.render_mode || "investigation");
+  const frame = envelope?.render_frame;
+  const profile = envelope?.horror_profile;
+  const rows = [`render_mode: ${mode}`];
+  if (frame && typeof frame === "object") {
+    rows.push(`render_frame: ${JSON.stringify(frame)}`);
+  }
+  if (profile && typeof profile === "object") {
+    rows.push(`horror_profile: ${JSON.stringify(profile)}`);
+  }
+  return rows.join("\n");
+}
+
 function formatRecent(recent) {
   if (!Array.isArray(recent) || recent.length === 0) {
     return "(none)";
@@ -256,6 +272,9 @@ function buildPromptText(request) {
     "",
     "## Narrative redirection (explicit strategy; never hard_denial)",
     formatRedirection(envelope),
+    "",
+    "## Render mode and bounded horror profile",
+    formatRenderContract(envelope),
     "",
     "## Narration envelope (player-safe; do not invent beyond this)",
     summarizeEnvelope(envelope),
@@ -325,6 +344,18 @@ function buildNarrationTool(capture) {
         description:
           "Required player-visible KP narration in the campaign play_language.",
       }),
+      asserted_fact_refs: Type.Array(Type.String(), {
+        description: "Structured fact ids asserted by final_text; empty when none.",
+      }),
+      semantic_audit: Type.Array(Type.Object({
+        asserted_ref: Type.String(),
+        forbidden_ref: Type.String(),
+        decision: Type.Union([
+          Type.Literal("same_fact"), Type.Literal("different_fact"),
+          Type.Literal("uncertain"),
+        ]),
+        reason: Type.String(),
+      }), {description: "Semantic-router evidence for asserted/forbidden fact pairs."}),
       notes: Type.Optional(
         Type.String({
           description: "Optional out-of-character notes for the battle report only.",
@@ -348,7 +379,13 @@ function buildNarrationTool(capture) {
           terminate: true,
         };
       }
-      const result = { ok: true, final_text: finalText };
+      const result = {
+        ok: true,
+        final_text: finalText,
+        asserted_fact_refs: Array.isArray(params.asserted_fact_refs)
+          ? params.asserted_fact_refs : [],
+        semantic_audit: Array.isArray(params.semantic_audit) ? params.semantic_audit : [],
+      };
       if (typeof params.notes === "string" && params.notes.trim()) {
         result.notes = params.notes.trim();
       }

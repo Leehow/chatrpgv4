@@ -1843,6 +1843,14 @@ def apply_plan(
         results_mode=rules_results_mode,
     )
 
+    strategy_state = plan.get("director_strategy_state")
+    if isinstance(strategy_state, dict) and strategy_state:
+        _write_json(save_dir / "director-strategy-state.json", {
+            "schema_version": 1,
+            **strategy_state,
+            "last_decision_id": decision_id,
+        })
+
     mode = "sync"
     flush_policy = "manual"
     recorder = None

@@ -4,6 +4,12 @@
 
 Runtime data lives under the current project `.coc/` directory:
 
+`campaigns/<id>/save/director-strategy-state.json` is an apply-owned
+schema-version-1 snapshot. It contains `strategy_type`, specialized structured
+state such as `loop_number`, `player_retained_memory_ids`, or
+`ranked_faction_ids`, and `last_decision_id`. It never stores scenario prose or
+Keeper secrets.
+
 ```text
 .coc/
 ├── rules/

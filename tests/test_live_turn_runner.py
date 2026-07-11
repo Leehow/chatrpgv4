@@ -137,6 +137,81 @@ def _build_live_campaign(tmp_path):
     return camp, char_path
 
 
+def test_live_crisis_scene_builds_valid_player_safe_seven_slot_frame(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text())
+    story["scenes"][0].update({
+        "scene_type": "crisis", "render_mode": "crisis",
+        "viewpoint_anchor": "the investigator at the cellar stairs",
+        "spatial_anchor": "the narrow stairs above the flooded cellar",
+        "active_motion": "the railing tears loose",
+        "connection_or_force": "the current pulls the loose cable taut",
+        "risk_progression": "water climbs another stair",
+        "visible_affordances": ["the iron hook", "the side door"],
+        "player_entry": "What do you do?",
+    })
+    story_path.write_text(json.dumps(story))
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "I grab the railing",
+        intent_class="act", rng_seed=7, max_auto_advance=1,
+    )
+    env = result["turns"][0]["narration_envelope"]
+    assert env["render_mode"] == "crisis"
+    assert env["render_frame"]["frame_type"] == "crisis_scene_render"
+    assert len(env["render_frame"]["render_sequence"]) == 7
+    assert "keeper_secret" not in json.dumps(env)
+
+
+def test_live_non_crisis_scene_has_explicit_mode_and_no_frame(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "I inspect the room",
+        intent_class="investigate", rng_seed=7, max_auto_advance=1,
+    )
+    env = result["turns"][0]["narration_envelope"]
+    assert env["render_mode"] in {"investigation", "social", "pressure"}
+    assert "render_frame" not in env
+
+
+def test_live_incomplete_crisis_frame_fails_closed_without_partial_frame(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text())
+    story["scenes"][0].update({"scene_type": "crisis", "render_mode": "crisis"})
+    story_path.write_text(json.dumps(story))
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "I act", intent_class="act",
+        rng_seed=7, max_auto_advance=1,
+    )
+    env = result["turns"][0]["narration_envelope"]
+    assert env["render_mode"] == "pressure"
+    assert "render_frame" not in env
+    assert env["render_frame_findings"]
+
+
+def test_live_time_loop_strategy_state_is_persisted_by_apply(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    meta_path = camp / "scenario" / "module-meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["structure_type"] = "time_loop"
+    meta_path.write_text(json.dumps(meta))
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text())
+    story["scenes"][0].update({
+        "loop_boundary": True, "player_retained_memory_ids": ["memory-seen-clock"]
+    })
+    story_path.write_text(json.dumps(story))
+    live_runner.run_live_turn(
+        camp, char_path, "inv1", "I inspect the clock", intent_class="investigate",
+        rng_seed=7, max_auto_advance=1,
+    )
+    state = json.loads((camp / "save" / "director-strategy-state.json").read_text())
+    assert state["strategy_type"] == "time_loop"
+    assert state["loop_number"] == 1
+    assert state["player_retained_memory_ids"] == ["memory-seen-clock"]
+
+
 def _persist_live_push_offer(camp: Path, char_path: Path) -> dict:
     executor = live_runner.subsystem_executor
     origin = {

@@ -47,6 +47,7 @@ playtest_evidence = _load_sibling("coc_playtest_evidence", "coc_playtest_evidenc
 playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
 live_turn_runner = _load_sibling("coc_live_turn_runner", "coc_live_turn_runner.py")
 narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
+secret_audit = _load_sibling("coc_secret_audit", "coc_secret_audit.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 try:
@@ -489,6 +490,34 @@ def _apply_narrator_or_template(
             "response_mode": "runner_failure",
         }
 
+    forbidden_refs = [
+        str(ref.get("id")).strip()
+        for ref in (envelope.get("must_not_reveal") or [])
+        if isinstance(ref, dict) and isinstance(ref.get("id"), str) and ref.get("id").strip()
+    ]
+    audit_complete = result.get("secret_audit_complete") is True or (
+        "asserted_fact_refs" in result and "semantic_audit" in result
+    )
+    structured_audit = secret_audit.audit_secret_claims(
+        forbidden_refs,
+        result.get("asserted_fact_refs") if audit_complete else None,
+        result.get("semantic_audit") if audit_complete else {"missing": True},
+    )
+    if not audit_complete or not structured_audit["passed"]:
+        fallback = {
+            "event": "narrator_fallback",
+            "error": "structured_secret_audit_failed",
+            "decision_id": projected.get("decision_id") or live_turn.get("decision_id"),
+            "secret_audit": structured_audit,
+        }
+        return template_text, "template", fallback, {
+            "outcome": "template_fallback",
+            "fallback_kind": "secret_audit",
+            "model_identity": result.get("model_identity"),
+            "response_mode": result.get("response_mode") or "audit_failure",
+            "secret_audit": structured_audit,
+        }
+
     audit = narration_contract.audit_final_text(
         final_text,
         decision_id=str(projected.get("decision_id") or live_turn.get("decision_id") or ""),
@@ -516,6 +545,7 @@ def _apply_narrator_or_template(
         ),
         "model_identity": result.get("model_identity"),
         "response_mode": response_mode,
+        "secret_audit": structured_audit,
     }
 
 

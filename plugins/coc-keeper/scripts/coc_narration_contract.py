@@ -24,8 +24,10 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from coc_narration_style import (
+    build_crisis_scene_render_frame,
     guard_player_visible_text,
     player_facing_style_contract as _player_facing_style_contract,
+    validate_crisis_scene_render_frame,
 )
 import coc_npc_state
 
@@ -713,6 +715,34 @@ def _sanitize_disclosure_decisions(value: Any) -> list[dict[str, Any]]:
     return safe
 
 
+def _sanitize_choice_frame(value: Any) -> dict[str, Any]:
+    """Whitelist the public choice-frame contract and route affordances."""
+    if not isinstance(value, dict):
+        return {}
+    safe: dict[str, Any] = {}
+    for key in (
+        "prompt", "mode", "is_real_fork", "open_route_count",
+        "open_route_ids", "visible_affordances", "do_not_render_as_menu",
+    ):
+        if key in value:
+            safe[key] = value[key]
+    routes = []
+    for route in value.get("routes") or []:
+        if not isinstance(route, dict):
+            continue
+        public_route = {
+            key: route.get(key) for key in (
+                "route_id", "id", "clue_id", "cue", "label", "summary",
+                "player_safe_summary", "kind", "available",
+            ) if route.get(key) is not None
+        }
+        if public_route:
+            routes.append(public_route)
+    if routes:
+        safe["routes"] = routes
+    return safe
+
+
 _REDIRECTION_PLAYER_SAFE_STRATEGIES = frozenset({
     "in_world_consequences",
     "npc_influence",
@@ -851,6 +881,8 @@ def build_narration_envelope(
         "must_not_reveal": mnr_refs,
         "improvisation_allowed": list(directives.get("improvisation_allowed") or []),
         "horror_escalation_stage": directives.get("horror_escalation_stage"),
+        "horror_profile": dict(directives.get("horror_profile") or {}),
+        "render_mode": directives.get("render_mode") or "investigation",
         "content_constraints": list(directives.get("content_constraints") or []),
         "player_facing_style": directives.get("player_facing_style"),
         "npc_moves": npc_moves,
@@ -861,7 +893,9 @@ def build_narration_envelope(
         "storylet_moves": list(plan.get("storylet_moves") or []),
         # Pre-gate clue routes may name a withheld social clue. The actual
         # response line and post-apply reveal summaries are sufficient.
-        "choice_frame": {} if social_post_apply else (plan.get("choice_frame") or {}),
+        "choice_frame": {} if social_post_apply else _sanitize_choice_frame(
+            plan.get("choice_frame") or {}
+        ),
         "rules_requests": _project_rules_requests(plan),
         "rule_results": _project_rule_results(
             plan, investigator_display_name=investigator_display_name
@@ -869,6 +903,30 @@ def build_narration_envelope(
         "scene_anchor": _build_scene_anchor(scene),
         "rationale": plan.get("rationale"),
     }
+    if envelope["render_mode"] == "crisis":
+        affordances = []
+        for raw in scene.get("visible_affordances") or []:
+            if isinstance(raw, str) and raw.strip():
+                affordances.append(raw.strip())
+            elif isinstance(raw, dict):
+                cue = raw.get("cue") or raw.get("player_safe_summary")
+                if isinstance(cue, str) and cue.strip():
+                    affordances.append(cue.strip())
+        frame = build_crisis_scene_render_frame(
+            viewpoint_anchor=str(scene.get("viewpoint_anchor") or "").strip(),
+            spatial_anchor=str(scene.get("spatial_anchor") or "").strip(),
+            active_motion=str(scene.get("active_motion") or "").strip(),
+            connection_or_force=str(scene.get("connection_or_force") or "").strip(),
+            risk_progression=str(scene.get("risk_progression") or "").strip(),
+            visible_affordances=affordances,
+            player_entry=str(scene.get("player_entry") or "").strip(),
+        )
+        findings = validate_crisis_scene_render_frame(frame)
+        if findings:
+            envelope["render_frame_findings"] = findings
+            envelope["render_mode"] = "pressure"
+        else:
+            envelope["render_frame"] = frame
     redirection = _sanitize_redirection(plan.get("redirection"))
     if redirection is not None:
         envelope["redirection"] = redirection
