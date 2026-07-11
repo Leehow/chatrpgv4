@@ -396,3 +396,273 @@ def test_git_invalidation_record_must_name_both_commits_and_replay_checkpoint(
 
     with pytest.raises(ValueError, match="Git HEAD"):
         store.restore_checkpoint(checkpoint_dir, tmp_path / "fresh")
+
+
+def test_preexisting_run_directory_symlink_is_rejected(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    outside = tmp_path / "outside-run"
+    outside.mkdir()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("unchanged", encoding="utf-8")
+    run_dir = tmp_path / "run"
+    run_dir.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        checkpoint.CheckpointStore(run_dir, workspace, "masks-run-a", "inv-a")
+
+    assert sentinel.read_text(encoding="utf-8") == "unchanged"
+    assert sorted(path.name for path in outside.iterdir()) == ["sentinel.txt"]
+
+
+def test_actions_symlink_is_rejected_before_and_after_initialization(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    outside = tmp_path / "outside-actions.jsonl"
+    outside.write_text("", encoding="utf-8")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    ledger = run_dir / "actions.jsonl"
+    ledger.symlink_to(outside)
+
+    with pytest.raises(ValueError, match="symlink"):
+        checkpoint.CheckpointStore(run_dir, workspace, "masks-run-a", "inv-a")
+    assert outside.read_text(encoding="utf-8") == ""
+
+    ledger.unlink()
+    store = checkpoint.CheckpointStore(run_dir, workspace, "masks-run-a", "inv-a")
+    ledger.symlink_to(outside)
+    with pytest.raises(ValueError, match="symlink"):
+        _append_one(store)
+    assert outside.read_text(encoding="utf-8") == ""
+
+
+def test_run_directory_replaced_by_symlink_after_init_is_rejected(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    run_dir = tmp_path / "run"
+    store = checkpoint.CheckpointStore(run_dir, workspace, "masks-run-a", "inv-a")
+    outside = tmp_path / "outside-run"
+    outside.mkdir()
+    run_dir.rmdir()
+    run_dir.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink|replaced"):
+        _append_one(store)
+    assert not list(outside.iterdir())
+
+
+def test_manifest_workspace_path_must_be_on_strict_allowlist(tmp_path: Path):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entry = manifest["state_files"][0]
+    protected = checkpoint_dir / entry["path"]
+    injected = checkpoint_dir / "state" / ".env"
+    injected.parent.mkdir(parents=True, exist_ok=True)
+    protected.replace(injected)
+    entry["path"] = "state/.env"
+    entry["workspace_path"] = ".env"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    target = tmp_path / "fresh"
+    with pytest.raises(ValueError, match="allowlist"):
+        store.restore_checkpoint(checkpoint_dir, target)
+    assert not target.exists()
+
+
+def test_snapshot_open_rejects_source_swapped_to_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(tmp_path / "run", workspace, "masks-run-a", "inv-a")
+    _append_one(store)
+    sentinel = tmp_path / "outside-source.pdf"
+    sentinel.write_bytes(b"outside")
+    original = checkpoint._open_regular_at
+    attacked = False
+
+    def attack(root_fd, relative, *args, **kwargs):
+        nonlocal attacked
+        if not attacked and Path(relative) == Path("campaigns/masks-run-a/source/masks.pdf"):
+            attacked = True
+            paths["source_pdf"].unlink()
+            paths["source_pdf"].symlink_to(sentinel)
+        return original(root_fd, relative, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint, "_open_regular_at", attack)
+    with pytest.raises(ValueError, match="symlink|regular"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+    assert sentinel.read_bytes() == b"outside"
+
+
+def test_restore_uses_verified_fd_when_checkpoint_source_is_swapped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    manifest = json.loads((checkpoint_dir / "manifest.json").read_text(encoding="utf-8"))
+    entry = next(
+        item for item in manifest["state_files"]
+        if item["workspace_path"].endswith("/source/masks.pdf")
+    )
+    protected = checkpoint_dir / entry["path"]
+    sentinel = tmp_path / "outside-checkpoint.pdf"
+    sentinel.write_bytes(b"outside")
+    original = checkpoint._open_regular_at
+    attacked = False
+
+    def attack(root_fd, relative, *args, **kwargs):
+        nonlocal attacked
+        if not attacked and Path(relative) == Path(entry["path"]):
+            attacked = True
+            protected.unlink()
+            protected.symlink_to(sentinel)
+        return original(root_fd, relative, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint, "_open_regular_at", attack)
+    target = tmp_path / "fresh"
+    with pytest.raises(ValueError, match="symlink|regular"):
+        store.restore_checkpoint(checkpoint_dir, target)
+    assert sentinel.read_bytes() == b"outside"
+    assert not target.exists()
+
+
+def test_every_source_file_path_and_hash_is_manifest_compatible(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    supplement = paths["source_pdf"].with_name("appendix.pdf")
+    supplement.write_bytes(b"appendix source\n")
+    run_dir = tmp_path / "run"
+    store = checkpoint.CheckpointStore(run_dir, workspace, "masks-run-a", "inv-a")
+    _append_one(store)
+    checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert set(manifest["source_hashes"]) == {
+        "campaigns/masks-run-a/source/appendix.pdf",
+        "campaigns/masks-run-a/source/masks.pdf",
+    }
+    manifest["source_hashes"]["campaigns/masks-run-a/source/appendix.pdf"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="source"):
+        store.restore_checkpoint(checkpoint_dir, tmp_path / "fresh")
+
+
+def test_checkpoint_contains_and_restores_a_valid_action_journal(tmp_path: Path):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    manifest = json.loads((checkpoint_dir / "manifest.json").read_text(encoding="utf-8"))
+    journal_path = f".coc/playtest-runs/{store.campaign_id}/actions.jsonl"
+    assert any(entry["workspace_path"] == journal_path for entry in manifest["state_files"])
+
+    fresh = tmp_path / "fresh"
+    store.restore_checkpoint(checkpoint_dir, fresh)
+    resumed = checkpoint.CheckpointStore(
+        fresh / journal_path.rsplit("/", 1)[0],
+        fresh,
+        store.campaign_id,
+        store.investigator_id,
+    )
+    assert resumed.action_chain_sha256 == store.action_chain_sha256
+    assert resumed._turn_number == 1
+
+
+def test_checkpoint_write_rejects_checkpoints_directory_swapped_after_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+    outside = tmp_path / "outside-checkpoints"
+    outside.mkdir()
+    victim = tmp_path / "outside-victim"
+    victim.mkdir()
+    held = store.run_dir / "held-checkpoints"
+    original = checkpoint._open_regular_at
+    attacked = False
+
+    def attack(root_fd, relative, *args, **kwargs):
+        nonlocal attacked
+        if not attacked and Path(relative) == Path(
+            "campaigns/masks-run-a/source/masks.pdf"
+        ):
+            attacked = True
+            checkpoints = store.run_dir / "checkpoints"
+            checkpoints.rename(held)
+            temporary = next(held.iterdir())
+            (outside / temporary.name).symlink_to(victim, target_is_directory=True)
+            checkpoints.symlink_to(outside, target_is_directory=True)
+        return original(root_fd, relative, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint, "_open_regular_at", attack)
+    with pytest.raises(ValueError, match="symlink|replace"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+
+    assert attacked is True
+    assert not list(victim.iterdir())
+
+
+def test_restore_rejects_target_ancestor_swapped_before_temp_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    target = tmp_path / "fresh"
+    (target / "campaigns").mkdir(parents=True)
+    held = target / "held-campaigns"
+    victim = tmp_path / "outside-target-victim"
+    victim_source = victim / "masks-run-a" / "source"
+    victim_source.mkdir(parents=True)
+    original_open = checkpoint.os.open
+    attacked = False
+
+    def attack(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal attacked
+        if (
+            not attacked
+            and flags & checkpoint.os.O_WRONLY
+            and flags & checkpoint.os.O_CREAT
+            and flags & checkpoint.os.O_EXCL
+        ):
+            attacked = True
+            (target / "campaigns").rename(held)
+            (target / "campaigns").symlink_to(victim, target_is_directory=True)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(checkpoint.os, "open", attack)
+    with pytest.raises(ValueError, match="symlink|replace"):
+        store.restore_checkpoint(checkpoint_dir, target)
+
+    assert attacked is True
+    assert not list(victim_source.iterdir())
+
+
+def test_restore_hashes_live_sources_through_verified_workspace_fd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store, checkpoint_dir, _, _, paths = _checkpoint(tmp_path)
+    sentinel = tmp_path / "outside-live-source.pdf"
+    sentinel.write_bytes(paths["source_pdf"].read_bytes())
+    original = checkpoint._open_regular_at
+    attacked = False
+
+    def attack(root_fd, relative, *args, **kwargs):
+        nonlocal attacked
+        if not attacked and Path(relative) == Path(
+            "campaigns/masks-run-a/source/masks.pdf"
+        ):
+            attacked = True
+            paths["source_pdf"].unlink()
+            paths["source_pdf"].symlink_to(sentinel)
+        return original(root_fd, relative, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint, "_open_regular_at", attack)
+    target = tmp_path / "fresh"
+    with pytest.raises(ValueError, match="source|symlink|regular"):
+        store.restore_checkpoint(checkpoint_dir, target)
+
+    assert attacked is True
+    assert not target.exists()
