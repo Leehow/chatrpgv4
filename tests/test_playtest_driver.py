@@ -651,7 +651,7 @@ def test_driver_writes_battle_report_with_gameplay_evidence(tmp_path):
     )
     battle_text = battle_path.read_text()
 
-    assert "## 实际跑团回放" in battle_text
+    assert "## Verification Replay" in battle_text
     assert "战役 ID: driver-report-campaign" in battle_text
     assert "我翻登记簿，同时让档案员盯着警卫" in battle_text
     assert "KP:" in battle_text

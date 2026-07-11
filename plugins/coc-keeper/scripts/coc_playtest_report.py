@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -2799,7 +2800,17 @@ def generate_battle_report(run_dir: Path) -> Path:
     ]
     # Drop empty strings left by optional sections that emitted nothing.
     body = [line for line in body if line is not None]
-    output.write_text("\n".join(body), encoding="utf-8")
+    artifacts_dir = output.parent.resolve(strict=True)
+    sibling_name = (
+        "battle-report.md" if output.name == "verification-sample.md"
+        else "verification-sample.md"
+    )
+    stale = artifacts_dir / sibling_name
+    if stale.exists() or stale.is_symlink():
+        stale.unlink()
+    temporary = artifacts_dir / f".{output.name}.tmp"
+    temporary.write_text("\n".join(body), encoding="utf-8")
+    os.replace(temporary, output)
     return output
 
 

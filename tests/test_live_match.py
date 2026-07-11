@@ -560,9 +560,12 @@ def test_canonical_player_with_absent_template_narrator_is_eligible(
     assert result["evidence"]["external_model_turns"] == 1
     assert result["evidence"]["fallback_turns"] >= 1
     assert Path(result["run_dir"], "runner-invocations.jsonl").is_file()
+    stale_verification = Path(result["run_dir"], "artifacts", "verification-sample.md")
+    stale_verification.write_text("stale downgrade", encoding="utf-8")
     report_path = match.playtest_report.generate_battle_report(Path(result["run_dir"]))
     assert report_path.name == "battle-report.md"
     assert "report-anchor: Battle Report" in report_path.read_text(encoding="utf-8")
+    assert not stale_verification.exists()
 
 
 def test_canonical_narrator_mixed_fallback_remains_eligible(tmp_path, monkeypatch):
@@ -697,6 +700,8 @@ def test_forged_999_counts_are_replaced_by_hashed_invocation_ledger(
 def test_rehashed_999_row_ledger_fails_transcript_reconciliation(tmp_path, monkeypatch):
     result = _run_canonical_player_match(tmp_path, monkeypatch)
     run_dir = Path(result["run_dir"])
+    eligible_report = match.playtest_report.generate_battle_report(run_dir)
+    assert eligible_report.name == "battle-report.md" and eligible_report.exists()
     ledger_path = run_dir / "runner-invocations.jsonl"
     rows = [json.loads(line) for line in ledger_path.read_text().splitlines() if line]
     player_row = next(row for row in rows if row["role"] == "player")
@@ -720,6 +725,7 @@ def test_rehashed_999_row_ledger_fails_transcript_reconciliation(tmp_path, monke
     report_path = match.playtest_report.generate_battle_report(run_dir)
     assert report_path.name == "verification-sample.md"
     assert "# Battle Report" not in report_path.read_text(encoding="utf-8")
+    assert not eligible_report.exists()
 
 
 def test_spoiler_isolation_player_requests_exclude_keeper_secret_prose(tmp_path):

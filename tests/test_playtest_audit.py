@@ -2844,7 +2844,7 @@ def test_haunting_module_audit_requires_hp_damage_rolls(tmp_path):
 
 def test_haunting_module_audit_rejects_non_percentile_rolls_rendered_as_targets(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
-    report_path = run_dir / "artifacts" / "battle-report.md"
+    report_path = run_dir / "artifacts" / "verification-sample.md"
     report_text = report_path.read_text()
     report_text = report_text.replace(
         "HP 伤害：艾达·金掷出 1D6+2 = 5（骰面 3 + 2），结果造成伤害。",
