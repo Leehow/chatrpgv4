@@ -18,6 +18,12 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import coc_pdf_source
+
 VALID_STRUCTURE_TYPES = {
     "linear_acts", "time_loop", "branching_investigation", "hub_sandbox",
     "multi_faction", "campaign_sequel", "hybrid_mega",
@@ -946,9 +952,104 @@ def _check_epistemic_sidecars(
     return findings
 
 
+
+def _iter_source_owned_nodes(compiled: dict[str, Any]):
+    """Yield (path, refs, critical) for structured authored nodes."""
+    for i, question in enumerate((compiled.get("epistemic_graph") or {}).get("questions") or []):
+        if isinstance(question, dict) and question.get("source_refs"):
+            yield (
+                f"epistemic_graph.questions[{i}]",
+                question.get("source_refs") or [],
+                question.get("importance") == "critical",
+            )
+    for ci, conclusion in enumerate((compiled.get("clue_graph") or {}).get("conclusions") or []):
+        if not isinstance(conclusion, dict):
+            continue
+        critical = conclusion.get("importance") == "critical"
+        for qi, clue in enumerate(conclusion.get("clues") or []):
+            if isinstance(clue, dict) and clue.get("source_refs"):
+                yield (
+                    f"clue_graph.conclusions[{ci}].clues[{qi}]",
+                    clue.get("source_refs") or [],
+                    critical or clue.get("importance") == "critical",
+                )
+    for i, scene in enumerate((compiled.get("story_graph") or {}).get("scenes") or []):
+        if isinstance(scene, dict) and scene.get("source_refs"):
+            yield (
+                f"story_graph.scenes[{i}]",
+                scene.get("source_refs") or [],
+                scene.get("importance") == "critical" or scene.get("is_final") is True,
+            )
+    for i, npc in enumerate((compiled.get("npc_agendas") or {}).get("npcs") or []):
+        if isinstance(npc, dict) and npc.get("source_refs"):
+            yield (
+                f"npc_agendas.npcs[{i}]",
+                npc.get("source_refs") or [],
+                npc.get("importance") == "critical",
+            )
+    for i, front in enumerate((compiled.get("threat_fronts") or {}).get("fronts") or []):
+        if isinstance(front, dict) and front.get("source_refs"):
+            yield (
+                f"threat_fronts.fronts[{i}]",
+                front.get("source_refs") or [],
+                front.get("importance") == "critical",
+            )
+
+
+def _check_source_evidence(
+    compiled: dict[str, Any],
+    source_bundle: dict[str, Any] | None,
+    *,
+    strict_sources: bool,
+) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    nodes = list(_iter_source_owned_nodes(compiled))
+    if not nodes:
+        return findings
+    if not isinstance(source_bundle, dict):
+        if strict_sources:
+            for owner_path, _refs, critical in nodes:
+                findings.append(_finding(
+                    "unresolved_source_locator",
+                    "error" if critical else "warning",
+                    "source refs are present but no source evidence bundle was supplied",
+                    path=owner_path,
+                ))
+        return findings
+    page_map = source_bundle.get("page_map") or {}
+    manifest = source_bundle.get("parse_manifest") or {}
+    segments = source_bundle.get("evidence_segments") or []
+    if not (page_map.get("sources") or manifest.get("ranges")) and not strict_sources:
+        return findings
+    for owner_path, refs, critical in nodes:
+        result = coc_pdf_source.critical_source_allowed(
+            [ref for ref in refs if isinstance(ref, dict)],
+            manifest,
+            [seg for seg in segments if isinstance(seg, dict)],
+            page_map=page_map,
+        )
+        if result.get("allowed"):
+            continue
+        source_findings = result.get("findings") or [{
+            "code": "unresolved_source_locator",
+            "message": "source evidence did not resolve",
+        }]
+        for source_finding in source_findings:
+            findings.append(_finding(
+                str(source_finding.get("code") or "unresolved_source_locator"),
+                "error" if critical else "warning",
+                str(source_finding.get("message") or "source evidence did not resolve"),
+                path=owner_path,
+            ))
+    return findings
+
+
 def validate_compiled_scenario(
     compiled: dict[str, Any],
     source_segments: list[dict[str, Any]] | None = None,
+    *,
+    source_bundle: dict[str, Any] | None = None,
+    strict_sources: bool = False,
 ) -> list[dict[str, str]]:
     """Structured validation pass over an in-memory compiled scenario.
 
@@ -968,6 +1069,9 @@ def validate_compiled_scenario(
     findings.extend(_check_clue_affordances(compiled))
     findings.extend(_check_location_tags(compiled))
     findings.extend(_check_epistemic_sidecars(compiled, id_maps))
+    findings.extend(_check_source_evidence(
+        compiled, source_bundle, strict_sources=strict_sources
+    ))
     return findings
 
 
@@ -1200,8 +1304,15 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
         for ref in refs or []:
             if not isinstance(ref, dict):
                 continue
-            if not ref.get("path") or not isinstance(ref.get("page"), int):
-                warnings.append(f"{owner_label} source_ref missing path or integer page")
+            legacy_ok = bool(ref.get("path")) and isinstance(ref.get("page"), int)
+            structured_ok = bool(ref.get("source_id")) and (
+                isinstance(ref.get("printed_page"), int)
+                or isinstance(ref.get("pdf_index"), int)
+            )
+            if not legacy_ok and not structured_ok:
+                warnings.append(
+                    f"{owner_label} source_ref needs path+page or source_id+printed_page/pdf_index"
+                )
             page_kind = ref.get("page_kind")
             if page_kind is not None and page_kind not in VALID_PAGE_KINDS:
                 warnings.append(
@@ -1255,6 +1366,13 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
 
     compiled = load_compiled_from_dir(scenario_dir)
     epi_findings = _check_epistemic_sidecars(compiled, _collect_id_maps(compiled))
+    index_dir = scenario_dir.parent / "index"
+    source_bundle = None
+    if (index_dir / "page-map.json").exists() or (index_dir / "parse-manifest.json").exists():
+        source_bundle = coc_pdf_source.load_source_bundle(scenario_dir.parent)
+    epi_findings.extend(_check_source_evidence(
+        compiled, source_bundle, strict_sources=False
+    ))
     for finding in epi_findings:
         rendered = f"{finding.get('code')}: {finding.get('message')}"
         if finding.get("severity") == "error":
