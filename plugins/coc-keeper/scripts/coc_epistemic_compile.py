@@ -238,6 +238,8 @@ def _safe_source_bundle(source_bundle: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(source_bundle, dict):
         return {}
     stripped = coc_pdf_source.strip_local_evidence_text(source_bundle)
+    stripped.pop("source_root", None)
+    stripped.pop("base_dir", None)
     # The semantic compiler needs locators and confidence, never source text.
     for segment in stripped.get("evidence_segments") or []:
         if isinstance(segment, dict):

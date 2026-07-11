@@ -243,6 +243,86 @@ def test_critical_source_holds_existing_file_after_bytes_change(tmp_path):
     assert "stale_source_hash" in {finding["code"] for finding in result["findings"]}
 
 
+def test_critical_source_resolves_relative_file_inside_source_root(tmp_path):
+    source_root = tmp_path / "campaign"
+    source_path = source_root / "pdf" / "module.pdf"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(b"bound relative module")
+    actual = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    ref, page_map, manifest, segments = _source_inputs()
+    page_map["sources"][0].update(path="pdf/module.pdf", file_sha256=actual)
+    manifest["ranges"][0]["file_sha256"] = actual
+
+    result = coc_pdf_source.critical_source_allowed(
+        [ref], manifest, segments, page_map=page_map, source_root=source_root
+    )
+
+    assert result["allowed"] is True
+
+
+@pytest.mark.parametrize("mutation", ["tamper", "missing_page_hash", "missing_range_hash"])
+def test_critical_source_holds_changed_or_unbound_relative_file(tmp_path, mutation):
+    source_root = tmp_path / "campaign"
+    source_path = source_root / "pdf" / "module.pdf"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(b"bound relative module")
+    actual = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    ref, page_map, manifest, segments = _source_inputs()
+    page_map["sources"][0].update(path="pdf/module.pdf", file_sha256=actual)
+    manifest["ranges"][0]["file_sha256"] = actual
+    if mutation == "tamper":
+        source_path.write_bytes(b"changed relative module")
+    elif mutation == "missing_page_hash":
+        page_map["sources"][0].pop("file_sha256")
+    else:
+        manifest["ranges"][0].pop("file_sha256")
+
+    result = coc_pdf_source.critical_source_allowed(
+        [ref], manifest, segments, page_map=page_map, source_root=source_root
+    )
+
+    assert result["allowed"] is False
+    assert "stale_source_hash" in {finding["code"] for finding in result["findings"]}
+
+
+def test_critical_source_rejects_relative_path_escape(tmp_path):
+    source_root = tmp_path / "campaign"
+    source_root.mkdir()
+    outside = tmp_path / "outside.pdf"
+    outside.write_bytes(b"outside")
+    actual = hashlib.sha256(outside.read_bytes()).hexdigest()
+    ref, page_map, manifest, segments = _source_inputs()
+    page_map["sources"][0].update(path="../outside.pdf", file_sha256=actual)
+    manifest["ranges"][0]["file_sha256"] = actual
+
+    result = coc_pdf_source.critical_source_allowed(
+        [ref], manifest, segments, page_map=page_map, source_root=source_root
+    )
+
+    assert result["allowed"] is False
+    assert "unsafe_source_path" in {finding["code"] for finding in result["findings"]}
+
+
+def test_critical_source_rejects_symlink_source(tmp_path):
+    source_root = tmp_path / "campaign"
+    source_root.mkdir()
+    outside = tmp_path / "outside.pdf"
+    outside.write_bytes(b"outside")
+    link = source_root / "module.pdf"
+    link.symlink_to(outside)
+    actual = hashlib.sha256(outside.read_bytes()).hexdigest()
+    ref, page_map, manifest, segments = _source_inputs()
+    page_map["sources"][0].update(path="module.pdf", file_sha256=actual)
+    manifest["ranges"][0]["file_sha256"] = actual
+
+    result = coc_pdf_source.critical_source_allowed(
+        [ref], manifest, segments, page_map=page_map, source_root=source_root
+    )
+
+    assert result["allowed"] is False
+    assert "unsafe_source_path" in {finding["code"] for finding in result["findings"]}
+
+
 def _compiled_with_confidence(nodes: list[dict]) -> dict:
     return {
         "module_meta": {

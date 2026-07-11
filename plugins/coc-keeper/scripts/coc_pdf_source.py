@@ -142,6 +142,7 @@ def load_source_bundle(campaign_dir: Path) -> dict[str, Any]:
     campaign_dir = Path(campaign_dir)
     index_dir = campaign_dir / "index"
     return {
+        "source_root": str(campaign_dir.resolve()),
         "page_map": _read_json(
             index_dir / "page-map.json",
             {"schema_version": SCHEMA_VERSION, "sources": []},
@@ -295,6 +296,44 @@ def _anchor_present(anchor: str, segments: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _bounded_source_path(
+    source: dict[str, Any],
+    *,
+    source_root: str | Path | None,
+) -> tuple[Path | None, str | None]:
+    """Resolve a local source path without letting relative paths use process cwd."""
+    path_text = str(source.get("path") or "").strip()
+    if not path_text:
+        return None, None
+    declared = Path(path_text)
+    if source_root is None:
+        # Existing absolute paths remain supported. Relative legacy/synthetic
+        # paths have no trustworthy anchor, so do not interpret them via cwd.
+        return (declared if declared.is_absolute() else None), None
+
+    root = Path(source_root).resolve()
+    candidate = declared if declared.is_absolute() else root / declared
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return None, "source path escapes source_root"
+
+    # Reject symlinks at any path component below the trusted root, even when
+    # their current target happens to remain inside it. A later retarget must
+    # not silently change the bytes covered by the trust decision.
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        return None, "source path escapes source_root"
+    cursor = root
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            return None, "source path contains a symlink"
+    return resolved, None
+
+
 def critical_source_allowed(
     refs: list[dict[str, Any]],
     parse_manifest: dict[str, Any],
@@ -302,6 +341,8 @@ def critical_source_allowed(
     *,
     page_map: dict[str, Any],
     threshold: float | None = None,
+    source_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Return whether at least one declared source ref is fit for a critical reveal."""
     threshold_value = _confidence(
@@ -338,8 +379,27 @@ def critical_source_allowed(
         source = _source_for_ref(ref, page_map) or {}
         page_hash = source.get("file_sha256")
         range_hash = range_record.get("file_sha256")
-        source_path_text = str(source.get("path") or "").strip()
-        source_path = Path(source_path_text) if source_path_text else None
+        if source_root is not None and base_dir is not None:
+            try:
+                roots_match = Path(source_root).resolve() == Path(base_dir).resolve()
+            except (OSError, RuntimeError):
+                roots_match = False
+            if not roots_match:
+                ref_findings.append(_finding(
+                    "unsafe_source_path",
+                    "source_root and base_dir disagree",
+                    ref,
+                ))
+        effective_root = source_root if source_root is not None else base_dir
+        source_path, path_error = _bounded_source_path(
+            source, source_root=effective_root
+        )
+        if path_error:
+            ref_findings.append(_finding(
+                "unsafe_source_path",
+                path_error,
+                ref,
+            ))
         if source_path is not None and source_path.is_file():
             current_hash = sha256_file(source_path)
             if (

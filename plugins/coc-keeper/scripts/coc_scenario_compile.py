@@ -1346,6 +1346,7 @@ def _check_source_evidence(
             manifest,
             [seg for seg in segments if isinstance(seg, dict)],
             page_map=page_map,
+            source_root=source_bundle.get("source_root") or source_bundle.get("base_dir"),
         )
         if result.get("allowed"):
             continue
