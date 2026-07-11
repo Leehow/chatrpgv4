@@ -591,6 +591,7 @@ def run_live_match(
     current_playability = investigator_playability(camp, investigator_id)
 
     for _offset in range(max(1, int(max_turns))):
+        automatic_subsystem_request: dict[str, Any] | None = None
         canonical_pending = live_turn_runner.subsystem_executor.get_current_pending_choice(camp)
         keeper_progression = (
             isinstance(canonical_pending, dict)
@@ -621,33 +622,56 @@ def run_live_match(
             }
         else:
             current_playability = investigator_playability(camp, investigator_id)
-            playability_stop = _playability_stop_reason(current_playability)
-            if playability_stop:
-                stop_reason = playability_stop
-                pending = current_playability.get("pending_resolution")
-                pending_resolution = dict(pending) if isinstance(pending, dict) else None
-                break
+            pending_playability = current_playability.get("pending_resolution")
+            pending_kind = (
+                pending_playability.get("kind")
+                if isinstance(pending_playability, dict)
+                else None
+            )
+            if pending_kind in {"dying_rescue", "stabilized_death_clock"}:
+                # The KP owns death-clock progression.  Do not ask an
+                # unconscious player-brain for prose merely to reach the
+                # structured rescue engine.
+                keeper_progression = True
+                automatic_subsystem_request = {
+                    "kind": "dying_tick",
+                    "payload": {
+                        "decision_id": f"live-match-rescue-{_offset + 1}",
+                        "clock_kind": (
+                            "hour" if pending_kind == "stabilized_death_clock" else "round"
+                        ),
+                    },
+                }
+                player_result = {"ok": True, "player_text": ""}
+            else:
+                playability_stop = _playability_stop_reason(current_playability)
+                if playability_stop:
+                    stop_reason = playability_stop
+                    pending = current_playability.get("pending_resolution")
+                    pending_resolution = dict(pending) if isinstance(pending, dict) else None
+                    break
 
-            narration = player_visible_narration(
-                last_turn,
-                camp,
-                play_language=play_language,
-                previous_affordance_ids=previous_affordance_ids,
-            )
-            request = build_player_request(
-                ws,
-                campaign_id,
-                narration=narration,
-                character_card=character_card,
-                transcript_tail=transcript_tail[-transcript_tail_limit:],
-            )
-            player_requests.append(json.loads(json.dumps(request, ensure_ascii=False)))
+            if automatic_subsystem_request is None:
+                narration = player_visible_narration(
+                    last_turn,
+                    camp,
+                    play_language=play_language,
+                    previous_affordance_ids=previous_affordance_ids,
+                )
+                request = build_player_request(
+                    ws,
+                    campaign_id,
+                    narration=narration,
+                    character_card=character_card,
+                    transcript_tail=transcript_tail[-transcript_tail_limit:],
+                )
+                player_requests.append(json.loads(json.dumps(request, ensure_ascii=False)))
 
-            player_result = player_adapter.player_send_turn(
-                request,
-                runner_path=runner,
-                timeout_s=timeout_s,
-            )
+                player_result = player_adapter.player_send_turn(
+                    request,
+                    runner_path=runner,
+                    timeout_s=timeout_s,
+                )
         player_response_mode = player_result.get("response_mode")
         if not keeper_progression:
             invocation_rows.append(
@@ -682,6 +706,7 @@ def run_live_match(
             intent_class=turn_intent_class,
             player_intent_rich=player_intent_rich,
             pending_choice_response=player_result.get("pending_choice_response"),
+            subsystem_request=automatic_subsystem_request,
             max_auto_advance=1,
             auto_advance_low_agency=False,
             recording_mode="sync",

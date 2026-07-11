@@ -628,6 +628,11 @@ def run_full_session(
                 if isinstance(choice.get("pending_choice_response"), dict)
                 else None
             ),
+            subsystem_request=(
+                choice.get("subsystem_request")
+                if isinstance(choice.get("subsystem_request"), dict)
+                else None
+            ),
             max_auto_advance=1,
             auto_advance_low_agency=False,
             recording_mode="sync",

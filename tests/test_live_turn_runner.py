@@ -1930,3 +1930,85 @@ def test_live_pushed_failure_applies_announced_consequence_once_across_replay(tm
     assert [
         json.loads(line) for line in event_log.read_text().splitlines() if line.strip()
     ] == rows_after_first
+
+
+def test_live_typed_combat_start_attack_and_defense_journey(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({"current_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+
+    start_payload = {
+        "decision_id": "live-combat", "combat_id": "live-fight",
+        "scene_ref": "scene/live-fight", "turn_number": 1,
+        "participants": [
+            {"actor_id": "inv1", "side": "investigator", "dex": 60,
+             "combat_skill": 60, "dodge_skill": 40, "build": 0,
+             "hp_max": 11, "hp_current": 11, "con": 60,
+             "weapons": [{"weapon_id": "unarmed"}], "conditions": []},
+            {"actor_id": "cultist", "side": "npc", "dex": 70,
+             "combat_skill": 45, "dodge_skill": 25, "build": 0,
+             "hp_max": 9, "hp_current": 9, "con": 45,
+             "weapons": [{"weapon_id": "unarmed"}], "conditions": []},
+        ],
+    }
+    started = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request={
+            "kind": "combat_start", "payload": start_payload,
+        }, recording_mode="sync", max_auto_advance=1, rng_seed=501,
+    )
+    assert started["subsystem_results"][0]["kind"] == "combat_start"
+
+    declared = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request={
+            "kind": "combat_attack", "payload": {
+                "decision_id": "live-combat", "revision": 1,
+                "actor_id": "cultist", "target_actor_id": "inv1",
+                "declared_intent": "structured strike",
+                "resolution_hint": "opposed_melee", "weapon_id": "unarmed",
+            },
+        }, recording_mode="sync", max_auto_advance=1, rng_seed=502,
+    )
+    defense_request = declared["subsystem_results"][0]["events"][0]
+    assert defense_request["event_type"] == "combat_defense_required"
+
+    defended = live_runner.run_live_turn(
+        camp, char_path, "inv1", "I get out of the way.",
+        intent_class="combat",
+        player_intent_rich={
+            "primary_intent": "combat",
+            "combat_defense": {
+                "kind": "dodge",
+                "attack_command_id": defense_request["attack_command_id"],
+            },
+        },
+        recording_mode="sync", max_auto_advance=1, rng_seed=503,
+    )
+    event = defended["subsystem_results"][0]["events"][0]
+    assert event["event_type"] == "combat_turn_resolved"
+    assert event["turn"]["defense_kind"] == "dodge"
+
+
+def test_live_director_routes_dying_state_through_rescue_engine(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({
+        "current_hp": 0,
+        "conditions": ["major_wound", "dying", "unconscious"],
+    })
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "I hold on.",
+        intent_class="reflect", recording_mode="sync", max_auto_advance=1,
+        rng_seed=1,
+    )
+
+    assert result["turns"][0]["rules_requests"][0]["kind"] == "dying_tick"
+    assert result["subsystem_results"][0]["kind"] == "dying_tick"
+    event = result["subsystem_results"][0]["events"][0]
+    assert event["event_type"] == "dying_con_roll"
+    final_inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    assert ("dead" in final_inv["conditions"]) is event["died"]

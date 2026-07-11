@@ -510,6 +510,7 @@ def build_director_context(
     character = _read_json(character_path, {})
     world = _read_json(save / "world-state.json", {})
     pacing = _read_json(save / "pacing-state.json", {})
+    combat_state = _read_json(save / "combat.json", {})
     _last_outcome = _read_last_roll_outcome(campaign_dir)
     module_meta = _read_json(scenario / "module-meta.json", {})
     scenario_doc = _read_json(scenario / "scenario.json", {})
@@ -665,6 +666,7 @@ def build_director_context(
         "improvisation_boundaries": _read_json(scenario / "improvisation-boundaries.json", {}),
         "world_state": world,
         "rule_signals": rule_signals,
+        "combat_state": combat_state,
         "time_signals": time_signals,
         "sanity_engine_state": sanity_engine_state,
         "chase_state": chase_state,
@@ -2635,6 +2637,34 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
     # loss via SanitySession. This makes horror scenes (seeing carnage, witnessing
     # the entity) auto-trigger SAN checks without requiring a stalled player.
     requests: list[dict[str, Any]] = []
+    combat_state = ctx.get("combat_state") or {}
+    pending_attack = combat_state.get("pending_attack")
+    rich_intent = ctx.get("player_intent_rich") or {}
+    defense = rich_intent.get("combat_defense")
+    if isinstance(pending_attack, dict) and isinstance(defense, dict):
+        allowed = pending_attack.get("allowed_defenses") or []
+        defense_kind = defense.get("kind")
+        combat_revision = combat_state.get("revision")
+        if (
+            set(defense) == {"kind", "attack_command_id"}
+            and defense.get("attack_command_id")
+            == pending_attack.get("attack_command_id")
+            and pending_attack.get("target_actor_id") == ctx.get("investigator_id")
+            and defense_kind in allowed
+            and isinstance(combat_revision, int)
+            and not isinstance(combat_revision, bool)
+            and combat_revision >= 0
+        ):
+            # Defense is selected only from semantic-router structured output;
+            # never infer dodge/fight-back by scanning player prose.
+            return [{
+                "kind": "combat_defend",
+                "revision": combat_revision,
+                "actor_id": ctx["investigator_id"],
+                "attack_command_id": pending_attack["attack_command_id"],
+                "defense_kind": defense_kind,
+                "reason": "structured player combat defense",
+            }]
     scene = ctx.get("active_scene") or {}
     fired = set(ctx.get("world_state", {}).get("san_triggers_fired", []))
     for trig in (scene.get("on_enter") or {}).get("san_triggers", []) or []:
@@ -2751,16 +2781,17 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                                          "resolves (tick_bout_round/end_bout)."),
                      }}]
         if sig["hp_state"] == "dying":
-            return [{"kind": "characteristic_check", "skill": "CON", "reason": "death-clock CON roll",
-                     "difficulty": "regular", "bonus_penalty_dice": 0,
-                     "roll_contract": _roll_contract(
-                         goal="survive the death clock",
-                         success_effect="hold on a little longer",
-                         failure_effect="your condition worsens with immediate cost",
-                         failure_outcome_mode="goal_with_cost",
-                         roll_density_group="subsystem:death_clock",
-                         push_eligible=False,
-                     )}]
+            # The rescue engine owns the death clock and durable dead state.
+            # A generic CON check could narrate death without applying it.
+            return [{
+                "kind": "dying_tick",
+                "clock_kind": (
+                    "hour"
+                    if "stabilized" in set(sig.get("active_conditions") or [])
+                    else "round"
+                ),
+                "reason": "structured death-clock continuation",
+            }]
     if action == "REVEAL":
         # Only request a skill check when the revealed clue is obscured (its
         # delivery requires a die roll). Obvious clues — Handouts, direct gives,

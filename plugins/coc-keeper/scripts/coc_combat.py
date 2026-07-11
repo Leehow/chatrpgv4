@@ -195,8 +195,9 @@ LVL = {"fumble": 0, "failure": 1, "regular": 2, "hard": 3, "extreme": 4, "critic
 VALID_SIDES = {"investigator", "monster", "npc"}
 VALID_ACTIONS = {"attack", "maneuver", "flee", "cast", "other", "surprise_attack"}
 VALID_DEFENSE = {"fight_back", "dodge", "dive_for_cover", "maneuver", "none", None}
-VALID_CONDITIONS = {"major_wound", "dying", "unconscious", "prone",
-                     "grappled", "surprised", "outnumbered"}
+VALID_CONDITIONS = {"major_wound", "dying", "stabilized", "dead",
+                     "unconscious", "prone", "grappled", "surprised",
+                     "outnumbered", "fled"}
 VALID_OUTCOMES = {"investigators_win", "monsters_win", "fled", "stalemate", None}
 VALID_ARMOR_RULES = {"fixed", "degrades_1_per_damage", None}
 
@@ -244,6 +245,10 @@ class CombatSession:
         self._roll_counter = 0
         self._current_round = 0
         self._current_initiative: list[dict[str, Any]] = []
+        # Monotonic persisted revision used by live command bridges to reject
+        # stale defense/rescue actions after a reload.
+        self.revision = 0
+        self.pending_attack: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------ #
     # Participant management
@@ -1240,9 +1245,23 @@ class CombatSession:
                 goal=defender_goal or "ongoing_disadvantage",
                 target_weapon_id=None, as_counter=True)
         elif defense_kind == "fight_back" and opp == "defender_higher":
-            # Fight back deals damage to the attacker (existing behaviour via miss;
-            # keep outcome as miss — damage-on-fight-back is optional narrative).
-            turn["outcome"] = "miss"
+            # p.115: a successful Fight Back is a real counter-hit.  Resolve
+            # the defender's own first weapon (or unarmed default) against the
+            # original attacker and keep the damage receipt on this turn.
+            counter_weapon = self._weapon(target_id, None)
+            counter_weapon_id = str(counter_weapon.get("weapon_id") or "unarmed")
+            _, dmg_id, _ = self._damage_roll(
+                str(counter_weapon.get("damage") or "1D3"),
+                target_id,
+                actor_id,
+                counter_weapon_id,
+                turn["turn_id"],
+                db_expr=self._weapon_db_expr(target, counter_weapon),
+            )
+            self._update_conditions(actor_id)
+            turn["outcome"] = "fight_back_hit"
+            turn["fight_back_damage_roll_id"] = dmg_id
+            turn["fight_back_weapon_id"] = counter_weapon_id
         elif opp == "both_fail":
             turn["outcome"] = "no_damage"
         else:
@@ -1915,7 +1934,9 @@ class CombatSession:
         if target_id is None or target_id not in self.participants:
             return
         p = self.participants[target_id]
-        half_max = p["hp_max"] // 2
+        # "half or more" means ceil(max/2) for odd HP totals.  Floor division
+        # incorrectly made 5 damage a Major Wound on an 11 HP investigator.
+        half_max = (p["hp_max"] + 1) // 2
         # Worst single delivered hit (post-armor, NOT capped by remaining HP —
         # p.120 triage keys off the damage the attack delivered), skipping
         # non-damage records (e.g. malfunction events).
@@ -1941,13 +1962,18 @@ class CombatSession:
             # CON roll to avoid falling unconscious.
             if "prone" not in p["conditions"]:
                 p["conditions"].append("prone")
-            con_res = coc_roll.percentile_check(int(p.get("con", 50)), rng=self._rng)
-            if con_res.get("outcome") in ("failure", "fumble"):
+            con_outcome, con_record = self._percentile(
+                target_id,
+                "CON",
+                int(p.get("con", 50)),
+                "remain conscious after a major wound",
+            )
+            if con_outcome in ("failure", "fumble"):
                 if "unconscious" not in p["conditions"]:
                     p["conditions"].append("unconscious")
-            # Recorded on the participant (not damage_chain) so damage-chain
-            # consumers keep seeing pure damage records.
-            p["major_wound_con"] = con_res.get("outcome")
+            # Keep complete stable roll evidence without polluting the damage
+            # chain; pending_rolls remains the canonical roll log sink.
+            p["major_wound_con"] = dict(con_record)
         if p["hp_current"] == 0:
             # p.120: on zero HP the character is unconscious; dying only when
             # a major wound has also been taken.
@@ -1970,6 +1996,7 @@ class CombatSession:
     # ------------------------------------------------------------------ #
     def snapshot(self) -> dict[str, Any]:
         return {
+            "schema_version": 2,
             "combat_id": self.combat_id,
             "scene_ref": self.scene_ref,
             "started_at_turn": self.started_at_turn,
@@ -1979,6 +2006,19 @@ class CombatSession:
             "participants": [dict(p) for p in self.participants.values()],
             "rounds": [dict(r) for r in self.rounds],
             "damage_chain": [dict(d) for d in self.damage_chain],
+            "revision": self.revision,
+            "current_round": self._current_round,
+            "current_initiative": [dict(row) for row in self._current_initiative],
+            "jammed_weapons": sorted(self.jammed_weapons),
+            "weapon_catalog": {
+                weapon_id: dict(spec)
+                for weapon_id, spec in self._weapon_catalog.items()
+            },
+            "turn_counter": self._turn_counter,
+            "roll_counter": self._roll_counter,
+            "pending_attack": (
+                dict(self.pending_attack) if isinstance(self.pending_attack, dict) else None
+            ),
         }
 
     def save(self, campaign_dir: Path) -> Path:
@@ -1989,6 +2029,103 @@ class CombatSession:
             path, self.snapshot(), indent=2, ensure_ascii=False, trailing_newline=False
         )
         return path
+
+    @classmethod
+    def load(cls, campaign_dir: Path, *, rng: random.Random) -> "CombatSession":
+        """Load and validate the live combat snapshot without consuming RNG."""
+        path = Path(campaign_dir) / "save" / "combat.json"
+        data = load_combat_state(path)
+        if not isinstance(data, dict) or data.get("schema_version") != 2:
+            raise ValueError("unsupported combat snapshot schema")
+        required = {
+            "combat_id", "scene_ref", "started_at_turn", "status",
+            "participants", "rounds", "damage_chain", "revision",
+            "current_round", "current_initiative", "pending_attack",
+        }
+        if not required.issubset(data):
+            raise ValueError("combat snapshot is incomplete")
+        session = cls(
+            str(data["combat_id"]), str(data["scene_ref"]),
+            int(data["started_at_turn"]), rng=rng,
+        )
+        participants = data["participants"]
+        if not isinstance(participants, list):
+            raise ValueError("combat participants must be a list")
+        for participant in participants:
+            if not isinstance(participant, dict):
+                raise ValueError("combat participant must be an object")
+            actor_id = participant.get("actor_id")
+            if not isinstance(actor_id, str) or actor_id in session.participants:
+                raise ValueError("combat participant IDs must be unique strings")
+            if participant.get("side") not in VALID_SIDES:
+                raise ValueError("combat participant side is invalid")
+            conditions = participant.get("conditions")
+            if (not isinstance(conditions, list)
+                    or any(item not in VALID_CONDITIONS for item in conditions)):
+                raise ValueError("combat participant conditions are invalid")
+            session.participants[actor_id] = dict(participant)
+        session.rounds = list(data["rounds"])
+        session.damage_chain = list(data["damage_chain"])
+        session.revision = int(data["revision"])
+        session._current_round = int(data["current_round"])
+        session._current_initiative = list(data["current_initiative"])
+        session.jammed_weapons = set(data.get("jammed_weapons") or [])
+        weapon_catalog = data.get("weapon_catalog")
+        if not isinstance(weapon_catalog, dict) or not all(
+            isinstance(weapon_id, str) and isinstance(spec, dict)
+            for weapon_id, spec in weapon_catalog.items()
+        ):
+            raise ValueError("combat weapon catalog is invalid")
+        session._weapon_catalog = {
+            weapon_id: dict(spec) for weapon_id, spec in weapon_catalog.items()
+        }
+        session._turn_counter = int(data.get("turn_counter", 0))
+        session._roll_counter = int(data.get("roll_counter", 0))
+        session.pending_attack = (
+            dict(data["pending_attack"])
+            if isinstance(data.get("pending_attack"), dict)
+            else None
+        )
+        session.status = str(data["status"])
+        session.outcome = data.get("outcome")
+        session.ended_at_turn = data.get("ended_at_turn")
+        if session.status not in {"active", "concluded"}:
+            raise ValueError("combat status is invalid")
+        if session._current_round != len(session.rounds):
+            raise ValueError("combat round cursor does not match round history")
+        expected_initiative = (
+            session.rounds[-1].get("initiative_order", []) if session.rounds else []
+        )
+        if session._current_initiative != expected_initiative:
+            raise ValueError("combat initiative does not match current round")
+        if session.pending_attack is not None:
+            pending = session.pending_attack
+            expected_pending_keys = {
+                "attack_command_id", "actor_id", "target_actor_id",
+                "declared_intent", "resolution_hint", "weapon_id",
+                "allowed_defenses",
+            }
+            hint = pending.get("resolution_hint")
+            expected_defenses = (
+                ["dive_for_cover", "none"]
+                if hint == "firearm_attack"
+                else ["dodge", "fight_back"]
+                if hint == "opposed_melee"
+                else None
+            )
+            if (
+                set(pending) != expected_pending_keys
+                or not isinstance(pending.get("attack_command_id"), str)
+                or not pending["attack_command_id"]
+                or pending.get("actor_id") not in session.participants
+                or pending.get("target_actor_id") not in session.participants
+                or pending.get("actor_id") == pending.get("target_actor_id")
+                or not isinstance(pending.get("declared_intent"), str)
+                or not pending["declared_intent"].strip()
+                or pending.get("allowed_defenses") != expected_defenses
+            ):
+                raise ValueError("combat pending attack contract is invalid")
+        return session
 
     def drain_pending(self) -> tuple[list[dict], list[dict]]:
         """Return and clear pending roll/event records for the harness to flush."""

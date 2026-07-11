@@ -144,6 +144,104 @@ def _execute(module, campaign: Path, character: Path, commands: list[dict], rng)
     )
 
 
+def _combat_start_command(command_id: str = "combat-start") -> dict:
+    return _command(command_id, "combat_start", phase="start", payload={
+        "decision_id": "combat-decision",
+        "combat_id": "fight-1",
+        "scene_ref": "scene/fight",
+        "turn_number": 3,
+        "participants": [
+            {
+                "actor_id": "inv1", "side": "investigator", "dex": 60,
+                "combat_skill": 60, "dodge_skill": 40, "build": 0,
+                "hp_max": 11, "hp_current": 11, "con": 60,
+                "weapons": [{"weapon_id": "unarmed"}], "conditions": [],
+            },
+            {
+                "actor_id": "cultist", "side": "npc", "dex": 70,
+                "combat_skill": 45, "dodge_skill": 25, "build": 0,
+                "hp_max": 9, "hp_current": 9, "con": 45,
+                "weapons": [{"weapon_id": "unarmed"}], "conditions": [],
+            },
+        ],
+    })
+
+
+def test_combat_commands_persist_defense_and_reload_hp_atomically(tmp_path):
+    executor = _executor("coc_subsystem_executor_combat_journey")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+    inv_state.update({"current_hp": 11, "conditions": []})
+    state_path.write_text(json.dumps(inv_state), encoding="utf-8")
+
+    started = _execute(
+        executor, campaign, character, [_combat_start_command()], random.Random(1)
+    )[0]
+    assert started["events"][0]["event_type"] == "combat_started"
+
+    attack = _command("combat-attack", "combat_attack", phase="declare", payload={
+        "decision_id": "combat-decision", "revision": 1,
+        "actor_id": "cultist", "target_actor_id": "inv1",
+        "declared_intent": "structured attack", "resolution_hint": "opposed_melee",
+        "weapon_id": "unarmed",
+    })
+    declared = _execute(
+        executor, campaign, character, [attack], random.Random(2)
+    )[0]
+    assert declared["events"][0]["event_type"] == "combat_defense_required"
+    assert declared["events"][0]["allowed_defenses"] == ["dodge", "fight_back"]
+
+    defend = _command("combat-defend", "combat_defend", payload={
+        "decision_id": "combat-decision", "revision": 2,
+        "actor_id": "inv1", "attack_command_id": "combat-attack",
+        "defense_kind": "fight_back",
+    })
+    resolved = _execute(
+        executor, campaign, character, [defend], random.Random(7)
+    )[0]
+    assert resolved["events"][0]["event_type"] == "combat_turn_resolved"
+    saved = executor.coc_combat.CombatSession.load(campaign, rng=random.Random(9))
+    assert saved.pending_attack is None
+    assert saved.revision == 3
+    mirror = json.loads(state_path.read_text(encoding="utf-8"))
+    assert mirror["current_hp"] == saved.participants["inv1"]["hp_current"]
+    assert mirror["conditions"] == saved.participants["inv1"]["conditions"]
+
+    replay = _execute(
+        executor, campaign, character, [defend], random.Random(999)
+    )[0]
+    assert replay == resolved
+
+
+def test_dying_tick_and_stabilize_use_structured_healing_rules(tmp_path):
+    executor = _executor("coc_subsystem_executor_rescue")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+    inv_state.update({
+        "current_hp": 0,
+        "conditions": ["major_wound", "dying", "unconscious"],
+    })
+    state_path.write_text(json.dumps(inv_state), encoding="utf-8")
+
+    tick = _command("dying-tick", "dying_tick", payload={
+        "decision_id": "rescue", "clock_kind": "round",
+    })
+    ticked = _execute(executor, campaign, character, [tick], random.Random(1))[0]
+    assert ticked["events"][0]["event_type"] == "dying_con_roll"
+    assert ticked["events"][0]["died"] is False
+
+    aid = _command("first-aid", "stabilize", payload={
+        "decision_id": "rescue", "method": "first_aid", "skill_value": 99,
+    })
+    stabilized = _execute(executor, campaign, character, [aid], random.Random(2))[0]
+    assert stabilized["events"][0]["event_type"] == "first_aid_stabilize"
+    final_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "stabilized" in final_state["conditions"]
+    assert "dead" not in final_state["conditions"]
+
+
 def _pushable_roll_command(command_id: str = "original-failed-roll") -> dict:
     return _command(
         command_id,

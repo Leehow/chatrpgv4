@@ -906,15 +906,49 @@ def _plan_from_typed_subsystem_request(
     investigator_id: str,
     request: dict[str, Any],
 ) -> dict[str, Any]:
-    if not isinstance(request, dict) or set(request) != {
+    push_keys = {
         "kind",
         "original_command_id",
         "changed_method_evidence",
         "announced_consequence",
-    }:
+    }
+    if not isinstance(request, dict):
+        raise ValueError("subsystem_request must be an object")
+    if set(request) == {"kind", "payload"}:
+        kind = request.get("kind")
+        supported = {
+            "combat_start", "combat_attack", "combat_defend", "dying_tick",
+            "stabilize", "combat_end",
+        }
+        if kind not in supported or not isinstance(request.get("payload"), dict):
+            raise ValueError("subsystem_request kind/payload is not supported")
+        payload = _copy_jsonable(request["payload"])
+        material = json.dumps(
+            {"investigator_id": investigator_id, "request": request},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        digest = hashlib.sha256(material).hexdigest()
+        decision_id = payload.get("decision_id") or f"subsystem-{digest[:32]}"
+        return {
+            "decision_id": decision_id,
+            "scene_action": "SUBSYSTEM",
+            "rules_requests": [{
+                "command_id": f"{kind}:{digest}",
+                "kind": kind,
+                **payload,
+            }],
+            "clue_policy": {},
+            "narrative_directives": {},
+            "rule_signals": {},
+            "pressure_moves": [],
+            "memory_writes": [],
+        }
+    if set(request) != push_keys:
         raise ValueError(
-            "subsystem_request must contain exactly kind, original_command_id, "
-            "changed_method_evidence, and announced_consequence"
+            "subsystem_request must be a typed push offer or exact kind/payload request"
         )
     if request.get("kind") != "push_offer":
         raise ValueError("subsystem_request currently supports only push_offer")

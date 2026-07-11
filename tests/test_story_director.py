@@ -1147,6 +1147,40 @@ def test_rule_override_dying_forces_subsystem(tmp_path):
     assert overrides is not None
     assert overrides["scene_action"] == "SUBSYSTEM"
     assert overrides["handoff"] == "rules"
+    plan = coc_story_director.generate_director_plan(ctx, "dying-decision")
+    assert plan["rules_requests"] == [{
+        "kind": "dying_tick",
+        "clock_kind": "round",
+        "reason": "structured death-clock continuation",
+    }]
+
+
+def test_director_emits_typed_defense_for_persisted_pending_attack(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    (camp / "save" / "combat.json").write_text(json.dumps({
+        "schema_version": 2, "combat_id": "fight", "status": "active",
+        "revision": 4,
+        "pending_attack": {
+            "attack_command_id": "attack-1", "actor_id": "cultist",
+            "target_actor_id": "inv1", "allowed_defenses": ["dodge", "fight_back"],
+        },
+    }))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="I dodge.", player_intent_class="combat",
+        player_intent_rich={
+            "primary_intent": "combat",
+            "combat_defense": {"kind": "dodge", "attack_command_id": "attack-1"},
+        },
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "defense-decision")
+    defense = [row for row in plan["rules_requests"] if row.get("kind") == "combat_defend"]
+    assert defense == [{
+        "kind": "combat_defend", "revision": 4, "actor_id": "inv1",
+        "attack_command_id": "attack-1", "defense_kind": "dodge",
+        "reason": "structured player combat defense",
+    }]
 
 
 def test_rule_override_fumble_forces_pressure(tmp_path):

@@ -34,9 +34,16 @@ def create_session(
     )
 
 
-def send(session_id: str, player_input: str) -> list[dict[str, Any]]:
-    """Run one player turn; returns Event dicts."""
-    return _session.send(session_id, player_input)
+def send(
+    session_id: str,
+    player_input: str,
+    *,
+    subsystem_request: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Run one player turn or an exact typed subsystem continuation."""
+    return _session.send(
+        session_id, player_input, subsystem_request=subsystem_request
+    )
 
 
 def get_state(session_id: str) -> dict[str, Any]:

@@ -164,3 +164,32 @@ def test_sdk_debug_create_send_state_close(tmp_path):
     api.close_session(sid)
     with pytest.raises(Exception):
         api.send(sid, "再试一次。")
+
+
+def test_sdk_debug_accepts_typed_rescue_request(tmp_path):
+    camp, _char = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(
+        json.dumps({"schema_version": 1, "brain": "debug"}), encoding="utf-8"
+    )
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({
+        "current_hp": 0,
+        "conditions": ["major_wound", "dying", "unconscious"],
+    })
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+    api = _load("runtime_sdk_api_typed_rescue", "runtime/sdk/api.py")
+    sid = api.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+
+    events = api.send(
+        sid,
+        "",
+        subsystem_request={
+            "kind": "dying_tick",
+            "payload": {"decision_id": "sdk-rescue", "clock_kind": "round"},
+        },
+    )
+
+    assert events
+    state = json.loads(inv_path.read_text(encoding="utf-8"))
+    assert "dying" in state["conditions"] or "dead" in state["conditions"]

@@ -895,6 +895,102 @@ def test_zero_hp_with_major_wound_is_dying():
     assert "unconscious" in p["conditions"]
 
 
+def test_successful_fight_back_damages_original_attacker_and_records_roll():
+    """p.115: a winning ordinary Fight Back is a counter-hit, not a miss."""
+    class FixedRng:
+        def __init__(self):
+            self.values = iter([70, 20, 3])
+
+        def randint(self, low, high):
+            value = next(self.values)
+            assert low <= value <= high
+            return value
+
+    s = coc_combat.CombatSession("fight-back-damage", "test", 1, rng=FixedRng())
+    s.add_participant("attacker", "monster", 60, 50, 0, 10,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.add_participant("defender", "investigator", 50, 60, 0, 10,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.begin_round()
+
+    turn = s.declare_and_resolve_turn(
+        "attacker", "strike", action="attack", target_actor_id="defender",
+        defense_kind="fight_back", weapon_id="unarmed")
+
+    assert turn["outcome"] == "fight_back_hit"
+    assert turn["fight_back_damage_roll_id"]
+    assert s.participants["attacker"]["hp_current"] == 7
+    damage = s.damage_chain[-1]
+    assert damage["source_actor_id"] == "defender"
+    assert damage["target_actor_id"] == "attacker"
+
+
+def test_odd_max_hp_major_wound_uses_ceiling_half_threshold():
+    s = coc_combat.CombatSession("odd-hp", "test", 1, rng=random.Random(13))
+    s.add_participant("source", "monster", 60, 50, 0, 10,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.add_participant("target", "investigator", 50, 50, 0, 11)
+    s.damage_chain.append({
+        "source_actor_id": "source", "target_actor_id": "target",
+        "raw_damage": 5, "armor_absorbed": 0,
+    })
+    s.participants["target"]["hp_current"] = 6
+    s._update_conditions("target")
+    assert "major_wound" not in s.participants["target"]["conditions"]
+
+
+def test_major_wound_con_roll_has_stable_roll_evidence():
+    s = coc_combat.CombatSession("major-con", "test", 1, rng=random.Random(2))
+    s.add_participant("source", "monster", 60, 50, 0, 10,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.add_participant("target", "investigator", 50, 50, 0, 10, con=50)
+    s.damage_chain.append({
+        "source_actor_id": "source", "target_actor_id": "target",
+        "raw_damage": 5, "armor_absorbed": 0,
+    })
+    s.participants["target"]["hp_current"] = 5
+    s._update_conditions("target")
+    evidence = s.participants["target"]["major_wound_con"]
+    assert set(evidence) >= {"roll_id", "roll", "target", "outcome"}
+    assert evidence["roll_id"] == "cr1"
+
+
+def test_combat_snapshot_round_trip_preserves_revision_and_initiative(tmp_path):
+    s = coc_combat.CombatSession("round-trip", "test", 1, rng=random.Random(4))
+    s.add_participant("inv", "investigator", 60, 55, 0, 10,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.add_participant("foe", "monster", 50, 45, 0, 8,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.begin_round()
+    s.revision = 7
+    s.save(tmp_path)
+    loaded = coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+    assert loaded.revision == 7
+    assert loaded._current_round == 1
+    assert loaded._current_initiative == s._current_initiative
+    assert loaded.snapshot() == s.snapshot()
+
+
+def test_combat_load_rejects_forged_pending_defense_contract(tmp_path):
+    s = coc_combat.CombatSession("pending-contract", "test", 1, rng=random.Random(5))
+    s.add_participant("inv", "investigator", 60, 55, 0, 10)
+    s.add_participant("foe", "monster", 50, 45, 0, 8)
+    s.begin_round()
+    s.pending_attack = {
+        "attack_command_id": "attack-1", "actor_id": "foe",
+        "target_actor_id": "inv", "declared_intent": "strike",
+        "resolution_hint": "opposed_melee", "weapon_id": "unarmed",
+        "allowed_defenses": ["dodge", "fight_back"],
+    }
+    s.save(tmp_path)
+    path = tmp_path / "save" / "combat.json"
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    forged["pending_attack"]["allowed_defenses"].append("keeper_secret")
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="pending attack"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(5))
+
+
 # --------------------------------------------------------------------------- #
 # W3-2 Firearms depth: aiming, multi-shot, reload, full-auto, suppression
 # --------------------------------------------------------------------------- #

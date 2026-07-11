@@ -990,7 +990,7 @@ def _run_match_with_investigator_state(
         investigator_id,
         player_runner=runner,
         max_turns=1,
-        rng_seed=17,
+        rng_seed=1,
         live=False,
         intent_class="wait",
     )
@@ -1009,6 +1009,11 @@ def test_dying_investigator_enters_rescue_resolution_not_dead(tmp_path):
     assert result["pending_resolution"]["kind"] == "dying_rescue"
     assert result["result"]["pending_resolution"] == result["pending_resolution"]
     assert result["result"]["reached_terminal"] is False
+    assert any(
+        row.get("kind") == "dying_tick"
+        for turn in result["result"]["turns"]
+        for row in (turn.get("subsystem_results") or [])
+    )
 
 
 def test_stabilized_dying_investigator_remains_distinct_in_match_evidence(tmp_path):

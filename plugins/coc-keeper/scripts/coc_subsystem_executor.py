@@ -44,13 +44,23 @@ ROLL_COMMAND_KINDS = frozenset({
 })
 PUSH_COMMAND_KINDS = frozenset({"push_offer", "push_confirm", "push_resolve"})
 BOUT_COMMAND_KINDS = frozenset({"bout_tick", "bout_end"})
+COMBAT_COMMAND_KINDS = frozenset({
+    "combat_start", "combat_attack", "combat_defend", "dying_tick",
+    "stabilize", "combat_end",
+})
 CHARACTER_REQUIRED_COMMAND_KINDS = (
     ROLL_COMMAND_KINDS | PUSH_COMMAND_KINDS | BOUT_COMMAND_KINDS
+    | COMBAT_COMMAND_KINDS
 )
-RNG_CONSUMING_COMMAND_KINDS = ROLL_COMMAND_KINDS | {"push_resolve"}
+RNG_CONSUMING_COMMAND_KINDS = ROLL_COMMAND_KINDS | {
+    "push_resolve", "combat_defend", "dying_tick", "stabilize",
+}
 ROLL_EVIDENCE_COMMAND_KINDS = ROLL_COMMAND_KINDS | {"push_resolve"}
 SAN_MUTATION_COMMAND_KINDS = frozenset({"sanity_check", "bout_tick", "bout_end"})
-SUPPORTED_COMMAND_KINDS = ROLL_COMMAND_KINDS | PUSH_COMMAND_KINDS | BOUT_COMMAND_KINDS
+SUPPORTED_COMMAND_KINDS = (
+    ROLL_COMMAND_KINDS | PUSH_COMMAND_KINDS | BOUT_COMMAND_KINDS
+    | COMBAT_COMMAND_KINDS
+)
 EXPECTED_PHASE = {
     **{kind: "resolve" for kind in ROLL_COMMAND_KINDS},
     "push_offer": "offer",
@@ -58,6 +68,12 @@ EXPECTED_PHASE = {
     "push_resolve": "resolve",
     "bout_tick": "resolve",
     "bout_end": "resolve",
+    "combat_start": "start",
+    "combat_attack": "declare",
+    "combat_defend": "resolve",
+    "dying_tick": "resolve",
+    "stabilize": "resolve",
+    "combat_end": "end",
 }
 RESULT_STATUSES_BY_KIND = {
     **{kind: frozenset({"completed"}) for kind in ROLL_COMMAND_KINDS},
@@ -67,6 +83,7 @@ RESULT_STATUSES_BY_KIND = {
     "push_resolve": frozenset({"completed"}),
     "bout_tick": frozenset({"completed", "pending_choice"}),
     "bout_end": frozenset({"completed"}),
+    **{kind: frozenset({"completed"}) for kind in COMBAT_COMMAND_KINDS},
 }
 SUCCESS_OUTCOMES = frozenset({
     "critical",
@@ -114,6 +131,8 @@ def _load_sibling(name: str, filename: str):
 coc_fileio = _load_sibling("coc_fileio_subsystem_executor", "coc_fileio.py")
 coc_roll = _load_sibling("coc_roll_subsystem_executor", "coc_roll.py")
 coc_sanity = _load_sibling("coc_sanity_subsystem_executor", "coc_sanity.py")
+coc_combat = _load_sibling("coc_combat_subsystem_executor", "coc_combat.py")
+coc_healing = _load_sibling("coc_healing_subsystem_executor", "coc_healing.py")
 
 
 class SubsystemExecutorError(ValueError):
@@ -684,6 +703,7 @@ def _validate_result_snapshot(command_id: str, result: Any) -> None:
 def _allowed_preimage_path(path: str) -> bool:
     if path in {
         "save/sanity.json",
+        "save/combat.json",
         "save/time-state.json",
         "save/time-triggers.json",
     }:
@@ -2245,6 +2265,10 @@ def _build_inflight(
         )
         for command, _command_hash in commands_with_hashes
     )
+    structured_combat = any(
+        command["kind"] in COMBAT_COMMAND_KINDS
+        for command, _command_hash in commands_with_hashes
+    )
     preimage_relatives: list[str] = []
     if structured_sanity:
         preimage_relatives = [
@@ -2253,6 +2277,13 @@ def _build_inflight(
             "save/time-state.json",
             "save/time-triggers.json",
         ]
+    if structured_combat:
+        for relative in (
+            "save/combat.json",
+            f"save/investigator-state/{investigator_id}.json",
+        ):
+            if relative not in preimage_relatives:
+                preimage_relatives.append(relative)
     has_roll_evidence = any(
         command["kind"] in ROLL_EVIDENCE_COMMAND_KINDS
         for command, _command_hash in commands_with_hashes
@@ -2396,6 +2427,77 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
             f"{base}.decision_id",
             "decision_id must be null or a stable safe ID",
         )
+    kind = command["kind"]
+    if kind in COMBAT_COMMAND_KINDS:
+        revision = payload.get("revision")
+        if kind not in {"combat_start", "dying_tick", "stabilize"} and (
+            isinstance(revision, bool) or not isinstance(revision, int) or revision < 0
+        ):
+            raise _error(
+                "invalid_command_payload", f"{base}.revision",
+                "combat continuation requires a non-negative revision",
+            )
+        if kind == "combat_start":
+            if not all(
+                isinstance(payload.get(field), str) and payload[field].strip()
+                for field in ("combat_id", "scene_ref")
+            ):
+                raise _error("invalid_command_payload", base, "combat start requires IDs")
+            participants = payload.get("participants")
+            if not isinstance(participants, list) or len(participants) < 2:
+                raise _error(
+                    "invalid_command_payload", f"{base}.participants",
+                    "combat requires at least two structured participants",
+                )
+            actor_ids: set[str] = set()
+            required = {
+                "actor_id", "side", "dex", "combat_skill", "dodge_skill",
+                "build", "hp_max", "hp_current", "con", "weapons", "conditions",
+            }
+            for offset, participant in enumerate(participants):
+                ppath = f"{base}.participants[{offset}]"
+                if not isinstance(participant, dict) or set(participant) != required:
+                    raise _error("invalid_command_payload", ppath, "invalid participant contract")
+                actor_id = participant.get("actor_id")
+                if (not isinstance(actor_id, str) or not _SAFE_ID.fullmatch(actor_id)
+                        or actor_id in actor_ids):
+                    raise _error("invalid_command_payload", f"{ppath}.actor_id", "actor ID must be unique and safe")
+                actor_ids.add(actor_id)
+                if participant.get("side") not in coc_combat.VALID_SIDES:
+                    raise _error("invalid_command_payload", f"{ppath}.side", "invalid combat side")
+                for field in ("dex", "combat_skill", "dodge_skill", "build", "hp_max", "hp_current", "con"):
+                    value = participant.get(field)
+                    if isinstance(value, bool) or not isinstance(value, int):
+                        raise _error("invalid_command_payload", f"{ppath}.{field}", "expected integer")
+                if not 0 <= participant["hp_current"] <= participant["hp_max"]:
+                    raise _error("invalid_command_payload", f"{ppath}.hp_current", "HP is out of range")
+                if (not isinstance(participant.get("weapons"), list)
+                        or not isinstance(participant.get("conditions"), list)
+                        or any(value not in coc_combat.VALID_CONDITIONS for value in participant["conditions"])):
+                    raise _error("invalid_command_payload", ppath, "invalid weapons or conditions")
+        elif kind == "combat_attack":
+            for field in ("actor_id", "target_actor_id", "declared_intent", "resolution_hint"):
+                if not isinstance(payload.get(field), str) or not payload[field].strip():
+                    raise _error("invalid_command_payload", f"{base}.{field}", "field is required")
+            if payload.get("resolution_hint") not in {"opposed_melee", "firearm_attack"}:
+                raise _error("invalid_command_payload", f"{base}.resolution_hint", "attack hint must be structured combat")
+        elif kind == "combat_defend":
+            if payload.get("defense_kind") not in {"dodge", "fight_back", "dive_for_cover", "none"}:
+                raise _error("invalid_command_payload", f"{base}.defense_kind", "invalid defense enum")
+            for field in ("actor_id", "attack_command_id"):
+                if not isinstance(payload.get(field), str) or not _SAFE_ID.fullmatch(payload[field]):
+                    raise _error("invalid_command_payload", f"{base}.{field}", "stable ID required")
+        elif kind == "dying_tick":
+            if payload.get("clock_kind") not in {"round", "hour"}:
+                raise _error("invalid_command_payload", f"{base}.clock_kind", "clock_kind must be round or hour")
+        elif kind == "stabilize":
+            if payload.get("method") not in {"first_aid", "medicine"}:
+                raise _error("invalid_command_payload", f"{base}.method", "method must be first_aid or medicine")
+            skill_value = payload.get("skill_value")
+            if isinstance(skill_value, bool) or not isinstance(skill_value, int) or not 0 <= skill_value <= 100:
+                raise _error("invalid_command_payload", f"{base}.skill_value", "skill_value must be 0..100")
+        elif kind == "combat_end" and payload.get("outcome") not in coc_combat.VALID_OUTCOMES - {None}:
+            raise _error("invalid_command_payload", f"{base}.outcome", "invalid combat outcome")
     if "bonus_penalty_dice" in payload:
         modifier = payload["bonus_penalty_dice"]
         if (
@@ -3509,6 +3611,215 @@ def _roll_result(
     }
 
 
+def _investigator_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
+    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise _error("malformed_investigator_state", path.as_posix(), str(exc)) from exc
+    if not isinstance(value, dict):
+        raise _error("malformed_investigator_state", path.as_posix(), "state must be an object")
+    return value
+
+
+def _sync_investigator_from_combat(
+    campaign_dir: Path,
+    investigator_id: str,
+    session: Any,
+) -> None:
+    participant = session.participants.get(investigator_id)
+    if not isinstance(participant, dict):
+        return
+    state = _investigator_state(campaign_dir, investigator_id)
+    state["current_hp"] = int(participant["hp_current"])
+    state["conditions"] = list(participant.get("conditions") or [])
+    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    coc_fileio.write_json_atomic(
+        path, state, indent=2, ensure_ascii=False, trailing_newline=True
+    )
+
+
+def _healing_session(
+    campaign_dir: Path,
+    character: dict[str, Any],
+    investigator_id: str,
+    rng: random.Random,
+):
+    state = _investigator_state(campaign_dir, investigator_id)
+    derived = character.get("derived") if isinstance(character.get("derived"), dict) else {}
+    characteristics = (
+        character.get("characteristics")
+        if isinstance(character.get("characteristics"), dict)
+        else {}
+    )
+    hp_max = int(
+        state.get("max_hp")
+        or state.get("hp_max")
+        or derived.get("HP")
+        or max(1, int(state.get("current_hp", 10) or 10))
+    )
+    return coc_healing.HealingSession.load(
+        campaign_dir,
+        investigator_id,
+        hp_max=hp_max,
+        con_value=int(characteristics.get("CON", 50)),
+        rng=rng,
+    )
+
+
+def _dispatch_combat(
+    campaign_dir: Path,
+    character: dict[str, Any],
+    investigator_id: str,
+    command: dict[str, Any],
+    rng: random.Random,
+) -> dict[str, Any]:
+    kind = command["kind"]
+    payload = command["payload"]
+    command_id = command["command_id"]
+    combat_path = campaign_dir / "save" / "combat.json"
+
+    if kind == "combat_start":
+        if combat_path.exists():
+            existing = coc_combat.CombatSession.load(campaign_dir, rng=random.Random(0))
+            if existing.status == "active":
+                raise _error("combat_already_active", "save/combat.json", "end the active combat first")
+        session = coc_combat.CombatSession(
+            str(payload["combat_id"]), str(payload["scene_ref"]),
+            int(payload.get("turn_number", 0)), rng=rng,
+        )
+        for spec in payload["participants"]:
+            session.add_participant(
+                spec["actor_id"], spec["side"], spec["dex"],
+                spec["combat_skill"], spec["build"], spec["hp_max"],
+                weapons=_json_copy(spec["weapons"]),
+                conditions=list(spec["conditions"]),
+                dodge_skill=spec["dodge_skill"], con=spec["con"],
+            )
+            session.participants[spec["actor_id"]]["hp_current"] = spec["hp_current"]
+        if investigator_id not in session.participants:
+            raise _error("combat_actor_missing", "commands[0].payload.participants", "investigator must be a participant")
+        session.begin_round()
+        session.revision = 1
+        session.save(campaign_dir)
+        _sync_investigator_from_combat(campaign_dir, investigator_id, session)
+        event = {
+            "event_type": "combat_started", "combat_id": session.combat_id,
+            "revision": session.revision,
+            "initiative_order": _json_copy(session._current_initiative),
+            "source_command_id": command_id,
+        }
+    elif kind == "combat_attack":
+        session = coc_combat.CombatSession.load(campaign_dir, rng=rng)
+        if session.status != "active" or session.pending_attack is not None:
+            raise _error("combat_not_ready", "save/combat.json", "combat cannot accept an attack declaration")
+        if payload["revision"] != session.revision:
+            raise _error("stale_combat_revision", "commands[0].payload.revision", "combat revision is stale")
+        actor_id = payload["actor_id"]
+        target_id = payload["target_actor_id"]
+        if actor_id not in session.participants or target_id not in session.participants:
+            raise _error("combat_actor_missing", "commands[0].payload", "attack actor or target is absent")
+        turns_taken = len(session.rounds[-1].get("turns") or [])
+        initiative = session._current_initiative
+        if not initiative or initiative[turns_taken % len(initiative)]["actor_id"] != actor_id:
+            raise _error("combat_initiative_violation", "commands[0].payload.actor_id", "actor is not next in initiative")
+        hint = payload["resolution_hint"]
+        allowed = ["dive_for_cover", "none"] if hint == "firearm_attack" else ["dodge", "fight_back"]
+        session.pending_attack = {
+            "attack_command_id": command_id,
+            "actor_id": actor_id,
+            "target_actor_id": target_id,
+            "declared_intent": payload["declared_intent"],
+            "resolution_hint": hint,
+            "weapon_id": payload.get("weapon_id"),
+            "allowed_defenses": allowed,
+        }
+        session.revision += 1
+        session.save(campaign_dir)
+        event = {
+            "event_type": "combat_defense_required",
+            **_json_copy(session.pending_attack),
+            "revision": session.revision,
+            "source_command_id": command_id,
+        }
+    elif kind == "combat_defend":
+        session = coc_combat.CombatSession.load(campaign_dir, rng=rng)
+        pending = session.pending_attack
+        if not isinstance(pending, dict):
+            raise _error("combat_defense_not_pending", "save/combat.json", "no attack awaits defense")
+        if payload["revision"] != session.revision:
+            raise _error("stale_combat_revision", "commands[0].payload.revision", "combat revision is stale")
+        if (payload["attack_command_id"] != pending["attack_command_id"]
+                or payload["actor_id"] != pending["target_actor_id"]):
+            raise _error("combat_defense_mismatch", "commands[0].payload", "defense does not match the pending attack")
+        defense = payload["defense_kind"]
+        if defense not in pending["allowed_defenses"]:
+            raise _error("combat_defense_illegal", "commands[0].payload.defense_kind", "defense is not legal for this attack")
+        turn = session.declare_and_resolve_turn(
+            pending["actor_id"], pending["declared_intent"],
+            target_actor_id=pending["target_actor_id"], defense_kind=defense,
+            weapon_id=pending.get("weapon_id"),
+            resolution_hint=pending["resolution_hint"],
+        )
+        rolls, engine_events = session.drain_pending()
+        session.pending_attack = None
+        session.revision += 1
+        session.save(campaign_dir)
+        _sync_investigator_from_combat(campaign_dir, investigator_id, session)
+        event = {
+            "event_type": "combat_turn_resolved", "combat_id": session.combat_id,
+            "revision": session.revision, "turn": _json_copy(turn),
+            "roll_evidence": _json_copy(rolls),
+            "engine_events": _json_copy(engine_events),
+            "source_command_id": command_id,
+        }
+    elif kind in {"dying_tick", "stabilize"}:
+        healing = _healing_session(campaign_dir, character, investigator_id, rng)
+        if "dead" in healing.conditions:
+            raise _error("investigator_dead", "save/investigator-state", "dead investigators cannot be rescued")
+        if kind == "dying_tick":
+            if "dying" not in healing.conditions:
+                raise _error("dying_clock_not_active", "save/investigator-state", "dying condition is absent")
+            if payload["clock_kind"] == "hour":
+                if "stabilized" not in healing.conditions:
+                    raise _error("wrong_dying_clock", "commands[0].payload.clock_kind", "hour clock requires stabilization")
+                event = healing.stabilized_con_roll()
+            else:
+                if "stabilized" in healing.conditions:
+                    raise _error("wrong_dying_clock", "commands[0].payload.clock_kind", "stabilized state uses the hourly clock")
+                event = healing.dying_con_roll()
+        elif payload["method"] == "first_aid":
+            event = healing.first_aid(payload["skill_value"])
+        else:
+            event = healing.medicine(
+                payload["skill_value"], same_day=bool(payload.get("same_day", True))
+            )
+        healing.save(campaign_dir)
+        event = {**_json_copy(event), "source_command_id": command_id}
+    else:
+        session = coc_combat.CombatSession.load(campaign_dir, rng=rng)
+        if session.pending_attack is not None:
+            raise _error("combat_defense_pending", "save/combat.json", "resolve defense before ending combat")
+        if payload["revision"] != session.revision:
+            raise _error("stale_combat_revision", "commands[0].payload.revision", "combat revision is stale")
+        session.conclude(payload["outcome"])
+        session.revision += 1
+        session.save(campaign_dir)
+        _sync_investigator_from_combat(campaign_dir, investigator_id, session)
+        event = {
+            "event_type": "combat_ended", "combat_id": session.combat_id,
+            "revision": session.revision, "outcome": session.outcome,
+            "source_command_id": command_id,
+        }
+    refs = [f"save/investigator-state/{investigator_id}.json#current_hp"]
+    if kind not in {"dying_tick", "stabilize"}:
+        refs.insert(0, "save/combat.json")
+    return {
+        "command_id": command_id, "kind": kind, "status": "completed",
+        "events": [event], "pending_choice": None, "state_refs": refs,
+    }
+
+
 def _dispatch(
     campaign_dir: Path,
     character: dict[str, Any] | None,
@@ -3519,6 +3830,11 @@ def _dispatch(
 ) -> dict[str, Any]:
     command_id = command["command_id"]
     kind = command["kind"]
+    if kind in COMBAT_COMMAND_KINDS:
+        assert character is not None
+        return _dispatch_combat(
+            campaign_dir, character, investigator_id, command, rng
+        )
     if kind in BOUT_COMMAND_KINDS:
         assert character is not None
         payload = command["payload"]

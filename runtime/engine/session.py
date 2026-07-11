@@ -79,7 +79,12 @@ def get_session(session_id: str) -> dict[str, Any]:
         raise KeyError(f"unknown or closed session: {session_id!r}") from exc
 
 
-def send(session_id: str, player_input: str) -> list[dict[str, Any]]:
+def send(
+    session_id: str,
+    player_input: str,
+    *,
+    subsystem_request: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     record = get_session(session_id)
     brain = record["brain_at_create"]
     workspace = record["workspace"]
@@ -95,8 +100,13 @@ def send(session_id: str, player_input: str) -> list[dict[str, Any]]:
             character_path,
             investigator_id,
             player_input,
+            subsystem_request=subsystem_request,
         )
     if brain == "pi":
+        if subsystem_request is not None:
+            raise ValueError(
+                "typed subsystem_request is not supported by the pi brain"
+            )
         return _load_pi_adapter().pi_send_turn(
             {
                 "workspace": str(workspace),
