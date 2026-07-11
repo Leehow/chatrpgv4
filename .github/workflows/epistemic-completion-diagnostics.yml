@@ -21,9 +21,11 @@ jobs:
           python-version: "3.11"
       - name: Install test dependencies
         run: python -m pip install pytest pypdf
-      - name: Apply cognitive storylet and narration patch
-        run: python scripts/apply_cognitive_storylets_narration_patch.py
-      - name: Run focused cognitive and report suites
+      - name: Apply cognitive and report integration patches
+        run: |
+          python scripts/apply_cognitive_storylets_narration_patch.py
+          python scripts/apply_epistemic_report_patch.py
+      - name: Run focused cognitive, narration, metrics, and report suites
         id: focused
         continue-on-error: true
         run: |
@@ -35,6 +37,7 @@ jobs:
             tests/test_storylets.py \
             tests/test_narration_envelope.py \
             tests/test_narration_contract.py \
+            tests/test_playtest_report.py \
             -q -p no:cacheprovider --tb=long > /tmp/epistemic-focused.log 2>&1
           status=$?
           cat /tmp/epistemic-focused.log
@@ -54,9 +57,10 @@ jobs:
           if git diff --quiet -- \
             plugins/coc-keeper/scripts/coc_storylets.py \
             plugins/coc-keeper/scripts/coc_narration_contract.py \
+            plugins/coc-keeper/scripts/coc_playtest_report.py \
             plugins/coc-keeper/references/rules-json/storylet-library.json \
             plugins/coc-keeper/skills/coc-scenario-import/references/storylet-schema.md; then
-            echo "no cognitive integration changes"
+            echo "no epistemic integration changes"
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -64,7 +68,8 @@ jobs:
           git add \
             plugins/coc-keeper/scripts/coc_storylets.py \
             plugins/coc-keeper/scripts/coc_narration_contract.py \
+            plugins/coc-keeper/scripts/coc_playtest_report.py \
             plugins/coc-keeper/references/rules-json/storylet-library.json \
             plugins/coc-keeper/skills/coc-scenario-import/references/storylet-schema.md
-          git commit -m "feat(epistemic): wire cognitive storylets and narration"
+          git commit -m "feat(report): add epistemic experience section"
           git push origin HEAD:feature/scenario-epistemic-blueprint-completion
