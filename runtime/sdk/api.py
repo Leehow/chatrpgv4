@@ -25,6 +25,7 @@ def _load_paths_module():
 
 
 _session = _load_session_module()
+UnknownSessionError = _session.UnknownSessionError
 
 
 def create_session(
@@ -54,7 +55,12 @@ def send(
     subsystem_request: dict[str, Any] | None = None,
     pending_choice_response: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Run one player turn or an exact typed subsystem continuation."""
+    """Run one player turn or an exact typed subsystem continuation.
+
+    Raises:
+        UnknownSessionError: with stable ``kind == "unknown_session"`` when
+            the session does not exist, was closed, or expired.
+    """
     _load_paths_module().validate_id(session_id, "session_id")
     return _session.send(
         session_id, player_input, subsystem_request=subsystem_request,
@@ -63,7 +69,7 @@ def send(
 
 
 def get_state(session_id: str) -> dict[str, Any]:
-    """Return player-safe PublicState for the session's campaign."""
+    """Return player-safe PublicState or ``UnknownSessionError``."""
     _load_paths_module().validate_id(session_id, "session_id")
     return _session.get_state(session_id)
 

@@ -47,6 +47,7 @@ subsystem_executor = _load_sibling(
 coc_async_recorder = _load_sibling("coc_async_recorder", "coc_async_recorder.py")
 coc_intent_router = _load_sibling("coc_intent_router", "coc_intent_router.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+coc_state = _load_sibling("coc_state_live_turn", "coc_state.py")
 
 
 _INTERRUPT_EVENT_TYPES = {
@@ -1227,6 +1228,7 @@ def _run_live_turn_impl(
     """Inner live-turn body; caller must already hold ``campaign_lock``."""
     campaign = Path(campaign_dir)
     if pending_choice_response is not None:
+        coc_state.load_world_state(campaign)
         combat_choice = subsystem_executor.project_player_combat_defense(
             campaign, investigator_id
         )
@@ -1276,6 +1278,7 @@ def _run_live_turn_impl(
             state_patch=state_patch,
         )
     if subsystem_request is not None:
+        coc_state.load_world_state(campaign)
         plan = _plan_from_typed_subsystem_request(investigator_id, subsystem_request)
         return _run_pending_choice_response(
             campaign,
@@ -1328,6 +1331,10 @@ def _run_live_turn_impl(
             recording_flush=recording_flush,
             state_patch=state_patch,
         )
+    # The live production entry owns the write-side migration boundary before
+    # any director/apply code reads and potentially rewrites world. A turn
+    # blocked exclusively by an existing subsystem choice remains read-only.
+    coc_state.load_world_state(campaign)
     character = Path(character_path)
     mode = coc_async_recorder.normalize_recording_mode(recording_mode)
     flush_policy = coc_async_recorder.normalize_flush_policy(recording_flush)

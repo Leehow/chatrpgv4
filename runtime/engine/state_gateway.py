@@ -136,7 +136,11 @@ class RuntimeStateGateway:
             state="world",
             kind="world",
             path=path,
-            fallback={"schema_version": 1},
+            fallback={
+                "schema_version": 2,
+                "terminal_state": None,
+                "pending_subsystem_choice": None,
+            },
             loader=self._state.load_world_state,
         )
 

@@ -60,6 +60,44 @@ def test_migrate_state_over_version_raises(state, monkeypatch):
         state.migrate_state({"schema_version": 9}, "test_kind")
 
 
+def test_world_v1_migrates_to_v2_atomically_and_idempotently(tmp_path, state):
+    path = tmp_path / "campaigns" / "case-1" / "save" / "world-state.json"
+    path.parent.mkdir(parents=True)
+    original = {
+        "schema_version": 1,
+        "campaign_id": "case-1",
+        "status": "active",
+        "active_scene_id": "study",
+        "pending_choice": {"choice_id": "legacy-copy"},
+        "unknown_future_safe_field": {"keep": True},
+    }
+    path.write_text(json.dumps(original), encoding="utf-8")
+
+    loaded = state.load_world_state(path.parents[1])
+    assert loaded["schema_version"] == 2
+    assert loaded["terminal_state"] is None
+    assert loaded["pending_subsystem_choice"] is None
+    assert "pending_choice" not in loaded
+    assert loaded["unknown_future_safe_field"] == {"keep": True}
+    rewritten = json.loads(path.read_text(encoding="utf-8"))
+    assert rewritten == loaded
+
+    before = path.read_bytes()
+    assert state.load_world_state(path.parents[1]) == loaded
+    assert path.read_bytes() == before
+
+
+def test_world_forward_version_fails_closed_without_rewrite(tmp_path, state):
+    path = tmp_path / "campaigns" / "case-1" / "save" / "world-state.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"schema_version": 3, "sensitive": "preserve"}), encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError, match="exceeds current 2"):
+        state.load_world_state(path.parents[1])
+    assert path.read_bytes() == before
+
+
 def test_corrupt_json_backed_up_before_fallback(tmp_path, state):
     path = tmp_path / "campaigns" / "c1" / "campaign.json"
     path.parent.mkdir(parents=True)

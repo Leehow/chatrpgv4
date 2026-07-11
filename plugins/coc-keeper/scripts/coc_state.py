@@ -21,12 +21,35 @@ from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
 # {kind: {from_version: fn}} where fn(data) -> data with schema_version bumped.
 CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
     "campaign": 1,
-    "world": 1,
+    "world": 2,
     "pacing": 1,
     "investigator": 1,
 }
 
-MIGRATIONS: dict[str, dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {}
+def _migrate_world_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize durable world lifecycle fields without dropping extensions.
+
+    Pending subsystem choice remains canonical in subsystem-state.json.  This
+    world field is deliberately always ``None`` and serves only as a stable
+    lifecycle marker for older world consumers; copying a live choice here
+    would create two competing sources of truth.
+    """
+    out = dict(data)
+    terminal_state = out.get("terminal_state")
+    if terminal_state not in {None, "completed", "failed", "abandoned"}:
+        terminal_state = None
+    out["terminal_state"] = terminal_state
+    # v1 world files sometimes carried a convenience copy.  The executor's
+    # subsystem-state remains the single authoritative continuation record.
+    out.pop("pending_choice", None)
+    out["pending_subsystem_choice"] = None
+    out["schema_version"] = 2
+    return out
+
+
+MIGRATIONS: dict[str, dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {
+    "world": {1: _migrate_world_v1_to_v2},
+}
 
 
 TOP_LEVEL_DIRS = (
@@ -346,7 +369,7 @@ def load_world_state(campaign_dir: Path) -> dict[str, Any]:
     return load_state_object(
         Path(campaign_dir) / "save" / "world-state.json",
         "world",
-        fallback={"schema_version": 1},
+        fallback={"schema_version": 2, "terminal_state": None, "pending_subsystem_choice": None},
     )
 
 
@@ -761,7 +784,7 @@ def _initialize_campaign_runtime_files(
     _write_json_if_missing(
         campaign_dir / "save" / "world-state.json",
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "campaign_id": campaign_id,
             "scenario_id": None,
             "status": "setup",
@@ -784,6 +807,8 @@ def _initialize_campaign_runtime_files(
                 "rolls": 0,
                 "memory": 0,
             },
+            "terminal_state": None,
+            "pending_subsystem_choice": None,
         },
     )
     _write_json_if_missing(

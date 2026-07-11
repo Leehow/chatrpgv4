@@ -188,6 +188,7 @@ def test_create_campaign_initializes_resume_state_files(tmp_path):
     active_scene = json.loads((campaign_dir / "save" / "active-scene.json").read_text())
     flags = json.loads((campaign_dir / "save" / "flags.json").read_text())
 
+    assert world_state["schema_version"] == 2
     assert world_state["campaign_id"] == "haunting-test"
     assert world_state["status"] == "setup"
     assert world_state["active_scene_id"] is None
@@ -198,6 +199,8 @@ def test_create_campaign_initializes_resume_state_files(tmp_path):
     assert world_state["memory_refs"] == ["memory/session-summaries.jsonl"]
     assert world_state["log_refs"] == ["logs/events.jsonl", "logs/rolls.jsonl"]
     assert world_state["investigator_state_refs"] == []
+    assert world_state["terminal_state"] is None
+    assert world_state["pending_subsystem_choice"] is None
     assert active_scene == {
         "schema_version": 1,
         "campaign_id": "haunting-test",

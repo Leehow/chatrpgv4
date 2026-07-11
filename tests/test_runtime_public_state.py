@@ -203,7 +203,7 @@ def test_public_state_forward_schema_is_an_error_without_corrupt_backup(tmp_path
     campaign = _seed_campaign(tmp_path)
     world_path = campaign / "save" / "world-state.json"
     world_path.write_text(
-        json.dumps({"schema_version": 2, "active_scene_id": "future-private-scene"}),
+        json.dumps({"schema_version": 3, "active_scene_id": "future-private-scene"}),
         encoding="utf-8",
     )
 

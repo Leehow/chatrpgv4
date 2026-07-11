@@ -174,6 +174,24 @@ def test_live_non_crisis_scene_has_explicit_mode_and_no_frame(tmp_path):
     assert "render_frame" not in env
 
 
+def test_live_turn_migrates_production_world_before_director_rewrites_it(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    legacy = json.loads((camp / "save" / "world-state.json").read_text())
+    legacy["pending_choice"] = {"choice_id": "noncanonical-legacy-copy"}
+    (camp / "save" / "world-state.json").write_text(json.dumps(legacy))
+
+    live_runner.run_live_turn(
+        camp, char_path, "inv1", "I inspect the room",
+        intent_class="investigate", rng_seed=11, max_auto_advance=1,
+    )
+
+    migrated = json.loads((camp / "save" / "world-state.json").read_text())
+    assert migrated["schema_version"] == 2
+    assert migrated["terminal_state"] is None
+    assert migrated["pending_subsystem_choice"] is None
+    assert "pending_choice" not in migrated
+
+
 def test_live_incomplete_crisis_frame_fails_closed_without_partial_frame(tmp_path):
     camp, char_path = _build_live_campaign(tmp_path)
     story_path = camp / "scenario" / "story-graph.json"
