@@ -1,0 +1,79 @@
+{
+  "scenario_id": "fixture-multi-faction",
+  "epistemic_graph": {
+    "schema_version": 2,
+    "questions": [
+      {
+        "question_id": "q-faction-a",
+        "layer": "motive",
+        "player_facing_question": "What does the river faction want?",
+        "truth_ref": "truth-faction-a-goal",
+        "importance": "major"
+      },
+      {
+        "question_id": "q-faction-b",
+        "layer": "motive",
+        "player_facing_question": "What does the hill faction want?",
+        "truth_ref": "truth-faction-b-goal",
+        "importance": "major"
+      }
+    ],
+    "evidence_links": [
+      {
+        "clue_id": "clue-faction-a",
+        "question_id": "q-faction-a",
+        "effect": "confirm",
+        "strength": 0.86
+      },
+      {
+        "clue_id": "clue-faction-b",
+        "question_id": "q-faction-b",
+        "effect": "complicate",
+        "strength": 0.84
+      }
+    ]
+  },
+  "reveal_contracts": {
+    "schema_version": 2,
+    "contracts": []
+  },
+  "compile_confidence": {
+    "schema_version": 1,
+    "nodes": []
+  },
+  "initial_belief_state": {
+    "schema_version": 2,
+    "active_question_ids": [
+      "q-faction-a",
+      "q-faction-b"
+    ],
+    "answered_question_ids": [],
+    "applied_effect_ids": [],
+    "hypotheses": [
+      {
+        "hypothesis_id": "hyp-faction-a",
+        "owner": "party",
+        "question_id": "q-faction-a",
+        "hypothesis_kind": "river-faction-protection",
+        "claim": "The river faction protects the ferry route.",
+        "confidence": 0.63,
+        "status": "active",
+        "supporting_clue_ids": [],
+        "challenging_clue_ids": [],
+        "recent_treatments": []
+      },
+      {
+        "hypothesis_id": "hyp-faction-b",
+        "owner": "party",
+        "question_id": "q-faction-b",
+        "hypothesis_kind": "hill-faction-expansion",
+        "claim": "The hill faction seeks territorial control.",
+        "confidence": 0.58,
+        "status": "active",
+        "supporting_clue_ids": [],
+        "challenging_clue_ids": [],
+        "recent_treatments": []
+      }
+    ]
+  }
+}
