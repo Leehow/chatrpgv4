@@ -37,7 +37,12 @@ jobs:
           tests/test_epistemic_runtime_integration.py
           -q -p no:cacheprovider
       - name: Run full test suite
-        run: PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
+        run: |
+          set +e
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider --tb=short > /tmp/full-test.log 2>&1
+          status=$?
+          tail -n 240 /tmp/full-test.log
+          exit $status
       - name: Commit generated source changes
         run: |
           git config user.name "github-actions[bot]"
