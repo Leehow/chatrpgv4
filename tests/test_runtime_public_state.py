@@ -393,3 +393,21 @@ def test_public_state_schema_lists_required_keys():
     health = schema["properties"]["state_health"]
     assert health["additionalProperties"] is False
     assert health["properties"]["status"]["enum"] == ["ok", "degraded", "error"]
+
+
+@pytest.mark.parametrize("filename,state_name", [
+    ("subsystem-state.json", "subsystem"),
+    ("combat.json", "combat"),
+    ("sanity.json", "sanity"),
+    ("chase.json", "chase"),
+])
+def test_public_state_json_schema_accepts_all_auxiliary_health_states(
+    tmp_path, filename, state_name,
+):
+    jsonschema = pytest.importorskip("jsonschema")
+    campaign = _seed_campaign(tmp_path)
+    (campaign / "save" / filename).write_text(json.dumps({"schema_version": True}))
+    state = _load().build_public_state(tmp_path, "camp-1", "inv-alice")
+    assert {"state": state_name, "code": "invalid_schema"} in state["state_health"]["issues"]
+    schema = json.loads(Path("runtime/protocol/public_state.schema.json").read_text())
+    jsonschema.Draft202012Validator(schema).validate(state)

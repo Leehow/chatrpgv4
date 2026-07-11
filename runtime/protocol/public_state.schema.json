@@ -124,7 +124,7 @@
             "required": ["state", "code"],
             "additionalProperties": false,
             "properties": {
-              "state": {"type": "string", "enum": ["campaign", "world", "pacing", "investigator"]},
+              "state": {"type": "string", "enum": ["campaign", "world", "pacing", "investigator", "subsystem", "combat", "sanity", "chase"]},
               "code": {"type": "string", "enum": ["missing", "corrupt", "invalid_utf8", "invalid_json", "non_object", "forward_version", "invalid_schema", "invalid_fields", "invalid_identifier"]}
             }
           }
