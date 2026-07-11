@@ -242,6 +242,109 @@ def test_dying_tick_and_stabilize_use_structured_healing_rules(tmp_path):
     assert "dead" not in final_state["conditions"]
 
 
+def test_combat_start_rejects_forged_investigator_hp(tmp_path):
+    executor = _executor("coc_subsystem_executor_combat_start_mirror")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({"current_hp": 3, "conditions": ["major_wound"]})
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+    with pytest.raises(executor.SubsystemExecutorError, match="combat participant must match"):
+        _execute(executor, campaign, character, [_combat_start_command()], random.Random(1))
+
+
+def test_rescue_updates_active_combat_and_investigator_mirror(tmp_path):
+    executor = _executor("coc_subsystem_executor_rescue_mirror")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({"current_hp": 0, "conditions": ["major_wound", "dying", "unconscious"]})
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+    start = _combat_start_command()
+    start["payload"]["participants"][0].update({
+        "hp_current": 0,
+        "conditions": ["major_wound", "dying", "unconscious"],
+    })
+    _execute(executor, campaign, character, [start], random.Random(1))
+    result = _execute(executor, campaign, character, [_command(
+        "aid-mirror", "stabilize", payload={
+            "decision_id": "aid-mirror", "method": "first_aid",
+            "skill_value": 99, "wound_id": "wound-1", "day_id": "day-1",
+        },
+    )], random.Random(1))[0]
+    combat = json.loads((campaign / "save" / "combat.json").read_text())
+    inv = json.loads(inv_path.read_text())
+    participant = next(p for p in combat["participants"] if p["actor_id"] == "inv1")
+    assert result["events"][0]["roll_evidence"]["roll_id"] == "aid-mirror:roll"
+    assert participant["hp_current"] == inv["current_hp"] == 1
+    assert participant["conditions"] == inv["conditions"]
+    assert combat["revision"] == result["events"][0]["combat_revision"]
+
+
+def test_healing_usage_survives_reload_and_distinct_commands(tmp_path):
+    executor = _executor("coc_subsystem_executor_healing_usage")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 5, "max_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    payload = {
+        "decision_id": "aid-one", "method": "first_aid", "skill_value": 99,
+        "wound_id": "wound-1", "day_id": "day-1",
+    }
+    first = _execute(executor, campaign, character, [_command("aid-one", "stabilize", payload=payload)], random.Random(2))[0]
+    payload = {**payload, "decision_id": "aid-two"}
+    second = _execute(executor, campaign, character, [_command("aid-two", "stabilize", payload=payload)], random.Random(3))[0]
+    assert first["events"][0]["already_used_today"] is False
+    assert second["events"][0]["already_used_today"] is True
+    assert second["events"][0]["roll_evidence"] is None
+
+
+def test_combat_end_does_not_restore_stale_participant_hp(tmp_path):
+    executor = _executor("coc_subsystem_executor_end_keeps_healing")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    _execute(executor, campaign, character, [_combat_start_command()], random.Random(1))
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 7, "conditions": ["major_wound"]})
+    inv_path.write_text(json.dumps(inv))
+    ended = _command("combat-end-safe", "combat_end", phase="end", payload={
+        "decision_id": "combat-end-safe", "revision": 1, "outcome": "stalemate",
+    })
+    _execute(executor, campaign, character, [ended], random.Random(2))
+    final = json.loads(inv_path.read_text())
+    assert final["current_hp"] == 7
+    assert final["conditions"] == ["major_wound"]
+
+
+def test_initiative_cursor_advances_round_without_modulo(tmp_path):
+    executor = _executor("coc_subsystem_executor_initiative_cursor")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    _execute(executor, campaign, character, [_combat_start_command()], random.Random(1))
+    attack = _command("attack-cultist", "combat_attack", phase="declare", payload={
+        "decision_id": "attack-cultist", "revision": 1, "actor_id": "cultist",
+        "target_actor_id": "inv1", "declared_intent": "attack",
+        "resolution_hint": "opposed_melee", "weapon_id": "unarmed",
+    })
+    _execute(executor, campaign, character, [attack], random.Random(2))
+    defend = _command("defend-inv", "combat_defend", payload={
+        "decision_id": "defend-inv", "revision": 2, "actor_id": "inv1",
+        "attack_command_id": "attack-cultist", "defense_kind": "dodge",
+    })
+    _execute(executor, campaign, character, [defend], random.Random(3))
+    combat = json.loads((campaign / "save" / "combat.json").read_text())
+    assert combat["current_round"] == 1
+    assert combat["initiative_cursor"] == 1
+    assert combat["current_initiative"][1]["actor_id"] == "inv1"
+
+
 def _pushable_roll_command(command_id: str = "original-failed-roll") -> dict:
     return _command(
         command_id,

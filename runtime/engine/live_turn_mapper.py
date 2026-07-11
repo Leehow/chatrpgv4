@@ -106,6 +106,12 @@ def map_live_turn_result(result: dict[str, Any]) -> list[dict[str, Any]]:
             if decision_id is not None and "decision_id" not in payload:
                 payload["decision_id"] = decision_id
             events.append(make_event("choice", payload))
+        pending_choice = turn.get("pending_choice")
+        if isinstance(pending_choice, dict) and pending_choice.get("responder") == "player":
+            payload = dict(pending_choice)
+            if decision_id is not None and "decision_id" not in payload:
+                payload["decision_id"] = decision_id
+            events.append(make_event("choice", payload))
 
     final_state = result.get("final_state")
     state_patch = result.get("state_patch")

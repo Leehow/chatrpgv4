@@ -39,10 +39,12 @@ def send(
     player_input: str,
     *,
     subsystem_request: dict[str, Any] | None = None,
+    pending_choice_response: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Run one player turn or an exact typed subsystem continuation."""
     return _session.send(
-        session_id, player_input, subsystem_request=subsystem_request
+        session_id, player_input, subsystem_request=subsystem_request,
+        pending_choice_response=pending_choice_response,
     )
 
 

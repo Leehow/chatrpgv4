@@ -159,6 +159,40 @@ def test_combat_session_snapshot_has_full_schema():
         assert key in p
 
 
+def test_combat_load_rejects_negative_revision_and_invalid_cursor(tmp_path):
+    s = _make_session()
+    s.begin_round()
+    s.save(tmp_path)
+    path = tmp_path / "save" / "combat.json"
+    raw = json.loads(path.read_text())
+    raw["revision"] = -1
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="revision"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(1))
+    raw["revision"] = 0
+    raw["initiative_cursor"] = 99
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="initiative cursor"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(1))
+
+
+def test_combat_load_rejects_dead_hp_coherence_and_extra_root_key(tmp_path):
+    s = _make_session()
+    s.begin_round()
+    s.save(tmp_path)
+    path = tmp_path / "save" / "combat.json"
+    raw = json.loads(path.read_text())
+    raw["participants"][0]["conditions"].append("dead")
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="dead participant"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(1))
+    raw = s.snapshot()
+    raw["forged"] = True
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="exact schema"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(1))
+
+
 # --------------------------------------------------------------------------- #
 # Audit function tests (call _combat_*_gaps directly with crafted state)
 # --------------------------------------------------------------------------- #
@@ -952,7 +986,7 @@ def test_major_wound_con_roll_has_stable_roll_evidence():
     s._update_conditions("target")
     evidence = s.participants["target"]["major_wound_con"]
     assert set(evidence) >= {"roll_id", "roll", "target", "outcome"}
-    assert evidence["roll_id"] == "cr1"
+    assert evidence["roll_id"] == "major-con:cr1"
 
 
 def test_combat_snapshot_round_trip_preserves_revision_and_initiative(tmp_path):

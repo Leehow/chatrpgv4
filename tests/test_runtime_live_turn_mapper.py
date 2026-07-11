@@ -229,6 +229,24 @@ def test_rule_results_with_roll_emit_roll_event():
     assert narrations[0]["payload"]["text"] == "The shelves creak as you find a marked folio."
 
 
+def test_combat_pending_defense_emits_player_choice_event():
+    mapper = _load("live_turn_mapper_combat_choice", "runtime/engine/live_turn_mapper.py")
+    pending = {
+        "choice_id": "combat-defense:attack-1", "kind": "combat_defense",
+        "command_id": "attack-1", "responder": "player", "revision": 2,
+        "prompt": "Choose a legal combat defense.",
+        "options": [{"action": "dodge", "label": "Dodge"}],
+        "attack_id": "attack-1", "audience": "player",
+    }
+    events = mapper.map_live_turn_result({
+        "turns": [{"decision_id": "combat-turn", "pending_choice": pending}],
+    })
+    choices = [event for event in events if event["type"] == "choice"]
+    assert len(choices) == 1
+    assert choices[0]["visibility"] == "player"
+    assert choices[0]["payload"]["attack_id"] == "attack-1"
+
+
 def test_debug_adapter_runs_live_turn(tmp_path):
     camp, char_path = _build_live_campaign(tmp_path)
     debug_adapter = _load("debug_adapter", "runtime/adapters/debug/adapter.py")

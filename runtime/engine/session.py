@@ -84,6 +84,7 @@ def send(
     player_input: str,
     *,
     subsystem_request: dict[str, Any] | None = None,
+    pending_choice_response: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     record = get_session(session_id)
     brain = record["brain_at_create"]
@@ -92,6 +93,33 @@ def send(
     campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
     character_path = record["character_path"]
     investigator_id = record["investigator_id"]
+    if pending_choice_response is not None:
+        if subsystem_request is not None:
+            raise ValueError("submit either subsystem_request or pending_choice_response")
+        state = _load_public_state().build_public_state(workspace, campaign_id)
+        pending = state.get("pending_choice")
+        if (
+            not isinstance(pending, dict)
+            or pending.get("kind") != "combat_defense"
+            or not isinstance(pending_choice_response, dict)
+            or pending_choice_response.get("choice_id") != pending.get("choice_id")
+            or pending_choice_response.get("responder") != "player"
+            or pending_choice_response.get("revision") != pending.get("revision")
+            or pending_choice_response.get("action") not in {
+                option.get("action") for option in pending.get("options", [])
+                if isinstance(option, dict)
+            }
+        ):
+            raise ValueError("pending_choice_response does not match combat defense")
+        subsystem_request = {
+            "kind": "combat_defend",
+            "payload": {
+                "decision_id": f"runtime-defense-{pending['attack_id']}-{pending['revision']}",
+                "revision": pending["revision"], "actor_id": investigator_id,
+                "attack_command_id": pending["attack_id"],
+                "defense_kind": pending_choice_response["action"],
+            },
+        }
 
     if brain == "debug":
         return _load_debug_adapter().debug_send_turn(

@@ -63,6 +63,16 @@ def _canonical_player_pending_choice(campaign_dir: Path) -> tuple[bool, dict[str
     return True, choice
 
 
+def _combat_defense_choice(campaign_dir: Path) -> dict[str, Any] | None:
+    path = campaign_dir / "save" / "combat.json"
+    if not path.exists():
+        return None
+    try:
+        return _load_subsystem_executor().project_player_combat_defense(campaign_dir)
+    except (OSError, UnicodeError, ValueError, RuntimeError):
+        return None
+
+
 def build_public_state(workspace: Path | str, campaign_id: str) -> dict[str, Any]:
     root = Path(workspace)
     campaign_dir = root / ".coc" / "campaigns" / campaign_id
@@ -94,6 +104,8 @@ def build_public_state(workspace: Path | str, campaign_id: str) -> dict[str, Any
             pending = world.get("pending_choice")
         elif isinstance(meta, dict) and "pending_choice" in meta:
             pending = meta.get("pending_choice")
+    if pending is None:
+        pending = _combat_defense_choice(campaign_dir)
 
     cfg = _load_config_module().load_runtime_config(root)
 

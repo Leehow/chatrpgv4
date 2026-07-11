@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import random
 from pathlib import Path
 
 
@@ -85,6 +86,38 @@ def test_build_public_state_round_trips_hp_san_and_scene(tmp_path):
     assert inv["current_san"] == 55
     assert inv["current_mp"] == 10
     assert inv["conditions"] == ["shaken"]
+
+
+def test_public_state_projects_player_safe_combat_defense(tmp_path):
+    campaign = _seed_campaign(tmp_path)
+    path = Path("plugins/coc-keeper/scripts/coc_combat.py")
+    spec = importlib.util.spec_from_file_location("public_state_combat", path)
+    combat_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(combat_mod)
+    session = combat_mod.CombatSession("fight-1", "dock", 7, rng=random.Random(1))
+    session.add_participant("cultist", "npc", 70, 50, 0, 9)
+    session.add_participant("inv-alice", "investigator", 60, 50, 0, 11)
+    session.begin_round()
+    session.revision = 4
+    session.pending_attack = {
+        "attack_command_id": "attack-1", "actor_id": "cultist",
+        "target_actor_id": "inv-alice", "declared_intent": "hidden",
+        "resolution_hint": "opposed_melee", "weapon_id": "knife",
+        "allowed_defenses": ["dodge", "fight_back"],
+    }
+    session.save(campaign)
+    choice = _load().build_public_state(tmp_path, "camp-1")["pending_choice"]
+    assert choice == {
+        "choice_id": "combat-defense:attack-1", "kind": "combat_defense",
+        "command_id": "attack-1", "responder": "player", "revision": 4,
+        "prompt": "Choose a legal combat defense.",
+        "options": [
+            {"action": "dodge", "label": "Dodge"},
+            {"action": "fight_back", "label": "Fight Back"},
+        ],
+        "attack_id": "attack-1", "audience": "player",
+    }
+    assert "declared_intent" not in json.dumps(choice)
 
 
 def test_build_public_state_brain_reflects_runtime_json(tmp_path):

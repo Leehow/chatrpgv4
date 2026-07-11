@@ -1042,6 +1042,8 @@ def _run_pending_choice_response(
     )
     after_pending = _pending_record_count(campaign)
     pending_choice = subsystem_executor.get_current_pending_choice(campaign)
+    if pending_choice is None:
+        pending_choice = subsystem_executor.project_player_combat_defense(campaign)
     world = apply_mod._read_json(campaign / "save" / "world-state.json", {})
     pacing = apply_mod._read_json(campaign / "save" / "pacing-state.json", {})
     active_scene = apply_mod._read_json(campaign / "save" / "active-scene.json", {})
@@ -1209,6 +1211,38 @@ def _run_live_turn_impl(
     """Inner live-turn body; caller must already hold ``campaign_lock``."""
     campaign = Path(campaign_dir)
     if pending_choice_response is not None:
+        combat_choice = subsystem_executor.project_player_combat_defense(campaign)
+        if isinstance(combat_choice, dict):
+            allowed = {
+                option.get("action") for option in combat_choice.get("options", [])
+                if isinstance(option, dict)
+            }
+            if (
+                pending_choice_response.get("choice_id") != combat_choice["choice_id"]
+                or pending_choice_response.get("responder") != "player"
+                or pending_choice_response.get("revision") != combat_choice["revision"]
+                or pending_choice_response.get("action") not in allowed
+            ):
+                raise ValueError("combat pending_choice_response is stale or invalid")
+            request = {
+                "kind": "combat_defend",
+                "payload": {
+                    "decision_id": f"combat-defense-{combat_choice['attack_id']}-{combat_choice['revision']}",
+                    "revision": combat_choice["revision"],
+                    "actor_id": investigator_id,
+                    "attack_command_id": combat_choice["attack_id"],
+                    "defense_kind": pending_choice_response["action"],
+                },
+            }
+            return _run_pending_choice_response(
+                campaign, Path(character_path), investigator_id, player_text, {},
+                recording_mode=recording_mode, recording_flush=recording_flush,
+                rng=rng, rng_seed=rng_seed, max_auto_advance=max_auto_advance,
+                auto_advance_low_agency=auto_advance_low_agency,
+                state_patch=state_patch,
+                plan_override=_plan_from_typed_subsystem_request(investigator_id, request),
+                intent_source="combat_pending_choice_response",
+            )
         return _run_pending_choice_response(
             campaign,
             Path(character_path),
@@ -1242,6 +1276,26 @@ def _run_live_turn_impl(
             intent_source="subsystem_request",
         )
     pending_choice = subsystem_executor.get_current_pending_choice(campaign)
+    if pending_choice is None:
+        pending_choice = subsystem_executor.project_player_combat_defense(campaign)
+    if (
+        isinstance(pending_choice, dict)
+        and pending_choice.get("kind") == "combat_defense"
+        and isinstance(player_intent_rich, dict)
+        and isinstance(player_intent_rich.get("combat_defense"), dict)
+    ):
+        legacy = player_intent_rich["combat_defense"]
+        return _run_live_turn_impl(
+            campaign, character_path, investigator_id, player_text,
+            pending_choice_response={
+                "choice_id": pending_choice["choice_id"], "responder": "player",
+                "revision": pending_choice["revision"], "action": legacy.get("kind"),
+            },
+            max_auto_advance=max_auto_advance,
+            auto_advance_low_agency=auto_advance_low_agency,
+            recording_mode=recording_mode, recording_flush=recording_flush,
+            rng=rng, rng_seed=rng_seed, state_patch=state_patch,
+        )
     if pending_choice is not None:
         return _pending_choice_blocked_result(
             campaign,

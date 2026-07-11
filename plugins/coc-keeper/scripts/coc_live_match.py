@@ -592,6 +592,7 @@ def run_live_match(
 
     for _offset in range(max(1, int(max_turns))):
         automatic_subsystem_request: dict[str, Any] | None = None
+        current_player_request: dict[str, Any] | None = None
         canonical_pending = live_turn_runner.subsystem_executor.get_current_pending_choice(camp)
         keeper_progression = (
             isinstance(canonical_pending, dict)
@@ -665,6 +666,7 @@ def run_live_match(
                     character_card=character_card,
                     transcript_tail=transcript_tail[-transcript_tail_limit:],
                 )
+                current_player_request = request
                 player_requests.append(json.loads(json.dumps(request, ensure_ascii=False)))
 
                 player_result = player_adapter.player_send_turn(
@@ -698,6 +700,29 @@ def run_live_match(
         # the match-level CLI override (Semantic Matcher: structured evidence).
         turn_intent_class = player_result.get("intent_class") or intent_class
 
+        pending_response = player_result.get("pending_choice_response")
+        if automatic_subsystem_request is None and isinstance(pending_response, dict):
+            projected_pending = (
+                current_player_request.get("pending_choice")
+                if isinstance(current_player_request, dict) else None
+            )
+            if isinstance(projected_pending, dict) and projected_pending.get("kind") == "combat_defense":
+                if (
+                    pending_response.get("choice_id") != projected_pending.get("choice_id")
+                    or pending_response.get("revision") != projected_pending.get("revision")
+                ):
+                    raise ValueError("combat defense response is stale or mismatched")
+                automatic_subsystem_request = {
+                    "kind": "combat_defend",
+                    "payload": {
+                        "decision_id": f"live-match-defense-{_offset + 1}",
+                        "revision": projected_pending["revision"],
+                        "actor_id": investigator_id,
+                        "attack_command_id": projected_pending["attack_id"],
+                        "defense_kind": pending_response["action"],
+                    },
+                }
+                pending_response = None
         live_result = live_turn_runner.run_live_turn(
             camp,
             char_path,
@@ -705,7 +730,7 @@ def run_live_match(
             player_text,
             intent_class=turn_intent_class,
             player_intent_rich=player_intent_rich,
-            pending_choice_response=player_result.get("pending_choice_response"),
+            pending_choice_response=pending_response,
             subsystem_request=automatic_subsystem_request,
             max_auto_advance=1,
             auto_advance_low_agency=False,

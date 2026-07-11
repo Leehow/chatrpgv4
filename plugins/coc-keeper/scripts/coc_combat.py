@@ -245,6 +245,7 @@ class CombatSession:
         self._roll_counter = 0
         self._current_round = 0
         self._current_initiative: list[dict[str, Any]] = []
+        self.initiative_cursor = 0
         # Monotonic persisted revision used by live command bridges to reject
         # stale defense/rescue actions after a reload.
         self.revision = 0
@@ -338,6 +339,7 @@ class CombatSession:
             "initiative_order": [dict(item) for item in self._current_initiative],
             "turns": [],
         })
+        self.initiative_cursor = 0
         return self._current_round
 
     def _mark_defended(self, target_id: str) -> None:
@@ -426,7 +428,7 @@ class CombatSession:
     def _roll_id(self) -> str:
         # Stable id; the harness may remap to its global roll sequence.
         self._roll_counter += 1
-        return f"cr{self._roll_counter}"
+        return f"{self.combat_id}:cr{self._roll_counter}"
 
     # ------------------------------------------------------------------ #
     # Skill rolls
@@ -2009,6 +2011,7 @@ class CombatSession:
             "revision": self.revision,
             "current_round": self._current_round,
             "current_initiative": [dict(row) for row in self._current_initiative],
+            "initiative_cursor": self.initiative_cursor,
             "jammed_weapons": sorted(self.jammed_weapons),
             "weapon_catalog": {
                 weapon_id: dict(spec)
@@ -2038,15 +2041,25 @@ class CombatSession:
         if not isinstance(data, dict) or data.get("schema_version") != 2:
             raise ValueError("unsupported combat snapshot schema")
         required = {
+            "schema_version",
             "combat_id", "scene_ref", "started_at_turn", "status",
             "participants", "rounds", "damage_chain", "revision",
-            "current_round", "current_initiative", "pending_attack",
+            "current_round", "current_initiative", "initiative_cursor",
+            "pending_attack", "ended_at_turn", "outcome", "jammed_weapons",
+            "weapon_catalog", "turn_counter", "roll_counter",
         }
-        if not required.issubset(data):
-            raise ValueError("combat snapshot is incomplete")
+        if set(data) != required:
+            raise ValueError("combat snapshot must use the exact schema")
+        def strict_int(value: Any, label: str, *, minimum: int = 0) -> int:
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"combat {label} is invalid")
+            return value
+        for field in ("combat_id", "scene_ref"):
+            if not isinstance(data[field], str) or not data[field].strip():
+                raise ValueError(f"combat {field} is invalid")
         session = cls(
-            str(data["combat_id"]), str(data["scene_ref"]),
-            int(data["started_at_turn"]), rng=rng,
+            data["combat_id"], data["scene_ref"],
+            strict_int(data["started_at_turn"], "started_at_turn"), rng=rng,
         )
         participants = data["participants"]
         if not isinstance(participants, list):
@@ -2054,6 +2067,16 @@ class CombatSession:
         for participant in participants:
             if not isinstance(participant, dict):
                 raise ValueError("combat participant must be an object")
+            participant_keys = {
+                "actor_id", "side", "dex", "combat_skill", "dodge_skill",
+                "firearms_skill", "has_ready_firearm", "build", "damage_bonus",
+                "con", "hp_max", "hp_current", "magic_points", "armor",
+                "armor_rule", "weapons", "conditions", "active_effects",
+                "_defended_this_round", "_dived_for_cover", "_forfeit_next_attack",
+                "_aiming", "_ammo", "_reload_remaining",
+            }
+            if set(participant) not in (participant_keys, participant_keys | {"major_wound_con"}):
+                raise ValueError("combat participant must use the exact schema")
             actor_id = participant.get("actor_id")
             if not isinstance(actor_id, str) or actor_id in session.participants:
                 raise ValueError("combat participant IDs must be unique strings")
@@ -2061,15 +2084,53 @@ class CombatSession:
                 raise ValueError("combat participant side is invalid")
             conditions = participant.get("conditions")
             if (not isinstance(conditions, list)
+                    or len(conditions) != len(set(conditions))
                     or any(item not in VALID_CONDITIONS for item in conditions)):
                 raise ValueError("combat participant conditions are invalid")
+            hp_max = strict_int(participant.get("hp_max"), "participant hp_max", minimum=1)
+            hp_current = strict_int(participant.get("hp_current"), "participant hp_current")
+            if hp_current > hp_max:
+                raise ValueError("combat participant HP is out of range")
+            if "dead" in conditions and hp_current != 0:
+                raise ValueError("dead participant must have zero HP")
+            if "dying" in conditions and (hp_current > 1 or "major_wound" not in conditions):
+                raise ValueError("dying participant state is incoherent")
+            for field in ("dex", "combat_skill", "dodge_skill", "firearms_skill", "con"):
+                value = strict_int(participant.get(field), f"participant {field}")
+                if value > 150:
+                    raise ValueError(f"combat participant {field} is out of range")
+            for field in ("build", "magic_points", "armor"):
+                if isinstance(participant.get(field), bool) or not isinstance(participant.get(field), int):
+                    raise ValueError(f"combat participant {field} is invalid")
+            if participant.get("armor_rule") not in VALID_ARMOR_RULES:
+                raise ValueError("combat participant armor rule is invalid")
+            if not isinstance(participant.get("weapons"), list) or not all(
+                isinstance(weapon, dict) for weapon in participant["weapons"]
+            ):
+                raise ValueError("combat participant weapons are invalid")
+            if not isinstance(participant.get("active_effects"), list):
+                raise ValueError("combat participant active effects are invalid")
+            if any(not isinstance(participant.get(field), bool) for field in (
+                "has_ready_firearm", "_defended_this_round", "_dived_for_cover",
+                "_forfeit_next_attack", "_aiming",
+            )):
+                raise ValueError("combat participant flags are invalid")
+            if not isinstance(participant.get("_ammo"), dict) or not isinstance(participant.get("_reload_remaining"), dict):
+                raise ValueError("combat participant weapon counters are invalid")
             session.participants[actor_id] = dict(participant)
+        if not isinstance(data["rounds"], list) or not all(isinstance(row, dict) for row in data["rounds"]):
+            raise ValueError("combat rounds are invalid")
+        if not isinstance(data["damage_chain"], list) or not all(isinstance(row, dict) for row in data["damage_chain"]):
+            raise ValueError("combat damage chain is invalid")
         session.rounds = list(data["rounds"])
         session.damage_chain = list(data["damage_chain"])
-        session.revision = int(data["revision"])
-        session._current_round = int(data["current_round"])
+        session.revision = strict_int(data["revision"], "revision")
+        session._current_round = strict_int(data["current_round"], "current round")
         session._current_initiative = list(data["current_initiative"])
-        session.jammed_weapons = set(data.get("jammed_weapons") or [])
+        session.initiative_cursor = strict_int(data["initiative_cursor"], "initiative cursor")
+        if not isinstance(data["jammed_weapons"], list) or not all(isinstance(v, str) for v in data["jammed_weapons"]):
+            raise ValueError("combat jammed weapons are invalid")
+        session.jammed_weapons = set(data["jammed_weapons"])
         weapon_catalog = data.get("weapon_catalog")
         if not isinstance(weapon_catalog, dict) or not all(
             isinstance(weapon_id, str) and isinstance(spec, dict)
@@ -2079,8 +2140,8 @@ class CombatSession:
         session._weapon_catalog = {
             weapon_id: dict(spec) for weapon_id, spec in weapon_catalog.items()
         }
-        session._turn_counter = int(data.get("turn_counter", 0))
-        session._roll_counter = int(data.get("roll_counter", 0))
+        session._turn_counter = strict_int(data["turn_counter"], "turn counter")
+        session._roll_counter = strict_int(data["roll_counter"], "roll counter")
         session.pending_attack = (
             dict(data["pending_attack"])
             if isinstance(data.get("pending_attack"), dict)
@@ -2091,6 +2152,8 @@ class CombatSession:
         session.ended_at_turn = data.get("ended_at_turn")
         if session.status not in {"active", "concluded"}:
             raise ValueError("combat status is invalid")
+        if session.ended_at_turn is not None:
+            session.ended_at_turn = strict_int(session.ended_at_turn, "ended_at_turn")
         if session._current_round != len(session.rounds):
             raise ValueError("combat round cursor does not match round history")
         expected_initiative = (
@@ -2098,6 +2161,56 @@ class CombatSession:
         )
         if session._current_initiative != expected_initiative:
             raise ValueError("combat initiative does not match current round")
+        for index, round_row in enumerate(session.rounds, 1):
+            if (
+                set(round_row) != {"round", "initiative_order", "turns"}
+                or round_row.get("round") != index
+                or not isinstance(round_row.get("initiative_order"), list)
+                or not isinstance(round_row.get("turns"), list)
+                or not all(isinstance(turn, dict) for turn in round_row["turns"])
+            ):
+                raise ValueError("combat round history is invalid")
+        if session._turn_counter < sum(len(row["turns"]) for row in session.rounds):
+            raise ValueError("combat turn counter is behind round history")
+        if any(
+            not isinstance(row, dict)
+            or set(row) != {"actor_id", "dex", "dex_reason"}
+            or isinstance(row.get("dex"), bool)
+            or not isinstance(row.get("dex"), int)
+            or row.get("dex_reason") not in {None, "ready_firearm"}
+            for row in session._current_initiative
+        ):
+            raise ValueError("combat initiative order is invalid")
+        initiative_ids = [row.get("actor_id") for row in session._current_initiative]
+        if (
+            len(initiative_ids) != len(session._current_initiative)
+            or len(initiative_ids) != len(set(initiative_ids))
+            or any(actor_id not in session.participants for actor_id in initiative_ids)
+            or session.initiative_cursor > len(session._current_initiative)
+        ):
+            raise ValueError("combat initiative cursor/order is invalid")
+        expected_sorted = sorted(
+            session._current_initiative,
+            key=lambda row: (
+                -row["dex"],
+                -session.participants[row["actor_id"]]["combat_skill"],
+                row["actor_id"],
+            ),
+        )
+        if session._current_initiative != expected_sorted or any(
+            row["dex"] != session.participants[row["actor_id"]]["dex"]
+            + (50 if row["dex_reason"] == "ready_firearm" else 0)
+            for row in session._current_initiative
+        ):
+            raise ValueError("combat initiative order is not canonical")
+        if session.status == "active" and session.outcome is not None:
+            raise ValueError("active combat cannot have an outcome")
+        if session.status == "concluded" and (
+            session.outcome not in VALID_OUTCOMES - {None}
+            or session.ended_at_turn is None
+            or session.pending_attack is not None
+        ):
+            raise ValueError("concluded combat state is incoherent")
         if session.pending_attack is not None:
             pending = session.pending_attack
             expected_pending_keys = {
@@ -2125,6 +2238,13 @@ class CombatSession:
                 or pending.get("allowed_defenses") != expected_defenses
             ):
                 raise ValueError("combat pending attack contract is invalid")
+            if (
+                session.status != "active"
+                or session.initiative_cursor >= len(session._current_initiative)
+                or session._current_initiative[session.initiative_cursor]["actor_id"]
+                != pending["actor_id"]
+            ):
+                raise ValueError("combat pending attack is not at the initiative cursor")
         return session
 
     def drain_pending(self) -> tuple[list[dict], list[dict]]:
