@@ -363,6 +363,47 @@ def test_get_clock_segments_returns_live_or_zero(tmp_path):
     assert coc_threat_state.get_clock_segments(save, "unknown") == 0
 
 
+def test_merge_threat_fronts_overlays_only_persisted_progress():
+    definitions = {"fronts": [{
+        "front_id": "cult",
+        "severity": 4,
+        "faction_ids": ["cultists"],
+        "clocks": [{
+            "clock_id": "doom", "segments": 6,
+            "on_full": {"ending_id": "bad"},
+            "scene_tags_any": ["archive"],
+        }],
+    }]}
+    persisted = {
+        "schema_version": coc_threat_state.THREAT_STATE_SCHEMA_VERSION,
+        "clocks": {"doom": {"current_segments": 4, "full": False}},
+        "applied_effects": {}, "transitions": [], "ledger_head": "0" * 64,
+    }
+
+    merged = coc_threat_state.merge_threat_fronts(definitions, persisted)
+
+    clock = merged["fronts"][0]["clocks"][0]
+    assert clock["current_segments"] == 4
+    assert clock["full"] is False
+    assert clock["segments"] == 6
+    assert clock["on_full"] == {"ending_id": "bad"}
+    assert definitions["fronts"][0]["clocks"][0].get("current_segments") is None
+
+
+def test_merge_threat_fronts_ignores_orphan_runtime_clocks_and_authored_progress():
+    definitions = {"fronts": [{"front_id": "cult", "clocks": [{
+        "clock_id": "doom", "segments": 6, "current_segments": 1,
+    }]}]}
+    persisted = {"clocks": {
+        "doom": {"current_segments": 5, "full": False},
+        "orphan": {"current_segments": 3, "full": False},
+    }}
+    merged = coc_threat_state.merge_threat_fronts(definitions, persisted)
+    assert merged["fronts"][0]["clocks"] == [{
+        "clock_id": "doom", "segments": 6, "current_segments": 5, "full": False,
+    }]
+
+
 def test_effect_receipt_detects_clock_tampering_and_fails_closed(tmp_path):
     save = _save_with_clocks(tmp_path, {})
     applied, _ = coc_threat_state.apply_clock_effect_once(

@@ -42,6 +42,10 @@ DOCTOR_RULES_JSON_FILES = (
     "rule-index.json",
 )
 MIN_PYTHON = (3, 11)
+SCENE_FUNCTION_KEYS = (
+    "scene_function", "goals", "required_reveals", "failure_modes",
+    "exit_options", "mode_affinity",
+)
 
 
 def _plugin_root() -> Path:
@@ -74,6 +78,93 @@ def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(
         isinstance(item, str) and item.strip() for item in value
     )
+
+
+def normalize_scene_function(scene: dict[str, Any]) -> dict[str, Any]:
+    """Return the conservative exact six-field scene-function contract.
+
+    Missing legacy fields receive deterministic structured defaults. Explicit
+    malformed values fail closed instead of being silently coerced.
+    """
+    if not isinstance(scene, dict):
+        raise ValueError("scene function source must be an object")
+    raw_function = scene.get("scene_function", scene.get("scene_type", "investigation"))
+    if not isinstance(raw_function, str) or not raw_function.strip():
+        raise ValueError("scene_function must be a non-empty string")
+    fallback_goals = [scene["dramatic_question"]] if (
+        isinstance(scene.get("dramatic_question"), str)
+        and scene["dramatic_question"].strip()
+    ) else []
+    result: dict[str, Any] = {"scene_function": raw_function.strip()}
+    for key in SCENE_FUNCTION_KEYS[1:]:
+        if key in scene:
+            value = scene[key]
+        elif key == "goals":
+            value = fallback_goals
+        else:
+            value = []
+        if not _is_string_list(value):
+            raise ValueError(f"{key} must be a list of non-empty strings")
+        result[key] = list(value)
+    return result
+
+
+def _check_scene_function_contract(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    for index, scene in enumerate((compiled.get("story_graph") or {}).get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        # Legacy scenes with none of the six fields normalize at runtime. Once
+        # any field is authored, require the complete explicit contract.
+        authored = [key for key in SCENE_FUNCTION_KEYS if key in scene]
+        if not authored:
+            continue
+        try:
+            normalized = normalize_scene_function(scene)
+            if set(authored) != set(SCENE_FUNCTION_KEYS):
+                raise ValueError("authored scene function contract must contain all six fields")
+            if any(scene[key] != normalized[key] for key in SCENE_FUNCTION_KEYS):
+                raise ValueError("scene function contract is not canonical")
+        except ValueError as exc:
+            findings.append(_finding(
+                "scene_function_contract_invalid", "error", str(exc),
+                path=f"story_graph.scenes[{index}]",
+            ))
+    return findings
+
+
+_THREAT_AFFINITY_LIST_FIELDS = ("scene_ids", "scene_tags_any", "faction_ids")
+
+
+def _check_threat_affinity_contract(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    for front_index, front in enumerate(
+        (compiled.get("threat_fronts") or {}).get("fronts") or []
+    ):
+        if not isinstance(front, dict):
+            continue
+        owners = [(f"threat_fronts.fronts[{front_index}]", front)]
+        owners.extend(
+            (f"threat_fronts.fronts[{front_index}].clocks[{clock_index}]", clock)
+            for clock_index, clock in enumerate(front.get("clocks") or [])
+            if isinstance(clock, dict)
+        )
+        for path, owner in owners:
+            if "severity" in owner:
+                severity = owner["severity"]
+                if isinstance(severity, bool) or not isinstance(severity, int):
+                    findings.append(_finding(
+                        "threat_affinity_contract_invalid", "error",
+                        "threat affinity severity must be an integer", path=path,
+                    ))
+            for field in _THREAT_AFFINITY_LIST_FIELDS:
+                if field in owner and not _is_string_list(owner[field]):
+                    findings.append(_finding(
+                        "threat_affinity_contract_invalid", "error",
+                        f"threat affinity {field} must be a list of non-empty strings",
+                        path=f"{path}.{field}",
+                    ))
+    return findings
 
 
 def _check_clue_bonus(clue: dict[str, Any]) -> list[str]:
@@ -708,6 +799,8 @@ def validate_compiled_scenario(
     findings.extend(_check_provenance(compiled))
     findings.extend(_check_clue_affordances(compiled))
     findings.extend(_check_location_tags(compiled))
+    findings.extend(_check_scene_function_contract(compiled))
+    findings.extend(_check_threat_affinity_contract(compiled))
     return findings
 
 
@@ -856,6 +949,18 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             errors.append(f"scene '{scene.get('scene_id')}' missing dramatic_question")
         if not scene.get("scene_id"):
             errors.append("scene missing scene_id")
+        authored_function_fields = [key for key in SCENE_FUNCTION_KEYS if key in scene]
+        if authored_function_fields:
+            try:
+                normalized_function = normalize_scene_function(scene)
+                if set(authored_function_fields) != set(SCENE_FUNCTION_KEYS):
+                    raise ValueError("authored contract must contain all six fields")
+                if any(scene[key] != normalized_function[key] for key in SCENE_FUNCTION_KEYS):
+                    raise ValueError("contract is not canonical")
+            except ValueError as exc:
+                errors.append(
+                    f"scene '{scene.get('scene_id')}' scene function contract invalid: {exc}"
+                )
         if "setting_tags" in scene and not _is_string_list(scene.get("setting_tags")):
             errors.append(
                 f"scene '{scene.get('scene_id')}' setting_tags must be a list of non-empty strings"
@@ -903,6 +1008,10 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             errors.append(f"npc '{npc.get('npc_id')}' missing agenda")
 
     fronts_data = _read(scenario_dir / "threat-fronts.json")
+    threat_affinity_findings = _check_threat_affinity_contract({
+        "threat_fronts": fronts_data,
+    })
+    errors.extend(finding["message"] for finding in threat_affinity_findings)
     improv = _read(scenario_dir / "improvisation-boundaries.json")
     # Compare against secret ids only (prose / id:description stay planner-side).
     secrets = set()

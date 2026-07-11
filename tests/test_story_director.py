@@ -17,6 +17,10 @@ coc_narrative_enrichment = _load(
     "coc_narrative_enrichment",
     "plugins/coc-keeper/scripts/coc_narrative_enrichment.py",
 )
+coc_director_apply = _load(
+    "coc_director_apply_task9",
+    "plugins/coc-keeper/scripts/coc_director_apply.py",
+)
 
 
 def _make_minimal_campaign(tmp_path):
@@ -78,6 +82,122 @@ def _make_minimal_campaign(tmp_path):
         "backstory": {},
     }))
     return camp, char_dir / "character.json"
+
+
+def test_context_merges_persisted_threat_progress_and_normalizes_scene_function(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "scene_tags": ["archive"],
+        "faction_ids": ["scholars"],
+        "scene_function": "investigation",
+        "goals": ["locate-ledger"],
+        "required_reveals": ["clue-1"],
+        "failure_modes": ["cult-alert"],
+        "exit_options": ["scene-2"],
+        "mode_affinity": ["careful"],
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    fronts = {"fronts": [{
+        "front_id": "cult", "severity": 3, "faction_ids": ["cultists"],
+        "clocks": [{"clock_id": "doom", "segments": 6,
+                    "scene_tags_any": ["archive"]}],
+    }]}
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps(fronts))
+    for i in range(4):
+        coc_story_director.coc_threat_state.tick_clock(
+            camp / "save", "doom", 6, source_id=f"setup:{i}"
+        )
+
+    ctx = coc_story_director.build_director_context(
+        camp, character, "inv1", "wait", "idle", rng=random.Random(1)
+    )
+
+    assert ctx["threat_fronts"]["fronts"][0]["clocks"][0]["current_segments"] == 4
+    assert coc_story_director._base_score("PRESSURE", ctx) == 0.8
+    assert ctx["active_scene_function"] == {
+        "scene_function": "investigation",
+        "goals": ["locate-ledger"],
+        "required_reveals": ["clue-1"],
+        "failure_modes": ["cult-alert"],
+        "exit_options": ["scene-2"],
+        "mode_affinity": ["careful"],
+    }
+    plan = coc_story_director.generate_director_plan(ctx, "normalized-scene")
+    assert plan["scene_function"] == ctx["active_scene_function"]
+    assert ctx["active_scene"]["goals"] == ["locate-ledger"]
+
+
+def test_pressure_selects_structurally_relevant_clock_with_reason(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "scene_tags": ["archive"], "faction_ids": ["scholars"],
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [
+        {"front_id": "z-unrelated", "severity": 5, "faction_ids": ["wolves"],
+         "clocks": [{"clock_id": "first", "segments": 6,
+                     "scene_tags_any": ["forest"]}]},
+        {"front_id": "a-relevant", "severity": 2, "faction_ids": ["cultists"],
+         "clocks": [{"clock_id": "archive-alarm", "segments": 6,
+                     "scene_tags_any": ["archive"]}]},
+    ]}))
+    ctx = coc_story_director.build_director_context(
+        camp, character, "wait", "wait", "idle", rng=random.Random(1)
+    )
+    move = coc_story_director._build_pressure_moves(ctx, "PRESSURE")[0]
+    assert move["clock_id"] == "archive-alarm"
+    assert move["selection_reason"] == {
+        "affinity_kind": "scene_tags_any", "matched_ids": ["archive"],
+        "front_id": "a-relevant", "severity": 2,
+    }
+
+
+def test_pressure_affinity_ties_use_severity_then_stable_ids(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["scene_tags"] = ["archive"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [
+        {"front_id": "b", "severity": 4, "clocks": [{"clock_id": "z", "segments": 6,
+         "scene_tags_any": ["archive"]}]},
+        {"front_id": "a", "severity": 4, "clocks": [{"clock_id": "a", "segments": 6,
+         "scene_tags_any": ["archive"]}]},
+        {"front_id": "critical", "severity": 5, "clocks": [{"clock_id": "critical", "segments": 6,
+         "scene_tags_any": ["archive"]}]},
+    ]}))
+    ctx = coc_story_director.build_director_context(camp, character, "inv1", "x", "idle")
+    assert coc_story_director._build_pressure_moves(ctx, "PRESSURE")[0]["clock_id"] == "critical"
+
+
+def test_applied_pressure_is_reloaded_into_next_director_context(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["scene_tags"] = ["archive"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [{
+        "front_id": "cult", "severity": 3,
+        "clocks": [{"clock_id": "doom", "segments": 6,
+                    "scene_tags_any": ["archive"]}],
+    }]}))
+    before = coc_story_director.build_director_context(
+        camp, character, "inv1", "wait", "idle"
+    )
+    pressure_move = coc_story_director._build_pressure_moves(before, "PRESSURE")[0]
+    coc_director_apply.apply_plan(camp, {
+        "decision_id": "threat-feedback-1", "scene_action": "PRESSURE",
+        "pressure_moves": [pressure_move],
+        "turn_input": {"active_scene_id": "scene-1", "player_intent_class": "idle"},
+    }, "inv1")
+
+    after = coc_story_director.build_director_context(
+        camp, character, "inv1", "wait", "idle"
+    )
+    clock = after["threat_fronts"]["fronts"][0]["clocks"][0]
+    assert clock["current_segments"] == 1
+    event = json.loads((camp / "logs" / "events.jsonl").read_text().splitlines()[-1])
+    assert event["selection_reason"]["affinity_kind"] == "scene_tags_any"
 
 
 def _make_legacy_live_campaign(tmp_path):

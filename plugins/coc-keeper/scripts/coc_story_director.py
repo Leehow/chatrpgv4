@@ -39,6 +39,8 @@ coc_npc_persona = _load_sibling("coc_npc_persona", "coc_npc_persona.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
+coc_threat_state = _load_sibling("coc_threat_state", "coc_threat_state.py")
+coc_scenario_compile = _load_sibling("coc_scenario_compile", "coc_scenario_compile.py")
 
 coc_time = None
 try:
@@ -526,6 +528,16 @@ def build_director_context(
     if active_scene_id:
         world = dict(world)
         world["active_scene_id"] = active_scene_id
+    active_scene_function = coc_scenario_compile.normalize_scene_function(active_scene or {})
+    if active_scene is not None:
+        active_scene = dict(active_scene)
+        active_scene.update(active_scene_function)
+        story_graph = dict(story_graph)
+        story_graph["scenes"] = [
+            active_scene if isinstance(item, dict) and item.get("scene_id") == active_scene_id
+            else item
+            for item in story_graph.get("scenes", [])
+        ]
 
     # --- rule signals ---
     char_derived = character.get("derived", {})
@@ -634,6 +646,17 @@ def build_director_context(
     campaign_doc = _read_json(campaign_dir / "campaign.json", {})
     play_language = campaign_doc.get("play_language") or "zh-Hans"
 
+    authored_threats = _read_json(scenario / "threat-fronts.json", {"fronts": []})
+    affinity_findings = coc_scenario_compile._check_threat_affinity_contract({
+        "threat_fronts": authored_threats,
+    })
+    if affinity_findings:
+        raise ValueError(affinity_findings[0]["message"])
+    persisted_threats = coc_threat_state.load_threat_state(save)
+    merged_threats = coc_threat_state.merge_threat_fronts(
+        authored_threats, persisted_threats
+    )
+
     return {
         "campaign_dir": campaign_dir,
         "investigator_id": investigator_id,
@@ -654,6 +677,7 @@ def build_director_context(
         "believer": inv_state.get("believer") is True,
         "active_scene_id": active_scene_id,
         "active_scene": active_scene,
+        "active_scene_function": active_scene_function,
         "structure_type": module_meta.get("structure_type", "branching_investigation"),
         "module_meta": module_meta,
         "story_graph": story_graph,
@@ -661,7 +685,7 @@ def build_director_context(
         "npc_agendas": _read_json(scenario / "npc-agendas.json", {"npcs": []}),
         "npc_state": _read_json(save / "npc-state.json", {"schema_version": 1, "npcs": {}}),
         "npc_state_writes": [],
-        "threat_fronts": _read_json(scenario / "threat-fronts.json", {"fronts": []}),
+        "threat_fronts": merged_threats,
         "pacing_map": _read_json(scenario / "pacing-map.json", {"pacing_curve": []}),
         "improvisation_boundaries": _read_json(scenario / "improvisation-boundaries.json", {}),
         "world_state": world,
@@ -2612,20 +2636,75 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
         scene_move = _build_scene_pressure_move(ctx)
         if scene_move is not None:
             return [scene_move]
-    for front in ctx.get("threat_fronts", {}).get("fronts", []):
-        for clock in front.get("clocks", []):
+    scene = ctx.get("active_scene") or {}
+    scene_id = str(ctx.get("active_scene_id") or scene.get("scene_id") or "")
+    scene_tags = {str(value) for value in scene.get("scene_tags", []) if value}
+    scene_factions = {str(value) for value in scene.get("faction_ids", []) if value}
+    scene_front_ids = {
+        str(value) for value in [
+            *(scene.get("front_ids") or []), *(scene.get("threat_front_ids") or [])
+        ] if value
+    }
+    candidates: list[tuple[Any, ...]] = []
+    for front_index, front in enumerate(ctx.get("threat_fronts", {}).get("fronts", [])):
+        if not isinstance(front, dict):
+            continue
+        front_id = str(front.get("front_id") or "")
+        front_severity = front.get("severity", 0)
+        front_severity = front_severity if isinstance(front_severity, int) and not isinstance(front_severity, bool) else 0
+        for clock_index, clock in enumerate(front.get("clocks", [])):
+            if not isinstance(clock, dict):
+                continue
             current = _clock_segments(clock, "current_segments", 0)
-            if current < _clock_segments(clock, "segments", 6):
-                symptom = clock.get("on_tick_visible", ["tension rises"])
-                idx = min(current, len(symptom) - 1) if symptom else 0
-                moves.append({
-                    "clock_id": clock["clock_id"], "tick": 1,
-                    "visible_symptom": symptom[idx] if isinstance(symptom, list) and symptom else "tension rises",
-                    "reason": f"stalled_{ctx['rule_signals']['stalled_turns']}_turns" if ctx["rule_signals"]["stalled_turns"] else "pressure_action",
-                })
-                break
-        if moves:
-            break
+            if current >= _clock_segments(clock, "segments", 6):
+                continue
+            severity_raw = clock.get("severity", front_severity)
+            severity = severity_raw if isinstance(severity_raw, int) and not isinstance(severity_raw, bool) else front_severity
+            scene_ids = {
+                str(value) for value in
+                [*(front.get("scene_ids") or []), *(clock.get("scene_ids") or [])]
+                if value
+            }
+            tags = {
+                str(value) for value in
+                [*(front.get("scene_tags_any") or []), *(clock.get("scene_tags_any") or [])]
+                if value
+            }
+            factions = {
+                str(value) for value in
+                [*(front.get("faction_ids") or []), *(clock.get("faction_ids") or [])]
+                if value
+            }
+            if scene_id and scene_id in scene_ids:
+                affinity_kind, matched, affinity_rank = "scene_ids", [scene_id], 4
+            elif front_id and front_id in scene_front_ids:
+                affinity_kind, matched, affinity_rank = "front_ids", [front_id], 3
+            elif scene_tags & tags:
+                affinity_kind, matched, affinity_rank = "scene_tags_any", sorted(scene_tags & tags), 2
+            elif scene_factions & factions:
+                affinity_kind, matched, affinity_rank = "faction_ids", sorted(scene_factions & factions), 1
+            else:
+                affinity_kind, matched, affinity_rank = "fallback", [], 0
+            candidates.append((
+                -affinity_rank, -severity, front_id, str(clock.get("clock_id") or ""),
+                front_index, clock_index, front, {**clock, "_selection_reason": {
+                    "affinity_kind": affinity_kind,
+                    "matched_ids": matched,
+                    "front_id": front_id,
+                    "severity": severity,
+                }},
+            ))
+    if candidates:
+        _, _, _, _, _, _, _front, clock = min(candidates)
+        current = _clock_segments(clock, "current_segments", 0)
+        symptom = clock.get("on_tick_visible", ["tension rises"])
+        idx = min(current, len(symptom) - 1) if isinstance(symptom, list) and symptom else 0
+        moves.append({
+            "clock_id": clock["clock_id"], "tick": 1,
+            "visible_symptom": symptom[idx] if isinstance(symptom, list) and symptom else "tension rises",
+            "reason": f"stalled_{ctx['rule_signals']['stalled_turns']}_turns" if ctx["rule_signals"]["stalled_turns"] else "pressure_action",
+            "selection_reason": clock["_selection_reason"],
+        })
     return moves
 
 
@@ -3070,6 +3149,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "scene_action": action,
         "subsystem": subsystem,
         "dramatic_question": scene.get("dramatic_question", ""),
+        "scene_function": dict(ctx["active_scene_function"]),
         "pacing_mode": pacing_mode,
         "tension_target": tension_target,
         "tension_delta": tension_delta,

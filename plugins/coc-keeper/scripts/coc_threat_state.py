@@ -16,6 +16,7 @@ import importlib.util
 import hashlib
 import json
 import os
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,59 @@ def _empty_state() -> dict[str, Any]:
         "transitions": [],
         "ledger_head": _GENESIS_HASH,
     }
+
+
+def merge_threat_fronts(
+    definitions: dict[str, Any], persisted: dict[str, Any],
+) -> dict[str, Any]:
+    """Project verified runtime progress onto immutable authored definitions.
+
+    Only ``current_segments`` and ``full`` are runtime-owned. Unknown runtime
+    clock IDs are deliberately ignored, and the input definitions are never
+    mutated. Validation of the persisted ledger remains ``load_threat_state``'s
+    responsibility; this pure projector is also useful to compilation/runtime
+    consumers that already hold a verified state.
+    """
+    merged = copy.deepcopy(definitions if isinstance(definitions, dict) else {})
+    fronts = merged.get("fronts")
+    if not isinstance(fronts, list):
+        raise ValueError("threat-fronts.fronts must be a list")
+    clocks_state = persisted.get("clocks", {}) if isinstance(persisted, dict) else {}
+    if not isinstance(clocks_state, dict):
+        raise ValueError("persisted threat clocks must be an object")
+    for front in fronts:
+        if not isinstance(front, dict):
+            raise ValueError("threat front must be an object")
+        clocks = front.get("clocks", [])
+        if not isinstance(clocks, list):
+            raise ValueError("threat front clocks must be a list")
+        for clock in clocks:
+            if not isinstance(clock, dict):
+                raise ValueError("threat clock must be an object")
+            clock_id = clock.get("clock_id")
+            if not isinstance(clock_id, str) or not clock_id:
+                raise ValueError("authored threat clock requires clock_id")
+            runtime = clocks_state.get(clock_id, {})
+            if runtime and not isinstance(runtime, dict):
+                raise ValueError("persisted threat clock must be an object")
+            current = runtime.get("current_segments", 0) if runtime else 0
+            full = runtime.get("full", False) if runtime else False
+            if isinstance(current, bool) or not isinstance(current, int) or current < 0:
+                raise ValueError("persisted current_segments must be a non-negative integer")
+            if not isinstance(full, bool):
+                raise ValueError("persisted full must be boolean")
+            authored_segments = clock.get("segments", 6)
+            if (
+                isinstance(authored_segments, bool)
+                or not isinstance(authored_segments, int)
+                or authored_segments < 1
+            ):
+                raise ValueError("authored threat clock segments must be a positive integer")
+            if current > authored_segments or full != (current >= authored_segments):
+                raise ValueError("persisted threat progress conflicts with authored segments")
+            clock["current_segments"] = current
+            clock["full"] = full
+    return merged
 
 
 def _transition_hash(transition: dict[str, Any]) -> str:

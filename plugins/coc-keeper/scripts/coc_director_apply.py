@@ -1979,6 +1979,7 @@ def _apply_plan_impl(
         ev = {"event_type": "pressure_tick", "decision_id": decision_id,
               "clock_id": move.get("clock_id"), "visible_symptom": move.get("visible_symptom"),
               "reason": move.get("reason"),
+              "selection_reason": move.get("selection_reason"),
               "investigator_id": investigator_id, "ts": ts}
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)

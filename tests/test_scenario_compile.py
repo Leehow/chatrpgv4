@@ -81,6 +81,81 @@ def test_validate_bad_structure_type(tmp_path):
     assert any("structure_type" in e for e in result["errors"])
 
 
+def test_normalize_scene_function_has_exact_six_field_contract():
+    normalized = coc_scenario_compile.normalize_scene_function({
+        "scene_type": "social", "dramatic_question": "Will she talk?",
+        "unknown_extension": {"preserve_on_scene": True},
+    })
+    assert normalized == {
+        "scene_function": "social",
+        "goals": ["Will she talk?"],
+        "required_reveals": [],
+        "failure_modes": [],
+        "exit_options": [],
+        "mode_affinity": [],
+    }
+
+
+@pytest.mark.parametrize("bad_field,bad_value", [
+    ("scene_function", ""), ("goals", "not-a-list"),
+    ("required_reveals", [""]), ("failure_modes", [1]),
+    ("exit_options", None), ("mode_affinity", {"mode": "x"}),
+])
+def test_scene_function_contract_fails_closed_in_both_validators(
+    tmp_path, bad_field, bad_value,
+):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0].update(coc_scenario_compile.normalize_scene_function(story["scenes"][0]))
+    story["scenes"][0][bad_field] = bad_value
+    (sc / "story-graph.json").write_text(json.dumps(story))
+
+    disk = coc_scenario_compile.validate_scenario(sc)
+    compiled = coc_scenario_compile.load_compiled_from_dir(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+
+    assert any("scene function" in error for error in disk["errors"])
+    assert any(f["code"] == "scene_function_contract_invalid" for f in findings)
+
+
+def test_valid_scene_function_contract_passes_both_validators(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "scene_function": "investigation", "goals": ["find-record"],
+        "required_reveals": ["a"], "failure_modes": ["clock-tick"],
+        "exit_options": ["s2"], "mode_affinity": ["careful"],
+    })
+    (sc / "story-graph.json").write_text(json.dumps(story))
+    assert not [e for e in coc_scenario_compile.validate_scenario(sc)["errors"]
+                if "scene function" in e]
+    assert not [f for f in coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    ) if f["code"] == "scene_function_contract_invalid"]
+
+
+@pytest.mark.parametrize("owner,field,value", [
+    ("front", "severity", "high"),
+    ("front", "scene_tags_any", "archive"),
+    ("clock", "scene_ids", [""]),
+    ("clock", "faction_ids", [1]),
+])
+def test_threat_affinity_contract_fails_closed_in_both_validators(
+    tmp_path, owner, field, value,
+):
+    sc = _make_valid_scenario(tmp_path)
+    front = {"front_id": "cult", "clocks": [{"clock_id": "doom", "segments": 6}]}
+    target = front if owner == "front" else front["clocks"][0]
+    target[field] = value
+    (sc / "threat-fronts.json").write_text(json.dumps({"fronts": [front]}))
+    disk = coc_scenario_compile.validate_scenario(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+    assert any("threat affinity" in error for error in disk["errors"])
+    assert any(f["code"] == "threat_affinity_contract_invalid" for f in findings)
+
+
 def _scenario_script_path() -> Path:
     return Path("plugins/coc-keeper/scripts/coc_scenario_compile.py")
 
