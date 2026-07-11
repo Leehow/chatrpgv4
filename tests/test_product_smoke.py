@@ -8,7 +8,6 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
-import random
 import sys
 from pathlib import Path
 
@@ -28,7 +27,6 @@ import coc_narration_contract
 import coc_pdf_source
 import coc_playtest_evidence
 import coc_playtest_report
-import coc_scene_graph
 import coc_starter
 import coc_state
 import coc_storylets
@@ -102,12 +100,54 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
     runtime_session = _load_session_module()
     registry = runtime_session.SessionRegistry()
     runtime_session._REGISTRY = registry
+    canonical_debug = _load_debug_adapter()
+
+    class _StructuredRuntimeAdapter:
+        @staticmethod
+        def debug_send_turn(*args, **kwargs):
+            player_text = args[4] if len(args) > 4 else ""
+            kwargs["recording_mode"] = "sync"
+            if player_text == "ask":
+                kwargs.update({"intent_class": "social", "player_intent_rich": {
+                    "primary_intent": "social", "secondary_intents": [],
+                    "target_entities": ["npc-company-commander"], "risk_posture": "neutral",
+                    "explicit_roll_request": False, "player_hypothesis": None,
+                    "action_atoms": [], "npc_interactions": [{
+                        "npc_id": "npc-company-commander", "tactic": "request_fact",
+                        "request_id": "product-social-1",
+                        "fact_id": "fact-briefing-strange-sounds",
+                        "skill": "Credit Rating", "difficulty": "regular"}]}})
+            elif player_text:
+                kwargs.update({"intent_class": "investigate", "player_intent_rich": {
+                    "primary_intent": "investigate", "secondary_intents": [],
+                    "target_entities": ["clue-push-origin" if player_text == "fail for push" else "scene"],
+                    "risk_posture": "cautious", "explicit_roll_request": False,
+                    "action_atoms": []}})
+                if player_text == "fail for push":
+                    kwargs["rng_seed"] = 6
+            return canonical_debug.debug_send_turn(*args, **kwargs)
+
+    runtime_session._load_debug_adapter = lambda: _StructuredRuntimeAdapter
     session_id = runtime_session.create_session(
         workspace, campaign_id=campaign_id, investigator_id="inv-smoke")
     investigation_events = runtime_session.send(session_id, "inspect")
     social_events = runtime_session.send(session_id, "ask")
     assert investigation_events and social_events
     assert runtime_session.get_state(session_id)["campaign_id"] == campaign_id
+    runtime_rows = [json.loads(line) for line in
+                    (campaign / "logs" / "live-turn-runtime.jsonl").read_text(encoding="utf-8").splitlines()
+                    if line.strip()]
+    assert [row["intent_resolution"]["intent_class"] for row in runtime_rows[:2]] == [
+        "investigate", "social"]
+    assert all(row["intent_resolution"]["source"] == "caller_intent_class" for row in runtime_rows[:2])
+    assert all(row["intent_resolution"]["intent_class"] != "ambiguous" for row in runtime_rows[:2])
+    npc_state = json.loads((campaign / "save" / "npc-state.json").read_text(encoding="utf-8"))
+    assert "npc-company-commander" in npc_state["npcs"]
+    disclosure_rows = [json.loads(line) for line in
+                       (campaign / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+                       if line.strip()]
+    assert any(row.get("event_type") in {"npc_disclosure_approved", "npc_disclosure_withheld"}
+               and row.get("npc_id") == "npc-company-commander" for row in disclosure_rows)
     subsystem_rows = [json.loads(line) for line in
                       (campaign / "logs" / "subsystem-results.jsonl").read_text(encoding="utf-8").splitlines()
                       if line.strip()]
@@ -118,19 +158,33 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
         return runtime_session.send(
             session_id, "", subsystem_request={"kind": kind, "payload": payload})
 
-    def execute(kind: str, payload: dict, seed: int):
-        return coc_live_turn_runner.subsystem_executor.execute_commands(
-            campaign, character_path, "inv-smoke",
-            [{"command_id": f"{kind}-{seed}", "kind": kind, "phase": "resolve",
-              "payload": payload}], rng=random.Random(seed))[0]
-
-    # A failed roll produces a canonical origin, then a typed push offer/cancel.
-    origin = execute("skill_check", {"decision_id": "smoke-roll", "roll_id": "smoke-roll-id",
-        "skill": "Spot Hidden", "difficulty": "regular",
-        "roll_contract": {"push_policy": {"eligible": True,
-            "requires_changed_method": True, "keeper_must_foreshadow_failure": True}},
-        "resolution_context": {"scene_action": "REVEAL", "clue_policy": {},
-            "narrative_directives": {}, "rule_signals": {}}}, 5)
+    # A canonical investigation turn produces the failed origin; the public
+    # session continuation then consumes that exact persisted roll for Push.
+    world_for_push = json.loads((campaign / "save" / "world-state.json").read_text(encoding="utf-8"))
+    push_story = json.loads((scenario_dir / "story-graph.json").read_text(encoding="utf-8"))
+    push_scene = next(row for row in push_story["scenes"]
+                      if row["scene_id"] == world_for_push["active_scene_id"])
+    push_scene["available_clues"] = ["clue-push-origin"]
+    _write_json(scenario_dir / "story-graph.json", push_story)
+    push_clues = json.loads((scenario_dir / "clue-graph.json").read_text(encoding="utf-8"))
+    push_clues["conclusions"].append({"conclusion_id": "push-origin-conclusion",
+        "importance": "major", "minimum_routes": 1, "fallback_policy": "RECOVER",
+        "clues": [{"clue_id": "clue-push-origin", "delivery": "structured difficult trace",
+                   "player_safe_summary": "A trace may be recovered.",
+                   "delivery_kind": "skill_check", "skill": "Spot Hidden",
+                   "difficulty": "regular", "visibility": "player-safe"}]})
+    _write_json(scenario_dir / "clue-graph.json", push_clues)
+    weak_character = json.loads(character_path.read_text(encoding="utf-8"))
+    weak_character["skills"]["Spot Hidden"] = 50
+    _write_json(character_path, weak_character)
+    assert runtime_session.send(session_id, "fail for push")
+    subsystem_rows = [json.loads(line) for line in
+                      (campaign / "logs" / "subsystem-results.jsonl").read_text(encoding="utf-8").splitlines()
+                      if line.strip()]
+    origin_row = next(row for row in reversed(subsystem_rows)
+                      if row["result"].get("kind") == "skill_check")
+    origin = origin_row["result"]
+    assert origin["events"][0]["outcome"] == "failure"
     offered = runtime_session.send(
         session_id, "", subsystem_request={
             "kind": "push_offer", "original_command_id": origin["command_id"],
@@ -260,6 +314,7 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
     class _StructuredSemanticHook:
         @staticmethod
         def debug_send_turn(*args, **kwargs):
+            kwargs["recording_mode"] = "sync"
             kwargs.update({"intent_class": "investigate", "player_intent_rich": {
                 "primary_intent": "investigate", "secondary_intents": [],
                 "target_entities": ["clue-mixed"], "risk_posture": "cautious",
@@ -307,11 +362,45 @@ def test_replayable_product_journey_includes_epistemic_blueprint(tmp_path: Path)
         source_bundle["parse_manifest"])
     assert metrics["belief_gain"]["count"] >= 1
 
-    # Structured terminal evidence must work for a non-last terminal scene.
-    graph = {"scenes": [{"scene_id": "ending", "scene_type": "resolution", "edges": []},
-                        {"scene_id": "unused", "scene_type": "investigation", "edges": []}]}
-    terminal = coc_scene_graph.terminal_evidence(graph, {"active_scene_id": "ending"}, [])
-    assert terminal["reached_terminal"] is True and terminal["graph_terminal"] is True
+    # A real restored session lands PAYOFF on a non-last terminal scene. The
+    # production apply path must persist both terminal scene state and a
+    # session_ending event; no direct terminal helper is used as acceptance.
+    terminal_graph = {"scenes": [
+        {"scene_id": "ending", "scene_type": "resolution", "dramatic_question": "Is it over?",
+         "entry_conditions": [], "exit_conditions": [], "available_clues": [], "npc_ids": [],
+         "pressure_moves": [], "tone": ["aftermath"], "allowed_improvisation": [], "edges": []},
+        {"scene_id": "unused-after-ending", "scene_type": "investigation",
+         "dramatic_question": "This array-later scene must not define terminality.",
+         "entry_conditions": [], "exit_conditions": [], "available_clues": [], "npc_ids": [],
+         "pressure_moves": [], "tone": [], "allowed_improvisation": [], "edges": []}]}
+    _write_json(scenario_dir / "story-graph.json", terminal_graph)
+    terminal_world = json.loads(world_path.read_text(encoding="utf-8"))
+    terminal_world["active_scene_id"] = "ending"
+    _write_json(world_path, terminal_world)
+    live_module = canonical_debug._live_runner()
+    original_generate_plan = live_module.director.generate_director_plan
+
+    def _terminal_plan(ctx, decision_id):
+        terminal_plan = original_generate_plan(ctx, decision_id)
+        terminal_plan["scene_action"] = "PAYOFF"
+        return terminal_plan
+
+    live_module.director.generate_director_plan = _terminal_plan
+    try:
+        terminal_events = runtime_session.send(session_id, "finish")
+    finally:
+        live_module.director.generate_director_plan = original_generate_plan
+    assert terminal_events
+    terminal_log = [json.loads(line) for line in
+                    (campaign / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+                    if line.strip()]
+    assert any(row.get("event_type") == "session_ending" and row.get("scene_id") == "ending"
+               for row in terminal_log)
+    terminal_runtime = [json.loads(line) for line in
+                        (campaign / "logs" / "live-turn-runtime.jsonl").read_text(encoding="utf-8").splitlines()
+                        if line.strip()][-1]
+    assert terminal_runtime["final_state"]["active_scene"] == "ending"
+    assert terminal_graph["scenes"][0]["scene_id"] != terminal_graph["scenes"][-1]["scene_id"]
 
     _write_json(run_dir / "playtest.json", {"run_id": "product-smoke", "campaign_id": campaign_id,
         "play_language": "en-US", "player_profile": "deterministic-fake-adapter",
