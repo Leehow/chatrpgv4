@@ -643,6 +643,7 @@ def _run_one_turn(
             or ctx.get("validation_warnings")
             or []
         ),
+        "capability_findings": list(resolved_plan.get("capability_findings") or []),
         "auto_advanced": bool(choice.get("auto_advanced")),
         "apply_path": "coc_director_apply.apply_plan",
         "pipeline": "run_live_turn",
@@ -806,6 +807,7 @@ def _pending_choice_blocked_result(
         "scene_id": scene_id,
         "action": "PENDING_SUBSYSTEM_CHOICE",
         "validation_warnings": [],
+        "capability_findings": [],
         "auto_advanced": False,
         "apply_path": None,
         "pipeline": "run_live_turn",

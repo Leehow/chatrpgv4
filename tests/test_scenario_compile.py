@@ -158,6 +158,21 @@ def test_schedule_conflicts_fail_disk_and_compiled_validation(tmp_path):
     assert any("overlapping" in error for error in disk["errors"])
     assert any("overlapping" in finding["message"] for finding in compiled)
 
+
+def test_time_loop_scene_signals_fail_disk_and_compiled_validation(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "loop_boundary": "yes", "player_retained_memory_ids": ["memory-a", "memory-a"],
+    })
+    (sc / "story-graph.json").write_text(json.dumps(story))
+    disk = coc_scenario_compile.validate_scenario(sc)
+    compiled = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+    assert any("time-loop strategy signals" in error for error in disk["errors"])
+    assert any(f["code"] == "strategy_signals_invalid" for f in compiled)
+
 def test_validate_bad_structure_type(tmp_path):
     sc = _make_valid_scenario(tmp_path)
     m = json.loads((sc/"module-meta.json").read_text())

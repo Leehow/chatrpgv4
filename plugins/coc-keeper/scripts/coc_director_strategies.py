@@ -94,6 +94,27 @@ def _finding(code: str, detail: str) -> dict[str, str]:
     return {"code": code, "detail": detail, "severity": "warning"}
 
 
+def validate_time_loop_signals(
+    value: Any,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Canonicalize the only two authored time-loop scene signals."""
+    fallback = {"loop_boundary": False, "player_retained_memory_ids": []}
+    if not isinstance(value, dict) or set(value) != set(fallback):
+        return fallback, [_finding("strategy_signals_invalid", "time_loop_shape")]
+    boundary = value.get("loop_boundary")
+    memories = value.get("player_retained_memory_ids")
+    if (not isinstance(boundary, bool) or not isinstance(memories, list)
+            or any(not isinstance(item, str) or not item.strip() for item in memories)):
+        return fallback, [_finding("strategy_signals_invalid", "time_loop_types")]
+    normalized = [item.strip() for item in memories]
+    if len(normalized) != len(set(normalized)):
+        return fallback, [_finding("strategy_signals_invalid", "time_loop_duplicate_ids")]
+    return {
+        "loop_boundary": boundary,
+        "player_retained_memory_ids": normalized,
+    }, []
+
+
 def validate_strategy_state(
     value: Any, *, expected_strategy_type: str | None = None,
 ) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
@@ -196,6 +217,10 @@ def compile_strategy(
         prior = {}
     findings = list(state_findings)
     faction_findings: list[dict[str, str]] = []
+    signal_findings: list[dict[str, str]] = []
+    if structure == "time_loop":
+        signal_map, signal_findings = validate_time_loop_signals(signal_map)
+        findings.extend(signal_findings)
     if structure == "multi_faction":
         factions, faction_findings = _validate_factions(signal_map.get("factions", []))
         findings.extend(faction_findings)

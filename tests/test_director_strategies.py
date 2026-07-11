@@ -76,3 +76,17 @@ def test_malformed_prior_strategy_state_fails_closed():
     assert result["strategy_state"]["loop_number"] == 0
     assert any(f["code"] == "strategy_state_invalid"
                for f in result["capability_findings"])
+
+
+def test_invalid_time_loop_signals_fail_closed_without_splitting_string_ids():
+    mod = _load()
+    result = mod.compile_strategy(
+        {"structure_type": "time_loop"}, {"schema_version": 1},
+        {"loop_boundary": "yes", "player_retained_memory_ids": "memory-a"},
+    )
+    assert result["strategy_state"] == {
+        "schema_version": 1, "strategy_type": "time_loop", "loop_number": 0,
+        "player_retained_memory_ids": [],
+    }
+    assert any(f["code"] == "strategy_signals_invalid"
+               for f in result["capability_findings"])

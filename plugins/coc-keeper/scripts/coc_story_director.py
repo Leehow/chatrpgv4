@@ -3116,14 +3116,32 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         else:
             explicit_mode = "social"
 
-    strategy_signals = {
-        "loop_boundary": scene.get("loop_boundary") is True,
-        "player_retained_memory_ids": scene.get("player_retained_memory_ids") or [],
-        "factions": ctx.get("module_meta", {}).get("factions") or [],
-    }
+    structure_type = (ctx.get("module_meta") or {}).get("structure_type")
+    strategy_signal_findings: list[dict[str, Any]] = []
+    if structure_type == "time_loop":
+        time_loop_signals, strategy_signal_findings = (
+            coc_director_strategies.validate_time_loop_signals({
+                "loop_boundary": scene.get("loop_boundary", False),
+                "player_retained_memory_ids": scene.get(
+                    "player_retained_memory_ids", []
+                ),
+            })
+        )
+        strategy_signals = time_loop_signals
+    elif structure_type == "multi_faction":
+        strategy_signals = {
+            "factions": (ctx.get("module_meta") or {}).get("factions") or [],
+        }
+    else:
+        strategy_signals = {}
     strategy_result = coc_director_strategies.compile_strategy(
         ctx.get("module_meta") or {}, ctx.get("director_strategy_state") or {}, strategy_signals
     )
+    if strategy_signal_findings:
+        strategy_result["capability_findings"] = [
+            *strategy_signal_findings,
+            *(strategy_result.get("capability_findings") or []),
+        ]
 
     # Dying (and any future override carrying extra_pressure) forces PRESSURE
     # clock-ticks even though the chosen action is SUBSYSTEM. _build_pressure_moves

@@ -212,6 +212,28 @@ def test_live_time_loop_strategy_state_is_persisted_by_apply(tmp_path):
     assert state["player_retained_memory_ids"] == ["memory-seen-clock"]
 
 
+def test_live_invalid_time_loop_memory_string_fails_closed_without_character_split(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    meta_path = camp / "scenario" / "module-meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["structure_type"] = "time_loop"
+    meta_path.write_text(json.dumps(meta))
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text())
+    story["scenes"][0].update({
+        "loop_boundary": False, "player_retained_memory_ids": "memory-seen-clock",
+    })
+    story_path.write_text(json.dumps(story))
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "I inspect the clock", intent_class="investigate",
+        rng_seed=7, max_auto_advance=1,
+    )
+    state = json.loads((camp / "save" / "director-strategy-state.json").read_text())
+    assert state["player_retained_memory_ids"] == []
+    assert any(f["code"] == "strategy_signals_invalid"
+               for f in result["turns"][0]["capability_findings"])
+
+
 def _persist_live_push_offer(camp: Path, char_path: Path) -> dict:
     executor = live_runner.subsystem_executor
     origin = {

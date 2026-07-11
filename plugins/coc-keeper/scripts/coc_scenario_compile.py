@@ -31,6 +31,9 @@ def _load_sibling(name: str, filename: str):
 
 
 coc_npc_state = _load_sibling("coc_npc_state_scenario_compile", "coc_npc_state.py")
+coc_director_strategies = _load_sibling(
+    "coc_director_strategies_scenario_compile", "coc_director_strategies.py"
+)
 
 VALID_STRUCTURE_TYPES = {
     "linear_acts", "time_loop", "branching_investigation", "hub_sandbox",
@@ -852,6 +855,34 @@ def _check_provenance(compiled: dict[str, Any]) -> list[dict[str, str]]:
     return findings
 
 
+def _check_time_loop_signal_contract(
+    compiled: dict[str, Any],
+) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    scenes = (compiled.get("story_graph") or {}).get("scenes") or []
+    for index, scene in enumerate(scenes):
+        if not isinstance(scene, dict) or not (
+            {"loop_boundary", "player_retained_memory_ids"} & set(scene)
+        ):
+            continue
+        _canonical, signal_findings = (
+            coc_director_strategies.validate_time_loop_signals({
+                "loop_boundary": scene.get("loop_boundary", False),
+                "player_retained_memory_ids": scene.get(
+                    "player_retained_memory_ids", []
+                ),
+            })
+        )
+        if signal_findings:
+            findings.append(_finding(
+                "strategy_signals_invalid", "error",
+                "time-loop strategy signals require boolean loop_boundary and "
+                "unique non-empty string[] player_retained_memory_ids",
+                path=f"story_graph.scenes[{index}]",
+            ))
+    return findings
+
+
 def _default_origin(entry: dict[str, Any]) -> str:
     if entry.get("improvised") is True:
         return "improvised"
@@ -925,6 +956,7 @@ def validate_compiled_scenario(
     findings.extend(_check_threat_affinity_contract(compiled))
     findings.extend(_check_threat_clock_identity_contract(compiled))
     findings.extend(_check_npc_disclosure_contract(compiled))
+    findings.extend(_check_time_loop_signal_contract(compiled))
     return findings
 
 
@@ -1089,6 +1121,21 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
             errors.append(
                 f"scene '{scene.get('scene_id')}' setting_tags must be a list of non-empty strings"
             )
+        if {"loop_boundary", "player_retained_memory_ids"} & set(scene):
+            _signals, signal_findings = (
+                coc_director_strategies.validate_time_loop_signals({
+                    "loop_boundary": scene.get("loop_boundary", False),
+                    "player_retained_memory_ids": scene.get(
+                        "player_retained_memory_ids", []
+                    ),
+                })
+            )
+            if signal_findings:
+                errors.append(
+                    f"scene '{scene.get('scene_id')}' time-loop strategy signals invalid: "
+                    "loop_boundary must be bool and player_retained_memory_ids "
+                    "must be unique non-empty string[]"
+                )
         # 软警告：social/investigation 场景宜有多路线 affordances（P0-1 数据引导）
         scene_type = str(scene.get("scene_type") or "")
         if scene_type in ("social", "investigation"):
