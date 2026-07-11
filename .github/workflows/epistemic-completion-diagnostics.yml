@@ -25,7 +25,7 @@ jobs:
         run: |
           python scripts/apply_cognitive_storylets_narration_patch.py
           python scripts/apply_epistemic_report_patch.py
-      - name: Run focused cognitive, narration, metrics, and report suites
+      - name: Run focused cognitive, narration, metrics, report, and E2E suites
         id: focused
         continue-on-error: true
         run: |
@@ -34,6 +34,7 @@ jobs:
             tests/test_cognitive_storylets_narration_metrics.py \
             tests/test_epistemic_storylets_additional.py \
             tests/test_epistemic_playtest_report.py \
+            tests/test_epistemic_blueprint_e2e.py \
             tests/test_storylets.py \
             tests/test_narration_envelope.py \
             tests/test_narration_contract.py \
