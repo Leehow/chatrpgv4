@@ -1990,6 +1990,85 @@ def test_live_typed_combat_start_attack_and_defense_journey(tmp_path):
     assert event["turn"]["defense_kind"] == "dodge"
 
 
+def test_live_typed_chase_journey_persists_hazard_barrier_conflict_and_end(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({"current_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+
+    participants = [
+        {"actor_id": "inv1", "side": "quarry", "mov": 8, "dex": 70,
+         "con": 60, "hp": 11, "fight": 60, "dodge": 40, "build": 0,
+         "current_position": 0, "conditions": []},
+        {"actor_id": "cultist", "side": "pursuer", "mov": 8, "dex": 50,
+         "con": 50, "hp": 9, "fight": 45, "dodge": 25, "build": 0,
+         "current_position": 0, "conditions": []},
+    ]
+    locations = [
+        {"label": "roof", "hazard": None, "barrier": None},
+        {"label": "walkway", "hazard": None, "barrier": None},
+        {"label": "glass", "hazard": {"hazard_id": "glass", "skill": "DEX", "target": 100, "difficulty": "regular", "damage_dice": "1D3"}, "barrier": None},
+        {"label": "door", "hazard": None, "barrier": {"barrier_id": "door", "hp": 4, "hp_max": 4, "skill": "Climb", "target": 100}},
+        {"label": "alley", "hazard": None, "barrier": None},
+        {"label": "escape", "hazard": None, "barrier": None},
+    ]
+
+    def send(kind, payload, seed):
+        return live_runner.run_live_turn(
+            camp, char_path, "inv1", "", subsystem_request={"kind": kind, "payload": payload},
+            recording_mode="sync", max_auto_advance=1, rng_seed=seed,
+        )
+
+    send("chase_start", {"decision_id": "live-chase", "chase_id": "roof-run",
+         "participants": participants, "locations": locations}, 801)
+    send("chase_move", {"decision_id": "live-chase", "revision": 1,
+         "actor_id": "inv1", "action_id": "move:advance"}, 802)
+    send("chase_move", {"decision_id": "live-chase", "revision": 2,
+         "actor_id": "cultist", "action_id": "move:advance"}, 803)
+    send("chase_hazard", {"decision_id": "live-chase", "revision": 4,
+         "actor_id": "inv1", "action_id": "hazard:glass", "skill": "DEX", "target": 100}, 804)
+    send("chase_hazard", {"decision_id": "live-chase", "revision": 5,
+         "actor_id": "cultist", "action_id": "hazard:glass", "skill": "DEX", "target": 100}, 805)
+    send("chase_barrier", {"decision_id": "live-chase", "revision": 7,
+         "actor_id": "inv1", "action_id": "barrier:door:negotiate", "method": "negotiate",
+         "skill": "Climb", "target": 100}, 806)
+    send("chase_barrier", {"decision_id": "live-chase", "revision": 8,
+         "actor_id": "cultist", "action_id": "barrier:door:negotiate", "method": "negotiate",
+         "skill": "Climb", "target": 100}, 807)
+
+    send("combat_start", {"decision_id": "chase-conflict", "combat_id": "roof-fight",
+         "scene_ref": "scene/roof", "turn_number": 4, "participants": [
+             {"actor_id": "inv1", "side": "investigator", "dex": 70, "combat_skill": 60,
+              "dodge_skill": 40, "build": 0, "hp_max": 11, "hp_current": 11, "con": 60,
+              "weapons": [{"weapon_id": "unarmed"}], "conditions": []},
+             {"actor_id": "cultist", "side": "npc", "dex": 50, "combat_skill": 45,
+              "dodge_skill": 25, "build": 0, "hp_max": 9, "hp_current": 9, "con": 50,
+              "weapons": [{"weapon_id": "unarmed"}], "conditions": []},
+         ]}, 808)
+    attack = send("combat_attack", {"decision_id": "chase-conflict", "revision": 1,
+        "actor_id": "inv1", "target_actor_id": "cultist", "declared_intent": "block pursuit",
+        "resolution_hint": "opposed_melee", "weapon_id": "unarmed"}, 809)
+    attack_id = attack["subsystem_results"][0]["events"][0]["attack_command_id"]
+    defended = send("combat_defend", {"decision_id": "chase-conflict", "revision": 2,
+        "actor_id": "cultist", "attack_command_id": attack_id, "defense_kind": "dodge"}, 810)
+    combat_command_id = defended["subsystem_results"][0]["command_id"]
+    conflict = send("chase_conflict", {"decision_id": "live-chase", "revision": 10,
+        "actor_id": "inv1", "target_actor_id": "cultist", "action_id": "conflict:cultist",
+        "combat_command_id": combat_command_id}, 811)
+    assert conflict["subsystem_results"][0]["events"][0]["event_type"] == "chase_conflict_resolved"
+    reloaded = live_runner.subsystem_executor.coc_chase.ChaseSession.load(
+        camp / "save" / "chase.json", rng=random.Random(812)
+    )
+    assert reloaded.revision == 11
+    ended = send("chase_end", {"decision_id": "live-chase", "revision": 11,
+        "outcome": "escaped"}, 813)
+    event = ended["subsystem_results"][0]["events"][0]
+    assert event["event_type"] == "chase_ended"
+    assert event["scenario_terminal"] is False
+    assert json.loads((camp / "save" / "chase.json").read_text())["outcome"] == "escaped"
+
+
 def test_live_npc_defense_is_keeper_typed_and_not_player_projected(tmp_path):
     camp, char_path = _build_live_campaign(tmp_path)
     inv_path = camp / "save" / "investigator-state" / "inv1.json"

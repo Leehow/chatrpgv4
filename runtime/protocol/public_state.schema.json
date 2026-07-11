@@ -81,7 +81,7 @@
           "additionalProperties": false,
           "properties": {
             "choice_id": {"type": "string"},
-            "kind": {"enum": ["push_confirm"]},
+            "kind": {"enum": ["push_confirm", "chase_action"]},
             "command_id": {"type": "string"},
             "responder": {"enum": ["player"]},
             "revision": {"type": "integer", "minimum": 0},

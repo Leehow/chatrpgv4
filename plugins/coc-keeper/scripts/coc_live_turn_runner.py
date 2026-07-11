@@ -919,6 +919,8 @@ def _plan_from_typed_subsystem_request(
         supported = {
             "combat_start", "combat_attack", "combat_defend", "dying_tick",
             "stabilize", "combat_end",
+            "chase_start", "chase_move", "chase_hazard", "chase_barrier",
+            "chase_conflict", "chase_end",
         }
         if kind not in supported or not isinstance(request.get("payload"), dict):
             raise ValueError("subsystem_request kind/payload is not supported")

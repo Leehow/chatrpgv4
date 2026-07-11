@@ -93,6 +93,7 @@ def send(
     campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
     character_path = record["character_path"]
     investigator_id = record["investigator_id"]
+    forwarded_pending_response: dict[str, Any] | None = None
     if pending_choice_response is not None:
         if subsystem_request is not None:
             raise ValueError("submit either subsystem_request or pending_choice_response")
@@ -102,7 +103,6 @@ def send(
         pending = state.get("pending_choice")
         if (
             not isinstance(pending, dict)
-            or pending.get("kind") != "combat_defense"
             or not isinstance(pending_choice_response, dict)
             or pending_choice_response.get("choice_id") != pending.get("choice_id")
             or pending_choice_response.get("responder") != "player"
@@ -112,16 +112,19 @@ def send(
                 if isinstance(option, dict)
             }
         ):
-            raise ValueError("pending_choice_response does not match combat defense")
-        subsystem_request = {
-            "kind": "combat_defend",
-            "payload": {
-                "decision_id": f"runtime-defense-{pending['attack_id']}-{pending['revision']}",
-                "revision": pending["revision"], "actor_id": investigator_id,
-                "attack_command_id": pending["attack_id"],
-                "defense_kind": pending_choice_response["action"],
-            },
-        }
+            raise ValueError("pending_choice_response does not match canonical player choice")
+        if pending.get("kind") == "combat_defense":
+            subsystem_request = {
+                "kind": "combat_defend",
+                "payload": {
+                    "decision_id": f"runtime-defense-{pending['attack_id']}-{pending['revision']}",
+                    "revision": pending["revision"], "actor_id": investigator_id,
+                    "attack_command_id": pending["attack_id"],
+                    "defense_kind": pending_choice_response["action"],
+                },
+            }
+        else:
+            forwarded_pending_response = dict(pending_choice_response)
 
     if brain == "debug":
         return _load_debug_adapter().debug_send_turn(
@@ -131,6 +134,7 @@ def send(
             investigator_id,
             player_input,
             subsystem_request=subsystem_request,
+            pending_choice_response=forwarded_pending_response,
         )
     if brain == "pi":
         if subsystem_request is not None:

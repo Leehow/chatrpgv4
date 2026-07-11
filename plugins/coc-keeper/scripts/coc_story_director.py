@@ -2665,6 +2665,37 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 "defense_kind": defense_kind,
                 "reason": "structured player combat defense",
             }]
+    chase_action = rich_intent.get("chase_action")
+    chase_state = ctx.get("chase_state") or {}
+    if isinstance(chase_action, dict) and chase_state.get("active") is True:
+        action_kind = chase_action.get("kind")
+        request_kind = {
+            "move": "chase_move", "hazard": "chase_hazard",
+            "barrier": "chase_barrier", "conflict": "chase_conflict",
+            "end": "chase_end",
+        }.get(action_kind)
+        revision = chase_action.get("revision")
+        if (
+            request_kind is not None
+            and isinstance(revision, int) and not isinstance(revision, bool)
+            and revision >= 0
+            and revision == chase_state.get("revision")
+        ):
+            required = {"kind", "revision"}
+            if action_kind != "end":
+                required |= {"actor_id", "action_id"}
+            optional_by_kind = {
+                "move": set(), "hazard": {"skill", "target", "difficulty"},
+                "barrier": {"method", "skill", "target", "difficulty"},
+                "conflict": {"target_actor_id", "combat_command_id"},
+                "end": {"outcome"},
+            }
+            if set(chase_action) <= required | optional_by_kind[action_kind] and required <= set(chase_action):
+                return [{
+                    "kind": request_kind,
+                    **{key: value for key, value in chase_action.items() if key != "kind"},
+                    "reason": "structured semantic chase action",
+                }]
     scene = ctx.get("active_scene") or {}
     fired = set(ctx.get("world_state", {}).get("san_triggers_fired", []))
     for trig in (scene.get("on_enter") or {}).get("san_triggers", []) or []:

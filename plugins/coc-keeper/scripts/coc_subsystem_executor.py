@@ -48,20 +48,28 @@ COMBAT_COMMAND_KINDS = frozenset({
     "combat_start", "combat_attack", "combat_defend", "dying_tick",
     "stabilize", "combat_end",
 })
+CHASE_COMMAND_KINDS = frozenset({
+    "chase_start", "chase_move", "chase_hazard", "chase_barrier",
+    "chase_conflict", "chase_end",
+})
 CHARACTER_REQUIRED_COMMAND_KINDS = (
     ROLL_COMMAND_KINDS | PUSH_COMMAND_KINDS | BOUT_COMMAND_KINDS
     | COMBAT_COMMAND_KINDS
+    | CHASE_COMMAND_KINDS
 )
 RNG_CONSUMING_COMMAND_KINDS = ROLL_COMMAND_KINDS | {
     "push_resolve", "combat_defend", "dying_tick", "stabilize",
+    "chase_hazard", "chase_barrier",
 }
 ROLL_EVIDENCE_COMMAND_KINDS = ROLL_COMMAND_KINDS | {
     "push_resolve", "combat_defend", "dying_tick", "stabilize",
+    "chase_hazard", "chase_barrier",
 }
 SAN_MUTATION_COMMAND_KINDS = frozenset({"sanity_check", "bout_tick", "bout_end"})
 SUPPORTED_COMMAND_KINDS = (
     ROLL_COMMAND_KINDS | PUSH_COMMAND_KINDS | BOUT_COMMAND_KINDS
     | COMBAT_COMMAND_KINDS
+    | CHASE_COMMAND_KINDS
 )
 EXPECTED_PHASE = {
     **{kind: "resolve" for kind in ROLL_COMMAND_KINDS},
@@ -76,6 +84,12 @@ EXPECTED_PHASE = {
     "dying_tick": "resolve",
     "stabilize": "resolve",
     "combat_end": "end",
+    "chase_start": "start",
+    "chase_move": "resolve",
+    "chase_hazard": "resolve",
+    "chase_barrier": "resolve",
+    "chase_conflict": "resolve",
+    "chase_end": "end",
 }
 RESULT_STATUSES_BY_KIND = {
     **{kind: frozenset({"completed"}) for kind in ROLL_COMMAND_KINDS},
@@ -86,6 +100,8 @@ RESULT_STATUSES_BY_KIND = {
     "bout_tick": frozenset({"completed", "pending_choice"}),
     "bout_end": frozenset({"completed"}),
     **{kind: frozenset({"completed"}) for kind in COMBAT_COMMAND_KINDS},
+    **{kind: frozenset({"completed"}) for kind in CHASE_COMMAND_KINDS},
+    "chase_move": frozenset({"completed", "pending_choice"}),
 }
 SUCCESS_OUTCOMES = frozenset({
     "critical",
@@ -134,6 +150,7 @@ coc_fileio = _load_sibling("coc_fileio_subsystem_executor", "coc_fileio.py")
 coc_roll = _load_sibling("coc_roll_subsystem_executor", "coc_roll.py")
 coc_sanity = _load_sibling("coc_sanity_subsystem_executor", "coc_sanity.py")
 coc_combat = _load_sibling("coc_combat_subsystem_executor", "coc_combat.py")
+coc_chase = _load_sibling("coc_chase_subsystem_executor", "coc_chase.py")
 coc_healing = _load_sibling("coc_healing_subsystem_executor", "coc_healing.py")
 
 
@@ -235,6 +252,13 @@ def _bout_choice_id(command_id: str) -> str:
     return f"bout:{digest}"
 
 
+def _chase_choice_id(command_id: str) -> str:
+    legacy = f"{command_id}:chase"
+    if _SAFE_ID.fullmatch(legacy):
+        return legacy
+    return f"chase:{hashlib.sha256(command_id.encode('utf-8')).hexdigest()}"
+
+
 # Pending-kind behavior is registered per result kind so Task 6 can add a
 # second lifecycle without weakening or duplicating the push contract.
 PENDING_CHOICE_CONTRACTS: dict[str, dict[str, Any]] = {
@@ -269,6 +293,14 @@ PENDING_CHOICE_CONTRACTS: dict[str, dict[str, Any]] = {
             {"action": "tick", "label": "Advance Keeper-controlled round"},
             {"action": "end", "label": "End the bout now"},
         ],
+        "scope": "global",
+    },
+    "chase_move": {
+        "status": "pending_choice",
+        "choice_kind": "chase_action",
+        "choice_id": _chase_choice_id,
+        "responder": "player",
+        "options": None,
         "scope": "global",
     },
 }
@@ -324,6 +356,16 @@ BOUT_HISTORY_EXTRA_KEYS = frozenset({
     "terminal_command_ids",
     "terminal_commands",
     "terminal_results",
+    "terminal_result_receipt_hashes",
+})
+CHASE_CONTEXT_KEYS = frozenset({
+    "choice_id", "kind", "investigator_id", "character_id",
+    "origin_command_id", "offer_command_id", "revision", "actor_id",
+    "offer_command",
+})
+CHASE_HISTORY_EXTRA_KEYS = frozenset({
+    "public_choice", "terminal_action", "terminal_revision",
+    "terminal_command_ids", "terminal_commands", "terminal_results",
     "terminal_result_receipt_hashes",
 })
 CHANGED_METHOD_SOURCES = frozenset({
@@ -650,7 +692,21 @@ def _validate_pending_choice_contract(
         raise _state_error(
             f"result snapshot {command_id!r} has an empty public choice prompt"
         )
-    if not _json_deep_equal(pending.get("options"), contract["options"]):
+    if contract["options"] is None:
+        options = pending.get("options")
+        if (
+            not isinstance(options, list) or len(options) < 2
+            or any(not isinstance(option, dict) or set(option) != {"action", "label"}
+                   or not isinstance(option.get("action"), str)
+                   or not _SAFE_ID.fullmatch(option["action"])
+                   or not isinstance(option.get("label"), str)
+                   or not option["label"].strip() for option in options)
+            or len({option["action"] for option in options}) != len(options)
+        ):
+            raise _state_error(
+                f"result snapshot {command_id!r} has invalid player-safe options"
+            )
+    elif not _json_deep_equal(pending.get("options"), contract["options"]):
         raise _state_error(
             f"result snapshot {command_id!r} has invalid player-safe options"
         )
@@ -706,6 +762,7 @@ def _allowed_preimage_path(path: str) -> bool:
     if path in {
         "save/sanity.json",
         "save/combat.json",
+        "save/chase.json",
         "save/time-state.json",
         "save/time-triggers.json",
     }:
@@ -966,6 +1023,38 @@ def _validate_bout_pending_context(
         raise _state_error(str(exc)) from exc
 
 
+def _validate_chase_pending_context(
+    choice_id: str, context: Any, *, choice: dict[str, Any],
+    applied_ids: set[str], snapshots: dict[str, Any],
+    provenance: dict[str, Any], hashes: dict[str, str],
+) -> None:
+    if not isinstance(context, dict) or set(context) != CHASE_CONTEXT_KEYS:
+        raise _state_error(f"pending context {choice_id!r} has an invalid chase contract")
+    if context.get("choice_id") != choice_id or context.get("kind") != "chase_action":
+        raise _state_error(f"pending context {choice_id!r} has invalid chase identity")
+    offer_id = context.get("offer_command_id")
+    offer = context.get("offer_command")
+    if (
+        not isinstance(offer_id, str) or offer_id not in applied_ids
+        or not isinstance(offer, dict) or offer.get("command_id") != offer_id
+        or hashes.get(offer_id) != _canonical_command_hash(offer)
+        or snapshots.get(offer_id, {}).get("kind") != "chase_move"
+        or not _json_deep_equal(snapshots[offer_id].get("pending_choice"), choice)
+    ):
+        raise _state_error(f"pending context {choice_id!r} is not anchored to its chase offer")
+    payload = offer.get("payload") or {}
+    if (
+        payload.get("action_id") != "choice:offer"
+        or context.get("origin_command_id") != offer_id
+        or context.get("revision") != payload.get("revision")
+        or context.get("actor_id") != payload.get("actor_id")
+        or context.get("investigator_id") != provenance[offer_id].get("investigator_id")
+        or context.get("character_id") != provenance[offer_id].get("character_id")
+        or choice.get("revision") != 0
+    ):
+        raise _state_error(f"pending context {choice_id!r} diverges from its chase offer")
+
+
 def _validate_private_choice_context(
     choice_id: str,
     context: Any,
@@ -981,6 +1070,8 @@ def _validate_private_choice_context(
         if choice.get("kind") == "push_confirm"
         else _validate_bout_pending_context
         if choice.get("kind") == "bout_keeper_action"
+        else _validate_chase_pending_context
+        if choice.get("kind") == "chase_action"
         else None
     )
     if validator is None:
@@ -1106,6 +1197,14 @@ def _validate_history_terminal_snapshot(
             raise _state_error(f"choice history {choice_id!r} has invalid pushed-roll outcome")
         return
 
+    if kind in CHASE_COMMAND_KINDS:
+        if (
+            snapshot.get("status") != "completed"
+            or snapshot.get("pending_choice") is not None
+            or history_ref not in (snapshot.get("state_refs") or [])
+        ):
+            raise _state_error(f"choice history {choice_id!r} has invalid chase result")
+        return
     if kind not in BOUT_COMMAND_KINDS:
         raise _state_error(f"choice history {choice_id!r} has unsupported terminal kind")
     expected_refs = [
@@ -1292,6 +1391,14 @@ def _validate_state(state: Any) -> dict[str, Any]:
             allowed_actions = {"tick", "end"}
             expected_count = 1
             base_keys = BOUT_CONTEXT_KEYS
+        elif public_choice.get("kind") == "chase_action":
+            expected_keys = set(CHASE_CONTEXT_KEYS) | set(CHASE_HISTORY_EXTRA_KEYS)
+            allowed_actions = {
+                option["action"] for option in public_choice.get("options") or []
+                if isinstance(option, dict) and isinstance(option.get("action"), str)
+            }
+            expected_count = 1
+            base_keys = CHASE_CONTEXT_KEYS
         else:
             raise _state_error(f"choice history {choice_id!r} has unsupported kind")
         if set(entry) != expected_keys:
@@ -1318,7 +1425,10 @@ def _validate_state(state: Any) -> dict[str, Any]:
         expected_command_ids = [ids["confirm_command_id"]]
         expected_kinds = [
             "push_confirm" if public_choice.get("kind") == "push_confirm"
-            else "bout_tick" if action == "tick" else "bout_end"
+            else "bout_tick" if public_choice.get("kind") == "bout_keeper_action" and action == "tick"
+            else "bout_end" if public_choice.get("kind") == "bout_keeper_action"
+            else "chase_barrier" if str(action).startswith("barrier:")
+            else "chase_move"
         ]
         if public_choice.get("kind") == "push_confirm" and action == "confirm":
             expected_command_ids.append(ids["resolve_command_id"])
@@ -2335,6 +2445,10 @@ def _build_inflight(
         command["kind"] in COMBAT_COMMAND_KINDS
         for command, _command_hash in commands_with_hashes
     )
+    structured_chase = any(
+        command["kind"] in CHASE_COMMAND_KINDS
+        for command, _command_hash in commands_with_hashes
+    )
     preimage_relatives: list[str] = []
     if structured_sanity:
         preimage_relatives = [
@@ -2346,6 +2460,13 @@ def _build_inflight(
     if structured_combat:
         for relative in (
             "save/combat.json",
+            f"save/investigator-state/{investigator_id}.json",
+        ):
+            if relative not in preimage_relatives:
+                preimage_relatives.append(relative)
+    if structured_chase:
+        for relative in (
+            "save/chase.json",
             f"save/investigator-state/{investigator_id}.json",
         ):
             if relative not in preimage_relatives:
@@ -2570,6 +2691,58 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                     raise _error("invalid_command_payload", f"{base}.{field}", f"{field} must be a stable ID")
         elif kind == "combat_end" and payload.get("outcome") not in coc_combat.VALID_OUTCOMES - {None}:
             raise _error("invalid_command_payload", f"{base}.outcome", "invalid combat outcome")
+    if kind in CHASE_COMMAND_KINDS:
+        if kind == "chase_start":
+            if not isinstance(payload.get("chase_id"), str) or not _SAFE_ID.fullmatch(payload["chase_id"]):
+                raise _error("invalid_command_payload", f"{base}.chase_id", "chase_id must be a stable ID")
+            participants = payload.get("participants")
+            participant_keys = {
+                "actor_id", "side", "mov", "dex", "con", "hp", "fight",
+                "dodge", "build", "current_position", "conditions",
+            }
+            if not isinstance(participants, list) or len(participants) < 2:
+                raise _error("invalid_command_payload", f"{base}.participants", "chase requires at least two participants")
+            actor_ids: set[str] = set()
+            for offset, participant in enumerate(participants):
+                ppath = f"{base}.participants[{offset}]"
+                if not isinstance(participant, dict) or set(participant) != participant_keys:
+                    raise _error("invalid_command_payload", ppath, "invalid chase participant contract")
+                actor_id = participant.get("actor_id")
+                if not isinstance(actor_id, str) or not _SAFE_ID.fullmatch(actor_id) or actor_id in actor_ids:
+                    raise _error("invalid_command_payload", f"{ppath}.actor_id", "actor ID must be unique and safe")
+                actor_ids.add(actor_id)
+                if participant.get("side") not in {"quarry", "pursuer"}:
+                    raise _error("invalid_command_payload", f"{ppath}.side", "side must be quarry or pursuer")
+                for field in ("mov", "dex", "con", "hp", "fight", "dodge", "build", "current_position"):
+                    value = participant.get(field)
+                    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                        raise _error("invalid_command_payload", f"{ppath}.{field}", "expected non-negative integer")
+                if not isinstance(participant.get("conditions"), list) or any(
+                    value not in coc_combat.VALID_CONDITIONS for value in participant["conditions"]
+                ):
+                    raise _error("invalid_command_payload", f"{ppath}.conditions", "invalid conditions")
+            locations = payload.get("locations")
+            if not isinstance(locations, list) or len(locations) < 2 or any(
+                not isinstance(location, dict) or not isinstance(location.get("label"), str)
+                for location in locations
+            ):
+                raise _error("invalid_command_payload", f"{base}.locations", "chase requires structured locations")
+        else:
+            revision = payload.get("revision")
+            if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+                raise _error("invalid_command_payload", f"{base}.revision", "chase continuation requires a non-negative revision")
+        if kind in {"chase_move", "chase_hazard", "chase_barrier", "chase_conflict"}:
+            for field in ("actor_id", "action_id"):
+                if not isinstance(payload.get(field), str) or not _SAFE_ID.fullmatch(payload[field]):
+                    raise _error("invalid_command_payload", f"{base}.{field}", "stable actor/action ID required")
+        if kind == "chase_barrier" and payload.get("method") not in {"negotiate", "break"}:
+            raise _error("invalid_command_payload", f"{base}.method", "barrier method must be negotiate or break")
+        if kind == "chase_conflict":
+            for field in ("target_actor_id", "combat_command_id"):
+                if not isinstance(payload.get(field), str) or not _SAFE_ID.fullmatch(payload[field]):
+                    raise _error("invalid_command_payload", f"{base}.{field}", "stable conflict evidence ID required")
+        if kind == "chase_end" and payload.get("outcome") not in {"escaped", "captured", "concluded"}:
+            raise _error("invalid_command_payload", f"{base}.outcome", "invalid chase outcome")
     if "bonus_penalty_dice" in payload:
         modifier = payload["bonus_penalty_dice"]
         if (
@@ -3172,6 +3345,58 @@ def _bout_resume_plan_from_state(
     }
 
 
+def _chase_resume_plan_from_state(
+    state: dict[str, Any], investigator_id: str, response: Any,
+) -> dict[str, Any]:
+    if not isinstance(response, dict) or set(response) != {"choice_id", "responder", "revision", "action"}:
+        raise _error("invalid_pending_choice_response", "pending_choice_response", "invalid chase response contract")
+    choice_id = response.get("choice_id")
+    active = state["pending_contexts"].get(choice_id) if isinstance(choice_id, str) else None
+    historical = state["choice_history"].get(choice_id) if isinstance(choice_id, str) else None
+    context = active or historical
+    if not isinstance(context, dict) or context.get("kind") != "chase_action":
+        raise _error("pending_choice_not_found", "pending_choice_response.choice_id", "choice is not a chase action")
+    choice = state["pending_choices"].get(choice_id) if active is not None else historical.get("public_choice")
+    if context.get("investigator_id") != investigator_id or response.get("responder") != "player":
+        raise _error("wrong_pending_choice_responder", "pending_choice_response.responder", "choice belongs to another actor")
+    if response.get("revision") != choice.get("revision"):
+        raise _error("stale_pending_choice_response", "pending_choice_response.revision", "chase choice revision is stale")
+    action = response.get("action")
+    allowed = {option["action"] for option in choice.get("options") or [] if isinstance(option, dict)}
+    if action not in allowed:
+        raise _error("invalid_pending_choice_action", "pending_choice_response.action", "unknown chase action")
+    if historical is not None and (
+        historical.get("terminal_action") != action
+        or historical.get("terminal_revision") != response.get("revision")
+    ):
+        raise _error("stale_pending_choice_response", "pending_choice_response", "choice was consumed differently")
+    ids = _resume_ids(choice_id, int(response["revision"]), str(action))
+    command_id = ids["confirm_command_id"]
+    actor_id = context["actor_id"]
+    if str(action).startswith("barrier:"):
+        parts = str(action).split(":")
+        if len(parts) != 3 or parts[2] not in {"negotiate", "break"}:
+            raise _error("invalid_pending_choice_action", "pending_choice_response.action", "invalid barrier action")
+        kind = "chase_barrier"
+        request = {
+            "command_id": command_id, "kind": kind, "revision": context["revision"],
+            "actor_id": actor_id, "action_id": action, "method": parts[2],
+            "choice_id": choice_id,
+        }
+    else:
+        kind = "chase_move"
+        request = {
+            "command_id": command_id, "kind": kind, "revision": context["revision"],
+            "actor_id": actor_id, "action_id": action, "choice_id": choice_id,
+        }
+    return {
+        "decision_id": ids["decision_id"], "scene_action": "SUBSYSTEM",
+        "rules_requests": [request], "clue_policy": {}, "narrative_directives": {},
+        "rule_signals": {}, "pressure_moves": [], "memory_writes": [],
+        "chase_continuation": {"choice_id": choice_id, "action": action},
+    }
+
+
 def _pending_resume_plan_from_state(
     state: dict[str, Any], investigator_id: str, response: Any
 ) -> dict[str, Any]:
@@ -3184,6 +3409,8 @@ def _pending_resume_plan_from_state(
     )
     if isinstance(context, dict) and context.get("kind") == "bout_keeper_action":
         return _bout_resume_plan_from_state(state, investigator_id, response)
+    if isinstance(context, dict) and context.get("kind") == "chase_action":
+        return _chase_resume_plan_from_state(state, investigator_id, response)
     return _push_resume_plan_from_state(state, investigator_id, response)
 
 
@@ -3970,6 +4197,226 @@ def _healing_session(
     )
 
 
+def _sync_investigator_from_chase(
+    campaign_dir: Path, investigator_id: str, session: Any,
+) -> None:
+    participant = session.participants.get(investigator_id)
+    if not isinstance(participant, dict):
+        return
+    state = _investigator_state(campaign_dir, investigator_id)
+    state["current_hp"] = int(participant.get("hp", state.get("current_hp", 0)))
+    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    coc_fileio.write_json_atomic(path, state, indent=2, ensure_ascii=False)
+
+
+def _load_chase_session(campaign_dir: Path, rng: random.Random) -> Any:
+    path = campaign_dir / "save" / "chase.json"
+    if not path.is_file():
+        raise _error("chase_not_active", "save/chase.json", "no persisted chase exists")
+    try:
+        return coc_chase.ChaseSession.load(path, rng=rng)
+    except (OSError, ValueError) as exc:
+        raise _error("malformed_chase_state", "save/chase.json", str(exc)) from exc
+
+
+def _dispatch_chase(
+    campaign_dir: Path, investigator_id: str, command: dict[str, Any],
+    rng: random.Random, executor_state: dict[str, Any],
+) -> dict[str, Any]:
+    command_id = command["command_id"]
+    kind = command["kind"]
+    payload = command["payload"]
+    chase_path = campaign_dir / "save" / "chase.json"
+    if kind == "chase_start":
+        if chase_path.exists():
+            existing = _load_chase_session(campaign_dir, random.Random(0))
+            if existing.status == "active":
+                raise _error("chase_already_active", "save/chase.json", "end the active chase first")
+        session = coc_chase.ChaseSession(payload["chase_id"], rng=rng)
+        investigator_state = _investigator_state(campaign_dir, investigator_id)
+        for participant in payload["participants"]:
+            if participant["actor_id"] == investigator_id:
+                if int(investigator_state.get("current_hp", participant["hp"])) != participant["hp"]:
+                    raise _error("chase_hp_mismatch", "commands[0].payload.participants", "investigator HP is not authoritative")
+                if list(investigator_state.get("conditions") or []) != participant["conditions"]:
+                    raise _error("chase_condition_mismatch", "commands[0].payload.participants", "investigator conditions are not authoritative")
+            session.add_participant(
+                participant["actor_id"], participant["side"], participant["mov"],
+                participant["dex"], con=participant["con"], hp=participant["hp"],
+                fight=participant["fight"], dodge=participant["dodge"],
+                build=participant["build"], current_position=participant["current_position"],
+            )
+        session.set_location_chain(payload["locations"])
+        session.begin_round()
+        session.save(campaign_dir)
+        event = {
+            "event_type": "chase_started", "chase_id": session.chase_id,
+            "revision": session.revision, "round": session._current_round,
+            "initiative": list(session.rounds[-1]["dex_order"]),
+            "source_command_id": command_id,
+        }
+    else:
+        session = _load_chase_session(campaign_dir, rng)
+        if payload["revision"] != session.revision:
+            raise _error("stale_chase_revision", "commands[0].payload.revision", "chase revision is stale")
+        if session.status != "active":
+            raise _error("chase_not_active", "save/chase.json", "chase is already concluded")
+        choice_id = payload.get("choice_id")
+        history_ref = None
+        if isinstance(choice_id, str):
+            choice = executor_state["pending_choices"].pop(choice_id, None)
+            context = executor_state["pending_contexts"].pop(choice_id, None)
+            if (
+                not isinstance(choice, dict) or not isinstance(context, dict)
+                or context.get("kind") != "chase_action"
+                or context.get("actor_id") != payload.get("actor_id")
+                or context.get("revision") != payload.get("revision")
+                or payload.get("action_id") not in {
+                    option.get("action") for option in choice.get("options") or []
+                    if isinstance(option, dict)
+                }
+            ):
+                raise _error("invalid_pending_resolution_batch", "commands[0]", "chase choice does not match the command")
+            executor_state["choice_history"][choice_id] = {
+                **_json_copy(context), "public_choice": _json_copy(choice),
+                "terminal_action": payload["action_id"],
+                "terminal_revision": choice["revision"],
+                "terminal_command_ids": [command_id], "terminal_commands": [],
+                "terminal_results": [], "terminal_result_receipt_hashes": [],
+            }
+            history_ref = f"save/subsystem-state.json#choice_history/{choice_id}"
+        if kind == "chase_end":
+            session.conclude(payload["outcome"])
+            event = {
+                "event_type": "chase_ended", "chase_id": session.chase_id,
+                "revision": session.revision, "outcome": session.outcome,
+                "scenario_terminal": False, "source_command_id": command_id,
+            }
+        else:
+            actor_id = payload["actor_id"]
+            if actor_id not in session.participants:
+                raise _error("invalid_chase_actor", "commands[0].payload.actor_id", "actor is not in the chase")
+            if kind == "chase_move" and payload["action_id"] == "choice:offer":
+                nxt = session._next_location(session.participants[actor_id]["position"])
+                barrier = nxt.get("barrier") if isinstance(nxt, dict) else None
+                if not isinstance(barrier, dict) or int(barrier.get("hp", 0)) <= 0:
+                    raise _error("no_multiple_chase_actions", "commands[0].payload.action_id", "current chase position has no multi-action choice")
+                barrier_id = barrier.get("barrier_id")
+                options = [
+                    {"action": f"barrier:{barrier_id}:negotiate", "label": f"Negotiate {barrier_id}"},
+                    {"action": f"barrier:{barrier_id}:break", "label": f"Break through {barrier_id}"},
+                ]
+                choice_id = _chase_choice_id(command_id)
+                pending_choice = {
+                    "choice_id": choice_id, "kind": "chase_action",
+                    "command_id": command_id, "responder": "player", "revision": 0,
+                    "prompt": "Choose a legal chase action.", "options": options,
+                }
+                executor_state["pending_contexts"][choice_id] = {
+                    "choice_id": choice_id, "kind": "chase_action",
+                    "investigator_id": investigator_id, "character_id": investigator_id,
+                    "origin_command_id": command_id, "offer_command_id": command_id,
+                    "revision": session.revision, "actor_id": actor_id,
+                    "offer_command": _json_copy(command),
+                }
+                return {
+                    "command_id": command_id, "kind": kind, "status": "pending_choice",
+                    "events": [], "pending_choice": pending_choice,
+                    "state_refs": [f"save/subsystem-state.json#pending_choices/{choice_id}",
+                                   f"save/subsystem-state.json#pending_contexts/{choice_id}"],
+                }
+            if kind == "chase_move":
+                if payload["action_id"] != "move:advance":
+                    raise _error("untrusted_chase_action", "commands[0].payload.action_id", "unknown move action ID")
+                nxt = session._next_location(session.participants[actor_id]["position"])
+                if isinstance(nxt, dict) and (nxt.get("hazard") or (nxt.get("barrier") and int(nxt["barrier"].get("hp", 0)) > 0)):
+                    raise _error("illegal_chase_action", "commands[0].payload.action_id", "advance cannot bypass a hazard or barrier")
+                action = session.move_participant(actor_id, [{"type": "advance"}])["actions_taken"][0]
+                event_type = "chase_moved"
+            elif kind == "chase_hazard":
+                nxt = session._next_location(session.participants[actor_id]["position"])
+                hazard = nxt.get("hazard") if isinstance(nxt, dict) else None
+                expected_id = f"hazard:{hazard.get('hazard_id')}" if isinstance(hazard, dict) else None
+                if payload["action_id"] != expected_id:
+                    raise _error("untrusted_chase_action", "commands[0].payload.action_id", "action does not identify the next hazard")
+                action = session.move_participant(actor_id, [{
+                    "type": "advance", "skill": payload.get("skill"),
+                    "target": payload.get("target"), "difficulty": payload.get("difficulty", "regular"),
+                }])["actions_taken"][0]
+                event_type = "chase_hazard_resolved"
+            elif kind == "chase_barrier":
+                nxt = session._next_location(session.participants[actor_id]["position"])
+                barrier = nxt.get("barrier") if isinstance(nxt, dict) else None
+                suffix = payload["method"]
+                expected_id = f"barrier:{barrier.get('barrier_id')}:{suffix}" if isinstance(barrier, dict) else None
+                if payload["action_id"] != expected_id:
+                    raise _error("untrusted_chase_action", "commands[0].payload.action_id", "action does not identify the next barrier")
+                action = session.move_participant(actor_id, [{
+                    "type": "barrier" if suffix == "negotiate" else "break_barrier",
+                    "skill": payload.get("skill"), "target": payload.get("target"),
+                    "difficulty": payload.get("difficulty", "regular"),
+                }])["actions_taken"][0]
+                event_type = "chase_barrier_resolved"
+            else:
+                target_id = payload["target_actor_id"]
+                if payload["action_id"] != f"conflict:{target_id}":
+                    raise _error("untrusted_chase_action", "commands[0].payload.action_id", "conflict action ID is not canonical")
+                combat_command_id = payload["combat_command_id"]
+                combat_result = executor_state["result_snapshots"].get(combat_command_id)
+                if not isinstance(combat_result, dict) or combat_result.get("kind") != "combat_defend":
+                    raise _error("untrusted_combat_evidence", "commands[0].payload.combat_command_id", "conflict requires a canonical combat defense result")
+                combat_event = (combat_result.get("events") or [{}])[0]
+                combat_turn = combat_event.get("turn") if isinstance(combat_event, dict) else None
+                if (
+                    not isinstance(combat_turn, dict)
+                    or combat_turn.get("actor_id") != actor_id
+                    or combat_turn.get("target_actor_id") != target_id
+                    or combat_event.get("source_command_id") != combat_command_id
+                ):
+                    raise _error("untrusted_combat_evidence", "commands[0].payload.combat_command_id", "combat receipt actors do not match the chase conflict")
+                combat = _load_combat_session(campaign_dir, rng=random.Random(0), investigator_id=investigator_id)
+                action = session.record_external_conflict(
+                    actor_id, target_id, combat_command_id=combat_command_id,
+                    combat_revision=combat.revision,
+                    hp_after={aid: int(row["hp_current"]) for aid, row in combat.participants.items()},
+                )
+                event_type = "chase_conflict_resolved"
+            rolls = session.drain_pending()
+            event = {
+                **_json_copy(action), "event_type": event_type,
+                "chase_id": session.chase_id, "revision": session.revision,
+                "source_command_id": command_id,
+            }
+            if rolls:
+                roll = rolls[0]
+                event.update({
+                    "roll_id": roll.get("roll_id"), "skill": roll.get("skill"),
+                    "target": roll.get("target"), "roll": roll.get("roll"),
+                    "outcome": roll.get("outcome"),
+                })
+            session.check_outcome()
+            event["revision"] = session.revision
+            if session.status == "concluded":
+                event["chase_outcome"] = session.outcome
+            if session.status == "active" and session.initiative_cursor == len(session.rounds[-1]["dex_order"]):
+                session.begin_round()
+                event["next_round"] = session._current_round
+                event["revision"] = session.revision
+        session.save(campaign_dir)
+        _sync_investigator_from_chase(campaign_dir, investigator_id, session)
+    refs = ["save/chase.json"]
+    if investigator_id in session.participants:
+        refs.append(f"save/investigator-state/{investigator_id}.json#current_hp")
+    if isinstance(event.get("roll_id"), str):
+        refs.append(f"logs/rolls.jsonl#{command_id}")
+    if 'history_ref' in locals() and history_ref is not None:
+        refs.append(history_ref)
+    return {
+        "command_id": command_id, "kind": kind, "status": "completed",
+        "events": [event], "pending_choice": None, "state_refs": refs,
+    }
+
+
 def _dispatch_combat(
     campaign_dir: Path,
     character: dict[str, Any],
@@ -4266,6 +4713,10 @@ def _dispatch(
 ) -> dict[str, Any]:
     command_id = command["command_id"]
     kind = command["kind"]
+    if kind in CHASE_COMMAND_KINDS:
+        return _dispatch_chase(
+            campaign_dir, investigator_id, command, rng, state
+        )
     if kind in COMBAT_COMMAND_KINDS:
         assert character is not None
         return _dispatch_combat(
@@ -4773,15 +5224,27 @@ def _preflight_pending_resolution_batch(
         return False
     commands = [command for command, _command_hash in commands_with_hashes]
     first = commands[0]
-    if first["kind"] not in {"push_confirm", "bout_tick", "bout_end"}:
+    chase_resolution = (
+        first["kind"] in CHASE_COMMAND_KINDS
+        and isinstance(first.get("payload"), dict)
+        and isinstance(first["payload"].get("choice_id"), str)
+    )
+    if first["kind"] not in {"push_confirm", "bout_tick", "bout_end"} and not chase_resolution:
         return False
     payload = first["payload"]
-    response = {
-        "choice_id": payload.get("choice_id"),
-        "responder": payload.get("responder"),
-        "revision": payload.get("revision"),
-        "action": payload.get("action"),
-    }
+    if chase_resolution:
+        choice = state["pending_choices"].get(payload.get("choice_id")) or {}
+        response = {
+            "choice_id": payload.get("choice_id"), "responder": "player",
+            "revision": choice.get("revision"), "action": payload.get("action_id"),
+        }
+    else:
+        response = {
+            "choice_id": payload.get("choice_id"),
+            "responder": payload.get("responder"),
+            "revision": payload.get("revision"),
+            "action": payload.get("action"),
+        }
     expected_plan = _pending_resume_plan_from_state(state, investigator_id, response)
     expected_commands = commands_from_rules_requests(expected_plan)
     if not _json_deep_equal(commands, expected_commands):

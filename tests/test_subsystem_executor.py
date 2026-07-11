@@ -125,6 +125,122 @@ def _set_high_san_and_int(character: Path) -> None:
     character.write_text(json.dumps(sheet), encoding="utf-8")
 
 
+def _chase_start(command_id: str = "chase-start") -> dict:
+    return _command(command_id, "chase_start", phase="start", payload={
+        "decision_id": "chase-journey", "chase_id": "roof-run",
+        "participants": [
+            {"actor_id": "inv1", "side": "quarry", "mov": 8, "dex": 70,
+             "con": 60, "hp": 10, "fight": 60, "dodge": 40,
+             "build": 0, "current_position": 0, "conditions": []},
+            {"actor_id": "cultist", "side": "pursuer", "mov": 8, "dex": 50,
+             "con": 50, "hp": 9, "fight": 45, "dodge": 25,
+             "build": 0, "current_position": 0, "conditions": []},
+        ],
+        "locations": [
+            {"label": "roof", "hazard": None, "barrier": None},
+            {"label": "skylight", "hazard": {"hazard_id": "glass", "skill": "DEX", "target": 100, "difficulty": "regular", "damage_dice": "1D3"}, "barrier": None},
+            {"label": "door", "hazard": None, "barrier": {"barrier_id": "door", "hp": 4, "hp_max": 4, "skill": "Climb", "target": 100}},
+            {"label": "escape", "hazard": None, "barrier": None},
+        ],
+    })
+
+
+def test_chase_commands_persist_reload_replay_and_conclude(tmp_path):
+    executor = _executor("coc_subsystem_executor_chase_journey")
+    campaign, character = _campaign_and_character(tmp_path)
+    investigator = json.loads((campaign / "save" / "investigator-state" / "inv1.json").read_text())
+    investigator.update({"current_hp": 10, "conditions": []})
+    (campaign / "save" / "investigator-state" / "inv1.json").write_text(json.dumps(investigator))
+    start = _chase_start()
+    started = executor.execute_commands(campaign, character, "inv1", [start], rng=random.Random(4))
+    assert started[0]["events"][0]["event_type"] == "chase_started"
+    chase_path = campaign / "save" / "chase.json"
+    saved = json.loads(chase_path.read_text())
+    assert saved["revision"] == 1
+
+    hazard = _command("chase-hazard", "chase_hazard", payload={
+        "decision_id": "chase-journey", "revision": 1, "actor_id": "inv1",
+        "action_id": "hazard:glass", "skill": "DEX", "target": 100,
+    })
+    resolved = executor.execute_commands(campaign, character, "inv1", [hazard], rng=random.Random(5))
+    assert resolved[0]["events"][0]["event_type"] == "chase_hazard_resolved"
+    assert json.loads(chase_path.read_text())["participants"][0]["position"] == 1
+    before = chase_path.read_bytes()
+    replay = executor.execute_commands(campaign, character, "inv1", [hazard], rng=random.Random(999))
+    assert replay == resolved
+    assert chase_path.read_bytes() == before
+
+    pursuer = _command("chase-pursuer-move", "chase_hazard", payload={
+        "decision_id": "chase-journey", "revision": 2, "actor_id": "cultist",
+        "action_id": "hazard:glass", "skill": "DEX", "target": 100,
+    })
+    executor.execute_commands(campaign, character, "inv1", [pursuer], rng=random.Random(6))
+    barrier = _command("chase-barrier", "chase_barrier", payload={
+        "decision_id": "chase-journey", "revision": 4, "actor_id": "inv1",
+        "action_id": "barrier:door:negotiate", "method": "negotiate",
+        "skill": "Climb", "target": 100,
+    })
+    barrier_result = executor.execute_commands(campaign, character, "inv1", [barrier], rng=random.Random(7))
+    assert barrier_result[0]["events"][0]["event_type"] == "chase_barrier_resolved"
+    executor.execute_commands(campaign, character, "inv1", [_command(
+        "chase-pursuer-two", "chase_barrier", payload={"decision_id": "chase-journey", "revision": 5,
+        "actor_id": "cultist", "action_id": "barrier:door:negotiate", "method": "negotiate",
+        "skill": "Climb", "target": 100})], rng=random.Random(8))
+    ended = executor.execute_commands(campaign, character, "inv1", [_command(
+        "chase-end", "chase_end", phase="end", payload={"decision_id": "chase-journey",
+        "revision": 7, "outcome": "escaped"})], rng=random.Random(9))
+    assert ended[0]["events"][0]["event_type"] == "chase_ended"
+    assert json.loads(chase_path.read_text())["outcome"] == "escaped"
+
+
+def test_chase_rejects_stale_revision_and_untrusted_action_id_without_mutation(tmp_path):
+    executor = _executor("coc_subsystem_executor_chase_guard")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv = json.loads((campaign / "save" / "investigator-state" / "inv1.json").read_text())
+    inv.update({"current_hp": 10, "conditions": []})
+    (campaign / "save" / "investigator-state" / "inv1.json").write_text(json.dumps(inv))
+    executor.execute_commands(campaign, character, "inv1", [_chase_start()], rng=random.Random(1))
+    path = campaign / "save" / "chase.json"
+    before = path.read_bytes()
+    bad = _command("bad-chase", "chase_move", payload={
+        "revision": 0, "actor_id": "inv1", "action_id": "invented-action",
+    })
+    with pytest.raises(executor.SubsystemExecutorError):
+        executor.execute_commands(campaign, character, "inv1", [bad], rng=random.Random(2))
+    assert path.read_bytes() == before
+
+
+def test_chase_multiple_actions_use_player_safe_typed_pending_choice(tmp_path):
+    executor = _executor("coc_subsystem_executor_chase_choice")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv = json.loads((campaign / "save" / "investigator-state" / "inv1.json").read_text())
+    inv.update({"current_hp": 10, "conditions": []})
+    (campaign / "save" / "investigator-state" / "inv1.json").write_text(json.dumps(inv))
+    start = _chase_start()
+    start["payload"]["locations"] = [start["payload"]["locations"][0], start["payload"]["locations"][2]]
+    executor.execute_commands(campaign, character, "inv1", [start], rng=random.Random(1))
+    offer = _command("chase-choice", "chase_move", payload={
+        "decision_id": "chase-choice", "revision": 1, "actor_id": "inv1",
+        "action_id": "choice:offer",
+    })
+    offered = executor.execute_commands(campaign, character, "inv1", [offer], rng=random.Random(2))[0]
+    choice = offered["pending_choice"]
+    assert choice["responder"] == "player"
+    assert choice["options"] == [
+        {"action": "barrier:door:negotiate", "label": "Negotiate door"},
+        {"action": "barrier:door:break", "label": "Break through door"},
+    ]
+    assert "target" not in json.dumps(choice)
+    response = {"choice_id": choice["choice_id"], "responder": "player",
+                "revision": 0, "action": "barrier:door:negotiate"}
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    commands = executor.commands_from_rules_requests(plan)
+    result = executor.execute_commands(campaign, character, "inv1", commands, rng=random.Random(3))[0]
+    assert result["kind"] == "chase_barrier"
+    assert executor.get_current_pending_choice(campaign) is None
+    assert executor.plan_from_pending_choice_response(campaign, "inv1", response) == plan
+
+
 def _keeper_response(choice: dict, action: str = "tick") -> dict:
     return {
         "choice_id": choice["choice_id"],

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import random
+import json
 from pathlib import Path
 
 import pytest
@@ -664,3 +665,59 @@ def test_load_restores_session(tmp_path):
     assert loaded.chase_id == c.chase_id
     assert loaded.participants["ada"]["position"] == c.participants["ada"]["position"]
     assert len(loaded.location_chain) == len(c.location_chain)
+
+
+def test_persisted_chase_schema_restores_revision_cursor_and_counters(tmp_path):
+    c = _make_chase(seed=9)
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+    c.set_location_chain([{"label": "start"}, {"label": "escape"}])
+    c.begin_round()
+    c.move_participant("ada", [{"type": "advance"}])
+    path = c.save(tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["schema_version"] == 2
+    assert raw["revision"] == 2
+    assert raw["initiative_cursor"] == 1
+    assert raw["roll_counter"] == 0
+    assert raw["turn_counter"] == 1
+    loaded = coc_chase.ChaseSession.load(path, rng=random.Random(9))
+    assert loaded.revision == 2
+    assert loaded.initiative_cursor == 1
+    assert loaded._turn_counter == 1
+
+
+def test_chase_rejects_out_of_order_actor_and_action_budget_overrun():
+    c = _make_chase()
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+    c.set_location_chain([{"label": "start"}, {"label": "middle"}, {"label": "escape"}])
+    c.begin_round()
+    with pytest.raises(ValueError, match="initiative"):
+        c.move_participant("cultist", [{"type": "advance"}])
+    with pytest.raises(ValueError, match="budget"):
+        c.move_participant("ada", [{"type": "advance"}, {"type": "advance"}])
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda state: state.update({"schema_version": 99}),
+        lambda state: state.update({"revision": -1}),
+        lambda state: state.update({"initiative_cursor": 99}),
+        lambda state: state["participants"][0].update({"movement_actions_remaining": -1}),
+        lambda state: state["rounds"][0].update({"dex_order": ["unknown"]}),
+    ],
+)
+def test_chase_load_fails_closed_for_invalid_persisted_invariants(tmp_path, mutate):
+    c = _make_chase()
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+    c.set_location_chain([{"label": "start"}, {"label": "escape"}])
+    c.begin_round()
+    path = c.save(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    mutate(state)
+    path.write_text(json.dumps(state), encoding="utf-8")
+    with pytest.raises(ValueError, match="chase snapshot"):
+        coc_chase.ChaseSession.load(path)

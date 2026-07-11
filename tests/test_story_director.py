@@ -1183,6 +1183,31 @@ def test_director_emits_typed_defense_for_persisted_pending_attack(tmp_path):
     }]
 
 
+def test_director_emits_chase_action_only_from_structured_semantic_evidence():
+    ctx = {
+        "combat_state": {}, "chase_state": {"active": True, "revision": 7},
+        "player_intent_rich": {"primary_intent": "flee", "chase_action": {
+            "kind": "barrier", "revision": 7, "actor_id": "inv1",
+            "action_id": "barrier:door:negotiate", "method": "negotiate",
+            "skill": "Climb", "target": 60,
+        }},
+        "active_scene": {}, "world_state": {}, "player_intent_class": "flee",
+        "threat_fronts": {"fronts": []}, "rule_signals": {"bout_active": False, "hp_state": "healthy"},
+        "investigator_id": "inv1",
+    }
+    assert coc_story_director._build_rules_requests(ctx, "PRESSURE") == [{
+        "kind": "chase_barrier", "revision": 7, "actor_id": "inv1",
+        "action_id": "barrier:door:negotiate", "method": "negotiate",
+        "skill": "Climb", "target": 60,
+        "reason": "structured semantic chase action",
+    }]
+    ctx["player_intent_rich"] = {"primary_intent": "flee"}
+    assert not any(
+        row.get("kind", "").startswith("chase_")
+        for row in coc_story_director._build_rules_requests(ctx, "PRESSURE")
+    )
+
+
 def test_rule_override_fumble_forces_pressure(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     ctx = coc_story_director.build_director_context(
