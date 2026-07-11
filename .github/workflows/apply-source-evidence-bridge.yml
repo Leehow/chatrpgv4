@@ -1,0 +1,44 @@
+name: apply-source-evidence-bridge
+
+on:
+  push:
+    branches:
+      - feature/scenario-epistemic-blueprint-completion
+    paths:
+      - .github/source-evidence-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/scenario-epistemic-blueprint-completion
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: python -m pip install pytest pypdf
+      - name: Apply source evidence patch
+        run: python scripts/apply_source_evidence_compile_patch.py
+      - name: Run focused source evidence tests
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest
+          tests/test_source_evidence_bridge.py
+          tests/test_pdf_cache.py
+          tests/test_scenario.py
+          tests/test_scenario_compile.py
+          -q -p no:cacheprovider
+      - name: Run full test suite
+        run: PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugins/coc-keeper/scripts/coc_scenario_compile.py tests/test_pdf_cache.py
+          git commit -m "feat(compiler): validate source evidence bundles"
+          git push origin HEAD:feature/scenario-epistemic-blueprint-completion
