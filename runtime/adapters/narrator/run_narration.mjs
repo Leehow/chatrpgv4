@@ -27,7 +27,8 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const require = createRequire(
   path.join(__dirname, "node_modules/@earendil-works/pi-coding-agent/package.json"),

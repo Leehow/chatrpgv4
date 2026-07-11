@@ -338,6 +338,23 @@ def critical_source_allowed(
         source = _source_for_ref(ref, page_map) or {}
         page_hash = source.get("file_sha256")
         range_hash = range_record.get("file_sha256")
+        source_path_text = str(source.get("path") or "").strip()
+        source_path = Path(source_path_text) if source_path_text else None
+        if source_path is not None and source_path.is_file():
+            current_hash = sha256_file(source_path)
+            if (
+                not isinstance(page_hash, str)
+                or not page_hash.strip()
+                or not isinstance(range_hash, str)
+                or not range_hash.strip()
+                or current_hash != page_hash.strip()
+                or current_hash != range_hash.strip()
+            ):
+                ref_findings.append(_finding(
+                    "stale_source_hash",
+                    "existing source file is not exactly bound to page-map and parse-manifest hashes",
+                    ref,
+                ))
         if page_hash and range_hash and page_hash != range_hash:
             ref_findings.append(_finding("stale_source_hash", "page map and parse manifest file hashes differ", ref))
         segments = _segments_for_locator(locator, evidence_segments)

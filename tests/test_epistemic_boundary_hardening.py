@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 SCRIPTS = Path("plugins/coc-keeper/scripts").resolve()
 if str(SCRIPTS) not in sys.path:
@@ -175,6 +177,63 @@ def test_critical_source_rejects_unreviewed_evidence_segment():
 
 def test_critical_source_rejects_tampered_segment_text_hash():
     ref, page_map, manifest, segments = _source_inputs(segment_hash="0" * 64)
+
+    result = coc_pdf_source.critical_source_allowed(
+        [ref], manifest, segments, page_map=page_map
+    )
+
+    assert result["allowed"] is False
+    assert "stale_source_hash" in {finding["code"] for finding in result["findings"]}
+
+
+def test_critical_source_binds_existing_file_to_declared_hashes(tmp_path):
+    source_path = tmp_path / "module.pdf"
+    source_path.write_bytes(b"current module bytes")
+    actual = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    ref, page_map, manifest, segments = _source_inputs()
+    page_map["sources"][0]["path"] = str(source_path)
+    page_map["sources"][0]["file_sha256"] = actual
+    manifest["ranges"][0]["file_sha256"] = actual
+
+    result = coc_pdf_source.critical_source_allowed(
+        [ref], manifest, segments, page_map=page_map
+    )
+
+    assert result["allowed"] is True
+
+
+@pytest.mark.parametrize("missing_binding", ["page_map", "parse_manifest"])
+def test_critical_source_holds_existing_file_without_exact_hash_binding(
+    tmp_path, missing_binding
+):
+    source_path = tmp_path / "module.pdf"
+    source_path.write_bytes(b"current module bytes")
+    actual = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    ref, page_map, manifest, segments = _source_inputs()
+    page_map["sources"][0]["path"] = str(source_path)
+    page_map["sources"][0]["file_sha256"] = actual
+    manifest["ranges"][0]["file_sha256"] = actual
+    if missing_binding == "page_map":
+        page_map["sources"][0].pop("file_sha256")
+    else:
+        manifest["ranges"][0].pop("file_sha256")
+
+    result = coc_pdf_source.critical_source_allowed(
+        [ref], manifest, segments, page_map=page_map
+    )
+
+    assert result["allowed"] is False
+    assert "stale_source_hash" in {finding["code"] for finding in result["findings"]}
+
+
+def test_critical_source_holds_existing_file_after_bytes_change(tmp_path):
+    source_path = tmp_path / "module.pdf"
+    source_path.write_bytes(b"original module bytes")
+    original = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    ref, page_map, manifest, segments = _source_inputs()
+    page_map["sources"][0].update(path=str(source_path), file_sha256=original)
+    manifest["ranges"][0]["file_sha256"] = original
+    source_path.write_bytes(b"tampered module bytes")
 
     result = coc_pdf_source.critical_source_allowed(
         [ref], manifest, segments, page_map=page_map

@@ -52,13 +52,17 @@ jobs:
           node-version: "22.19.0"
           cache: npm
           cache-dependency-path: |
+            runtime/adapters/narrator/package-lock.json
             runtime/adapters/pi/package-lock.json
             runtime/adapters/player/package-lock.json
       - name: Install adapter and contract dependencies
         run: |
           python -m pip install pytest
+          npm ci --prefix runtime/adapters/narrator
           npm ci --prefix runtime/adapters/pi
           npm ci --prefix runtime/adapters/player
+      - name: Smoke narrator module load and JSONL framing without credentials
+        run: npm test --prefix runtime/adapters/narrator
       - name: Run adapter contract tests
         run: >-
           PYTHONDONTWRITEBYTECODE=1 python -m pytest

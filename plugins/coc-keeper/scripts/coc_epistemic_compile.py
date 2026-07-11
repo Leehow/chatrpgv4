@@ -323,9 +323,34 @@ def validate_compile_result(
     errors: list[str] = []
     if not isinstance(result, dict):
         return ["compile result must be an object"]
+    required_root = {
+        "schema_version",
+        "evaluator_id",
+        "evaluation_provenance",
+        "epistemic_graph",
+        "reveal_contracts",
+        "compile_confidence",
+        "reasons",
+    }
+    missing = sorted(required_root - set(result))
+    unexpected = sorted(set(result) - required_root)
+    for key in missing:
+        errors.append(f"missing required root field: {key}")
+    if unexpected:
+        errors.append(f"unexpected root fields: {', '.join(unexpected)}")
+    schema_version = result.get("schema_version")
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != 1
+    ):
+        errors.append("schema_version must be the integer 1")
     if result.get("evaluator_id") != EVALUATOR_ID:
         errors.append(f"evaluator_id must be {EVALUATOR_ID!r}")
-    provenance = result.get("evaluation_provenance") or {}
+    provenance = result.get("evaluation_provenance")
+    if not isinstance(provenance, dict):
+        errors.append("evaluation_provenance must be an object")
+        provenance = {}
     if provenance.get("kind") != "llm":
         errors.append("evaluation_provenance.kind must be 'llm'")
     if provenance.get("request_sha256") != request_sha256(request):

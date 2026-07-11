@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 SCRIPTS = Path("plugins/coc-keeper/scripts").resolve()
 if str(SCRIPTS) not in sys.path:
@@ -233,6 +235,93 @@ def test_compile_result_rejects_stale_request_sha(tmp_path):
     }
     errors = coc_epistemic_compile.validate_compile_result(request, result)
     assert any("request_sha256" in error for error in errors)
+
+
+@pytest.mark.parametrize("bad_version", [True, "1", None, 2, 999])
+def test_compile_result_rejects_non_exact_schema_version(tmp_path, bad_version):
+    scenario = _valid_scenario(tmp_path)
+    request = coc_epistemic_compile.build_compile_request(scenario)
+    graph, contracts, confidence = _sidecars()
+    result = {
+        "schema_version": bad_version,
+        "evaluator_id": "codex-epistemic-compiler-v1",
+        "evaluation_provenance": {
+            "kind": "llm",
+            "request_sha256": coc_epistemic_compile.request_sha256(request),
+            "reviewed_artifact": "epistemic-compile-request.json",
+        },
+        "epistemic_graph": graph,
+        "reveal_contracts": contracts,
+        "compile_confidence": confidence,
+        "reasons": {"q-motive": "source-backed motive question", "rc-motive": "fair reframe"},
+    }
+
+    errors = coc_epistemic_compile.validate_compile_result(request, result)
+    installed = coc_epistemic_compile.install_compile_result(scenario, request, result)
+
+    assert any("schema_version" in error for error in errors)
+    assert installed["installed"] is False
+
+
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        "schema_version",
+        "evaluator_id",
+        "evaluation_provenance",
+        "epistemic_graph",
+        "reveal_contracts",
+        "compile_confidence",
+        "reasons",
+    ],
+)
+def test_compile_result_rejects_missing_root_field(tmp_path, missing_key):
+    scenario = _valid_scenario(tmp_path)
+    request = coc_epistemic_compile.build_compile_request(scenario)
+    graph, contracts, confidence = _sidecars()
+    result = {
+        "schema_version": 1,
+        "evaluator_id": "codex-epistemic-compiler-v1",
+        "evaluation_provenance": {
+            "kind": "llm",
+            "request_sha256": coc_epistemic_compile.request_sha256(request),
+            "reviewed_artifact": "epistemic-compile-request.json",
+        },
+        "epistemic_graph": graph,
+        "reveal_contracts": contracts,
+        "compile_confidence": confidence,
+        "reasons": {"q-motive": "source-backed motive question", "rc-motive": "fair reframe"},
+    }
+    result.pop(missing_key)
+
+    errors = coc_epistemic_compile.validate_compile_result(request, result)
+
+    assert errors
+    assert any(missing_key in error for error in errors)
+
+
+def test_compile_result_rejects_unknown_root_field(tmp_path):
+    scenario = _valid_scenario(tmp_path)
+    request = coc_epistemic_compile.build_compile_request(scenario)
+    graph, contracts, confidence = _sidecars()
+    result = {
+        "schema_version": 1,
+        "evaluator_id": "codex-epistemic-compiler-v1",
+        "evaluation_provenance": {
+            "kind": "llm",
+            "request_sha256": coc_epistemic_compile.request_sha256(request),
+            "reviewed_artifact": "epistemic-compile-request.json",
+        },
+        "epistemic_graph": graph,
+        "reveal_contracts": contracts,
+        "compile_confidence": confidence,
+        "reasons": {"q-motive": "source-backed motive question", "rc-motive": "fair reframe"},
+        "raw_module_prose": "must never be accepted",
+    }
+
+    errors = coc_epistemic_compile.validate_compile_result(request, result)
+
+    assert any("unexpected" in error for error in errors)
 
 
 def test_install_compile_result_writes_all_three_sidecars(tmp_path):

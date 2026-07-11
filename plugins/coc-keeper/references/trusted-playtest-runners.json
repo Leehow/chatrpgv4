@@ -17,7 +17,7 @@
       "kind": "external_model_bridge",
       "identity": "coc-runtime-narrator-adapter@0.79.9",
       "path": "runtime/adapters/narrator/run_narration.mjs",
-      "sha256": "581184c0a70f9dcd3aae4dbb28458d3f6a65be65a8eb3569d45d1a46c222a26a",
+      "sha256": "653050249bb2af7cdd6786796cc2e07a1a4766dcc64ad241dfde4e0bf2541107",
       "package_identity": {
         "name": "@earendil-works/pi-coding-agent",
         "version": "0.79.9"

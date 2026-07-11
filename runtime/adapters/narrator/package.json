@@ -2,6 +2,9 @@
   "name": "coc-runtime-narrator-adapter",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "node smoke_test.mjs"
+  },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.79.9"
   }
