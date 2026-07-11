@@ -31,12 +31,14 @@ def test_catalog_pdfs_reports_page_counts(tmp_path):
     write_blank_pdf(pdf_dir / "module.pdf", pages=3)
 
     catalog = coc_scenario.catalog_pdfs(pdf_dir)
-    assert catalog == [{
-        "filename": "module.pdf",
-        "path": str(pdf_dir / "module.pdf"),
-        "page_count": 3,
-        "title": None,
-    }]
+
+    assert len(catalog) == 1
+    assert catalog[0]["source_id"] == "pdf:module"
+    assert catalog[0]["filename"] == "module.pdf"
+    assert catalog[0]["path"] == str(pdf_dir / "module.pdf")
+    assert catalog[0]["page_count"] == 3
+    assert catalog[0]["title"] is None
+    assert len(catalog[0]["file_sha256"]) == 64
 
 
 def test_create_scenario_skeleton_writes_required_files(tmp_path):
