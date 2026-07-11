@@ -1,6 +1,9 @@
 name: epistemic-completion-diagnostics
 
 on:
+  pull_request:
+    branches:
+      - feature/scenario-epistemic-director-v1
   push:
     branches:
       - feature/scenario-epistemic-blueprint-completion
