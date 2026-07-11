@@ -45,3 +45,34 @@ def test_complete_different_fact_evidence_passes():
     )
     assert audit["passed"] is True
     assert audit["evidence_eligible"] is True
+
+
+@pytest.mark.parametrize("evidence,reason", [
+    ([{"asserted_ref": "fact-a", "forbidden_ref": "secret-a",
+       "decision": "different_fact", "reason": "distinct"}], "missing_pair"),
+    ([{"asserted_ref": "fact-a", "forbidden_ref": "secret-a",
+       "decision": "different_fact", "reason": "distinct"}] * 2, "duplicate_pair"),
+    ([{"asserted_ref": "fact-x", "forbidden_ref": "secret-a",
+       "decision": "different_fact", "reason": "distinct"}], "unexpected_pair"),
+])
+def test_semantic_coverage_must_be_exact_cartesian_product(evidence, reason):
+    audit = _load().audit_secret_claims(
+        ["secret-a", "secret-b"], ["fact-a"], evidence,
+    )
+    assert audit["passed"] is False
+    assert any(item["reason"] == reason for item in audit["malformed_evidence"])
+
+
+def test_audit_receipt_is_canonical_and_recomputable():
+    mod = _load()
+    receipt = mod.audit_secret_claims(
+        ["secret-a"], ["fact-a"],
+        [{"asserted_ref": "fact-a", "forbidden_ref": "secret-a",
+          "decision": "different_fact", "reason": "independent evaluator result"}],
+    )
+    assert receipt["status"] == "passed"
+    assert receipt["coverage"]["expected_pair_count"] == 1
+    assert len(receipt["coverage_digest"]) == 64
+    assert mod.validate_audit_receipt(receipt)["valid"] is True
+    forged = {**receipt, "coverage_digest": "0" * 64}
+    assert mod.validate_audit_receipt(forged)["valid"] is False

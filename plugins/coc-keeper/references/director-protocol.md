@@ -14,13 +14,18 @@ overrides are superseded by scene overrides.
 `coc_director_strategies.py` owns deterministic `time_loop` and
 `multi_faction` state. Apply persists strategy state in
 `save/director-strategy-state.json`; unsupported `special_mechanics` produce
-explicit capability findings. Strategies consume structured values only.
+explicit capability findings. Persisted state is schema-versioned and
+canonical; malformed roots/IDs and duplicate faction IDs fail closed before
+apply. Strategies consume structured values only.
 
 External narrators return `asserted_fact_refs` and `semantic_audit` with exact
 `same_fact`, `different_fact`, or `uncertain` decisions and reasons. Direct
 matches, same-fact matches, uncertainty, missing evidence, or malformed
 evidence use a recorded template fallback. `final_text` is never scanned to
-classify secret meaning.
+classify secret meaning. Coverage must contain exactly one record for every
+asserted×forbidden pair. The repository-owned auditor computes a canonical
+receipt and coverage digest; narrator `external_success` is evidence-eligible
+only when that receipt can be recomputed from the invocation ledger.
 
 ## DirectorPlan Fields
 

@@ -101,6 +101,21 @@ def test_apply_reveal_adds_clue_to_discovered(tmp_path):
     assert any("clue-A" in e.get("summary", "") or "reveal" in e.get("event_type", "") for e in events)
 
 
+def test_apply_does_not_persist_noncanonical_strategy_state(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-bad-strategy", "scene_action": "PRESSURE",
+        "clue_policy": {"reveal": []}, "pressure_moves": [],
+        "memory_writes": [], "rule_signals": {},
+        "director_strategy_state": {
+            "schema_version": 1, "strategy_type": "multi_faction",
+            "ranked_faction_ids": ["cult", "cult"],
+        },
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    assert not (camp / "save" / "director-strategy-state.json").exists()
+
+
 def test_apply_rejects_untrusted_normalized_result_before_state_mutation(tmp_path):
     camp = _campaign(tmp_path)
     plan = {

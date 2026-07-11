@@ -55,6 +55,9 @@ coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
+coc_director_strategies = _load_sibling(
+    "coc_director_strategies_apply", "coc_director_strategies.py"
+)
 coc_subsystem_executor = _load_sibling(
     "coc_subsystem_executor_director_apply",
     "coc_subsystem_executor.py",
@@ -1845,11 +1848,14 @@ def apply_plan(
 
     strategy_state = plan.get("director_strategy_state")
     if isinstance(strategy_state, dict) and strategy_state:
-        _write_json(save_dir / "director-strategy-state.json", {
-            "schema_version": 1,
-            **strategy_state,
-            "last_decision_id": decision_id,
-        })
+        canonical_strategy, strategy_findings = (
+            coc_director_strategies.validate_strategy_state(strategy_state)
+        )
+        if canonical_strategy is not None and not strategy_findings:
+            _write_json(save_dir / "director-strategy-state.json", {
+                **canonical_strategy,
+                "last_decision_id": decision_id,
+            })
 
     mode = "sync"
     flush_policy = "manual"

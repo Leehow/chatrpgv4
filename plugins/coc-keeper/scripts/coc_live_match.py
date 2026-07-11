@@ -293,9 +293,10 @@ def _invocation_row(
     model_identity: Any,
     response_mode: Any,
     fallback_kind: str | None,
+    secret_audit_receipt: Any = None,
 ) -> dict[str, Any]:
     observed = playtest_evidence.observe_runner(run_dir, role, runner_path)
-    return {
+    row = {
         "schema_version": 1,
         "role": role,
         "attempt": attempt,
@@ -309,6 +310,9 @@ def _invocation_row(
         "response_mode": response_mode,
         "fallback_kind": fallback_kind,
     }
+    if role == "narrator" and isinstance(secret_audit_receipt, dict):
+        row["secret_audit"] = json.loads(json.dumps(secret_audit_receipt))
+    return row
 
 
 def _read_jsonl_rows(path: Path) -> list[dict[str, Any]]:
@@ -495,8 +499,11 @@ def _apply_narrator_or_template(
         for ref in (envelope.get("must_not_reveal") or [])
         if isinstance(ref, dict) and isinstance(ref.get("id"), str) and ref.get("id").strip()
     ]
-    audit_complete = result.get("secret_audit_complete") is True or (
-        "asserted_fact_refs" in result and "semantic_audit" in result
+    audit_complete = (
+        result.get("secret_audit_complete") is True
+        and result.get("response_mode") == "tool"
+        and "asserted_fact_refs" in result
+        and "semantic_audit" in result
     )
     structured_audit = secret_audit.audit_secret_claims(
         forbidden_refs,
@@ -835,6 +842,7 @@ def run_live_match(
                     model_identity=narrator_outcome.get("model_identity"),
                     response_mode=narrator_outcome.get("response_mode"),
                     fallback_kind=narrator_outcome.get("fallback_kind"),
+                    secret_audit_receipt=narrator_outcome.get("secret_audit"),
                 )
             )
             if method == "llm_narrator":

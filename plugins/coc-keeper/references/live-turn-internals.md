@@ -11,7 +11,10 @@ The canonical narration envelope carries explicit `render_mode`, an optional
 validated `render_frame`, and bounded `horror_profile`. Choice/NPC projections
 are public whitelists. The narrator bridge returns structured fact assertions
 and semantic audit evidence; live match records a template fallback in its
-invocation ledger when that audit fails closed.
+invocation ledger when that audit fails closed. Only an explicit complete
+tool-mode audit is accepted. The ledger stores the canonical audit status,
+exact pair coverage, and digest so playtest evidence can recompute it instead
+of trusting a runner's completion claim.
 
 Internal pipeline (owned by `scripts/coc_live_turn_runner.py`):
 

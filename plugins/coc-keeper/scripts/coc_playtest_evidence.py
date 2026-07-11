@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import tempfile
+import importlib.util
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -23,11 +24,24 @@ TRUSTED_RUNNER_REGISTRY_PATH = (
 LEDGER_OUTCOMES = frozenset(
     {"external_success", "template", "template_fallback", "runner_failure"}
 )
-FALLBACK_KINDS = frozenset({"template", "prose_degradation"})
+FALLBACK_KINDS = frozenset({"template", "prose_degradation", "secret_audit"})
 _FIXED_ARTIFACT_BASENAMES = {
     "evidence_receipt": "evidence.json",
     "invocation_ledger": "runner-invocations.jsonl",
 }
+
+
+def _load_secret_audit():
+    spec = importlib.util.spec_from_file_location(
+        "coc_secret_audit_evidence", SCRIPT_DIR / "coc_secret_audit.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_secret_audit = _load_secret_audit()
 
 
 def sha256_path(path: Path) -> str:
@@ -385,6 +399,13 @@ def _evaluate_ledger(
         if model is None:
             _finding(findings, "model_identity_missing", f"{field}.model_identity")
             continue
+        if role == "narrator":
+            audit_validation = coc_secret_audit.validate_audit_receipt(
+                row.get("secret_audit")
+            )
+            if not audit_validation.get("valid") or not audit_validation.get("passed"):
+                _finding(findings, "narrator_secret_audit_invalid", f"{field}.secret_audit")
+                continue
         external_model_turns += 1
         if role == "player":
             external_player_turns += 1

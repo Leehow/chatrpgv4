@@ -95,7 +95,11 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("semantic_audit must be a list")
     result["asserted_fact_refs"] = [value.strip() for value in (asserted or [])]
     result["semantic_audit"] = copy.deepcopy(semantic or [])
-    result["secret_audit_complete"] = asserted_present and semantic_present
+    result["secret_audit_complete"] = (
+        raw.get("secret_audit_complete") is True
+        and asserted_present
+        and semantic_present
+    )
     notes = raw.get("notes")
     if notes is not None:
         if not isinstance(notes, str):

@@ -46,3 +46,33 @@ def test_unsupported_special_mechanics_are_explicit_capability_findings():
         "code": "unsupported_special_mechanic", "mechanic_id": "dream-duel",
         "severity": "warning",
     }]
+
+
+def test_duplicate_factions_fail_closed_with_capability_finding():
+    mod = _load()
+    result = mod.compile_strategy(
+        {"structure_type": "multi_faction"}, {"schema_version": 1},
+        {"factions": [
+            {"faction_id": "cult", "pressure": 0.2, "momentum": 0.0},
+            {"faction_id": "cult", "pressure": 0.9, "momentum": 1.0},
+        ]},
+    )
+    assert result["faction_rankings"] == []
+    assert result["strategy_state"] == {
+        "schema_version": 1, "strategy_type": "multi_faction",
+        "ranked_faction_ids": [],
+    }
+    assert any(f["code"] == "strategy_faction_ids_duplicate"
+               for f in result["capability_findings"])
+
+
+def test_malformed_prior_strategy_state_fails_closed():
+    mod = _load()
+    result = mod.compile_strategy(
+        {"structure_type": "time_loop"},
+        {"schema_version": 999, "strategy_type": "time_loop", "loop_number": 50},
+        {"loop_boundary": False},
+    )
+    assert result["strategy_state"]["loop_number"] == 0
+    assert any(f["code"] == "strategy_state_invalid"
+               for f in result["capability_findings"])

@@ -720,3 +720,36 @@ def test_social_delivery_without_decisions_exposes_only_committed_clue_events():
     }
     assert envelope["choice_frame"] == {}
     assert "PRE_GATE_SECRET" not in json.dumps(envelope, ensure_ascii=False)
+
+
+def test_render_mode_and_horror_profile_are_strict_minimum_privilege_projection():
+    plan = _good_plan()
+    plan["narrative_directives"].update({
+        "render_mode": "keeper-secret-mode",
+        "horror_profile": {
+            "dread": 0.5, "uncertainty": 0.5, "isolation": 0.5,
+            "helplessness": 0.5, "body_horror": 0.5,
+            "cosmic_scale": 0.5, "urgency": 0.5,
+            "keeper_secret": "DO NOT LEAK",
+        },
+    })
+    envelope = cnc.build_narration_envelope(plan)
+    assert envelope["render_mode"] == "investigation"
+    assert set(envelope["horror_profile"]) == {
+        "dread", "uncertainty", "isolation", "helplessness",
+        "body_horror", "cosmic_scale", "urgency",
+    }
+    assert all(value == 0.0 for value in envelope["horror_profile"].values())
+    assert "DO NOT LEAK" not in json.dumps(envelope)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -0.1, 1.1, True, "0.5"])
+def test_horror_profile_rejects_nonfinite_out_of_range_or_non_numeric_axis(bad):
+    plan = _good_plan()
+    profile = {axis: 0.5 for axis in (
+        "dread", "uncertainty", "isolation", "helplessness",
+        "body_horror", "cosmic_scale", "urgency",
+    )}
+    profile["dread"] = bad
+    plan["narrative_directives"]["horror_profile"] = profile
+    assert all(value == 0.0 for value in cnc.build_narration_envelope(plan)["horror_profile"].values())

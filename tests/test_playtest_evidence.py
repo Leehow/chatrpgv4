@@ -14,6 +14,7 @@ EVIDENCE_SCRIPT = (
     REPO / "plugins" / "coc-keeper" / "scripts" / "coc_playtest_evidence.py"
 )
 REPORT_SCRIPT = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_playtest_report.py"
+SECRET_AUDIT_SCRIPT = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_secret_audit.py"
 TRUSTED_RUNNER_REGISTRY = (
     REPO / "plugins" / "coc-keeper" / "references" / "trusted-playtest-runners.json"
 )
@@ -83,6 +84,9 @@ def _complete_provenance(run_dir: Path) -> dict:
                 "fallback_kind": None,
             }
         )
+        if role == "narrator":
+            audit_mod = _load("coc_secret_audit_fixture", SECRET_AUDIT_SCRIPT)
+            ledger_rows[-1]["secret_audit"] = audit_mod.audit_secret_claims([], [], [])
     (run_dir / "runner-invocations.jsonl").write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in ledger_rows),
         encoding="utf-8",
@@ -219,6 +223,19 @@ def test_complete_attested_receipt_qualifies_and_hashes_actual_bytes(tmp_path, e
     assert receipt["validation_findings"] == []
     assert receipt["evidence_reasons"] == []
     assert receipt["eligible_as_gameplay_evidence"] is True
+
+
+def test_narrator_external_success_requires_recomputable_audit_receipt(tmp_path, evidence):
+    provenance = _complete_provenance(tmp_path)
+
+    def forge(rows):
+        narrator = next(row for row in rows if row["role"] == "narrator")
+        narrator["secret_audit"]["coverage_digest"] = "0" * 64
+
+    _rewrite_ledger(tmp_path, forge)
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert "narrator_secret_audit_invalid" in receipt["evidence_reasons"]
 
 
 def test_write_evidence_receipt_replaces_symlink_without_touching_outside_target(

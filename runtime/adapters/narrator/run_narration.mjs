@@ -48,8 +48,9 @@ const SYSTEM_PROMPT =
   "「现场同时露出这些可行动线索」以及类似日志/摘要腔。" +
   "不得发明 envelope 中没有的掷骰、规则结果或隐藏事实。" +
   "不得揭示 must_not_reveal 中的任何 id/category 所指内容。" +
-  "必须声明 final_text 使用到的 asserted_fact_refs；若断言与禁用事实可能同义，" +
-  "用 semantic_audit 给出 same_fact/different_fact/uncertain 与非空 reason。" +
+  "必须声明 final_text 使用到的 asserted_fact_refs；semantic_audit 必须对每个" +
+  " asserted_fact_ref × must_not_reveal.id 组合恰好给出一条" +
+  " same_fact/different_fact/uncertain 与非空 reason，不能遗漏、重复或增加组合。" +
   "若 envelope 含 rules_requests / 已批准揭示，用虚构后果叙述检定结果，不要报骰面或技能名堆砌。" +
   "优先调用 coc_keeper_narration 一次提交 final_text。";
 
@@ -355,7 +356,7 @@ function buildNarrationTool(capture) {
           Type.Literal("uncertain"),
         ]),
         reason: Type.String(),
-      }), {description: "Semantic-router evidence for asserted/forbidden fact pairs."}),
+      }), {description: "Exactly one semantic-router record for every asserted_fact_refs × must_not_reveal.id pair."}),
       notes: Type.Optional(
         Type.String({
           description: "Optional out-of-character notes for the battle report only.",
@@ -382,6 +383,7 @@ function buildNarrationTool(capture) {
       const result = {
         ok: true,
         final_text: finalText,
+        secret_audit_complete: true,
         asserted_fact_refs: Array.isArray(params.asserted_fact_refs)
           ? params.asserted_fact_refs : [],
         semantic_audit: Array.isArray(params.semantic_audit) ? params.semantic_audit : [],

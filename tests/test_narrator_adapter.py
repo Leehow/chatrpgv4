@@ -133,6 +133,7 @@ def test_parse_runner_response_preserves_structured_secret_audit_fields():
     adapter = _load_adapter()
     parsed = adapter.parse_runner_response({
         "ok": True, "final_text": "雨敲着窗。",
+        "secret_audit_complete": True,
         "asserted_fact_refs": ["fact-rain"],
         "semantic_audit": [{"asserted_ref": "fact-rain", "forbidden_ref": "secret-1",
                             "decision": "different_fact", "reason": "distinct ids"}],
@@ -140,6 +141,14 @@ def test_parse_runner_response_preserves_structured_secret_audit_fields():
     assert parsed["asserted_fact_refs"] == ["fact-rain"]
     assert parsed["semantic_audit"][0]["decision"] == "different_fact"
     assert parsed["secret_audit_complete"] is True
+
+
+def test_parse_runner_response_does_not_infer_complete_from_field_presence():
+    parsed = _load_adapter().parse_runner_response({
+        "ok": True, "final_text": "雨敲着窗。",
+        "asserted_fact_refs": [], "semantic_audit": [],
+    })
+    assert parsed["secret_audit_complete"] is False
 
 
 def test_parse_runner_response_marks_missing_secret_audit_ineligible():

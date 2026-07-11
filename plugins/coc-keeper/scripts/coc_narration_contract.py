@@ -14,6 +14,7 @@ Spec: docs/superpowers/specs/2026-07-05-story-director-design.md (Section 6)
 from __future__ import annotations
 
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -34,6 +35,30 @@ import coc_npc_state
 # guard_player_visible_text findings use severity "rewrite" (advisory).
 # Only "block" would gate a turn; the prose guard does not emit it today.
 NARRATION_GUARD_BLOCKING_SEVERITY = "block"
+
+_RENDER_MODES = frozenset({"investigation", "social", "pressure", "crisis"})
+_HORROR_AXES = (
+    "dread", "uncertainty", "isolation", "helplessness",
+    "body_horror", "cosmic_scale", "urgency",
+)
+
+
+def _project_render_mode(value: Any) -> str:
+    return value if value in _RENDER_MODES else "investigation"
+
+
+def _project_horror_profile(value: Any) -> dict[str, float]:
+    fallback = {axis: 0.0 for axis in _HORROR_AXES}
+    if not isinstance(value, dict) or set(value) != set(_HORROR_AXES):
+        return fallback
+    projected: dict[str, float] = {}
+    for axis in _HORROR_AXES:
+        raw = value.get(axis)
+        if (not isinstance(raw, (int, float)) or isinstance(raw, bool)
+                or not math.isfinite(float(raw)) or not 0.0 <= float(raw) <= 1.0):
+            return fallback
+        projected[axis] = float(raw)
+    return projected
 
 
 class NarrationGuardBlockedError(RuntimeError):
@@ -881,8 +906,8 @@ def build_narration_envelope(
         "must_not_reveal": mnr_refs,
         "improvisation_allowed": list(directives.get("improvisation_allowed") or []),
         "horror_escalation_stage": directives.get("horror_escalation_stage"),
-        "horror_profile": dict(directives.get("horror_profile") or {}),
-        "render_mode": directives.get("render_mode") or "investigation",
+        "horror_profile": _project_horror_profile(directives.get("horror_profile")),
+        "render_mode": _project_render_mode(directives.get("render_mode")),
         "content_constraints": list(directives.get("content_constraints") or []),
         "player_facing_style": directives.get("player_facing_style"),
         "npc_moves": npc_moves,
