@@ -676,7 +676,7 @@ def test_persisted_chase_schema_restores_revision_cursor_and_counters(tmp_path):
     c.move_participant("ada", [{"type": "advance"}])
     path = c.save(tmp_path)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["schema_version"] == 2
+    assert raw["schema_version"] == 3
     assert raw["revision"] == 2
     assert raw["initiative_cursor"] == 1
     assert raw["roll_counter"] == 0
@@ -712,6 +712,35 @@ def test_chase_rejects_out_of_order_actor_and_action_budget_overrun():
 def test_chase_load_fails_closed_for_invalid_persisted_invariants(tmp_path, mutate):
     c = _make_chase()
     c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+    c.set_location_chain([{"label": "start"}, {"label": "escape"}])
+    c.begin_round()
+    path = c.save(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    mutate(state)
+    path.write_text(json.dumps(state), encoding="utf-8")
+    with pytest.raises(ValueError, match="chase snapshot"):
+        coc_chase.ChaseSession.load(path)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda s: s["participants"][0].update({"extra": True}),
+        lambda s: s["participants"][0].update({"side": "keeper"}),
+        lambda s: s["participants"][0].update({"hp": -1}),
+        lambda s: s["participants"][0].update({"conditions": ["invented"]}),
+        lambda s: s["location_chain"][0].update({"extra": True}),
+        lambda s: s["location_chain"][0].update({"hazard": {"hazard_id": "h", "extra": True}}),
+        lambda s: s["location_chain"][0].update({"barrier": {"barrier_id": "b", "hp": 1, "hp_max": 1, "extra": True}}),
+        lambda s: s["rounds"][0]["turns"].append({"turn_id": "forged", "actor_id": "unknown"}),
+        lambda s: s.update({"revision": 99}),
+        lambda s: s.update({"turn_counter": 99}),
+    ],
+)
+def test_chase_load_rejects_noncanonical_nested_state_and_history(tmp_path, mutate):
+    c = _make_chase()
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65, conditions=["unconscious"])
     c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
     c.set_location_chain([{"label": "start"}, {"label": "escape"}])
     c.begin_round()

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import random
 from pathlib import Path
 
 import pytest
@@ -193,3 +194,76 @@ def test_sdk_debug_accepts_typed_rescue_request(tmp_path):
     assert events
     state = json.loads(inv_path.read_text(encoding="utf-8"))
     assert "dying" in state["conditions"] or "dead" in state["conditions"]
+
+
+def test_sdk_pi_rejects_player_pending_choice_before_dispatch(tmp_path, monkeypatch):
+    camp, _char = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(
+        json.dumps({"schema_version": 1, "brain": "pi"}), encoding="utf-8"
+    )
+    pending = {
+        "choice_id": "choice-chase", "kind": "chase_action",
+        "command_id": "offer", "responder": "player", "revision": 0,
+        "prompt": "Choose.",
+        "options": [{"action": "barrier:door:break", "label": "Break"}],
+    }
+    (camp / "save" / "world-state.json").write_text(json.dumps({
+        "schema_version": 1, "campaign_id": "live", "scenario_id": "live-mod",
+        "active_scene_id": "scene-1", "discovered_clue_ids": [],
+        "major_decisions": [], "pending_choice": pending,
+    }))
+    session = _load("runtime_session_pi_pending", "runtime/engine/session.py")
+    monkeypatch.setattr(session, "_load_public_state", lambda: type("P", (), {
+        "build_public_state": staticmethod(lambda *_args: {"pending_choice": pending})
+    }))
+    called = False
+    class Pi:
+        @staticmethod
+        def pi_send_turn(_request):
+            nonlocal called
+            called = True
+            return []
+    monkeypatch.setattr(session, "_load_pi_adapter", lambda: Pi)
+    sid = session.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+    with pytest.raises(ValueError, match="pending_choice_response is not supported"):
+        session.send(sid, "", pending_choice_response={
+            "choice_id": "choice-chase", "responder": "player", "revision": 0,
+            "action": "barrier:door:break",
+        })
+    assert called is False
+
+
+def test_sdk_debug_resolves_chase_pending_choice_action_only(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(
+        json.dumps({"schema_version": 1, "brain": "debug"}), encoding="utf-8"
+    )
+    executor = _load("runtime_sdk_chase_executor", "plugins/coc-keeper/scripts/coc_subsystem_executor.py")
+    start = {
+        "command_id": "sdk-chase-start", "kind": "chase_start", "phase": "start",
+        "payload": {"decision_id": "sdk-chase", "chase_id": "sdk-roof",
+            "participants": [
+                {"actor_id": "inv1", "side": "quarry", "mov": 8, "dex": 70, "con": 60,
+                 "hp": 12, "fight": 60, "dodge": 40, "build": 0, "current_position": 0, "conditions": []},
+                {"actor_id": "cultist", "side": "pursuer", "mov": 8, "dex": 50, "con": 50,
+                 "hp": 9, "fight": 45, "dodge": 25, "build": 0, "current_position": 0, "conditions": []},
+            ],
+            "locations": [
+                {"label": "roof", "hazard": None, "barrier": None},
+                {"label": "door", "hazard": None, "barrier": {"barrier_id": "door", "hp": 4, "hp_max": 4, "skill": "Climb", "target": 100}},
+            ]},
+    }
+    offer = {"command_id": "sdk-chase-offer", "kind": "chase_move", "phase": "resolve",
+             "payload": {"decision_id": "sdk-chase", "revision": 1,
+                         "actor_id": "inv1", "action_id": "choice:offer"}}
+    executor.execute_commands(camp, char_path, "inv1", [start], rng=random.Random(1))
+    offered = executor.execute_commands(camp, char_path, "inv1", [offer], rng=random.Random(2))[0]
+    choice = offered["pending_choice"]
+    api = _load("runtime_sdk_api_chase_pending", "runtime/sdk/api.py")
+    sid = api.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+    events = api.send(sid, "", pending_choice_response={
+        "choice_id": choice["choice_id"], "responder": "player",
+        "revision": choice["revision"], "action": "barrier:door:negotiate",
+    })
+    assert events
+    assert executor.get_current_pending_choice(camp) is None

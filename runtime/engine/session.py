@@ -141,6 +141,10 @@ def send(
             raise ValueError(
                 "typed subsystem_request is not supported by the pi brain"
             )
+        if forwarded_pending_response is not None:
+            raise ValueError(
+                "typed pending_choice_response is not supported by the pi brain"
+            )
         return _load_pi_adapter().pi_send_turn(
             {
                 "workspace": str(workspace),

@@ -361,7 +361,7 @@ BOUT_HISTORY_EXTRA_KEYS = frozenset({
 CHASE_CONTEXT_KEYS = frozenset({
     "choice_id", "kind", "investigator_id", "character_id",
     "origin_command_id", "offer_command_id", "revision", "actor_id",
-    "offer_command",
+    "offer_command", "chase_id", "action_context",
 })
 CHASE_HISTORY_EXTRA_KEYS = frozenset({
     "public_choice", "terminal_action", "terminal_revision",
@@ -1043,11 +1043,23 @@ def _validate_chase_pending_context(
     ):
         raise _state_error(f"pending context {choice_id!r} is not anchored to its chase offer")
     payload = offer.get("payload") or {}
+    action_context = context.get("action_context")
+    barrier = action_context.get("barrier") if isinstance(action_context, dict) else None
+    barrier_id = barrier.get("barrier_id") if isinstance(barrier, dict) else None
+    expected_options = [
+        {"action": f"barrier:{barrier_id}:negotiate", "label": f"Negotiate {barrier_id}"},
+        {"action": f"barrier:{barrier_id}:break", "label": f"Break through {barrier_id}"},
+    ]
     if (
         payload.get("action_id") != "choice:offer"
         or context.get("origin_command_id") != offer_id
         or context.get("revision") != payload.get("revision")
         or context.get("actor_id") != payload.get("actor_id")
+        or context.get("chase_id") is None
+        or not isinstance(action_context, dict)
+        or set(action_context) != {"barrier", "location_index"}
+        or not isinstance(barrier_id, str)
+        or not _json_deep_equal(choice.get("options"), expected_options)
         or context.get("investigator_id") != provenance[offer_id].get("investigator_id")
         or context.get("character_id") != provenance[offer_id].get("character_id")
         or choice.get("revision") != 0
@@ -4205,8 +4217,34 @@ def _sync_investigator_from_chase(
         return
     state = _investigator_state(campaign_dir, investigator_id)
     state["current_hp"] = int(participant.get("hp", state.get("current_hp", 0)))
+    state["conditions"] = list(participant.get("conditions") or [])
     path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
     coc_fileio.write_json_atomic(path, state, indent=2, ensure_ascii=False)
+    persisted = _investigator_state(campaign_dir, investigator_id)
+    if (persisted.get("current_hp") != participant.get("hp")
+            or persisted.get("conditions") != participant.get("conditions", [])):
+        raise _error("chase_mirror_failed", path.as_posix(), "chase/investigator mirror diverged")
+
+
+def _sync_chase_from_investigator(
+    campaign_dir: Path, investigator_id: str, session: Any,
+) -> None:
+    participant = session.participants.get(investigator_id)
+    if not isinstance(participant, dict):
+        return
+    state = _investigator_state(campaign_dir, investigator_id)
+    participant["hp"] = int(state.get("current_hp", participant.get("hp", 0)))
+    participant["conditions"] = list(state.get("conditions") or [])
+
+
+def _canonical_result_receipt(campaign_dir: Path, command_id: str) -> dict[str, Any]:
+    records = _read_jsonl_records(
+        campaign_dir / _RESULT_RECEIPT_LOG, label="canonical subsystem result ledger"
+    )
+    matches = [row for row in records if row.get("command_id") == command_id]
+    if len(matches) != 1:
+        raise _error("untrusted_combat_evidence", "commands[0].payload.combat_command_id", "combat result receipt is missing or ambiguous")
+    return matches[0]
 
 
 def _load_chase_session(campaign_dir: Path, rng: random.Random) -> Any:
@@ -4245,6 +4283,7 @@ def _dispatch_chase(
                 participant["dex"], con=participant["con"], hp=participant["hp"],
                 fight=participant["fight"], dodge=participant["dodge"],
                 build=participant["build"], current_position=participant["current_position"],
+                conditions=participant["conditions"],
             )
         session.set_location_chain(payload["locations"])
         session.begin_round()
@@ -4257,6 +4296,7 @@ def _dispatch_chase(
         }
     else:
         session = _load_chase_session(campaign_dir, rng)
+        _sync_chase_from_investigator(campaign_dir, investigator_id, session)
         if payload["revision"] != session.revision:
             raise _error("stale_chase_revision", "commands[0].payload.revision", "chase revision is stale")
         if session.status != "active":
@@ -4286,12 +4326,21 @@ def _dispatch_chase(
             }
             history_ref = f"save/subsystem-state.json#choice_history/{choice_id}"
         if kind == "chase_end":
+            cancelled_choice_id = None
+            for active_choice_id, active_context in list(executor_state["pending_contexts"].items()):
+                if (isinstance(active_context, dict) and active_context.get("kind") == "chase_action"
+                        and active_context.get("chase_id") == session.chase_id):
+                    cancelled_choice_id = active_choice_id
+                    executor_state["pending_contexts"].pop(active_choice_id, None)
+                    executor_state["pending_choices"].pop(active_choice_id, None)
             session.conclude(payload["outcome"])
             event = {
                 "event_type": "chase_ended", "chase_id": session.chase_id,
                 "revision": session.revision, "outcome": session.outcome,
                 "scenario_terminal": False, "source_command_id": command_id,
             }
+            if cancelled_choice_id is not None:
+                event["cancelled_choice_id"] = cancelled_choice_id
         else:
             actor_id = payload["actor_id"]
             if actor_id not in session.participants:
@@ -4318,6 +4367,11 @@ def _dispatch_chase(
                     "origin_command_id": command_id, "offer_command_id": command_id,
                     "revision": session.revision, "actor_id": actor_id,
                     "offer_command": _json_copy(command),
+                    "chase_id": session.chase_id,
+                    "action_context": {
+                        "barrier": _json_copy(barrier),
+                        "location_index": nxt.get("index"),
+                    },
                 }
                 return {
                     "command_id": command_id, "kind": kind, "status": "pending_choice",
@@ -4339,9 +4393,12 @@ def _dispatch_chase(
                 expected_id = f"hazard:{hazard.get('hazard_id')}" if isinstance(hazard, dict) else None
                 if payload["action_id"] != expected_id:
                     raise _error("untrusted_chase_action", "commands[0].payload.action_id", "action does not identify the next hazard")
+                for field in ("skill", "target", "difficulty"):
+                    if field in payload and payload[field] is not None and payload[field] != hazard.get(field, "regular" if field == "difficulty" else None):
+                        raise _error("chase_action_context_mismatch", f"commands[0].payload.{field}", "hazard continuation cannot override persisted context")
                 action = session.move_participant(actor_id, [{
-                    "type": "advance", "skill": payload.get("skill"),
-                    "target": payload.get("target"), "difficulty": payload.get("difficulty", "regular"),
+                    "type": "advance", "skill": hazard.get("skill"),
+                    "target": hazard.get("target"), "difficulty": hazard.get("difficulty", "regular"),
                 }])["actions_taken"][0]
                 event_type = "chase_hazard_resolved"
             elif kind == "chase_barrier":
@@ -4351,10 +4408,19 @@ def _dispatch_chase(
                 expected_id = f"barrier:{barrier.get('barrier_id')}:{suffix}" if isinstance(barrier, dict) else None
                 if payload["action_id"] != expected_id:
                     raise _error("untrusted_chase_action", "commands[0].payload.action_id", "action does not identify the next barrier")
+                if isinstance(choice_id, str):
+                    historical = executor_state["choice_history"].get(choice_id)
+                    expected_context = historical.get("action_context") if isinstance(historical, dict) else None
+                    current_context = {"barrier": _json_copy(barrier), "location_index": nxt.get("index") if isinstance(nxt, dict) else None}
+                    if not _json_deep_equal(expected_context, current_context):
+                        raise _error("chase_action_context_mismatch", "commands[0]", "barrier choice diverges from persisted action context")
+                for field in ("skill", "target", "difficulty"):
+                    if field in payload and payload[field] is not None and payload[field] != barrier.get(field, "regular" if field == "difficulty" else None):
+                        raise _error("chase_action_context_mismatch", f"commands[0].payload.{field}", "barrier continuation cannot override persisted context")
                 action = session.move_participant(actor_id, [{
                     "type": "barrier" if suffix == "negotiate" else "break_barrier",
-                    "skill": payload.get("skill"), "target": payload.get("target"),
-                    "difficulty": payload.get("difficulty", "regular"),
+                    "skill": barrier.get("skill"), "target": barrier.get("target"),
+                    "difficulty": barrier.get("difficulty", "regular"),
                 }])["actions_taken"][0]
                 event_type = "chase_barrier_resolved"
             else:
@@ -4375,10 +4441,18 @@ def _dispatch_chase(
                 ):
                     raise _error("untrusted_combat_evidence", "commands[0].payload.combat_command_id", "combat receipt actors do not match the chase conflict")
                 combat = _load_combat_session(campaign_dir, rng=random.Random(0), investigator_id=investigator_id)
+                receipt = _canonical_result_receipt(campaign_dir, combat_command_id)
+                if (combat_event.get("combat_id") != combat.combat_id
+                        or combat_event.get("revision") != combat.revision
+                        or receipt.get("command_hash") != executor_state["command_hashes"].get(combat_command_id)
+                        or not _json_deep_equal(receipt.get("result"), combat_result)):
+                    raise _error("untrusted_combat_evidence", "commands[0].payload.combat_command_id", "combat receipt is stale or does not bind the persisted combat")
                 action = session.record_external_conflict(
                     actor_id, target_id, combat_command_id=combat_command_id,
-                    combat_revision=combat.revision,
+                    combat_revision=combat.revision, combat_id=combat.combat_id,
+                    command_hash=receipt["command_hash"], receipt_hash=receipt["receipt_hash"],
                     hp_after={aid: int(row["hp_current"]) for aid, row in combat.participants.items()},
+                    conditions_after={aid: list(row.get("conditions") or []) for aid, row in combat.participants.items()},
                 )
                 event_type = "chase_conflict_resolved"
             rolls = session.drain_pending()
@@ -4407,6 +4481,7 @@ def _dispatch_chase(
     refs = ["save/chase.json"]
     if investigator_id in session.participants:
         refs.append(f"save/investigator-state/{investigator_id}.json#current_hp")
+        refs.append(f"save/investigator-state/{investigator_id}.json#conditions")
     if isinstance(event.get("roll_id"), str):
         refs.append(f"logs/rolls.jsonl#{command_id}")
     if 'history_ref' in locals() and history_ref is not None:
@@ -5224,6 +5299,12 @@ def _preflight_pending_resolution_batch(
         return False
     commands = [command for command, _command_hash in commands_with_hashes]
     first = commands[0]
+    if first["kind"] == "chase_end" and len(commands) == 1:
+        contexts = list(state["pending_contexts"].values())
+        if (len(contexts) == 1 and isinstance(contexts[0], dict)
+                and contexts[0].get("kind") == "chase_action"):
+            return True
+        return False
     chase_resolution = (
         first["kind"] in CHASE_COMMAND_KINDS
         and isinstance(first.get("payload"), dict)

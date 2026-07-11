@@ -2060,6 +2060,12 @@ def test_live_typed_chase_journey_persists_hazard_barrier_conflict_and_end(tmp_p
     reloaded = live_runner.subsystem_executor.coc_chase.ChaseSession.load(
         camp / "save" / "chase.json", rng=random.Random(812)
     )
+    assert len(reloaded.consumed_combat_receipts) == 1
+    receipt = reloaded.consumed_combat_receipts[0]
+    assert receipt["combat_command_id"] == combat_command_id
+    assert receipt["combat_id"] == "roof-fight"
+    assert len(receipt["command_hash"]) == 64
+    assert len(receipt["receipt_hash"]) == 64
     assert reloaded.revision == 11
     ended = send("chase_end", {"decision_id": "live-chase", "revision": 11,
         "outcome": "escaped"}, 813)

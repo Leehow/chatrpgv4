@@ -241,6 +241,76 @@ def test_chase_multiple_actions_use_player_safe_typed_pending_choice(tmp_path):
     assert executor.plan_from_pending_choice_response(campaign, "inv1", response) == plan
 
 
+def test_chase_hazard_and_barrier_cannot_override_persisted_action_context(tmp_path):
+    executor = _executor("coc_subsystem_executor_chase_context_guard")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 10, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    _execute(executor, campaign, character, [_chase_start()], random.Random(1))
+    forged = _command("forged-hazard", "chase_hazard", payload={
+        "decision_id": "chase-journey", "revision": 1, "actor_id": "inv1",
+        "action_id": "hazard:glass", "skill": "DEX", "target": 1,
+        "difficulty": "extreme",
+    })
+    before = (campaign / "save" / "chase.json").read_bytes()
+    with pytest.raises(executor.SubsystemExecutorError, match="override persisted context"):
+        _execute(executor, campaign, character, [forged], random.Random(2))
+    assert (campaign / "save" / "chase.json").read_bytes() == before
+
+
+def test_chase_mirrors_authoritative_hp_and_conditions_both_directions(tmp_path):
+    executor = _executor("coc_subsystem_executor_chase_bidirectional_mirror")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 10, "conditions": ["major_wound"]})
+    inv_path.write_text(json.dumps(inv))
+    start = _chase_start()
+    start["payload"]["participants"][0]["conditions"] = ["major_wound"]
+    _execute(executor, campaign, character, [start], random.Random(1))
+    saved = json.loads((campaign / "save" / "chase.json").read_text())
+    assert saved["participants"][0]["conditions"] == ["major_wound"]
+
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 7, "conditions": ["major_wound", "unconscious"]})
+    inv_path.write_text(json.dumps(inv))
+    hazard = _command("mirror-hazard", "chase_hazard", payload={
+        "decision_id": "chase-journey", "revision": 1, "actor_id": "inv1",
+        "action_id": "hazard:glass",
+    })
+    _execute(executor, campaign, character, [hazard], random.Random(5))
+    saved = json.loads((campaign / "save" / "chase.json").read_text())
+    participant = next(row for row in saved["participants"] if row["actor_id"] == "inv1")
+    mirrored = json.loads(inv_path.read_text())
+    assert participant["conditions"] == ["major_wound", "unconscious"]
+    assert mirrored["current_hp"] == participant["hp"]
+    assert mirrored["conditions"] == participant["conditions"]
+
+
+def test_chase_end_atomically_cancels_matching_chase_choice(tmp_path):
+    executor = _executor("coc_subsystem_executor_chase_end_pending")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 10, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    start = _chase_start()
+    start["payload"]["locations"] = [start["payload"]["locations"][0], start["payload"]["locations"][2]]
+    _execute(executor, campaign, character, [start], random.Random(1))
+    offered = _execute(executor, campaign, character, [_command(
+        "end-choice", "chase_move", payload={"decision_id": "end-choice", "revision": 1,
+        "actor_id": "inv1", "action_id": "choice:offer"})], random.Random(2))[0]
+    ended = _execute(executor, campaign, character, [_command(
+        "end-with-choice", "chase_end", phase="end", payload={"decision_id": "end-choice",
+        "revision": 1, "outcome": "concluded"})], random.Random(3))[0]
+    assert ended["events"][0]["cancelled_choice_id"] == offered["pending_choice"]["choice_id"]
+    assert executor.get_current_pending_choice(campaign) is None
+    state = json.loads((campaign / "save" / "subsystem-state.json").read_text())
+    assert not state["pending_choices"] and not state["pending_contexts"]
+
+
 def _keeper_response(choice: dict, action: str = "tick") -> dict:
     return {
         "choice_id": choice["choice_id"],
