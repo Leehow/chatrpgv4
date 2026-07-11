@@ -367,6 +367,24 @@ def _tree_inventory_at(
     return True, files, sorted(directories)
 
 
+def _tree_directories_from_files(
+    root: Path, files: Iterable[Path], *, present: bool
+) -> list[str]:
+    if not present:
+        return []
+    directories = {"."}
+    for path in files:
+        try:
+            relative = path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("managed tree file escapes its declared root") from exc
+        for parent in relative.parents:
+            if parent == Path("."):
+                continue
+            directories.add(parent.as_posix())
+    return sorted(directories)
+
+
 def _read_fd_bytes(descriptor: int) -> bytes:
     os.lseek(descriptor, 0, os.SEEK_SET)
     chunks: list[bytes] = []
@@ -387,6 +405,145 @@ def _read_json_fd(descriptor: int, field: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"invalid {field}")
     return value
+
+
+def _strict_jsonl_rows_fd(descriptor: int, field: str) -> list[dict[str, Any]]:
+    payload = _read_fd_bytes(descriptor)
+    if not payload or not payload.endswith(b"\n"):
+        raise ValueError(f"{field} must end with a complete JSONL row")
+
+    def no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{field} contains duplicate JSON keys")
+            result[key] = value
+        return result
+
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"{field} contains a non-finite JSON number: {value}")
+
+    rows: list[dict[str, Any]] = []
+    for encoded in payload[:-1].split(b"\n"):
+        if not encoded or encoded.endswith(b"\r"):
+            raise ValueError(f"{field} contains a non-canonical JSONL row")
+        try:
+            row = json.loads(
+                encoded.decode("utf-8"),
+                object_pairs_hook=no_duplicate_keys,
+                parse_constant=reject_constant,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{field} contains invalid JSON") from exc
+        if not isinstance(row, dict):
+            raise ValueError(f"{field} row must be a JSON object")
+        rows.append(row)
+    return rows
+
+
+def _validated_decision_ids(value: Any, field: str) -> list[str]:
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(
+            isinstance(item, str)
+            and item
+            and len(item) <= 512
+            and "\n" not in item
+            and "\r" not in item
+            and "\x00" not in item
+            for item in value
+        )
+        or len(set(value)) != len(value)
+    ):
+        raise ValueError(f"{field} decision IDs are invalid or ambiguous")
+    return list(value)
+
+
+def _validate_runtime_evidence_fds(
+    live_runtime_fd: int,
+    telemetry_fd: int,
+    *,
+    expected_receipt_sha256: str,
+    session_id: str,
+    investigator_id: str,
+) -> dict[str, Any]:
+    runtime_rows = _strict_jsonl_rows_fd(live_runtime_fd, "live runtime receipt log")
+    runtime_row = runtime_rows[-1]
+    required_runtime = {
+        "schema_version",
+        "event_type",
+        "investigator_id",
+        "decision_ids",
+        "recording_mode",
+        "recording_flush",
+    }
+    if (
+        not required_runtime <= set(runtime_row)
+        or runtime_row.get("schema_version") != 1
+        or runtime_row.get("event_type") != "live_turn_runtime"
+        or runtime_row.get("investigator_id") != investigator_id
+        or runtime_row.get("recording_mode") != "sync"
+        or runtime_row.get("recording_flush") != "manual"
+    ):
+        raise ValueError("live runtime receipt identity or recording mode mismatch")
+    decision_ids = _validated_decision_ids(
+        runtime_row.get("decision_ids"), "live runtime receipt"
+    )
+    actual_receipt = _sha256_bytes(_canonical_json(runtime_row))
+    if actual_receipt != expected_receipt_sha256:
+        raise ValueError("live runtime receipt digest mismatch")
+
+    telemetry_rows = _strict_jsonl_rows_fd(telemetry_fd, "runtime telemetry log")
+    expected_keys = {
+        "schema_version",
+        "receipt_id",
+        "session_id",
+        "investigator_id",
+        "decision_ids",
+        "telemetry",
+    }
+    seen_receipt_ids: set[str] = set()
+    session_rows: list[dict[str, Any]] = []
+    for row in telemetry_rows:
+        receipt_id = row.get("receipt_id")
+        if (
+            set(row) != expected_keys
+            or row.get("schema_version") != 1
+            or not isinstance(receipt_id, str)
+            or not receipt_id
+            or receipt_id in seen_receipt_ids
+            or not isinstance(row.get("session_id"), str)
+            or not isinstance(row.get("investigator_id"), str)
+            or not isinstance(row.get("telemetry"), dict)
+            or not isinstance(row.get("decision_ids"), list)
+            or not all(
+                isinstance(item, str)
+                and item
+                and len(item) <= 512
+                and "\n" not in item
+                and "\r" not in item
+                and "\x00" not in item
+                for item in row.get("decision_ids", [])
+            )
+            or len(set(row.get("decision_ids", []))) != len(row.get("decision_ids", []))
+        ):
+            raise ValueError("runtime telemetry receipt is invalid or ambiguous")
+        seen_receipt_ids.add(receipt_id)
+        if row["session_id"] == session_id:
+            session_rows.append(row)
+    if not session_rows:
+        raise ValueError("runtime telemetry receipt for session is missing")
+    latest = session_rows[-1]
+    latest_decision_ids = _validated_decision_ids(
+        latest.get("decision_ids"), "latest runtime telemetry receipt"
+    )
+    if (
+        latest.get("investigator_id") != investigator_id
+        or latest_decision_ids != decision_ids
+    ):
+        raise ValueError("latest runtime telemetry decision binding mismatch")
+    return runtime_row
 
 
 def _brain_label_for_config(config: Any) -> str:
@@ -413,6 +570,24 @@ def _brain_label_for_config(config: Any) -> str:
         if value.get("kind") not in kinds:
             raise ValueError("session resolved config is invalid")
     return "pi" if config["narrator"]["kind"] == "pi" else "debug"
+
+
+def _validate_investigator_documents(
+    character: dict[str, Any],
+    creation: dict[str, Any] | None,
+    investigator_id: str,
+) -> None:
+    character_fields = [
+        character.get(field)
+        for field in ("id", "investigator_id")
+        if field in character
+    ]
+    if not character_fields or any(
+        value != investigator_id for value in character_fields
+    ):
+        raise ValueError("selected investigator character identity mismatch")
+    if creation is not None and creation.get("investigator_id") != investigator_id:
+        raise ValueError("selected investigator creation identity mismatch")
 
 
 def _sanitized_session_payload(
@@ -620,6 +795,16 @@ def _validate_action_journal_fd(
             raise ValueError("action journal model identity does not match manifest")
     finally:
         os.lseek(descriptor, 0, os.SEEK_SET)
+
+
+def _terminal_journal_provenance_fd(descriptor: int) -> dict[str, Any]:
+    rows = _strict_jsonl_rows_fd(descriptor, "action journal")
+    if not rows:
+        return {}
+    provenance = rows[-1].get("provenance")
+    if not isinstance(provenance, dict):
+        raise ValueError("action journal terminal provenance is invalid")
+    return provenance
 
 
 def _write_new_file_at(
@@ -1221,13 +1406,19 @@ class CheckpointStore:
         return Path(".coc") / "investigators" / self.investigator_id
 
     def _tree_metadata(
-        self, workspace_fd: int, names: tuple[str, ...]
+        self,
+        workspace_fd: int,
+        names: tuple[str, ...],
+        *,
+        derive_directories_from_files: bool = False,
     ) -> dict[str, dict[str, Any]]:
         campaign = self._campaign_relative()
         metadata: dict[str, dict[str, Any]] = {}
         for name in names:
             root = campaign / name
-            present, _files, directories = _tree_inventory_at(workspace_fd, root)
+            present, files, directories = _tree_inventory_at(workspace_fd, root)
+            if derive_directories_from_files:
+                directories = _tree_directories_from_files(root, files, present=present)
             metadata[root.as_posix()] = {
                 "present": present,
                 "directories": directories,
@@ -1241,6 +1432,22 @@ class CheckpointStore:
         )
         if campaign_state.get("campaign_id") != self.campaign_id:
             raise ValueError("campaign identity mismatch")
+
+        investigator_root = self._investigator_relative()
+        character = self._json_object_at(
+            workspace_fd,
+            investigator_root / "character.json",
+            "selected investigator character",
+        )
+        creation_path = investigator_root / "creation.json"
+        creation = (
+            self._json_object_at(
+                workspace_fd, creation_path, "selected investigator creation"
+            )
+            if _regular_file_exists_at(workspace_fd, creation_path)
+            else None
+        )
+        _validate_investigator_documents(character, creation, self.investigator_id)
 
         party_path = campaign / "party.json"
         if _regular_file_exists_at(workspace_fd, party_path):
@@ -1336,6 +1543,45 @@ class CheckpointStore:
                 "pending background recorder batches remain"
             )
 
+    def _validate_runtime_evidence_at(
+        self,
+        root_fd: int,
+        session_id: str,
+        provenance: dict[str, Any],
+        *,
+        prefix: Path | None = None,
+    ) -> dict[str, Any]:
+        base = (prefix or Path()) / self._campaign_relative() / "logs"
+        live_fd = -1
+        telemetry_fd = -1
+        try:
+            try:
+                live_fd = _open_regular_at(root_fd, base / "live-turn-runtime.jsonl")
+            except ValueError as exc:
+                raise ValueError(
+                    "live runtime receipt log is missing or unsafe"
+                ) from exc
+            try:
+                telemetry_fd = _open_regular_at(
+                    root_fd, base / "runtime-telemetry.jsonl"
+                )
+            except ValueError as exc:
+                raise ValueError("runtime telemetry log is missing or unsafe") from exc
+            return _validate_runtime_evidence_fds(
+                live_fd,
+                telemetry_fd,
+                expected_receipt_sha256=str(
+                    provenance.get("runtime_receipt_sha256") or ""
+                ),
+                session_id=session_id,
+                investigator_id=self.investigator_id,
+            )
+        finally:
+            if telemetry_fd >= 0:
+                os.close(telemetry_fd)
+            if live_fd >= 0:
+                os.close(live_fd)
+
     def _validate_snapshotted_state_at(
         self,
         checkpoint_fd: int,
@@ -1412,6 +1658,12 @@ class CheckpointStore:
             lock_candidate.__enter__()
             campaign_lock = lock_candidate
             self._validate_no_pending_background_records(workspace_fd)
+            if self._turn_number > 0:
+                self._validate_runtime_evidence_at(
+                    workspace_fd,
+                    session_id,
+                    self._last_provenance,
+                )
             self._validate_action_ledger_entry(run_fd)
             try:
                 ledger_info = os.stat(
@@ -1442,7 +1694,9 @@ class CheckpointStore:
                 workspace_fd, session_id
             )
             managed_mutable_trees = self._tree_metadata(
-                workspace_fd, CAMPAIGN_MUTABLE_TREES
+                workspace_fd,
+                CAMPAIGN_MUTABLE_TREES,
+                derive_directories_from_files=True,
             )
             immutable_trees = self._tree_metadata(
                 workspace_fd, CAMPAIGN_IMMUTABLE_TREES
@@ -1586,6 +1840,13 @@ class CheckpointStore:
             # unpublished checkpoint, not merely to earlier live-workspace
             # reads that could have changed before their snapshot FD opened.
             self._validate_snapshotted_state_at(temporary_fd, state_files, session_id)
+            if self._turn_number > 0:
+                self._validate_runtime_evidence_at(
+                    temporary_fd,
+                    session_id,
+                    self._last_provenance,
+                    prefix=Path("state"),
+                )
             self._validate_no_pending_background_records(workspace_fd)
 
             legacy_source_hash = ""
@@ -2054,6 +2315,19 @@ class CheckpointStore:
                 )
                 if not metadata["present"] and has_files:
                     raise ValueError(f"absent checkpoint tree contains files: {root}")
+            for root, metadata in mutable_trees.items():
+                tree_files = [
+                    Path(path)
+                    for path in seen_workspace_paths
+                    if path.startswith(root + "/")
+                ]
+                expected_directories = _tree_directories_from_files(
+                    Path(root), tree_files, present=metadata["present"]
+                )
+                if metadata["directories"] != expected_directories:
+                    raise ValueError(
+                        f"managed mutable tree directory membership mismatch: {root}"
+                    )
 
             expected_presence_paths = {
                 (self._campaign_relative() / "party.json").as_posix(),
@@ -2104,6 +2378,33 @@ class CheckpointStore:
                     manifest_chain,
                     manifest_turn,
                     manifest_model_identity,
+                )
+                terminal_provenance = _terminal_journal_provenance_fd(journal_fd)
+                if (
+                    terminal_provenance.get("recording_mode") != "sync"
+                    or terminal_provenance.get("recording_flush") != "manual"
+                ):
+                    raise ValueError(
+                        "checkpoint journal lacks a synchronous runtime receipt"
+                    )
+                live_path = (
+                    self._campaign_relative() / "logs" / "live-turn-runtime.jsonl"
+                ).as_posix()
+                telemetry_path = (
+                    self._campaign_relative() / "logs" / "runtime-telemetry.jsonl"
+                ).as_posix()
+                live_runtime_fd = entry_fds.get(live_path)
+                telemetry_receipt_fd = entry_fds.get(telemetry_path)
+                if live_runtime_fd is None or telemetry_receipt_fd is None:
+                    raise ValueError("checkpoint runtime receipt evidence is missing")
+                _validate_runtime_evidence_fds(
+                    live_runtime_fd,
+                    telemetry_receipt_fd,
+                    expected_receipt_sha256=str(
+                        terminal_provenance.get("runtime_receipt_sha256") or ""
+                    ),
+                    session_id=manifest["session_id"],
+                    investigator_id=self.investigator_id,
                 )
             return entries
         except Exception:
@@ -2175,6 +2476,18 @@ class CheckpointStore:
                 or party.get("campaign_id") not in {None, self.campaign_id}
             ):
                 raise ValueError("checkpoint party identity mismatch")
+        investigator_root = self._investigator_relative()
+        character = optional_json(
+            investigator_root / "character.json",
+            "selected investigator character",
+        )
+        if character is None:
+            raise ValueError("checkpoint selected investigator character is missing")
+        creation = optional_json(
+            investigator_root / "creation.json",
+            "selected investigator creation",
+        )
+        _validate_investigator_documents(character, creation, self.investigator_id)
         investigator = optional_json(
             campaign / "save" / "investigator-state" / f"{self.investigator_id}.json",
             "investigator save state",

@@ -25,6 +25,59 @@ def _write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
 
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def _runtime_row(
+    *,
+    investigator_id: str = "inv-a",
+    decision_ids: list[str] | None = None,
+    recording_mode: str = "sync",
+    recording_flush: str = "manual",
+) -> dict:
+    return {
+        "schema_version": 1,
+        "event_type": "live_turn_runtime",
+        "investigator_id": investigator_id,
+        "decision_ids": list(["decision-1"] if decision_ids is None else decision_ids),
+        "recording_mode": recording_mode,
+        "recording_flush": recording_flush,
+    }
+
+
+def _telemetry_row(
+    *,
+    session_id: str = "sess_123",
+    investigator_id: str = "inv-a",
+    decision_ids: list[str] | None = None,
+    receipt_id: str = "telemetry_test_1",
+) -> dict:
+    return {
+        "schema_version": 1,
+        "receipt_id": receipt_id,
+        "session_id": session_id,
+        "investigator_id": investigator_id,
+        "decision_ids": list(["decision-1"] if decision_ids is None else decision_ids),
+        "telemetry": {},
+    }
+
+
+def _runtime_receipt_sha256(row: dict | None = None) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            row or _runtime_row(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _seed_workspace(
     workspace: Path,
     *,
@@ -55,10 +108,20 @@ def _seed_workspace(
     _write_json(campaign / "memory" / "beliefs.json", {"beliefs": []})
     (campaign / "logs").mkdir(parents=True, exist_ok=True)
     (campaign / "logs" / "events.jsonl").write_text("", encoding="utf-8")
+    live_runtime = campaign / "logs" / "live-turn-runtime.jsonl"
+    runtime_telemetry = campaign / "logs" / "runtime-telemetry.jsonl"
+    _write_jsonl(live_runtime, [_runtime_row(investigator_id=investigator_id)])
+    _write_jsonl(
+        runtime_telemetry,
+        [_telemetry_row(session_id="sess_123", investigator_id=investigator_id)],
+    )
 
     investigator_dir = coc / "investigators" / investigator_id
     investigator_files = {
-        "creation.json": {"schema_version": 1, "id": investigator_id},
+        "creation.json": {
+            "schema_version": 1,
+            "investigator_id": investigator_id,
+        },
         "character.json": {"schema_version": 1, "id": investigator_id, "hp": 10},
         "history.jsonl": {"kind": "created"},
         "development.jsonl": {"kind": "development"},
@@ -135,6 +198,8 @@ def _seed_workspace(
         "save": campaign / "save" / "world-state.json",
         "memory": campaign / "memory" / "beliefs.json",
         "logs": campaign / "logs" / "events.jsonl",
+        "live_runtime": live_runtime,
+        "runtime_telemetry": runtime_telemetry,
         "investigator": investigator_dir / "character.json",
         "investigator_creation": investigator_dir / "creation.json",
         "investigator_history": investigator_dir / "history.jsonl",
@@ -190,7 +255,7 @@ def _provenance(*, player_mode: str = "whitebox") -> dict[str, object]:
         },
         "recording_mode": "sync",
         "recording_flush": "manual",
-        "runtime_receipt_sha256": "a" * 64,
+        "runtime_receipt_sha256": _runtime_receipt_sha256(),
         "request_id": "req-1",
     }
 
@@ -401,6 +466,102 @@ def test_checkpoint_requires_a_bound_runtime_recording_receipt(tmp_path: Path):
     assert not (store.run_dir / "checkpoints").exists()
 
 
+def test_checkpoint_rejects_runtime_receipt_digest_mismatch(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    provenance = _provenance()
+    provenance["runtime_receipt_sha256"] = "0" * 64
+    _append_with_provenance(store, provenance)
+
+    with pytest.raises(ValueError, match="receipt|digest|checksum"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+
+
+def test_checkpoint_rejects_runtime_row_investigator_identity_mismatch(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    runtime_row = _runtime_row(investigator_id="other")
+    _write_jsonl(paths["live_runtime"], [runtime_row])
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    provenance = _provenance()
+    provenance["runtime_receipt_sha256"] = _runtime_receipt_sha256(runtime_row)
+    _append_with_provenance(store, provenance)
+
+    with pytest.raises(ValueError, match="investigator|receipt|runtime"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+
+
+@pytest.mark.parametrize(
+    "evidence_case",
+    ["missing", "wrong_session", "decision_mismatch", "ambiguous_receipt_id"],
+)
+def test_checkpoint_cross_binds_runtime_decisions_to_latest_session_telemetry(
+    tmp_path: Path, evidence_case: str
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    if evidence_case == "missing":
+        paths["runtime_telemetry"].unlink()
+    elif evidence_case == "wrong_session":
+        _write_jsonl(
+            paths["runtime_telemetry"],
+            [_telemetry_row(session_id="sess_other")],
+        )
+    elif evidence_case == "decision_mismatch":
+        _write_jsonl(
+            paths["runtime_telemetry"],
+            [_telemetry_row(decision_ids=["other-decision"])],
+        )
+    else:
+        _write_jsonl(
+            paths["runtime_telemetry"],
+            [
+                _telemetry_row(receipt_id="duplicate"),
+                _telemetry_row(receipt_id="duplicate"),
+            ],
+        )
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+
+    with pytest.raises(ValueError, match="telemetry|session|decision|ambiguous"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+
+
+def test_checkpoint_ignores_an_unrelated_historical_telemetry_row_without_decisions(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    _write_jsonl(
+        paths["runtime_telemetry"],
+        [
+            _telemetry_row(
+                session_id="sess_other",
+                decision_ids=[],
+                receipt_id="telemetry_other",
+            ),
+            _telemetry_row(),
+        ],
+    )
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+
+    checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
+
+    assert checkpoint_dir.is_dir()
+
+
 def test_checkpoint_rejects_leftover_async_pending_batches(tmp_path: Path):
     workspace = tmp_path / "workspace"
     paths = _seed_workspace(workspace)
@@ -510,6 +671,51 @@ def test_checkpoint_rejects_structured_cross_file_identity_mismatches(
     assert not (store.run_dir / "checkpoints").exists()
 
 
+@pytest.mark.parametrize(
+    ("file_key", "replacement"),
+    [
+        ("investigator", {"id": "other"}),
+        ("investigator", {"id": "inv-a", "investigator_id": "other"}),
+        ("investigator_creation", {"investigator_id": "other"}),
+    ],
+)
+def test_checkpoint_rejects_wrong_selected_investigator_file_identity(
+    tmp_path: Path, file_key: str, replacement: dict
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+    _write_json(paths[file_key], replacement)
+
+    with pytest.raises(ValueError, match="investigator|character|creation|identity"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+
+
+def test_restore_rejects_rehashed_wrong_character_identity(tmp_path: Path):
+    store, checkpoint_dir, _, _, _ = _checkpoint(tmp_path)
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entry = next(
+        item
+        for item in manifest["state_files"]
+        if item["workspace_path"] == ".coc/investigators/inv-a/character.json"
+    )
+    state_path = checkpoint_dir / entry["path"]
+    payload = json.dumps({"id": "other"}).encode("utf-8")
+    state_path.write_bytes(payload)
+    entry["sha256"] = hashlib.sha256(payload).hexdigest()
+    entry["size"] = len(payload)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    target = tmp_path / "fresh"
+    _prepare_fresh_generation(target)
+
+    with pytest.raises(ValueError, match="investigator|character|identity"):
+        store.restore_checkpoint(checkpoint_dir, target)
+
+
 def test_restore_exactly_mirrors_mutable_trees_and_absent_optional_files(
     tmp_path: Path,
 ):
@@ -587,6 +793,63 @@ def test_restore_rejects_preexisting_immutable_target_trees_before_mutation(
         store.restore_checkpoint(checkpoint_dir, target)
 
     assert paths["save"].read_text(encoding="utf-8") == "target-before"
+
+
+@pytest.mark.parametrize("membership_case", ["phantom", "omitted_parent"])
+def test_restore_rejects_mutable_tree_directory_membership_not_derived_from_files(
+    tmp_path: Path, membership_case: str
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    _write_json(
+        paths["campaign"] / "save" / "investigator-state" / "inv-a.json",
+        {"campaign_id": "masks-run-a", "investigator_id": "inv-a"},
+    )
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+    checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    save_root = ".coc/campaigns/masks-run-a/save"
+    directories = manifest["managed_mutable_trees"][save_root]["directories"]
+    if membership_case == "phantom":
+        directories.append("phantom")
+        directories.sort()
+    else:
+        directories.remove("investigator-state")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    target = tmp_path / "fresh"
+    _prepare_fresh_generation(target)
+
+    with pytest.raises(ValueError, match="mutable|directory|membership"):
+        store.restore_checkpoint(checkpoint_dir, target)
+
+
+def test_empty_mutable_root_restores_only_its_root_directory(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    paths["memory"].unlink()
+    (paths["campaign"] / "memory" / "phantom-empty").mkdir()
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+    checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
+    manifest = json.loads((checkpoint_dir / "manifest.json").read_text())
+    memory_root = ".coc/campaigns/masks-run-a/memory"
+
+    assert manifest["managed_mutable_trees"][memory_root] == {
+        "present": True,
+        "directories": ["."],
+    }
+    target = tmp_path / "fresh"
+    _prepare_fresh_generation(target)
+    store.restore_checkpoint(checkpoint_dir, target)
+    restored_memory = target / memory_root
+    assert restored_memory.is_dir()
+    assert not (restored_memory / "phantom-empty").exists()
 
 
 def test_action_rows_form_a_canonical_hash_chain(tmp_path: Path):
@@ -1419,7 +1682,7 @@ def test_checkpoint_rejects_unsafe_model_identity_before_publication(
         "model_identity": model_identity,
         "recording_mode": "sync",
         "recording_flush": "manual",
-        "runtime_receipt_sha256": "a" * 64,
+        "runtime_receipt_sha256": _runtime_receipt_sha256(),
         "request_id": "req-1",
     }
     _append_with_provenance(store, provenance)
@@ -1442,7 +1705,7 @@ def test_checkpoint_normalizes_absent_or_empty_model_identity(
         "player_mode": "whitebox",
         "recording_mode": "sync",
         "recording_flush": "manual",
-        "runtime_receipt_sha256": "a" * 64,
+        "runtime_receipt_sha256": _runtime_receipt_sha256(),
         "request_id": "req-1",
     }
     if identity_mode == "none":

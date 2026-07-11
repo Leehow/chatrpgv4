@@ -1231,6 +1231,8 @@ def _run_pending_choice_response(
         "turn_count": 1,
         "decision_ids": [decision_id],
         "auto_advance": result["auto_advance"],
+        "recording_mode": mode,
+        "recording_flush": flush_policy,
         "pending_choice": pending_choice,
         "final_state": result["final_state"],
     })

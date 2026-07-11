@@ -105,26 +105,17 @@ def _prepare_local_provisioning(workspace: Path) -> None:
     (coc / "module-library").mkdir(parents=True, exist_ok=True)
 
 
-def _force_sync_adapter(api) -> list[dict[str, str]]:
+def _force_sync_adapter(api) -> None:
     canonical = api._session._load_debug_adapter()
-    receipts: list[dict[str, str]] = []
 
     class SyncDebugAdapter:
         @staticmethod
         def debug_send_turn(*args, **kwargs):
             kwargs["recording_mode"] = "sync"
             kwargs["recording_flush"] = "manual"
-            result = canonical.debug_send_turn(*args, **kwargs)
-            receipts.append(
-                {
-                    "recording_mode": kwargs["recording_mode"],
-                    "recording_flush": kwargs["recording_flush"],
-                }
-            )
-            return result
+            return canonical.debug_send_turn(*args, **kwargs)
 
     api._session._load_debug_adapter = lambda: SyncDebugAdapter
-    return receipts
 
 
 def _chase_requests() -> tuple[dict, dict]:
@@ -210,6 +201,16 @@ def _stable_events(events: list[dict]) -> list[dict]:
     ]
 
 
+def _last_jsonl_row(path: Path) -> dict:
+    return json.loads(
+        next(
+            line
+            for line in reversed(path.read_text(encoding="utf-8").splitlines())
+            if line.strip()
+        )
+    )
+
+
 def _restore_with_fresh_api(
     checkpoint_store, checkpoint_dir: Path, target: Path, name: str
 ):
@@ -227,7 +228,7 @@ def test_public_sdk_checkpoint_restores_pending_state_and_seeded_continuation(
     workspace = tmp_path / "generation-old"
     campaign = _build_generation(workspace)
     api = _load("runtime_checkpoint_api_source", REPO / "runtime" / "sdk" / "api.py")
-    recording_receipts = _force_sync_adapter(api)
+    _force_sync_adapter(api)
     session_id = api.create_session(
         workspace, campaign_id="live", investigator_id="inv1"
     )
@@ -241,7 +242,7 @@ def test_public_sdk_checkpoint_restores_pending_state_and_seeded_continuation(
     assert checkpoint_state["pending_choice"] is not None
     api._session._REGISTRY.snapshot(workspace)
 
-    receipt = recording_receipts[-1]
+    receipt = _last_jsonl_row(campaign / "logs" / "live-turn-runtime.jsonl")
     assert receipt["recording_mode"] == "sync"
     assert receipt["recording_flush"] == "manual"
     receipt_payload = json.dumps(
@@ -285,8 +286,8 @@ def test_public_sdk_checkpoint_restores_pending_state_and_seeded_continuation(
         {
             "player_mode": "whitebox",
             "model_identity": {},
-            "recording_mode": recording_receipts[-1]["recording_mode"],
-            "recording_flush": recording_receipts[-1]["recording_flush"],
+            "recording_mode": "sync",
+            "recording_flush": "manual",
         },
     )
     assert store._turn_number == 2

@@ -2277,6 +2277,66 @@ def test_live_typed_combat_start_attack_and_defense_journey(tmp_path):
     assert event["turn"]["defense_kind"] == "dodge"
 
 
+def test_typed_subsystem_and_pending_rows_attest_sync_manual_recording(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    participants = [
+        {
+            "actor_id": "inv1", "side": "quarry", "mov": 8, "dex": 70,
+            "con": 60, "hp": 12, "fight": 60, "dodge": 40, "build": 0,
+            "current_position": 0, "conditions": [],
+        },
+        {
+            "actor_id": "cultist", "side": "pursuer", "mov": 8, "dex": 50,
+            "con": 50, "hp": 9, "fight": 45, "dodge": 25, "build": 0,
+            "current_position": 0, "conditions": [],
+        },
+    ]
+    locations = [
+        {"label": "roof", "hazard": None, "barrier": None},
+        {
+            "label": "door", "hazard": None,
+            "barrier": {
+                "barrier_id": "door", "hp": 4, "hp_max": 4,
+                "skill": "Climb", "target": 100,
+            },
+        },
+    ]
+    live_runner.run_live_turn(
+        camp, char_path, "inv1", "",
+        subsystem_request={
+            "kind": "chase_start",
+            "payload": {
+                "decision_id": "receipt-chase", "chase_id": "receipt-roof",
+                "participants": participants, "locations": locations,
+            },
+        },
+        recording_mode="sync", recording_flush="manual", rng_seed=901,
+    )
+    result = live_runner.run_live_turn(
+        camp, char_path, "inv1", "",
+        subsystem_request={
+            "kind": "chase_move",
+            "payload": {
+                "decision_id": "receipt-chase", "revision": 1,
+                "actor_id": "inv1", "action_id": "choice:offer",
+            },
+        },
+        recording_mode="sync", recording_flush="manual", rng_seed=902,
+    )
+    assert result["pending_choice"] is not None
+    rows = [
+        json.loads(line)
+        for line in (camp / "logs" / "live-turn-runtime.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len(rows) == 2
+    assert all(row["recording_mode"] == "sync" for row in rows)
+    assert all(row["recording_flush"] == "manual" for row in rows)
+    assert rows[-1]["decision_ids"] == ["receipt-chase"]
+
+
 def test_live_typed_chase_journey_persists_hazard_barrier_conflict_and_end(tmp_path):
     camp, char_path = _build_live_campaign(tmp_path)
     inv_path = camp / "save" / "investigator-state" / "inv1.json"
