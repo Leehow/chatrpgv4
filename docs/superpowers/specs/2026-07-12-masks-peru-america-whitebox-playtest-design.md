@@ -6,10 +6,13 @@
 
 ## Objective
 
-Run a genuine, evidence-bearing Call of Cthulhu playtest through the complete
-Peru prologue and America/New York chapter of *Masks of Nyarlathotep*, then
-probe chapter handoffs to England and Egypt. The run evaluates the Keeper
-system from three perspectives:
+Run two genuine, evidence-bearing Call of Cthulhu playtests through the
+complete Peru prologue and America/New York chapter of *Masks of Nyarlathotep*,
+then probe chapter handoffs to England and Egypt. The first run uses a
+spoiler-aware diagnostic player to exercise the white-box system deliberately.
+The second uses a fresh, no-context, spoiler-blind player to measure what an
+ordinary player can discover and where that player gets stuck. Together the
+runs evaluate the Keeper system from three perspectives:
 
 1. rule correctness;
 2. Director orchestration and story interest; and
@@ -44,12 +47,34 @@ summaries.
 
 ## Test Roles
 
-### Player
+### Run A player: spoiler-aware diagnostic Codex
 
-The primary Codex agent acts as the investigator and sees only player-safe
-state and Events. It does not read Keeper secrets, undiscovered clue content,
-future scenes, or full evaluator findings during active play. Player actions
+The primary Codex agent acts as a white-box investigator and may inspect the
+full scenario graph, Keeper data, future scenes, source gates, and evaluator
+findings. It deliberately exercises critical branches, alternate affordances,
+rule subsystems, failure consequences, and chapter transitions. Player actions
 are chosen interactively, not by the existing simulated-player runner.
+
+This run measures system coverage, correctness, branch viability, and prose
+behavior under known conditions. Because the player knows the mystery, it must
+be labelled `diagnostic_spoiler_run`; it cannot be used as unbiased evidence
+that clues are naturally discoverable, that suspense works, or that the
+mystery is fair to a normal player.
+
+### Run B player: fresh spoiler-blind Codex subagent
+
+After Run A and its blocking repairs complete, Run B starts from a clean
+campaign with a new investigator state and a fresh subagent created without
+the parent conversation or Run A context. It receives only player-safe Events,
+PublicState, and its own prior player transcript. It may not read scenario
+files, Keeper views, source evidence, undiscovered clues, evaluator reports, or
+Run A actions.
+
+The blind player is not told which routes Run A covered or where the expected
+solution lies. Its inability to find a clue, infer a next action, recover from
+failure, or reach a viable route is primary test evidence rather than a reason
+for the orchestrator to steer it. Full-log evaluators may observe the run but
+must not feed spoiler-bearing advice back to the player lane.
 
 ### Keeper System Under Test
 
@@ -72,15 +97,19 @@ Independent Codex subagents audit checkpoint artifacts. The rules evaluator
 may see Keeper-side structured evidence. The story and prose evaluators use
 only the minimum information required for their lens. Their reviews must cite
 turn IDs, event IDs, roll IDs, scene IDs, receipts, or transcript excerpts.
+During Run B, evaluator output is quarantined from the blind player until that
+run ends or a P0/P1 defect requires a formally invalidated replay.
 
 ## Scope
 
-### Primary actual-play journey
+### Run A: diagnostic actual-play journey
 
 - Install or create a scenario-bound investigator in an isolated sandbox.
 - Play the complete Peru prologue through its structured resolution.
 - Transition to Campaign Beginning and America/New York.
 - Play America/New York through its structured chapter resolution.
+- Use spoiler knowledge to exercise critical and alternate routes without
+  inventing actions unavailable to the production player interface.
 - Target range: 120-220 meaningful player turns.
 - Hard ceiling: 500 turns.
 
@@ -89,9 +118,30 @@ on a valid chapter terminal, investigator death/unplayability, an unresolved
 security blocker, invalid evidence provenance, or an unrecoverable provider
 failure.
 
+### Run B: spoiler-blind actual-play journey
+
+- Start from a fresh sandbox, fresh session lineage, and fresh player context.
+- Play Peru and America again without access to Run A or Keeper information.
+- Allow natural hesitation, wrong hypotheses, missed optional clues, and
+  failure consequences.
+- Do not route the player toward paths it has not discovered.
+- Target range: 120-260 meaningful player turns.
+- Hard ceiling: 500 turns.
+
+Run B completes on structured America resolution, investigator
+death/unplayability, or the hard ceiling. If it stalls, the report must identify
+the exact last viable clue/affordance, the player's known state, and the
+Director's available but undiscovered routes. It must not retroactively coach
+the player merely to obtain a passing result.
+
+The 500-turn ceiling applies separately to each primary run. The combined
+maximum is therefore 1,000 primary-run turns, excluding the short chapter
+handoff probes.
+
 ### Chapter handoff probes
 
-After America completes, create separate checkpoint forks for:
+After the primary runs, create separate checkpoint forks from the accepted
+America terminal state for:
 
 - America -> England/London; and
 - America -> Egypt.
@@ -114,7 +164,7 @@ probe scope.
 
 ## Interactive White-Box Driver
 
-The play driver must use the public production session contract. It must not
+Both play drivers must use the public production session contract. They must not
 call rule, Director, terminal, combat, chase, SAN, or epistemic helpers directly
 to manufacture coverage.
 
@@ -136,7 +186,9 @@ checkpoint without silently joining incompatible model or code versions.
 ## Checkpoints and Repair Loop
 
 A review checkpoint occurs every ten turns and at every scene or chapter
-transition.
+transition. Run A checkpoint findings are available to the diagnostic player.
+Run B checkpoint findings remain quarantined from the blind player except for
+non-spoiler operational errors such as a failed model call.
 
 At a checkpoint:
 
@@ -159,6 +211,10 @@ For a P0/P1 system defect:
 
 Non-blocking prose and pacing findings are accumulated and normally repaired at
 the next chapter boundary to avoid constantly rewriting the live experience.
+After Run A repairs are complete, freeze a tested code revision before starting
+Run B. If Run B exposes a new P0/P1 defect, record the version boundary and
+replay only the invalidated segment; never compare mixed-version turns as if
+they were one homogeneous run.
 
 ## Evaluation Rubric
 
@@ -184,7 +240,11 @@ Semantic judgments are made by an evaluator with recorded reasons; no prose
 keyword matcher may stand in for evaluation.
 
 Output: 0-100 score with strong moments, weak moments, dead ends, and cited
-turn/scene evidence.
+turn/scene evidence. Run A supplies branch-structure evidence. Run B is the
+primary evidence for clue discoverability, suspense, agency, mystery fairness,
+and whether an ordinary player gets stuck. The final report compares the two
+route graphs and classifies missed routes as optional, insufficiently
+signposted, mechanically blocked, or reasonably undiscovered.
 
 ### 3. Natural grounded Chinese prose
 
@@ -203,19 +263,21 @@ before scoring.
 The run lives under an isolated `.coc/playtests/<run-id>/` tree and never
 mutates the user's real campaign or investigator library. Required artifacts:
 
-- incremental actual-play transcript and player/keeper view streams;
+- separate Run A and Run B incremental transcripts and player/keeper streams;
 - session and checkpoint manifests;
 - rolls, state patches, subsystem receipts, telemetry, and model invocations;
 - scenario/source/evidence provenance;
 - checkpoint reviews and defect/replay ledger;
-- chapter transition report;
+- spoiler-vs-blind route comparison and chapter transition report;
 - three-axis evaluation report; and
 - final report generated only after evidence receipt validation.
 
 Only a run whose recomputed evidence receipt is eligible may produce
-`battle-report.md`. Otherwise the artifact is
-`verification-sample.md` with an explicit NON-GAMEPLAY heading. The final
-handoff must read the complete report before quoting or summarizing it.
+`battle-report.md`. Otherwise the artifact is `verification-sample.md` with an
+explicit NON-GAMEPLAY heading. Run A must visibly disclose its spoiler-aware
+diagnostic status even if its mechanical provenance is otherwise eligible. Run
+B is the primary candidate for an ordinary actual-play battle report. The final
+handoff must read both complete reports before quoting or summarizing them.
 
 ## Acceptance Criteria
 
@@ -224,15 +286,20 @@ The work is complete when:
 1. Peru and America packages validate with zero errors and accepted critical
    source gates;
 2. the GLM-5.2 credential/model canary succeeds without fallback substitution;
-3. the canonical interactive driver completes Peru and America or records a
-   legitimate terminal/blocker before the 500-turn ceiling;
-4. chapter handoff probes to England and Egypt complete without state or secret
+3. Run A completes Peru and America or records a legitimate terminal/blocker
+   before its 500-turn ceiling, with spoiler status correctly disclosed;
+4. Run B uses a fresh quarantined player context and completes Peru and America
+   or records exactly where a spoiler-blind player stalled before its separate
+   500-turn ceiling;
+5. the final analysis compares spoiler-aware and blind route coverage without
+   leaking Run A guidance into Run B;
+6. chapter handoff probes to England and Egypt complete without state or secret
    leakage;
-5. all blocking white-box findings are fixed, regression-tested, and replayed;
-6. the three evaluation reports contain evidence-backed scores and findings;
-7. full project tests pass after all repairs;
-8. evidence classification and artifact naming pass independent review; and
-9. no copyrighted source prose or PDF asset is committed.
+7. all blocking white-box findings are fixed, regression-tested, and replayed;
+8. the three evaluation reports contain evidence-backed scores and findings;
+9. full project tests pass after all repairs;
+10. evidence classification and artifact naming pass independent review; and
+11. no copyrighted source prose or PDF asset is committed.
 
 ## Non-Goals
 
@@ -241,4 +308,3 @@ The work is complete when:
 - Replacing GLM-5.2 with a stronger KP model to improve scores.
 - Treating scripted fixtures or deterministic smoke reports as actual play.
 - Committing the source PDF, raw extracted chapters, or Keeper-secret prose.
-
