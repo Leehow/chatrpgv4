@@ -1005,6 +1005,89 @@ def test_combat_snapshot_round_trip_preserves_revision_and_initiative(tmp_path):
     assert loaded.snapshot() == s.snapshot()
 
 
+def _save_two_round_initiative_evidence(tmp_path):
+    """Persist valid current and historical skip/exclusion evidence."""
+    s = coc_combat.CombatSession("initiative-evidence", "test", 1, rng=random.Random(4))
+    s.add_participant("hero", "investigator", 70, 60, 0, 10)
+    s.add_participant("foe", "monster", 50, 45, 0, 8)
+    s.add_participant(
+        "fallen", "npc", 30, 30, 0, 6, conditions=["unconscious"]
+    )
+    s.participants["fallen"]["hp_current"] = 0
+    s.begin_round()
+    s.participants["hero"]["hp_current"] = 0
+    s.participants["hero"]["conditions"] = ["unconscious"]
+    s.mark_current_initiative_skipped()
+    s.initiative_cursor += 1
+    s.mark_current_initiative_acted()
+    s.initiative_cursor += 1
+    s.begin_round()
+    s.participants["foe"]["hp_current"] = 0
+    s.participants["foe"]["conditions"] = ["unconscious"]
+    s.mark_current_initiative_skipped()
+    s.initiative_cursor += 1
+    s.save(tmp_path)
+    return tmp_path / "save" / "combat.json"
+
+
+@pytest.mark.parametrize(
+    ("scope", "actor_id", "replacement"),
+    [
+        ("current", "foe", {"hp_current": True, "conditions": ["unconscious"]}),
+        ("current", "foe", {"hp_current": -1, "conditions": ["unconscious"]}),
+        ("current", "foe", {"hp_current": 0, "conditions": ["unconscious", "unconscious"]}),
+        ("current", "foe", {"hp_current": 0, "conditions": ["unconscious", "invented"]}),
+        ("historical", "hero", {"hp_current": True, "conditions": ["unconscious"]}),
+        ("historical", "hero", {"hp_current": -1, "conditions": ["unconscious"]}),
+        ("historical", "hero", {"hp_current": 0, "conditions": ["unconscious", "unconscious"]}),
+        ("historical", "hero", {"hp_current": 0, "conditions": ["unconscious", "invented"]}),
+        ("historical", "hero", {"hp_current": 1, "conditions": []}),
+    ],
+)
+def test_combat_load_strictly_validates_current_and_historical_skip_evidence(
+    tmp_path, scope, actor_id, replacement
+):
+    path = _save_two_round_initiative_evidence(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    rows = (
+        forged["initiative_progress"]
+        if scope == "current"
+        else forged["rounds"][0]["initiative_progress"]
+    )
+    next(row for row in rows if row["actor_id"] == actor_id)["skip_evidence"] = replacement
+    if scope == "current":
+        next(
+            row for row in forged["rounds"][-1]["initiative_progress"]
+            if row["actor_id"] == actor_id
+        )["skip_evidence"] = replacement
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="initiative skip"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+@pytest.mark.parametrize("scope", ["current", "historical"])
+def test_combat_load_rejects_skip_evidence_on_excluded_initiative_entries(tmp_path, scope):
+    path = _save_two_round_initiative_evidence(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    rows = (
+        forged["initiative_progress"]
+        if scope == "current"
+        else forged["rounds"][0]["initiative_progress"]
+    )
+    next(row for row in rows if row["actor_id"] == "fallen")["skip_evidence"] = {
+        "hp_current": 0,
+        "conditions": ["unconscious"],
+    }
+    if scope == "current":
+        next(
+            row for row in forged["rounds"][-1]["initiative_progress"]
+            if row["actor_id"] == "fallen"
+        )["skip_evidence"] = {"hp_current": 0, "conditions": ["unconscious"]}
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="excluded initiative actor"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
 def test_combat_load_rejects_forged_pending_defense_contract(tmp_path):
     s = coc_combat.CombatSession("pending-contract", "test", 1, rng=random.Random(5))
     s.add_participant("inv", "investigator", 60, 55, 0, 10)

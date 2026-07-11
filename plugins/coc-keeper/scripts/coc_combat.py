@@ -2275,6 +2275,34 @@ class CombatSession:
             "hp_current", "conditions", "dex", "combat_skill",
             "firearms_skill", "has_ready_firearm",
         }
+        def validate_skip_evidence(row: dict[str, Any], *, historical: bool) -> None:
+            """Validate the same eligibility receipt in live and past rounds."""
+            evidence = row.get("skip_evidence")
+            status = row.get("status")
+            prefix = "combat historical" if historical else "combat"
+            if status != "skipped_ineligible":
+                if evidence is not None:
+                    if status == "excluded_at_round_start":
+                        raise ValueError(f"{prefix} excluded initiative actor is invalid")
+                    raise ValueError(f"{prefix} initiative progress has unexpected skip evidence")
+                return
+            if not isinstance(evidence, dict) or set(evidence) != {"hp_current", "conditions"}:
+                raise ValueError(f"{prefix} initiative skip lacks eligibility evidence")
+            hp_current = evidence.get("hp_current")
+            conditions = evidence.get("conditions")
+            if (
+                isinstance(hp_current, bool)
+                or not isinstance(hp_current, int)
+                or hp_current < 0
+                or not isinstance(conditions, list)
+                or len(conditions) != len(set(conditions))
+                or any(value not in VALID_CONDITIONS for value in conditions)
+                or (hp_current > 0 and not any(
+                    value in conditions
+                    for value in ("dead", "dying", "unconscious", "fled")
+                ))
+            ):
+                raise ValueError(f"{prefix} initiative skip lacks eligibility evidence")
         progress_by_actor: dict[str, dict[str, Any]] = {}
         for row in session.initiative_progress:
             if not isinstance(row, dict) or set(row) != progress_keys:
@@ -2306,8 +2334,9 @@ class CombatSession:
             )
             initiative = row["initiative"]
             if not eligible:
-                if initiative is not None or row["status"] != "excluded_at_round_start" or row["skip_evidence"] is not None:
+                if initiative is not None or row["status"] != "excluded_at_round_start":
                     raise ValueError("combat excluded initiative actor is invalid")
+                validate_skip_evidence(row, historical=False)
                 continue
             dex_reason = (
                 "ready_firearm"
@@ -2321,20 +2350,7 @@ class CombatSession:
             }
             if initiative != expected_row or row["status"] not in {"pending", "acted", "skipped_ineligible"}:
                 raise ValueError("combat eligible initiative actor is invalid")
-            if row["status"] == "skipped_ineligible":
-                evidence = row["skip_evidence"]
-                if (
-                    not isinstance(evidence, dict)
-                    or set(evidence) != {"hp_current", "conditions"}
-                    or not isinstance(evidence.get("conditions"), list)
-                    or (evidence.get("hp_current", 0) > 0 and not any(
-                        value in evidence["conditions"] for value in
-                        ("dead", "dying", "unconscious", "fled")
-                    ))
-                ):
-                    raise ValueError("combat initiative skip lacks eligibility evidence")
-            elif row["skip_evidence"] is not None:
-                raise ValueError("combat initiative progress has unexpected skip evidence")
+            validate_skip_evidence(row, historical=False)
             expected_from_roster.append(expected_row)
         expected_from_roster.sort(key=lambda row: (
             -row["dex"],
@@ -2377,9 +2393,11 @@ class CombatSession:
                 if not eligible:
                     if row.get("initiative") is not None or row.get("status") != "excluded_at_round_start":
                         raise ValueError("combat historical excluded actor is invalid")
+                    validate_skip_evidence(row, historical=True)
                     continue
                 if row.get("status") not in {"acted", "skipped_ineligible"}:
                     raise ValueError("combat historical initiative progress is incomplete")
+                validate_skip_evidence(row, historical=True)
                 dex_reason = (
                     "ready_firearm"
                     if evidence.get("has_ready_firearm") is True and evidence.get("firearms_skill", 0) > 0

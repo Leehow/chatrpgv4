@@ -2060,3 +2060,179 @@ def test_live_director_routes_dying_state_through_rescue_engine(tmp_path):
     assert event["event_type"] == "dying_con_roll"
     final_inv = json.loads(inv_path.read_text(encoding="utf-8"))
     assert ("dead" in final_inv["conditions"]) is event["died"]
+
+
+def test_live_combat_injury_reload_rescue_and_treatment_journey_is_replay_safe(tmp_path):
+    """One real live-turn journey proves injury, clocks, rescue and evidence."""
+    camp, char_path = _build_live_campaign(tmp_path)
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({"current_hp": 6, "max_hp": 6, "conditions": []})
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+    character = json.loads(char_path.read_text(encoding="utf-8"))
+    character["characteristics"]["CON"] = 99
+    character["derived"]["HP"] = 6
+    char_path.write_text(json.dumps(character), encoding="utf-8")
+
+    start_request = {
+        "kind": "combat_start",
+        "payload": {
+            "decision_id": "injury-journey",
+            "combat_id": "injury-journey",
+            "scene_ref": "scene/injury-journey",
+            "turn_number": 1,
+            "participants": [
+                {
+                    "actor_id": "inv1", "side": "investigator", "dex": 50,
+                    "combat_skill": 60, "dodge_skill": 40, "build": 0,
+                    "hp_max": 6, "hp_current": 6, "con": 99,
+                    "weapons": [{"weapon_id": "unarmed"}], "conditions": [],
+                },
+                {
+                    "actor_id": "cultist", "side": "npc", "dex": 70,
+                    "combat_skill": 150, "dodge_skill": 25, "build": 0,
+                    "hp_max": 9, "hp_current": 9, "con": 45,
+                    "weapons": [{
+                        "weapon_id": "injury-pistol", "skill": "Firearms (Handgun)",
+                        "damage": "6", "adds_damage_bonus": False,
+                        "impales": False, "special": None,
+                    }],
+                    "conditions": [],
+                },
+            ],
+        },
+    }
+    live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request=start_request,
+        recording_mode="sync", max_auto_advance=1, rng_seed=701,
+    )
+    declared = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request={
+            "kind": "combat_attack",
+            "payload": {
+                "decision_id": "injury-journey", "revision": 1,
+                "actor_id": "cultist", "target_actor_id": "inv1",
+                "declared_intent": "structured lethal shot",
+                "resolution_hint": "firearm_attack", "weapon_id": "injury-pistol",
+            },
+        }, recording_mode="sync", max_auto_advance=1, rng_seed=702,
+    )
+    choice = declared["turns"][0]["pending_choice"]
+    assert choice["kind"] == "combat_defense"
+    defended = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", pending_choice_response={
+            "choice_id": choice["choice_id"], "responder": "player",
+            "revision": choice["revision"], "action": "none",
+        }, recording_mode="sync", max_auto_advance=1, rng_seed=703,
+    )
+    resolved = defended["subsystem_results"][0]["events"][0]
+    assert resolved["turn"]["outcome"] == "hit"
+    assert resolved["turn"]["damage_roll_id"]
+    assert {"major_wound", "unconscious", "dying"} <= set(
+        json.loads(inv_path.read_text(encoding="utf-8"))["conditions"]
+    )
+
+    combat_path = camp / "save" / "combat.json"
+    persisted_combat = json.loads(combat_path.read_text(encoding="utf-8"))
+    participant = next(
+        row for row in persisted_combat["participants"] if row["actor_id"] == "inv1"
+    )
+    assert participant["hp_current"] == 0
+    assert participant["major_wound_con"]["roll_id"]
+    wound = json.loads(inv_path.read_text(encoding="utf-8"))["wound_ledger"][0]
+    assert wound["source_damage_roll_id"].endswith(resolved["turn"]["damage_roll_id"])
+    reloaded = live_runner.subsystem_executor.coc_combat.CombatSession.load(
+        camp, rng=random.Random(999)
+    )
+    assert reloaded.participants["inv1"]["conditions"] == participant["conditions"]
+
+    tick_request = {
+        "kind": "dying_tick",
+        "payload": {
+            "decision_id": "injury-dying-tick", "clock_kind": "round",
+        },
+    }
+    ticked = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request=tick_request,
+        recording_mode="sync", max_auto_advance=1, rng_seed=1,
+    )
+    tick_event = ticked["subsystem_results"][0]["events"][0]
+    assert tick_event["event_type"] == "dying_con_roll"
+    assert tick_event["died"] is False
+    rolls_before_replay = (camp / "logs" / "rolls.jsonl").read_text(encoding="utf-8")
+    replayed_tick = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request=tick_request,
+        recording_mode="sync", max_auto_advance=1, rng_seed=999,
+    )
+    assert replayed_tick["subsystem_results"] == ticked["subsystem_results"]
+    assert (camp / "logs" / "rolls.jsonl").read_text(encoding="utf-8") == rolls_before_replay
+
+    first_aid = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request={
+            "kind": "stabilize",
+            "payload": {
+                "decision_id": "injury-first-aid", "method": "first_aid",
+                "skill_value": 99,
+            },
+        }, recording_mode="sync", max_auto_advance=1, rng_seed=2,
+    )
+    aid_event = first_aid["subsystem_results"][0]["events"][0]
+    assert aid_event["event_type"] == "first_aid_stabilize"
+    stabilized = json.loads(inv_path.read_text(encoding="utf-8"))
+    assert stabilized["current_hp"] == 1
+    assert {"dying", "stabilized"} <= set(stabilized["conditions"])
+    reloaded_after_aid = live_runner.subsystem_executor.coc_combat.CombatSession.load(
+        camp, rng=random.Random(998)
+    )
+    assert "stabilized" in reloaded_after_aid.participants["inv1"]["conditions"]
+
+    medicine_request = {
+        "kind": "stabilize",
+        "payload": {
+            "decision_id": "injury-medicine", "method": "medicine",
+            "skill_value": 99,
+        },
+    }
+    medicated = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request=medicine_request,
+        recording_mode="sync", max_auto_advance=1, rng_seed=3,
+    )
+    medicine_event = medicated["subsystem_results"][0]["events"][0]
+    assert medicine_event["event_type"] == "medicine"
+    final_inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    assert final_inv["current_hp"] > 1
+    assert "dying" not in final_inv["conditions"]
+    assert "stabilized" not in final_inv["conditions"]
+    final_combat = json.loads(combat_path.read_text(encoding="utf-8"))
+    final_participant = next(
+        row for row in final_combat["participants"] if row["actor_id"] == "inv1"
+    )
+    assert final_participant["hp_current"] == final_inv["current_hp"]
+    assert final_participant["conditions"] == final_inv["conditions"]
+
+    roll_rows = [
+        json.loads(line)["payload"]
+        for line in (camp / "logs" / "rolls.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert any(row.get("skill") == "HP Damage" for row in roll_rows)
+    assert any(row.get("skill") == "CON" for row in roll_rows)
+    assert any(row.get("skill") == "First Aid" for row in roll_rows)
+    assert any(row.get("skill") == "Medicine" for row in roll_rows)
+    assert any(row.get("skill") == "HP Healing" for row in roll_rows)
+    assert all(
+        isinstance(row.get("roll_id"), str)
+        and isinstance(row.get("source_command_id"), str)
+        and "dice" in row
+        for row in roll_rows
+    )
+    rolls_before_medicine_replay = len(roll_rows)
+    replayed_medicine = live_runner.run_live_turn(
+        camp, char_path, "inv1", "", subsystem_request=medicine_request,
+        recording_mode="sync", max_auto_advance=1, rng_seed=999,
+    )
+    assert replayed_medicine["subsystem_results"] == medicated["subsystem_results"]
+    assert len([
+        line for line in (camp / "logs" / "rolls.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]) == rolls_before_medicine_replay
