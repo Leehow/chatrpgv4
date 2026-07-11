@@ -224,6 +224,10 @@ enter the artifact.  The manifest records managed roots plus absent optional
 files.  Directory membership is derived from snapshotted files rather than
 trusting arbitrary empty-directory claims.
 
+The canonical mutable campaign roots `save/`, `memory/`, and `logs/` are
+required even when empty; absence is invalid rather than an unauthenticated
+manifest choice.  Optional leaf files remain explicitly presence-tracked.
+
 The public runtime contract must also expose two player-safe structured facts
 needed by the driver: the narrator adapter's observed `{provider, id}` plus
 fallback/response mode in telemetry, and validated session/chapter terminal

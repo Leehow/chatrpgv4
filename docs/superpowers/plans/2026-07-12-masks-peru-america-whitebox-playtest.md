@@ -189,6 +189,8 @@ campaign/investigator/character path, and remove unrelated sessions and
 tombstones from the checkpoint copy.  The manifest records every managed root
 and absent optional path; managed directory membership is derived from the
 snapshotted files and cannot assert phantom empty directories.
+The canonical mutable roots `save`, `memory`, and `logs` must all exist (an
+empty root is valid); a checkpoint may not encode their absence.
 
 Each action ledger row must chain:
 
