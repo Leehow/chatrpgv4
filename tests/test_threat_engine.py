@@ -65,8 +65,8 @@ def test_apply_pressure_tick_fires_clock_full_event(tmp_path):
 
     camp = _mini_campaign(tmp_path)
     # Pre-fill to 2/3 so one tick fills it
-    coc_threat_state.tick_clock(camp / "save", "door", segments=3)
-    coc_threat_state.tick_clock(camp / "save", "door", segments=3)
+    coc_threat_state.tick_clock(camp / "save", "door", segments=3, source_id="setup:door:1")
+    coc_threat_state.tick_clock(camp / "save", "door", segments=3, source_id="setup:door:2")
     assert coc_threat_state.get_clock_segments(camp / "save", "door") == 2
 
     plan = {"decision_id": "t2", "scene_action": "PRESSURE",
@@ -320,7 +320,7 @@ def test_load_threat_state_returns_empty_when_missing(tmp_path):
 
 def test_tick_clock_increments_and_persists(tmp_path):
     save = _save_with_clocks(tmp_path, {"siege-door": {"current_segments": 1, "full": False}})
-    coc_threat_state.tick_clock(save, "siege-door", segments=4)
+    coc_threat_state.tick_clock(save, "siege-door", segments=4, source_id="test:siege:1")
     state = coc_threat_state.load_threat_state(save)
     assert state["clocks"]["siege-door"]["current_segments"] == 2
     assert state["clocks"]["siege-door"]["full"] is False
@@ -328,7 +328,7 @@ def test_tick_clock_increments_and_persists(tmp_path):
 
 def test_tick_clock_detects_full(tmp_path):
     save = _save_with_clocks(tmp_path, {"siege-door": {"current_segments": 3, "full": False}})
-    became_full = coc_threat_state.tick_clock(save, "siege-door", segments=4)
+    became_full = coc_threat_state.tick_clock(save, "siege-door", segments=4, source_id="test:siege:full")
     assert became_full is True
     state = coc_threat_state.load_threat_state(save)
     assert state["clocks"]["siege-door"]["full"] is True
@@ -338,7 +338,7 @@ def test_tick_clock_detects_full(tmp_path):
 def test_tick_clock_does_not_exceed_segments(tmp_path):
     """A full clock should not tick past its segment count."""
     save = _save_with_clocks(tmp_path, {"entity": {"current_segments": 6, "full": True}})
-    became_full = coc_threat_state.tick_clock(save, "entity", segments=6)
+    became_full = coc_threat_state.tick_clock(save, "entity", segments=6, source_id="test:entity:full")
     # Already full — tick is a no-op, returns False (did not *become* full this tick)
     assert became_full is False
     state = coc_threat_state.load_threat_state(save)
@@ -348,7 +348,7 @@ def test_tick_clock_does_not_exceed_segments(tmp_path):
 def test_tick_clock_unknown_creates_entry(tmp_path):
     """Ticking a clock that has no saved state starts from 0 then increments."""
     save = _save_with_clocks(tmp_path, {})
-    became_full = coc_threat_state.tick_clock(save, "new-clock", segments=4)
+    became_full = coc_threat_state.tick_clock(save, "new-clock", segments=4, source_id="test:new-clock:1")
     assert became_full is False
     state = coc_threat_state.load_threat_state(save)
     assert state["clocks"]["new-clock"]["current_segments"] == 1
@@ -384,7 +384,7 @@ def test_effect_retry_after_legitimate_clock_mutation_is_noop(tmp_path):
     assert coc_threat_state.apply_clock_effect_once(
         save, "doom", 6, ticks=2, effect_id=effect_id
     ) == (True, False)
-    assert coc_threat_state.tick_clock(save, "doom", 6) is False
+    assert coc_threat_state.tick_clock(save, "doom", 6, source_id="test:doom:later") is False
 
     assert coc_threat_state.apply_clock_effect_once(
         save, "doom", 6, ticks=2, effect_id=effect_id
@@ -407,6 +407,102 @@ def test_effect_receipt_binds_exact_persisted_transition(tmp_path):
 
     with pytest.raises(ValueError, match="receipt|transition"):
         coc_threat_state.load_threat_state(save)
+
+
+def test_independent_transaction_ledger_rejects_two_tick_state_truncation(tmp_path):
+    save = _save_with_clocks(tmp_path, {})
+    coc_threat_state.tick_clock(save, "doom", 6, source_id="test:tick:1")
+    coc_threat_state.tick_clock(save, "doom", 6, source_id="test:tick:2")
+    path = save / "threat-state.json"
+    state = json.loads(path.read_text())
+    state["transitions"] = state["transitions"][:1]
+    state["clocks"]["doom"] = {"current_segments": 1, "full": False}
+    state["ledger_head"] = state["transitions"][-1]["transition_hash"]
+    state["applied_effects"].pop("test:tick:2")
+    path.write_text(json.dumps(state))
+    with pytest.raises(ValueError, match="independent|transaction|ledger"):
+        coc_threat_state.load_threat_state(save)
+
+
+@pytest.mark.parametrize("tamper", ["clock", "head", "recomputed_chain"])
+def test_independent_transaction_ledger_rejects_coordinated_clock_chain_rewrite(
+    tmp_path, tamper,
+):
+    save = _save_with_clocks(tmp_path, {})
+    coc_threat_state.tick_clock(save, "doom", 6, source_id="test:rewrite:1")
+    coc_threat_state.tick_clock(save, "doom", 6, source_id="test:rewrite:2")
+    path = save / "threat-state.json"
+    state = json.loads(path.read_text())
+    if tamper == "clock":
+        state["clocks"]["doom"]["current_segments"] = 1
+    elif tamper == "head":
+        state["ledger_head"] = "0" * 64
+    else:
+        state["transitions"][1]["ticks"] = 2
+        state["transitions"][1]["after_segments"] = 3
+        state["transitions"][1]["previous_hash"] = state["transitions"][0]["transition_hash"]
+        state["transitions"][1]["transition_hash"] = coc_threat_state._transition_hash(
+            state["transitions"][1]
+        )
+        state["clocks"]["doom"] = {"current_segments": 3, "full": False}
+        state["ledger_head"] = state["transitions"][1]["transition_hash"]
+        receipt = state["applied_effects"]["test:rewrite:2"]
+        receipt.update({
+            "ticks": 2,
+            "after_segments": 3,
+            "transition_hash": state["ledger_head"],
+        })
+    path.write_text(json.dumps(state))
+    with pytest.raises(ValueError):
+        coc_threat_state.load_threat_state(save)
+
+
+def test_ordinary_tick_source_retry_is_exact_noop(tmp_path):
+    save = _save_with_clocks(tmp_path, {})
+    assert coc_threat_state.tick_clock(save, "doom", 6, source_id="test:retry") is False
+    assert coc_threat_state.tick_clock(save, "doom", 6, source_id="test:retry") is False
+    state = coc_threat_state.load_threat_state(save)
+    assert state["clocks"]["doom"]["current_segments"] == 1
+    assert len(state["transitions"]) == 1
+
+
+def test_pending_transaction_journal_recovers_log_ahead_of_state(tmp_path):
+    save = _save_with_clocks(tmp_path, {})
+    coc_threat_state.tick_clock(save, "doom", 6, source_id="test:crash:1")
+    old_state = coc_threat_state.load_threat_state(save)
+    next_state = json.loads(json.dumps(old_state))
+    transition = coc_threat_state._append_transition(
+        next_state, kind="effect", clock_id="doom", segments=6,
+        ticks=2, source_id="test:crash:2",
+    )
+    next_state["applied_effects"]["test:crash:2"] = (
+        coc_threat_state._transition_receipt(transition)
+    )
+    rows = coc_threat_state._read_transaction_ledger(save)
+    record = {
+        "record_type": "threat_clock_transaction",
+        "sequence": 2,
+        "source_id": "test:crash:2",
+        "previous_receipt_hash": rows[-1]["receipt_hash"],
+        "transition": transition,
+    }
+    material = json.dumps(record, sort_keys=True, separators=(",", ":"))
+    import hashlib
+    record["receipt_hash"] = hashlib.sha256(material.encode()).hexdigest()
+    ledger_path = coc_threat_state._ledger_path(save)
+    with ledger_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    coc_threat_state.coc_fileio.write_json_atomic(
+        coc_threat_state._pending_path(save),
+        {"transition_hash": transition["transition_hash"],
+         "receipt_hash": record["receipt_hash"]},
+        indent=2, ensure_ascii=False, trailing_newline=True,
+    )
+
+    recovered = coc_threat_state.load_threat_state(save)
+    assert recovered["clocks"]["doom"]["current_segments"] == 3
+    assert recovered["ledger_head"] == transition["transition_hash"]
+    assert not coc_threat_state._pending_path(save).exists()
 
 
 def test_init_threat_state_creates_file(tmp_path):

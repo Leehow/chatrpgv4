@@ -1000,6 +1000,68 @@ def test_bout_result_rejects_coordinated_backstory_receipt_tamper(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("variant", "mutate"),
+    [
+        ("push_resolve", "roll_outcome"),
+        ("bout_end", "event_id"),
+        ("bout_end", "backstory"),
+    ],
+)
+def test_canonical_result_receipt_rejects_coordinated_terminal_copy_mutation(
+    tmp_path, variant, mutate,
+):
+    executor = _executor(f"coc_subsystem_independent_receipt_{variant}_{mutate}")
+    campaign, character = _campaign_and_character(tmp_path)
+    response, commands, index = _terminal_history_variant(
+        executor, campaign, character, variant
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    history = state["choice_history"][response["choice_id"]]
+    command_id = commands[index]["command_id"]
+    copies = (state["result_snapshots"][command_id], history["terminal_results"][index])
+    if mutate == "roll_outcome":
+        for result in copies:
+            result["events"][0]["roll"] = 1
+            result["events"][0]["outcome"] = "critical"
+            result["events"][0]["success"] = True
+    elif mutate == "event_id":
+        for result in copies:
+            result["events"][-1]["event_id"] = "se999"
+    else:
+        origin_id = history["origin_command_id"]
+        for result in copies:
+            result["events"][-1]["backstory_amend_suggestion"]["keeper_note"] = "forged"
+        origin_bout = next(
+            event for event in state["result_snapshots"][origin_id]["events"]
+            if event.get("event_type") == "bout_of_madness"
+        )
+        origin_bout["backstory_amend_suggestion"]["keeper_note"] = "forged"
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+    assert exc_info.value.code == "malformed_subsystem_state"
+
+
+def test_canonical_result_receipt_is_choice_scoped_across_histories(tmp_path):
+    executor = _executor("coc_subsystem_independent_receipt_cross_history")
+    campaign, character = _campaign_and_character(tmp_path)
+    first_response, first_commands, first_index = _terminal_history_variant(
+        executor, campaign, character, "push_resolve"
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    first = state["choice_history"][first_response["choice_id"]]
+    assert len(first["terminal_result_receipt_hashes"]) == 2
+    first["terminal_result_receipt_hashes"].reverse()
+    state_path.write_text(json.dumps(state))
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+    assert exc_info.value.code == "malformed_subsystem_state"
+
+
+@pytest.mark.parametrize(
     ("tamper", "value"),
     [
         ("hash", "0" * 64),

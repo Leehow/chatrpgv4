@@ -186,6 +186,17 @@ def _canonical_command_hash(command: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _canonical_json_hash(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _push_choice_id(command_id: str) -> str:
     """Return a stable safe push-choice ID for every valid command ID."""
     legacy = f"{command_id}:confirm"
@@ -272,6 +283,7 @@ PUSH_HISTORY_EXTRA_KEYS = frozenset({
     "terminal_command_ids",
     "terminal_commands",
     "terminal_results",
+    "terminal_result_receipt_hashes",
     "response_changed_method_evidence",
 })
 BOUT_CONTEXT_KEYS = frozenset({
@@ -291,6 +303,7 @@ BOUT_HISTORY_EXTRA_KEYS = frozenset({
     "terminal_command_ids",
     "terminal_commands",
     "terminal_results",
+    "terminal_result_receipt_hashes",
 })
 CHANGED_METHOD_SOURCES = frozenset({
     "player_proposal",
@@ -729,6 +742,7 @@ def _validate_inflight(inflight: Any) -> None:
     if not isinstance(offsets, dict) or set(offsets) - {
         "logs/rolls.jsonl",
         "logs/time.jsonl",
+        "logs/subsystem-results.jsonl",
     }:
         raise _state_error("inflight.log_offsets contains an unsafe path")
     for relative, offset in offsets.items():
@@ -1244,6 +1258,7 @@ def _validate_state(state: Any) -> dict[str, Any]:
         command_ids = entry.get("terminal_command_ids")
         terminal_commands = entry.get("terminal_commands")
         terminal_results = entry.get("terminal_results")
+        terminal_receipt_hashes = entry.get("terminal_result_receipt_hashes")
         if public_choice.get("kind") == "push_confirm":
             expected_keys = set(PUSH_CONTEXT_KEYS) | set(PUSH_HISTORY_EXTRA_KEYS)
             allowed_actions = {"confirm", "cancel"}
@@ -1298,6 +1313,15 @@ def _validate_state(state: Any) -> dict[str, Any]:
             raise _state_error(f"choice history {choice_id!r} lacks exact terminal command receipts")
         if not isinstance(terminal_results, list) or len(terminal_results) != expected_count:
             raise _state_error(f"choice history {choice_id!r} lacks exact terminal result receipts")
+        if (
+            not isinstance(terminal_receipt_hashes, list)
+            or len(terminal_receipt_hashes) != expected_count
+            or not all(isinstance(value, str) and _SHA256.fullmatch(value)
+                       for value in terminal_receipt_hashes)
+        ):
+            raise _state_error(
+                f"choice history {choice_id!r} lacks canonical terminal receipt hashes"
+            )
         response = {
             "choice_id": choice_id,
             "responder": public_choice["responder"],
@@ -1392,6 +1416,181 @@ def _validate_state(state: Any) -> dict[str, Any]:
     return state
 
 
+_RESULT_RECEIPT_LOG = Path("logs/subsystem-results.jsonl")
+
+
+def _result_choice_id(
+    command: dict[str, Any], result: dict[str, Any], state: dict[str, Any]
+) -> str | None:
+    pending = result.get("pending_choice")
+    if isinstance(pending, dict):
+        return pending.get("choice_id")
+    payload = command.get("payload")
+    if isinstance(payload, dict) and isinstance(payload.get("choice_id"), str):
+        return payload["choice_id"]
+    command_id = command.get("command_id")
+    for choice_id, history in state.get("choice_history", {}).items():
+        if isinstance(history, dict) and command_id in (history.get("terminal_command_ids") or []):
+            return choice_id
+    return None
+
+
+def _result_receipt_record(
+    sequence: int,
+    command: dict[str, Any],
+    result: dict[str, Any],
+    state: dict[str, Any],
+) -> dict[str, Any]:
+    command_id = command["command_id"]
+    material = {
+        "record_type": "subsystem_result_receipt",
+        "sequence": sequence,
+        "command_id": command_id,
+        "command_hash": state["command_hashes"][command_id],
+        "command_provenance": _json_copy(state["command_provenance"][command_id]),
+        "choice_id": _result_choice_id(command, result, state),
+        "result": _json_copy(result),
+    }
+    material["receipt_hash"] = _canonical_json_hash(material)
+    return material
+
+
+def _read_jsonl_records(path: Path, *, label: str) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    records: list[dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                value = json.loads(line)
+                if not isinstance(value, dict):
+                    raise ValueError("record is not an object")
+                records.append(value)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise _state_error(f"{label} is invalid: {exc}") from exc
+    return records
+
+
+def _validate_result_source_evidence(
+    campaign_dir: Path,
+    state: dict[str, Any],
+    commands_by_id: dict[str, dict[str, Any]],
+) -> None:
+    roll_records = _read_jsonl_records(
+        campaign_dir / "logs" / "rolls.jsonl", label="canonical roll log"
+    )
+    rolls_by_command = {
+        row.get("command_id"): row for row in roll_records
+        if isinstance(row.get("command_id"), str)
+    }
+    sanity_path = campaign_dir / "save" / "sanity.json"
+    sanity = None
+    if sanity_path.is_file():
+        try:
+            sanity = json.loads(sanity_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise _state_error(f"canonical sanity snapshot is invalid: {exc}") from exc
+    for choice_id, history in state["choice_history"].items():
+        for command_id in history["terminal_command_ids"]:
+            result = state["result_snapshots"][command_id]
+            if result["kind"] == "push_resolve":
+                row = rolls_by_command.get(command_id)
+                if not isinstance(row, dict) or not _json_deep_equal(
+                    row.get("payload"), result["events"][0]
+                ):
+                    raise _state_error(
+                        f"choice history {choice_id!r} diverges from canonical roll receipt"
+                    )
+            if result["kind"] in BOUT_COMMAND_KINDS and result["status"] == "completed":
+                if not isinstance(sanity, dict):
+                    raise _state_error(
+                        f"choice history {choice_id!r} lacks canonical sanity source"
+                    )
+                raw_events = sanity.get("events") or []
+                ended = result["events"][-1]
+                source = next(
+                    (row for row in raw_events if isinstance(row, dict)
+                     and row.get("event_id") == ended.get("event_id")),
+                    None,
+                )
+                expected = None
+                if isinstance(source, dict):
+                    payload = source.get("payload") if isinstance(source.get("payload"), dict) else {}
+                    expected = {"event_id": source.get("event_id"), **payload,
+                                "event_type": source.get("type")}
+                if not _json_deep_equal(expected, ended):
+                    raise _state_error(
+                        f"choice history {choice_id!r} diverges from canonical sanity event"
+                    )
+                origin = state["result_snapshots"][history["origin_command_id"]]
+                origin_bout = next(
+                    (event for event in origin.get("events") or [] if isinstance(event, dict)
+                     and event.get("event_type") == "bout_of_madness"
+                     and event.get("bout_id") == history["bout_id"]),
+                    None,
+                )
+                persisted_bout = next(
+                    (row for row in sanity.get("bouts_of_madness") or [] if isinstance(row, dict)
+                     and row.get("bout_id") == history["bout_id"]),
+                    None,
+                )
+                if not isinstance(origin_bout, dict) or not isinstance(persisted_bout, dict) or not _json_deep_equal(
+                    origin_bout.get("backstory_amend_suggestion"),
+                    persisted_bout.get("backstory_amend_suggestion"),
+                ):
+                    raise _state_error(
+                        f"choice history {choice_id!r} diverges from canonical bout source"
+                    )
+
+
+def _validate_external_result_receipts(campaign_dir: Path, state: dict[str, Any]) -> None:
+    records = _read_jsonl_records(
+        campaign_dir / _RESULT_RECEIPT_LOG, label="canonical subsystem result ledger"
+    )
+    applied = state["applied_command_ids"]
+    if len(records) != len(applied):
+        raise _state_error("canonical subsystem result ledger length diverges")
+    commands_by_id: dict[str, dict[str, Any]] = {}
+    for index, (command_id, record) in enumerate(zip(applied, records), 1):
+        expected_keys = {
+            "record_type", "sequence", "command_id", "command_hash",
+            "command_provenance", "choice_id", "result", "receipt_hash",
+        }
+        if set(record) != expected_keys or record.get("record_type") != "subsystem_result_receipt":
+            raise _state_error("canonical subsystem result receipt has an invalid contract")
+        receipt_hash = record.get("receipt_hash")
+        material = {key: _json_copy(value) for key, value in record.items() if key != "receipt_hash"}
+        if (
+            record.get("sequence") != index
+            or record.get("command_id") != command_id
+            or receipt_hash != _canonical_json_hash(material)
+            or record.get("command_hash") != state["command_hashes"][command_id]
+            or not _json_deep_equal(record.get("command_provenance"), state["command_provenance"][command_id])
+            or not _json_deep_equal(record.get("result"), state["result_snapshots"][command_id])
+        ):
+            raise _state_error(f"canonical result receipt {command_id!r} diverges")
+        # Terminal command copies provide the exact command needed to recompute
+        # the receipt's choice binding. Non-terminal commands bind through their
+        # persisted public choice or null choice.
+        command = next(
+            (cmd for history in state["choice_history"].values()
+             for cmd in history.get("terminal_commands", [])
+             if isinstance(cmd, dict) and cmd.get("command_id") == command_id),
+            {"command_id": command_id, "payload": {}},
+        )
+        commands_by_id[command_id] = command
+        expected_choice = _result_choice_id(command, state["result_snapshots"][command_id], state)
+        if record.get("choice_id") != expected_choice:
+            raise _state_error(f"canonical result receipt {command_id!r} has wrong choice binding")
+    receipts_by_id = {row["command_id"]: row for row in records}
+    for choice_id, history in state["choice_history"].items():
+        expected_hashes = [receipts_by_id[command_id]["receipt_hash"]
+                           for command_id in history["terminal_command_ids"]]
+        if history["terminal_result_receipt_hashes"] != expected_hashes:
+            raise _state_error(f"choice history {choice_id!r} has wrong canonical receipt references")
+    _validate_result_source_evidence(campaign_dir, state, commands_by_id)
+
+
 def _load_state(campaign_dir: Path) -> dict[str, Any]:
     with _ExecutorStateDirectory(campaign_dir) as state_directory:
         encoded = state_directory.read_bytes()
@@ -1423,7 +1622,9 @@ def load_canonical_state_readonly(campaign_dir: Path | str) -> dict[str, Any]:
         raw = json.loads(encoded.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise _state_error(f"could not read valid JSON: {exc}") from exc
-    return _json_copy(_validate_state(raw))
+    state = _validate_state(raw)
+    _validate_external_result_receipts(campaign, state)
+    return _json_copy(state)
 
 
 def project_player_pending_choice(campaign_dir: Path | str) -> dict[str, Any] | None:
@@ -1474,7 +1675,9 @@ class _AnchoredTransactionTarget:
     def __init__(self, campaign_dir: Path, relative: str) -> None:
         if not (
             _allowed_preimage_path(relative)
-            or relative in {"logs/rolls.jsonl", "logs/time.jsonl"}
+            or relative in {
+                "logs/rolls.jsonl", "logs/time.jsonl", "logs/subsystem-results.jsonl"
+            }
         ):
             raise _unsafe_transaction_path(relative, "target is not transaction-owned")
         directory_flag = getattr(os, "O_DIRECTORY", None)
@@ -1922,7 +2125,7 @@ def _build_inflight(
         for command, _command_hash in commands_with_hashes
     )
     log_offsets: dict[str, dict[str, Any]] = {}
-    log_relatives: list[str] = []
+    log_relatives: list[str] = ["logs/subsystem-results.jsonl"]
     if has_roll_evidence:
         log_relatives.append("logs/rolls.jsonl")
     if structured_sanity:
@@ -2700,6 +2903,7 @@ def plan_from_pending_choice_response(
     # log truncation merely by being presented to this read/compile boundary.
     candidate = _pending_resume_plan_from_state(state, investigator_id, response)
     recovered = _recover_inflight(campaign, state)
+    _validate_external_result_receipts(campaign, recovered)
     resolved = _pending_resume_plan_from_state(recovered, investigator_id, response)
     if not _json_deep_equal(candidate, resolved):
         raise _error(
@@ -2893,7 +3097,8 @@ def normalize_rule_results(
                     f"rules_results[{index}]",
                     "normalized result does not match a persisted executor snapshot",
                 )
-        _recover_inflight(campaign, state)
+        recovered = _recover_inflight(campaign, state)
+        _validate_external_result_receipts(campaign, recovered)
         return flatten_result_events(rows)
     # Legacy mode is an explicit compatibility path for already-flat rows.
     # Envelope containers are never reinterpreted as legacy data.
@@ -2923,6 +3128,7 @@ def get_current_pending_choices(
     """Read unresolved choices from the validated canonical executor state."""
     campaign = Path(campaign_dir)
     state = _recover_inflight(campaign, _load_state(campaign))
+    _validate_external_result_receipts(campaign, state)
     return [_json_copy(choice) for choice in state["pending_choices"].values()]
 
 
@@ -3252,6 +3458,7 @@ def _dispatch(
                 "terminal_command_ids": _json_copy(payload["terminal_command_ids"]),
                 "terminal_commands": [],
                 "terminal_results": [],
+                "terminal_result_receipt_hashes": [],
             }
         return {
             "command_id": command_id,
@@ -3281,6 +3488,7 @@ def _dispatch(
             "terminal_command_ids": _json_copy(payload["terminal_command_ids"]),
             "terminal_commands": [],
             "terminal_results": [],
+            "terminal_result_receipt_hashes": [],
             "response_changed_method_evidence": (
                 _json_copy(context["changed_method_evidence"])
                 if action == "confirm"
@@ -3501,6 +3709,21 @@ def _append_roll_event(
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _append_result_receipt(campaign_dir: Path, receipt: dict[str, Any]) -> None:
+    """Append an independently persisted canonical execution receipt.
+
+    This is an integrity boundary against coordinated mutation of duplicated
+    state fields, not a cryptographic authenticity claim against an actor that
+    can rewrite both the state file and the trusted append-only log.
+    """
+    path = campaign_dir / _RESULT_RECEIPT_LOG
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
 
@@ -3751,6 +3974,8 @@ def execute_commands(
                 "persisted result kind/status does not match the submitted command",
             )
 
+    _validate_external_result_receipts(campaign, state)
+
     new_commands_with_hashes = [
         (command, command_hash)
         for command, command_hash in zip(validated, hashes)
@@ -3858,6 +4083,15 @@ def execute_commands(
         current_commands = {
             command["command_id"]: command for command, _result in new_results
         }
+        receipt_records = {
+            command["command_id"]: _result_receipt_record(
+                next_state["applied_command_ids"].index(command["command_id"]) + 1,
+                command,
+                result,
+                next_state,
+            )
+            for command, result in new_results
+        }
         for history_entry in next_state["choice_history"].values():
             if not isinstance(history_entry, dict):
                 continue
@@ -3875,6 +4109,15 @@ def execute_commands(
                     _json_copy(next_state["result_snapshots"][command_id])
                     for command_id in terminal_ids
                 ]
+                history_entry["terminal_result_receipt_hashes"] = [
+                    receipt_records[command_id]["receipt_hash"]
+                    for command_id in terminal_ids
+                ]
+
+        for command, _result in new_results:
+            _append_result_receipt(
+                campaign, receipt_records[command["command_id"]]
+            )
 
         for command, result in new_results:
             if command["kind"] not in ROLL_EVIDENCE_COMMAND_KINDS:

@@ -15,6 +15,7 @@ from __future__ import annotations
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,8 @@ coc_fileio = _load_fileio()
 THREAT_STATE_FILENAME = "threat-state.json"
 THREAT_STATE_SCHEMA_VERSION = 2
 _GENESIS_HASH = "0" * 64
+_TRANSACTION_LEDGER = "threat-transactions.jsonl"
+_PENDING_TRANSACTION = "threat-state.pending.json"
 
 
 def _empty_state() -> dict[str, Any]:
@@ -55,7 +58,7 @@ def _transition_hash(transition: dict[str, Any]) -> str:
 
 def _append_transition(
     state: dict[str, Any], *, kind: str, clock_id: str, segments: int,
-    ticks: int, effect_id: str | None,
+    ticks: int, source_id: str,
 ) -> dict[str, Any]:
     clock = state["clocks"].get(clock_id, {"current_segments": 0, "full": False})
     before = int(clock.get("current_segments", 0))
@@ -69,7 +72,7 @@ def _append_transition(
         "clock_id": clock_id,
         "segments": segments,
         "ticks": ticks,
-        "effect_id": effect_id,
+        "effect_id": source_id,
         "before_segments": before,
         "before_full": before_full,
         "after_segments": after,
@@ -114,7 +117,11 @@ def _migrate_v1(data: dict[str, Any]) -> dict[str, Any]:
         segments = max(1, current if full else current + 1)
         transition = _append_transition(
             migrated, kind="bootstrap", clock_id=clock_id,
-            segments=segments, ticks=max(1, current), effect_id=None,
+            segments=segments, ticks=max(1, current),
+            source_id=f"legacy-bootstrap:{clock_id}",
+        )
+        migrated["applied_effects"][transition["effect_id"]] = _transition_receipt(
+            transition
         )
         if transition["after_segments"] != current or transition["after_full"] != full:
             raise ValueError("legacy threat-state clock cannot be migrated exactly")
@@ -163,11 +170,8 @@ def _validate_state(data: Any) -> dict[str, Any]:
             raise ValueError("threat transition segments are invalid")
         if isinstance(ticks, bool) or not isinstance(ticks, int) or ticks < 1:
             raise ValueError("threat transition ticks are invalid")
-        if kind == "effect":
-            if not isinstance(effect_id, str) or not effect_id:
-                raise ValueError("effect transition lacks effect_id")
-        elif effect_id is not None:
-            raise ValueError("non-effect transition cannot carry effect_id")
+        if not isinstance(effect_id, str) or not effect_id:
+            raise ValueError("threat transition lacks a stable source/effect ID")
         prior = replay.get(clock_id, {"current_segments": 0, "full": False})
         before = int(prior["current_segments"])
         before_full = bool(prior["full"]) or before >= segments
@@ -214,11 +218,9 @@ def _validate_state(data: Any) -> dict[str, Any]:
             "after_segments": transition["after_segments"],
             "became_full": transition["became_full"],
         }
-        if transition is None or transition.get("kind") != "effect" or transition.get("effect_id") != effect_id or receipt != expected:
+        if transition is None or transition.get("effect_id") != effect_id or receipt != expected:
             raise ValueError("threat effect receipt does not match its transition")
-    effect_transitions = {
-        transition["effect_id"] for transition in transitions if transition["kind"] == "effect"
-    }
+    effect_transitions = {transition["effect_id"] for transition in transitions}
     if effect_transitions != set(receipts):
         raise ValueError("threat effect transition lacks an exact receipt")
     return data
@@ -226,6 +228,65 @@ def _validate_state(data: Any) -> dict[str, Any]:
 
 def _state_path(save_dir: Path) -> Path:
     return save_dir / THREAT_STATE_FILENAME
+
+
+def _ledger_path(save_dir: Path) -> Path:
+    return save_dir.parent / "logs" / _TRANSACTION_LEDGER
+
+
+def _pending_path(save_dir: Path) -> Path:
+    return save_dir / _PENDING_TRANSACTION
+
+
+def _transition_receipt(transition: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "clock_id": transition["clock_id"],
+        "segments": transition["segments"],
+        "ticks": transition["ticks"],
+        "transition_id": transition["transition_id"],
+        "transition_hash": transition["transition_hash"],
+        "before_segments": transition["before_segments"],
+        "after_segments": transition["after_segments"],
+        "became_full": transition["became_full"],
+    }
+
+
+def _read_transaction_ledger(save_dir: Path) -> list[dict[str, Any]]:
+    path = _ledger_path(save_dir)
+    if not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                rows.append(json.loads(line))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"independent threat transaction ledger is invalid: {exc}") from exc
+    return rows
+
+
+def _validate_transaction_ledger(save_dir: Path, state: dict[str, Any]) -> None:
+    rows = _read_transaction_ledger(save_dir)
+    transitions = state["transitions"]
+    if not rows and not transitions:
+        return
+    if len(rows) != len(transitions):
+        raise ValueError("independent threat transaction ledger length diverges")
+    previous = _GENESIS_HASH
+    for index, (row, transition) in enumerate(zip(rows, transitions), 1):
+        expected = {
+            "record_type": "threat_clock_transaction",
+            "sequence": index,
+            "source_id": transition["effect_id"],
+            "previous_receipt_hash": previous,
+            "transition": transition,
+        }
+        material = json.dumps(expected, sort_keys=True, separators=(",", ":"))
+        receipt_hash = hashlib.sha256(material.encode("utf-8")).hexdigest()
+        expected["receipt_hash"] = receipt_hash
+        if row != expected:
+            raise ValueError("independent threat transaction receipt diverges")
+        previous = receipt_hash
 
 
 def load_threat_state(save_dir: Path) -> dict[str, Any]:
@@ -237,14 +298,119 @@ def load_threat_state(save_dir: Path) -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise ValueError(f"could not load threat-state: {exc}") from exc
-    return _validate_state(data)
+    legacy_v1 = data.get("schema_version") == 1 if isinstance(data, dict) else False
+    state = _validate_state(data)
+    if legacy_v1:
+        # One-time migration establishes the independent receipt ledger before
+        # ordinary writes begin. Legacy state had no trustworthy source IDs.
+        ledger = _ledger_path(save_dir)
+        if ledger.exists():
+            raise ValueError("legacy threat state conflicts with transaction ledger")
+        previous = _GENESIS_HASH
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        with ledger.open("w", encoding="utf-8") as handle:
+            for index, transition in enumerate(state["transitions"], 1):
+                record = {
+                    "record_type": "threat_clock_transaction",
+                    "sequence": index,
+                    "source_id": transition["effect_id"],
+                    "previous_receipt_hash": previous,
+                    "transition": transition,
+                }
+                material = json.dumps(record, sort_keys=True, separators=(",", ":"))
+                record["receipt_hash"] = hashlib.sha256(material.encode("utf-8")).hexdigest()
+                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+                previous = record["receipt_hash"]
+            handle.flush()
+            os.fsync(handle.fileno())
+        coc_fileio.write_json_atomic(
+            _state_path(save_dir), state, indent=2, ensure_ascii=False, trailing_newline=True
+        )
+    pending = _pending_path(save_dir)
+    if pending.exists():
+        try:
+            marker = json.loads(pending.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"invalid threat transaction journal: {exc}") from exc
+        rows = _read_transaction_ledger(save_dir)
+        transitions = state["transitions"]
+        if len(rows) == len(transitions) + 1:
+            row = rows[-1]
+            transition = row.get("transition") if isinstance(row, dict) else None
+            if (
+                row.get("receipt_hash") != marker.get("receipt_hash")
+                or not isinstance(transition, dict)
+                or transition.get("transition_hash") != marker.get("transition_hash")
+                or transition.get("previous_hash") != state["ledger_head"]
+                or transition.get("transition_id") != f"clock-transition:{len(rows)}"
+            ):
+                raise ValueError("incomplete threat transaction journal diverges")
+            state["transitions"].append(transition)
+            state["ledger_head"] = transition["transition_hash"]
+            state["clocks"][transition["clock_id"]] = {
+                "current_segments": transition["after_segments"],
+                "full": transition["after_full"],
+            }
+            state["applied_effects"][transition["effect_id"]] = _transition_receipt(
+                transition
+            )
+            state = _validate_state(state)
+            coc_fileio.write_json_atomic(
+                _state_path(save_dir), state, indent=2,
+                ensure_ascii=False, trailing_newline=True,
+            )
+            pending.unlink()
+        elif len(rows) == len(transitions):
+            # Marker-before-append is a safe abort; marker-after-state is a
+            # completed transaction whose final cleanup was interrupted.
+            pending.unlink()
+        else:
+            raise ValueError("incomplete threat transaction sequence diverges")
+    _validate_transaction_ledger(save_dir, state)
+    return state
 
 
 def _save_state(save_dir: Path, state: dict[str, Any]) -> None:
+    state = _validate_state(state)
+    existing = _read_transaction_ledger(save_dir)
+    transitions = state["transitions"]
+    if len(transitions) < len(existing) or len(transitions) > len(existing) + 1:
+        raise ValueError("threat transaction sequence cannot skip or roll back")
+    if existing:
+        # Validate the existing prefix against its independent receipts without
+        # pretending the derived clock/head fields belong to that prefix.
+        for row, transition in zip(existing, transitions):
+            if row.get("transition") != transition:
+                raise ValueError("independent threat transaction prefix diverges")
+    marker = None
+    if len(transitions) == len(existing) + 1:
+        transition = transitions[-1]
+        previous_receipt = existing[-1]["receipt_hash"] if existing else _GENESIS_HASH
+        record = {
+            "record_type": "threat_clock_transaction",
+            "sequence": len(transitions),
+            "source_id": transition["effect_id"],
+            "previous_receipt_hash": previous_receipt,
+            "transition": transition,
+        }
+        material = json.dumps(record, sort_keys=True, separators=(",", ":"))
+        record["receipt_hash"] = hashlib.sha256(material.encode("utf-8")).hexdigest()
+        marker = {"transition_hash": transition["transition_hash"], "receipt_hash": record["receipt_hash"]}
+        coc_fileio.write_json_atomic(
+            _pending_path(save_dir), marker, indent=2, ensure_ascii=False, trailing_newline=True
+        )
+        ledger = _ledger_path(save_dir)
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        with ledger.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
     path = _state_path(save_dir)
     coc_fileio.write_json_atomic(
         path, state, indent=2, ensure_ascii=False, trailing_newline=True
     )
+    if marker is not None:
+        _pending_path(save_dir).unlink()
 
 
 def init_threat_state(save_dir: Path) -> None:
@@ -267,18 +433,30 @@ def get_clock_segments(save_dir: Path, clock_id: str) -> int:
         return 0
 
 
-def tick_clock(save_dir: Path, clock_id: str, segments: int) -> bool:
+def tick_clock(
+    save_dir: Path, clock_id: str, segments: int, *, source_id: str
+) -> bool:
     """Advance a clock by one segment and persist.
 
     Returns True if the clock **became full** as a result of this tick
     (i.e. it was not full before and reached ``segments`` now).  Ticking an
     already-full clock is a no-op returning False.
     """
+    if not isinstance(source_id, str) or not source_id:
+        raise ValueError("source_id must be a stable non-empty ID")
     state = load_threat_state(save_dir)
+    existing = state["applied_effects"].get(source_id)
+    if existing is not None:
+        if any(existing.get(key) != value for key, value in {
+            "clock_id": clock_id, "segments": segments, "ticks": 1,
+        }.items()):
+            raise ValueError("threat source ID was reused with different content")
+        return False
     transition = _append_transition(
         state, kind="tick", clock_id=clock_id, segments=segments,
-        ticks=1, effect_id=None,
+        ticks=1, source_id=source_id,
     )
+    state["applied_effects"][source_id] = _transition_receipt(transition)
     _save_state(save_dir, state)
     return bool(transition["became_full"])
 
@@ -319,18 +497,9 @@ def apply_clock_effect_once(
         return False, False
     transition = _append_transition(
         state, kind="effect", clock_id=clock_id, segments=segments,
-        ticks=ticks, effect_id=effect_id,
+        ticks=ticks, source_id=effect_id,
     )
-    receipts[effect_id] = {
-        "clock_id": clock_id,
-        "segments": segments,
-        "ticks": ticks,
-        "transition_id": transition["transition_id"],
-        "transition_hash": transition["transition_hash"],
-        "before_segments": transition["before_segments"],
-        "after_segments": transition["after_segments"],
-        "became_full": transition["became_full"],
-    }
+    receipts[effect_id] = _transition_receipt(transition)
     state["applied_effects"] = receipts
     _save_state(save_dir, state)
     return True, bool(transition["became_full"])

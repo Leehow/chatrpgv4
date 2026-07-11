@@ -385,7 +385,7 @@ def _apply_scene_on_enter(
     events.append(enter_ev)
     _append_jsonl(logs / "events.jsonl", enter_ev)
 
-    for tick_spec in clock_ticks:
+    for tick_index, tick_spec in enumerate(clock_ticks):
         if not isinstance(tick_spec, dict):
             continue
         clock_id = tick_spec.get("clock_id")
@@ -408,7 +408,13 @@ def _apply_scene_on_enter(
         events.append(tick_ev)
         _append_jsonl(logs / "events.jsonl", tick_ev)
         if coc_threat_state is not None:
-            became_full = coc_threat_state.tick_clock(save, clock_id, segments)
+            became_full = coc_threat_state.tick_clock(
+                save, clock_id, segments,
+                source_id=(
+                    f"director:{decision_id}:scene-enter:{scene.get('scene_id')}:"
+                    f"clock:{clock_id}:{tick_index}"
+                ),
+            )
             if became_full and clock_def:
                 full_ev = {
                     "event_type": "clock_full", "decision_id": decision_id,
@@ -1969,7 +1975,7 @@ def _apply_plan_impl(
         _append_jsonl(logs / "events.jsonl", fw_ev)
 
     _write_json(pacing_path, pacing)
-    for move in pressure_moves:
+    for pressure_index, move in enumerate(pressure_moves):
         ev = {"event_type": "pressure_tick", "decision_id": decision_id,
               "clock_id": move.get("clock_id"), "visible_symptom": move.get("visible_symptom"),
               "reason": move.get("reason"),
@@ -1982,7 +1988,10 @@ def _apply_plan_impl(
         if clock_id and int(move.get("tick", 0) or 0) > 0 and coc_threat_state is not None:
             clock_def = _lookup_clock_def(campaign_dir, clock_id)
             segments = int(clock_def.get("segments", 6)) if clock_def else 6
-            became_full = coc_threat_state.tick_clock(save, clock_id, segments)
+            became_full = coc_threat_state.tick_clock(
+                save, clock_id, segments,
+                source_id=f"director:{decision_id}:pressure:{pressure_index}:{clock_id}",
+            )
             if became_full and clock_def:
                 full_ev = {
                     "event_type": "clock_full", "decision_id": decision_id,
