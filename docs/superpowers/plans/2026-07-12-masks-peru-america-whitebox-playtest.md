@@ -174,7 +174,7 @@ Use `Path.resolve()`, lexical containment, component symlink rejection, random `
 - sanitized `.coc/runtime/sessions.json`; and
 - the run action journal.
 
-Mutable managed trees restore as an exact mirror, so files created after a checkpoint are removed on rollback.  Immutable source/scenario/index files must match or restore fails closed.  Never copy `.coc/runtime.json`, credentials, Node worker state, absolute-path configuration, another campaign, or another investigator.
+Restore into a fresh workspace generation, never destructively reconcile the active one.  The target may contain only a caller-supplied compatible `.coc/runtime.json` and prepared selected indexes; any pre-existing managed campaign, selected investigator, sessions, or restored journal path fails before the first restore write.  Immutable source/scenario/index files must match the checkpoint manifest.  Never copy `.coc/runtime.json`, credentials, Node worker state, absolute-path configuration, another campaign, or another investigator.
 
 Require the last accepted turn provenance to attest `recording_mode=sync` and
 `recording_flush=manual`; reject checkpoint publication for fast/background
@@ -195,7 +195,7 @@ row["row_sha256"] = sha256(canonical_json({k: v for k, v in row.items() if k != 
 
 Reject resume when source PDF hash, scenario file hashes, player mode, run ID, or checkpoint schema differs. Allow a different Git HEAD only when an `invalidated_segment` record explicitly names the old/new commits and replay start checkpoint.
 
-Add a real-runtime integration test: create/send through `runtime.sdk.api` with the canonical debug adapter forced to synchronous/manual recording, snapshot after an accepted turn with pending/public state, mutate the complete campaign state with a later turn and an extra managed file, restore into a prepared workspace, reload the filtered sanitized session snapshot in a fresh registry, and prove PublicState plus the next seeded SDK turn continue from the checkpoint while the later file is gone.  Also prove a fast/background receipt and a workspace snapshot containing an unrelated session fail closed.
+Add a real-runtime integration test: create/send through `runtime.sdk.api` with the canonical debug adapter forced to synchronous/manual recording, snapshot after an accepted turn with pending/public state, mutate the active workspace with a later turn and an extra managed file, restore into a fresh generation containing only a compatible runtime config/prepared selected indexes, reload the filtered sanitized session snapshot in a fresh registry, and prove PublicState plus the next seeded SDK turn continue from the checkpoint while the later file is absent and the old generation remains untouched.  Also prove a fast/background receipt, an unrelated session, and any pre-existing managed target path fail closed.
 
 - [ ] **Step 5: Run checkpoint, path, and state tests**
 

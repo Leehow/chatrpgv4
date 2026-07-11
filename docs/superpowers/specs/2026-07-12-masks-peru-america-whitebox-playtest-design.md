@@ -195,12 +195,17 @@ campaign tree.  The resumable boundary is the canonical `.coc/` layout:
 - the sanitized `.coc/runtime/sessions.json` snapshot; and
 - the hash-linked playtest action journal.
 
-Restore is an exact mirror for mutable managed trees: state created after the
-checkpoint must not survive a rollback.  It must not copy `.coc/runtime.json`,
-credentials, Node worker state, absolute-path configuration, or unrelated
-campaigns/investigators.  A fresh target therefore supplies its own compatible
-runtime configuration; a restored session snapshot contains only the already
-sanitized resolved pipeline.
+Restore creates a fresh workspace generation rather than destructively
+reconciling an active one.  The target may contain only a caller-supplied safe
+`.coc/runtime.json` and prepared selected workspace indexes; any existing
+managed campaign, investigator, session, or journal path fails closed before
+the first restore write.  State created after the checkpoint therefore cannot
+survive, while the failed/newer generation remains intact for diagnosis.  The
+checkpoint must not copy `.coc/runtime.json`, credentials, Node worker state,
+absolute-path configuration, or unrelated campaigns/investigators.  A restored
+session snapshot contains only the already sanitized resolved pipeline, and the
+driver switches its active-generation pointer only after restore plus SDK
+validation succeeds.
 
 Before checkpoint publication, the turn receipt must attest synchronous
 recording with no background flush.  The sanitized session snapshot is filtered
