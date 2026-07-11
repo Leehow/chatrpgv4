@@ -179,10 +179,14 @@ Restore into a fresh workspace generation, never destructively reconcile the act
 Require the last accepted turn provenance to attest `recording_mode=sync` and
 `recording_flush=manual`; reject checkpoint publication for fast/background
 recording because detached log writes can make a cross-file snapshot
-inconsistent.  Parse `.coc/runtime/sessions.json`, retain exactly the requested
-session bound to this campaign/investigator/character path, and remove unrelated
-sessions and tombstones from the checkpoint copy.  The manifest records every
-managed root and every absent optional file/root needed for exact-mirror restore.
+inconsistent.  Recompute `runtime_receipt_sha256` from the final structured
+`logs/live-turn-runtime.jsonl` row and bind its decision IDs to the matching
+`logs/runtime-telemetry.jsonl` receipt for the exact session.  Parse
+`.coc/runtime/sessions.json`, retain exactly the requested session bound to this
+campaign/investigator/character path, and remove unrelated sessions and
+tombstones from the checkpoint copy.  The manifest records every managed root
+and absent optional path; managed directory membership is derived from the
+snapshotted files and cannot assert phantom empty directories.
 
 Each action ledger row must chain:
 

@@ -214,12 +214,15 @@ metadata untouched; successful activation retains the previous generation for
 diagnosis/retry instead of deleting it.
 
 Before checkpoint publication, the turn receipt must attest synchronous
-recording with no background flush.  The sanitized session snapshot is filtered
-to the one exact session, campaign, investigator, and character path named by
-the checkpoint; unrelated workspace sessions and tombstones never enter the
-artifact.  The manifest records managed roots plus absent optional files so an
-exact restore can delete post-checkpoint state without broadening its deletion
-scope.
+recording with no background flush.  Its digest is recomputed from the final
+structured `logs/live-turn-runtime.jsonl` row and its decision IDs are bound to
+the matching `logs/runtime-telemetry.jsonl` receipt for the exact session; a
+caller-supplied hex string is not evidence.  The sanitized session snapshot is
+filtered to the one exact session, campaign, investigator, and character path
+named by the checkpoint; unrelated workspace sessions and tombstones never
+enter the artifact.  The manifest records managed roots plus absent optional
+files.  Directory membership is derived from snapshotted files rather than
+trusting arbitrary empty-directory claims.
 
 The public runtime contract must also expose two player-safe structured facts
 needed by the driver: the narrator adapter's observed `{provider, id}` plus
