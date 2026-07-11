@@ -1056,6 +1056,36 @@ class SanitySession:
             raise SanityStateIdentityError(
                 "persisted sanity investigator_id does not match requested investigator_id"
             )
+        raw_bout_active = snap.get("bout_active", False)
+        raw_rounds = snap.get("bout_rounds_remaining", 0)
+        raw_bout_id = snap.get("active_bout_id")
+        raw_bouts = snap.get("bouts_of_madness") or []
+        if (
+            not isinstance(raw_bout_active, bool)
+            or isinstance(raw_rounds, bool)
+            or not isinstance(raw_rounds, int)
+            or raw_rounds < 0
+            or not isinstance(raw_bouts, list)
+        ):
+            raise ValueError("malformed bout state contract")
+        if raw_bout_active:
+            active_records = [
+                bout for bout in raw_bouts
+                if isinstance(bout, dict) and bout.get("bout_id") == raw_bout_id
+            ]
+            if (
+                not isinstance(raw_bout_id, str)
+                or not raw_bout_id
+                or raw_rounds < 1
+                or len(active_records) != 1
+                or active_records[0].get("mode") != "real_time"
+                or isinstance(active_records[0].get("duration_rounds"), bool)
+                or not isinstance(active_records[0].get("duration_rounds"), int)
+                or active_records[0]["duration_rounds"] < raw_rounds
+            ):
+                raise ValueError("active bout fields do not match a real-time bout record")
+        elif raw_bout_id is not None or raw_rounds != 0:
+            raise ValueError("inactive bout must have null id and zero remaining rounds")
         sess = cls(
             investigator_id,
             san_max=int(snap.get("san_max", 99)),
@@ -1070,8 +1100,8 @@ class SanitySession:
             snap.get("temporary_insane_remaining_hours", 0))
         sess.indefinite_insane = bool(snap.get("indefinite_insane", False))
         sess.permanently_insane = bool(snap.get("permanently_insane", False))
-        sess.bout_active = bool(snap.get("bout_active", False))
-        sess.bout_rounds_remaining = int(snap.get("bout_rounds_remaining", 0))
+        sess.bout_active = raw_bout_active
+        sess.bout_rounds_remaining = raw_rounds
         sess.daily_san_lost = int(snap.get("daily_san_lost", 0))
         sess.day_start_san = int(snap.get("day_start_san", sess.san_current))
         sess.awfulness_caps = {str(k): int(v)
@@ -1087,19 +1117,8 @@ class SanitySession:
         sess.symptoms_suppressed_until_next_san_loss = bool(
             snap.get("symptoms_suppressed_until_next_san_loss", False)
         )
-        sess.bouts_of_madness = list(snap.get("bouts_of_madness") or [])
-        active_bout_id = snap.get("active_bout_id")
-        if isinstance(active_bout_id, str) and active_bout_id:
-            sess.active_bout_id = active_bout_id
-        elif sess.bout_active and sess.bouts_of_madness:
-            last_bout = sess.bouts_of_madness[-1]
-            if isinstance(last_bout, dict):
-                recovered_id = str(
-                    last_bout.get("bout_id")
-                    or _stable_bout_id(investigator_id, len(sess.bouts_of_madness))
-                )
-                last_bout.setdefault("bout_id", recovered_id)
-                sess.active_bout_id = recovered_id
+        sess.bouts_of_madness = list(raw_bouts)
+        sess.active_bout_id = raw_bout_id
         sess.involuntary_actions = list(snap.get("involuntary_actions") or [])
         saved_events = snap.get("events") or []
         sess.events = list(saved_events)

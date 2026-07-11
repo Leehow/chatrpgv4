@@ -121,6 +121,7 @@ def iter_player_visible_text_fields(
             "investigator_display_name",
             "skill",
             "outcome",
+            "consequence_summary",
         ),
     )
 
@@ -489,6 +490,17 @@ def _project_rule_results(
         }
         if result.get("san_loss") is not None:
             entry["san_loss"] = result.get("san_loss")
+        consequence = result.get("announced_consequence")
+        if (
+            result.get("pushed") is True
+            and not entry["success"]
+            and isinstance(consequence, dict)
+            and isinstance(consequence.get("summary"), str)
+            and consequence["summary"].strip()
+        ):
+            # Only the already-announced player-safe summary crosses this
+            # boundary. The typed effect and private push context stay Keeper-side.
+            entry["consequence_summary"] = consequence["summary"].strip()
 
         if not entry["success"]:
             costs: list[str] = []

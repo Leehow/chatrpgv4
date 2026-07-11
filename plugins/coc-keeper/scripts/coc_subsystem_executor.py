@@ -263,6 +263,7 @@ PUSH_CONTEXT_KEYS = frozenset({
     "announced_consequence",
     "resolution_context",
     "origin_decision_id",
+    "offer_command",
 })
 PUSH_HISTORY_EXTRA_KEYS = frozenset({
     "public_choice",
@@ -773,6 +774,7 @@ def _validate_push_pending_context(
     applied_ids: set[str],
     snapshots: dict[str, Any],
     provenance: dict[str, Any],
+    hashes: dict[str, str],
 ) -> None:
     if not isinstance(context, dict) or set(context) != PUSH_CONTEXT_KEYS:
         raise _state_error(f"pending context {choice_id!r} has an invalid contract")
@@ -780,6 +782,18 @@ def _validate_push_pending_context(
         raise _state_error(f"pending context {choice_id!r} mismatches its public choice")
     if context.get("offer_command_id") != choice.get("command_id"):
         raise _state_error(f"pending context {choice_id!r} mismatches its creator command")
+    offer_command = context.get("offer_command")
+    offer_id = context.get("offer_command_id")
+    if (
+        not isinstance(offer_command, dict)
+        or offer_command.get("command_id") != context.get("offer_command_id")
+        or offer_command.get("kind") != "push_offer"
+        or offer_command.get("phase") != "offer"
+        or set(offer_command) != COMMAND_KEYS
+        or _canonical_command_hash(offer_command)
+        != hashes.get(offer_id)
+    ):
+        raise _state_error(f"pending context {choice_id!r} lacks its immutable creator command")
     if context.get("revision") != choice.get("revision"):
         raise _state_error(f"pending context {choice_id!r} mismatches its revision")
     investigator_id = context.get("investigator_id")
@@ -795,11 +809,23 @@ def _validate_push_pending_context(
         raise _state_error(f"pending context {choice_id!r} has an invalid origin command")
     origin_snapshot = snapshots[origin_id]
     origin_provenance = provenance[origin_id]
+    offer_provenance = provenance.get(offer_id)
+    if (
+        offer_id not in applied_ids
+        or snapshots[offer_id].get("kind") != "push_offer"
+        or not isinstance(offer_provenance, dict)
+        or offer_provenance.get("investigator_id") != investigator_id
+        or offer_provenance.get("character_id") != character_id
+        or offer_provenance.get("decision_id")
+        != offer_command.get("payload", {}).get("decision_id")
+    ):
+        raise _state_error(f"pending context {choice_id!r} has invalid creator provenance")
     if origin_snapshot.get("kind") not in {"skill_check", "characteristic_check"}:
         raise _state_error(f"pending context {choice_id!r} has an ineligible origin kind")
     if (
         origin_provenance.get("investigator_id") != investigator_id
         or origin_provenance.get("character_id") != character_id
+        or context.get("origin_decision_id") != origin_provenance.get("decision_id")
     ):
         raise _state_error(f"pending context {choice_id!r} has mismatched origin provenance")
     origin_events = origin_snapshot.get("events") or []
@@ -811,6 +837,26 @@ def _validate_push_pending_context(
         context.get("resolution_context"), origin_events[0].get("resolution_context") or {}
     ):
         raise _state_error(f"pending context {choice_id!r} mismatches origin resolution context")
+    offer_payload = offer_command.get("payload")
+    if not isinstance(offer_payload, dict) or (
+        offer_payload.get("original_command_id") != origin_id
+        or not _json_deep_equal(
+            context.get("changed_method_evidence"),
+            offer_payload.get("changed_method_evidence"),
+        )
+        or not _json_deep_equal(
+            context.get("announced_consequence"),
+            offer_payload.get("announced_consequence"),
+        )
+    ):
+        raise _state_error(f"pending context {choice_id!r} diverges from its creator command")
+    skill = str(origin_events[0].get("skill") or "ordinary")
+    expected_prompt = (
+        f"Push the failed {skill} roll? Failure consequence: "
+        f"{offer_payload['announced_consequence']['summary']}"
+    )
+    if choice.get("prompt") != expected_prompt:
+        raise _state_error(f"pending context {choice_id!r} has a forged public prompt")
     try:
         _validate_json_value(context, f"pending_contexts.{choice_id}")
     except SubsystemExecutorError as exc:
@@ -825,7 +871,9 @@ def _validate_bout_pending_context(
     applied_ids: set[str],
     snapshots: dict[str, Any],
     provenance: dict[str, Any],
+    hashes: dict[str, str],
 ) -> None:
+    _ = hashes
     if not isinstance(context, dict) or set(context) != BOUT_CONTEXT_KEYS:
         raise _state_error(f"pending context {choice_id!r} has an invalid bout contract")
     if context.get("choice_id") != choice_id or context.get("kind") != "bout_keeper_action":
@@ -856,6 +904,21 @@ def _validate_bout_pending_context(
         raise _state_error(f"pending context {choice_id!r} has an invalid bout_id")
     if isinstance(remaining, bool) or not isinstance(remaining, int) or remaining < 1:
         raise _state_error(f"pending context {choice_id!r} has invalid remaining rounds")
+    creator_id = choice.get("command_id")
+    creator = snapshots.get(creator_id, {})
+    expected_bout_id = None
+    expected_remaining = None
+    for event in creator.get("events") or []:
+        if not isinstance(event, dict):
+            continue
+        if event.get("event_type") == "bout_tick":
+            expected_bout_id = event.get("bout_id")
+            expected_remaining = event.get("remaining_rounds")
+        elif event.get("event_type") == "bout_of_madness":
+            expected_bout_id = event.get("bout_id")
+            expected_remaining = event.get("duration_rounds")
+    if expected_bout_id != bout_id or expected_remaining != remaining:
+        raise _state_error(f"pending context {choice_id!r} diverges from its creator bout result")
     try:
         _validate_json_value(context, f"pending_contexts.{choice_id}")
     except SubsystemExecutorError as exc:
@@ -870,6 +933,7 @@ def _validate_private_choice_context(
     applied_ids: set[str],
     snapshots: dict[str, Any],
     provenance: dict[str, Any],
+    hashes: dict[str, str],
 ) -> None:
     validator = (
         _validate_push_pending_context
@@ -887,6 +951,7 @@ def _validate_private_choice_context(
         applied_ids=applied_ids,
         snapshots=snapshots,
         provenance=provenance,
+        hashes=hashes,
     )
 
 
@@ -1019,6 +1084,7 @@ def _validate_state(state: Any) -> dict[str, Any]:
             applied_ids=applied_ids,
             snapshots=snapshots,
             provenance=provenance,
+            hashes=hashes,
         )
         if action not in allowed_actions or revision != public_choice.get("revision"):
             raise _state_error(f"choice history {choice_id!r} has invalid terminal metadata")
@@ -1028,6 +1094,27 @@ def _validate_state(state: Any) -> dict[str, Any]:
             or not all(command_id in applied_ids for command_id in command_ids)
         ):
             raise _state_error(f"choice history {choice_id!r} has invalid terminal commands")
+        ids = _resume_ids(choice_id, int(revision), str(action))
+        expected_command_ids = [ids["confirm_command_id"]]
+        expected_kinds = [
+            "push_confirm" if public_choice.get("kind") == "push_confirm"
+            else "bout_tick" if action == "tick" else "bout_end"
+        ]
+        if public_choice.get("kind") == "push_confirm" and action == "confirm":
+            expected_command_ids.append(ids["resolve_command_id"])
+            expected_kinds.append("push_resolve")
+        if command_ids != expected_command_ids:
+            raise _state_error(f"choice history {choice_id!r} has non-canonical terminal command IDs")
+        for terminal_id, expected_kind in zip(command_ids, expected_kinds):
+            if (
+                snapshots[terminal_id].get("kind") != expected_kind
+                or provenance[terminal_id].get("investigator_id")
+                != entry.get("investigator_id")
+                or provenance[terminal_id].get("character_id")
+                != entry.get("character_id")
+                or provenance[terminal_id].get("decision_id") != ids["decision_id"]
+            ):
+                raise _state_error(f"choice history {choice_id!r} has invalid terminal provenance")
         if public_choice.get("kind") == "push_confirm":
             changed = entry.get("response_changed_method_evidence")
             if action == "confirm" and not isinstance(changed, dict):
@@ -1069,6 +1156,7 @@ def _validate_state(state: Any) -> dict[str, Any]:
             applied_ids=applied_ids,
             snapshots=snapshots,
             provenance=provenance,
+            hashes=hashes,
         )
         scope = _pending_scope_key(snapshot["kind"], pending_choice=choice)
         if scope in pending_scopes:
@@ -1099,6 +1187,57 @@ def _load_state(campaign_dir: Path) -> dict[str, Any]:
         _write_executor_state(Path(campaign_dir), migrated)
         return migrated
     return _validate_state(raw)
+
+
+def load_canonical_state_readonly(campaign_dir: Path | str) -> dict[str, Any]:
+    """Read and validate schema-v3 executor state without recovery or migration.
+
+    Audience gateways must never repair, migrate, or otherwise mutate private
+    rule state merely to render a public snapshot.
+    """
+    campaign = Path(campaign_dir)
+    with _ExecutorStateDirectory(campaign) as state_directory:
+        encoded = state_directory.read_bytes()
+    if encoded is None:
+        return _default_state()
+    try:
+        raw = json.loads(encoded.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise _state_error(f"could not read valid JSON: {exc}") from exc
+    return _json_copy(_validate_state(raw))
+
+
+def project_player_pending_choice(campaign_dir: Path | str) -> dict[str, Any] | None:
+    """Return the sole canonical player choice with a recursively exact contract."""
+    state = load_canonical_state_readonly(campaign_dir)
+    choices = state["pending_choices"]
+    player_choices = [
+        choice for choice in choices.values()
+        if isinstance(choice, dict) and choice.get("responder") == "player"
+    ]
+    if not player_choices:
+        return None
+    if len(player_choices) != 1:
+        raise _state_error("multiple player pending choices are not projectable")
+    choice = player_choices[0]
+    if set(choice) != PUBLIC_PENDING_CHOICE_KEYS:
+        raise _state_error("public pending choice has an invalid root contract")
+    options = choice.get("options")
+    if (
+        not isinstance(options, list)
+        or not options
+        or any(
+            not isinstance(option, dict)
+            or set(option) != {"action", "label"}
+            or not isinstance(option.get("action"), str)
+            or not option["action"].strip()
+            or not isinstance(option.get("label"), str)
+            or not option["label"].strip()
+            for option in options
+        )
+    ):
+        raise _state_error("public pending choice options have an invalid contract")
+    return _json_copy(choice)
 
 
 def _unsafe_transaction_path(relative: str, message: str) -> SubsystemExecutorError:
@@ -1855,6 +1994,34 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                     "invalid_command_payload",
                     f"{base}.announced_consequence.effect",
                     "effect must use a supported structured kind",
+                )
+            kind = effect.get("kind")
+            valid = (
+                kind == "fictional_position"
+                and set(effect) in ({"kind"}, {"kind", "severity"})
+                and (
+                    "severity" not in effect
+                    or effect.get("severity") in {"minor", "serious", "critical"}
+                )
+            ) or (
+                kind == "pressure_tick"
+                and set(effect) == {"kind", "clock_id", "ticks"}
+                and isinstance(effect.get("clock_id"), str)
+                and bool(_SAFE_ID.fullmatch(effect["clock_id"]))
+                and isinstance(effect.get("ticks"), int)
+                and not isinstance(effect.get("ticks"), bool)
+                and 1 <= effect["ticks"] <= 4
+            ) or (
+                kind == "condition"
+                and set(effect) == {"kind", "condition_id"}
+                and isinstance(effect.get("condition_id"), str)
+                and bool(_SAFE_ID.fullmatch(effect["condition_id"]))
+            )
+            if not valid:
+                raise _error(
+                    "invalid_command_payload",
+                    f"{base}.announced_consequence.effect",
+                    "effect does not match its exact typed payload contract",
                 )
         supplied_context = payload.get("resolution_context")
         if supplied_context is not None and not isinstance(supplied_context, dict):
@@ -3085,6 +3252,7 @@ def _push_pending_context(
         "announced_consequence": _json_copy(payload["announced_consequence"]),
         "resolution_context": _json_copy(original_roll.get("resolution_context") or {}),
         "origin_decision_id": origin_provenance.get("decision_id"),
+        "offer_command": _json_copy(command),
     }
 
 
@@ -3510,5 +3678,7 @@ __all__ = [
     "get_current_pending_choice",
     "get_current_pending_choices",
     "normalize_rule_results",
+    "load_canonical_state_readonly",
+    "project_player_pending_choice",
     "plan_from_pending_choice_response",
 ]

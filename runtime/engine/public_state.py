@@ -6,20 +6,18 @@ from pathlib import Path
 from typing import Any
 
 
-_PUBLIC_PENDING_CHOICE_KEYS = {
-    "choice_id",
-    "kind",
-    "command_id",
-    "responder",
-    "revision",
-    "prompt",
-    "options",
-}
-
-
 def _load_config_module():
     path = Path(__file__).resolve().parent / "config.py"
     spec = importlib.util.spec_from_file_location("runtime_config", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_subsystem_executor():
+    path = Path(__file__).resolve().parents[2] / "plugins" / "coc-keeper" / "scripts" / "coc_subsystem_executor.py"
+    spec = importlib.util.spec_from_file_location("runtime_subsystem_executor", path)
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)
@@ -53,29 +51,16 @@ def _investigator_entry(path: Path) -> dict[str, Any]:
     }
 
 
-def _canonical_player_pending_choice(save: Path) -> tuple[bool, dict[str, Any] | None]:
+def _canonical_player_pending_choice(campaign_dir: Path) -> tuple[bool, dict[str, Any] | None]:
+    save = campaign_dir / "save"
     path = save / "subsystem-state.json"
     if not path.exists():
         return False, None
-    state = _read_json(path, {})
-    choices = state.get("pending_choices") if isinstance(state, dict) else None
-    if not isinstance(choices, dict) or len(choices) != 1:
+    try:
+        choice = _load_subsystem_executor().project_player_pending_choice(campaign_dir)
+    except (OSError, UnicodeError, ValueError, RuntimeError):
         return True, None
-    choice_id, choice = next(iter(choices.items()))
-    if (
-        not isinstance(choice, dict)
-        or set(choice) != _PUBLIC_PENDING_CHOICE_KEYS
-        or choice.get("choice_id") != choice_id
-        or choice.get("responder") != "player"
-        or not isinstance(choice.get("kind"), str)
-        or not isinstance(choice.get("command_id"), str)
-        or isinstance(choice.get("revision"), bool)
-        or not isinstance(choice.get("revision"), int)
-        or not isinstance(choice.get("prompt"), str)
-        or not isinstance(choice.get("options"), list)
-    ):
-        return True, None
-    return True, json.loads(json.dumps(choice))
+    return True, choice
 
 
 def build_public_state(workspace: Path | str, campaign_id: str) -> dict[str, Any]:
@@ -103,7 +88,7 @@ def build_public_state(workspace: Path | str, campaign_id: str) -> dict[str, Any
     except (TypeError, ValueError):
         turn_number = 0
 
-    has_canonical_pending_state, pending = _canonical_player_pending_choice(save)
+    has_canonical_pending_state, pending = _canonical_player_pending_choice(campaign_dir)
     if not has_canonical_pending_state:
         if isinstance(world, dict) and "pending_choice" in world:
             pending = world.get("pending_choice")

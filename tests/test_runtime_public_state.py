@@ -116,7 +116,7 @@ def test_build_public_state_missing_files_use_safe_defaults(tmp_path):
     assert state["pending_choice"] is None
 
 
-def test_public_state_projects_only_player_pending_choice_from_canonical_state(tmp_path):
+def test_public_state_rejects_partial_forged_subsystem_state(tmp_path):
     campaign_id = "camp-choice"
     campaign = _seed_campaign(tmp_path, campaign_id)
     choice = {
@@ -137,7 +137,7 @@ def test_public_state_projects_only_player_pending_choice_from_canonical_state(t
 
     state = _load().build_public_state(tmp_path, campaign_id)
 
-    assert state["pending_choice"] == choice
+    assert state["pending_choice"] is None
     assert "keeper_secret" not in json.dumps(state)
 
 

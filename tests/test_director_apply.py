@@ -2246,6 +2246,27 @@ def test_normalized_pushed_failure_applies_exact_announced_consequence_once(tmp_
     assert pushed[0]["original_command_id"] == "push-origin-decision-rule-1"
     assert pushed[0]["original_roll_id"] == "push-origin-decision-rule-1"
     assert pushed[0]["source_command_id"] == resume_results[-1]["command_id"]
+    applied = [
+        event for event in events
+        if event.get("event_type") == "pushed_consequence_applied"
+    ]
+    assert applied == [{
+        "event_type": "pushed_consequence_applied",
+        "decision_id": resume_plan["decision_id"],
+        "investigator_id": "inv1",
+        "source_command_id": resume_results[-1]["command_id"],
+        "effect_kind": "fictional_position",
+        "consequence_summary": expected["summary"],
+        "ts": applied[0]["ts"],
+    }]
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world["pushed_consequences"] == [{
+        "source_command_id": resume_results[-1]["command_id"],
+        "decision_id": resume_plan["decision_id"],
+        "kind": "fictional_position",
+        "summary": expected["summary"],
+        "severity": "serious",
+    }]
     assert not any(event.get("event_type") == "failure_consequence" for event in events)
     before = (camp / "logs" / "events.jsonl").read_bytes()
 
@@ -2263,6 +2284,56 @@ def test_normalized_pushed_failure_applies_exact_announced_consequence_once(tmp_
         "decision_id": resume_plan["decision_id"],
     }]
     assert (camp / "logs" / "events.jsonl").read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("effect", "expected_key", "expected_value"),
+    [
+        ({"kind": "fictional_position", "severity": "critical"}, "severity", "critical"),
+        ({"kind": "condition", "condition_id": "marked"}, "condition_id", "marked"),
+        ({"kind": "pressure_tick", "clock_id": "doom", "ticks": 2}, "ticks", 2),
+    ],
+)
+def test_typed_push_consequence_handlers_materialize_once(
+    tmp_path, effect, expected_key, expected_value,
+):
+    camp = _campaign(tmp_path)
+    (camp / "save" / "investigator-state").mkdir(parents=True, exist_ok=True)
+    (camp / "save" / "investigator-state" / "inv1.json").write_text(json.dumps({
+        "investigator_id": "inv1", "conditions": [],
+    }))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"clocks": [{"clock_id": "doom", "segments": 6}]}],
+    }))
+    world = {"discovered_clue_ids": []}
+    push_event = {
+        "event_type": "pushed_roll_failure",
+        "source_command_id": "push-resolve-typed",
+        "announced_consequence": {
+            "summary": "the announced cost lands",
+            "effect": effect,
+        },
+    }
+
+    first = coc_director_apply._apply_typed_push_consequences(
+        camp, "inv1", [push_event], world=world, decision_id="d-typed", ts="now"
+    )
+    second = coc_director_apply._apply_typed_push_consequences(
+        camp, "inv1", [push_event], world=world, decision_id="d-typed", ts="later"
+    )
+
+    assert len(first) == 1
+    assert second == []
+    assert world["pushed_consequences"][0][expected_key] == expected_value
+    if effect["kind"] == "condition":
+        investigator = json.loads(
+            (camp / "save" / "investigator-state" / "inv1.json").read_text()
+        )
+        assert investigator["conditions"] == ["marked"]
+    if effect["kind"] == "pressure_tick":
+        assert coc_director_apply.coc_threat_state.get_clock_segments(
+            camp / "save", "doom"
+        ) == 2
 
 
 # =============================================================================

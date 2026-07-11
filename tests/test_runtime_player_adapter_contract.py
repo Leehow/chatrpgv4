@@ -129,6 +129,22 @@ def test_parse_runner_response_accepts_typed_player_pending_choice_response():
     assert parsed["pending_choice_response"] == response
 
 
+def test_parse_runner_response_accepts_action_only_pending_choice_response():
+    adapter = _load_adapter()
+    response = {
+        "choice_id": "push-offer:confirm",
+        "responder": "player",
+        "revision": 0,
+        "action": "cancel",
+    }
+    parsed = adapter.parse_runner_response({
+        "ok": True,
+        "pending_choice_response": response,
+    })
+    assert parsed["player_text"] == ""
+    assert parsed["pending_choice_response"] == response
+
+
 def test_parse_runner_response_rejects_keeper_pending_choice_response():
     adapter = _load_adapter()
     with pytest.raises(RuntimeError, match="pending_choice_response"):
@@ -211,6 +227,31 @@ def test_player_send_turn_rejects_response_mismatching_requested_choice(tmp_path
 
     with pytest.raises(RuntimeError, match="canonical pending choice"):
         adapter.player_send_turn(request, runner_path=runner)
+
+
+def test_player_send_turn_accepts_action_only_matching_choice(tmp_path):
+    adapter = _load_adapter()
+    runner = tmp_path / "fake_action_only_choice"
+    response = {
+        "choice_id": "push-offer:confirm",
+        "responder": "player",
+        "revision": 0,
+        "action": "cancel",
+    }
+    _write_fake_runner(
+        runner,
+        stdout=json.dumps({"ok": True, "pending_choice_response": response}) + "\n",
+    )
+    request = _sample_request()
+    request["pending_choice"] = {
+        "choice_id": "push-offer:confirm",
+        "kind": "push_confirm",
+        "responder": "player",
+        "revision": 0,
+        "options": [{"action": "cancel", "label": "Keep failure"}],
+    }
+    result = adapter.player_send_turn(request, runner_path=runner)
+    assert result == {"ok": True, "player_text": "", "pending_choice_response": response}
 
 
 def test_player_send_turn_requires_request_keys(tmp_path):

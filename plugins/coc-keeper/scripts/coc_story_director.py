@@ -2643,7 +2643,17 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
         tid = trig.get("trigger_id") or trig.get("source", "")
         if tid and tid in fired:
             continue
-        requests.append({
+        involuntary = trig.get("involuntary_action")
+        if not isinstance(involuntary, dict):
+            involuntary = {}
+        involuntary_kind = trig.get(
+            "involuntary_kind", involuntary.get("kind", "freeze")
+        )
+        involuntary_summary = trig.get(
+            "involuntary_summary",
+            involuntary.get("summary", "freezes for a moment"),
+        )
+        request = {
             "kind": "sanity_check", "skill": "SAN",
             "reason": trig.get("source", "scene horror"),
             "difficulty": "regular", "bonus_penalty_dice": 0,
@@ -2651,6 +2661,9 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
             "san_loss_fail_expr": str(trig.get("san_loss_fail_expr", "1")),
             "source": trig.get("source", "scene horror"),
             "creature_type": trig.get("creature_type"),
+            "alone": trig.get("alone", False),
+            "involuntary_kind": involuntary_kind,
+            "involuntary_summary": involuntary_summary,
             "san_trigger_id": tid,
             "roll_contract": _roll_contract(
                 goal=trig.get("source", "withstand the immediate horror"),
@@ -2660,7 +2673,10 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 roll_density_group=f"san:{tid or scene.get('scene_id') or 'scene'}",
                 push_eligible=False,
             ),
-        })
+        }
+        if "module_bout_override" in trig:
+            request["module_bout_override"] = trig["module_bout_override"]
+        requests.append(request)
 
     # Danger attack profiles: in combat scenes (or when the player fights/flees),
     # resolve danger attacks as opposed checks so the engine drives combat

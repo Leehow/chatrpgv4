@@ -1512,6 +1512,85 @@ def _process_push_roll_gates(
     return events, pushed_fail_pending
 
 
+def _apply_typed_push_consequences(
+    campaign_dir: Path,
+    investigator_id: str,
+    push_events: list[dict[str, Any]],
+    *,
+    world: dict[str, Any],
+    decision_id: str,
+    ts: str,
+) -> list[dict[str, Any]]:
+    """Materialize closed-schema pushed-failure effects exactly once."""
+    applied: list[dict[str, Any]] = []
+    records = world.setdefault("pushed_consequences", [])
+    if not isinstance(records, list):
+        raise ValueError("world-state pushed_consequences must be a list")
+    known = {
+        str(row.get("source_command_id")) for row in records if isinstance(row, dict)
+    }
+    for failure in push_events:
+        if failure.get("event_type") != "pushed_roll_failure":
+            continue
+        source_id = str(failure.get("source_command_id") or "")
+        consequence = failure.get("announced_consequence")
+        effect = consequence.get("effect") if isinstance(consequence, dict) else None
+        summary = str(consequence.get("summary") or "") if isinstance(consequence, dict) else ""
+        if not isinstance(effect, dict) or source_id in known:
+            continue
+        kind = effect.get("kind")
+        record: dict[str, Any] = {
+            "source_command_id": source_id,
+            "decision_id": decision_id,
+            "kind": kind,
+            "summary": summary,
+        }
+        evidence: dict[str, Any] = {
+            "event_type": "pushed_consequence_applied",
+            "decision_id": decision_id,
+            "investigator_id": investigator_id,
+            "source_command_id": source_id,
+            "effect_kind": kind,
+            "consequence_summary": summary,
+            "ts": ts,
+        }
+        if kind == "fictional_position":
+            record["severity"] = effect.get("severity", "serious")
+        elif kind == "condition":
+            condition_id = str(effect["condition_id"])
+            inv_path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+            investigator = _read_investigator_state(campaign_dir, investigator_id)
+            conditions = investigator.setdefault("conditions", [])
+            if not isinstance(conditions, list):
+                raise ValueError("investigator conditions must be a list")
+            if condition_id not in conditions:
+                conditions.append(condition_id)
+            _write_json(inv_path, investigator)
+            record["condition_id"] = condition_id
+            evidence["condition_id"] = condition_id
+        elif kind == "pressure_tick":
+            clock_id = str(effect["clock_id"])
+            ticks = int(effect["ticks"])
+            clock_def = _lookup_clock_def(campaign_dir, clock_id)
+            if coc_threat_state is None or clock_def is None:
+                raise ValueError(f"unknown pushed-consequence threat clock: {clock_id}")
+            total_segments = int(clock_def.get("segments", 0) or 0)
+            if total_segments < 1:
+                raise ValueError(f"invalid pushed-consequence threat clock: {clock_id}")
+            for _ in range(ticks):
+                coc_threat_state.tick_clock(
+                    campaign_dir / "save", clock_id, total_segments
+                )
+            record.update({"clock_id": clock_id, "ticks": ticks})
+            evidence.update({"clock_id": clock_id, "ticks": ticks})
+        else:
+            raise ValueError(f"unsupported pushed consequence effect kind: {kind!r}")
+        records.append(record)
+        known.add(source_id)
+        applied.append(evidence)
+    return applied
+
+
 def _record_development_ticks(
     campaign_dir: Path,
     rules_results: list[dict[str, Any]] | None,
@@ -1674,6 +1753,16 @@ def _apply_plan_impl(
     # 1. clue reveal / fail-forward resolution
     world_path = save / "world-state.json"
     world = _read_json(world_path, {"discovered_clue_ids": []})
+    for ev in _apply_typed_push_consequences(
+        campaign_dir,
+        investigator_id,
+        push_events,
+        world=world,
+        decision_id=decision_id,
+        ts=ts,
+    ):
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
     discovered = list(world.get("discovered_clue_ids", []))
     committed_clues, resolution_events, extra_pressure = _resolve_committed_clues(
         plan, rules_results, ts, investigator_id

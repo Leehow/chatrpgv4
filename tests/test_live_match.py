@@ -1222,7 +1222,7 @@ def test_live_match_forwards_player_typed_push_response(tmp_path, monkeypatch):
         assert request["pending_choice"] == choice
         return {
             "ok": True,
-            "player_text": "我不冒这个险。",
+            "player_text": "",
             "pending_choice_response": {
                 "choice_id": choice["choice_id"],
                 "responder": "player",
@@ -1245,6 +1245,7 @@ def test_live_match_forwards_player_typed_push_response(tmp_path, monkeypatch):
     )
 
     assert result["result"]["turns"][0]["subsystem_results"][0]["status"] == "cancelled"
+    assert result["player_choices"][0]["player_text"] == ""
     assert executor.get_current_pending_choice(camp) is None
 
 

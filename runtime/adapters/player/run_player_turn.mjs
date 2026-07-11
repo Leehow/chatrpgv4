@@ -304,10 +304,10 @@ function buildPlayerActionTool(capture, pendingChoice) {
       "After coc_player_action returns, stop.",
     ],
     parameters: Type.Object({
-      player_text: Type.String({
+      player_text: Type.Optional(Type.String({
         description:
-          "Required in-character action or dialogue in the campaign play_language.",
-      }),
+          "In-character action or dialogue; optional only when answering the canonical pending choice.",
+      })),
       intent_class: Type.Optional(intentUnion),
       player_notes: Type.Optional(
         Type.String({
@@ -328,7 +328,8 @@ function buildPlayerActionTool(capture, pendingChoice) {
       capture.usedTool = true;
       const playerText =
         typeof params.player_text === "string" ? params.player_text.trim() : "";
-      if (!playerText) {
+      const hasPlayerChoice = pendingChoice && pendingChoice.responder === "player";
+      if (!playerText && !hasPlayerChoice) {
         capture.error = "coc_player_action missing non-empty player_text";
         return {
           content: [

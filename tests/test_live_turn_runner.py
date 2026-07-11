@@ -184,7 +184,6 @@ def _persist_live_push_offer(camp: Path, char_path: Path) -> dict:
                 "effect": {
                     "kind": "fictional_position",
                     "severity": "serious",
-                    "keeper_secret": "the watcher is the hidden cult leader",
                 },
             },
         },
@@ -222,6 +221,59 @@ def _persist_live_realtime_bout(camp: Path, char_path: Path) -> dict:
     return live_runner.subsystem_executor.execute_commands(
         camp, char_path, "inv1", [command], rng=random.Random(1)
     )[0]
+
+
+def test_director_production_san_trigger_forwards_structured_bout_context(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["on_enter"] = {"san_triggers": [{
+        "trigger_id": "scene-horror",
+        "source": "scene-horror",
+        "san_loss_success": 5,
+        "san_loss_fail_expr": "5",
+        "alone": False,
+        "involuntary_action": {
+            "kind": "cry_out",
+            "summary": "cries out and recoils",
+        },
+        "module_bout_override": {
+            "force_mode": "real_time",
+            "result_description": "authored real-time bout",
+        },
+        "creature_type": "deep-one",
+    }]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    character = json.loads(char_path.read_text())
+    character["characteristics"]["POW"] = 10
+    character["characteristics"]["INT"] = 99
+    character["derived"]["SAN"] = 10
+    char_path.write_text(json.dumps(character))
+
+    result = live_runner.run_live_turn(
+        camp,
+        char_path,
+        "inv1",
+        "我踏入房间。",
+        intent_class="move",
+        recording_mode="sync",
+        max_auto_advance=1,
+        rng_seed=1,
+    )
+
+    request = next(
+        request for request in result["turns"][0]["rules_requests"]
+        if request.get("kind") == "sanity_check"
+    )
+    assert request["alone"] is False
+    assert request["involuntary_kind"] == "cry_out"
+    assert request["involuntary_summary"] == "cries out and recoils"
+    assert request["module_bout_override"]["force_mode"] == "real_time"
+    assert request["creature_type"] == "deep-one"
+    assert any(
+        event.get("event_type") == "involuntary_action"
+        for event in result["turns"][0]["rule_results"]
+    )
+    assert result["pending_choice"]["kind"] == "bout_keeper_action"
 
 
 def _run_failed_live_origin(camp: Path, char_path: Path) -> dict:
@@ -1767,7 +1819,6 @@ def test_live_failed_roll_offers_push_through_typed_production_request_then_canc
                 "effect": {
                     "kind": "fictional_position",
                     "severity": "serious",
-                    "keeper_secret": "the watcher is the hidden cult leader",
                 },
             },
         },
@@ -1848,6 +1899,12 @@ def test_live_pushed_failure_applies_announced_consequence_once_across_replay(tm
         rng_seed=5,
     )
     assert first["subsystem_results"][-1]["events"][0]["outcome"] == "failure"
+    narration_json = json.dumps(
+        first["turns"][0]["narration_envelope"], ensure_ascii=False
+    )
+    assert "the watcher identifies the investigator" in narration_json
+    assert '"effect"' not in narration_json
+    assert '"pending_contexts"' not in narration_json
     event_log = camp / "logs" / "events.jsonl"
     rows_after_first = [
         json.loads(line) for line in event_log.read_text().splitlines() if line.strip()

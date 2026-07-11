@@ -129,13 +129,16 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
     if raw.get("ok") is not True:
         err = raw.get("error") or "player runner returned ok=false"
         raise RuntimeError(str(err))
-    player_text = raw.get("player_text")
-    if not isinstance(player_text, str) or not player_text.strip():
+    pending_response = raw.get("pending_choice_response")
+    player_text = raw.get("player_text", "")
+    if not isinstance(player_text, str) or (
+        not player_text.strip() and pending_response is None
+    ):
         raise RuntimeError("player runner response missing non-empty player_text string")
 
     notes = raw.get("player_notes")
     intent_class = raw.get("intent_class") if "intent_class" in raw else None
-    recovered = recover_player_action_scaffolding(player_text)
+    recovered = recover_player_action_scaffolding(player_text) if player_text else None
     if recovered:
         player_text = recovered["player_text"]
         if recovered.get("player_notes"):
@@ -174,7 +177,6 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
         if response_mode not in {"tool", "prose_fallback"}:
             raise RuntimeError("response_mode must be tool or prose_fallback")
         result["response_mode"] = response_mode
-    pending_response = raw.get("pending_choice_response")
     if pending_response is not None:
         if not isinstance(pending_response, dict) or set(pending_response) != {
             "choice_id", "responder", "revision", "action",

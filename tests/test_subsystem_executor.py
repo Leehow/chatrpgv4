@@ -344,6 +344,8 @@ def test_push_offer_validates_origin_and_keeps_private_context_out_of_public_cho
     assert private["resolution_context"] == original["events"][0]["resolution_context"]
     assert private["changed_method_evidence"] == _valid_push_offer()["payload"]["changed_method_evidence"]
     assert private["announced_consequence"] == _valid_push_offer()["payload"]["announced_consequence"]
+    assert private["offer_command"] == _valid_push_offer()
+    assert executor.project_player_pending_choice(campaign) == offered["pending_choice"]
     assert "original_roll" not in json.dumps(offered["pending_choice"], ensure_ascii=False)
     assert "watcher" in json.dumps(offered["pending_choice"], ensure_ascii=False)
     assert "fictional_position" not in json.dumps(
@@ -745,6 +747,113 @@ def test_push_confirm_cannot_replace_offer_changed_method_evidence(tmp_path):
 
     assert exc_info.value.code == "invalid_pending_choice_response"
     assert state_path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("announced_consequence", {"summary": "forged"}),
+        ("changed_method_evidence", {
+            "changed": True,
+            "source": "keeper_prompt",
+            "summary": "forged method",
+        }),
+        ("origin_command_id", "forged-origin"),
+    ],
+)
+def test_active_push_private_context_is_anchored_to_creator_command(
+    tmp_path, field, replacement,
+):
+    executor = _executor(f"coc_subsystem_executor_push_anchor_{field}")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    choice_id = offered["pending_choice"]["choice_id"]
+    state["pending_contexts"][choice_id][field] = replacement
+    state_path.write_text(json.dumps(state))
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.get_current_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+    assert state_path.read_bytes() == before
+
+
+def test_public_choice_projector_rejects_nested_option_leak(tmp_path):
+    executor = _executor("coc_subsystem_executor_public_nested_leak")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    choice_id = offered["pending_choice"]["choice_id"]
+    command_id = offered["command_id"]
+    for choice in (
+        state["pending_choices"][choice_id],
+        state["result_snapshots"][command_id]["pending_choice"],
+    ):
+        choice["options"][0]["keeper_secret"] = "must not cross"
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.project_player_pending_choice(campaign)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+
+
+def test_historical_push_private_context_is_anchored_to_creator_command(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_history_anchor")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "cancel")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    _execute(
+        executor,
+        campaign,
+        character,
+        executor.commands_from_rules_requests(plan),
+        random.Random(212),
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    state["choice_history"][response["choice_id"]]["offer_command"]["payload"][
+        "announced_consequence"
+    ]["summary"] = "forged creator receipt"
+    state_path.write_text(json.dumps(state))
+    before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
+    assert state_path.read_bytes() == before
+
+
+def test_choice_history_rejects_unrelated_applied_terminal_command(tmp_path):
+    executor = _executor("coc_subsystem_executor_history_exact_terminal")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "cancel")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    _execute(
+        executor,
+        campaign,
+        character,
+        executor.commands_from_rules_requests(plan),
+        random.Random(212),
+    )
+    state_path = campaign / "save" / "subsystem-state.json"
+    state = json.loads(state_path.read_text())
+    state["choice_history"][response["choice_id"]]["terminal_command_ids"] = [
+        "original-failed-roll"
+    ]
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.plan_from_pending_choice_response(campaign, "inv1", response)
+
+    assert exc_info.value.code == "malformed_subsystem_state"
 
 
 def test_invalid_pending_response_does_not_recover_or_mutate_prepared_inflight(
