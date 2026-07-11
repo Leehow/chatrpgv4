@@ -331,3 +331,8 @@ git commit -m "docs(source): complete evidence bridge contract"
 - No task requires the live Director to parse PDF prose.
 - Cache compatibility and strict opt-in behavior are explicit.
 - All public function names are consistent across tasks.
+
+## Implementation Status
+
+**Completed on 2026-07-11.** The implementation and verification mapping is in
+`docs/superpowers/reviews/2026-07-11-scenario-epistemic-blueprint-completion-review.md`.

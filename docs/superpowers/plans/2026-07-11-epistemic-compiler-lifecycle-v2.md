@@ -292,3 +292,8 @@ git commit -m "docs(epistemic): document compiler and lifecycle v2"
 - Confidence, multi-effect resolution, and closure have explicit APIs.
 - V1 and legacy paths remain supported.
 - Every installed authored ID is validated.
+
+## Implementation Status
+
+**Completed on 2026-07-11.** The implementation and verification mapping is in
+`docs/superpowers/reviews/2026-07-11-scenario-epistemic-blueprint-completion-review.md`.

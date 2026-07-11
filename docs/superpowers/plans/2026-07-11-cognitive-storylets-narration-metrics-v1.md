@@ -293,3 +293,8 @@ git commit -m "test(epistemic): cover full blueprint end to end"
 - Narrator payload remains minimum privilege.
 - Metrics measure event structure, not prose semantics.
 - Three independent scenario structures receive end-to-end coverage.
+
+## Implementation Status
+
+**Completed on 2026-07-11.** The implementation and verification mapping is in
+`docs/superpowers/reviews/2026-07-11-scenario-epistemic-blueprint-completion-review.md`.

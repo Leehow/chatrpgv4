@@ -238,3 +238,19 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
 The focused suites additionally cover source evidence, compiler lifecycle,
 cognitive storylets, narration, metrics, report generation, and all three E2E
 fixtures.
+
+## Final Boundary Hardening
+
+The completion pass added three fail-closed boundaries:
+
+- semantic compile requests no longer fall back from an explicit
+  `agenda_summary` to raw NPC agenda/fear/secret prose and whitelist only
+  player-safe front summaries and visible clock symptoms;
+- critical-source validation checks relevant evidence-segment review state and
+  verifies declared local segment hashes against local text when available;
+- `compile-confidence.json` rejects unsupported node types, duplicate node keys,
+  unknown question/reveal-contract IDs, malformed confidence values, and invalid
+  review states.
+
+These are covered by `tests/test_epistemic_boundary_hardening.py` in addition to
+the source bridge, compiler lifecycle, and three cross-layer E2E fixtures.

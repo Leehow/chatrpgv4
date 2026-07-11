@@ -200,3 +200,28 @@ files after the seven-file graph is green:
 Runtime never maps module prose or player prose to these ids by keyword. A host
 semantic evaluator may emit a structured belief candidate; the deterministic
 Director consumes only ids, enums, and flags.
+
+## Source-Evidence Preflight and Semantic Artifact Exchange
+
+Before semantic compilation:
+
+1. build or load `page-map.json`, `parse-manifest.json`, and
+   `evidence-segments.jsonl`;
+2. resolve every critical `source_ref` through the page map;
+3. require accepted range and relevant-segment review states;
+4. verify real-file, local segment-text, and cache provenance when available;
+5. require effective confidence `>= 0.80` unless the manifest explicitly sets a
+   different threshold;
+6. verify every declared `grep_anchor` against the relevant segment.
+
+The compiler request is a minimum-privilege artifact. It may contain stable
+scene/clue/conclusion/NPC/front/secret IDs, controlled enums, explicit
+player-safe summaries, source refs, and confidence records. It may not contain
+raw source text or Keeper-only agenda, fear, secret, danger-move, impulse, or
+full-clock consequence prose.
+
+The semantic evaluator returns `epistemic-compile-result.json` with
+`evaluation_provenance.kind="llm"`, the canonical request SHA-256, the expected
+evaluator ID, sidecars, compile confidence, and reasons for every critical
+question and reframe contract. Run complete Scenario IR validation before any
+sidecar is replaced.

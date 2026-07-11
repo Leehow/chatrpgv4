@@ -95,3 +95,54 @@ also emit optional `epistemic-graph.json` and `reveal-contracts.json`. Questions
 must reference structured clue ids; `reframe` evidence requires a reveal
 contract with at least two setup clue refs and non-empty `preserve_as_true`.
 Missing sidecars preserve legacy Director behavior.
+
+## Artifact-Mediated Epistemic Compilation v2
+
+After the canonical seven-file Scenario IR is green, compile belief-aware
+sidecars through an artifact exchange. Deterministic code must not infer module
+meaning itself.
+
+```bash
+python plugins/coc-keeper/scripts/coc_epistemic_compile.py request \
+  <campaign>/scenario --artifacts-dir <artifacts>
+
+# An LLM semantic evaluator reads epistemic-compile-request.json and writes
+# epistemic-compile-result.json with the exact request SHA-256.
+
+python plugins/coc-keeper/scripts/coc_epistemic_compile.py install \
+  <campaign>/scenario \
+  <artifacts>/epistemic-compile-request.json \
+  <artifacts>/epistemic-compile-result.json
+```
+
+The request contains stable IDs, enums, explicitly player-safe summaries,
+source locators/confidence, and secret `{id, category}` references. It excludes
+raw NPC agenda/fear/secret prose, danger moves/impulses, full-clock outcomes,
+Keeper secret prose, and local evidence text.
+
+Installation rejects a stale request hash, wrong evaluator, malformed sidecars,
+unknown or duplicate confidence-node IDs, missing reasons for critical questions
+or reframe contracts, and any complete-scenario validation error. Successful
+installation writes:
+
+```text
+epistemic-graph.json
+reveal-contracts.json
+compile-confidence.json
+```
+
+For migration:
+
+```bash
+python plugins/coc-keeper/scripts/coc_epistemic_compile.py scan <campaign-root>
+python plugins/coc-keeper/scripts/coc_epistemic_compile.py request-all \
+  <campaign-root> <artifact-root>
+```
+
+A partial sidecar set is reported; it is never silently filled with guessed
+semantics. Missing sidecars preserve legacy Director behavior until a validated
+semantic result is installed.
+
+When a critical source cannot pass the evidence gate, emit a structured source
+resolution request and keep the cognitive treatment at `HOLD`; never improvise a
+replacement truth.
