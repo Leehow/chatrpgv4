@@ -40,6 +40,20 @@ _DEFAULT_SERVE_KEYS = {
     "mainline", "can_reveal_clue", "can_tick_front", "can_deepen_npc",
     "can_surface_choice", "can_offer_recovery", "theme",
 }
+_VALID_EPISTEMIC_FUNCTIONS = frozenset({
+    "confirm", "expand", "complicate", "reframe", "payoff",
+})
+_VALID_QUESTION_LAYERS = frozenset({
+    "fact", "identity", "method", "motive", "causal", "structure",
+    "world", "personal",
+})
+_EPISTEMIC_FUNCTION_TO_NEED = {
+    "confirm": "belief_confirmation",
+    "expand": "belief_expansion",
+    "complicate": "belief_complication",
+    "reframe": "belief_reframe",
+    "payoff": "question_payoff",
+}
 
 _NEED_DECKS: dict[str, list[str]] = {
     "clue_delivery": ["clue_delivery", "clue_reinforcement", "investigation"],
@@ -52,6 +66,11 @@ _NEED_DECKS: dict[str, list[str]] = {
     "opportunity": ["opportunity", "critical_success", "payoff"],
     "transition_bridge": ["transition_bridge", "return_hook"],
     "theme_echo": ["theme_echo", "ambience"],
+    "belief_confirmation": ["belief_confirmation", "confirm", "clue_reinforcement"],
+    "belief_expansion": ["belief_expansion", "expand", "investigation"],
+    "belief_complication": ["belief_complication", "complicate", "pressure"],
+    "belief_reframe": ["belief_reframe", "reframe", "revelation"],
+    "question_payoff": ["question_payoff", "payoff", "resolution"],
 }
 
 
@@ -131,6 +150,46 @@ def _check_library_context_requirements(library: dict[str, Any]) -> None:
         )
 
 
+def _check_library_epistemic_tags(library: dict[str, Any]) -> None:
+    """Validate optional cognitive storylet enums and reframe safety gates."""
+    for storylet in library.get("storylets", []) or []:
+        if not isinstance(storylet, dict):
+            continue
+        sid = storylet.get("storylet_id")
+
+        functions_raw = storylet.get("epistemic_functions")
+        functions: list[str] = []
+        if functions_raw is not None:
+            _check_tag_list(sid, "epistemic_functions", functions_raw)
+            functions = [str(value).strip().lower() for value in functions_raw]
+            unknown = sorted(set(functions) - _VALID_EPISTEMIC_FUNCTIONS)
+            if unknown:
+                raise ValueError(
+                    f"storylet '{sid}' epistemic_functions contains unknown values: {unknown}"
+                )
+
+        layers_raw = storylet.get("question_layers")
+        if layers_raw is not None:
+            _check_tag_list(sid, "question_layers", layers_raw)
+            layers = [str(value).strip().lower() for value in layers_raw]
+            unknown = sorted(set(layers) - _VALID_QUESTION_LAYERS)
+            if unknown:
+                raise ValueError(
+                    f"storylet '{sid}' question_layers contains unknown values: {unknown}"
+                )
+
+        gate = storylet.get("requires_reveal_contract")
+        if gate is not None and not isinstance(gate, bool):
+            raise ValueError(
+                f"storylet '{sid}' requires_reveal_contract must be a boolean"
+            )
+        if "reframe" in functions and gate is not True:
+            raise ValueError(
+                f"storylet '{sid}' reframe epistemic_functions requires "
+                "requires_reveal_contract=true"
+            )
+
+
 def load_storylet_library(path: Path | None = None) -> dict[str, Any]:
     """Load a storylet library JSON, falling back to the packaged default."""
     lib_path = path or (RULES_DIR / "storylet-library.json")
@@ -139,6 +198,7 @@ def load_storylet_library(path: Path | None = None) -> dict[str, Any]:
     library = coc_cache.load_json_cached(lib_path)
     _check_library_setting_tags(library)
     _check_library_context_requirements(library)
+    _check_library_epistemic_tags(library)
     return library
 
 
@@ -235,6 +295,65 @@ def _active_npc_reactions(plan: dict[str, Any]) -> bool:
     return False
 
 
+def _ready_epistemic_effects(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return resolved cognitive effects that may drive presentation this turn."""
+    contract = plan.get("epistemic_contract")
+    if not isinstance(contract, dict):
+        return []
+    raw = contract.get("resolved_effects")
+    if not isinstance(raw, list):
+        raw = contract.get("effects")
+    if not isinstance(raw, list) or not raw:
+        raw = [contract]
+    ready: list[dict[str, Any]] = []
+    for effect in raw:
+        if not isinstance(effect, dict):
+            continue
+        mode = str(effect.get("mode") or "NONE").strip().lower()
+        if mode in _EPISTEMIC_FUNCTION_TO_NEED:
+            ready.append(effect)
+    return ready
+
+
+def _epistemic_story_need(plan: dict[str, Any]) -> dict[str, Any] | None:
+    contract = plan.get("epistemic_contract")
+    if not isinstance(contract, dict):
+        return None
+    primary_mode = str(contract.get("mode") or "NONE").strip().lower()
+    if primary_mode not in _EPISTEMIC_FUNCTION_TO_NEED:
+        return None
+    effects = _ready_epistemic_effects(plan)
+    if not effects:
+        return None
+
+    modes: list[str] = []
+    layers: list[str] = []
+    effect_ids: list[str] = []
+    for effect in effects:
+        mode = str(effect.get("mode") or "NONE").strip().lower()
+        if mode not in modes:
+            modes.append(mode)
+        layer = _non_empty_str(effect.get("target_layer"))
+        if layer and layer not in layers:
+            layers.append(layer)
+        effect_id = _non_empty_str(effect.get("effect_id"))
+        if effect_id and effect_id not in effect_ids:
+            effect_ids.append(effect_id)
+
+    need_id = _EPISTEMIC_FUNCTION_TO_NEED[primary_mode]
+    return {
+        "schema_version": _SCHEMA_VERSION,
+        "need_id": need_id,
+        "story_functions": [need_id],
+        "candidate_decks": list(_NEED_DECKS[need_id]),
+        "reason": "resolved_epistemic_contract",
+        "source": "story_need_scheduler",
+        "epistemic_modes": modes,
+        "question_layers": layers,
+        "effect_ids": effect_ids,
+    }
+
+
 def infer_story_need(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     """Infer the story function that should be served before rolling a card.
 
@@ -268,6 +387,9 @@ def infer_story_need(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any
         need_id = "opportunity"
         reason = trigger_reason
     else:
+        cognitive_need = _epistemic_story_need(plan)
+        if cognitive_need is not None:
+            return cognitive_need
         action = plan.get("scene_action")
         signals = (ctx.get("rule_signals") or {}) | (plan.get("rule_signals") or {})
         if action == "REVEAL" and _available_clues(plan, ctx):
@@ -361,6 +483,11 @@ def _storylet_story_functions(storylet: dict[str, Any]) -> set[str]:
             text = _non_empty_str(value)
             if text:
                 explicit.add(text)
+    for value in _as_list(storylet.get("epistemic_functions")):
+        function = str(value).strip().lower()
+        need_id = _EPISTEMIC_FUNCTION_TO_NEED.get(function)
+        if need_id:
+            explicit.add(need_id)
     if explicit:
         return explicit
 
@@ -594,10 +721,60 @@ def _has_current_scene_anchor(storylet: dict[str, Any], plan: dict[str, Any], ct
     return _anchor_contract_met(storylet, plan, ctx)
 
 
+def _matches_epistemic_context(
+    storylet: dict[str, Any],
+    plan: dict[str, Any],
+    story_need: dict[str, Any],
+) -> bool:
+    functions = {
+        str(value).strip().lower()
+        for value in _as_list(storylet.get("epistemic_functions"))
+        if str(value).strip()
+    }
+    layers = {
+        str(value).strip().lower()
+        for value in _as_list(storylet.get("question_layers"))
+        if str(value).strip()
+    }
+    requires_contract = storylet.get("requires_reveal_contract") is True
+    if not functions and not layers and not requires_contract:
+        return True
+
+    need_modes = {
+        str(value).strip().lower()
+        for value in _as_list(story_need.get("epistemic_modes"))
+        if str(value).strip()
+    }
+    need_layers = {
+        str(value).strip().lower()
+        for value in _as_list(story_need.get("question_layers"))
+        if str(value).strip()
+    }
+    if functions and not (functions & need_modes):
+        return False
+    if layers and not (layers & need_layers):
+        return False
+    if not requires_contract:
+        return True
+
+    for effect in _ready_epistemic_effects(plan):
+        mode = str(effect.get("mode") or "NONE").strip().lower()
+        layer = str(effect.get("target_layer") or "").strip().lower()
+        if functions and mode not in functions:
+            continue
+        if layers and layer not in layers:
+            continue
+        if _non_empty_str(effect.get("reveal_contract_id")):
+            return True
+    return False
+
+
 def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[str, Any], target_level: str) -> bool:
     policy = ctx.get("storylet_policy") or {}
     scene = ctx.get("active_scene") or {}
     story_need = ctx.get("story_need") or infer_story_need(plan, ctx)
+    if not _matches_epistemic_context(storylet, plan, story_need):
+        return False
     if storylet.get("storylet_id") in set(_as_list(scene.get("excluded_storylet_ids"))):
         return False
     if storylet.get("family_id") in set(_as_list(scene.get("excluded_storylet_families"))):

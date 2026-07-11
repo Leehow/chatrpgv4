@@ -22,6 +22,18 @@
       "conflict_level": "low",
       "conflict_score": 1,
       "base_weight": 1.0,
+      "epistemic_functions": [
+        "confirm",
+        "expand",
+        "complicate"
+      ],
+      "question_layers": [
+        "fact",
+        "method",
+        "causal",
+        "structure"
+      ],
+      "requires_reveal_contract": false,
       "dramatic_function": [
         "REVEAL",
         "DEEPEN",
@@ -129,6 +141,17 @@
       "conflict_level": "low",
       "conflict_score": 1,
       "base_weight": 1.02,
+      "epistemic_functions": [
+        "confirm",
+        "expand",
+        "complicate"
+      ],
+      "question_layers": [
+        "identity",
+        "motive",
+        "personal"
+      ],
+      "requires_reveal_contract": false,
       "dramatic_function": [
         "REVEAL",
         "DEEPEN",
