@@ -43,8 +43,9 @@ def debug_send_turn(
     character_path: Path | str,
     investigator_id: str,
     player_text: str,
+    include_result: bool = False,
     **kwargs: Any,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run one live turn via coc-keeper and map the result to Events.
 
     ``workspace`` is accepted for API symmetry with the session layer; the
@@ -58,4 +59,5 @@ def debug_send_turn(
         player_text,
         **kwargs,
     )
-    return _mapper().map_live_turn_result(result)
+    events = _mapper().map_live_turn_result(result)
+    return (events, result) if include_result else events

@@ -145,7 +145,14 @@ def build_public_state(
         "turn_number": turn_number,
         "discovered_clue_ids": list(clue_ids),
         "investigators": investigators,
-        "brain": cfg["brain"],
+        # Compatibility display only.  Dispatch is determined by the frozen
+        # session pipeline, never by this public projection.
+        "brain": (
+            "pi"
+            if isinstance(cfg.get("narrator"), dict)
+            and cfg["narrator"].get("kind") == "pi"
+            else "debug"
+        ),
         "pending_choice": pending,
         "state_health": gateway.health(),
     }

@@ -13,30 +13,52 @@ def _load():
     return mod
 
 
-def test_missing_runtime_json_defaults_to_debug(tmp_path):
+def test_missing_runtime_json_defaults_to_deterministic_template_pipeline(tmp_path):
     cfg = _load().load_runtime_config(tmp_path)
-    assert cfg["brain"] == "debug"
-    assert cfg["schema_version"] == 1
+    assert cfg == {
+        "schema_version": 2,
+        "planner": {"kind": "deterministic"},
+        "rules": {"kind": "deterministic"},
+        "narrator": {"kind": "template"},
+        "player": {"kind": "human"},
+    }
 
 
-def test_runtime_json_without_brain_defaults_to_debug(tmp_path):
+def test_runtime_json_v2_requires_exact_pipeline_shape(tmp_path):
     coc = tmp_path / ".coc"
     coc.mkdir()
-    (coc / "runtime.json").write_text(json.dumps({"schema_version": 1}))
-    cfg = _load().load_runtime_config(tmp_path)
-    assert cfg["brain"] == "debug"
-    assert cfg["schema_version"] == 1
+    (coc / "runtime.json").write_text(json.dumps({
+        "schema_version": 2,
+        "planner": {"kind": "deterministic"},
+        "rules": {"kind": "deterministic"},
+        "narrator": {"kind": "template"},
+        "player": {"kind": "human"},
+        "surprise": True,
+    }))
+    with pytest.raises(ValueError, match="exactly"):
+        _load().load_runtime_config(tmp_path)
 
 
-def test_reads_pi_brain_from_coc_runtime_json(tmp_path):
+@pytest.mark.parametrize(
+    ("legacy_brain", "narrator_kind"),
+    [("debug", "template"), ("pi", "pi")],
+)
+def test_legacy_brain_migrates_in_memory_with_deprecation_warning(
+    tmp_path, legacy_brain, narrator_kind,
+):
     coc = tmp_path / ".coc"
     coc.mkdir()
     (coc / "runtime.json").write_text(json.dumps({
         "schema_version": 1,
-        "brain": "pi",
+        "brain": legacy_brain,
     }))
-    cfg = _load().load_runtime_config(tmp_path)
-    assert cfg["brain"] == "pi"
+    with pytest.warns(DeprecationWarning, match="brain"):
+        cfg = _load().load_runtime_config(tmp_path)
+    assert cfg["schema_version"] == 2
+    assert cfg["planner"] == {"kind": "deterministic"}
+    assert cfg["rules"] == {"kind": "deterministic"}
+    assert cfg["narrator"] == {"kind": narrator_kind}
+    assert cfg["player"] == {"kind": "human"}
 
 
 def test_invalid_brain_raises(tmp_path):
@@ -56,4 +78,18 @@ def test_runtime_schema_version_requires_exact_integer(value, tmp_path):
     coc.mkdir()
     (coc / "runtime.json").write_text(json.dumps({"schema_version": value}))
     with pytest.raises(ValueError, match="schema_version"):
+        _load().load_runtime_config(tmp_path)
+
+
+def test_v2_rejects_invalid_component_kind(tmp_path):
+    coc = tmp_path / ".coc"
+    coc.mkdir()
+    (coc / "runtime.json").write_text(json.dumps({
+        "schema_version": 2,
+        "planner": {"kind": "pi"},
+        "rules": {"kind": "deterministic"},
+        "narrator": {"kind": "template"},
+        "player": {"kind": "human"},
+    }))
+    with pytest.raises(ValueError, match="planner"):
         _load().load_runtime_config(tmp_path)

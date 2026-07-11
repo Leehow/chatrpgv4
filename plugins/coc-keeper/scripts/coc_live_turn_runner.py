@@ -546,6 +546,7 @@ def _run_one_turn(
     recording_mode: str,
     recording_flush: str,
 ) -> dict[str, Any]:
+    director_started = time.perf_counter()
     ctx = director.build_director_context(
         campaign_dir=campaign_dir,
         character_path=character_path,
@@ -575,7 +576,9 @@ def _run_one_turn(
     plan = narrative_enrichment.enrich_director_plan(plan, ctx)
     _bind_roll_resolution_context(plan)
     _recording_defaults(plan, recording_mode, recording_flush)
+    director_ms = (time.perf_counter() - director_started) * 1000.0
 
+    rules_started = time.perf_counter()
     rules_recorder = _new_rules_recorder(campaign_dir, recording_mode, decision_id)
     append_jsonl = rules_recorder.append_jsonl if rules_recorder is not None else None
     commands = subsystem_executor.commands_from_rules_requests(plan)
@@ -590,6 +593,7 @@ def _run_one_turn(
     rule_results = subsystem_executor.flatten_result_events(subsystem_results)
     pending_choice = subsystem_executor.get_current_pending_choice(campaign_dir)
     rules_pending = _commit_rules_recorder(rules_recorder)
+    rules_ms = (time.perf_counter() - rules_started) * 1000.0
 
     resolved_plan = apply_mod.backfill_rule_results(plan, rule_results)
     # A20/A21 ordering is deliberate: social tactic outcomes and disclosure
@@ -603,6 +607,7 @@ def _run_one_turn(
     _recording_defaults(resolved_plan, recording_mode, recording_flush)
 
     before_pending = _pending_record_count(campaign_dir)
+    persistence_started = time.perf_counter()
     events = apply_mod.apply_plan(
         campaign_dir,
         resolved_plan,
@@ -613,6 +618,7 @@ def _run_one_turn(
         recording_flush="manual" if recording_flush == "background" else recording_flush,
     )
     after_pending = _pending_record_count(campaign_dir)
+    persistence_ms = (time.perf_counter() - persistence_started) * 1000.0
 
     world = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {})
     pacing = apply_mod._read_json(campaign_dir / "save" / "pacing-state.json", {})
@@ -701,6 +707,11 @@ def _run_one_turn(
     # Slot for player-visible final prose (filled by live_match narrator /
     # template path). Mapper reads narration.final_text first.
     turn_record["narration"] = dict(turn_record.get("narration") or {})
+    turn_record["runtime_phase_ms"] = {
+        "director_ms": max(0.0, director_ms),
+        "rules_ms": max(0.0, rules_ms),
+        "persistence_ms": max(0.0, persistence_ms),
+    }
     if audit.get("blocking"):
         raise narration_contract.NarrationGuardBlockedError(
             f"player-visible narration guard blocked decision_id={decision_id} "
@@ -751,9 +762,10 @@ def run_live_turn(
     * ``storylet_policy`` / ``storylet_library`` / ``incident_deck`` /
       ``signal_overrides`` — fixture overrides forwarded into director context.
     """
+    started = time.perf_counter()
     campaign = Path(campaign_dir)
     with coc_fileio.campaign_lock(campaign):
-        return _run_live_turn_impl(
+        result = _run_live_turn_impl(
             campaign,
             character_path,
             investigator_id,
@@ -774,6 +786,17 @@ def run_live_turn(
             signal_overrides=signal_overrides,
             state_patch=state_patch,
         )
+    phase = result.get("runtime_phase_ms") if isinstance(result, dict) else None
+    if not isinstance(phase, dict):
+        phase = {}
+    result["runtime_phase_ms"] = {
+        "intent_ms": float(phase.get("intent_ms") or 0.0),
+        "director_ms": float(phase.get("director_ms") or 0.0),
+        "rules_ms": float(phase.get("rules_ms") or 0.0),
+        "persistence_ms": float(phase.get("persistence_ms") or 0.0),
+        "total_ms": max(0.0, (time.perf_counter() - started) * 1000.0),
+    }
+    return result
 
 
 def _pending_choice_blocked_result(
@@ -1029,6 +1052,7 @@ def _run_pending_choice_response(
     )
     _recording_defaults(plan, mode, flush_policy)
     decision_id = str(plan["decision_id"])
+    rules_started = time.perf_counter()
     rules_recorder = _new_rules_recorder(campaign, mode, decision_id)
     append_jsonl = rules_recorder.append_jsonl if rules_recorder is not None else None
     commands = subsystem_executor.commands_from_rules_requests(plan)
@@ -1042,9 +1066,11 @@ def _run_pending_choice_response(
     )
     rule_results = subsystem_executor.flatten_result_events(subsystem_results)
     rules_pending = _commit_rules_recorder(rules_recorder)
+    rules_ms = (time.perf_counter() - rules_started) * 1000.0
     resolved_plan = apply_mod.backfill_rule_results(plan, rule_results)
     _recording_defaults(resolved_plan, mode, flush_policy)
     before_pending = _pending_record_count(campaign)
+    persistence_started = time.perf_counter()
     events = apply_mod.apply_plan(
         campaign,
         resolved_plan,
@@ -1055,6 +1081,7 @@ def _run_pending_choice_response(
         recording_flush="manual" if flush_policy == "background" else flush_policy,
     )
     after_pending = _pending_record_count(campaign)
+    persistence_ms = (time.perf_counter() - persistence_started) * 1000.0
     pending_choice = subsystem_executor.get_current_pending_choice(campaign)
     if pending_choice is None:
         pending_choice = subsystem_executor.project_player_combat_defense(
@@ -1185,6 +1212,12 @@ def _run_pending_choice_response(
             "active_scene": world.get("active_scene_id"),
             "tension": pacing.get("tension_level"),
             "turn_number": pacing.get("turn_number"),
+        },
+        "runtime_phase_ms": {
+            "intent_ms": 0.0,
+            "director_ms": 0.0,
+            "rules_ms": max(0.0, rules_ms),
+            "persistence_ms": max(0.0, persistence_ms),
         },
     }
     _append_jsonl_sync(campaign / "logs" / "live-turn-runtime.jsonl", {
@@ -1342,12 +1375,14 @@ def _run_live_turn_impl(
         rng_seed if rng_seed is not None else f"{campaign}|{time.time_ns()}"
     )
 
+    intent_started = time.perf_counter()
     resolved_intent_class, resolved_intent_rich, intent_resolution = _resolve_turn_intent(
         campaign,
         player_text,
         intent_class,
         player_intent_rich,
     )
+    intent_ms = (time.perf_counter() - intent_started) * 1000.0
     choice: dict[str, Any] = {
         "player_text": player_text,
         "intent_class": resolved_intent_class,
@@ -1539,6 +1574,21 @@ def _run_live_turn_impl(
             "active_scene": world.get("active_scene_id"),
             "tension": pacing.get("tension_level"),
             "turn_number": pacing.get("turn_number"),
+        },
+        "runtime_phase_ms": {
+            "intent_ms": max(0.0, intent_ms),
+            "director_ms": sum(
+                float((turn.get("runtime_phase_ms") or {}).get("director_ms") or 0.0)
+                for turn in turns if isinstance(turn, dict)
+            ),
+            "rules_ms": sum(
+                float((turn.get("runtime_phase_ms") or {}).get("rules_ms") or 0.0)
+                for turn in turns if isinstance(turn, dict)
+            ),
+            "persistence_ms": sum(
+                float((turn.get("runtime_phase_ms") or {}).get("persistence_ms") or 0.0)
+                for turn in turns if isinstance(turn, dict)
+            ),
         },
     }
 

@@ -124,7 +124,24 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
         if response_mode not in {"tool", "prose_fallback"}:
             raise RuntimeError("response_mode must be tool or prose_fallback")
         result["response_mode"] = response_mode
+    usage = raw.get("usage")
+    if usage is not None:
+        result["usage"] = _validate_usage(usage)
     return result
+
+
+def _validate_usage(value: Any) -> dict[str, int | None]:
+    if not isinstance(value, dict) or set(value) != {"input_tokens", "output_tokens"}:
+        raise RuntimeError("usage must contain exactly input_tokens and output_tokens")
+    clean: dict[str, int | None] = {}
+    for name in ("input_tokens", "output_tokens"):
+        count = value[name]
+        if count is not None and (
+            isinstance(count, bool) or not isinstance(count, int) or count < 0
+        ):
+            raise RuntimeError(f"usage {name} must be a non-negative integer or null")
+        clean[name] = count
+    return clean
 
 
 def narrator_send_turn(
@@ -132,6 +149,8 @@ def narrator_send_turn(
     *,
     runner_path: Path | str | None = None,
     timeout_s: float = 300,
+    worker_pool: Any | None = None,
+    worker_key: Any | None = None,
 ) -> dict[str, Any]:
     """Run one KP narration turn through the narrator-brain bridge.
 
@@ -140,6 +159,13 @@ def narrator_send_turn(
     ``rationale`` / keeper secrets before spawning.
     """
     prepared = prepare_narrator_request(request)
+
+    if worker_pool is not None:
+        if worker_key is None:
+            raise ValueError("worker_key is required with worker_pool")
+        return parse_runner_response(
+            worker_pool.request(worker_key, prepared, timeout_s=timeout_s)
+        )
 
     # Resolve against the caller's cwd *before* spawning: the subprocess runs
     # with cwd=_narrator_dir(), which would silently re-anchor relative paths.

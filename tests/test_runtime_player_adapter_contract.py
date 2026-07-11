@@ -178,6 +178,14 @@ def test_parse_runner_response_preserves_observed_model_and_response_mode():
     assert parsed["response_mode"] == "tool"
 
 
+def test_parse_runner_response_preserves_optional_model_usage_metadata():
+    parsed = _load_adapter().parse_runner_response({
+        "ok": True, "player_text": "我检查门锁。",
+        "usage": {"input_tokens": 12, "output_tokens": 4},
+    })
+    assert parsed["usage"] == {"input_tokens": 12, "output_tokens": 4}
+
+
 def test_parse_runner_response_rejects_invalid_intent_class():
     adapter = _load_adapter()
     with pytest.raises(RuntimeError, match="intent_class"):

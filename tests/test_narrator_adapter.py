@@ -129,6 +129,14 @@ def test_parse_runner_response_preserves_observed_model_and_response_mode():
     assert parsed["response_mode"] == "tool"
 
 
+def test_parse_runner_response_preserves_optional_model_usage_metadata():
+    parsed = _load_adapter().parse_runner_response({
+        "ok": True, "final_text": "雨声压低了门后的脚步。",
+        "usage": {"input_tokens": 21, "output_tokens": 7},
+    })
+    assert parsed["usage"] == {"input_tokens": 21, "output_tokens": 7}
+
+
 def test_parse_runner_response_preserves_structured_secret_audit_fields():
     adapter = _load_adapter()
     parsed = adapter.parse_runner_response({

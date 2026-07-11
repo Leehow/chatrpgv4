@@ -63,6 +63,9 @@ player_adapter = _load_runtime_module(
 narrator_adapter = _load_runtime_module(
     "runtime_narrator_adapter", "runtime/adapters/narrator/adapter.py"
 )
+worker_pool_mod = _load_runtime_module(
+    "runtime_adapter_worker_pool", "runtime/adapters/worker_pool.py"
+)
 
 NON_LIVE_EVIDENCE_DISCLAIMER = (
     "Non-live artifacts are never gameplay evidence per AGENTS.md "
@@ -437,6 +440,8 @@ def _apply_narrator_or_template(
     recent_narrations: list[str],
     narrator_runner: Path | None,
     timeout_s: float,
+    worker_pool: Any | None = None,
+    worker_key: dict[str, str] | None = None,
 ) -> tuple[str, str, dict[str, Any] | None, dict[str, Any]]:
     """Return text, method, fallback event, and structured runner outcome.
 
@@ -462,11 +467,24 @@ def _apply_narrator_or_template(
         recent_narrations=recent_narrations,
     )
     try:
-        result = narrator_adapter.narrator_send_turn(
-            request,
-            runner_path=narrator_runner,
-            timeout_s=timeout_s,
-        )
+        if worker_pool is None:
+            result = narrator_adapter.narrator_send_turn(
+                request, runner_path=narrator_runner, timeout_s=timeout_s,
+            )
+        else:
+            try:
+                result = narrator_adapter.narrator_send_turn(
+                    request, runner_path=narrator_runner, timeout_s=timeout_s,
+                    worker_pool=worker_pool, worker_key=worker_key,
+                )
+            except TypeError as exc:
+                # Small test doubles predating the v2 transport retain the
+                # one-shot call shape; production adapters always use the pool.
+                if "worker_pool" not in str(exc) and "worker_key" not in str(exc):
+                    raise
+                result = narrator_adapter.narrator_send_turn(
+                    request, runner_path=narrator_runner, timeout_s=timeout_s,
+                )
     except Exception as exc:  # noqa: BLE001 — fallback ladder must catch all runner failures
         fallback = {
             "event": "narrator_fallback",
@@ -602,6 +620,24 @@ def run_live_match(
     else:
         out = Path(run_dir)
     out.mkdir(parents=True, exist_ok=True)
+    match_id = out.name
+
+    def _server_pool(path: Path | None):
+        if path is None or path.suffix.lower() not in {".mjs", ".js"}:
+            return None
+        return worker_pool_mod.JsonlWorkerPool(
+            command_factory=lambda _key: ["node", str(path), "--server"],
+            cwd=path.parent,
+            default_timeout_s=timeout_s,
+        )
+
+    player_worker_pool = _server_pool(runner)
+    narrator_worker_pool = _server_pool(narrator_path)
+    player_worker_key = {
+        "session_id": f"live-match:{match_id}", "campaign_id": campaign_id,
+        "match_id": match_id, "role": "player",
+    }
+    narrator_worker_key = {**player_worker_key, "role": "narrator"}
 
     turns: list[dict[str, Any]] = []
     player_turns: list[dict[str, Any]] = []
@@ -706,11 +742,23 @@ def run_live_match(
                 current_player_request = request
                 player_requests.append(json.loads(json.dumps(request, ensure_ascii=False)))
 
-                player_result = player_adapter.player_send_turn(
-                    request,
-                    runner_path=runner,
-                    timeout_s=timeout_s,
-                )
+                if player_worker_pool is None:
+                    player_result = player_adapter.player_send_turn(
+                        request, runner_path=runner, timeout_s=timeout_s,
+                    )
+                else:
+                    try:
+                        player_result = player_adapter.player_send_turn(
+                            request, runner_path=runner, timeout_s=timeout_s,
+                            worker_pool=player_worker_pool,
+                            worker_key=player_worker_key,
+                        )
+                    except TypeError as exc:
+                        if "worker_pool" not in str(exc) and "worker_key" not in str(exc):
+                            raise
+                        player_result = player_adapter.player_send_turn(
+                            request, runner_path=runner, timeout_s=timeout_s,
+                        )
         player_response_mode = player_result.get("response_mode")
         if not keeper_progression:
             invocation_rows.append(
@@ -828,6 +876,8 @@ def run_live_match(
                 recent_narrations=recent_narrations,
                 narrator_runner=narrator_path,
                 timeout_s=timeout_s,
+                worker_pool=narrator_worker_pool,
+                worker_key=narrator_worker_key,
             )
             invocation_rows.append(
                 _invocation_row(
@@ -1100,6 +1150,10 @@ def run_live_match(
     # This is deliberately the first report generation for the run.
     battle_path = playtest_report.generate_battle_report(out)
 
+    if player_worker_pool is not None:
+        player_worker_pool.close()
+    if narrator_worker_pool is not None:
+        narrator_worker_pool.close()
     return {
         "run_dir": str(out),
         "battle_report_path": str(battle_path),

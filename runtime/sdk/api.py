@@ -78,3 +78,9 @@ def close_session(session_id: str) -> None:
     """End the session. Further send/get_state raise."""
     _load_paths_module().validate_id(session_id, "session_id")
     _session.close_session(session_id)
+
+
+def get_telemetry_receipts(session_id: str) -> list[dict[str, Any]]:
+    """Reload privacy-safe timing receipts recorded for this active session."""
+    _load_paths_module().validate_id(session_id, "session_id")
+    return _session.get_telemetry_receipts(session_id)

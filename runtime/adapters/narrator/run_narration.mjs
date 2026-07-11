@@ -16,6 +16,7 @@
  */
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline";
 import path from "node:path";
 import {
   createAgentSession,
@@ -406,7 +407,7 @@ function buildNarrationTool(capture) {
   });
 }
 
-async function runNarration(request) {
+export async function runNarration(request) {
   const required = [
     "narration_envelope",
     "last_player_text",
@@ -521,4 +522,33 @@ async function main() {
   }
 }
 
-main();
+async function serveJsonl() {
+  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  for await (const line of lines) {
+    let envelope;
+    try {
+      envelope = JSON.parse(line);
+      if (!envelope || typeof envelope !== "object" || typeof envelope.request_id !== "string") {
+        throw new Error("server request requires request_id");
+      }
+      const result = await runNarration(envelope.payload);
+      writeResult({ request_id: envelope.request_id, ...result });
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      writeResult({ request_id: envelope && envelope.request_id, ok: false, error: message });
+    }
+  }
+}
+
+const isEntrypoint =
+  process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename);
+if (isEntrypoint) {
+  if (process.argv.includes("--server")) {
+    serveJsonl().catch((err) => {
+      process.stderr.write(`${err && err.message ? err.message : String(err)}\n`);
+      process.exitCode = 1;
+    });
+  } else {
+    main();
+  }
+}

@@ -136,7 +136,7 @@ def _build_live_campaign(tmp_path: Path):
 
 
 def test_sdk_debug_create_send_state_close(tmp_path):
-    _build_live_campaign(tmp_path)
+    camp, _char = _build_live_campaign(tmp_path)
     (tmp_path / ".coc" / "runtime.json").write_text(
         json.dumps({"schema_version": 1, "brain": "debug"}),
         encoding="utf-8",
@@ -156,6 +156,24 @@ def test_sdk_debug_create_send_state_close(tmp_path):
     assert isinstance(events, list) and len(events) >= 1
     for ev in events:
         events_mod.validate_event(ev)
+
+    receipts = api.get_telemetry_receipts(sid)
+    assert len(receipts) == 1
+    telemetry = receipts[0]["telemetry"]
+    assert set(telemetry) == {
+        "intent_ms", "director_ms", "rules_ms", "persistence_ms",
+        "player_llm_ms", "narrator_llm_ms", "total_ms", "input_tokens",
+        "output_tokens", "fallback", "runner",
+    }
+    assert telemetry["total_ms"] >= sum(
+        telemetry[key] for key in (
+            "intent_ms", "director_ms", "rules_ms", "persistence_ms",
+            "player_llm_ms", "narrator_llm_ms",
+        )
+    )
+    assert "我环顾四周" not in (
+        camp / "logs" / "runtime-telemetry.jsonl"
+    ).read_text(encoding="utf-8")
 
     state = api.get_state(sid)
     assert state["campaign_id"] == "live"
@@ -196,41 +214,41 @@ def test_sdk_debug_accepts_typed_rescue_request(tmp_path):
     assert "dying" in state["conditions"] or "dead" in state["conditions"]
 
 
-def test_sdk_pi_rejects_player_pending_choice_before_dispatch(tmp_path, monkeypatch):
+def test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only(tmp_path, monkeypatch):
     camp, _char = _build_live_campaign(tmp_path)
     (tmp_path / ".coc" / "runtime.json").write_text(
         json.dumps({"schema_version": 1, "brain": "pi"}), encoding="utf-8"
     )
-    pending = {
-        "choice_id": "choice-chase", "kind": "chase_action",
-        "command_id": "offer", "responder": "player", "revision": 0,
-        "prompt": "Choose.",
-        "options": [{"action": "barrier:door:break", "label": "Break"}],
-    }
-    (camp / "save" / "world-state.json").write_text(json.dumps({
-        "schema_version": 1, "campaign_id": "live", "scenario_id": "live-mod",
-        "active_scene_id": "scene-1", "discovered_clue_ids": [],
-        "major_decisions": [], "pending_choice": pending,
-    }))
     session = _load("runtime_session_pi_pending", "runtime/engine/session.py")
-    monkeypatch.setattr(session, "_load_public_state", lambda: type("P", (), {
-        "build_public_state": staticmethod(lambda *_args: {"pending_choice": pending})
-    }))
-    called = False
+    calls: list[dict] = []
+
+    class Debug:
+        @staticmethod
+        def debug_send_turn(*_args, **kwargs):
+            assert kwargs["include_result"] is True
+            return [], {
+                "turns": [{
+                    "decision_id": "turn-pi-safe",
+                    "narration_envelope": {
+                        "decision_id": "turn-pi-safe",
+                        "keeper_secrets": ["never-forward"],
+                    },
+                }],
+                "runtime_phase_ms": {},
+            }
+
     class Pi:
         @staticmethod
-        def pi_send_turn(_request):
-            nonlocal called
-            called = True
-            return []
+        def pi_narrate(request):
+            calls.append(request)
+            assert "keeper_secrets" not in request["narration_envelope"]
+            return {"ok": True, "final_text": "雨声压住了门后的脚步。"}
+
+    monkeypatch.setattr(session, "_load_debug_adapter", lambda: Debug)
     monkeypatch.setattr(session, "_load_pi_adapter", lambda: Pi)
     sid = session.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
-    with pytest.raises(ValueError, match="pending_choice_response is not supported"):
-        session.send(sid, "", pending_choice_response={
-            "choice_id": "choice-chase", "responder": "player", "revision": 0,
-            "action": "barrier:door:break",
-        })
-    assert called is False
+    events = session.send(sid, "我等着听门后。")
+    assert calls and events[-1]["payload"]["text"].startswith("雨声")
 
 
 def test_sdk_debug_resolves_chase_pending_choice_action_only(tmp_path):
