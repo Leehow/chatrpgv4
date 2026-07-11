@@ -133,8 +133,10 @@ git commit -m "feat(runtime): accept reproducible structured player turns"
 
 **Files:**
 - Create: `plugins/coc-keeper/scripts/coc_playtest_checkpoint.py`
+- Modify: `plugins/coc-keeper/scripts/coc_live_turn_runner.py`
 - Test: `tests/test_playtest_checkpoint.py`
 - Test: `tests/test_playtest_checkpoint_runtime.py`
+- Test: `tests/test_live_turn_runner.py`
 
 **Interfaces:**
 - Produces: `CheckpointStore(run_dir, workspace, campaign_id, investigator_id)`.
