@@ -45,6 +45,15 @@ historical snapshots, not current instructions.
 | NPC dialogue could not hide, lie, deflect or gate facts | PARTIAL_WIRING → RESOLVED | agenda data existed but conversation state was incomplete | knowledge/willingness/lie/schedule rules and persisted social decisions | A20, A21 |
 | Existing tests proved standalone components but not `run_live_turn` wiring | TEST_GAP → RESOLVED | injected results and subsystem unit tests were overinterpreted as product evidence | canonical live SAN/push/combat/chase/social suites plus `test_product_smoke.py` | A07-A25, A33 |
 | Full-suite counts in documents were not evidence for latest HEAD | STALE_DOCUMENT → RESOLVED | historical self-reported counts had no terminal validation binding | Task 15 reruns focused/full/Node/adversarial gates and records exact results | A33 |
+| Extreme-cold quick observation inherited a 20-minute room-search duration | REAL_DEFECT → RESOLVED | action defaults overrode structured intent detail | White War live regression proves quick observation stays at most five minutes | A11 |
+| SDK exceptions should always become structured error Events | PARTIAL / EXPLICIT NON-GOAL FOR V1 | expected state-health failures are projected structurally, but programmer misuse and unknown/closed sessions intentionally retain typed Python exceptions | `UnknownSessionError.kind`, PublicState `state_health`; no claim that every exception is an Event | A27, A28 |
+| Codex, Claude Code and Cursor all need install/activation smoke evidence | RESOLVED | initial review predated thin-host manifests and activation tests | plugin metadata tests cover canonical Codex metadata, Claude manifest/marketplace and Cursor thin entry/demo activation | A04-A06 |
+| Incremental context/deepcopy and p50/p95 latency needed proof | PARTIAL / OUTSIDE A01-A34 | cache isolation uses defensive deep copies and per-turn telemetry exists; statistically meaningful p50/p95 requires an external runner/workload | cache tests and A32 receipts; no fabricated performance percentile claim | A32 |
+| Contacts remains a rules backlog item | UNVERIFIED / APPROVED NON-GOAL | full hardening targeted live-path correctness, not every optional/rules-depth backlog item | structured contact difficulty helper exists, but no claim of a complete Contacts subsystem | A33, A34 |
+| Training and in-play Aging remain backlog items | UNVERIFIED / APPROVED NON-GOAL | not part of A01-A34; creation aging and development are separate existing surfaces | explicitly retained as future rule-depth scope | A33, A34 |
+| Credit Rating daily spending/overspend/employment review remains backlog | UNVERIFIED / APPROVED NON-GOAL | creation finances and social CR use do not equal a complete campaign-economy subsystem | current tests cover finance derivation/social use only; no completion claim | A33, A34 |
+| Public combined/opposed API and physical-limit rules remain incomplete | PARTIAL / APPROVED NON-GOAL | structured tables and combat resolution exist, but the requested universal public API was not an A01-A34 requirement | combined/opposed rule tests; future API consolidation remains separate | A33, A34 |
+| Optional Combat Spot Rules are missing | UNVERIFIED / APPROVED NON-GOAL | optional knock-out/location/DEX-roll variants were explicitly left in the rule-depth backlog | core combat acceptance is A14-A15; optional variants are not silently called complete | A14, A15, A34 |
 | A real 10–20-turn external-model journey is available | UNVERIFIED / BLOCKED EXTERNALLY | no credentialed external runner evidence is present in the repository | deterministic smoke is explicitly `NON-GAMEPLAY`; no synthetic artifact is called a battle report | A09, A10, A33 |
 | PDF-derived epistemic facts lacked page/hash provenance | REAL_DEFECT → RESOLVED | the original scenario compiler consumed Markdown without a source-evidence bridge | page map, source/text hashes, parser manifest, anchor/range and confidence gates | A33, A34 |
 | Epistemic meaning could be deterministically guessed when semantic results were absent | REAL_DEFECT → RESOLVED | no artifact-mediated evaluator contract existed | request/result SHA binding, evaluator/staleness checks and fail-closed install | A33, A34 |
@@ -62,3 +71,21 @@ standalone engines looked equivalent to canonical live wiring; tests asserted
 caller-controlled or injected behavior; and metadata names (`live`, `brain=pi`)
 promised more than their implementation guaranteed. The hardening initiative
 therefore repaired both the product and the evidence model used to describe it.
+
+## A01–A34 current acceptance status
+
+| Acceptance | Status | Terminal evidence |
+|---|---|---|
+| A01–A06 | Done | tracked-cache/content/CI/metadata/consistency gates |
+| A07–A10 | Done | live outcome/terminal and adversarial evidence receipt suites |
+| A11–A16 | Done | live cold/SAN/Push/combat/Fight Back/chase journeys |
+| A17–A21 | Done | persisted threat, structured selection, scene function and NPC disclosure suites |
+| A22–A25 | Done | crisis/strategy/horror profile/semantic secret audit suites |
+| A26–A29 | Done | containment, session lifecycle, state health and production migration suites |
+| A30–A32 | Done | resolved composition, scoped worker reuse and telemetry suites |
+| A33 | Review pending | local full/focused/Node/adversarial gates pass; independent terminal acceptance not yet granted |
+| A34 | Review pending | all original claims are classified here; independent completeness review not yet granted |
+
+There is no `Partial`, `Missing` or `Untested` acceptance item hidden in this
+table. “Review pending” records the actual governance state rather than
+pre-emptively claiming independent acceptance.

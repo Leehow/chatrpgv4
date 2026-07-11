@@ -10,9 +10,10 @@
 
 ## Current release posture
 
-- The full-hardening implementation is complete through A01-A34 and is in its
-  terminal independent-review/validation gate. The exact root-cause mapping is
-  in `DIAGNOSIS-LEDGER.md`; no original diagnosis is silently deferred.
+- Full-hardening implementation evidence is complete through A01-A32. A33
+  (terminal validation) and A34 (diagnosis completeness) are awaiting final
+  independent acceptance after review-driven Task 15 revisions. The exact
+  root-cause and status mapping is in `DIAGNOSIS-LEDGER.md`.
 - `plugins/coc-keeper/` is the only canonical plugin implementation. Codex,
   Claude Code, and Cursor use thin host metadata over that single tree.
 - Two play-ready starters are packaged: **The White War** and **The Haunting**.

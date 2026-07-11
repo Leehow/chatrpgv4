@@ -2406,6 +2406,7 @@ def _evidence_sensitive_metadata(
 
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
+    non_gameplay_sample = metadata.get("evidence_class") == "NON-GAMEPLAY verification evidence"
     evidence_receipt = read_evidence_receipt(run_dir)
     display_metadata = {
         **metadata,
@@ -2468,7 +2469,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         if context["campaign_dir"]
         else {}
     )
-    output = _artifacts_dir(run_dir) / "battle-report.md"
+    output = _artifacts_dir(run_dir) / (
+        "verification-sample.md" if non_gameplay_sample else "battle-report.md"
+    )
 
     campaign_title = _first_value(
         "unknown",
@@ -2654,8 +2657,11 @@ def generate_battle_report(run_dir: Path) -> Path:
     )
 
     body = [
-        _report_heading(1, "Battle Report", language_profile),
+        ("# NON-GAMEPLAY Verification Sample"
+         if non_gameplay_sample else _report_heading(1, "Battle Report", language_profile)),
         "",
+        *(["**NON-GAMEPLAY verification evidence. This scripted sample is not an actual-play battle report.**", ""]
+          if non_gameplay_sample else []),
         _report_heading(2, "Run Setup", language_profile),
         _report_field("Run ID", metadata.get("run_id", "unknown"), language_profile),
         _report_field("Campaign ID", metadata.get("campaign_id", "unknown"), language_profile),
