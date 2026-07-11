@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import importlib.util
+import pytest
 
 
 def _load():
@@ -47,3 +48,12 @@ def test_invalid_brain_raises(tmp_path):
         assert False, "expected ValueError"
     except ValueError as exc:
         assert "brain" in str(exc).lower()
+
+
+@pytest.mark.parametrize("value", [True, "1", None, 1.0])
+def test_runtime_schema_version_requires_exact_integer(value, tmp_path):
+    coc = tmp_path / ".coc"
+    coc.mkdir()
+    (coc / "runtime.json").write_text(json.dumps({"schema_version": value}))
+    with pytest.raises(ValueError, match="schema_version"):
+        _load().load_runtime_config(tmp_path)

@@ -53,6 +53,13 @@ Required fields: `type`, `id`, `ts`, `visibility`, `payload`. JSON Schema: `even
 
 Player-safe snapshot for UI rendering: campaign id, scene, investigators’ public fields, known clues, pending choice if any, play language. Exact fields are defined alongside SDK implementation against existing `.coc/` artifacts.
 
+All consumed campaign/save paths are containment-checked at session creation
+and again on every `get_state`/`send`, including subsystem, combat, sanity, and
+chase snapshots. State schemas accept only non-boolean integer versions;
+invalid schemas project safe defaults plus sanitized `state_health` codes.
+When a session names an investigator, PublicState loads only that exact ID and
+never substitutes another investigator.
+
 ## Not in the public V1 API
 
 - Raw model transcripts

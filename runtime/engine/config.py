@@ -30,5 +30,8 @@ def load_runtime_config(workspace: Path | str) -> dict[str, Any]:
     brain = raw.get("brain", "debug")
     if brain not in ALLOWED_BRAINS:
         raise ValueError(f"invalid brain: {brain!r}; allowed={sorted(ALLOWED_BRAINS)}")
-    schema_version = int(raw.get("schema_version", 1))
+    schema_version = raw.get("schema_version", 1)
+    if (isinstance(schema_version, bool) or not isinstance(schema_version, int)
+            or schema_version != 1):
+        raise ValueError("runtime.json schema_version must be integer 1")
     return {"schema_version": schema_version, "brain": brain}

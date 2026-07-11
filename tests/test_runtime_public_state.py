@@ -174,8 +174,11 @@ def test_build_public_state_missing_files_use_safe_defaults(tmp_path):
     assert {issue["code"] for issue in state["state_health"]["issues"]} == {"missing"}
 
 
-@pytest.mark.parametrize("payload", [b"{not-json", b"\xff\xfe", b"[]"])
-def test_public_state_corruption_is_backed_up_and_reported_once(tmp_path, payload):
+@pytest.mark.parametrize("payload,code", [
+    (b"{not-json", "invalid_json"), (b"\xff\xfe", "invalid_utf8"),
+    (b"[]", "non_object"),
+])
+def test_public_state_corruption_is_backed_up_and_reported_once(tmp_path, payload, code):
     campaign = _seed_campaign(tmp_path)
     world_path = campaign / "save" / "world-state.json"
     world_path.write_bytes(payload)
@@ -185,7 +188,7 @@ def test_public_state_corruption_is_backed_up_and_reported_once(tmp_path, payloa
 
     assert first["active_scene_id"] is None
     assert first["state_health"]["status"] == "error"
-    assert {"state": "world", "code": "corrupt"} in first["state_health"]["issues"]
+    assert {"state": "world", "code": code} in first["state_health"]["issues"]
     assert first["state_health"] == second["state_health"]
     assert "path" not in json.dumps(first["state_health"])
     assert str(tmp_path) not in json.dumps(first["state_health"])
@@ -210,6 +213,42 @@ def test_public_state_forward_schema_is_an_error_without_corrupt_backup(tmp_path
     assert {"state": "world", "code": "forward_version"} in state["state_health"]["issues"]
     assert list(world_path.parent.glob("world-state.json.corrupt-*")) == []
     assert "future-private-scene" not in json.dumps(state)
+
+
+@pytest.mark.parametrize("bad_version", [True, False, "1", None, 1.0, "nope"])
+def test_public_state_schema_version_requires_non_bool_integer(tmp_path, bad_version):
+    campaign = _seed_campaign(tmp_path)
+    world_path = campaign / "save" / "world-state.json"
+    world_path.write_text(json.dumps({
+        "schema_version": bad_version,
+        "active_scene_id": "PRIVATE_INVALID_SCHEMA_SCENE",
+        "discovered_clue_ids": ["PRIVATE_INVALID_SCHEMA_CLUE"],
+    }))
+    state = _load().build_public_state(tmp_path, "camp-1")
+    assert state["active_scene_id"] is None
+    assert state["discovered_clue_ids"] == []
+    assert {"state": "world", "code": "invalid_schema"} in state["state_health"]["issues"]
+    assert "PRIVATE_INVALID_SCHEMA" not in json.dumps(state)
+
+
+def test_specified_missing_investigator_never_falls_back_to_another(tmp_path):
+    _seed_campaign(tmp_path)
+    state = _load().build_public_state(tmp_path, "camp-1", "inv-missing")
+    assert state["investigators"] == []
+    assert {"state": "investigator", "code": "missing"} in state["state_health"]["issues"]
+
+
+@pytest.mark.parametrize("filename", [
+    "subsystem-state.json", "combat.json", "sanity.json", "chase.json",
+])
+def test_direct_public_state_rejects_consumed_state_symlink_escape(tmp_path, filename):
+    campaign = _seed_campaign(tmp_path)
+    outside = tmp_path / f"outside-{filename}"
+    outside.write_text("{}")
+    path = campaign / "save" / filename
+    path.symlink_to(outside)
+    with pytest.raises(ValueError, match="escapes containment"):
+        _load().build_public_state(tmp_path, "camp-1", "inv-alice")
 
 
 def test_public_state_drops_untyped_fields_and_raw_legacy_pending_choice(tmp_path):
@@ -274,6 +313,20 @@ def test_public_state_rejects_partial_forged_subsystem_state(tmp_path):
     assert state["pending_choice"] is None
     assert "keeper_secret" not in json.dumps(state)
     assert subsystem_path.read_bytes() == before
+
+
+def test_public_state_reports_bool_subsystem_schema_without_projecting_contents(tmp_path):
+    campaign = _seed_campaign(tmp_path)
+    path = campaign / "save" / "subsystem-state.json"
+    path.write_text(json.dumps({
+        "schema_version": True,
+        "pending_choices": {"secret": {"responder": "player"}},
+        "keeper_secret": "DO NOT PROJECT",
+    }))
+    state = _load().build_public_state(tmp_path, "camp-1", "inv-alice")
+    assert state["pending_choice"] is None
+    assert {"state": "subsystem", "code": "invalid_schema"} in state["state_health"]["issues"]
+    assert "DO NOT PROJECT" not in json.dumps(state)
 
 
 def test_public_state_hides_keeper_pending_choice_from_player_audience(tmp_path):

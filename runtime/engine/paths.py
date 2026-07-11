@@ -98,11 +98,26 @@ def campaign_save_paths(campaign: Path | str, investigator_id: str) -> dict[str,
     resolved_campaign = Path(campaign).resolve(strict=False)
     save = contained_path(resolved_campaign, resolved_campaign / "save")
     inv_dir = contained_path(save, save / "investigator-state")
-    return {
+    paths = {
         "campaign": resolved_campaign,
         "save": save,
         "campaign_state": contained_path(resolved_campaign, resolved_campaign / "campaign.json"),
         "world_state": contained_path(save, save / "world-state.json"),
         "pacing_state": contained_path(save, save / "pacing-state.json"),
         "investigator_state": contained_path(inv_dir, inv_dir / f"{investigator_id}.json"),
+        "active_scene": contained_path(save, save / "active-scene.json"),
+        "subsystem_state": contained_path(save, save / "subsystem-state.json"),
+        "combat_state": contained_path(save, save / "combat.json"),
+        "sanity_state": contained_path(save, save / "sanity.json"),
+        "chase_state": contained_path(save, save / "chase.json"),
+        "time_state": contained_path(save, save / "time-state.json"),
+        "time_triggers": contained_path(save, save / "time-triggers.json"),
     }
+    # Runtime adapters and the live-turn engine consume additional save files
+    # over time. Validate the complete extant tree on every boundary access so
+    # a post-create symlink cannot bypass a stale fixed-name registry.
+    if save.is_dir():
+        for directory, dirnames, filenames in os.walk(save, followlinks=False):
+            for name in [*dirnames, *filenames]:
+                contained_path(save, Path(directory) / name)
+    return paths

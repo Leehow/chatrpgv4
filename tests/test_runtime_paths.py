@@ -164,3 +164,29 @@ def test_session_revalidates_canonical_paths_before_state_access(tmp_path):
         session.get_state(sid)
     with pytest.raises(ValueError, match="escapes containment"):
         session.send(sid, "do not dispatch this turn")
+
+
+@pytest.mark.parametrize("filename", [
+    "subsystem-state.json", "combat.json", "sanity.json", "chase.json",
+])
+def test_session_rejects_precreate_and_postcreate_save_symlink_escape(tmp_path, filename):
+    pre = tmp_path / "pre"
+    campaign = _seed_workspace(pre)
+    outside = tmp_path / f"outside-pre-{filename}"
+    outside.write_text("{}")
+    (campaign / "save" / filename).symlink_to(outside)
+    session = _load(f"runtime_session_pre_{filename}", "runtime/engine/session.py")
+    with pytest.raises(ValueError, match="escapes containment"):
+        session.create_session(pre, campaign_id="camp-1", investigator_id="inv-1")
+
+    post = tmp_path / "post"
+    campaign = _seed_workspace(post)
+    session = _load(f"runtime_session_post_{filename}", "runtime/engine/session.py")
+    sid = session.create_session(post, campaign_id="camp-1", investigator_id="inv-1")
+    outside = tmp_path / f"outside-post-{filename}"
+    outside.write_text("{}")
+    (campaign / "save" / filename).symlink_to(outside)
+    with pytest.raises(ValueError, match="escapes containment"):
+        session.get_state(sid)
+    with pytest.raises(ValueError, match="escapes containment"):
+        session.send(sid, "must not dispatch")

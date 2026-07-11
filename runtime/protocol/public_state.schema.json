@@ -125,7 +125,7 @@
             "additionalProperties": false,
             "properties": {
               "state": {"type": "string", "enum": ["campaign", "world", "pacing", "investigator"]},
-              "code": {"type": "string", "enum": ["missing", "corrupt", "forward_version", "invalid_schema", "invalid_fields", "invalid_identifier"]}
+              "code": {"type": "string", "enum": ["missing", "corrupt", "invalid_utf8", "invalid_json", "non_object", "forward_version", "invalid_schema", "invalid_fields", "invalid_identifier"]}
             }
           }
         }

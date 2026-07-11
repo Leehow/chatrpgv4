@@ -32,9 +32,21 @@ def _load_state_gateway():
     return mod
 
 
+def _load_paths():
+    path = Path(__file__).resolve().parent / "paths.py"
+    spec = importlib.util.spec_from_file_location("runtime_paths_public_state", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def _canonical_player_pending_choice(campaign_dir: Path) -> tuple[bool, dict[str, Any] | None]:
-    save = campaign_dir / "save"
-    path = save / "subsystem-state.json"
+    # The caller has already validated the campaign tree; re-resolve the exact
+    # consumed file immediately before handing the campaign to the projector.
+    path_mod = _load_paths()
+    save = path_mod.contained_path(campaign_dir, campaign_dir / "save")
+    path = path_mod.contained_path(save, save / "subsystem-state.json")
     if not path.exists():
         return False, None
     try:
@@ -50,7 +62,9 @@ def _combat_defense_choice(
 ) -> dict[str, Any] | None:
     if not investigator_id:
         return None
-    path = campaign_dir / "save" / "combat.json"
+    path_mod = _load_paths()
+    save = path_mod.contained_path(campaign_dir, campaign_dir / "save")
+    path = path_mod.contained_path(save, save / "combat.json")
     if not path.exists():
         return None
     try:
@@ -76,6 +90,7 @@ def build_public_state(
     gateway = _load_state_gateway().RuntimeStateGateway(
         workspace, campaign_id, investigator_id
     )
+    gateway.validate_consumed_paths()
     snapshot = gateway.load()
     campaign_dir = gateway.campaign_dir
     meta = snapshot["campaign"]
@@ -104,8 +119,19 @@ def build_public_state(
             gateway.record_invalid_fields("pacing")
         turn_number = 0
 
-    _has_canonical_pending_state, pending = _canonical_player_pending_choice(campaign_dir)
-    if pending is None:
+    blocking_aux = {
+        issue["state"] for issue in gateway.health()["issues"]
+        if issue["code"] in {
+            "corrupt", "invalid_utf8", "invalid_json", "non_object",
+            "forward_version", "invalid_schema",
+        }
+    }
+    if "subsystem" in blocking_aux:
+        _has_canonical_pending_state, pending = True, None
+    else:
+        _has_canonical_pending_state, pending = _canonical_player_pending_choice(campaign_dir)
+    if (pending is None and "subsystem" not in blocking_aux
+            and "combat" not in blocking_aux):
         pending = _combat_defense_choice(campaign_dir, investigator_id)
 
     cfg = _load_config_module().load_runtime_config(gateway.workspace)

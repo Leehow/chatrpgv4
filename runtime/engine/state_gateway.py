@@ -78,14 +78,19 @@ class RuntimeStateGateway:
         if not path.exists():
             return "missing"
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            return "corrupt"
-        if not isinstance(raw, dict):
+            text = path.read_bytes().decode("utf-8")
+        except UnicodeDecodeError:
+            return "invalid_utf8"
+        except OSError:
             return "corrupt"
         try:
-            version = int(raw.get("schema_version", 1) or 1)
-        except (TypeError, ValueError):
+            raw = json.loads(text)
+        except json.JSONDecodeError:
+            return "invalid_json"
+        if not isinstance(raw, dict):
+            return "non_object"
+        version = raw.get("schema_version", 1)
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
             return "invalid_schema"
         if version > int(self._state.CURRENT_SCHEMA_VERSIONS.get(kind, 1)):
             return "forward_version"
@@ -103,6 +108,8 @@ class RuntimeStateGateway:
         diagnosis = self._diagnose(path, kind)
         if diagnosis != "ok":
             self._issue(state, diagnosis)
+        if diagnosis in {"forward_version", "invalid_schema"}:
+            return dict(fallback)
         try:
             payload = loader(self.campaign_dir)
         except (OSError, UnicodeDecodeError, ValueError, TypeError):
@@ -193,7 +200,10 @@ class RuntimeStateGateway:
     def health(self) -> dict[str, Any]:
         codes = {issue["code"] for issue in self._issues}
         status = "ok"
-        if codes & {"corrupt", "forward_version", "invalid_schema"}:
+        if codes & {
+            "corrupt", "invalid_utf8", "invalid_json", "non_object",
+            "forward_version", "invalid_schema",
+        }:
             status = "error"
         elif codes:
             status = "degraded"
@@ -203,12 +213,44 @@ class RuntimeStateGateway:
         """Record a schema-safe projection loss without exposing raw values."""
         self._issue(state, "invalid_fields")
 
+    def validate_consumed_paths(self) -> dict[str, Path]:
+        """Revalidate the complete runtime save boundary on demand."""
+        return self._paths.campaign_save_paths(
+            self.campaign_dir, self.investigator_id or "gateway"
+        )
+
     def load(self) -> dict[str, Any]:
         """Return typed state objects and a sanitized health projection."""
+        state_paths = self.validate_consumed_paths()
+        for state_name, expected in (
+            ("subsystem_state", 3), ("combat_state", 2),
+            ("sanity_state", 1), ("chase_state", 4),
+        ):
+            path = state_paths[state_name]
+            if not path.exists():
+                continue
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                self._issue(state_name.removesuffix("_state"), "corrupt")
+                continue
+            version = raw.get("schema_version") if isinstance(raw, dict) else None
+            if (isinstance(version, bool) or not isinstance(version, int)
+                    or version != expected):
+                self._issue(state_name.removesuffix("_state"), "invalid_schema")
+        if self.investigator_id is not None:
+            exact_path = self._state_path("investigator", self.investigator_id)
+            if exact_path.exists():
+                investigators = [self.load_investigator(self.investigator_id)]
+            else:
+                self._issue("investigator", "missing")
+                investigators = []
+        else:
+            investigators = self.load_investigators()
         return {
             "campaign": self.load_campaign(),
             "world": self.load_world(),
             "pacing": self.load_pacing(),
-            "investigators": self.load_investigators(),
+            "investigators": investigators,
             "state_health": self.health(),
         }
