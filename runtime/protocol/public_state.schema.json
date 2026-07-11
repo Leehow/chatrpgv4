@@ -12,9 +12,10 @@
     "discovered_clue_ids",
     "investigators",
     "brain",
-    "pending_choice"
+    "pending_choice",
+    "state_health"
   ],
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "type": "integer"
@@ -45,7 +46,7 @@
       "items": {
         "type": "object",
         "required": ["id", "current_hp", "current_san", "current_mp", "conditions"],
-        "additionalProperties": true,
+        "additionalProperties": false,
         "properties": {
           "id": {
             "type": "string"
@@ -106,6 +107,29 @@
           }
         }
       ]
+    },
+    "state_health": {
+      "type": "object",
+      "required": ["status", "issues"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["ok", "degraded", "error"]
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["state", "code"],
+            "additionalProperties": false,
+            "properties": {
+              "state": {"type": "string", "enum": ["campaign", "world", "pacing", "investigator"]},
+              "code": {"type": "string", "enum": ["missing", "corrupt", "forward_version", "invalid_schema", "invalid_fields", "invalid_identifier"]}
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

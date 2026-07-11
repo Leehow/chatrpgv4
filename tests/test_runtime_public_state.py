@@ -3,6 +3,8 @@ import json
 import random
 from pathlib import Path
 
+import pytest
+
 
 def _load():
     path = Path("runtime/engine/public_state.py")
@@ -168,6 +170,82 @@ def test_build_public_state_missing_files_use_safe_defaults(tmp_path):
     assert state["discovered_clue_ids"] == []
     assert state["investigators"] == []
     assert state["pending_choice"] is None
+    assert state["state_health"]["status"] == "degraded"
+    assert {issue["code"] for issue in state["state_health"]["issues"]} == {"missing"}
+
+
+@pytest.mark.parametrize("payload", [b"{not-json", b"\xff\xfe", b"[]"])
+def test_public_state_corruption_is_backed_up_and_reported_once(tmp_path, payload):
+    campaign = _seed_campaign(tmp_path)
+    world_path = campaign / "save" / "world-state.json"
+    world_path.write_bytes(payload)
+
+    first = _load().build_public_state(tmp_path, "camp-1")
+    second = _load().build_public_state(tmp_path, "camp-1")
+
+    assert first["active_scene_id"] is None
+    assert first["state_health"]["status"] == "error"
+    assert {"state": "world", "code": "corrupt"} in first["state_health"]["issues"]
+    assert first["state_health"] == second["state_health"]
+    assert "path" not in json.dumps(first["state_health"])
+    assert str(tmp_path) not in json.dumps(first["state_health"])
+    assert len(list(world_path.parent.glob("world-state.json.corrupt-*"))) == 1
+    warnings = list(campaign.rglob("state-warnings.jsonl"))
+    assert len(warnings) == 1
+    assert len(warnings[0].read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_public_state_forward_schema_is_an_error_without_corrupt_backup(tmp_path):
+    campaign = _seed_campaign(tmp_path)
+    world_path = campaign / "save" / "world-state.json"
+    world_path.write_text(
+        json.dumps({"schema_version": 2, "active_scene_id": "future-private-scene"}),
+        encoding="utf-8",
+    )
+
+    state = _load().build_public_state(tmp_path, "camp-1")
+
+    assert state["active_scene_id"] is None
+    assert state["state_health"]["status"] == "error"
+    assert {"state": "world", "code": "forward_version"} in state["state_health"]["issues"]
+    assert list(world_path.parent.glob("world-state.json.corrupt-*")) == []
+    assert "future-private-scene" not in json.dumps(state)
+
+
+def test_public_state_drops_untyped_fields_and_raw_legacy_pending_choice(tmp_path):
+    campaign = _seed_campaign(tmp_path)
+    world_path = campaign / "save" / "world-state.json"
+    world_path.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "active_scene_id": {"private": "not a scene ID"},
+            "discovered_clue_ids": ["safe", {"keeper_secret": "no"}],
+            "pending_choice": {
+                "choice_id": "legacy",
+                "private_effect": {"keeper_secret": "must not leak"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    (campaign / "campaign.json").write_text(
+        json.dumps({"schema_version": 1, "play_language": ["not", "a", "string"]}),
+        encoding="utf-8",
+    )
+    (campaign / "save" / "pacing-state.json").write_text(
+        json.dumps({"schema_version": 1, "tension_level": {"secret": True}, "turn_number": "7"}),
+        encoding="utf-8",
+    )
+
+    state = _load().build_public_state(tmp_path, "camp-1")
+
+    assert state["active_scene_id"] is None
+    assert state["play_language"] is None
+    assert state["tension_level"] is None
+    assert state["turn_number"] == 0
+    assert state["discovered_clue_ids"] == ["safe"]
+    assert state["pending_choice"] is None
+    assert state["state_health"]["status"] == "degraded"
+    assert "keeper_secret" not in json.dumps(state)
 
 
 def test_public_state_rejects_partial_forged_subsystem_state(tmp_path):
@@ -182,17 +260,20 @@ def test_public_state_rejects_partial_forged_subsystem_state(tmp_path):
         "prompt": "Accept the announced consequence?",
         "options": [{"action": "cancel", "label": "Keep the failure"}],
     }
-    (campaign / "save" / "subsystem-state.json").write_text(json.dumps({
+    subsystem_path = campaign / "save" / "subsystem-state.json"
+    subsystem_path.write_text(json.dumps({
         "pending_choices": {choice["choice_id"]: choice},
         "pending_contexts": {
             choice["choice_id"]: {"keeper_secret": "do not expose this"},
         },
     }))
+    before = subsystem_path.read_bytes()
 
     state = _load().build_public_state(tmp_path, campaign_id)
 
     assert state["pending_choice"] is None
     assert "keeper_secret" not in json.dumps(state)
+    assert subsystem_path.read_bytes() == before
 
 
 def test_public_state_hides_keeper_pending_choice_from_player_audience(tmp_path):
@@ -253,4 +334,9 @@ def test_public_state_schema_lists_required_keys():
         "investigators",
         "brain",
         "pending_choice",
+        "state_health",
     }.issubset(required)
+    assert schema["additionalProperties"] is False
+    health = schema["properties"]["state_health"]
+    assert health["additionalProperties"] is False
+    assert health["properties"]["status"]["enum"] == ["ok", "degraded", "error"]

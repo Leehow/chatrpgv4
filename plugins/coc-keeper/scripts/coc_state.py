@@ -254,12 +254,22 @@ def _emit_corrupt_save_warning(
 
 
 def _backup_corrupt_save(path: Path, *, reason: str) -> Path:
+    # Runtime reads can revisit the same corrupt file.  Preserve the original
+    # bytes once and emit one warning for that exact corruption rather than
+    # growing unbounded backup/warning noise on every PublicState request.
+    source_bytes = path.read_bytes()
+    for existing in path.parent.glob(f"{path.name}.corrupt-*"):
+        try:
+            if existing.read_bytes() == source_bytes:
+                return existing
+        except OSError:
+            continue
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     backup_path = path.with_name(f"{path.name}.corrupt-{stamp}")
     try:
         shutil.copy2(path, backup_path)
     except OSError:
-        backup_path.write_bytes(path.read_bytes())
+        backup_path.write_bytes(source_bytes)
     _emit_corrupt_save_warning(path, backup_path=backup_path, reason=reason)
     return backup_path
 

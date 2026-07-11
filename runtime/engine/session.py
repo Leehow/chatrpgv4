@@ -30,6 +30,10 @@ def _load_config():
     return _load_module("runtime_config", _engine_dir() / "config.py")
 
 
+def _load_paths():
+    return _load_module("runtime_paths", _engine_dir() / "paths.py")
+
+
 def _load_public_state():
     return _load_module("runtime_public_state", _engine_dir() / "public_state.py")
 
@@ -44,6 +48,37 @@ def _load_pi_adapter():
     return _load_module("runtime_pi_adapter", path)
 
 
+def _validated_session_record(session_id: str, record: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild all paths from canonical record fields for every access."""
+    paths = _load_paths()
+    paths.validate_id(session_id, "session_id")
+    root = paths.workspace_root(record["workspace"])
+    campaign_id = paths.validate_id(record["campaign_id"], "campaign_id")
+    investigator_id = paths.validate_id(record["investigator_id"], "investigator_id")
+    campaign_dir = paths.campaign_dir(root, campaign_id)
+    coc = paths.coc_root(root)
+    character_relpath = record.get("character_relpath")
+    if not isinstance(character_relpath, str) or Path(character_relpath).is_absolute():
+        raise ValueError("invalid character_path")
+    character_path = paths.contained_path(coc, root / character_relpath)
+    if character_path.relative_to(root).as_posix() != character_relpath:
+        raise ValueError("invalid character_path")
+    # A campaign directory can be exchanged for a symlink after session
+    # creation.  Validate each state path before adapters see a raw path.
+    state_paths = paths.campaign_save_paths(campaign_dir, investigator_id)
+    return {
+        "session_id": session_id,
+        "workspace": root,
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "character_relpath": character_relpath,
+        "character_path": character_path,
+        "campaign_dir": campaign_dir,
+        "state_paths": state_paths,
+        "brain_at_create": record["brain_at_create"],
+    }
+
+
 def create_session(
     workspace: Path | str,
     *,
@@ -51,14 +86,30 @@ def create_session(
     investigator_id: str,
     character_path: Path | str | None = None,
 ) -> str:
-    root = Path(workspace)
+    paths = _load_paths()
+    root = paths.workspace_root(workspace)
+    campaign_id = paths.validate_id(campaign_id, "campaign_id")
+    investigator_id = paths.validate_id(investigator_id, "investigator_id")
+    coc = paths.coc_root(root)
+    campaign_dir = paths.campaign_dir(root, campaign_id)
+    if character_path is None:
+        resolved_character = paths.investigator_character_path(root, investigator_id)
+    else:
+        resolved_character = paths.contained_path(
+            coc,
+            Path(character_path) if Path(character_path).is_absolute() else root / Path(character_path),
+        )
+    character_relpath = paths.canonical_workspace_relative_path(
+        root,
+        resolved_character,
+        field="character_path",
+        allowed_root=coc,
+    )
+    # Validate all derived paths before allocating an ID or touching the
+    # registry.  This also detects a save/state symlink outside the campaign.
+    paths.campaign_save_paths(campaign_dir, investigator_id)
     cfg = _load_config().load_runtime_config(root)
     brain = cfg["brain"]
-
-    if character_path is None:
-        resolved_character = root / ".coc" / "investigators" / investigator_id / "character.json"
-    else:
-        resolved_character = Path(character_path)
 
     session_id = f"sess_{uuid.uuid4().hex[:16]}"
     _SESSIONS[session_id] = {
@@ -66,15 +117,16 @@ def create_session(
         "workspace": root,
         "campaign_id": campaign_id,
         "investigator_id": investigator_id,
-        "character_path": resolved_character,
+        "character_relpath": character_relpath,
         "brain_at_create": brain,
     }
     return session_id
 
 
 def get_session(session_id: str) -> dict[str, Any]:
+    _load_paths().validate_id(session_id, "session_id")
     try:
-        return _SESSIONS[session_id]
+        return _validated_session_record(session_id, _SESSIONS[session_id])
     except KeyError as exc:
         raise KeyError(f"unknown or closed session: {session_id!r}") from exc
 
@@ -90,7 +142,7 @@ def send(
     brain = record["brain_at_create"]
     workspace = record["workspace"]
     campaign_id = record["campaign_id"]
-    campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
+    campaign_dir = record["campaign_dir"]
     character_path = record["character_path"]
     investigator_id = record["investigator_id"]
     forwarded_pending_response: dict[str, Any] | None = None
@@ -170,4 +222,5 @@ def get_state(session_id: str) -> dict[str, Any]:
 
 
 def close_session(session_id: str) -> None:
+    _load_paths().validate_id(session_id, "session_id")
     _SESSIONS.pop(session_id, None)
