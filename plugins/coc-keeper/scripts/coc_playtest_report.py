@@ -2504,7 +2504,14 @@ def generate_battle_report(run_dir: Path) -> Path:
     )
     if module_source not in (None, "unknown"):
         raw_source = str(module_source)
-        module_source = Path(raw_source.replace("\\", "/")).name or "source withheld"
+        normalized_source = raw_source.replace("\\", "/")
+        source_path = Path(normalized_source)
+        if (
+            source_path.is_absolute()
+            or ".." in source_path.parts
+            or re.match(r"^[A-Za-z]:/", normalized_source)
+        ):
+            module_source = source_path.name or "source withheld"
     era = _first_value("unknown", campaign.get("era"), metadata.get("era"))
     dice_mode = _first_value("unknown", campaign.get("dice_mode"), metadata.get("dice_mode"))
     spoiler_policy = _first_value(
