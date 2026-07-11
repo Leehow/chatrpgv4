@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Persistent player-belief snapshot and append-only epistemic event reducer.
 
-The module records what the player appears to believe; it never promotes a
-hypothesis into module truth. Meaning-bearing bindings (question_id and
-hypothesis_kind) must be supplied by a semantic evaluator or compiled data.
+Beliefs describe the player's model and never mutate module truth. Semantic
+bindings are accepted only from structured evaluator/compiler output.
 """
 from __future__ import annotations
 
@@ -13,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _TREATMENT_EVENT = {
     "CONFIRM": "belief_confirmed",
     "EXPAND": "belief_expanded",
@@ -41,20 +40,38 @@ def _load_sibling(name: str, filename: str):
 coc_fileio = _load_sibling("coc_fileio_belief", "coc_fileio.py")
 
 
+def _ordered_strings(values: Any) -> list[str]:
+    if values is None:
+        source: list[Any] = []
+    elif isinstance(values, (list, tuple, set)):
+        source = list(values)
+    else:
+        source = [values]
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in source:
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
 def normalize_belief_state(payload: dict[str, Any] | None) -> dict[str, Any]:
     state = dict(payload or {})
     state["schema_version"] = SCHEMA_VERSION
-    if not isinstance(state.get("hypotheses"), list):
-        state["hypotheses"] = []
-    else:
-        state["hypotheses"] = [
-            item for item in state["hypotheses"] if isinstance(item, dict)
-        ]
-    for key in ("active_question_ids", "answered_question_ids"):
-        values = state.get(key)
-        if not isinstance(values, list):
-            values = []
-        state[key] = _ordered_strings(values)
+    hypotheses = state.get("hypotheses")
+    state["hypotheses"] = [
+        item for item in hypotheses if isinstance(item, dict)
+    ] if isinstance(hypotheses, list) else []
+    for key in (
+        "active_question_ids",
+        "answered_question_ids",
+        "applied_effect_ids",
+    ):
+        state[key] = _ordered_strings(state.get(key))
     return state
 
 
@@ -70,9 +87,8 @@ def read_belief_state(campaign_dir: Path) -> dict[str, Any]:
 
 
 def _write_state(campaign_dir: Path, state: dict[str, Any]) -> None:
-    path = Path(campaign_dir) / "save" / "belief-state.json"
     coc_fileio.write_json_atomic(
-        path,
+        Path(campaign_dir) / "save" / "belief-state.json",
         normalize_belief_state(state),
         indent=2,
         ensure_ascii=False,
@@ -86,38 +102,6 @@ def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def _ordered_strings(values: Any) -> list[str]:
-    if values is None:
-        source: list[Any] = []
-    elif isinstance(values, (list, tuple, set)):
-        source = list(values)
-    else:
-        source = [values]
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in source:
-        if not isinstance(value, str):
-            continue
-        text = value.strip()
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-    return result
-
-
-def _treatment_history(values: Any, treatment: str, limit: int = 8) -> list[str]:
-    """Keep recent treatments in order, including repeated confirmations."""
-    source = values if isinstance(values, list) else []
-    history = [
-        str(value).strip().lower()
-        for value in source
-        if isinstance(value, str) and str(value).strip()
-    ]
-    history.append(treatment)
-    return history[-limit:]
-
-
 def _bounded_confidence(value: Any, default: float = 0.5) -> float:
     try:
         parsed = float(value)
@@ -126,21 +110,31 @@ def _bounded_confidence(value: Any, default: float = 0.5) -> float:
     return round(max(0.0, min(1.0, parsed)), 3)
 
 
+def _treatment_history(values: Any, treatment: str, limit: int = 8) -> list[str]:
+    history = [
+        str(value).strip().lower()
+        for value in (values if isinstance(values, list) else [])
+        if isinstance(value, str) and str(value).strip()
+    ]
+    history.append(treatment)
+    return history[-limit:]
+
+
 def _next_hypothesis_id(state: dict[str, Any]) -> str:
     highest = 0
     for hypothesis in state.get("hypotheses", []):
         raw = str(hypothesis.get("hypothesis_id") or "")
-        if raw.startswith("hyp-"):
-            try:
-                highest = max(highest, int(raw.split("-", 1)[1]))
-            except ValueError:
-                continue
+        if not raw.startswith("hyp-"):
+            continue
+        try:
+            highest = max(highest, int(raw.split("-", 1)[1]))
+        except ValueError:
+            continue
     return f"hyp-{highest + 1:06d}"
 
 
 def _candidate_from_plan(plan: dict[str, Any]) -> dict[str, Any] | None:
-    turn_input = plan.get("turn_input") or {}
-    rich = turn_input.get("player_intent_rich") or {}
+    rich = ((plan.get("turn_input") or {}).get("player_intent_rich") or {})
     if not isinstance(rich, dict):
         return None
     raw = rich.get("belief_candidate")
@@ -162,15 +156,9 @@ def _candidate_from_plan(plan: dict[str, Any]) -> dict[str, Any] | None:
     if not claim:
         return None
     question_id = raw.get("question_id")
-    if not isinstance(question_id, str) or not question_id.strip():
-        question_id = None
-    else:
-        question_id = question_id.strip()
+    question_id = question_id.strip() if isinstance(question_id, str) and question_id.strip() else None
     hypothesis_kind = raw.get("hypothesis_kind")
-    if not isinstance(hypothesis_kind, str) or not hypothesis_kind.strip():
-        hypothesis_kind = None
-    else:
-        hypothesis_kind = hypothesis_kind.strip()
+    hypothesis_kind = hypothesis_kind.strip() if isinstance(hypothesis_kind, str) and hypothesis_kind.strip() else None
     return {
         "claim": claim,
         "question_id": question_id,
@@ -197,7 +185,7 @@ def _assert_hypothesis(
     investigator_id: str,
     ts: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    existing = next(
+    record = next(
         (
             hypothesis
             for hypothesis in state.get("hypotheses", [])
@@ -205,8 +193,8 @@ def _assert_hypothesis(
         ),
         None,
     )
-    if existing is None:
-        existing = {
+    if record is None:
+        record = {
             "hypothesis_id": _next_hypothesis_id(state),
             "owner": "party",
             "question_id": candidate.get("question_id"),
@@ -220,98 +208,99 @@ def _assert_hypothesis(
             "created_turn": turn_number,
             "updated_turn": turn_number,
         }
-        state["hypotheses"].append(existing)
+        state["hypotheses"].append(record)
         event_type = "hypothesis_asserted"
     else:
-        existing["claim"] = candidate["claim"]
-        existing["confidence"] = candidate["confidence"]
+        record["claim"] = candidate["claim"]
+        record["confidence"] = candidate["confidence"]
         if candidate.get("question_id") is not None:
-            existing["question_id"] = candidate.get("question_id")
+            record["question_id"] = candidate["question_id"]
         if candidate.get("hypothesis_kind") is not None:
-            existing["hypothesis_kind"] = candidate.get("hypothesis_kind")
-        existing["updated_turn"] = turn_number
+            record["hypothesis_kind"] = candidate["hypothesis_kind"]
+        record["updated_turn"] = turn_number
         event_type = "hypothesis_repeated"
-
-    event = {
+    return record, {
         "schema_version": SCHEMA_VERSION,
         "event_type": event_type,
         "decision_id": decision_id,
         "turn_number": turn_number,
         "investigator_id": investigator_id,
-        "hypothesis_id": existing["hypothesis_id"],
-        "question_id": existing.get("question_id"),
-        "hypothesis_kind": existing.get("hypothesis_kind"),
-        "confidence": existing.get("confidence"),
+        "hypothesis_id": record["hypothesis_id"],
+        "question_id": record.get("question_id"),
+        "hypothesis_kind": record.get("hypothesis_kind"),
+        "confidence": record.get("confidence"),
         "ts": ts,
     }
-    return existing, event
 
 
-def _targets_for_contract(
+def _contract_effects(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    effects = contract.get("resolved_effects")
+    if not isinstance(effects, list):
+        effects = contract.get("effects")
+    if isinstance(effects, list):
+        return [effect for effect in effects if isinstance(effect, dict)]
+    return [contract]
+
+
+def _targets_for_effect(
     state: dict[str, Any],
-    contract: dict[str, Any],
+    effect: dict[str, Any],
     *,
-    newly_asserted_id: str | None = None,
+    newly_asserted_id: str | None,
 ) -> list[dict[str, Any]]:
-    mode = str(contract.get("mode") or "NONE").upper()
-    if mode == "REFRAME" and _ordered_strings(contract.get("revise_hypothesis_refs")):
-        refs = set(_ordered_strings(contract.get("revise_hypothesis_refs")))
+    mode = str(effect.get("mode") or "NONE").upper()
+    if mode == "REFRAME" and _ordered_strings(effect.get("revise_hypothesis_refs")):
+        refs = set(_ordered_strings(effect.get("revise_hypothesis_refs")))
     else:
-        refs = set(_ordered_strings(contract.get("belief_refs")))
-
-    question_id = contract.get("target_question_id")
+        refs = set(_ordered_strings(effect.get("belief_refs")))
+    question_id = effect.get("target_question_id")
     if newly_asserted_id and mode != "REFRAME":
-        new_record = next(
-            (
-                hypothesis
-                for hypothesis in state.get("hypotheses", [])
-                if hypothesis.get("hypothesis_id") == newly_asserted_id
-            ),
+        newly = next(
+            (record for record in state.get("hypotheses", []) if record.get("hypothesis_id") == newly_asserted_id),
             None,
         )
-        if isinstance(new_record, dict) and new_record.get("question_id") == question_id:
+        if isinstance(newly, dict) and newly.get("question_id") == question_id:
             refs.add(newly_asserted_id)
-
     if refs:
         return [
-            hypothesis
-            for hypothesis in state.get("hypotheses", [])
-            if hypothesis.get("hypothesis_id") in refs
+            record for record in state.get("hypotheses", [])
+            if record.get("hypothesis_id") in refs
         ]
     if question_id:
         return [
-            hypothesis
-            for hypothesis in state.get("hypotheses", [])
-            if hypothesis.get("question_id") == question_id
-            and str(hypothesis.get("status") or "active") not in {"abandoned", "retired"}
+            record for record in state.get("hypotheses", [])
+            if record.get("question_id") == question_id
+            and str(record.get("status") or "active") not in {"abandoned", "retired"}
         ]
     return []
 
 
-def _apply_treatment(
+def _apply_effect(
     state: dict[str, Any],
-    contract: dict[str, Any],
+    effect: dict[str, Any],
     committed_clue_ids: list[str],
     *,
     decision_id: str,
     turn_number: int,
     investigator_id: str,
     ts: str,
-    newly_asserted_id: str | None = None,
+    newly_asserted_id: str | None,
 ) -> list[dict[str, Any]]:
-    mode = str(contract.get("mode") or "NONE").upper()
+    mode = str(effect.get("mode") or "NONE").upper()
     event_type = _TREATMENT_EVENT.get(mode)
     if event_type is None:
         return []
-    planned = set(_ordered_strings(contract.get("deliver_clue_ids")))
+    planned = set(_ordered_strings(effect.get("deliver_clue_ids")))
     committed = [clue for clue in _ordered_strings(committed_clue_ids) if clue in planned]
     if not committed:
         return []
+    effect_id = str(effect.get("effect_id") or "").strip()
+    applied = set(_ordered_strings(state.get("applied_effect_ids")))
+    if effect_id and effect_id in applied:
+        return []
 
-    targets = _targets_for_contract(
-        state,
-        contract,
-        newly_asserted_id=newly_asserted_id,
+    targets = _targets_for_effect(
+        state, effect, newly_asserted_id=newly_asserted_id
     )
     treatment = mode.lower()
     for hypothesis in targets:
@@ -329,40 +318,50 @@ def _apply_treatment(
         hypothesis["updated_turn"] = turn_number
         hypothesis["status"] = _STATUS_FOR_MODE[mode]
 
-    events: list[dict[str, Any]] = [{
+    if effect_id:
+        state["applied_effect_ids"] = _ordered_strings([
+            *state.get("applied_effect_ids", []), effect_id
+        ])
+
+    event = {
         "schema_version": SCHEMA_VERSION,
         "event_type": event_type,
         "decision_id": decision_id,
         "turn_number": turn_number,
         "investigator_id": investigator_id,
-        "question_id": contract.get("target_question_id"),
+        "effect_id": effect_id or None,
+        "question_id": effect.get("target_question_id"),
+        "target_layer": effect.get("target_layer"),
         "belief_refs": [
-            hypothesis.get("hypothesis_id") for hypothesis in targets if hypothesis.get("hypothesis_id")
+            target.get("hypothesis_id") for target in targets if target.get("hypothesis_id")
         ],
         "clue_ids": committed,
         "mode": mode,
-        "preserve_fact_refs": _ordered_strings(contract.get("preserve_fact_refs")),
+        "preserve_fact_refs": _ordered_strings(effect.get("preserve_fact_refs")),
+        "setup_refs": _ordered_strings(effect.get("setup_refs")),
+        "explanation_targets": _ordered_strings(effect.get("explanation_targets")),
+        "reveal_contract_id": effect.get("reveal_contract_id"),
+        "compile_confidence": effect.get("compile_confidence"),
         "ts": ts,
-    }]
+    }
+    return [event]
 
+
+def _apply_question_transitions(
+    state: dict[str, Any],
+    transitions: dict[str, Any] | None,
+    *,
+    decision_id: str,
+    turn_number: int,
+    investigator_id: str,
+    ts: str,
+) -> list[dict[str, Any]]:
+    transitions = transitions if isinstance(transitions, dict) else {}
     active = _ordered_strings(state.get("active_question_ids"))
     answered = _ordered_strings(state.get("answered_question_ids"))
-    target_question = contract.get("target_question_id")
-    if mode == "PAYOFF" and isinstance(target_question, str) and target_question:
-        answered = _ordered_strings([*answered, target_question])
-        active = [question for question in active if question != target_question]
-        events.append({
-            "schema_version": SCHEMA_VERSION,
-            "event_type": "question_answered",
-            "decision_id": decision_id,
-            "turn_number": turn_number,
-            "investigator_id": investigator_id,
-            "question_id": target_question,
-            "ts": ts,
-        })
-
-    for question_id in _ordered_strings(contract.get("open_question_ids")):
-        if question_id in answered or question_id in active:
+    events: list[dict[str, Any]] = []
+    for question_id in _ordered_strings(transitions.get("open_question_ids")):
+        if question_id in active or question_id in answered:
             continue
         active.append(question_id)
         events.append({
@@ -374,7 +373,20 @@ def _apply_treatment(
             "question_id": question_id,
             "ts": ts,
         })
-
+    for question_id in _ordered_strings(transitions.get("answer_question_ids")):
+        if question_id in answered:
+            continue
+        answered.append(question_id)
+        active = [value for value in active if value != question_id]
+        events.append({
+            "schema_version": SCHEMA_VERSION,
+            "event_type": "question_answered",
+            "decision_id": decision_id,
+            "turn_number": turn_number,
+            "investigator_id": investigator_id,
+            "question_id": question_id,
+            "ts": ts,
+        })
     state["active_question_ids"] = active
     state["answered_question_ids"] = answered
     return events
@@ -386,14 +398,15 @@ def apply_belief_turn(
     committed_clue_ids: list[str],
     investigator_id: str,
     ts: str,
+    *,
+    question_transitions: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Reduce one resolved turn into belief snapshot + append-only events."""
+    """Reduce one resolved turn into belief snapshot and append-only events."""
     campaign_dir = Path(campaign_dir)
     state = read_belief_state(campaign_dir)
     decision_id = str(plan.get("decision_id") or "unknown")
-    turn_input = plan.get("turn_input") or {}
     try:
-        turn_number = int(turn_input.get("turn_number", 0) or 0)
+        turn_number = int(((plan.get("turn_input") or {}).get("turn_number", 0)) or 0)
     except (TypeError, ValueError):
         turn_number = 0
 
@@ -413,19 +426,41 @@ def apply_belief_turn(
         events.append(event)
 
     contract = plan.get("epistemic_contract")
+    open_from_effects: list[str] = []
+    payoff_questions: list[str] = []
     if isinstance(contract, dict):
-        events.extend(
-            _apply_treatment(
+        for effect in _contract_effects(contract):
+            before = len(events)
+            events.extend(_apply_effect(
                 state,
-                contract,
+                effect,
                 committed_clue_ids,
                 decision_id=decision_id,
                 turn_number=turn_number,
                 investigator_id=investigator_id,
                 ts=ts,
                 newly_asserted_id=newly_asserted_id,
-            )
-        )
+            ))
+            if len(events) > before:
+                open_from_effects.extend(_ordered_strings(effect.get("open_question_ids")))
+                if str(effect.get("mode") or "").upper() == "PAYOFF" and effect.get("target_question_id"):
+                    payoff_questions.append(str(effect["target_question_id"]))
+
+    merged_transitions = dict(question_transitions or {})
+    merged_transitions["open_question_ids"] = _ordered_strings([
+        *merged_transitions.get("open_question_ids", []), *open_from_effects
+    ])
+    merged_transitions["answer_question_ids"] = _ordered_strings([
+        *merged_transitions.get("answer_question_ids", []), *payoff_questions
+    ])
+    events.extend(_apply_question_transitions(
+        state,
+        merged_transitions,
+        decision_id=decision_id,
+        turn_number=turn_number,
+        investigator_id=investigator_id,
+        ts=ts,
+    ))
 
     if events:
         _write_state(campaign_dir, state)
