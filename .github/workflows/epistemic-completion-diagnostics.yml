@@ -6,96 +6,36 @@ on:
       - feature/scenario-epistemic-director-v1
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch-and-test:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feature/scenario-epistemic-blueprint-completion
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Install test dependencies
         run: python -m pip install pytest pypdf
-      - name: Apply cognitive and report integration patches
-        run: |
-          python scripts/apply_cognitive_storylets_narration_patch.py
-          python scripts/apply_epistemic_report_patch.py
-      - name: Correct mixed-effect fixture focus
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path("tests/test_epistemic_blueprint_e2e.py")
-          text = path.read_text(encoding="utf-8")
-          old = '''    fixture = _fixture("branching-investigation")
-              campaign = _campaign(tmp_path, fixture)
-              planned = coc_epistemic_policy.plan_epistemic_contract(
-          '''.replace("              ", "    ")
-          new = '''    fixture = _fixture("branching-investigation")
-              campaign = _campaign(tmp_path, fixture)
-              focused_state = coc_belief_state.read_belief_state(campaign)
-              focused_state["active_question_ids"] = ["q-motive"]
-              _write_json(campaign / "save" / "belief-state.json", focused_state)
-              planned = coc_epistemic_policy.plan_epistemic_contract(
-          '''.replace("              ", "    ")
-          if new not in text:
-              if old not in text:
-                  raise SystemExit("mixed-effect fixture marker not found")
-              text = text.replace(old, new, 1)
-              path.write_text(text, encoding="utf-8")
-          PY
-      - name: Run focused cognitive, narration, metrics, report, and E2E suites
-        id: focused
-        continue-on-error: true
-        run: |
-          set +e
-          PYTHONDONTWRITEBYTECODE=1 python -m pytest \
-            tests/test_cognitive_storylets_narration_metrics.py \
-            tests/test_epistemic_storylets_additional.py \
-            tests/test_epistemic_playtest_report.py \
-            tests/test_epistemic_blueprint_e2e.py \
-            tests/test_storylets.py \
-            tests/test_narration_envelope.py \
-            tests/test_narration_contract.py \
-            tests/test_playtest_report.py \
-            -q -p no:cacheprovider --tb=long > /tmp/epistemic-focused.log 2>&1
-          status=$?
-          cat /tmp/epistemic-focused.log
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit $status
-      - name: Upload focused diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: epistemic-focused-log
-          path: /tmp/epistemic-focused.log
-      - name: Stop after focused failure
-        if: steps.focused.outcome == 'failure'
-        run: exit 1
-      - name: Commit generated integration changes
-        run: |
-          if git diff --quiet -- \
-            plugins/coc-keeper/scripts/coc_storylets.py \
-            plugins/coc-keeper/scripts/coc_narration_contract.py \
-            plugins/coc-keeper/scripts/coc_playtest_report.py \
-            plugins/coc-keeper/references/rules-json/storylet-library.json \
-            plugins/coc-keeper/skills/coc-scenario-import/references/storylet-schema.md \
-            tests/test_epistemic_blueprint_e2e.py; then
-            echo "no epistemic integration changes"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            plugins/coc-keeper/scripts/coc_storylets.py \
-            plugins/coc-keeper/scripts/coc_narration_contract.py \
-            plugins/coc-keeper/scripts/coc_playtest_report.py \
-            plugins/coc-keeper/references/rules-json/storylet-library.json \
-            plugins/coc-keeper/skills/coc-scenario-import/references/storylet-schema.md \
-            tests/test_epistemic_blueprint_e2e.py
-          git commit -m "test(epistemic): focus mixed effect on active motive question"
-          git push origin HEAD:feature/scenario-epistemic-blueprint-completion
+      - name: Run focused epistemic suites
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest
+          tests/test_cognitive_storylets_narration_metrics.py
+          tests/test_epistemic_storylets_additional.py
+          tests/test_epistemic_playtest_report.py
+          tests/test_epistemic_blueprint_e2e.py
+          tests/test_storylets.py
+          tests/test_narration_envelope.py
+          tests/test_narration_contract.py
+          tests/test_playtest_report.py
+          -q -p no:cacheprovider
+      - name: Run plugin metadata regression
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest
+          tests/test_plugin_metadata.py
+          -q -p no:cacheprovider
+      - name: Run full repository suite
+        run: PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
