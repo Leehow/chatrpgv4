@@ -193,6 +193,110 @@ def test_chase_commands_persist_reload_replay_and_conclude(tmp_path):
     assert json.loads(chase_path.read_text())["outcome"] == "escaped"
 
 
+def _plain_chase_start(command_id: str = "plain-chase-start") -> dict:
+    command = _chase_start(command_id)
+    command["payload"]["chase_id"] = "plain-roof-run"
+    command["payload"]["locations"] = [
+        {"label": "roof", "hazard": None, "barrier": None},
+        {"label": "middle", "hazard": None, "barrier": None},
+        {"label": "escape", "hazard": None, "barrier": None},
+    ]
+    return command
+
+
+def test_chase_genesis_rejects_coordinated_origin_history_and_final_position_rewrite(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_chase_genesis_origin")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 10, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    start = _plain_chase_start()
+    _execute(executor, campaign, character, [start], random.Random(1))
+    move = _command("plain-chase-move", "chase_move", payload={
+        "decision_id": "plain-move", "revision": 1,
+        "actor_id": "inv1", "action_id": "move:advance",
+    })
+    expected = _execute(executor, campaign, character, [move], random.Random(2))
+    path = campaign / "save" / "chase.json"
+    state = json.loads(path.read_text())
+    participant = next(row for row in state["participants"] if row["actor_id"] == "inv1")
+    action = state["rounds"][0]["turns"][0]["actions_taken"][0]
+    participant.update({"position_origin": 1, "position": 2, "escaped": True})
+    action.update({"position_before": 1, "new_position": 2, "location_label": "escape"})
+    path.write_text(json.dumps(state))
+
+    with pytest.raises(executor.SubsystemExecutorError, match="genesis"):
+        executor.execute_commands(
+            campaign, character, "inv1", [move], rng=random.Random(999)
+        )
+    assert expected[0]["kind"] == "chase_move"
+
+
+@pytest.mark.parametrize("mutation", ["missing", "duplicate", "cross_chase", "cross_participant"])
+def test_chase_genesis_ledger_fails_closed_for_missing_duplicate_and_cross_identity(
+    tmp_path, mutation,
+):
+    executor = _executor(f"coc_subsystem_executor_chase_genesis_{mutation}")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 10, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    start = _plain_chase_start()
+    _execute(executor, campaign, character, [start], random.Random(1))
+    ledger = campaign / "logs" / "chase-genesis.jsonl"
+    record = json.loads(ledger.read_text().splitlines()[0])
+    if mutation == "missing":
+        ledger.unlink()
+    elif mutation == "duplicate":
+        ledger.write_text(json.dumps(record) + "\n" + json.dumps(record) + "\n")
+    else:
+        if mutation == "cross_chase":
+            record["chase_id"] = "another-chase"
+        else:
+            record["participants"][0]["actor_id"] = "another-investigator"
+        material = {key: value for key, value in record.items() if key != "genesis_hash"}
+        record["genesis_hash"] = executor._canonical_json_hash(material)
+        ledger.write_text(json.dumps(record) + "\n")
+
+    with pytest.raises(executor.SubsystemExecutorError, match="genesis"):
+        executor.execute_commands(
+            campaign, character, "inv1", [start], rng=random.Random(999)
+        )
+
+
+def test_chase_genesis_append_failure_rolls_back_snapshot_ledger_and_retries(
+    tmp_path, monkeypatch,
+):
+    executor = _executor("coc_subsystem_executor_chase_genesis_rollback")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 10, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    start = _plain_chase_start()
+    original = executor._append_integrity_evidence
+
+    def append_then_fail(campaign_dir, relative, evidence):
+        original(campaign_dir, relative, evidence)
+        if relative.as_posix() == "logs/chase-genesis.jsonl":
+            raise OSError("simulated chase genesis append crash")
+
+    monkeypatch.setattr(executor, "_append_integrity_evidence", append_then_fail)
+    with pytest.raises(executor.SubsystemExecutorError, match="transaction"):
+        _execute(executor, campaign, character, [start], random.Random(1))
+    assert not (campaign / "save" / "chase.json").exists()
+    assert not (campaign / "logs" / "chase-genesis.jsonl").exists()
+
+    monkeypatch.setattr(executor, "_append_integrity_evidence", original)
+    result = _execute(executor, campaign, character, [start], random.Random(1))
+    assert result[0]["events"][0]["event_type"] == "chase_started"
+    assert len((campaign / "logs" / "chase-genesis.jsonl").read_text().splitlines()) == 1
+
+
 def test_chase_rejects_stale_revision_and_untrusted_action_id_without_mutation(tmp_path):
     executor = _executor("coc_subsystem_executor_chase_guard")
     campaign, character = _campaign_and_character(tmp_path)

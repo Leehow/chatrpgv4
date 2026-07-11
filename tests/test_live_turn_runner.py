@@ -2057,8 +2057,8 @@ def test_live_typed_chase_journey_persists_hazard_barrier_conflict_and_end(tmp_p
         "actor_id": "inv1", "target_actor_id": "cultist", "action_id": "conflict:cultist",
         "combat_command_id": combat_command_id}, 811)
     assert conflict["subsystem_results"][0]["events"][0]["event_type"] == "chase_conflict_resolved"
-    reloaded = live_runner.subsystem_executor.coc_chase.ChaseSession.load(
-        camp / "save" / "chase.json", rng=random.Random(812)
+    reloaded = live_runner.subsystem_executor._load_chase_session(
+        camp, random.Random(812), live_runner.subsystem_executor._load_state(camp),
     )
     assert len(reloaded.consumed_combat_receipts) == 1
     receipt = reloaded.consumed_combat_receipts[0]

@@ -825,6 +825,7 @@ def _validate_inflight(inflight: Any) -> None:
             "logs/push-offers.jsonl",
             "logs/chase-offers.jsonl",
             "logs/chase-conflicts.jsonl",
+            "logs/chase-genesis.jsonl",
         }:
         raise _state_error("inflight.log_offsets contains an unsafe path")
     for relative, offset in offsets.items():
@@ -1604,6 +1605,7 @@ _RESULT_RECEIPT_LOG = Path("logs/subsystem-results.jsonl")
 _PUSH_OFFER_EVIDENCE_LOG = Path("logs/push-offers.jsonl")
 _CHASE_OFFER_EVIDENCE_LOG = Path("logs/chase-offers.jsonl")
 _CHASE_CONFLICT_LEDGER = Path("logs/chase-conflicts.jsonl")
+_CHASE_GENESIS_LEDGER = Path("logs/chase-genesis.jsonl")
 
 
 def _result_choice_id(
@@ -2084,6 +2086,126 @@ def _validate_chase_conflict_ledger(campaign_dir: Path, state: dict[str, Any]) -
         seen.add(key)
 
 
+def _chase_genesis_record(
+    sequence: int, command: dict[str, Any], state: dict[str, Any],
+) -> dict[str, Any]:
+    participants = []
+    for source in command["payload"]["participants"]:
+        participants.append({
+            "actor_id": source["actor_id"],
+            "side": source["side"],
+            "move_rate": source["mov"],
+            "build": source["build"],
+            "dex": source["dex"],
+            "hp": source["hp"],
+            "conditions": _json_copy(source["conditions"]),
+            "position_origin": source["current_position"],
+        })
+    location_chain = [
+        coc_chase._normalize_location(location, index)
+        for index, location in enumerate(command["payload"]["locations"])
+    ]
+    material = {
+        "record_type": "chase_genesis_v1",
+        "sequence": sequence,
+        "command_id": command["command_id"],
+        "command_hash": state["command_hashes"][command["command_id"]],
+        "command_provenance": _json_copy(
+            state["command_provenance"][command["command_id"]]
+        ),
+        "command": _json_copy(command),
+        "chase_id": command["payload"]["chase_id"],
+        "participants": participants,
+        "location_chain": location_chain,
+        "location_chain_identity": coc_chase.ChaseSession._location_chain_identity(
+            location_chain
+        ),
+    }
+    return {**material, "genesis_hash": _canonical_json_hash(material)}
+
+
+def _validate_chase_genesis_ledger(
+    campaign_dir: Path, state: dict[str, Any], *, load_snapshot: bool = True,
+) -> dict[str, Any] | None:
+    records = _read_jsonl_records(
+        campaign_dir / _CHASE_GENESIS_LEDGER,
+        label="canonical chase genesis evidence",
+    )
+    start_ids = [
+        command_id for command_id in state["applied_command_ids"]
+        if state["result_snapshots"][command_id]["kind"] == "chase_start"
+    ]
+    if len(records) != len(start_ids):
+        raise _state_error("canonical chase genesis evidence length diverges")
+    keys = {
+        "record_type", "sequence", "command_id", "command_hash",
+        "command_provenance", "command", "chase_id", "participants",
+        "location_chain", "location_chain_identity", "genesis_hash",
+    }
+    for sequence, (command_id, record) in enumerate(zip(start_ids, records), 1):
+        material = {
+            key: _json_copy(value) for key, value in record.items()
+            if key != "genesis_hash"
+        } if isinstance(record, dict) else {}
+        command = record.get("command") if isinstance(record, dict) else None
+        payload = command.get("payload") if isinstance(command, dict) else None
+        participants = record.get("participants") if isinstance(record, dict) else None
+        source_participants = payload.get("participants") if isinstance(payload, dict) else None
+        source_locations = payload.get("locations") if isinstance(payload, dict) else None
+        expected_locations = (
+            [coc_chase._normalize_location(row, index)
+             for index, row in enumerate(source_locations)]
+            if isinstance(source_locations, list) else None
+        )
+        expected_participants = []
+        if isinstance(source_participants, list) and isinstance(participants, list):
+            expected_participants = [{
+                "actor_id": row.get("actor_id"), "side": row.get("side"),
+                "move_rate": row.get("mov"), "build": row.get("build"),
+                "dex": row.get("dex"), "hp": row.get("hp"),
+                "conditions": _json_copy(row.get("conditions")),
+                "position_origin": row.get("current_position"),
+            } for row in source_participants if isinstance(row, dict)]
+        if (
+            not isinstance(record, dict) or set(record) != keys
+            or record.get("record_type") != "chase_genesis_v1"
+            or isinstance(record.get("sequence"), bool)
+            or record.get("sequence") != sequence
+            or record.get("command_id") != command_id
+            or not isinstance(command, dict)
+            or command.get("command_id") != command_id
+            or command.get("kind") != "chase_start"
+            or _canonical_command_hash(command) != record.get("command_hash")
+            or record.get("command_hash") != state["command_hashes"][command_id]
+            or not _json_deep_equal(
+                record.get("command_provenance"),
+                state["command_provenance"][command_id],
+            )
+            or not isinstance(payload, dict)
+            or record.get("chase_id") != payload.get("chase_id")
+            or not _json_deep_equal(participants, expected_participants)
+            or not _json_deep_equal(record.get("location_chain"), expected_locations)
+            or record.get("location_chain_identity")
+            != coc_chase.ChaseSession._location_chain_identity(
+                record.get("location_chain") if isinstance(record.get("location_chain"), list) else []
+            )
+            or record.get("genesis_hash") != _canonical_json_hash(material)
+        ):
+            raise _state_error(f"canonical chase genesis evidence for {command_id!r} diverges")
+    evidence = records[-1] if records else None
+    chase_path = campaign_dir / "save" / "chase.json"
+    if load_snapshot and chase_path.is_file():
+        if evidence is None:
+            raise _state_error("persisted chase snapshot has no canonical genesis evidence")
+        try:
+            coc_chase.ChaseSession.load(
+                chase_path, rng=random.Random(0), genesis_evidence=evidence,
+            )
+        except (OSError, ValueError) as exc:
+            raise _state_error(f"canonical chase genesis validation failed: {exc}") from exc
+    return _json_copy(evidence) if evidence is not None else None
+
+
 def _validate_external_result_receipts(campaign_dir: Path, state: dict[str, Any]) -> None:
     records = _read_jsonl_records(
         campaign_dir / _RESULT_RECEIPT_LOG, label="canonical subsystem result ledger"
@@ -2133,6 +2255,7 @@ def _validate_external_result_receipts(campaign_dir: Path, state: dict[str, Any]
     _validate_push_offer_evidence(campaign_dir, state)
     _validate_chase_offer_evidence(campaign_dir, state)
     _validate_chase_conflict_ledger(campaign_dir, state)
+    _validate_chase_genesis_ledger(campaign_dir, state)
 
 
 def _load_state(campaign_dir: Path) -> dict[str, Any]:
@@ -2260,7 +2383,7 @@ class _AnchoredTransactionTarget:
             or relative in {
                 "logs/rolls.jsonl", "logs/time.jsonl", "logs/subsystem-results.jsonl",
                 "logs/push-offers.jsonl", "logs/chase-offers.jsonl",
-                "logs/chase-conflicts.jsonl",
+                "logs/chase-conflicts.jsonl", "logs/chase-genesis.jsonl",
             }
         ):
             raise _unsafe_transaction_path(relative, "target is not transaction-owned")
@@ -2739,6 +2862,8 @@ def _build_inflight(
         log_relatives.append(_CHASE_OFFER_EVIDENCE_LOG.as_posix())
     if any(command["kind"] == "chase_conflict" for command, _ in commands_with_hashes):
         log_relatives.append(_CHASE_CONFLICT_LEDGER.as_posix())
+    if any(command["kind"] == "chase_start" for command, _ in commands_with_hashes):
+        log_relatives.append(_CHASE_GENESIS_LEDGER.as_posix())
     if has_roll_evidence:
         log_relatives.append("logs/rolls.jsonl")
     if structured_sanity:
@@ -4549,12 +4674,21 @@ def _canonical_result_receipt(campaign_dir: Path, command_id: str) -> dict[str, 
     return matches[0]
 
 
-def _load_chase_session(campaign_dir: Path, rng: random.Random) -> Any:
+def _load_chase_session(
+    campaign_dir: Path, rng: random.Random, executor_state: dict[str, Any],
+) -> Any:
     path = campaign_dir / "save" / "chase.json"
     if not path.is_file():
         raise _error("chase_not_active", "save/chase.json", "no persisted chase exists")
     try:
-        return coc_chase.ChaseSession.load(path, rng=rng)
+        evidence = _validate_chase_genesis_ledger(
+            campaign_dir, executor_state, load_snapshot=False,
+        )
+        if evidence is None:
+            raise ValueError("chase genesis evidence is missing")
+        return coc_chase.ChaseSession.load(
+            path, rng=rng, genesis_evidence=evidence,
+        )
     except (OSError, ValueError) as exc:
         raise _error("malformed_chase_state", "save/chase.json", str(exc)) from exc
 
@@ -4569,7 +4703,9 @@ def _dispatch_chase(
     chase_path = campaign_dir / "save" / "chase.json"
     if kind == "chase_start":
         if chase_path.exists():
-            existing = _load_chase_session(campaign_dir, random.Random(0))
+            existing = _load_chase_session(
+                campaign_dir, random.Random(0), executor_state,
+            )
             if existing.status == "active":
                 raise _error("chase_already_active", "save/chase.json", "end the active chase first")
         session = coc_chase.ChaseSession(payload["chase_id"], rng=rng)
@@ -4597,7 +4733,7 @@ def _dispatch_chase(
             "source_command_id": command_id,
         }
     else:
-        session = _load_chase_session(campaign_dir, rng)
+        session = _load_chase_session(campaign_dir, rng, executor_state)
         _sync_chase_from_investigator(campaign_dir, investigator_id, session)
         if payload["revision"] != session.revision:
             raise _error("stale_chase_revision", "commands[0].payload.revision", "chase revision is stale")
@@ -5910,6 +6046,11 @@ def execute_commands(
         )
         chase_offer_evidence: list[dict[str, Any]] = []
         chase_conflict_evidence: list[dict[str, Any]] = []
+        existing_genesis_count = sum(
+            1 for command_id in state["applied_command_ids"]
+            if state["result_snapshots"][command_id]["kind"] == "chase_start"
+        )
+        chase_genesis_evidence: list[dict[str, Any]] = []
         for command, result in new_results:
             if command["kind"] == "push_offer":
                 push_offer_evidence.append(
@@ -5930,6 +6071,11 @@ def execute_commands(
                     campaign_dir,
                     existing_conflict_count + len(chase_conflict_evidence) + 1,
                     command, result, next_state,
+                ))
+            if command["kind"] == "chase_start":
+                chase_genesis_evidence.append(_chase_genesis_record(
+                    existing_genesis_count + len(chase_genesis_evidence) + 1,
+                    command, next_state,
                 ))
         for history_entry in next_state["choice_history"].values():
             if not isinstance(history_entry, dict):
@@ -5964,6 +6110,8 @@ def execute_commands(
             _append_integrity_evidence(campaign, _CHASE_OFFER_EVIDENCE_LOG, evidence)
         for evidence in chase_conflict_evidence:
             _append_integrity_evidence(campaign, _CHASE_CONFLICT_LEDGER, evidence)
+        for evidence in chase_genesis_evidence:
+            _append_integrity_evidence(campaign, _CHASE_GENESIS_LEDGER, evidence)
 
         for command, result in new_results:
             if command["kind"] not in ROLL_EVIDENCE_COMMAND_KINDS:

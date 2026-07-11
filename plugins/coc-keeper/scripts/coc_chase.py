@@ -18,6 +18,7 @@ Rulebook basis: Keeper Rulebook Chapter 7 (Chases), 7e 40th Anniversary.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import re
@@ -1769,6 +1770,94 @@ class ChaseSession:
             "consumed_combat_receipts": json.loads(json.dumps(self.consumed_combat_receipts)),
         }
 
+    @staticmethod
+    def _location_chain_identity(locations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Project immutable route identity without mutable barrier HP."""
+        identity: list[dict[str, Any]] = []
+        for location in locations:
+            hazard = location.get("hazard")
+            barrier = location.get("barrier")
+            identity.append({
+                "index": location.get("index"),
+                "label": location.get("label"),
+                "kind": location.get("kind"),
+                "route_id": location.get("route_id"),
+                "hazard_id": hazard.get("hazard_id") if isinstance(hazard, dict) else None,
+                "barrier_id": barrier.get("barrier_id") if isinstance(barrier, dict) else None,
+            })
+        return identity
+
+    @staticmethod
+    def _canonical_json_hash(value: Any) -> str:
+        encoded = json.dumps(
+            value, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def _validate_genesis_evidence(cls, data: dict[str, Any], evidence: Any) -> None:
+        keys = {
+            "record_type", "sequence", "command_id", "command_hash",
+            "command_provenance", "command", "chase_id", "participants",
+            "location_chain", "location_chain_identity", "genesis_hash",
+        }
+        if not isinstance(evidence, dict) or set(evidence) != keys:
+            raise ValueError("chase genesis evidence contract is invalid")
+        material = {key: value for key, value in evidence.items() if key != "genesis_hash"}
+        if (
+            evidence.get("record_type") != "chase_genesis_v1"
+            or isinstance(evidence.get("sequence"), bool)
+            or not isinstance(evidence.get("sequence"), int)
+            or evidence["sequence"] < 1
+            or evidence.get("chase_id") != data.get("chase_id")
+            or evidence.get("genesis_hash") != cls._canonical_json_hash(material)
+        ):
+            raise ValueError("chase genesis evidence identity is invalid")
+        genesis_participants = evidence.get("participants")
+        participant_keys = {
+            "actor_id", "side", "move_rate", "build", "dex", "hp",
+            "conditions", "position_origin",
+        }
+        if (
+            not isinstance(genesis_participants, list)
+            or not genesis_participants
+            or any(not isinstance(row, dict) or set(row) != participant_keys
+                   for row in genesis_participants)
+            or len({row["actor_id"] for row in genesis_participants})
+            != len(genesis_participants)
+        ):
+            raise ValueError("chase genesis participant evidence is invalid")
+        persisted = {row["actor_id"]: row for row in data["participants"]}
+        if set(persisted) != {row["actor_id"] for row in genesis_participants}:
+            raise ValueError("chase genesis participant identity diverges")
+        for origin in genesis_participants:
+            current = persisted[origin["actor_id"]]
+            expected = {
+                "actor_id": current["actor_id"],
+                "side": current["side"],
+                "move_rate": current["mov_base"],
+                "build": current["build_max"],
+                "dex": current["dex"],
+                "hp": current["hp_max"],
+                "position_origin": current["position_origin"],
+            }
+            if any(origin.get(key) != value for key, value in expected.items()):
+                raise ValueError("chase genesis participant origin diverges")
+            if (not isinstance(origin.get("conditions"), list)
+                    or len(origin["conditions"]) != len(set(origin["conditions"]))
+                    or any(value not in coc_combat.VALID_CONDITIONS
+                           for value in origin["conditions"])):
+                raise ValueError("chase genesis participant conditions are invalid")
+        if (
+            not isinstance(evidence.get("location_chain"), list)
+            or evidence.get("location_chain_identity")
+            != cls._location_chain_identity(evidence["location_chain"])
+            or evidence.get("location_chain_identity")
+            != cls._location_chain_identity(data["location_chain"])
+        ):
+            raise ValueError("chase genesis location chain identity diverges")
+
     def save(self, campaign_dir: Path) -> Path:
         d = Path(campaign_dir) / "save"
         d.mkdir(parents=True, exist_ok=True)
@@ -1781,12 +1870,21 @@ class ChaseSession:
         return path
 
     @classmethod
-    def load(cls, path: Path, rng: random.Random | None = None) -> "ChaseSession":
+    def load(
+        cls, path: Path, rng: random.Random | None = None, *,
+        genesis_evidence: dict[str, Any] | None = None,
+        trusted_standalone: bool = False,
+    ) -> "ChaseSession":
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8"))
             cls._validate_snapshot(data)
+            if genesis_evidence is None:
+                if not trusted_standalone:
+                    raise ValueError("chase genesis evidence is required")
+            else:
+                cls._validate_genesis_evidence(data, genesis_evidence)
         except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-            if isinstance(exc, ValueError) and str(exc).startswith("chase snapshot"):
+            if isinstance(exc, ValueError) and str(exc).startswith(("chase snapshot", "chase genesis")):
                 raise
             raise ValueError(f"chase snapshot is invalid: {exc}") from exc
         session = cls(

@@ -661,10 +661,25 @@ def test_load_restores_session(tmp_path):
     c.cut_to_the_chase(gap=2, location_count=4)
     c.begin_round()
     path = c.save(tmp_path)
-    loaded = coc_chase.ChaseSession.load(path, rng=random.Random(4))
+    loaded = coc_chase.ChaseSession.load(
+        path, rng=random.Random(4), trusted_standalone=True,
+    )
     assert loaded.chase_id == c.chase_id
     assert loaded.participants["ada"]["position"] == c.participants["ada"]["position"]
     assert len(loaded.location_chain) == len(c.location_chain)
+
+
+def test_standalone_chase_load_requires_explicit_trust_boundary(tmp_path):
+    c = _make_chase(seed=4)
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.cut_to_the_chase(gap=2, location_count=4)
+    c.begin_round()
+    path = c.save(tmp_path)
+    with pytest.raises(ValueError, match="genesis evidence is required"):
+        coc_chase.ChaseSession.load(path)
+    assert coc_chase.ChaseSession.load(
+        path, trusted_standalone=True,
+    ).chase_id == "test"
 
 
 def test_persisted_chase_schema_restores_revision_cursor_and_counters(tmp_path):
@@ -681,7 +696,9 @@ def test_persisted_chase_schema_restores_revision_cursor_and_counters(tmp_path):
     assert raw["initiative_cursor"] == 1
     assert raw["roll_counter"] == 0
     assert raw["turn_counter"] == 1
-    loaded = coc_chase.ChaseSession.load(path, rng=random.Random(9))
+    loaded = coc_chase.ChaseSession.load(
+        path, rng=random.Random(9), trusted_standalone=True,
+    )
     assert loaded.revision == 2
     assert loaded.initiative_cursor == 1
     assert loaded._turn_counter == 1
@@ -1007,5 +1024,7 @@ def test_schema_v4_replays_vehicle_pedal_stopped_by_failed_barrier_break(tmp_pat
     assert action["locations_moved"] == 0
     assert action["hazard_results"][0]["vehicle_wrecked"] is True
 
-    loaded = coc_chase.ChaseSession.load(c.save(tmp_path), rng=random.Random(99))
+    loaded = coc_chase.ChaseSession.load(
+        c.save(tmp_path), rng=random.Random(99), trusted_standalone=True,
+    )
     assert loaded.participants["bike"]["position"] == 0
