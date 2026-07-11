@@ -1137,6 +1137,167 @@ def test_combat_load_rejects_coordinated_valid_looking_skip_replacement(tmp_path
         coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
 
 
+@pytest.mark.parametrize("scope", ["current", "historical"])
+def test_combat_load_rejects_coordinated_damage_status_and_skip_forgery(tmp_path, scope):
+    """Damage history cannot become a second mutable authority for a skip."""
+    path = _save_two_round_initiative_evidence(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    actor_id = "foe" if scope == "current" else "hero"
+    round_index = 1 if scope == "current" else 0
+    damage = next(
+        row for row in forged["damage_chain"] if row["target_actor_id"] == actor_id
+    )
+    damage["hp_after"] = 1
+    damage["hp_delta"] = 1 - damage["hp_before"]
+    damage["raw_damage"] = damage["armor_absorbed"] - damage["hp_delta"]
+    damage["status_after"] = {"hp_current": 1, "conditions": ["unconscious"]}
+    participant = next(row for row in forged["participants"] if row["actor_id"] == actor_id)
+    participant["hp_current"] = 1
+    participant["conditions"] = ["unconscious"]
+    progress = next(
+        row for row in forged["rounds"][round_index]["initiative_progress"]
+        if row["actor_id"] == actor_id
+    )
+    progress["skip_evidence"]["hp_current"] = 1
+    progress["skip_evidence"]["conditions"] = ["unconscious"]
+    progress["skip_evidence"]["source_receipt"]["hp_current"] = 1
+    progress["skip_evidence"]["source_receipt"]["conditions"] = ["unconscious"]
+    if scope == "current":
+        mirrored = next(
+            row for row in forged["initiative_progress"] if row["actor_id"] == actor_id
+        )
+        mirrored.update(json.loads(json.dumps(progress)))
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="damage provenance|damage chain"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "duplicate_roll_id",
+        "missing_record",
+        "missing_roll_id",
+        "cross_turn",
+        "wrong_source_actor",
+        "wrong_target_actor",
+        "wrong_turn_outcome",
+        "wrong_turn_roll",
+        "hp_arithmetic",
+        "armor_arithmetic",
+        "status_hp",
+        "extra_damage_field",
+        "extra_turn_field",
+    ],
+)
+def test_combat_load_rejects_noncanonical_damage_and_turn_provenance(tmp_path, mutation):
+    path = _save_two_round_initiative_evidence(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    damage = forged["damage_chain"][0]
+    turn = forged["rounds"][0]["turns"][0]
+    if mutation == "duplicate_roll_id":
+        forged["damage_chain"][1]["damage_roll_id"] = damage["damage_roll_id"]
+    elif mutation == "missing_record":
+        forged["damage_chain"].pop(0)
+    elif mutation == "missing_roll_id":
+        damage["damage_roll_id"] = ""
+    elif mutation == "cross_turn":
+        damage["source_turn_id"] = forged["rounds"][0]["turns"][1]["turn_id"]
+    elif mutation == "wrong_source_actor":
+        damage["source_actor_id"] = "foe"
+    elif mutation == "wrong_target_actor":
+        damage["target_actor_id"] = "foe"
+    elif mutation == "wrong_turn_outcome":
+        turn["outcome"] = "miss"
+    elif mutation == "wrong_turn_roll":
+        turn["damage_roll_id"] = "different-roll"
+    elif mutation == "hp_arithmetic":
+        damage["hp_delta"] += 1
+    elif mutation == "armor_arithmetic":
+        damage["armor_absorbed"] += 1
+    elif mutation == "status_hp":
+        damage["status_after"]["hp_current"] += 1
+    elif mutation == "extra_damage_field":
+        damage["keeper_secret"] = True
+    elif mutation == "extra_turn_field":
+        turn["keeper_secret"] = True
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="damage provenance|damage chain|combat turn"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+def _save_adjacent_damage_records(tmp_path):
+    s = coc_combat.CombatSession("adjacent-damage", "test", 1, rng=random.Random(8))
+    weapon = [{
+        "weapon_id": "chip", "skill": "Fighting", "damage": "2",
+        "adds_damage_bonus": False, "impales": False, "special": None,
+    }]
+    s.add_participant("source", "monster", 80, 60, 0, 10, weapons=weapon)
+    s.add_participant("target", "investigator", 50, 50, 0, 10)
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "source", "first hit", target_actor_id="target",
+        weapon_id="chip", resolution_hint="damage_only",
+    )
+    s.declare_and_resolve_turn(
+        "source", "second hit", target_actor_id="target",
+        weapon_id="chip", resolution_hint="damage_only",
+    )
+    s.save(tmp_path)
+    return tmp_path / "save" / "combat.json"
+
+
+def _refresh_damage_receipt(snapshot, damage):
+    turn = next(
+        turn
+        for round_row in snapshot["rounds"]
+        for turn in round_row["turns"]
+        if turn["turn_id"] == damage["source_turn_id"]
+    )
+    binding = next(
+        row for row in coc_combat.CombatSession._damage_bindings_for_turn(turn)
+        if row["damage_roll_id"] == damage["damage_roll_id"]
+    )
+    round_number = int(turn["turn_id"].split("-", 1)[0][1:])
+    damage["provenance"] = coc_combat.CombatSession._damage_transaction_receipt(
+        round_number=round_number, turn=turn, damage=damage, binding=binding,
+    )
+
+
+def test_combat_load_rejects_adjacent_damage_gap_even_with_refreshed_receipt(tmp_path):
+    path = _save_adjacent_damage_records(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    second = forged["damage_chain"][1]
+    second["hp_before"] += 1
+    second["hp_after"] += 1
+    second["status_after"]["hp_current"] += 1
+    _refresh_damage_receipt(forged, second)
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="cross-record HP"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+def test_combat_load_rejects_damage_roll_arithmetic_with_refreshed_receipt(tmp_path):
+    path = _save_adjacent_damage_records(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    first = forged["damage_chain"][0]
+    first["raw_damage"] = 1
+    first["hp_delta"] = -1
+    first["hp_after"] = first["hp_before"] - 1
+    first["status_after"]["hp_current"] = first["hp_after"]
+    # Keep the adjacent record internally continuous so only roll evidence is wrong.
+    second = forged["damage_chain"][1]
+    second["hp_before"] = first["hp_after"]
+    second["hp_after"] = second["hp_before"] - 2
+    second["hp_delta"] = -2
+    second["status_after"]["hp_current"] = second["hp_after"]
+    _refresh_damage_receipt(forged, first)
+    _refresh_damage_receipt(forged, second)
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="roll evidence"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
 def test_combat_load_rejects_forged_pending_defense_contract(tmp_path):
     s = coc_combat.CombatSession("pending-contract", "test", 1, rng=random.Random(5))
     s.add_participant("inv", "investigator", 60, 55, 0, 10)

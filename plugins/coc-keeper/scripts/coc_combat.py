@@ -22,6 +22,7 @@ Rulebook basis: Chapter 6 (Combat), 7e 40th Anniversary.
 from __future__ import annotations
 
 import json
+import hashlib
 import random
 import re
 from pathlib import Path
@@ -556,6 +557,158 @@ class CombatSession:
             "damage_roll_id": None,
         }
 
+    @staticmethod
+    def _damage_bindings_for_turn(turn: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return the canonical damage-roll ownership encoded by one turn."""
+        bindings: list[dict[str, Any]] = []
+
+        def add(
+            roll_id: Any, kind: str, index: str,
+            source_actor_id: Any, target_actor_id: Any,
+        ) -> None:
+            if isinstance(roll_id, str) and roll_id:
+                bindings.append({
+                    "damage_roll_id": roll_id,
+                    "binding_kind": kind,
+                    "binding_index": index,
+                    "source_actor_id": source_actor_id,
+                    "target_actor_id": target_actor_id,
+                })
+
+        actor_id = turn.get("actor_id")
+        target_actor_id = turn.get("target_actor_id")
+        primary_source = actor_id
+        primary_target = target_actor_id
+        if turn.get("outcome") == "maneuver_failed_fight_back_damage":
+            primary_source, primary_target = target_actor_id, actor_id
+        add(
+            turn.get("damage_roll_id"), "primary", "0",
+            primary_source, primary_target,
+        )
+        add(
+            turn.get("fight_back_damage_roll_id"), "fight_back", "0",
+            target_actor_id, actor_id,
+        )
+        for shot_index, shot in enumerate(turn.get("shots") or []):
+            if isinstance(shot, dict):
+                add(
+                    shot.get("damage_roll_id"), "shot", str(shot_index),
+                    actor_id, target_actor_id,
+                )
+        for volley_index, volley in enumerate(turn.get("volleys") or []):
+            if not isinstance(volley, dict):
+                continue
+            for hit_index, roll_id in enumerate(volley.get("damage_roll_ids") or []):
+                add(
+                    roll_id, "volley", f"{volley_index}:{hit_index}",
+                    actor_id, target_actor_id,
+                )
+        for target_index, target in enumerate(turn.get("suppression_targets") or []):
+            if not isinstance(target, dict):
+                continue
+            for hit_index, roll_id in enumerate(target.get("damage_roll_ids") or []):
+                add(
+                    roll_id, "suppression", f"{target_index}:{hit_index}",
+                    actor_id, target.get("target_actor_id"),
+                )
+        return bindings
+
+    @staticmethod
+    def _damage_transaction_receipt(
+        *, round_number: int, turn: dict[str, Any],
+        damage: dict[str, Any], binding: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create an independent canonical receipt for a damage transaction.
+
+        The digest covers the complete closed damage record (apart from the
+        receipt itself) plus the durable turn fields that authorize it.  Load
+        reconstructs this receipt before initiative skip evidence is read.
+        """
+        payload = {
+            "round": round_number,
+            "turn": {
+                "turn_id": turn.get("turn_id"),
+                "actor_id": turn.get("actor_id"),
+                "target_actor_id": turn.get("target_actor_id"),
+                "resolution_hint": turn.get("resolution_hint"),
+                "outcome": turn.get("outcome"),
+                "roll_id": turn.get("roll_id"),
+                "damage_roll_id": turn.get("damage_roll_id"),
+                "fight_back_damage_roll_id": turn.get("fight_back_damage_roll_id"),
+            },
+            "binding": dict(binding),
+            "damage": {
+                key: value for key, value in damage.items()
+                if key != "provenance"
+            },
+        }
+        encoded = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return {
+            "kind": "combat_damage_transaction_v1",
+            "round": round_number,
+            "turn_id": turn.get("turn_id"),
+            "binding_kind": binding["binding_kind"],
+            "binding_index": binding["binding_index"],
+            "transaction_sha256": hashlib.sha256(encoded).hexdigest(),
+        }
+
+    @staticmethod
+    def _reconstruct_damage_roll(die_expr: Any, die_rolls: Any) -> int:
+        """Reconstruct an ordinary damage total from its exact dice evidence."""
+        if not isinstance(die_expr, str) or not die_expr or not isinstance(die_rolls, list):
+            raise ValueError("combat damage roll evidence is invalid")
+        rolls = iter(die_rolls)
+        total = 0
+        normalized = die_expr.replace("-", "+-")
+        for token in (part.strip() for part in normalized.split("+") if part.strip()):
+            match = re.fullmatch(r"(\d+)D(\d+)", token)
+            if match:
+                count, sides = int(match.group(1)), int(match.group(2))
+                for _ in range(count):
+                    try:
+                        value = next(rolls)
+                    except StopIteration as exc:
+                        raise ValueError("combat damage roll evidence is invalid") from exc
+                    if (
+                        isinstance(value, bool) or not isinstance(value, int)
+                        or value < 1 or value > sides
+                    ):
+                        raise ValueError("combat damage roll evidence is invalid")
+                    total += value
+            else:
+                try:
+                    total += int(token)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("combat damage roll evidence is invalid") from exc
+        try:
+            next(rolls)
+        except StopIteration:
+            return total
+        raise ValueError("combat damage roll evidence is invalid")
+
+    def _bind_damage_provenance(self, turn: dict[str, Any]) -> None:
+        bindings = {
+            row["damage_roll_id"]: row
+            for row in self._damage_bindings_for_turn(turn)
+        }
+        for damage in self.damage_chain:
+            if damage.get("source_turn_id") != turn.get("turn_id"):
+                continue
+            roll_id = damage.get("damage_roll_id")
+            if not isinstance(roll_id, str):
+                continue  # Malfunction records are validated separately.
+            binding = bindings.get(roll_id)
+            if binding is None:
+                raise ValueError("damage roll is not owned by its combat turn")
+            damage["provenance"] = self._damage_transaction_receipt(
+                round_number=self._current_round,
+                turn=turn,
+                damage=damage,
+                binding=binding,
+            )
+
     def _roll_id(self) -> str:
         # Stable id; the harness may remap to its global roll sequence.
         self._roll_counter += 1
@@ -1081,6 +1234,7 @@ class CombatSession:
                         "hp_current": damaged["hp_current"],
                         "conditions": list(damaged["conditions"]),
                     }
+            self._bind_damage_provenance(turn)
             self.rounds[-1]["turns"].append(turn)
             return turn
         finally:
@@ -2319,6 +2473,199 @@ class CombatSession:
                 or not all(isinstance(turn, dict) for turn in round_row["turns"])
             ):
                 raise ValueError("combat round history is invalid")
+        turn_required_keys = {
+            "turn_id", "actor_id", "dex", "dex_reason", "declared_intent",
+            "action", "target_actor_id", "roll_id", "opposed_roll_id",
+            "opposed_outcome", "defense_kind", "outcome", "effect_applied",
+            "damage_roll_id", "resolution_hint",
+        }
+        turn_optional_keys = {
+            "goal", "weapon_id", "attack_modifiers", "malfunction",
+            "cover_reroll_roll_id", "defender_goal",
+            "fight_back_damage_roll_id", "fight_back_weapon_id", "shots",
+            "hits", "volleys", "rounds_fired", "dived_for_cover",
+            "suppression_targets", "dive_rolls", "maneuver_build_difference",
+            "maneuver_penalty_dice", "ammo_loaded", "ammo_after",
+            "reload_rounds_remaining",
+        }
+        turns_by_id: dict[str, tuple[int, dict[str, Any]]] = {}
+        bindings_by_damage_roll: dict[str, tuple[int, dict[str, Any], dict[str, Any]]] = {}
+        for round_number, round_row in enumerate(session.rounds, 1):
+            for turn in round_row["turns"]:
+                if (
+                    not turn_required_keys <= set(turn)
+                    or not set(turn) <= turn_required_keys | turn_optional_keys
+                ):
+                    raise ValueError("combat turn must use the exact schema")
+                turn_id = turn.get("turn_id")
+                if (
+                    not isinstance(turn_id, str)
+                    or re.fullmatch(rf"t{round_number}-[1-9][0-9]*", turn_id) is None
+                    or turn_id in turns_by_id
+                    or turn.get("actor_id") not in session.participants
+                    or isinstance(turn.get("dex"), bool)
+                    or not isinstance(turn.get("dex"), int)
+                    or not isinstance(turn.get("declared_intent"), str)
+                    or not turn["declared_intent"].strip()
+                    or turn.get("resolution_hint") not in cls.VALID_RESOLUTION_HINTS
+                    or not isinstance(turn.get("action"), str)
+                    or turn.get("target_actor_id") not in ({None} | set(session.participants))
+                    or not isinstance(turn.get("outcome"), str)
+                    or not turn["outcome"]
+                ):
+                    raise ValueError("combat turn provenance is invalid")
+                for roll_field in (
+                    "roll_id", "opposed_roll_id", "damage_roll_id",
+                    "fight_back_damage_roll_id", "cover_reroll_roll_id",
+                ):
+                    value = turn.get(roll_field)
+                    if value is not None and (not isinstance(value, str) or not value):
+                        raise ValueError("combat turn roll provenance is invalid")
+                turns_by_id[turn_id] = (round_number, turn)
+                for binding in cls._damage_bindings_for_turn(turn):
+                    roll_id = binding["damage_roll_id"]
+                    if roll_id in bindings_by_damage_roll:
+                        raise ValueError("combat turn damage roll provenance is duplicated")
+                    bindings_by_damage_roll[roll_id] = (round_number, turn, binding)
+
+        damage_required_keys = {
+            "damage_roll_id", "source_turn_id", "source_actor_id",
+            "target_actor_id", "weapon_id", "die", "die_rolls",
+            "raw_damage", "hp_before", "hp_delta", "hp_after",
+            "armor_absorbed", "armor_before", "armor_after",
+            "rulebook_exception", "bypass_armor", "half_damage_bonus",
+            "marker", "status_after", "provenance",
+        }
+        extreme_damage_keys = {
+            "impale_or_max", "extreme_damage", "extreme_breakdown", "is_impale",
+        }
+        malfunction_keys = {
+            "malfunction_roll_id", "source_turn_id", "source_actor_id",
+            "weapon_id", "weapon_display_name", "roll",
+            "malfunction_threshold", "effect", "marker",
+        }
+        seen_damage_rolls: set[str] = set()
+        last_hp_by_round_target: dict[tuple[int, str], int] = {}
+        for damage in session.damage_chain:
+            if set(damage) == malfunction_keys:
+                linked = turns_by_id.get(damage.get("source_turn_id"))
+                if (
+                    linked is None
+                    or damage.get("source_actor_id") != linked[1].get("actor_id")
+                    or not isinstance(damage.get("malfunction_roll_id"), str)
+                    or not damage["malfunction_roll_id"]
+                    or isinstance(damage.get("roll"), bool)
+                    or not isinstance(damage.get("roll"), int)
+                    or isinstance(damage.get("malfunction_threshold"), bool)
+                    or not isinstance(damage.get("malfunction_threshold"), int)
+                    or damage["roll"] < damage["malfunction_threshold"]
+                    or damage.get("effect") != "jammed_until_repaired"
+                ):
+                    raise ValueError("combat damage chain malfunction provenance is invalid")
+                continue
+            if (
+                not damage_required_keys <= set(damage)
+                or not set(damage) <= damage_required_keys | extreme_damage_keys
+                or (set(damage) & extreme_damage_keys
+                    and not extreme_damage_keys <= set(damage))
+            ):
+                raise ValueError("combat damage chain must use the exact schema")
+            roll_id = damage.get("damage_roll_id")
+            binding_row = bindings_by_damage_roll.get(roll_id)
+            if (
+                not isinstance(roll_id, str)
+                or not roll_id
+                or roll_id in seen_damage_rolls
+                or binding_row is None
+            ):
+                raise ValueError("combat damage provenance is missing or duplicated")
+            seen_damage_rolls.add(roll_id)
+            round_number, turn, binding = binding_row
+            if (
+                damage.get("source_turn_id") != turn.get("turn_id")
+                or damage.get("source_actor_id") != binding["source_actor_id"]
+                or damage.get("target_actor_id") != binding["target_actor_id"]
+                or damage.get("source_actor_id") not in session.participants
+                or damage.get("target_actor_id") not in session.participants
+            ):
+                raise ValueError("combat damage provenance diverges from its turn")
+            integer_fields = (
+                "raw_damage", "hp_before", "hp_delta", "hp_after",
+                "armor_absorbed", "armor_before", "armor_after",
+            )
+            if any(
+                isinstance(damage.get(field), bool)
+                or not isinstance(damage.get(field), int)
+                for field in integer_fields
+            ):
+                raise ValueError("combat damage chain arithmetic is invalid")
+            raw_damage = damage["raw_damage"]
+            hp_before = damage["hp_before"]
+            hp_after = damage["hp_after"]
+            absorbed = damage["armor_absorbed"]
+            if not damage.get("extreme_damage") and (
+                cls._reconstruct_damage_roll(damage.get("die"), damage.get("die_rolls"))
+                != raw_damage
+            ):
+                raise ValueError("combat damage chain roll evidence diverges from total")
+            if (
+                raw_damage < 0 or hp_before < 0 or hp_after < 0
+                or absorbed < 0 or absorbed > raw_damage
+                or damage["hp_delta"] != hp_after - hp_before
+                or hp_after != max(0, hp_before - (raw_damage - absorbed))
+                or damage["armor_before"] < 0 or damage["armor_after"] < 0
+            ):
+                raise ValueError("combat damage chain arithmetic is invalid")
+            target = session.participants[damage["target_actor_id"]]
+            if damage.get("bypass_armor") is True:
+                if absorbed != 0 or damage["armor_after"] != damage["armor_before"]:
+                    raise ValueError("combat damage chain armor arithmetic is invalid")
+            elif target.get("armor_rule") == "degrades_1_per_damage":
+                if damage["armor_after"] != max(0, damage["armor_before"] - absorbed):
+                    raise ValueError("combat damage chain armor arithmetic is invalid")
+            elif damage["armor_after"] != damage["armor_before"]:
+                raise ValueError("combat damage chain armor arithmetic is invalid")
+            status_after = damage.get("status_after")
+            if (
+                not isinstance(status_after, dict)
+                or set(status_after) != {"hp_current", "conditions"}
+                or status_after.get("hp_current") != hp_after
+                or not isinstance(status_after.get("conditions"), list)
+                or len(status_after["conditions"]) != len(set(status_after["conditions"]))
+                or any(value not in VALID_CONDITIONS for value in status_after["conditions"])
+                or (hp_after == 0 and "unconscious" not in status_after["conditions"]
+                    and "dead" not in status_after["conditions"])
+                or ("dead" in status_after["conditions"] and hp_after != 0)
+                or ("dying" in status_after["conditions"]
+                    and "major_wound" not in status_after["conditions"])
+            ):
+                raise ValueError("combat damage chain status transition is invalid")
+            round_row = session.rounds[round_number - 1]
+            roster = {
+                row.get("actor_id"): row.get("round_start_eligibility")
+                for row in round_row.get("initiative_progress", [])
+                if isinstance(row, dict)
+            }
+            continuity_key = (round_number, damage["target_actor_id"])
+            expected_hp_before = last_hp_by_round_target.get(continuity_key)
+            if expected_hp_before is None:
+                eligibility = roster.get(damage["target_actor_id"])
+                expected_hp_before = (
+                    eligibility.get("hp_current") if isinstance(eligibility, dict) else None
+                )
+            if hp_before != expected_hp_before:
+                raise ValueError("combat damage chain cross-record HP is invalid")
+            last_hp_by_round_target[continuity_key] = hp_after
+            expected_receipt = cls._damage_transaction_receipt(
+                round_number=round_number,
+                turn=turn,
+                damage=damage,
+                binding=binding,
+            )
+            if damage.get("provenance") != expected_receipt:
+                raise ValueError("combat damage provenance receipt diverges")
+        if set(bindings_by_damage_roll) != seen_damage_rolls:
+            raise ValueError("combat turn references missing damage provenance")
         if session._turn_counter < sum(len(row["turns"]) for row in session.rounds):
             raise ValueError("combat turn counter is behind round history")
         if any(
