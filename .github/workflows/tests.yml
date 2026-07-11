@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install Python test dependencies
-        run: python -m pip install pytest pypdf
+        run: python -m pip install pytest pypdf 'jsonschema>=4.23,<5'
       - name: Run Python suite
         run: PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
 
