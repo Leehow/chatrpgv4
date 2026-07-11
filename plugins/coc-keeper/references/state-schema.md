@@ -4,6 +4,12 @@
 
 Runtime data lives under the current project `.coc/` directory:
 
+`campaigns/<id>/save/director-strategy-state.json` is an apply-owned
+schema-version-1 snapshot. It contains `strategy_type`, specialized structured
+state such as `loop_number`, `player_retained_memory_ids`, or
+`ranked_faction_ids`, and `last_decision_id`. It never stores scenario prose or
+Keeper secrets.
+
 ```text
 .coc/
 ├── rules/
@@ -108,12 +114,36 @@ classes; do not hand-edit them mid-session. `pacing-state.json`,
 by the director apply layer each turn — treat `run_live_turn(...)` as their
 single writer during live play.
 
+`save/npc-state.json["psych"][npc_id]` is the canonical A20/A21 conversation
+state. Its closed fields are `trust`, `fear`, `suspicion` (-5..5),
+`known_facts`, `revealable_facts`, `lies_told`, `promises`, `lie_options`,
+`deflect_options`, `deflections`, `leverage`, `active_reactions`, `availability`, and
+`schedule`. Reads normalize malformed legacy values conservatively; that
+normalization is not a repository-wide migration. Ordinary live turns may
+change this state only through structured `npc_interactions` and typed
+`npc_effects`. Free prose, skill names, agendas, and clue summaries are never
+scanned to infer a tactic, target, or disclosure decision.
+
+Social disclosure uses this exact order: NPC availability, fact knowledge,
+fact revealability, active reaction, willingness (trust or authored leverage),
+then reveal. A social clue is committed only when a matching decision is
+`outcome=reveal`; lie/deflect outcomes may update NPC memory but never commit
+the clue. Authored fact metadata does not implicitly populate either knowledge
+list, and conflicting overlapping schedule domains are invalid (runtime reads
+fail closed if an unvalidated conflict reaches them). Narrator envelopes expose a field-level public projection and omit
+raw agendas, fact registries, lies, schedules, secrets, and internal agency.
+
 Memory has two complementary tracks: `memory/session-summaries.jsonl` is the
 append-only player-safe recap stream consumed by resume flows and battle
 reports; `memory/cards/` + `context-packs/` + `index.json` is the retrievable
 card store the Story Director queries (via `coc_memory`) for PAYOFF-style
 recall. Session summaries are written at session boundaries; memory cards are
 written by the apply layer when a plan carries memory_write intents.
+
+`save/director-strategy-state.json` has `schema_version: 1` and one canonical
+strategy payload: `generic`, `time_loop` (non-negative loop number plus unique
+memory IDs), or `multi_faction` (unique ranked faction IDs). Malformed roots,
+versions, unknown fields, and duplicate IDs are not persisted.
 `create_campaign` initializes the minimal resume contract: `world-state.json` tracks active scene, subsystem, clue ids, scene unlock/visit/history (`unlocked_scene_ids`, `visited_scene_ids`, `exhausted_scene_ids`, `scene_history`), decisions, memory refs, log refs, and investigator-state refs; `active-scene.json` stores the current player-safe scene pointer; `flags.json` stores clue, decision, spoiler-reveal flags, and a structured `flags` map (truthy keys feed `flag_set` exit/unlock conditions). `campaign.json` persists `play_language`, `language_profile`, and a `localized_terms` map keyed by language, so resumed campaigns keep the same visible narration language, output instruction, name policy, term policy, report labels, and name/term localization. Logs and memory may include `localized_text[play_language]` for player-visible prose that should be rendered directly before falling back to `localized_terms`.
 
 `pending_choices` is Keeper-facing resume state, not a player menu. It may record

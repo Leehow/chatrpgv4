@@ -103,6 +103,23 @@ _PLAYER_VISIBLE_MUST_NOT = [
     "expository_choice_summary",
     "if_then_option_dump",
 ]
+_HORROR_AXES = (
+    "dread", "uncertainty", "isolation", "helplessness",
+    "body_horror", "cosmic_scale", "urgency",
+)
+_HORROR_STAGE_BASE = {
+    "wrongness": {"dread": 0.25, "uncertainty": 0.45},
+    "revelation": {"dread": 0.6, "uncertainty": 0.3, "cosmic_scale": 0.45},
+    "confrontation": {"dread": 0.75, "helplessness": 0.55, "urgency": 0.65},
+    "aftermath": {"dread": 0.35, "isolation": 0.4},
+}
+_HORROR_TAG_WEIGHTS = {
+    "urgent": {"urgency": 0.75},
+    "isolated": {"isolation": 0.75},
+    "body_horror": {"body_horror": 0.8},
+    "cosmic": {"cosmic_scale": 0.8},
+    "helpless": {"helplessness": 0.75},
+}
 
 _INNER_STATE_PATTERN = "|".join(re.escape(term) for term in _INNER_STATE_TERMS)
 _ABSTRACT_ACTION_PATTERN = "|".join(re.escape(term) for term in _ABSTRACT_ACTIONS)
@@ -200,6 +217,35 @@ def validate_crisis_scene_render_frame(frame: dict[str, Any]) -> list[dict[str, 
                 "detail": f"crisis scene render frame missing {slot}",
             })
     return findings
+
+
+def build_horror_profile(
+    module_meta: dict[str, Any], scene: dict[str, Any], pacing: dict[str, Any]
+) -> dict[str, float]:
+    """Build a bounded seven-axis profile from structured values only.
+
+    Precedence is stage baseline, structured tags, scenario override, then
+    scene override. Unknown tags and keys are ignored; malformed axis values
+    fail closed instead of reaching the narrator.
+    """
+    profile = {axis: 0.0 for axis in _HORROR_AXES}
+    stage = str(pacing.get("horror_stage") or "wrongness")
+    for axis, value in _HORROR_STAGE_BASE.get(stage, _HORROR_STAGE_BASE["wrongness"]).items():
+        profile[axis] = value
+    tags = list(module_meta.get("horror_tags") or []) + list(scene.get("horror_tags") or [])
+    for tag in tags:
+        for axis, value in _HORROR_TAG_WEIGHTS.get(str(tag), {}).items():
+            profile[axis] = max(profile[axis], value)
+    for source in (module_meta.get("horror_profile") or {}, scene.get("horror_profile") or {}):
+        if not isinstance(source, dict):
+            raise ValueError("horror_profile override must be an object")
+        for axis, value in source.items():
+            if axis not in _HORROR_AXES:
+                continue
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise ValueError(f"horror_profile.{axis} must be numeric")
+            profile[axis] = max(0.0, min(1.0, float(value)))
+    return {axis: float(profile[axis]) for axis in _HORROR_AXES}
 
 
 def player_visible_style_guard_contract(language: str = "zh-Hans") -> dict[str, Any]:

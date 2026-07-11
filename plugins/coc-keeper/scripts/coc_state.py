@@ -21,12 +21,38 @@ from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
 # {kind: {from_version: fn}} where fn(data) -> data with schema_version bumped.
 CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
     "campaign": 1,
-    "world": 1,
+    "world": 2,
     "pacing": 1,
     "investigator": 1,
 }
 
-MIGRATIONS: dict[str, dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {}
+def _migrate_world_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize durable world lifecycle fields without dropping extensions.
+
+    Pending subsystem choice remains canonical in subsystem-state.json.  This
+    world field is deliberately always ``None`` and serves only as a stable
+    lifecycle marker for older world consumers; copying a live choice here
+    would create two competing sources of truth.
+    """
+    out = dict(data)
+    terminal_state = out.get("terminal_state")
+    if terminal_state is not None and (
+        not isinstance(terminal_state, str)
+        or terminal_state not in ("completed", "failed", "abandoned")
+    ):
+        terminal_state = None
+    out["terminal_state"] = terminal_state
+    # v1 world files sometimes carried a convenience copy.  The executor's
+    # subsystem-state remains the single authoritative continuation record.
+    out.pop("pending_choice", None)
+    out["pending_subsystem_choice"] = None
+    out["schema_version"] = 2
+    return out
+
+
+MIGRATIONS: dict[str, dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {
+    "world": {1: _migrate_world_v1_to_v2},
+}
 
 
 TOP_LEVEL_DIRS = (
@@ -179,10 +205,14 @@ def migrate_state(data: dict[str, Any], kind: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise TypeError(f"migrate_state expects dict, got {type(data).__name__}")
     current = int(CURRENT_SCHEMA_VERSIONS.get(kind, 1))
-    try:
-        version = int(data.get("schema_version", 1) or 1)
-    except (TypeError, ValueError):
-        version = 1
+    raw_version = data.get("schema_version", 1)
+    if (
+        isinstance(raw_version, bool)
+        or not isinstance(raw_version, int)
+        or raw_version < 1
+    ):
+        raise ValueError(f"invalid schema_version for kind={kind!r}")
+    version = raw_version
     if version > current:
         raise ValueError(
             f"schema_version {version} for kind={kind!r} exceeds current {current}"
@@ -199,12 +229,15 @@ def migrate_state(data: dict[str, Any], kind: str) -> dict[str, Any]:
             raise TypeError(
                 f"migration {kind}:{version} returned {type(out).__name__}, expected dict"
             )
-        try:
-            next_version = int(out.get("schema_version", version + 1) or (version + 1))
-        except (TypeError, ValueError) as exc:
+        next_version = out.get("schema_version", version + 1)
+        if (
+            isinstance(next_version, bool)
+            or not isinstance(next_version, int)
+            or next_version < 1
+        ):
             raise ValueError(
                 f"migration {kind}:{version} produced invalid schema_version"
-            ) from exc
+            )
         if next_version <= version:
             raise ValueError(
                 f"migration {kind}:{version} did not advance schema_version"
@@ -254,12 +287,22 @@ def _emit_corrupt_save_warning(
 
 
 def _backup_corrupt_save(path: Path, *, reason: str) -> Path:
+    # Runtime reads can revisit the same corrupt file.  Preserve the original
+    # bytes once and emit one warning for that exact corruption rather than
+    # growing unbounded backup/warning noise on every PublicState request.
+    source_bytes = path.read_bytes()
+    for existing in path.parent.glob(f"{path.name}.corrupt-*"):
+        try:
+            if existing.read_bytes() == source_bytes:
+                return existing
+        except OSError:
+            continue
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     backup_path = path.with_name(f"{path.name}.corrupt-{stamp}")
     try:
         shutil.copy2(path, backup_path)
     except OSError:
-        backup_path.write_bytes(path.read_bytes())
+        backup_path.write_bytes(source_bytes)
     _emit_corrupt_save_warning(path, backup_path=backup_path, reason=reason)
     return backup_path
 
@@ -336,7 +379,7 @@ def load_world_state(campaign_dir: Path) -> dict[str, Any]:
     return load_state_object(
         Path(campaign_dir) / "save" / "world-state.json",
         "world",
-        fallback={"schema_version": 1},
+        fallback={"schema_version": 2, "terminal_state": None, "pending_subsystem_choice": None},
     )
 
 
@@ -751,7 +794,7 @@ def _initialize_campaign_runtime_files(
     _write_json_if_missing(
         campaign_dir / "save" / "world-state.json",
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "campaign_id": campaign_id,
             "scenario_id": None,
             "status": "setup",
@@ -774,6 +817,8 @@ def _initialize_campaign_runtime_files(
                 "rolls": 0,
                 "memory": 0,
             },
+            "terminal_state": None,
+            "pending_subsystem_choice": None,
         },
     )
     _write_json_if_missing(

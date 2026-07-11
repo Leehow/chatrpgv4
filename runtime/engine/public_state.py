@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 from pathlib import Path
 from typing import Any
 
@@ -15,75 +14,145 @@ def _load_config_module():
     return mod
 
 
-def _read_json(path: Path, default: Any) -> Any:
+def _load_subsystem_executor():
+    path = Path(__file__).resolve().parents[2] / "plugins" / "coc-keeper" / "scripts" / "coc_subsystem_executor.py"
+    spec = importlib.util.spec_from_file_location("runtime_subsystem_executor", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_state_gateway():
+    path = Path(__file__).resolve().parent / "state_gateway.py"
+    spec = importlib.util.spec_from_file_location("runtime_state_gateway", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_paths():
+    path = Path(__file__).resolve().parent / "paths.py"
+    spec = importlib.util.spec_from_file_location("runtime_paths_public_state", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _canonical_player_pending_choice(campaign_dir: Path) -> tuple[bool, dict[str, Any] | None]:
+    # The caller has already validated the campaign tree; re-resolve the exact
+    # consumed file immediately before handing the campaign to the projector.
+    path_mod = _load_paths()
+    save = path_mod.contained_path(campaign_dir, campaign_dir / "save")
+    path = path_mod.contained_path(save, save / "subsystem-state.json")
     if not path.exists():
-        return default
+        return False, None
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return default
-    return raw if isinstance(raw, type(default)) or (default is None and isinstance(raw, dict)) else default
+        choice = _load_subsystem_executor().project_player_pending_choice(campaign_dir)
+    except (OSError, UnicodeError, ValueError, RuntimeError):
+        return True, None
+    return True, choice
 
 
-def _investigator_entry(path: Path) -> dict[str, Any]:
-    data = _read_json(path, {})
-    if not isinstance(data, dict):
-        data = {}
-    inv_id = data.get("investigator_id") or path.stem
-    conditions = data.get("conditions") or []
-    if not isinstance(conditions, list):
-        conditions = []
-    return {
-        "id": str(inv_id),
-        "current_hp": data.get("current_hp"),
-        "current_san": data.get("current_san"),
-        "current_mp": data.get("current_mp"),
-        "conditions": list(conditions),
-    }
+def _combat_defense_choice(
+    campaign_dir: Path,
+    investigator_id: str | None,
+) -> dict[str, Any] | None:
+    if not investigator_id:
+        return None
+    path_mod = _load_paths()
+    save = path_mod.contained_path(campaign_dir, campaign_dir / "save")
+    path = path_mod.contained_path(save, save / "combat.json")
+    if not path.exists():
+        return None
+    try:
+        return _load_subsystem_executor().project_player_combat_defense(
+            campaign_dir, investigator_id
+        )
+    except (OSError, UnicodeError, ValueError, RuntimeError):
+        return None
 
 
-def build_public_state(workspace: Path | str, campaign_id: str) -> dict[str, Any]:
-    root = Path(workspace)
-    campaign_dir = root / ".coc" / "campaigns" / campaign_id
-    save = campaign_dir / "save"
+def _nullable_string(value: Any, gateway: Any, state: str) -> str | None:
+    if value is None or isinstance(value, str):
+        return value
+    gateway.record_invalid_fields(state)
+    return None
 
-    meta = _read_json(campaign_dir / "campaign.json", {})
-    world = _read_json(save / "world-state.json", {})
-    pacing = _read_json(save / "pacing-state.json", {})
 
-    inv_dir = save / "investigator-state"
-    investigators: list[dict[str, Any]] = []
-    if inv_dir.is_dir():
-        for path in sorted(inv_dir.glob("*.json")):
-            investigators.append(_investigator_entry(path))
+def build_public_state(
+    workspace: Path | str,
+    campaign_id: str,
+    investigator_id: str | None = None,
+) -> dict[str, Any]:
+    gateway = _load_state_gateway().RuntimeStateGateway(
+        workspace, campaign_id, investigator_id
+    )
+    gateway.validate_consumed_paths()
+    snapshot = gateway.load()
+    campaign_dir = gateway.campaign_dir
+    meta = snapshot["campaign"]
+    world = snapshot["world"]
+    pacing = snapshot["pacing"]
+    investigators = snapshot["investigators"]
+    if investigator_id is None and len(investigators) == 1:
+        investigator_id = investigators[0]["id"]
 
-    clue_ids = world.get("discovered_clue_ids") if isinstance(world, dict) else None
-    if not isinstance(clue_ids, list):
+    raw_clue_ids = world.get("discovered_clue_ids")
+    if raw_clue_ids is None:
+        clue_ids: list[str] = []
+    elif isinstance(raw_clue_ids, list):
+        clue_ids = [clue_id for clue_id in raw_clue_ids if isinstance(clue_id, str)]
+        if len(clue_ids) != len(raw_clue_ids):
+            gateway.record_invalid_fields("world")
+    else:
+        gateway.record_invalid_fields("world")
         clue_ids = []
 
-    turn_number = pacing.get("turn_number", 0) if isinstance(pacing, dict) else 0
-    try:
-        turn_number = int(turn_number)
-    except (TypeError, ValueError):
+    raw_turn_number = pacing.get("turn_number", 0)
+    if isinstance(raw_turn_number, int) and not isinstance(raw_turn_number, bool):
+        turn_number = raw_turn_number
+    else:
+        if raw_turn_number != 0:
+            gateway.record_invalid_fields("pacing")
         turn_number = 0
 
-    pending = None
-    if isinstance(world, dict) and "pending_choice" in world:
-        pending = world.get("pending_choice")
-    elif isinstance(meta, dict) and "pending_choice" in meta:
-        pending = meta.get("pending_choice")
+    blocking_aux = {
+        issue["state"] for issue in gateway.health()["issues"]
+        if issue["code"] in {
+            "corrupt", "invalid_utf8", "invalid_json", "non_object",
+            "forward_version", "invalid_schema",
+        }
+    }
+    if "subsystem" in blocking_aux:
+        _has_canonical_pending_state, pending = True, None
+    else:
+        _has_canonical_pending_state, pending = _canonical_player_pending_choice(campaign_dir)
+    if (pending is None and "subsystem" not in blocking_aux
+            and "combat" not in blocking_aux):
+        pending = _combat_defense_choice(campaign_dir, investigator_id)
 
-    cfg = _load_config_module().load_runtime_config(root)
+    cfg = _load_config_module().load_runtime_config(gateway.workspace)
 
     return {
         "schema_version": 1,
-        "campaign_id": campaign_id,
-        "play_language": meta.get("play_language") if isinstance(meta, dict) else None,
-        "active_scene_id": world.get("active_scene_id") if isinstance(world, dict) else None,
-        "tension_level": pacing.get("tension_level") if isinstance(pacing, dict) else None,
+        "campaign_id": gateway.campaign_id,
+        "play_language": _nullable_string(meta.get("play_language"), gateway, "campaign"),
+        "active_scene_id": _nullable_string(world.get("active_scene_id"), gateway, "world"),
+        "tension_level": _nullable_string(pacing.get("tension_level"), gateway, "pacing"),
         "turn_number": turn_number,
         "discovered_clue_ids": list(clue_ids),
         "investigators": investigators,
-        "brain": cfg["brain"],
+        # Compatibility display only.  Dispatch is determined by the frozen
+        # session pipeline, never by this public projection.
+        "brain": (
+            "pi"
+            if isinstance(cfg.get("narrator"), dict)
+            and cfg["narrator"].get("kind") == "pi"
+            else "debug"
+        ),
         "pending_choice": pending,
+        "state_health": gateway.health(),
     }

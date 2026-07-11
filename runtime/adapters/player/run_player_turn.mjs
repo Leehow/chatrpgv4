@@ -17,6 +17,7 @@
  */
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline";
 import path from "node:path";
 import {
   createAgentSession,
@@ -61,7 +62,8 @@ const SYSTEM_PROMPT =
   "Never do rules math, dice rolls, or skill arithmetic yourself. " +
   "Prefer calling the coc_player_action tool once with your in-character " +
   "player_text (in the campaign play_language). Optional intent_class and " +
-  "player_notes (out-of-character reasoning) may be included.";
+  "player_notes (out-of-character reasoning) may be included. When a player " +
+  "pending choice is present, copy its exact identity into pending_choice_response.";
 
 function readStdinJson() {
   return new Promise((resolve, reject) => {
@@ -254,12 +256,32 @@ function extractAssistantProse(messages) {
   return "";
 }
 
+function selectedModelIdentity(session) {
+  const model = session && session.model;
+  if (
+    !model ||
+    typeof model.provider !== "string" ||
+    !model.provider.trim() ||
+    typeof model.id !== "string" ||
+    !model.id.trim()
+  ) {
+    return undefined;
+  }
+  return { provider: model.provider.trim(), id: model.id.trim() };
+}
+
+function withRuntimeProvenance(result, modelIdentity, responseMode) {
+  const enriched = { ...result, response_mode: responseMode };
+  if (modelIdentity) enriched.model_identity = modelIdentity;
+  return enriched;
+}
+
 function normalizeIntentClass(value) {
   if (typeof value !== "string") return undefined;
   return INTENT_CLASSES.includes(value) ? value : undefined;
 }
 
-function buildPlayerActionTool(capture) {
+function buildPlayerActionTool(holder) {
   const intentUnion = Type.Union(
     INTENT_CLASSES.map((v) => Type.Literal(v)),
     {
@@ -283,10 +305,10 @@ function buildPlayerActionTool(capture) {
       "After coc_player_action returns, stop.",
     ],
     parameters: Type.Object({
-      player_text: Type.String({
+      player_text: Type.Optional(Type.String({
         description:
-          "Required in-character action or dialogue in the campaign play_language.",
-      }),
+          "In-character action or dialogue; optional only when answering the canonical pending choice.",
+      })),
       intent_class: Type.Optional(intentUnion),
       player_notes: Type.Optional(
         Type.String({
@@ -294,12 +316,23 @@ function buildPlayerActionTool(capture) {
             "Optional out-of-character reasoning for the battle report only.",
         }),
       ),
+      pending_choice_response: Type.Optional(
+        Type.Object({
+          choice_id: Type.String(),
+          responder: Type.Literal("player"),
+          revision: Type.Integer({ minimum: 0 }),
+          action: Type.String(),
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
+      const capture = holder.capture;
+      const pendingChoice = holder.pendingChoice;
       capture.usedTool = true;
       const playerText =
         typeof params.player_text === "string" ? params.player_text.trim() : "";
-      if (!playerText) {
+      const hasPlayerChoice = pendingChoice && pendingChoice.responder === "player";
+      if (!playerText && !hasPlayerChoice) {
         capture.error = "coc_player_action missing non-empty player_text";
         return {
           content: [
@@ -321,6 +354,38 @@ function buildPlayerActionTool(capture) {
       ) {
         result.player_notes = params.player_notes.trim();
       }
+      if (pendingChoice && pendingChoice.responder === "player") {
+        const response = params.pending_choice_response;
+        const allowedActions = Array.isArray(pendingChoice.options)
+          ? pendingChoice.options
+              .filter((option) => option && typeof option === "object")
+              .map((option) => option.action)
+              .filter((action) => typeof action === "string")
+          : [];
+        if (
+          !response ||
+          response.choice_id !== pendingChoice.choice_id ||
+          response.responder !== "player" ||
+          response.revision !== pendingChoice.revision ||
+          !allowedActions.includes(response.action)
+        ) {
+          capture.error =
+            "pending_choice_response does not match the canonical player choice";
+          return {
+            content: [{ type: "text", text: JSON.stringify({ ok: false, error: capture.error }) }],
+            details: { error: capture.error },
+            terminate: true,
+          };
+        }
+        result.pending_choice_response = { ...response };
+      } else if (params.pending_choice_response !== undefined) {
+        capture.error = "pending_choice_response supplied without a player choice";
+        return {
+          content: [{ type: "text", text: JSON.stringify({ ok: false, error: capture.error }) }],
+          details: { error: capture.error },
+          terminate: true,
+        };
+      }
       capture.result = result;
       return {
         content: [
@@ -336,7 +401,7 @@ function buildPlayerActionTool(capture) {
   });
 }
 
-async function runPlayerTurn(request) {
+export async function runPlayerTurn(request, serverState = null) {
   const required = [
     "public_state",
     "narration",
@@ -350,16 +415,28 @@ async function runPlayerTurn(request) {
     }
   }
 
+  const pendingChoice =
+    request.pending_choice !== undefined
+      ? request.pending_choice
+      : request.public_state && request.public_state.pending_choice;
+  if (pendingChoice && pendingChoice.responder === "keeper") {
+    throw new Error("Keeper pending choices must not be sent to the player brain");
+  }
   const capture = {
     usedTool: false,
     result: null,
     error: null,
     assistantProse: "",
   };
-  const tool = buildPlayerActionTool(capture);
+  const holder = serverState || { capture, pendingChoice };
+  holder.capture = capture;
+  holder.pendingChoice = pendingChoice;
+  const tool = serverState?.tool || buildPlayerActionTool(holder);
   const cwd = __dirname;
   const agentDir = getAgentDir();
 
+  let session = serverState?.session;
+  let ownsSession = false;
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir,
@@ -375,16 +452,21 @@ async function runPlayerTurn(request) {
       runtime: createExtensionRuntime(),
     }),
   });
-  await loader.reload();
+  if (!session) {
+    await loader.reload();
+    const created = await createAgentSession({
+      cwd, agentDir, tools: ["coc_player_action"], customTools: [tool],
+      resourceLoader: loader, sessionManager: SessionManager.inMemory(cwd),
+    });
+    session = created.session;
+    ownsSession = true;
+    if (serverState) {
+      serverState.session = session;
+      serverState.tool = tool;
+    }
+  }
 
-  const { session } = await createAgentSession({
-    cwd,
-    agentDir,
-    tools: ["coc_player_action"],
-    customTools: [tool],
-    resourceLoader: loader,
-    sessionManager: SessionManager.inMemory(cwd),
-  });
+  let modelIdentity;
 
   try {
     session.subscribe((event) => {
@@ -407,13 +489,14 @@ async function runPlayerTurn(request) {
     if (!capture.assistantProse) {
       capture.assistantProse = extractAssistantProse(session.messages);
     }
+    modelIdentity = selectedModelIdentity(session);
   } finally {
-    session.dispose();
+    if (ownsSession && !serverState) session.dispose();
   }
 
   if (capture.usedTool) {
     if (capture.result && capture.result.ok) {
-      return capture.result;
+      return withRuntimeProvenance(capture.result, modelIdentity, "tool");
     }
     return {
       ok: false,
@@ -421,14 +504,21 @@ async function runPlayerTurn(request) {
     };
   }
 
+  if (pendingChoice && pendingChoice.responder === "player") {
+    return {
+      ok: false,
+      error: "player pending choice requires typed pending_choice_response",
+    };
+  }
+
   // Prose degradation: usable player_text, marked in player_notes.
   const prose = (capture.assistantProse || "").trim();
   if (prose) {
-    return {
+    return withRuntimeProvenance({
       ok: true,
       player_text: prose,
       player_notes: PROSE_DEGRADE_NOTE,
-    };
+    }, modelIdentity, "prose_fallback");
   }
 
   return {
@@ -450,4 +540,31 @@ async function main() {
   }
 }
 
-main();
+async function serveJsonl() {
+  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const serverState = {};
+  for await (const line of lines) {
+    let envelope;
+    try {
+      envelope = JSON.parse(line);
+      if (!envelope || typeof envelope !== "object" || typeof envelope.request_id !== "string") {
+        throw new Error("server request requires request_id");
+      }
+      const result = await runPlayerTurn(envelope.payload, serverState);
+      writeResult({ request_id: envelope.request_id, ...result });
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      writeResult({ request_id: envelope && envelope.request_id, ok: false, error: message });
+    }
+  }
+  if (serverState.session) serverState.session.dispose();
+}
+
+if (process.argv.includes("--server")) {
+  serveJsonl().catch((err) => {
+    process.stderr.write(`${err && err.message ? err.message : String(err)}\n`);
+    process.exitCode = 1;
+  });
+} else {
+  main();
+}

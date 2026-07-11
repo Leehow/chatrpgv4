@@ -1,120 +1,110 @@
-# Task 2 Report: rule-index 登记 + REQUIRED_RULE_FILES
+# Task 2 Handoff: Live Outcomes and Graph-Aware Termination
 
 ## Status
-✅ COMPLETE — all steps passed, committed on `feat/starter-scenario-the-white-war`.
 
-## Files Changed
-- `plugins/coc-keeper/references/rules-json/rule-index.json` — appended 6 `module.white_war.*` entries at the end of the `rules` array (after `core.healing.treatment`), matching the field structure (`id`/`category`/`module`/`source_table`/`source_note`/`numeric`) of the existing `module.haunting.*` entries.
-- `plugins/coc-keeper/scripts/coc_validate.py` — added `"the-white-war.json",` to `REQUIRED_RULE_FILES`, immediately after `"the-haunting.json"` (line 35).
-- `tests/test_white_war_rules.py` — appended 3 new tests from the brief (Step 1).
+Complete. Task 2 implements acceptance A07/A08 on `codex/coc-full-hardening`.
 
-## Commit
-- `ab16f31` — `feat(coc): register module.white_war.* rules in rule-index and REQUIRED_RULE_FILES` (3 files, +109 lines)
+## Summary
+
+- Added public `investigator_playability(campaign_dir, investigator_id)` with distinct structured states for active, unconscious, dying, stabilized, dead, temporarily unplayable, and permanently unplayable investigators.
+- Only the explicit `dead` condition is investigator-terminal. Zero HP, unconsciousness, dying, stabilization, and insanity-related unplayability remain nonterminal campaign evidence.
+- Dying pauses the live match with `pending_resolution.kind = "dying_rescue"` and lower-level First Aid / dying-CON-clock event routes. Stabilization remains distinct with `pending_resolution.kind = "stabilized_death_clock"`.
+- Added public `terminal_evidence(story_graph, world_state, events)`. Both live match and scripted driver now derive terminal reporting from `is_terminal_scene(...)` plus structured `session_ending` records.
+- Removed direct last-scene comparisons from live callers and the terminal helper. Array order remains only in legacy edge derivation.
+
+## Files
+
+- `plugins/coc-keeper/scripts/coc_live_match.py`
+- `plugins/coc-keeper/scripts/coc_playtest_driver.py`
+- `plugins/coc-keeper/scripts/coc_scene_graph.py`
+- `tests/test_live_match.py`
+- `tests/test_playtest_driver.py`
+
+No adjacent production files were required.
 
 ## TDD Evidence
 
-### RED (Step 2) — before implementation
+### RED
+
 Command:
-```
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_white_war_rules.py -q -p no:cacheprovider
-```
-Result: **2 failed, 6 passed**
-- `test_rule_index_contains_white_war_entries` — FAILED: `rule-index 缺少: {'module.white_war.conclusion_sanity_rewards', 'module.white_war.polyp_horror', 'module.white_war.lethality_vs_semi_material', 'module.white_war.daylight_penalty', 'module.white_war.cold_exposure', 'module.white_war.avalanche_damage'}`
-- `test_required_rule_files_includes_white_war` — FAILED: `assert 'the-white-war.json' in [...REQUIRED_RULE_FILES...]`
-- (`test_rule_index_white_war_entries_have_correct_source_table` passed vacuously because no white_war entries existed yet — correct TDD baseline.)
-
-### GREEN (Step 5) — after implementation
-Command:
-```
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_white_war_rules.py -q -p no:cacheprovider
-```
-Result: **8 passed, 1 warning** ✅
-(The single warning is a pre-existing `SyntaxWarning: invalid escape sequence '\.'` in the docstring of `test_rule_ids_all_lowercase_dotted` from Task 1 — unrelated to this task.)
-
-### JSON validity (before commit)
-Command:
-```
-python3 -c "import json; json.load(open('plugins/coc-keeper/references/rules-json/rule-index.json'))"
-```
-Result: `JSON VALID` ✅
-
-### coc_validate CLI (Step 6)
-Command:
-```
-PYTHONDONTWRITEBYTECODE=1 python3 plugins/coc-keeper/scripts/coc_validate.py rules plugins/coc-keeper
-```
-Result: **no output, exit code 0** — 0 errors ✅ (id regex, uniqueness, source_table existence, and REQUIRED_RULE_FILES coverage all satisfied).
-
-## Concerns
-None. The 6 entries were added verbatim from the brief; field order and indentation match the surrounding `module.haunting.*` / `core.*` template. Pre-existing unrelated `SyntaxWarning` noted but out of scope.
-
----
-
-# Task 2 Report: Generic Failure Routing and Psychology Reliability
-
-## Status
-✅ COMPLETE — implemented on `codex/director-orchestration-hardening`.
-
-## Files Changed
-- `plugins/coc-keeper/scripts/coc_director_apply.py` — added `_first_failed_contract_result(...)` and generic non-clue failure routing backfill that consumes `roll_contract` while preserving existing clue-specific and recovery precedence.
-- `plugins/coc-keeper/scripts/coc_rule_signals.py` — expanded `read_psychology_concealed(...)` to emit reliability metadata and explicit "uncertain, not inverted truth" guidance on failure.
-- `tests/test_director_apply.py` — appended the required RED/GREEN regression for failed non-clue roll routing.
-- `tests/test_rules.py` — appended the required RED/GREEN regression for Psychology concealed-read reliability.
-
-## TDD Evidence
-
-### RED (before implementation)
-Command:
-```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest \
-  tests/test_director_apply.py::test_backfill_failed_non_clue_roll_adds_failure_routing \
-  tests/test_rules.py::test_psychology_concealed_failure_returns_uncertain_read_not_false_truth \
-  -q -p no:cacheprovider
-```
-
-Result: **2 failed**
-- `test_backfill_failed_non_clue_roll_adds_failure_routing` — `KeyError: 'failure_consequence'`
-- `test_psychology_concealed_failure_returns_uncertain_read_not_false_truth` — `KeyError: 'reliability'`
-
-This matches the briefed expected failure mode: generic non-clue failure routing was absent, and Psychology concealed reads did not expose reliability fields yet.
-
-### GREEN (after implementation)
-Command:
-```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest \
-  tests/test_director_apply.py::test_backfill_failed_non_clue_roll_adds_failure_routing \
-  tests/test_rules.py::test_psychology_concealed_failure_returns_uncertain_read_not_false_truth \
-  -q -p no:cacheprovider
-```
-
-Result: **2 passed** ✅
-
-### Guard Verification (existing precedence still intact)
-Commands:
-```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest \
-  tests/test_director_apply.py::test_backfill_rule_results_failure_prunes_exact_clue_anchor \
-  tests/test_director_apply.py::test_backfill_rule_results_recover_marks_fallback_as_in_world_recovery \
-  tests/test_director_apply.py::test_backfill_failed_non_clue_roll_adds_failure_routing \
-  -q -p no:cacheprovider
-```
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest \
-  tests/test_rules.py::test_psychology_concealed_failure_returns_uncertain_read_not_false_truth \
-  -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 /opt/miniconda3/bin/python3 -m pytest tests/test_live_match.py tests/test_playtest_driver.py tests/test_scene_graph.py -q -p no:cacheprovider
 ```
 
-Results:
-- Director apply subset: **3 passed** ✅
-- Rules subset: **1 passed** ✅
+Result: **10 failed, 51 passed in 11.06s** (exit 1).
 
-These checks confirm the clue-specific failure path still wins over the new generic fallback, and the new Psychology semantics behave as required.
+Expected failures showed that HP <= 0 and `dying` were still reported as `investigator_dead`, playability/terminal contracts were absent, terminal-not-last was false, last-with-outgoing was true, and structured `session_ending` was ignored by driver aggregation.
 
-## Self-Review
-- Kept the generic failure routing behind existing `failure_event` and recovery precedence, so obscured-clue withholding behavior remains authoritative.
-- Reused `roll_contract` already attached to results/requests instead of introducing keyword heuristics or new schema.
-- Limited behavior change to the allowed Codex track only; no Codex plugin edits, no unrelated file churn, and no interaction with the pre-existing dirty `AGENTS.md`.
+### GREEN
 
-## Concerns
-None.
+- New outcome subset: **6 passed, 9 deselected in 0.65s**.
+- New branching/ending subset: **4 passed in 0.19s**.
+- First focused integration attempt: **1 failed, 60 passed in 8.33s**. The failure exposed an over-eager live-match early stop on graph terminality; reporting was retained while live early stop was narrowed to structured `session_ending`.
+- Final focused command above: **61 passed in 9.72s**.
+
+## Broader Verification
+
+- Healing/death-clock + rule-state tests: **77 passed in 0.13s**.
+- Plugin metadata minimum test: **48 passed in 1.38s**.
+- Full suite (`/opt/miniconda3/bin/python3 -m pytest tests -q -p no:cacheprovider`): **1663 passed in 41.36s**.
+- `git diff --check`: clean.
+
+## Implementation Commit
+
+- `1ac0f30c44ab575ddccde1e689c1c02e4a103032` — `fix(playtest): use structured outcomes and terminal evidence`
+
+## Risks and Scope Confirmation
+
+- Nonterminal unplayable states now pause the current live match with structured stop reasons/pending resolution; consumers that enumerate stop reasons should accept these new non-death values.
+- Structured `session_ending` intentionally counts as terminal evidence even when the active graph node still has outgoing edges.
+- Scope is limited to the five Task 2 implementation/test files plus this required handoff. No parallel plugin track, free-text semantic matcher, lower-level healing rewrite, push, deploy, rebase, or destructive Git operation was introduced.
+
+## Review Revision: Bout Ownership and PAYOFF Completion
+
+Independent review found two Important issues, both corrected with test-first revisions:
+
+1. Underlying `temporary_insane` / `indefinite_insane` state had been treated as loss of player control. The canonical classifier now marks only structured `bout_active` or an explicit `temporarily_unplayable` condition as temporarily unplayable; underlying insanity without an active bout remains active/playable.
+2. The scripted driver stopped as soon as graph-terminal evidence appeared, preventing the real Director/Apply pipeline from executing terminal-scene `PAYOFF` and emitting `session_ending`. Graph terminality remains report evidence, while driver loop termination now requires structured `session_ending`, matching live-match policy.
+
+### Review RED
+
+- Focused Task 2 command: **3 failed, 62 passed in 6.59s**. Failures were both underlying-insanity parameter cases and the real production driver stopping after `CUT`.
+- Strengthened narrowed command with `bout_active=True` alone: **4 failed in 0.69s**, proving the missing bout classification independently of underlying insanity.
+
+### Review GREEN and Verification
+
+- Narrowed bout + real CUT→PAYOFF integration: **5 passed in 0.69s**.
+- Focused Task 2: **65 passed in 4.45s**.
+- Sanity/bout + healing/state: **223 passed in 0.66s**.
+- Plugin metadata minimum: **48 passed in 0.53s**.
+- Full suite: **1667 passed in 29.85s**.
+- `git diff --check`: clean.
+
+### Review Revision Commit
+
+- `af15780b9294749c04a79f2bf50a805c3c3ec05c` — `fix(playtest): align bout and payoff terminal semantics`
+
+Revision scope is limited to the two Task 2 production callers and their two Task 2 test files. The integration test uses genuine `run_live_turn` behavior from a nonterminal start scene, records `scene_transition`, executes `PAYOFF` on the terminal resolution, and observes persisted `session_ending`; it does not use `_StaticLiveRunner` or pre-position the world on the terminal scene.
+
+## Second Review Revision: Condition-Form Active Bout
+
+Second review found one remaining Important issue: `investigator_playability(...)` recognized top-level `bout_active: true` but not the canonical structured condition form `conditions: ["bout_active"]` already consumed by the Story Director.
+
+The classifier now treats either structured representation as temporarily unplayable/nonterminal and pauses the current live match. This is an exact condition-set check; no prose or keyword semantic inference was introduced.
+
+### Second Review TDD and Verification
+
+- RED regression: **1 failed in 0.63s**; condition-form bout was incorrectly active/playable.
+- GREEN regression: **1 passed in 0.12s**.
+- Focused Task 2: **66 passed in 6.83s**.
+- Sanity/director/apply/rule-signal contracts: **250 passed in 0.96s**.
+- Plugin metadata minimum: **48 passed in 0.53s**.
+- Full suite: **1668 passed in 29.65s**.
+- `git diff --check`: clean.
+
+### Second Review Revision Commit
+
+- `25bc3a2c0c5c077f0235a845e0e0592a04ebc78a` — `fix(playtest): recognize condition-form active bouts`
+
+Revision scope is exactly `plugins/coc-keeper/scripts/coc_live_match.py` and `tests/test_live_match.py`, plus this required report append.

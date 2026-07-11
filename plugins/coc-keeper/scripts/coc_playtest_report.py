@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import secrets
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -13,7 +16,9 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from coc_language import BASE_REPORT_LABELS
 from coc_language import language_profile as build_language_profile
+from coc_playtest_evidence import read_evidence_receipt
 from coc_roll import format_percentile_result
+import coc_epistemic_metrics
 
 
 SCENE_REPLAY_EVENT_TYPES = {
@@ -99,6 +104,95 @@ def _artifacts_dir(run_dir: Path) -> Path:
     path = run_dir / "artifacts"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _write_report_artifact_atomic(
+    run_dir: Path,
+    basename: str,
+    sibling_basename: str,
+    text: str,
+) -> Path:
+    """Write a fixed report artifact without following attacker-controlled links."""
+    if basename not in {"battle-report.md", "verification-sample.md"}:
+        raise ValueError("unsupported report artifact")
+    root = Path(run_dir).resolve(strict=True)
+    artifacts = root / "artifacts"
+    try:
+        artifacts.mkdir(mode=0o755, exist_ok=True)
+        named = os.stat(artifacts, follow_symlinks=False)
+    except OSError as exc:
+        raise RuntimeError("unsafe playtest artifacts directory") from exc
+    if not stat.S_ISDIR(named.st_mode) or artifacts.resolve(strict=True) != artifacts:
+        raise RuntimeError("unsafe playtest artifacts directory")
+    directory_flag = getattr(os, "O_DIRECTORY", None)
+    nofollow_flag = getattr(os, "O_NOFOLLOW", None)
+    if directory_flag is None or nofollow_flag is None:
+        raise RuntimeError("runtime lacks safe artifact write primitives")
+    directory_fd = os.open(
+        artifacts,
+        os.O_RDONLY | directory_flag | nofollow_flag | getattr(os, "O_CLOEXEC", 0),
+    )
+    identity = (named.st_dev, named.st_ino)
+
+    def verify_directory() -> None:
+        opened = os.fstat(directory_fd)
+        current = os.stat(artifacts, follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or not stat.S_ISDIR(current.st_mode)
+            or (opened.st_dev, opened.st_ino) != identity
+            or (current.st_dev, current.st_ino) != identity
+            or artifacts.resolve(strict=True) != artifacts
+        ):
+            raise RuntimeError("playtest artifacts directory changed during report write")
+
+    temp_name: str | None = None
+    temp_fd: int | None = None
+    replaced = False
+    try:
+        verify_directory()
+        for _ in range(16):
+            candidate = f".{basename}.{secrets.token_hex(12)}.tmp"
+            try:
+                temp_fd = os.open(
+                    candidate,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow_flag | getattr(os, "O_CLOEXEC", 0),
+                    0o600,
+                    dir_fd=directory_fd,
+                )
+                temp_name = candidate
+                break
+            except FileExistsError:
+                continue
+        if temp_fd is None or temp_name is None:
+            raise RuntimeError("could not allocate safe report temporary file")
+        payload = text.encode("utf-8")
+        view = memoryview(payload)
+        while view:
+            view = view[os.write(temp_fd, view):]
+        os.fsync(temp_fd)
+        os.close(temp_fd)
+        temp_fd = None
+        verify_directory()
+        os.replace(temp_name, basename, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        replaced = True
+        verify_directory()
+        try:
+            os.unlink(sibling_basename, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+        os.fsync(directory_fd)
+        verify_directory()
+    finally:
+        if temp_fd is not None:
+            os.close(temp_fd)
+        if temp_name is not None and not replaced:
+            try:
+                os.unlink(temp_name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+        os.close(directory_fd)
+    return artifacts / basename
 
 
 def _is_non_percentile_die_roll(event: dict[str, Any]) -> bool:
@@ -2281,6 +2375,32 @@ def _format_combat_tracker(
     return lines
 
 
+def _render_epistemic_experience_section(
+    metrics: dict[str, Any],
+    language_profile: dict[str, Any],
+) -> list[str]:
+    """Render deterministic belief/question diagnostics without prose inference."""
+    keys = (
+        "belief_gain",
+        "curiosity_load",
+        "explanation_compression",
+        "reframe_fairness",
+        "confirmation_saturation",
+        "unexplained_surprise",
+        "parse_risk_exposure",
+        "epistemic_health",
+    )
+    lines = [_report_heading(2, "Epistemic Experience", language_profile)]
+    for key in keys:
+        payload = metrics.get(key, {}) if isinstance(metrics, dict) else {}
+        lines.append(
+            f"- {key}: "
+            + json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        )
+    lines.append("")
+    return lines
+
+
 def _render_narrative_adherence_section(adherence: Any) -> list[str]:
     """Optional 叙事贴合 / Narrative Adherence section (SENNA checklist).
 
@@ -2317,13 +2437,112 @@ def _render_narrative_adherence_section(adherence: Any) -> list[str]:
     return lines
 
 
+def _evidence_report_lines(receipt: dict[str, Any], play_language: str) -> list[str]:
+    eligible = receipt.get("eligible_as_gameplay_evidence") is True
+    reasons = receipt.get("evidence_reasons")
+    reason_codes = [str(code) for code in reasons] if isinstance(reasons, list) else []
+    status_anchor = "eligible" if eligible else "ineligible"
+    if play_language == "zh-Hans":
+        heading = "## 实玩证据 <!-- report-anchor: Gameplay Evidence -->"
+        status = "符合" if eligible else "不符合"
+        labels = ("资格", "外部模型回合", "降级回合")
+    elif play_language == "ja-JP":
+        heading = "## 実プレイ証拠 <!-- report-anchor: Gameplay Evidence -->"
+        status = "適格" if eligible else "不適格"
+        labels = ("適格性", "外部モデルターン", "フォールバックターン")
+    else:
+        heading = "## Gameplay Evidence"
+        status = "eligible" if eligible else "not eligible"
+        labels = ("Eligibility", "External Model Turns", "Fallback Turns")
+    return [
+        heading,
+        f"<!-- evidence-eligibility: {status_anchor} -->",
+        f"<!-- evidence-reasons: {','.join(reason_codes) or 'none'} -->",
+        f"- {labels[0]}: {status}",
+        f"- {labels[1]}: {receipt.get('external_model_turns', 0)}",
+        f"- {labels[2]}: {receipt.get('fallback_turns', 'unknown')}",
+    ]
+
+
+def _evidence_sensitive_metadata(
+    receipt: dict[str, Any], metadata: dict[str, Any]
+) -> dict[str, str]:
+    if receipt.get("eligible_as_gameplay_evidence") is True:
+        return {
+            "audit_profile": "evidence_grade_player_bridge_match",
+            "simulation_method": "attested_external_model_playtest",
+            "player_profile": "attested_external_model_bridge",
+        }
+    values = {
+        "audit_profile": str(metadata.get("audit_profile") or "baseline"),
+        "simulation_method": str(metadata.get("simulation_method") or "not recorded"),
+        "player_profile": str(metadata.get("player_profile") or "unknown"),
+    }
+    if values["audit_profile"] in {
+        "evidence_grade_player_bridge_match",
+        "live_llm_player_match",
+    }:
+        values["audit_profile"] = "player_bridge_match"
+    if values["simulation_method"] in {
+        "attested_external_model_playtest",
+        "live_llm_player_vs_kp",
+    }:
+        values["simulation_method"] = "unattested_runner_match_not_gameplay_evidence"
+    if values["player_profile"] in {
+        "attested_external_model_bridge",
+        "external_llm_bridge",
+    }:
+        values["player_profile"] = "unattested_runner"
+    return values
+
+
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
+    evidence_receipt = read_evidence_receipt(run_dir)
+    # Classification is derived only from the recomputed receipt. Metadata is
+    # descriptive and cannot self-attest an unknown/scripted runner as actual play.
+    non_gameplay_sample = evidence_receipt.get("eligible_as_gameplay_evidence") is not True
+    display_metadata = {
+        **metadata,
+        **_evidence_sensitive_metadata(evidence_receipt, metadata),
+    }
     localized_terms = _localized_terms(metadata)
     context = _load_campaign_context(run_dir, metadata)
     campaign = context["campaign"]
     scenario = context["scenario"]
     characters = context["characters"]
+    campaign_dir = context["campaign_dir"]
+    belief_events = (
+        _read_jsonl(campaign_dir / "logs" / "belief-events.jsonl")
+        if campaign_dir
+        else []
+    )
+    belief_state = (
+        _read_json(campaign_dir / "save" / "belief-state.json", {})
+        if campaign_dir
+        else {}
+    )
+    compile_confidence = (
+        _read_json(campaign_dir / "scenario" / "compile-confidence.json", {})
+        if campaign_dir
+        else {}
+    )
+    parse_manifest = (
+        _read_json(campaign_dir / "index" / "parse-manifest.json", {})
+        if campaign_dir
+        else {}
+    )
+    epistemic_metrics = coc_epistemic_metrics.compute_epistemic_metrics(
+        belief_events,
+        belief_state=belief_state,
+        compile_confidence=compile_confidence,
+        parse_manifest=parse_manifest,
+    )
+    metadata["epistemic_metrics"] = epistemic_metrics
+    (run_dir / "playtest.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     handouts = (
         _read_json(context["campaign_dir"] / "scenario" / "handouts.json", [])
         if context["campaign_dir"]
@@ -2344,7 +2563,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         if context["campaign_dir"]
         else {}
     )
-    output = _artifacts_dir(run_dir) / "battle-report.md"
+    output = _artifacts_dir(run_dir) / (
+        "verification-sample.md" if non_gameplay_sample else "battle-report.md"
+    )
 
     campaign_title = _first_value(
         "unknown",
@@ -2369,6 +2590,16 @@ def generate_battle_report(run_dir: Path) -> Path:
         scenario.get("source_pdf"),
         metadata.get("module_source"),
     )
+    if module_source not in (None, "unknown"):
+        raw_source = str(module_source)
+        normalized_source = raw_source.replace("\\", "/")
+        source_path = Path(normalized_source)
+        if (
+            source_path.is_absolute()
+            or ".." in source_path.parts
+            or re.match(r"^[A-Za-z]:/", normalized_source)
+        ):
+            module_source = source_path.name or "source withheld"
     era = _first_value("unknown", campaign.get("era"), metadata.get("era"))
     dice_mode = _first_value("unknown", campaign.get("dice_mode"), metadata.get("dice_mode"))
     spoiler_policy = _first_value(
@@ -2530,20 +2761,23 @@ def generate_battle_report(run_dir: Path) -> Path:
     )
 
     body = [
-        _report_heading(1, "Battle Report", language_profile),
+        ("# NON-GAMEPLAY Verification Sample"
+         if non_gameplay_sample else _report_heading(1, "Battle Report", language_profile)),
         "",
+        *(["**NON-GAMEPLAY verification evidence. This scripted sample is not an actual-play battle report.**", ""]
+          if non_gameplay_sample else []),
         _report_heading(2, "Run Setup", language_profile),
         _report_field("Run ID", metadata.get("run_id", "unknown"), language_profile),
         _report_field("Campaign ID", metadata.get("campaign_id", "unknown"), language_profile),
         _report_field("Campaign", _localize_text(campaign_title, localized_terms), language_profile),
         _report_field(
             "Audit Profile",
-            _localized_report_value(metadata.get("audit_profile", "baseline"), language_profile, localized_terms),
+            _localized_report_value(display_metadata["audit_profile"], language_profile, localized_terms),
             language_profile,
         ),
         _report_field(
             "Simulation Method",
-            _localized_report_value(metadata.get("simulation_method", "not recorded"), language_profile, localized_terms),
+            _localized_report_value(display_metadata["simulation_method"], language_profile, localized_terms),
             language_profile,
         ),
         _report_field("Era", era, language_profile),
@@ -2562,9 +2796,11 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_field("Localized Terms", _format_localized_terms_summary(localized_terms, language_profile), language_profile),
         _report_field(
             "Player Profile",
-            _localized_player_profile_display(metadata, language_profile, localized_terms),
+            _localized_player_profile_display(display_metadata, language_profile, localized_terms),
             language_profile,
         ),
+        "",
+        *_evidence_report_lines(evidence_receipt, str(play_language)),
         "",
         _report_heading(2, "Module", language_profile),
         _report_field("Scenario", _localize_text(scenario_title, localized_terms), language_profile),
@@ -2588,7 +2824,8 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_heading(2, "Scene-by-Scene Replay", language_profile),
         *_list_lines(scene_replay_lines, "- No scene replay recorded."),
         "",
-        _report_heading(2, "Actual Play Replay", language_profile),
+        ("## Verification Replay" if non_gameplay_sample
+         else _report_heading(2, "Actual Play Replay", language_profile)),
         *_list_lines(actual_play_lines, "- No actual play events recorded."),
         "",
         _report_heading(2, "Session Transcript", language_profile),
@@ -2640,6 +2877,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_heading(2, "Clues Found", language_profile),
         *_list_lines(clue_lines, "- No clues recorded."),
         "",
+        *_render_epistemic_experience_section(epistemic_metrics, language_profile),
         *_render_narrative_adherence_section(metadata.get("narrative_adherence")),
         _report_heading(2, "Session Ending", language_profile),
         *_list_lines(ending_lines, "- Session ending not recorded."),
@@ -2653,12 +2891,25 @@ def generate_battle_report(run_dir: Path) -> Path:
     ]
     # Drop empty strings left by optional sections that emitted nothing.
     body = [line for line in body if line is not None]
-    output.write_text("\n".join(body), encoding="utf-8")
-    return output
+    sibling_name = (
+        "battle-report.md" if output.name == "verification-sample.md"
+        else "verification-sample.md"
+    )
+    return _write_report_artifact_atomic(
+        run_dir,
+        output.name,
+        sibling_name,
+        "\n".join(body),
+    )
 
 
 def generate_evaluation_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
+    evidence_receipt = read_evidence_receipt(run_dir)
+    display_metadata = {
+        **metadata,
+        **_evidence_sensitive_metadata(evidence_receipt, metadata),
+    }
     notes = _read_jsonl(run_dir / "evaluator-notes.jsonl")
     output = _artifacts_dir(run_dir) / "evaluation-report.md"
 
@@ -2722,8 +2973,8 @@ def generate_evaluation_report(run_dir: Path) -> Path:
         "",
         "## Playtest Profile",
         f"- Run ID: {metadata.get('run_id', 'unknown')}",
-        f"- Audit Profile: {metadata.get('audit_profile', 'baseline')}",
-        f"- Player Profile: {metadata.get('player_profile', 'unknown')}",
+        f"- Audit Profile: {display_metadata['audit_profile']}",
+        f"- Player Profile: {display_metadata['player_profile']}",
         f"- Module Coverage: {_format_csv(metadata.get('module_coverage', []))}",
         f"- Subsystems Covered: {_format_csv(metadata.get('subsystems_covered', []))}",
         "",

@@ -39,6 +39,11 @@ coc_npc_persona = _load_sibling("coc_npc_persona", "coc_npc_persona.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
+coc_threat_state = _load_sibling("coc_threat_state", "coc_threat_state.py")
+coc_scenario_compile = _load_sibling("coc_scenario_compile", "coc_scenario_compile.py")
+coc_director_strategies = _load_sibling("coc_director_strategies", "coc_director_strategies.py")
+coc_epistemic_policy = _load_sibling("coc_epistemic_policy", "coc_epistemic_policy.py")
+coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
 
 coc_time = None
 try:
@@ -56,6 +61,7 @@ _NON_PLAYER_ROLL_ROLES = {"npc", "enemy", "opponent", "adversary", "monster"}
 _SCENE_PROGRESS_KEYS = (
     "scene_kind",
     "scene_tags",
+    "time_profile",
     "authority_demands",
     "responsibility_threats",
     "progress_contract",
@@ -299,11 +305,24 @@ def _merge_live_active_scene(
     compiled_scene: dict[str, Any],
     active_scene_state: dict[str, Any],
     scenario_doc: dict[str, Any],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """Overlay live save affordances onto the compiled scene without changing plot data."""
-    if not active_scene_state:
-        return compiled_scene
+    warnings: list[dict[str, str]] = []
     merged = dict(compiled_scene)
+    if "time_profile" in merged:
+        profile, reason_code = _validate_time_profile(merged.get("time_profile"))
+        if profile is None:
+            merged.pop("time_profile", None)
+            if reason_code is not None:
+                warnings.append({
+                    "field": "time_profile",
+                    "source": "compiled_scene",
+                    "reason_code": reason_code,
+                })
+        else:
+            merged["time_profile"] = profile
+    if not active_scene_state:
+        return merged, warnings
     if active_scene_state.get("summary"):
         merged["live_summary"] = active_scene_state.get("summary")
 
@@ -335,19 +354,35 @@ def _merge_live_active_scene(
         merged[key] = current
 
     for key in _SCENE_PROGRESS_KEYS:
+        if key == "time_profile":
+            continue
         live_value = active_scene_state.get(key)
         if live_value not in (None, [], {}):
             merged[key] = live_value
 
+    compiled_scene_id = _text_or_none(compiled_scene.get("scene_id"))
+    live_scene_id = _text_or_none(active_scene_state.get("scene_id"))
+    same_scene = not compiled_scene_id or not live_scene_id or compiled_scene_id == live_scene_id
+    if same_scene and "time_profile" in active_scene_state:
+        profile, reason_code = _validate_time_profile(active_scene_state.get("time_profile"))
+        if profile is not None:
+            merged["time_profile"] = profile
+        elif reason_code is not None:
+            warnings.append({
+                "field": "time_profile",
+                "source": "runtime_active_scene",
+                "reason_code": reason_code,
+            })
+
     merged["source"] = "live-story-bridge.merged-active-scene"
-    return merged
+    return merged, warnings
 
 
 def _runtime_scene_from_live_state(
     active_scene_state: dict[str, Any],
     world: dict[str, Any],
     scenario_doc: dict[str, Any],
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
     scene_id = _text_or_none(active_scene_state.get("scene_id")) or _text_or_none(world.get("active_scene_id"))
     if not scene_id:
         scene_id = _text_or_none(scenario_doc.get("current_phase")) or "live-current-scene"
@@ -358,7 +393,7 @@ def _runtime_scene_from_live_state(
         or scenario_doc.get("summary")
         or scene_id
     )
-    return {
+    runtime_scene = {
         "scene_id": scene_id,
         "scene_type": active_scene_state.get("scene_type", "investigation"),
         "dramatic_question": (
@@ -377,10 +412,23 @@ def _runtime_scene_from_live_state(
         **{
             key: active_scene_state[key]
             for key in _SCENE_PROGRESS_KEYS
+            if key != "time_profile"
             if active_scene_state.get(key) not in (None, [], {})
         },
         "source": "live-story-bridge.active-scene",
     }
+    warnings: list[dict[str, str]] = []
+    if "time_profile" in active_scene_state:
+        profile, reason_code = _validate_time_profile(active_scene_state.get("time_profile"))
+        if profile is not None:
+            runtime_scene["time_profile"] = profile
+        elif reason_code is not None:
+            warnings.append({
+                "field": "time_profile",
+                "source": "runtime_active_scene",
+                "reason_code": reason_code,
+            })
+    return runtime_scene, warnings
 
 
 def _story_graph_with_live_fallback(
@@ -388,31 +436,42 @@ def _story_graph_with_live_fallback(
     active_scene_state: dict[str, Any],
     world: dict[str, Any],
     scenario_doc: dict[str, Any],
-) -> tuple[dict[str, Any], str | None, dict[str, Any] | None]:
+) -> tuple[
+    dict[str, Any],
+    str | None,
+    dict[str, Any] | None,
+    list[dict[str, str]],
+]:
     story_graph = dict(story_graph or {"scenes": []})
     scenes = [s for s in story_graph.get("scenes", []) if isinstance(s, dict)]
     world_scene_id = _text_or_none(world.get("active_scene_id"))
     if world_scene_id:
         active_scene = next((s for s in scenes if s.get("scene_id") == world_scene_id), None)
         if active_scene is not None:
-            active_scene = _merge_live_active_scene(active_scene, active_scene_state, scenario_doc)
+            active_scene, warnings = _merge_live_active_scene(
+                active_scene, active_scene_state, scenario_doc
+            )
             scenes = [active_scene if s.get("scene_id") == world_scene_id else s for s in scenes]
             story_graph["scenes"] = scenes
-            return story_graph, world_scene_id, active_scene
+            return story_graph, world_scene_id, active_scene, warnings
 
     live_scene_id = _text_or_none(active_scene_state.get("scene_id"))
     if live_scene_id:
         active_scene = next((s for s in scenes if s.get("scene_id") == live_scene_id), None)
         if active_scene is not None:
-            active_scene = _merge_live_active_scene(active_scene, active_scene_state, scenario_doc)
+            active_scene, warnings = _merge_live_active_scene(
+                active_scene, active_scene_state, scenario_doc
+            )
             scenes = [active_scene if s.get("scene_id") == live_scene_id else s for s in scenes]
             story_graph["scenes"] = scenes
-            return story_graph, live_scene_id, active_scene
+            return story_graph, live_scene_id, active_scene, warnings
 
-    runtime_scene = _runtime_scene_from_live_state(active_scene_state, world, scenario_doc)
+    runtime_scene, warnings = _runtime_scene_from_live_state(
+        active_scene_state, world, scenario_doc
+    )
     if runtime_scene is None:
         story_graph["scenes"] = scenes
-        return story_graph, world_scene_id, None
+        return story_graph, world_scene_id, None, warnings
 
     runtime_id = runtime_scene.get("scene_id")
     scenes = [s for s in scenes if s.get("scene_id") != runtime_id]
@@ -420,7 +479,7 @@ def _story_graph_with_live_fallback(
     story_graph["schema_version"] = story_graph.get("schema_version", 1)
     story_graph["source"] = story_graph.get("source", "live-story-bridge")
     story_graph["scenes"] = scenes
-    return story_graph, str(runtime_id), runtime_scene
+    return story_graph, str(runtime_id), runtime_scene, warnings
 
 
 def build_director_context(
@@ -456,19 +515,42 @@ def build_director_context(
     character = _read_json(character_path, {})
     world = _read_json(save / "world-state.json", {})
     pacing = _read_json(save / "pacing-state.json", {})
+    combat_state = _read_json(save / "combat.json", {})
     _last_outcome = _read_last_roll_outcome(campaign_dir)
     module_meta = _read_json(scenario / "module-meta.json", {})
     scenario_doc = _read_json(scenario / "scenario.json", {})
     active_scene_state = _read_json(save / "active-scene.json", {})
-    story_graph, active_scene_id, active_scene = _story_graph_with_live_fallback(
-        _read_json(scenario / "story-graph.json", {"scenes": []}),
-        active_scene_state if isinstance(active_scene_state, dict) else {},
-        world if isinstance(world, dict) else {},
-        scenario_doc if isinstance(scenario_doc, dict) else {},
+    story_graph, active_scene_id, active_scene, validation_warnings = (
+        _story_graph_with_live_fallback(
+            _read_json(scenario / "story-graph.json", {"scenes": []}),
+            active_scene_state if isinstance(active_scene_state, dict) else {},
+            world if isinstance(world, dict) else {},
+            scenario_doc if isinstance(scenario_doc, dict) else {},
+        )
     )
+    scene_contract_findings = [
+        *coc_scenario_compile._check_scene_function_contract({
+            "story_graph": story_graph,
+        }),
+        *coc_scenario_compile._check_scene_affinity_contract({
+            "story_graph": story_graph,
+        }),
+    ]
+    if scene_contract_findings:
+        raise ValueError(scene_contract_findings[0]["message"])
     if active_scene_id:
         world = dict(world)
         world["active_scene_id"] = active_scene_id
+    active_scene_function = coc_scenario_compile.normalize_scene_function(active_scene or {})
+    if active_scene is not None:
+        active_scene = dict(active_scene)
+        active_scene.update(active_scene_function)
+        story_graph = dict(story_graph)
+        story_graph["scenes"] = [
+            active_scene if isinstance(item, dict) and item.get("scene_id") == active_scene_id
+            else item
+            for item in story_graph.get("scenes", [])
+        ]
 
     # --- rule signals ---
     char_derived = character.get("derived", {})
@@ -547,6 +629,7 @@ def build_director_context(
     signal_ctx = {
         "player_intent_class": player_intent_class,
         "player_intent_rich": player_intent_rich,
+        "validation_warnings": validation_warnings,
         "active_scene": active_scene,
     }
     rule_signals["low_agency_continue_count"] = _low_agency_continue_count(
@@ -576,12 +659,33 @@ def build_director_context(
     campaign_doc = _read_json(campaign_dir / "campaign.json", {})
     play_language = campaign_doc.get("play_language") or "zh-Hans"
 
+    authored_threats = _read_json(scenario / "threat-fronts.json", {"fronts": []})
+    affinity_findings = coc_scenario_compile._check_threat_affinity_contract({
+        "threat_fronts": authored_threats,
+    })
+    identity_findings = coc_scenario_compile._check_threat_clock_identity_contract({
+        "threat_fronts": authored_threats,
+    })
+    threat_findings = [*affinity_findings, *identity_findings]
+    if threat_findings:
+        raise ValueError(threat_findings[0]["message"])
+    persisted_threats = coc_threat_state.load_threat_state(save)
+    merged_threats = coc_threat_state.merge_threat_fronts(
+        authored_threats, persisted_threats
+    )
+    clue_graph = _read_json(scenario / "clue-graph.json", {"conclusions": []})
+    npc_agendas = _read_json(scenario / "npc-agendas.json", {"npcs": []})
+    a21_findings = coc_npc_state.validate_a21_contract(npc_agendas, clue_graph)
+    if a21_findings:
+        raise ValueError(a21_findings[0]["message"])
+
     return {
         "campaign_dir": campaign_dir,
         "investigator_id": investigator_id,
         "player_intent": player_intent,
         "player_intent_class": player_intent_class,
         "player_intent_rich": player_intent_rich,
+        "validation_warnings": validation_warnings,
         "play_language": play_language,
         # P1-8: expose the investigator's structured skills so downstream
         # enrichment (dialogue_comprehension tier) can gate foreign-dialogue
@@ -595,18 +699,27 @@ def build_director_context(
         "believer": inv_state.get("believer") is True,
         "active_scene_id": active_scene_id,
         "active_scene": active_scene,
+        "active_scene_function": active_scene_function,
         "structure_type": module_meta.get("structure_type", "branching_investigation"),
         "module_meta": module_meta,
         "story_graph": story_graph,
-        "clue_graph": _read_json(scenario / "clue-graph.json", {"conclusions": []}),
-        "npc_agendas": _read_json(scenario / "npc-agendas.json", {"npcs": []}),
+        "clue_graph": clue_graph,
+        "npc_agendas": npc_agendas,
+        "epistemic_graph": _read_json(scenario / "epistemic-graph.json", {"questions": [], "evidence_links": []}),
+        "reveal_contracts": _read_json(scenario / "reveal-contracts.json", {"contracts": []}),
+        "compile_confidence": _read_json(scenario / "compile-confidence.json", {"schema_version": 1, "nodes": []}),
+        "belief_state": coc_belief_state.read_belief_state(campaign_dir),
         "npc_state": _read_json(save / "npc-state.json", {"schema_version": 1, "npcs": {}}),
+        "director_strategy_state": _read_json(
+            save / "director-strategy-state.json", {"schema_version": 1}
+        ),
         "npc_state_writes": [],
-        "threat_fronts": _read_json(scenario / "threat-fronts.json", {"fronts": []}),
+        "threat_fronts": merged_threats,
         "pacing_map": _read_json(scenario / "pacing-map.json", {"pacing_curve": []}),
         "improvisation_boundaries": _read_json(scenario / "improvisation-boundaries.json", {}),
         "world_state": world,
         "rule_signals": rule_signals,
+        "combat_state": combat_state,
         "time_signals": time_signals,
         "sanity_engine_state": sanity_engine_state,
         "chase_state": chase_state,
@@ -1643,8 +1756,141 @@ _ACTION_TIME_PROFILES: dict[str, dict[str, Any]] = {
     "PAYOFF":   {"mode": "instant", "category": None, "delta_minutes": 0},
 }
 
+_TIME_PROFILE_KEYS = frozenset({"mode", "category", "delta_minutes"})
+_TIME_PROFILE_MODES = frozenset({
+    "none", "instant", "elapsed", "until", "downtime", "subsystem",
+})
 
-def _derive_time_advance(action: str, time_signals: dict[str, Any]) -> dict[str, Any]:
+
+def _time_cost_categories() -> dict[str, dict[str, Any]]:
+    catalog = coc_cache.load_json_cached(RULES_DIR / "time-costs.json")
+    categories = catalog.get("categories") if isinstance(catalog, dict) else None
+    return categories if isinstance(categories, dict) else {}
+
+
+def _validate_time_profile(
+    value: Any,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate a structured time profile against the canonical catalog."""
+    if value is None:
+        return None, None
+    if not isinstance(value, dict):
+        return None, "profile_must_be_object"
+    if set(value) - _TIME_PROFILE_KEYS:
+        return None, "unsupported_profile_fields"
+
+    category = value.get("category")
+    categories = _time_cost_categories()
+    if not isinstance(category, str) or category not in categories:
+        return None, "category_not_in_time_cost_catalog"
+
+    mode = value.get("mode")
+    if mode is not None and mode not in _TIME_PROFILE_MODES:
+        return None, "mode_not_in_time_profile_enum"
+
+    delta = value.get("delta_minutes")
+    if delta is not None:
+        if isinstance(delta, bool) or not isinstance(delta, int):
+            return None, "delta_minutes_must_be_integer"
+        if delta < 0:
+            return None, "delta_minutes_must_be_nonnegative"
+        bounds = categories[category]
+        if delta < int(bounds["min"]) or delta > int(bounds["max"]):
+            return None, "delta_minutes_outside_category_bounds"
+
+    normalized = {"category": category}
+    if mode is not None:
+        normalized["mode"] = mode
+    if delta is not None:
+        normalized["delta_minutes"] = delta
+    return normalized, None
+
+
+def _record_time_profile_warning(
+    ctx: dict[str, Any],
+    *,
+    source: str,
+    reason_code: str,
+) -> None:
+    warning = {
+        "field": "time_profile",
+        "source": source,
+        "reason_code": reason_code,
+    }
+    warnings = ctx.setdefault("validation_warnings", [])
+    if isinstance(warnings, list) and warning not in warnings:
+        warnings.append(warning)
+
+
+def _complete_time_profile(
+    profile: dict[str, Any],
+    *,
+    fallback: dict[str, Any],
+) -> dict[str, Any]:
+    """Fill a structured time profile without interpreting free text."""
+    completed = dict(fallback)
+    completed.update(profile)
+    category = completed.get("category")
+    if "delta_minutes" not in profile and isinstance(category, str):
+        bounds = _time_cost_categories().get(category)
+        if isinstance(bounds, dict) and "default" in bounds:
+            completed["delta_minutes"] = int(bounds["default"])
+    return completed
+
+
+def _structured_intent_time_category(ctx: dict[str, Any]) -> str | None:
+    """Return an exact catalog category emitted by structured intent routing."""
+    rich = ctx.get("player_intent_rich")
+    if not isinstance(rich, dict):
+        rich = {}
+    categories = _time_cost_categories()
+    for candidate in (
+        ctx.get("intent_detail"),
+        rich.get("intent_detail"),
+    ):
+        if isinstance(candidate, str) and candidate in categories:
+            return candidate
+    return None
+
+
+def _time_profile_for_action(action: str, ctx: dict[str, Any]) -> dict[str, Any]:
+    """Select an action's structured time profile in author-first priority.
+
+    Priority is an authored active-scene ``time_profile``, then an exact
+    category enum from structured intent metadata, then the action default.
+    Scene tags and player prose are never interpreted as intent.
+    """
+    fallback = dict(_ACTION_TIME_PROFILES.get(action, {"mode": "none"}))
+    scene = ctx.get("active_scene")
+    if not isinstance(scene, dict):
+        scene = {}
+
+    authored, reason_code = _validate_time_profile(scene.get("time_profile"))
+    if authored is not None:
+        return _complete_time_profile(authored, fallback=fallback)
+    if reason_code is not None:
+        _record_time_profile_warning(
+            ctx,
+            source="director_context",
+            reason_code=reason_code,
+        )
+
+    intent_category = _structured_intent_time_category(ctx)
+    if intent_category is not None:
+        return _complete_time_profile(
+            {"mode": "elapsed", "category": intent_category},
+            fallback=fallback,
+        )
+
+    return fallback
+
+
+def _derive_time_advance(
+    action: str,
+    time_signals: dict[str, Any],
+    *,
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Derive a time_advance proposal for the DirectorPlan.
 
     Combines the action's default time profile with the live time_signals
@@ -1655,7 +1901,7 @@ def _derive_time_advance(action: str, time_signals: dict[str, Any]) -> dict[str,
     if not time_signals:
         return {"mode": "none", "reason": "time layer not initialized"}
 
-    profile = _ACTION_TIME_PROFILES.get(action, {"mode": "none"})
+    profile = _time_profile_for_action(action, ctx or {})
     mode = profile.get("mode", "none")
     category = profile.get("category")
     delta = int(profile.get("delta_minutes", 0))
@@ -1844,6 +2090,12 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     policy = {"reveal": reveal, "withhold": list(secret_ids), "fallback_routes": fallback,
               "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff,
               "leads": leads, "delivery_warnings": delivery_warnings}
+    if selected_clue_id and isinstance(selected_clue, dict):
+        policy["delivery_kind"] = selected_clue.get("delivery_kind")
+        policy["source_npc_ids"] = [
+            str(npc_id) for npc_id in (selected_clue.get("source_npc_ids") or [])
+            if isinstance(npc_id, str) and npc_id.strip()
+        ]
     # G1: attach the winning affordance match so the narrator can make the
     # discovery feel earned (structured entities/verbs/skills only, no prose).
     if selected_clue_id and selected_clue_id in hit_by_clue:
@@ -2419,20 +2671,71 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
         scene_move = _build_scene_pressure_move(ctx)
         if scene_move is not None:
             return [scene_move]
-    for front in ctx.get("threat_fronts", {}).get("fronts", []):
-        for clock in front.get("clocks", []):
+    scene = ctx.get("active_scene") or {}
+    scene_id = str(ctx.get("active_scene_id") or scene.get("scene_id") or "")
+    scene_tags = {str(value) for value in scene.get("scene_tags", []) if value}
+    scene_factions = {str(value) for value in scene.get("faction_ids", []) if value}
+    scene_front_ids = set(scene.get("threat_front_ids") or [])
+    candidates: list[tuple[Any, ...]] = []
+    for front_index, front in enumerate(ctx.get("threat_fronts", {}).get("fronts", [])):
+        if not isinstance(front, dict):
+            continue
+        front_id = str(front.get("front_id") or "")
+        front_severity = front.get("severity", 0)
+        front_severity = front_severity if isinstance(front_severity, int) and not isinstance(front_severity, bool) else 0
+        for clock_index, clock in enumerate(front.get("clocks", [])):
+            if not isinstance(clock, dict):
+                continue
             current = _clock_segments(clock, "current_segments", 0)
-            if current < _clock_segments(clock, "segments", 6):
-                symptom = clock.get("on_tick_visible", ["tension rises"])
-                idx = min(current, len(symptom) - 1) if symptom else 0
-                moves.append({
-                    "clock_id": clock["clock_id"], "tick": 1,
-                    "visible_symptom": symptom[idx] if isinstance(symptom, list) and symptom else "tension rises",
-                    "reason": f"stalled_{ctx['rule_signals']['stalled_turns']}_turns" if ctx["rule_signals"]["stalled_turns"] else "pressure_action",
-                })
-                break
-        if moves:
-            break
+            if current >= _clock_segments(clock, "segments", 6):
+                continue
+            severity_raw = clock.get("severity", front_severity)
+            severity = severity_raw if isinstance(severity_raw, int) and not isinstance(severity_raw, bool) else front_severity
+            scene_ids = {
+                str(value) for value in
+                [*(front.get("scene_ids") or []), *(clock.get("scene_ids") or [])]
+                if value
+            }
+            tags = {
+                str(value) for value in
+                [*(front.get("scene_tags_any") or []), *(clock.get("scene_tags_any") or [])]
+                if value
+            }
+            factions = {
+                str(value) for value in
+                [*(front.get("faction_ids") or []), *(clock.get("faction_ids") or [])]
+                if value
+            }
+            if scene_id and scene_id in scene_ids:
+                affinity_kind, matched, affinity_rank = "scene_ids", [scene_id], 4
+            elif front_id and front_id in scene_front_ids:
+                affinity_kind, matched, affinity_rank = "threat_front_ids", [front_id], 3
+            elif scene_tags & tags:
+                affinity_kind, matched, affinity_rank = "scene_tags_any", sorted(scene_tags & tags), 2
+            elif scene_factions & factions:
+                affinity_kind, matched, affinity_rank = "faction_ids", sorted(scene_factions & factions), 1
+            else:
+                affinity_kind, matched, affinity_rank = "fallback", [], 0
+            candidates.append((
+                -affinity_rank, -severity, front_id, str(clock.get("clock_id") or ""),
+                front_index, clock_index, front, {**clock, "_selection_reason": {
+                    "affinity_kind": affinity_kind,
+                    "matched_ids": matched,
+                    "front_id": front_id,
+                    "severity": severity,
+                }},
+            ))
+    if candidates:
+        _, _, _, _, _, _, _front, clock = min(candidates)
+        current = _clock_segments(clock, "current_segments", 0)
+        symptom = clock.get("on_tick_visible", ["tension rises"])
+        idx = min(current, len(symptom) - 1) if isinstance(symptom, list) and symptom else 0
+        moves.append({
+            "clock_id": clock["clock_id"], "tick": 1,
+            "visible_symptom": symptom[idx] if isinstance(symptom, list) and symptom else "tension rises",
+            "reason": f"stalled_{ctx['rule_signals']['stalled_turns']}_turns" if ctx["rule_signals"]["stalled_turns"] else "pressure_action",
+            "selection_reason": clock["_selection_reason"],
+        })
     return moves
 
 
@@ -2444,6 +2747,69 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
     # loss via SanitySession. This makes horror scenes (seeing carnage, witnessing
     # the entity) auto-trigger SAN checks without requiring a stalled player.
     requests: list[dict[str, Any]] = []
+    combat_state = ctx.get("combat_state") or {}
+    pending_attack = combat_state.get("pending_attack")
+    rich_intent = ctx.get("player_intent_rich") or {}
+    defense = rich_intent.get("combat_defense")
+    if isinstance(pending_attack, dict) and isinstance(defense, dict):
+        allowed = pending_attack.get("allowed_defenses") or []
+        defense_kind = defense.get("kind")
+        combat_revision = combat_state.get("revision")
+        if (
+            set(defense) == {"kind", "attack_command_id"}
+            and defense.get("attack_command_id")
+            == pending_attack.get("attack_command_id")
+            and pending_attack.get("target_actor_id") == ctx.get("investigator_id")
+            and defense_kind in allowed
+            and isinstance(combat_revision, int)
+            and not isinstance(combat_revision, bool)
+            and combat_revision >= 0
+        ):
+            # Defense is selected only from semantic-router structured output;
+            # never infer dodge/fight-back by scanning player prose.
+            return [{
+                "kind": "combat_defend",
+                "revision": combat_revision,
+                "actor_id": ctx["investigator_id"],
+                "attack_command_id": pending_attack["attack_command_id"],
+                "defense_kind": defense_kind,
+                "reason": "structured player combat defense",
+            }]
+    chase_action = rich_intent.get("chase_action")
+    chase_state = ctx.get("chase_state") or {}
+    if isinstance(chase_action, dict) and chase_state.get("active") is True:
+        action_kind = chase_action.get("kind")
+        request_kind = {
+            "move": "chase_move", "hazard": "chase_hazard",
+            "barrier": "chase_barrier", "conflict": "chase_conflict",
+            "end": "chase_end",
+        }.get(action_kind)
+        revision = chase_action.get("revision")
+        if (
+            request_kind is not None
+            and isinstance(revision, int) and not isinstance(revision, bool)
+            and revision >= 0
+            and revision == chase_state.get("revision")
+        ):
+            required = {"kind", "revision"}
+            if action_kind != "end":
+                required |= {"actor_id", "action_id"}
+            optional_by_kind = {
+                "move": set(), "hazard": {"skill", "target", "difficulty"},
+                "barrier": {"method", "skill", "target", "difficulty"},
+                "conflict": {"target_actor_id", "combat_command_id"},
+                "end": {"outcome"},
+            }
+            if set(chase_action) <= required | optional_by_kind[action_kind] and required <= set(chase_action):
+                return [{
+                    "kind": request_kind,
+                    **{key: value for key, value in chase_action.items() if key != "kind"},
+                    **(
+                        {"chase_id": chase_state.get("chase_id")}
+                        if action_kind == "end" else {}
+                    ),
+                    "reason": "structured semantic chase action",
+                }]
     scene = ctx.get("active_scene") or {}
     fired = set(ctx.get("world_state", {}).get("san_triggers_fired", []))
     for trig in (scene.get("on_enter") or {}).get("san_triggers", []) or []:
@@ -2452,7 +2818,17 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
         tid = trig.get("trigger_id") or trig.get("source", "")
         if tid and tid in fired:
             continue
-        requests.append({
+        involuntary = trig.get("involuntary_action")
+        if not isinstance(involuntary, dict):
+            involuntary = {}
+        involuntary_kind = trig.get(
+            "involuntary_kind", involuntary.get("kind", "freeze")
+        )
+        involuntary_summary = trig.get(
+            "involuntary_summary",
+            involuntary.get("summary", "freezes for a moment"),
+        )
+        request = {
             "kind": "sanity_check", "skill": "SAN",
             "reason": trig.get("source", "scene horror"),
             "difficulty": "regular", "bonus_penalty_dice": 0,
@@ -2460,6 +2836,9 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
             "san_loss_fail_expr": str(trig.get("san_loss_fail_expr", "1")),
             "source": trig.get("source", "scene horror"),
             "creature_type": trig.get("creature_type"),
+            "alone": trig.get("alone", False),
+            "involuntary_kind": involuntary_kind,
+            "involuntary_summary": involuntary_summary,
             "san_trigger_id": tid,
             "roll_contract": _roll_contract(
                 goal=trig.get("source", "withstand the immediate horror"),
@@ -2469,7 +2848,10 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 roll_density_group=f"san:{tid or scene.get('scene_id') or 'scene'}",
                 push_eligible=False,
             ),
-        })
+        }
+        if "module_bout_override" in trig:
+            request["module_bout_override"] = trig["module_bout_override"]
+        requests.append(request)
 
     # Danger attack profiles: in combat scenes (or when the player fights/flees),
     # resolve danger attacks as opposed checks so the engine drives combat
@@ -2544,16 +2926,17 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                                          "resolves (tick_bout_round/end_bout)."),
                      }}]
         if sig["hp_state"] == "dying":
-            return [{"kind": "characteristic_check", "skill": "CON", "reason": "death-clock CON roll",
-                     "difficulty": "regular", "bonus_penalty_dice": 0,
-                     "roll_contract": _roll_contract(
-                         goal="survive the death clock",
-                         success_effect="hold on a little longer",
-                         failure_effect="your condition worsens with immediate cost",
-                         failure_outcome_mode="goal_with_cost",
-                         roll_density_group="subsystem:death_clock",
-                         push_eligible=False,
-                     )}]
+            # The rescue engine owns the death clock and durable dead state.
+            # A generic CON check could narrate death without applying it.
+            return [{
+                "kind": "dying_tick",
+                "clock_kind": (
+                    "hour"
+                    if "stabilized" in set(sig.get("active_conditions") or [])
+                    else "round"
+                ),
+                "reason": "structured death-clock continuation",
+            }]
     if action == "REVEAL":
         # Only request a skill check when the revealed clue is obscured (its
         # delivery requires a die roll). Obvious clues — Handouts, direct gives,
@@ -2664,7 +3047,35 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     # the REVEAL skill-check decision matches the clue_type that lands in the
     # emitted plan (Spec v1.1 gap #1: obvious clues should not roll Spot Hidden).
     clue_policy = _select_clue_policy(ctx, action)
+    epistemic_contract = coc_epistemic_policy.plan_epistemic_contract(
+        ctx, clue_policy, action
+    )
     rules_requests = _build_rules_requests(ctx, action, clue_policy)
+    rich = ctx.get("player_intent_rich") if isinstance(ctx.get("player_intent_rich"), dict) else {}
+    for interaction in rich.get("npc_interactions") or []:
+        if not isinstance(interaction, dict):
+            continue
+        skill = interaction.get("skill")
+        request_id = interaction.get("request_id")
+        if not isinstance(skill, str) or not skill.strip() or not isinstance(request_id, str) or not request_id.strip():
+            continue
+        rules_requests.append({
+            "kind": "skill_check",
+            "skill": skill.strip(),
+            "difficulty": interaction.get("difficulty")
+            if interaction.get("difficulty") in {"regular", "hard", "extreme"}
+            else "regular",
+            "request_id": request_id.strip(),
+            "reason": "structured_npc_interaction",
+            "roll_contract": _roll_contract(
+                goal="resolve the declared NPC interaction tactic",
+                success_effect="apply the tactic's bounded structured success effect",
+                failure_effect="apply the tactic's bounded structured failure effect",
+                failure_outcome_mode="social_position_change",
+                roll_density_group=f"npc-interaction:{request_id.strip()}",
+                push_eligible=False,
+            ),
+        })
     npc_moves = _build_npc_moves(ctx, action)
     npc_agency_requests: list[dict[str, Any]] = []
     for move in npc_moves:
@@ -2703,6 +3114,44 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     if tension_target in ("high", "climax") and action not in ("RECOVER", "MONTAGE"):
         tension_delta = max(tension_delta, 1)
 
+    explicit_mode = scene.get("render_mode")
+    if explicit_mode not in {"investigation", "social", "pressure", "crisis"}:
+        if scene.get("scene_type") == "crisis" or action == "SUBSYSTEM":
+            explicit_mode = "crisis"
+        elif action == "PRESSURE":
+            explicit_mode = "pressure"
+        elif action in {"REVEAL", "DEEPEN", "RECOVER"}:
+            explicit_mode = "investigation"
+        else:
+            explicit_mode = "social"
+
+    structure_type = (ctx.get("module_meta") or {}).get("structure_type")
+    strategy_signal_findings: list[dict[str, Any]] = []
+    if structure_type == "time_loop":
+        time_loop_signals, strategy_signal_findings = (
+            coc_director_strategies.validate_time_loop_signals({
+                "loop_boundary": scene.get("loop_boundary", False),
+                "player_retained_memory_ids": scene.get(
+                    "player_retained_memory_ids", []
+                ),
+            })
+        )
+        strategy_signals = time_loop_signals
+    elif structure_type == "multi_faction":
+        strategy_signals = {
+            "factions": (ctx.get("module_meta") or {}).get("factions") or [],
+        }
+    else:
+        strategy_signals = {}
+    strategy_result = coc_director_strategies.compile_strategy(
+        ctx.get("module_meta") or {}, ctx.get("director_strategy_state") or {}, strategy_signals
+    )
+    if strategy_signal_findings:
+        strategy_result["capability_findings"] = [
+            *strategy_signal_findings,
+            *(strategy_result.get("capability_findings") or []),
+        ]
+
     # Dying (and any future override carrying extra_pressure) forces PRESSURE
     # clock-ticks even though the chosen action is SUBSYSTEM. _build_pressure_moves
     # gates on action ∈ {PRESSURE, RECOVER}, so feed it "PRESSURE" directly here.
@@ -2737,6 +3186,11 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "horror_escalation_stage": horror_stage,
         "content_constraints": ctx.get("module_meta", {}).get("content_flags", []),
         "player_facing_style": _player_facing_style(ctx.get("play_language") or "zh-Hans"),
+        "render_mode": explicit_mode,
+        "horror_profile": coc_narration_style.build_horror_profile(
+            ctx.get("module_meta") or {}, scene,
+            {"horror_stage": horror_stage},
+        ),
     }
     # Layer-3 Fair Warning (p.209): downgrade lethal structured evidence while
     # lethal_chances_used < 3; attach fair_warning directive for apply/narration.
@@ -2780,32 +3234,43 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         for c in mem_cards
     ]
 
-    time_advance = _derive_time_advance(action, ctx.get("time_signals", {}))
+    time_advance = _derive_time_advance(
+        action,
+        ctx.get("time_signals", {}),
+        ctx=ctx,
+    )
 
     plan: dict[str, Any] = {
         "decision_id": decision_id,
         "turn_input": {
             "player_intent": ctx["player_intent"],
             "player_intent_class": ctx["player_intent_class"],
+            "player_intent_rich": ctx.get("player_intent_rich") or {},
             "active_scene_id": ctx["active_scene_id"],
             "turn_number": ctx["turn_number"],
         },
         "scene_action": action,
         "subsystem": subsystem,
         "dramatic_question": scene.get("dramatic_question", ""),
+        "scene_function": dict(ctx["active_scene_function"]),
         "pacing_mode": pacing_mode,
         "tension_target": tension_target,
         "tension_delta": tension_delta,
         "rule_signals": ctx["rule_signals"],
         "time_signals": ctx.get("time_signals", {}),
         "time_advance": time_advance,
+        "validation_warnings": list(ctx.get("validation_warnings") or []),
         "clue_policy": clue_policy,
+        "epistemic_contract": epistemic_contract,
         "npc_moves": npc_moves,
         "npc_state_writes": ctx.get("npc_state_writes", []),
         "pressure_moves": pressure_moves,
         "rules_requests": rules_requests,
         "memory_reads": memory_reads,
         "memory_writes": [],
+        "director_strategy_state": strategy_result.get("strategy_state") or {},
+        "faction_rankings": strategy_result.get("faction_rankings") or [],
+        "capability_findings": strategy_result.get("capability_findings") or [],
         "narrative_directives": narrative_directives,
         "handoff": handoff,
         "rationale": overrides["rationale"] if overrides else f"top-scored action {action} (score={scores.get(action, 0)})",

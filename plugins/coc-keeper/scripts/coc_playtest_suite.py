@@ -536,7 +536,11 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
     for playtest_path in sorted(base.glob("*/playtest.json")):
         run_dir = playtest_path.parent
         metadata = _read_json(playtest_path, {})
-        battle_text = _read_text(run_dir / "artifacts" / "battle-report.md")
+        battle_text = _read_text(
+            run_dir / "artifacts" / "battle-report.md"
+            if (run_dir / "artifacts" / "battle-report.md").exists()
+            else run_dir / "artifacts" / "verification-sample.md"
+        )
         run_id = str(metadata.get("run_id") or run_dir.name)
         context = _coverage_context(run_dir, metadata, battle_text, run_id)
         raw_evaluation = evaluator.evaluate_run(context)
@@ -929,7 +933,11 @@ def write_semantic_eval_requests(root: Path) -> list[Path]:
         run_dir = playtest_path.parent
         metadata = _read_json(playtest_path, {})
         run_id = str(metadata.get("run_id") or run_dir.name)
-        battle_text = _read_text(run_dir / "artifacts" / "battle-report.md")
+        battle_text = _read_text(
+            run_dir / "artifacts" / "battle-report.md"
+            if (run_dir / "artifacts" / "battle-report.md").exists()
+            else run_dir / "artifacts" / "verification-sample.md"
+        )
         context = _coverage_context(run_dir, metadata, battle_text, run_id)
         request_path = run_dir / "artifacts" / SEMANTIC_EVAL_REQUEST
         _write_json(request_path, _semantic_eval_request(context))

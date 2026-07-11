@@ -1,0 +1,294 @@
+{
+  "scenario_id": "fixture-branching-investigation",
+  "epistemic_graph": {
+    "schema_version": 2,
+    "questions": [
+      {
+        "question_id": "q-fact",
+        "layer": "fact",
+        "player_facing_question": "Was the record changed?",
+        "truth_ref": "truth-record-changed",
+        "importance": "major",
+        "opens_questions": [
+          "q-motive"
+        ],
+        "closes_when": {
+          "kind": "clue_any",
+          "clue_ids": [
+            "clue-fact"
+          ]
+        }
+      },
+      {
+        "question_id": "q-motive",
+        "layer": "motive",
+        "player_facing_question": "Why was the record changed?",
+        "truth_ref": "truth-protect-witness",
+        "importance": "critical",
+        "opens_questions": [
+          "q-structure"
+        ],
+        "closes_when": {
+          "kind": "evidence_count",
+          "clue_ids": [
+            "clue-fact",
+            "clue-motive",
+            "clue-reframe"
+          ],
+          "count": 2
+        }
+      },
+      {
+        "question_id": "q-structure",
+        "layer": "structure",
+        "player_facing_question": "Who maintains the wider system?",
+        "truth_ref": "truth-wider-system",
+        "importance": "major",
+        "closes_when": {
+          "kind": "payoff"
+        }
+      }
+    ],
+    "evidence_links": [
+      {
+        "clue_id": "clue-fact",
+        "question_id": "q-fact",
+        "effect": "confirm",
+        "strength": 0.82
+      },
+      {
+        "clue_id": "clue-motive",
+        "question_id": "q-motive",
+        "effect": "complicate",
+        "strength": 0.88
+      },
+      {
+        "clue_id": "clue-reframe",
+        "question_id": "q-motive",
+        "effect": "reframe",
+        "strength": 0.96
+      },
+      {
+        "clue_id": "clue-mixed",
+        "question_id": "q-fact",
+        "effect": "confirm",
+        "strength": 0.7
+      },
+      {
+        "clue_id": "clue-mixed",
+        "question_id": "q-motive",
+        "effect": "complicate",
+        "strength": 0.9
+      }
+    ]
+  },
+  "reveal_contracts": {
+    "schema_version": 2,
+    "contracts": [
+      {
+        "reveal_contract_id": "rc-motive",
+        "mode": "reframe",
+        "target_question_id": "q-motive",
+        "trigger_clue_ids": [
+          "clue-reframe"
+        ],
+        "preserve_as_true": [
+          "truth-record-changed"
+        ],
+        "revise_hypothesis_kinds": [
+          "culprit-theory"
+        ],
+        "setup_refs": [
+          "clue-fact",
+          "clue-motive"
+        ],
+        "opens_questions": [
+          "q-structure"
+        ],
+        "explanation_targets": [
+          "why-one-name-was-preserved"
+        ],
+        "must_not": [
+          "do not invalidate the established alteration"
+        ]
+      }
+    ]
+  },
+  "compile_confidence": {
+    "schema_version": 1,
+    "default_threshold": 0.8,
+    "nodes": [
+      {
+        "node_type": "question",
+        "node_id": "q-motive",
+        "semantic_confidence": 0.94,
+        "source_confidence": 0.9,
+        "effective_confidence": 0.9,
+        "review_state": "auto_accepted"
+      },
+      {
+        "node_type": "reveal_contract",
+        "node_id": "rc-motive",
+        "semantic_confidence": 0.93,
+        "source_confidence": 0.89,
+        "effective_confidence": 0.89,
+        "review_state": "auto_accepted"
+      }
+    ]
+  },
+  "initial_belief_state": {
+    "schema_version": 2,
+    "active_question_ids": [
+      "q-fact"
+    ],
+    "answered_question_ids": [],
+    "applied_effect_ids": [],
+    "hypotheses": [
+      {
+        "hypothesis_id": "hyp-fact",
+        "owner": "party",
+        "question_id": "q-fact",
+        "hypothesis_kind": "record-altered",
+        "claim": "Someone changed the record.",
+        "confidence": 0.7,
+        "status": "active",
+        "supporting_clue_ids": [],
+        "challenging_clue_ids": [],
+        "recent_treatments": []
+      },
+      {
+        "hypothesis_id": "hyp-motive",
+        "owner": "party",
+        "question_id": "q-motive",
+        "hypothesis_kind": "culprit-theory",
+        "claim": "The clerk changed it to aid the conspiracy.",
+        "confidence": 0.65,
+        "status": "active",
+        "supporting_clue_ids": [],
+        "challenging_clue_ids": [],
+        "recent_treatments": []
+      }
+    ]
+  },
+  "turns": [
+    {
+      "clue_id": "clue-fact",
+      "expected_mode": "CONFIRM"
+    },
+    {
+      "clue_id": "clue-motive",
+      "expected_mode": "COMPLICATE"
+    },
+    {
+      "clue_id": "clue-reframe",
+      "expected_mode": "REFRAME"
+    }
+  ],
+  "storylets": [
+    {
+      "storylet_id": "story-confirm-fact",
+      "title": "Confirm the observable alteration",
+      "family_id": "cognitive-confirm",
+      "trope_id": "evidence-locks-in",
+      "conflict_level": "low",
+      "base_weight": 1.0,
+      "scene_actions": [
+        "REVEAL"
+      ],
+      "eligible_scene_types": [
+        "investigation"
+      ],
+      "horror_stage": [
+        "wrongness"
+      ],
+      "epistemic_functions": [
+        "confirm"
+      ],
+      "question_layers": [
+        "fact"
+      ],
+      "requires_reveal_contract": false,
+      "serves": {
+        "mainline": true,
+        "can_reveal_clue": true
+      },
+      "requires": {},
+      "anti_repeat": {
+        "max_per_session": 1,
+        "exclude_if_family_used_recently": false,
+        "exclude_if_trope_used_recently": false
+      },
+      "cue": "The physical alteration is now undeniable."
+    },
+    {
+      "storylet_id": "story-complicate-motive",
+      "title": "Complicate the apparent motive",
+      "family_id": "cognitive-complicate",
+      "trope_id": "motive-cost-shifts",
+      "conflict_level": "low",
+      "base_weight": 1.0,
+      "scene_actions": [
+        "REVEAL"
+      ],
+      "eligible_scene_types": [
+        "investigation"
+      ],
+      "horror_stage": [
+        "wrongness"
+      ],
+      "epistemic_functions": [
+        "complicate"
+      ],
+      "question_layers": [
+        "motive"
+      ],
+      "requires_reveal_contract": false,
+      "serves": {
+        "mainline": true,
+        "can_reveal_clue": true
+      },
+      "requires": {},
+      "anti_repeat": {
+        "max_per_session": 1,
+        "exclude_if_family_used_recently": false,
+        "exclude_if_trope_used_recently": false
+      },
+      "cue": "A second consequence makes the simple motive unstable."
+    },
+    {
+      "storylet_id": "story-reframe-motive",
+      "title": "Reframe the established motive",
+      "family_id": "cognitive-reframe",
+      "trope_id": "old-fact-new-meaning",
+      "conflict_level": "low",
+      "base_weight": 1.0,
+      "scene_actions": [
+        "REVEAL"
+      ],
+      "eligible_scene_types": [
+        "investigation"
+      ],
+      "horror_stage": [
+        "wrongness"
+      ],
+      "epistemic_functions": [
+        "reframe"
+      ],
+      "question_layers": [
+        "motive"
+      ],
+      "requires_reveal_contract": true,
+      "serves": {
+        "mainline": true,
+        "can_reveal_clue": true
+      },
+      "requires": {},
+      "anti_repeat": {
+        "max_per_session": 1,
+        "exclude_if_family_used_recently": false,
+        "exclude_if_trope_used_recently": false
+      },
+      "cue": "The old facts remain true while their purpose changes."
+    }
+  ]
+}

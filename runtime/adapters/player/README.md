@@ -10,7 +10,8 @@ for the Keeper). The player adapter is a separate match-harness bridge.
 **Key insight:** this repo is an AI-coding plugin, so the live “player LLM” is
 the same class of brain as the KP — the AI coding tool’s own LLM via
 [Pi Coding Agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
-(`@earendil-works/pi-coding-agent@0.79.9`), one process per turn, single
+(`@earendil-works/pi-coding-agent@0.79.9`), a scoped persistent server worker
+across turns (with one-shot compatibility), single
 allowlisted custom tool, auth via Pi’s normal discovery.
 
 ## Install
@@ -31,8 +32,8 @@ API keys.
 
 | File | Role |
 |------|------|
-| `adapter.py` | Python wrapper: `player_send_turn(request) -> {player_text, player_notes?, intent_class?}` |
-| `run_player_turn.mjs` | Real Pi bridge: stdin JSON → stdout `{ok, player_text\|error}` |
+| `adapter.py` | Python wrapper: `player_send_turn(request) -> {player_text, player_notes?, intent_class?, model_identity?, response_mode?}` |
+| `run_player_turn.mjs` | Real Pi bridge: stdin JSON → stdout `{ok, player_text\|error, model_identity?, response_mode?}` |
 | `package.json` | Node dependency pin |
 
 ## Live match (AI coding tool LLM as investigator)
@@ -43,7 +44,7 @@ cd runtime/adapters/player && npm install
 
 # 2) Ensure Pi auth is configured (same as KP pi adapter)
 
-# 3) Run a live match — --live marks evidence-eligible metadata
+# 3) Run a match — --live records only the user's live-play claim
 python3 plugins/coc-keeper/scripts/coc_live_match.py \
   --workspace /path/to/workspace \
   --campaign <campaign_id> \
@@ -53,12 +54,20 @@ python3 plugins/coc-keeper/scripts/coc_live_match.py \
   --max-turns 20
 ```
 
-Any stdin/stdout-JSON runner still works for other hosts (pass `--runner` to a
-custom executable). Non-`.mjs` / non-`.js` paths are executed directly so tests
-and alternate hosts can supply a tiny Python fake without Node.
+Any stdin/stdout-JSON runner still works for development and other hosts (pass
+`--runner` to a custom executable). Non-`.mjs` / non-`.js` paths are executed
+directly so tests and alternate hosts can supply a tiny Python fake without
+Node. Only the repository's canonical adapter path and exact checked-in digest
+in `plugins/coc-keeper/references/trusted-playtest-runners.json` can qualify as
+an evidence-grade player runner.
 
-Only `--live` may stamp `simulation_method=live_llm_player_vs_kp`. Scripted /
-fake runners must omit `--live` (AGENTS.md evidence standard).
+`--live` records `user_claimed_live` only. Gameplay-evidence eligibility comes
+from `evidence.json`: repository-owned runner trust, the runtime-selected model
+identity, counts derived from `runner-invocations.jsonl`, and verified hashes of
+that ledger, the transcript, and event logs. Caller provenance and caller turn
+counts are non-authoritative. Scripted, fake, modified, or unknown runners
+remain ineligible even when `--live` is present; a canonical invocation without
+a valid model identity also fails closed.
 
 ## Request / response
 
@@ -85,9 +94,15 @@ It does not add fields to the request.
   "ok": true,
   "player_text": "...",
   "player_notes": "optional out-of-character reasoning",
-  "intent_class": "optional canonical intent enum value"
+  "intent_class": "optional canonical intent enum value",
+  "model_identity": {"provider": "actual-provider", "id": "actual-model-id"},
+  "response_mode": "tool"
 }
 ```
+
+The canonical Node bridge reads `model_identity` from the selected Pi session
+model. `response_mode` is `tool` or `prose_fallback`; it is recorded in the
+invocation ledger so prose degradation is counted rather than hidden.
 
 `player_notes` are stored for the battle report and must never be fed back into KP.
 

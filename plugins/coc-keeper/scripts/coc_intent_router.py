@@ -27,7 +27,8 @@ depends on the *meaning* of the text is routed through the evaluator.
 The Story Director still accepts the legacy ``player_intent_class`` string
 directly (backward compatible); this router is an OPTIONAL enrichment layer
 for callers that want to surface secondary intents, target entities, risk
-posture, explicit roll requests and player hypotheses before directing.
+posture, exact time-category detail, explicit roll requests and player
+hypotheses before directing.
 
 Public API:
     parse_intent(player_text, active_scene=None) -> dict
@@ -62,6 +63,27 @@ _PRIMARY_INTENT_ENUM = (
     "investigate", "social", "move", "combat", "flee", "meta", "stuck", "idle",
     "ambiguous", "montage", "cast",
 )
+
+
+def _load_time_category_enum() -> tuple[str, ...]:
+    """Load exact structured time categories from the canonical rule catalog."""
+    path = (
+        Path(__file__).resolve().parent.parent
+        / "references"
+        / "rules-json"
+        / "time-costs.json"
+    )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ()
+    categories = payload.get("categories") if isinstance(payload, dict) else None
+    if not isinstance(categories, dict):
+        return ()
+    return tuple(str(category) for category in categories)
+
+
+_TIME_CATEGORY_ENUM = _load_time_category_enum()
 
 
 def _json_sha256(payload: Any) -> str:
@@ -112,7 +134,7 @@ class LLMIntentEvaluator:
     must make (with the Constitution embedded), then expects an external LLM
     (e.g. Codex) to read it and write ``intent-eval-result.json`` carrying
     ``evaluator_id``, ``evaluation_provenance`` (with a matching
-    ``request_sha256``), the six intent fields, and per-field ``reasons``.
+    ``request_sha256``), the structured intent fields, and per-field ``reasons``.
     This mirrors the request/result contract in ``coc_playtest_suite.py``.
     """
 
@@ -145,7 +167,10 @@ class LLMIntentEvaluator:
                     "whether particular keywords appear. For example, '打电话' "
                     "(make a phone call) is social/utility, NOT combat despite "
                     "the character '打'; '离开房间' (leave a room) is movement, "
-                    "NOT flee. Provide a non-empty reason for primary_intent."
+                    "NOT flee. Provide a non-empty reason for primary_intent. "
+                    "When intent_detail is present, choose one exact time-category "
+                    "enum and provide reasons.intent_detail; never emit free prose "
+                    "as a time category."
                 ),
                 "reference": "docs/superpowers/specs/2026-07-03-coc-keeper-design.md:541",
             },
@@ -166,6 +191,16 @@ class LLMIntentEvaluator:
                 ],
                 "primary_intent_enum": list(_PRIMARY_INTENT_ENUM),
                 "risk_posture_enum": ["cautious", "neutral", "reckless"],
+                "optional": ["intent_detail", "npc_interactions"],
+                "npc_interaction_schema": {
+                    "required": ["npc_id", "tactic", "request_id"],
+                    "tactic_enum": [
+                        "build_rapport", "intimidate", "deceive", "reassure",
+                        "request_fact", "offer_leverage",
+                    ],
+                    "optional": ["fact_id", "leverage_id", "skill", "difficulty"],
+                },
+                "intent_detail_enum": list(_TIME_CATEGORY_ENUM),
                 "evaluation_provenance": {
                     "kind": "llm",
                     "request_sha256": "<sha256 of canonical JSON of this request>",
@@ -233,12 +268,24 @@ class LLMIntentEvaluator:
         reasons = result.get("reasons")
         if not isinstance(reasons, dict) or not reasons.get("primary_intent"):
             errors.append("reasons.primary_intent must be a non-empty string")
+        intent_detail = result.get("intent_detail")
+        if intent_detail is not None:
+            if intent_detail not in _TIME_CATEGORY_ENUM:
+                errors.append(
+                    f"intent_detail {intent_detail!r} not in time category enum "
+                    f"{_TIME_CATEGORY_ENUM}"
+                )
+            if not isinstance(reasons, dict) or not reasons.get("intent_detail"):
+                errors.append(
+                    "reasons.intent_detail must be a non-empty string when "
+                    "intent_detail is present"
+                )
         return errors
 
     def _parse_result(self, result: dict[str, Any]) -> dict[str, Any]:
         # The result already passed schema validation; surface the rich
         # contract fields consumed by the director and enrichment layers.
-        return {
+        parsed = {
             "primary_intent": result["primary_intent"],
             "secondary_intents": list(result.get("secondary_intents") or []),
             "target_entities": list(result.get("target_entities") or []),
@@ -246,7 +293,11 @@ class LLMIntentEvaluator:
             "explicit_roll_request": bool(result.get("explicit_roll_request", False)),
             "player_hypothesis": result.get("player_hypothesis"),
             "action_atoms": [a for a in (result.get("action_atoms") or []) if isinstance(a, dict)],
+            "npc_interactions": _normalize_npc_interactions(result.get("npc_interactions")),
         }
+        if result.get("intent_detail") in _TIME_CATEGORY_ENUM:
+            parsed["intent_detail"] = result["intent_detail"]
+        return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +343,7 @@ def parse_intent(
             "explicit_roll_request": bool,
             "player_hypothesis": str | None,
             "action_atoms": list[dict],
+            "intent_detail": str | None,  # exact time-cost category; optional
         }
 
     Machine-controlled signals (no semantic judgment, Constitution carve-out):
@@ -313,7 +365,56 @@ def parse_intent(
         return _meta_result()
 
     chosen = evaluator or _DEFAULT_EVALUATOR or LLMIntentEvaluator()
-    return chosen.classify(text, active_scene)
+    return _normalize_evaluator_result(chosen.classify(text, active_scene))
+
+
+def _normalize_evaluator_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Fail closed on optional structured fields from injected evaluators."""
+    normalized = dict(result)
+    normalized["npc_interactions"] = _normalize_npc_interactions(
+        normalized.get("npc_interactions")
+    )
+    intent_detail = normalized.get("intent_detail")
+    if intent_detail is not None and intent_detail not in _TIME_CATEGORY_ENUM:
+        normalized.pop("intent_detail", None)
+        warnings = list(normalized.get("normalization_warnings") or [])
+        warnings.append({
+            "field": "intent_detail",
+            "reason_code": "not_in_time_cost_category_enum",
+        })
+        normalized["normalization_warnings"] = warnings
+    return normalized
+
+
+_NPC_TACTICS = frozenset({
+    "build_rapport", "intimidate", "deceive", "reassure",
+    "request_fact", "offer_leverage",
+})
+
+
+def _normalize_npc_interactions(value: Any) -> list[dict[str, Any]]:
+    """Closed-schema semantic output; never infer omitted fields from prose."""
+    normalized: list[dict[str, Any]] = []
+    for item in value or []:
+        if not isinstance(item, dict):
+            continue
+        npc_id = item.get("npc_id")
+        tactic = item.get("tactic")
+        request_id = item.get("request_id")
+        if tactic not in _NPC_TACTICS or not isinstance(request_id, str) or not request_id.strip():
+            continue
+        row = {
+            "npc_id": str(npc_id).strip() if isinstance(npc_id, str) else "",
+            "tactic": tactic,
+            "request_id": request_id.strip(),
+        }
+        for key in ("fact_id", "leverage_id", "skill"):
+            if isinstance(item.get(key), str) and item[key].strip():
+                row[key] = item[key].strip()
+        if item.get("difficulty") in {"regular", "hard", "extreme"}:
+            row["difficulty"] = item["difficulty"]
+        normalized.append(row)
+    return normalized
 
 
 def _idle_result() -> dict[str, Any]:
@@ -325,6 +426,7 @@ def _idle_result() -> dict[str, Any]:
         "explicit_roll_request": False,
         "player_hypothesis": None,
         "action_atoms": [],
+        "npc_interactions": [],
     }
 
 
@@ -337,4 +439,5 @@ def _meta_result() -> dict[str, Any]:
         "explicit_roll_request": False,
         "player_hypothesis": None,
         "action_atoms": [],
+        "npc_interactions": [],
     }

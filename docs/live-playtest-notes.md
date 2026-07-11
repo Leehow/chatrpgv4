@@ -1,7 +1,11 @@
 # Live Playtest Notes
 
+> **HISTORICAL EVIDENCE ONLY.** Live issue status is maintained in `docs/status/CURRENT.md`.
+
 This notebook records issues found during live human playtests, especially
 workflow friction that does not belong in automated battle-report fixtures.
+It preserves dated observations and resolutions; it is not a second live
+status ledger.
 
 ## 2026-07-08
 
@@ -120,11 +124,20 @@ workflow friction that does not belong in automated battle-report fixtures.
   `pregen-investigators.json`. Installing a starter now generates a player-safe
   character creation briefing, and `coc-keeper-play` requires player-created or
   player-confirmed investigators before entering the opening scene.
-## Open - Director Time Advance In Extreme Cold Scenes
+## Fixed - Director Time Advance In Extreme Cold Scenes
 
+- Status: fixed
 - Found during live White War test on 2026-07-08: an ordinary `REVEAL` / observe-surroundings action in an outdoor extreme-cold scene inherited the generic `single_room_search` 20-minute time advance.
 - In White War style cold-exposure scenes, generic room-search time can multiply fatigue unfairly or require manual correction.
 - Expected fix: time advancement should consider scene tags/environment pressure, especially `cold_exposure.interval_minutes`, and should allow short scans distinct from full searches.
+- Resolution: director time selection now prioritizes authored scene
+  `time_profile`, then exact structured intent detail/category, then the action
+  default. Structured `quick_observation` advances at most five minutes, while
+  authored or ordinary `single_room_search` remains 20 minutes. The live
+  regression
+  `test_live_turn_quick_observation_in_extreme_cold_persists_short_time_and_defers_exposure`
+  verifies the persisted clock delta and that the five-minute cold-exposure
+  trigger remains pending after a quick scan.
 ## Fixed - Director Should Escalate Repeated Continue / Follow Inputs
 
 - Found during live White War test on 2026-07-08: if the player repeatedly says variants of “继续 / 跟着大部队 / keep following” and the Keeper only advances descriptive scenery, the player becomes a passenger with no meaningful action point.

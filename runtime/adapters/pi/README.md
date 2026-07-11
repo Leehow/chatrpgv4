@@ -1,31 +1,31 @@
-# Pi brain adapter
+# Pi narrator adapter
 
-Constrained Node bridge that embeds [Pi Coding Agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) as the COC Keeper brain (`brain: "pi"` in `.coc/runtime.json`).
+`runtime/adapters/pi/` is the legacy-compatible Pi entrypoint for a single,
+bounded job: rendering player-safe Keeper narration after deterministic planner
+and rules execution have completed.
 
-## Install
+`brain: "pi"` in a v1 `.coc/runtime.json` migrates in memory to the v2 pipeline
+with `narrator.kind: "pi"`; it does not make Pi a rules engine or a proxy to the
+debug runtime. New configurations should use the explicit v2 pipeline.
 
-```bash
-cd runtime/adapters/pi && npm install
+## Transport
+
+`adapter.py` exposes `pi_narrate(request)`. It delegates to the narrator
+request sanitizer and accepts only:
+
+```json
+{
+  "narration_envelope": {},
+  "last_player_text": "",
+  "play_language": "zh-Hans",
+  "recent_narrations": []
+}
 ```
 
-This pins `@earendil-works/pi-coding-agent@0.79.9`. Do not commit `node_modules/`.
+`run_turn.mjs` is an import wrapper around the narrator Pi bridge. It supports
+one-shot stdin JSON and `--server` JSONL framing for a scoped persistent worker.
+The worker key is owned by Python and includes session, campaign, match, and
+role; model workers are never shared across those boundaries.
 
-## Auth / model
-
-Use Pi’s normal auth discovery (`~/.pi/agent` or environment variables). Do not commit secrets or API keys.
-
-## Layout
-
-| File | Role |
-|------|------|
-| `adapter.py` | Python wrapper: `pi_send_turn(request) -> events[]` |
-| `run_turn.mjs` | Stateless subprocess: stdin JSON → stdout `{ok, events\|error}` |
-| `call_debug.py` | Tool helper: runs the same `debug_send_turn` path as `brain=debug` |
-| `package.json` | Node dependency pin |
-
-## V1 behavior
-
-- One process invocation per turn (no Pi session file continuity).
-- Only custom tool `coc_live_turn` is allowlisted (no unconstrained edit/write).
-- If the model returns prose without the tool, stdout still has `ok: true` with a single `error` event (`kind=pi_missing_tool_use`).
-- If `coc_live_turn` is invoked but `call_debug` fails, the bridge marks the tool as used and returns `ok: true` with a single `error` event (`kind=pi_tool_failed`) instead of misreporting `pi_missing_tool_use`.
+No Pi tool can execute a turn, access a workspace path, or call the debug
+adapter. Deterministic rendering remains the fallback if narration fails.

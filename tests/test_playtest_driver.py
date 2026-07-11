@@ -1,6 +1,7 @@
 """Tests for coc_playtest_driver: multi-turn session runner."""
 import importlib.util
 import json
+import random
 import shutil
 from pathlib import Path
 
@@ -15,6 +16,8 @@ def _load(name, rel):
 
 
 driver = _load("coc_playtest_driver", "plugins/coc-keeper/scripts/coc_playtest_driver.py")
+scene_graph = _load("coc_scene_graph_task2", "plugins/coc-keeper/scripts/coc_scene_graph.py")
+coc_memory = _load("coc_memory_task2", "plugins/coc-keeper/scripts/coc_memory.py")
 
 
 def _build_mini_campaign(tmp_path):
@@ -64,6 +67,185 @@ def _build_mini_campaign(tmp_path):
     (scn / "module-meta.json").write_text(json.dumps(
         {"schema_version":1,"scenario_id":"drive","structure_type":"linear_acts","era":"1920s","content_flags":[],"win_condition":"x"}))
     return camp, char_dir / "character.json"
+
+
+def _persist_driver_push_offer(camp: Path, char_path: Path) -> dict:
+    origin = {
+        "command_id": "driver-push-origin",
+        "kind": "skill_check",
+        "phase": "resolve",
+        "payload": {
+            "decision_id": "driver-push-origin-decision",
+            "roll_id": "driver-push-origin-roll",
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+            "roll_contract": {
+                "push_policy": {
+                    "eligible": True,
+                    "requires_changed_method": True,
+                    "keeper_must_foreshadow_failure": True,
+                },
+            },
+            "resolution_context": {
+                "scene_action": "SUBSYSTEM",
+                "clue_policy": {},
+                "narrative_directives": {},
+                "rule_signals": {},
+            },
+        },
+    }
+    failed = driver.subsystem_executor.execute_commands(
+        camp, char_path, "inv1", [origin], rng=random.Random(5)
+    )[0]
+    assert failed["events"][0]["outcome"] == "failure"
+    offer = {
+        "command_id": "driver-persisted-push",
+        "kind": "push_offer",
+        "phase": "offer",
+        "payload": {
+            "decision_id": "driver-push-offer-decision",
+            "original_command_id": "driver-push-origin",
+            "changed_method_evidence": {
+                "changed": True,
+                "source": "player_proposal",
+                "summary": "inspect paper impressions instead of rereading",
+            },
+            "announced_consequence": {
+                "summary": "the watcher identifies the investigator",
+                "effect": {"kind": "fictional_position"},
+            },
+        },
+    }
+    return driver.subsystem_executor.execute_commands(
+        camp, char_path, "inv1", [offer], rng=random.Random(116)
+    )[0]
+
+
+def _persist_driver_bout(camp: Path, char_path: Path) -> dict:
+    character = json.loads(char_path.read_text())
+    character["characteristics"].update({"POW": 99, "INT": 99})
+    character["derived"]["SAN"] = 99
+    char_path.write_text(json.dumps(character))
+    return driver.subsystem_executor.execute_commands(
+        camp,
+        char_path,
+        "inv1",
+        [{
+            "command_id": "driver-bout-origin",
+            "kind": "sanity_check",
+            "phase": "resolve",
+            "payload": {
+                "decision_id": "driver-bout-decision",
+                "roll_id": "driver-bout-roll",
+                "san_loss_success": 5,
+                "san_loss_fail_expr": "5",
+                "source": "driver horror",
+                "alone": False,
+                "involuntary_kind": "flee",
+                "module_bout_override": {"force_mode": "real_time"},
+            },
+        }],
+        rng=random.Random(1),
+    )[0]
+
+
+def test_driver_projection_preserves_live_subsystem_result_without_reexecution():
+    subsystem_result = {
+        "command_id": "turn-001-rule-1",
+        "kind": "skill_check",
+        "status": "completed",
+        "events": [{"kind": "skill_check", "roll": 42, "success": True}],
+        "pending_choice": None,
+        "state_refs": ["logs/rolls.jsonl#turn-001-rule-1"],
+    }
+    live_turn = {
+        "decision_id": "turn-001",
+        "subsystem_results": [subsystem_result],
+        "pending_choice": None,
+        "rule_results": subsystem_result["events"],
+    }
+
+    projected = driver._project_driver_turn(live_turn, 1)
+
+    assert projected["subsystem_results"] == [subsystem_result]
+    assert projected["pending_choice"] is None
+    assert projected["rule_results"] == subsystem_result["events"]
+
+
+def test_driver_stops_on_canonical_persisted_pending_choice(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    offered = _persist_driver_push_offer(camp, char_path)
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "search", "intent_class": "investigate"}] * 3,
+        max_turns=3,
+        rng_seed=117,
+    )
+
+    assert result["pending_choice"] == offered["pending_choice"]
+    assert len(result["turns"]) == 1
+    assert result["turns"][0]["blocked_by_pending_choice"] is True
+
+
+def test_driver_forwards_scripted_typed_pending_choice_response(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    offered = _persist_driver_push_offer(camp, char_path)
+    choice = offered["pending_choice"]
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{
+            "pending_choice_response": {
+                "choice_id": choice["choice_id"],
+                "responder": "player",
+                "revision": choice["revision"],
+                "action": "cancel",
+            },
+        }],
+        max_turns=1,
+        rng_seed=118,
+    )
+
+    assert result["pending_choice"] is None
+    assert result["subsystem_results"][0]["status"] == "cancelled"
+
+
+def test_driver_continues_keeper_bout_when_next_scripted_responses_are_typed(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    started = _persist_driver_bout(camp, char_path)
+    choice = started["pending_choice"]
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[
+            {"pending_choice_response": {
+                "choice_id": choice["choice_id"],
+                "responder": "keeper",
+                "revision": 0,
+                "action": "tick",
+            }},
+            {"pending_choice_response": {
+                "choice_id": choice["choice_id"],
+                "responder": "keeper",
+                "revision": 1,
+                "action": "end",
+            }},
+        ],
+        max_turns=2,
+        rng_seed=119,
+    )
+
+    assert [row["kind"] for row in result["subsystem_results"]] == [
+        "bout_tick",
+        "bout_end",
+    ]
+    assert result["pending_choice"] is None
 
 
 def test_driver_advances_through_scenes(tmp_path):
@@ -469,7 +651,7 @@ def test_driver_writes_battle_report_with_gameplay_evidence(tmp_path):
     )
     battle_text = battle_path.read_text()
 
-    assert "## 实际跑团回放" in battle_text
+    assert "## Verification Replay" in battle_text
     assert "战役 ID: driver-report-campaign" in battle_text
     assert "我翻登记簿，同时让档案员盯着警卫" in battle_text
     assert "KP:" in battle_text
@@ -588,3 +770,240 @@ def test_choice_frame_prose_never_menu_dumps():
     assert "你留意到" in blob
     assert "敲门" not in blob  # only first two cues woven
 
+
+class _StaticLiveRunner:
+    def __init__(self, scene_id, event_types=None):
+        self.scene_id = scene_id
+        self.event_types = list(event_types or [])
+
+    def run_live_turn(self, *_args, **_kwargs):
+        return {
+            "turns": [
+                {
+                    "decision_id": "turn-001",
+                    "scene_id": self.scene_id,
+                    "action": "REVEAL",
+                    "pipeline": "run_live_turn",
+                    "apply_path": "coc_director_apply.apply_plan",
+                    "event_types": self.event_types,
+                }
+            ]
+        }
+
+
+def _write_branching_terminal_graph(camp, active_scene_id):
+    story = {
+        "scenes": [
+            {
+                "scene_id": "start",
+                "available_clues": [],
+                "scene_edges": [{"to": "last-array", "kind": "travel"}],
+            },
+            {
+                "scene_id": "ending-a",
+                "available_clues": [],
+                "scene_edges": [],
+            },
+            {
+                "scene_id": "last-array",
+                "available_clues": [],
+                "scene_edges": [{"to": "ending-a", "kind": "travel"}],
+            },
+        ]
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world_path = camp / "save" / "world-state.json"
+    world = json.loads(world_path.read_text())
+    world["active_scene_id"] = active_scene_id
+    world_path.write_text(json.dumps(world))
+    return story, world
+
+
+def test_driver_reports_terminal_scene_that_is_not_last_in_array(tmp_path, monkeypatch):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    story, world = _write_branching_terminal_graph(camp, "ending-a")
+    monkeypatch.setattr(
+        driver,
+        "_live_turn_runner",
+        lambda: _StaticLiveRunner("ending-a"),
+    )
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "收束场景", "intent_class": "reflect"}],
+        max_turns=1,
+    )
+
+    assert scene_graph.is_terminal_scene(story["scenes"][1], story) is True
+    assert result["reached_terminal"] is True
+    assert result["terminal_evidence"]["active_scene_id"] == world["active_scene_id"]
+    assert result["terminal_evidence"]["graph_terminal"] is True
+
+
+def test_driver_does_not_treat_last_array_scene_with_outgoing_edge_as_terminal(
+    tmp_path,
+    monkeypatch,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    story, _world = _write_branching_terminal_graph(camp, "last-array")
+    monkeypatch.setattr(
+        driver,
+        "_live_turn_runner",
+        lambda: _StaticLiveRunner("last-array"),
+    )
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "继续前进", "intent_class": "move"}],
+        max_turns=1,
+    )
+
+    assert scene_graph.is_terminal_scene(story["scenes"][2], story) is False
+    assert result["reached_terminal"] is False
+    assert result["terminal_evidence"]["graph_terminal"] is False
+
+
+def test_driver_honors_structured_session_ending_evidence(tmp_path, monkeypatch):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    _write_branching_terminal_graph(camp, "start")
+    monkeypatch.setattr(
+        driver,
+        "_live_turn_runner",
+        lambda: _StaticLiveRunner("start", event_types=["session_ending"]),
+    )
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "结束本次会话", "intent_class": "reflect"}],
+        max_turns=3,
+    )
+
+    assert len(result["turns"]) == 1
+    assert result["reached_terminal"] is True
+    assert result["terminal_evidence"]["session_ending"] is True
+    assert result["terminal_evidence"]["graph_terminal"] is False
+
+
+def test_driver_reaches_terminal_then_runs_real_payoff_and_session_ending(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    story = {
+        "scenes": [
+            {
+                "scene_id": "start",
+                "scene_type": "investigation",
+                "available_clues": [],
+                "dramatic_question": "Can the investigator reach the resolution?",
+                "scene_edges": [
+                    {"to": "ending", "kind": "travel", "when": {"kind": "always"}}
+                ],
+            },
+            {
+                "scene_id": "ending",
+                "scene_type": "resolution",
+                "is_final": True,
+                "available_clues": [],
+                "dramatic_question": "What does the resolution mean?",
+                "scene_edges": [],
+            },
+        ]
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world_path = camp / "save" / "world-state.json"
+    world = json.loads(world_path.read_text())
+    world.update(
+        {
+            "active_scene_id": "start",
+            "unlocked_scene_ids": ["start", "ending"],
+            "visited_scene_ids": [],
+            "exhausted_scene_ids": [],
+            "scene_history": [],
+        }
+    )
+    world_path.write_text(json.dumps(world))
+    coc_memory.create_memory_card(
+        campaign_dir=camp,
+        memory_id="ending-payoff",
+        privacy="player_safe",
+        salience=1.0,
+        summary="The investigator carries forward the resolved choice.",
+        entities=["ending"],
+        tags=["player_interest"],
+        reactivation_cues=["ending"],
+        source_events=[],
+    )
+    choices = [
+        {
+            "intent": "Move to the unlocked resolution scene.",
+            "intent_class": "move",
+            "player_intent_rich": {
+                "primary_intent": "move",
+                "target_entities": ["ending"],
+                "action_atoms": [],
+            },
+        },
+        {
+            "intent": "Reflect on the ending and close this session.",
+            "intent_class": "reflect",
+            "player_intent_rich": {
+                "primary_intent": "reflect",
+                "target_entities": ["ending"],
+                "action_atoms": [],
+            },
+        },
+    ]
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=choices,
+        max_turns=3,
+        rng_seed=23,
+    )
+
+    assert [turn["action"] for turn in result["turns"]] == ["CUT", "PAYOFF"]
+    assert "scene_transition" in result["turns"][0]["event_types"]
+    assert "session_ending" in result["turns"][1]["event_types"]
+    assert result["terminal_evidence"] == {
+        "reached_terminal": True,
+        "active_scene_id": "ending",
+        "graph_terminal": True,
+        "session_ending": True,
+    }
+    logged = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(
+        row.get("event_type") == "session_ending" or row.get("type") == "session_ending"
+        for row in logged
+    )
+
+
+def test_terminal_evidence_contract_accepts_structured_event_records():
+    story = {
+        "scenes": [
+            {
+                "scene_id": "continuing",
+                "scene_edges": [{"to": "later", "kind": "travel"}],
+            },
+            {"scene_id": "later", "scene_edges": []},
+        ]
+    }
+    evidence = scene_graph.terminal_evidence(
+        story,
+        {"active_scene_id": "continuing"},
+        [{"event_type": "session_ending", "payload": {"scene_id": "continuing"}}],
+    )
+
+    assert evidence["reached_terminal"] is True
+    assert evidence["active_scene_id"] == "continuing"
+    assert evidence["graph_terminal"] is False
+    assert evidence["session_ending"] is True

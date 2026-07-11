@@ -679,7 +679,8 @@ def test_battle_report_uses_selected_language_profile_and_localized_text(tmp_pat
     battle_path = coc_playtest_report.generate_battle_report(run_dir)
     battle_text = battle_path.read_text()
 
-    assert "# プレイ報告 <!-- report-anchor: Battle Report -->" in battle_text
+    assert battle_path.name == "verification-sample.md"
+    assert battle_text.startswith("# NON-GAMEPLAY Verification Sample")
     assert "## 実行設定 <!-- report-anchor: Run Setup -->" in battle_text
     assert "プレイ言語: 卓上日本語" in battle_text
     assert "言語プロファイル: 卓上日本語" in battle_text

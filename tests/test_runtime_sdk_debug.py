@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import random
 from pathlib import Path
 
 import pytest
@@ -135,7 +136,7 @@ def _build_live_campaign(tmp_path: Path):
 
 
 def test_sdk_debug_create_send_state_close(tmp_path):
-    _build_live_campaign(tmp_path)
+    camp, _char = _build_live_campaign(tmp_path)
     (tmp_path / ".coc" / "runtime.json").write_text(
         json.dumps({"schema_version": 1, "brain": "debug"}),
         encoding="utf-8",
@@ -156,6 +157,24 @@ def test_sdk_debug_create_send_state_close(tmp_path):
     for ev in events:
         events_mod.validate_event(ev)
 
+    receipts = api.get_telemetry_receipts(sid)
+    assert len(receipts) == 1
+    telemetry = receipts[0]["telemetry"]
+    assert set(telemetry) == {
+        "intent_ms", "director_ms", "rules_ms", "persistence_ms",
+        "player_llm_ms", "narrator_llm_ms", "total_ms", "input_tokens",
+        "output_tokens", "fallback", "runner",
+    }
+    assert telemetry["total_ms"] >= sum(
+        telemetry[key] for key in (
+            "intent_ms", "director_ms", "rules_ms", "persistence_ms",
+            "player_llm_ms", "narrator_llm_ms",
+        )
+    )
+    assert "我环顾四周" not in (
+        camp / "logs" / "runtime-telemetry.jsonl"
+    ).read_text(encoding="utf-8")
+
     state = api.get_state(sid)
     assert state["campaign_id"] == "live"
     assert state["brain"] == "debug"
@@ -164,3 +183,127 @@ def test_sdk_debug_create_send_state_close(tmp_path):
     api.close_session(sid)
     with pytest.raises(Exception):
         api.send(sid, "再试一次。")
+
+
+def test_sdk_debug_accepts_typed_rescue_request(tmp_path):
+    camp, _char = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(
+        json.dumps({"schema_version": 1, "brain": "debug"}), encoding="utf-8"
+    )
+    inv_path = camp / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({
+        "current_hp": 0,
+        "conditions": ["major_wound", "dying", "unconscious"],
+    })
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+    api = _load("runtime_sdk_api_typed_rescue", "runtime/sdk/api.py")
+    sid = api.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+
+    events = api.send(
+        sid,
+        "",
+        subsystem_request={
+            "kind": "dying_tick",
+            "payload": {"decision_id": "sdk-rescue", "clock_kind": "round"},
+        },
+    )
+
+    assert events
+    state = json.loads(inv_path.read_text(encoding="utf-8"))
+    assert "dying" in state["conditions"] or "dead" in state["conditions"]
+
+
+def test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only(tmp_path, monkeypatch):
+    camp, _char = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(
+        json.dumps({"schema_version": 1, "brain": "pi"}), encoding="utf-8"
+    )
+    session = _load("runtime_session_pi_pending", "runtime/engine/session.py")
+    calls: list[dict] = []
+
+    class Debug:
+        @staticmethod
+        def debug_send_turn(*_args, **kwargs):
+            assert kwargs["include_result"] is True
+            return [], {
+                "turns": [{
+                    "decision_id": "turn-pi-safe",
+                    "narration_envelope": {
+                        "decision_id": "turn-pi-safe",
+                        "keeper_secrets": ["never-forward"],
+                    },
+                }],
+                "runtime_phase_ms": {},
+            }
+
+    class Pi:
+        @staticmethod
+        def pi_narrate(request, *, worker_pool, worker_key):
+            calls.append(request)
+            assert worker_pool is session._REGISTRY._worker_pool
+            assert worker_key["session_id"] == sid
+            assert worker_key["campaign_id"] == "live"
+            assert worker_key["role"].startswith("narrator:")
+            assert "keeper_secrets" not in request["narration_envelope"]
+            return worker_pool.request(worker_key, request)
+
+    class Pool:
+        def __init__(self):
+            self.keys = []
+            self.closed = []
+        def request(self, key, _request):
+            self.keys.append(dict(key))
+            return {"ok": True, "final_text": "雨声压住了门后的脚步。"}
+        def close_scope(self, key):
+            self.closed.append(dict(key))
+
+    monkeypatch.setattr(session, "_load_debug_adapter", lambda: Debug)
+    monkeypatch.setattr(session, "_load_pi_adapter", lambda: Pi)
+    pool = Pool()
+    session._REGISTRY._worker_pool = pool
+    sid = session.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+    events = session.send(sid, "我等着听门后。")
+    session.send(sid, "我再听一轮。")
+    assert calls and events[-1]["payload"]["text"].startswith("雨声")
+    assert len(pool.keys) == 2 and pool.keys[0] == pool.keys[1]
+    telemetry = session.get_telemetry_receipts(sid)[-1]["telemetry"]
+    assert telemetry["runner"]["worker"] == "jsonl_pool"
+    session.close_session(sid)
+    assert pool.closed == [pool.keys[0]]
+
+
+def test_sdk_debug_resolves_chase_pending_choice_action_only(tmp_path):
+    camp, char_path = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(
+        json.dumps({"schema_version": 1, "brain": "debug"}), encoding="utf-8"
+    )
+    executor = _load("runtime_sdk_chase_executor", "plugins/coc-keeper/scripts/coc_subsystem_executor.py")
+    start = {
+        "command_id": "sdk-chase-start", "kind": "chase_start", "phase": "start",
+        "payload": {"decision_id": "sdk-chase", "chase_id": "sdk-roof",
+            "participants": [
+                {"actor_id": "inv1", "side": "quarry", "mov": 8, "dex": 70, "con": 60,
+                 "hp": 12, "fight": 60, "dodge": 40, "build": 0, "current_position": 0, "conditions": []},
+                {"actor_id": "cultist", "side": "pursuer", "mov": 8, "dex": 50, "con": 50,
+                 "hp": 9, "fight": 45, "dodge": 25, "build": 0, "current_position": 0, "conditions": []},
+            ],
+            "locations": [
+                {"label": "roof", "hazard": None, "barrier": None},
+                {"label": "door", "hazard": None, "barrier": {"barrier_id": "door", "hp": 4, "hp_max": 4, "skill": "Climb", "target": 100}},
+            ]},
+    }
+    offer = {"command_id": "sdk-chase-offer", "kind": "chase_move", "phase": "resolve",
+             "payload": {"decision_id": "sdk-chase", "revision": 1,
+                         "actor_id": "inv1", "action_id": "choice:offer"}}
+    executor.execute_commands(camp, char_path, "inv1", [start], rng=random.Random(1))
+    offered = executor.execute_commands(camp, char_path, "inv1", [offer], rng=random.Random(2))[0]
+    choice = offered["pending_choice"]
+    api = _load("runtime_sdk_api_chase_pending", "runtime/sdk/api.py")
+    sid = api.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+    events = api.send(sid, "", pending_choice_response={
+        "choice_id": choice["choice_id"], "responder": "player",
+        "revision": choice["revision"], "action": "barrier:door:negotiate",
+    })
+    assert events
+    assert executor.get_current_pending_choice(camp) is None

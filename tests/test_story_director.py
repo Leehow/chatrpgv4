@@ -17,6 +17,10 @@ coc_narrative_enrichment = _load(
     "coc_narrative_enrichment",
     "plugins/coc-keeper/scripts/coc_narrative_enrichment.py",
 )
+coc_director_apply = _load(
+    "coc_director_apply_task9",
+    "plugins/coc-keeper/scripts/coc_director_apply.py",
+)
 
 
 def _make_minimal_campaign(tmp_path):
@@ -78,6 +82,184 @@ def _make_minimal_campaign(tmp_path):
         "backstory": {},
     }))
     return camp, char_dir / "character.json"
+
+
+def test_context_merges_persisted_threat_progress_and_normalizes_scene_function(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "scene_tags": ["archive"],
+        "faction_ids": ["scholars"],
+        "scene_function": "investigation",
+        "goals": ["locate-ledger"],
+        "required_reveals": ["clue-1"],
+        "failure_modes": ["cult-alert"],
+        "exit_options": ["scene-2"],
+        "mode_affinity": ["careful"],
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    fronts = {"fronts": [{
+        "front_id": "cult", "severity": 3, "faction_ids": ["cultists"],
+        "clocks": [{"clock_id": "doom", "segments": 6,
+                    "scene_tags_any": ["archive"]}],
+    }]}
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps(fronts))
+    for i in range(4):
+        coc_story_director.coc_threat_state.tick_clock(
+            camp / "save", "doom", 6, source_id=f"setup:{i}"
+        )
+    ctx = coc_story_director.build_director_context(
+        camp, character, "inv1", "wait", "idle", rng=random.Random(1)
+    )
+
+    assert ctx["threat_fronts"]["fronts"][0]["clocks"][0]["current_segments"] == 4
+    assert coc_story_director._base_score("PRESSURE", ctx) == 0.8
+    assert ctx["active_scene_function"] == {
+        "scene_function": "investigation",
+        "goals": ["locate-ledger"],
+        "required_reveals": ["clue-1"],
+        "failure_modes": ["cult-alert"],
+        "exit_options": ["scene-2"],
+        "mode_affinity": ["careful"],
+    }
+    plan = coc_story_director.generate_director_plan(ctx, "normalized-scene")
+    assert plan["scene_function"] == ctx["active_scene_function"]
+    assert ctx["active_scene"]["goals"] == ["locate-ledger"]
+
+
+def test_build_context_fails_closed_on_invalid_runtime_a21_contract(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({"npcs": [{
+        "npc_id": "npc-a", "agenda": "structured", "known_fact_ids": "not-a-list",
+    }]}))
+    with pytest.raises(ValueError, match="A21"):
+        coc_story_director.build_director_context(
+            camp, character, "inv1", "I ask.", "social"
+        )
+
+
+def test_pressure_selects_structurally_relevant_clock_with_reason(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "scene_tags": ["archive"], "faction_ids": ["scholars"],
+    })
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [
+        {"front_id": "z-unrelated", "severity": 5, "faction_ids": ["wolves"],
+         "clocks": [{"clock_id": "first", "segments": 6,
+                     "scene_tags_any": ["forest"]}]},
+        {"front_id": "a-relevant", "severity": 2, "faction_ids": ["cultists"],
+         "clocks": [{"clock_id": "archive-alarm", "segments": 6,
+                     "scene_tags_any": ["archive"]}]},
+    ]}))
+    ctx = coc_story_director.build_director_context(
+        camp, character, "wait", "wait", "idle", rng=random.Random(1)
+    )
+    move = coc_story_director._build_pressure_moves(ctx, "PRESSURE")[0]
+    assert move["clock_id"] == "archive-alarm"
+    assert move["selection_reason"] == {
+        "affinity_kind": "scene_tags_any", "matched_ids": ["archive"],
+        "front_id": "a-relevant", "severity": 2,
+    }
+
+
+def test_pressure_selects_canonical_scene_threat_front_id(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["threat_front_ids"] = ["cult"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [
+        {"front_id": "other", "severity": 5,
+         "clocks": [{"clock_id": "fallback", "segments": 6}]},
+        {"front_id": "cult", "severity": 1,
+         "clocks": [{"clock_id": "matched", "segments": 6}]},
+    ]}))
+
+    ctx = coc_story_director.build_director_context(
+        camp, character, "inv1", "wait", "idle", rng=random.Random(1)
+    )
+    move = coc_story_director._build_pressure_moves(ctx, "PRESSURE")[0]
+
+    assert move["clock_id"] == "matched"
+    assert move["selection_reason"]["affinity_kind"] == "threat_front_ids"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("scene_tags", "archive"),
+    ("faction_ids", [""]),
+    ("threat_front_ids", [1]),
+    ("front_ids", ["cult"]),
+])
+def test_runtime_rejects_malformed_or_alias_scene_affinity(tmp_path, field, value):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0][field] = value
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+
+    with pytest.raises(ValueError, match="scene affinity"):
+        coc_story_director.build_director_context(
+            camp, character, "inv1", "wait", "idle"
+        )
+
+
+def test_runtime_rejects_duplicate_clock_ids_before_persisted_merge(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [
+        {"front_id": "one", "clocks": [{"clock_id": "same", "segments": 6}]},
+        {"front_id": "two", "clocks": [{"clock_id": "same", "segments": 6}]},
+    ]}))
+
+    with pytest.raises(ValueError, match="clock_id"):
+        coc_story_director.build_director_context(
+            camp, character, "inv1", "wait", "idle"
+        )
+
+
+def test_pressure_affinity_ties_use_severity_then_stable_ids(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["scene_tags"] = ["archive"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [
+        {"front_id": "b", "severity": 4, "clocks": [{"clock_id": "z", "segments": 6,
+         "scene_tags_any": ["archive"]}]},
+        {"front_id": "a", "severity": 4, "clocks": [{"clock_id": "a", "segments": 6,
+         "scene_tags_any": ["archive"]}]},
+        {"front_id": "critical", "severity": 5, "clocks": [{"clock_id": "critical", "segments": 6,
+         "scene_tags_any": ["archive"]}]},
+    ]}))
+    ctx = coc_story_director.build_director_context(camp, character, "inv1", "x", "idle")
+    assert coc_story_director._build_pressure_moves(ctx, "PRESSURE")[0]["clock_id"] == "critical"
+
+
+def test_applied_pressure_is_reloaded_into_next_director_context(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story = json.loads((camp / "scenario" / "story-graph.json").read_text())
+    story["scenes"][0]["scene_tags"] = ["archive"]
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [{
+        "front_id": "cult", "severity": 3,
+        "clocks": [{"clock_id": "doom", "segments": 6,
+                    "scene_tags_any": ["archive"]}],
+    }]}))
+    before = coc_story_director.build_director_context(
+        camp, character, "inv1", "wait", "idle"
+    )
+    pressure_move = coc_story_director._build_pressure_moves(before, "PRESSURE")[0]
+    coc_director_apply.apply_plan(camp, {
+        "decision_id": "threat-feedback-1", "scene_action": "PRESSURE",
+        "pressure_moves": [pressure_move],
+        "turn_input": {"active_scene_id": "scene-1", "player_intent_class": "idle"},
+    }, "inv1")
+
+    after = coc_story_director.build_director_context(
+        camp, character, "inv1", "wait", "idle"
+    )
+    clock = after["threat_fronts"]["fronts"][0]["clocks"][0]
+    assert clock["current_segments"] == 1
+    event = json.loads((camp / "logs" / "events.jsonl").read_text().splitlines()[-1])
+    assert event["selection_reason"]["affinity_kind"] == "scene_tags_any"
 
 
 def _make_legacy_live_campaign(tmp_path):
@@ -284,6 +466,176 @@ def test_compiled_scene_merges_live_visible_affordances(tmp_path):
     assert "inspect_cold_door" in route_ids
     assert "check_muddy_rail" in route_ids
     assert ctx["active_scene"]["source"] == "live-story-bridge.merged-active-scene"
+
+
+def test_build_context_preserves_authored_time_profile_from_runtime_active_scene(tmp_path):
+    camp, char_path = _make_legacy_live_campaign(tmp_path)
+    active_path = camp / "save" / "active-scene.json"
+    active = json.loads(active_path.read_text(encoding="utf-8"))
+    active["scene_tags"] = ["extreme_cold"]
+    active["time_profile"] = {"category": "single_room_search"}
+    active_path.write_text(json.dumps(active), encoding="utf-8")
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="I take a quick look.",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+        },
+        rng=random.Random(42),
+    )
+
+    assert ctx["active_scene"]["source"] == "live-story-bridge.active-scene"
+    assert ctx["active_scene"]["time_profile"] == {"category": "single_room_search"}
+    profile = coc_story_director._time_profile_for_action("REVEAL", ctx)
+    assert profile["category"] == "single_room_search"
+    assert profile["delta_minutes"] == 20
+
+
+def test_build_context_merges_authored_time_profile_over_compiled_scene(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    (camp / "save" / "active-scene.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scene_id": "scene-1",
+        "time_profile": {"category": "single_room_search"},
+    }))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="I take a quick look.",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+        },
+        rng=random.Random(42),
+    )
+
+    assert ctx["active_scene"]["source"] == "live-story-bridge.merged-active-scene"
+    assert ctx["active_scene"]["time_profile"] == {"category": "single_room_search"}
+    assert coc_story_director._time_profile_for_action("REVEAL", ctx)["delta_minutes"] == 20
+
+
+def test_build_context_does_not_overlay_stale_time_profile_onto_new_compiled_scene(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    story["scenes"].append({
+        "scene_id": "scene-2",
+        "scene_type": "investigation",
+        "dramatic_question": "What is visible here?",
+        "entry_conditions": [],
+        "exit_conditions": [],
+        "available_clues": [],
+        "npc_ids": [],
+        "pressure_moves": [],
+        "tone": ["cold"],
+        "allowed_improvisation": [],
+    })
+    story_path.write_text(json.dumps(story), encoding="utf-8")
+    world_path = camp / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = "scene-2"
+    world_path.write_text(json.dumps(world), encoding="utf-8")
+    (camp / "save" / "active-scene.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scene_id": "scene-1",
+        "time_profile": {"category": "single_room_search"},
+    }))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="I take a quick look.",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+        },
+        rng=random.Random(42),
+    )
+
+    assert ctx["active_scene_id"] == "scene-2"
+    assert "time_profile" not in ctx["active_scene"]
+    profile = coc_story_director._time_profile_for_action("REVEAL", ctx)
+    assert profile["category"] == "quick_observation"
+    assert profile["delta_minutes"] <= 5
+
+
+def test_invalid_compiled_time_profile_is_dropped_with_context_warning(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    story["scenes"][0]["time_profile"] = {"category": "fast_snowfield_scan"}
+    story_path.write_text(json.dumps(story), encoding="utf-8")
+    (camp / "logs").mkdir(exist_ok=True)
+    coc_story_director.coc_time.initialize_time_state(camp)
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="I take a quick look.",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+        },
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "invalid-compiled-time")
+
+    assert "time_profile" not in ctx["active_scene"]
+    assert ctx["validation_warnings"] == [{
+        "field": "time_profile",
+        "source": "compiled_scene",
+        "reason_code": "category_not_in_time_cost_catalog",
+    }]
+    assert plan["time_advance"]["category"] == "quick_observation"
+    assert plan["time_advance"]["delta_minutes"] <= 5
+
+
+def test_invalid_runtime_time_profile_string_delta_falls_back_without_raising(tmp_path):
+    camp, char_path = _make_legacy_live_campaign(tmp_path)
+    active_path = camp / "save" / "active-scene.json"
+    active = json.loads(active_path.read_text(encoding="utf-8"))
+    active["time_profile"] = {
+        "category": "quick_observation",
+        "delta_minutes": "five",
+    }
+    active_path.write_text(json.dumps(active), encoding="utf-8")
+    (camp / "logs").mkdir(exist_ok=True)
+    coc_story_director.coc_time.initialize_time_state(camp)
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="I take a quick look.",
+        player_intent_class="investigate",
+        player_intent_rich={
+            "primary_intent": "investigate",
+            "intent_detail": "quick_observation",
+        },
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "invalid-runtime-time")
+
+    assert "time_profile" not in ctx["active_scene"]
+    assert ctx["validation_warnings"] == [{
+        "field": "time_profile",
+        "source": "runtime_active_scene",
+        "reason_code": "delta_minutes_must_be_integer",
+    }]
+    assert plan["time_advance"]["category"] == "quick_observation"
+    assert plan["time_advance"]["delta_minutes"] <= 5
 
 
 def test_obscured_clue_rules_request_includes_roll_contract(tmp_path):
@@ -926,10 +1278,14 @@ def test_reveal_social_intent_surfaces_structured_npc_dialogue_clue(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
     clue_graph["conclusions"][0]["clues"][0]["delivery_kind"] = "npc_dialogue"
+    clue_graph["conclusions"][0]["clues"][0]["source_npc_ids"] = ["npc-source"]
     clue_graph["conclusions"][0]["clues"][0]["route_priority"] = 0.9
     clue_graph["conclusions"][0]["clues"][1]["delivery_kind"] = "environmental"
     clue_graph["conclusions"][0]["clues"][1]["route_priority"] = 0.1
     (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+    (camp / "scenario" / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [{"npc_id": "npc-source", "agenda": "offers a public lead"}],
+    }))
 
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=char_path, investigator_id="inv1",
@@ -977,6 +1333,65 @@ def test_rule_override_dying_forces_subsystem(tmp_path):
     assert overrides is not None
     assert overrides["scene_action"] == "SUBSYSTEM"
     assert overrides["handoff"] == "rules"
+    plan = coc_story_director.generate_director_plan(ctx, "dying-decision")
+    assert plan["rules_requests"] == [{
+        "kind": "dying_tick",
+        "clock_kind": "round",
+        "reason": "structured death-clock continuation",
+    }]
+
+
+def test_director_emits_typed_defense_for_persisted_pending_attack(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    (camp / "save" / "combat.json").write_text(json.dumps({
+        "schema_version": 2, "combat_id": "fight", "status": "active",
+        "revision": 4,
+        "pending_attack": {
+            "attack_command_id": "attack-1", "actor_id": "cultist",
+            "target_actor_id": "inv1", "allowed_defenses": ["dodge", "fight_back"],
+        },
+    }))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="I dodge.", player_intent_class="combat",
+        player_intent_rich={
+            "primary_intent": "combat",
+            "combat_defense": {"kind": "dodge", "attack_command_id": "attack-1"},
+        },
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "defense-decision")
+    defense = [row for row in plan["rules_requests"] if row.get("kind") == "combat_defend"]
+    assert defense == [{
+        "kind": "combat_defend", "revision": 4, "actor_id": "inv1",
+        "attack_command_id": "attack-1", "defense_kind": "dodge",
+        "reason": "structured player combat defense",
+    }]
+
+
+def test_director_emits_chase_action_only_from_structured_semantic_evidence():
+    ctx = {
+        "combat_state": {}, "chase_state": {"active": True, "revision": 7},
+        "player_intent_rich": {"primary_intent": "flee", "chase_action": {
+            "kind": "barrier", "revision": 7, "actor_id": "inv1",
+            "action_id": "barrier:door:negotiate", "method": "negotiate",
+            "skill": "Climb", "target": 60,
+        }},
+        "active_scene": {}, "world_state": {}, "player_intent_class": "flee",
+        "threat_fronts": {"fronts": []}, "rule_signals": {"bout_active": False, "hp_state": "healthy"},
+        "investigator_id": "inv1",
+    }
+    assert coc_story_director._build_rules_requests(ctx, "PRESSURE") == [{
+        "kind": "chase_barrier", "revision": 7, "actor_id": "inv1",
+        "action_id": "barrier:door:negotiate", "method": "negotiate",
+        "skill": "Climb", "target": 60,
+        "reason": "structured semantic chase action",
+    }]
+    ctx["player_intent_rich"] = {"primary_intent": "flee"}
+    assert not any(
+        row.get("kind", "").startswith("chase_")
+        for row in coc_story_director._build_rules_requests(ctx, "PRESSURE")
+    )
 
 
 def test_rule_override_fumble_forces_pressure(tmp_path):
@@ -2296,6 +2711,46 @@ def test_recover_time_profile_is_short_investigation_recovery():
     assert advance["category"] == "investigation_recovery"
     assert advance["delta_minutes"] == 30
     assert advance["mode"] == "elapsed"
+
+
+def test_reveal_quick_observation_in_extreme_cold_uses_short_profile():
+    ctx = {
+        "active_scene": {"scene_tags": ["extreme_cold"]},
+        "intent_detail": "quick_observation",
+    }
+
+    profile = coc_story_director._time_profile_for_action("REVEAL", ctx)
+
+    assert profile["category"] == "quick_observation"
+    assert profile["delta_minutes"] <= 5
+
+
+def test_authored_room_search_time_profile_wins_over_quick_cold_observation():
+    ctx = {
+        "active_scene": {
+            "scene_tags": ["extreme_cold"],
+            "time_profile": {"category": "single_room_search"},
+        },
+        "intent_detail": "quick_observation",
+    }
+
+    profile = coc_story_director._time_profile_for_action("REVEAL", ctx)
+
+    assert profile["category"] == "single_room_search"
+    assert profile["delta_minutes"] == 20
+
+
+def test_reveal_without_structured_time_detail_keeps_room_search_default():
+    cold_profile = coc_story_director._time_profile_for_action(
+        "REVEAL", {"active_scene": {"scene_tags": ["extreme_cold"]}},
+    )
+    ordinary_profile = coc_story_director._time_profile_for_action(
+        "REVEAL", {"active_scene": {"scene_tags": []}},
+    )
+
+    assert cold_profile["category"] == "single_room_search"
+    assert cold_profile["delta_minutes"] == 20
+    assert ordinary_profile == cold_profile
 
 
 def test_pacing_mode_stays_action_derived_when_tension_target_present(tmp_path):

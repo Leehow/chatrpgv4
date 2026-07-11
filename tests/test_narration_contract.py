@@ -128,6 +128,27 @@ def test_missing_tone_fails_check_1(tmp_path):
     assert findings["tone_present"]["passed"] is False
 
 
+def test_applied_events_are_the_only_authority_for_disclosure_reveals():
+    plan = _good_plan()
+    plan["clue_policy"].update({"delivery_kind": "npc_dialogue"})
+    plan["narrative_directives"]["must_include"] = ["THE TRUE CLUE"]
+    plan["disclosure_decisions"] = [{
+        "npc_id": "npc-a", "outcome": "lie", "fact_id": "fact-a",
+        "clue_id": "clue-public-1", "player_safe_line": "A harmless cover story.",
+    }]
+    graph = {"conclusions": [{"clues": [{
+        "clue_id": "clue-public-1", "player_safe_summary": "THE TRUE CLUE",
+    }]}]}
+    env = cnc.build_narration_envelope(plan, clue_graph=graph, applied_events=[])
+    blob = json.dumps(env)
+    assert env["approved_reveals"]["clue_ids"] == []
+    assert env["approved_reveals"]["clues"] == []
+    assert env["approved_reveals"]["must_include"] == []
+    assert "THE TRUE CLUE" not in blob
+    assert "fact-a" not in blob
+    assert "A harmless cover story." in blob
+
+
 def test_invalid_horror_stage_fails_check_4(tmp_path):
     scenario_dir = _make_scenario(tmp_path)
     plan = _good_plan()
@@ -568,12 +589,12 @@ def test_envelope_drops_agenda_prose_for_secret_bearing_npcs():
     corbitt, knott = envelope["npc_moves"]
     assert "agenda" not in corbitt
     assert corbitt["has_secret"] is True
-    assert corbitt["secret_id"] == "secret-corbitt-undead"
+    assert "secret_id" not in corbitt
     # keeper-only agency moves and non-whitelisted persona keys are stripped
     assert [m["move_id"] for m in corbitt["agency_moves"]] == ["knock"]
     assert set(corbitt["persona"].keys()) <= {"tags", "surface_cues"}
-    # non-secret NPC keeps its surface agenda
-    assert knott["agenda"] == "wants the house rented"
+    # A21 uses a field-level whitelist: even benign raw agenda prose stays out.
+    assert "agenda" not in knott
 
 
 def test_envelope_npc_moves_keep_display_name_and_dialogue_seed():
@@ -602,9 +623,8 @@ def test_envelope_npc_moves_keep_display_name_and_dialogue_seed():
     assert move["dialogue_seed"] == "钥匙在桌上，今天就定下来吧。"
     assert move["has_secret"] is True
     assert "secret" not in move or move.get("secret") in (None, "")
-    # Secret prose / keeper agenda desire may be stripped or kept structural;
-    # secret id refs are ok, secret body is not present on the move.
-    assert "secret-knott-doubts" == move.get("secret_id")
+    # Secret bodies and ids are Keeper-only and never cross this envelope.
+    assert "secret_id" not in move
 
 
 def test_iter_player_visible_text_fields_covers_new_envelope_prose():
@@ -676,3 +696,60 @@ def test_envelope_omits_redirection_when_absent():
     plan = _good_plan()
     envelope = cnc.build_narration_envelope(plan)
     assert "redirection" not in envelope or envelope.get("redirection") is None
+
+
+def test_social_delivery_without_decisions_exposes_only_committed_clue_events():
+    plan = _good_plan()
+    plan["clue_policy"].update({
+        "delivery_kind": "npc_dialogue",
+        "leads": ["clue-public-1"],
+        "fallback_routes": ["clue-secret-fallback"],
+    })
+    plan["narrative_directives"]["must_include"] = ["PRE_GATE_SECRET"]
+    plan["choice_frame"] = {"routes": [{"clue_id": "clue-secret-fallback"}]}
+    envelope = cnc.build_narration_envelope(
+        plan,
+        clue_graph={"conclusions": [{"clues": [{
+            "clue_id": "clue-public-1", "player_safe_summary": "公开摘要",
+        }]}]},
+        applied_events=[],
+    )
+    assert envelope["approved_reveals"] == {
+        "clue_ids": [], "clues": [], "must_include": [], "leads": [],
+        "fallback_routes": [],
+    }
+    assert envelope["choice_frame"] == {}
+    assert "PRE_GATE_SECRET" not in json.dumps(envelope, ensure_ascii=False)
+
+
+def test_render_mode_and_horror_profile_are_strict_minimum_privilege_projection():
+    plan = _good_plan()
+    plan["narrative_directives"].update({
+        "render_mode": "keeper-secret-mode",
+        "horror_profile": {
+            "dread": 0.5, "uncertainty": 0.5, "isolation": 0.5,
+            "helplessness": 0.5, "body_horror": 0.5,
+            "cosmic_scale": 0.5, "urgency": 0.5,
+            "keeper_secret": "DO NOT LEAK",
+        },
+    })
+    envelope = cnc.build_narration_envelope(plan)
+    assert envelope["render_mode"] == "investigation"
+    assert set(envelope["horror_profile"]) == {
+        "dread", "uncertainty", "isolation", "helplessness",
+        "body_horror", "cosmic_scale", "urgency",
+    }
+    assert all(value == 0.0 for value in envelope["horror_profile"].values())
+    assert "DO NOT LEAK" not in json.dumps(envelope)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -0.1, 1.1, True, "0.5"])
+def test_horror_profile_rejects_nonfinite_out_of_range_or_non_numeric_axis(bad):
+    plan = _good_plan()
+    profile = {axis: 0.5 for axis in (
+        "dread", "uncertainty", "isolation", "helplessness",
+        "body_horror", "cosmic_scale", "urgency",
+    )}
+    profile["dread"] = bad
+    plan["narrative_directives"]["horror_profile"] = profile
+    assert all(value == 0.0 for value in cnc.build_narration_envelope(plan)["horror_profile"].values())

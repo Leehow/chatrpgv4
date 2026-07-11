@@ -18,6 +18,7 @@ Rulebook basis: Chapter 8 (Sanity), 7e 40th Anniversary.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import re
@@ -52,11 +53,20 @@ LVL = {"fumble": 0, "failure": 1, "regular": 2, "hard": 3, "extreme": 4, "critic
 # Involuntary action kinds (p.166).
 INVOLUNTARY_KINDS = {
     "jump_in_fright", "cry_out", "involuntary_movement",
-    "involuntary_combat_action", "freeze",
+    "involuntary_combat_action", "freeze", "flee",
 }
 
 # Bout of madness modes.
 BOUT_MODES = {"real_time", "summary"}
+_STABLE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+
+
+def _stable_bout_id(investigator_id: str, sequence: int) -> str:
+    candidate = f"{investigator_id}:bout:{sequence}"
+    if _STABLE_ID.fullmatch(candidate):
+        return candidate
+    material = f"{investigator_id}\0{sequence}".encode("utf-8")
+    return f"bout:{hashlib.sha256(material).hexdigest()}"
 
 # The nine investigator backstory categories (Keeper Rulebook p.157). Bout
 # backstory-amendment suggestions and personal-horror hooks reference these
@@ -75,6 +85,63 @@ BACKSTORY_FIELDS = (
 
 # Phobia / mania table loader (references/rules-json/{phobias,manias}.json).
 RULES_DIR = Path(__file__).resolve().parent.parent / "references" / "rules-json"
+
+_SAN_LOSS_DICE = re.compile(
+    r"^(?P<count>\d+)D(?P<sides>\d+)(?:\+(?P<modifier>\d+))?$",
+    re.IGNORECASE,
+)
+SAN_LOSS_MAX_DICE_COUNT = 100
+SAN_LOSS_MAX_DIE_SIDES = 1_000
+SAN_LOSS_MAX_MODIFIER = 100_000
+SAN_LOSS_MAX_TOTAL = 100_000
+
+
+class SanityStateIdentityError(ValueError):
+    """Persisted sanity state belongs to a different or unknown actor."""
+
+
+def validate_san_loss_expression(expression: str) -> dict[str, int | str]:
+    """Parse the one canonical SAN-loss grammar without consuming RNG.
+
+    A failure loss is either a positive integer constant or ``nDsides`` with
+    an optional non-negative ``+modifier``. Dice count and side count must be
+    positive. Callers that need strict preflight can use this directly; the
+    session's legacy helpers retain their historical safe fallback behavior.
+    """
+    if not isinstance(expression, str):
+        raise ValueError("SAN loss expression must be a string")
+    normalized = expression.strip()
+    if len(normalized) > 32:
+        raise ValueError("SAN loss expression is too long")
+    if normalized.isdigit():
+        value = int(normalized)
+        if value <= 0:
+            raise ValueError("SAN loss constant must be positive")
+        if value > SAN_LOSS_MAX_TOTAL:
+            raise ValueError("SAN loss constant exceeds the supported maximum")
+        return {"kind": "constant", "value": value}
+    match = _SAN_LOSS_DICE.fullmatch(normalized)
+    if match is None:
+        raise ValueError("invalid SAN loss expression")
+    count = int(match.group("count"))
+    sides = int(match.group("sides"))
+    modifier = int(match.group("modifier") or 0)
+    if count <= 0 or sides <= 0:
+        raise ValueError("SAN loss dice count and sides must be positive")
+    if count > SAN_LOSS_MAX_DICE_COUNT:
+        raise ValueError("SAN loss dice count exceeds the supported maximum")
+    if sides > SAN_LOSS_MAX_DIE_SIDES:
+        raise ValueError("SAN loss die sides exceed the supported maximum")
+    if modifier > SAN_LOSS_MAX_MODIFIER:
+        raise ValueError("SAN loss modifier exceeds the supported maximum")
+    if count * sides + modifier > SAN_LOSS_MAX_TOTAL:
+        raise ValueError("SAN loss maximum exceeds the supported total")
+    return {
+        "kind": "dice",
+        "count": count,
+        "sides": sides,
+        "modifier": modifier,
+    }
 
 
 def _load_phobia_mania_table(name: str) -> dict[str, Any]:
@@ -142,6 +209,7 @@ class SanitySession:
         # the Keeper controls the investigator and no further SAN can be lost.
         self.bout_active: bool = False
         self.bout_rounds_remaining: int = 0
+        self.active_bout_id: str | None = None
         self.bouts_of_madness: list[dict[str, Any]] = []
         self.daily_san_lost: int = 0  # resets at "end of day" (Keeper-defined)
         # p.156: the indefinite-insanity threshold is a fifth of *current* SAN
@@ -367,7 +435,12 @@ class SanitySession:
         bout_result_text = bout_result or bout_entry.get("result", "")
         bout_kind = bout_entry.get("kind", "")
 
+        bout_id = _stable_bout_id(
+            self.investigator_id,
+            len(self.bouts_of_madness) + 1,
+        )
         bout = {
+            "bout_id": bout_id,
             "mode": mode,
             "summary_table": "table_viii_summary" if mode == "summary" else "table_vii_realtime",
             "bout_roll": bout_roll,
@@ -380,6 +453,7 @@ class SanitySession:
             bout["duration_rounds"] = self._rng.randint(1, 10)
             self.bout_active = True
             self.bout_rounds_remaining = bout["duration_rounds"]
+            self.active_bout_id = bout_id
         self.bouts_of_madness.append(bout)
 
         # p.171 bout-of-madness table: result 9 → phobia, 10 → mania.
@@ -440,9 +514,12 @@ class SanitySession:
         underlying-insanity phase continues (p.158)."""
         if not self.bout_active:
             return
+        bout_id = self.active_bout_id
         self.bout_active = False
         self.bout_rounds_remaining = 0
+        self.active_bout_id = None
         payload: dict[str, Any] = {
+            "bout_id": bout_id,
             "summary": (f"{self.investigator_id} bout of madness ends; control "
                         "returns to the player (underlying insanity continues)."),
         }
@@ -877,6 +954,7 @@ class SanitySession:
             "permanently_insane": self.permanently_insane,
             "bout_active": self.bout_active,
             "bout_rounds_remaining": self.bout_rounds_remaining,
+            "active_bout_id": self.active_bout_id,
             "daily_san_lost": self.daily_san_lost,
             "day_start_san": self.day_start_san,
             "bouts_of_madness": list(self.bouts_of_madness),
@@ -895,7 +973,7 @@ class SanitySession:
             "events": list(self.events),
         }
 
-    def save(self, campaign_dir: Path) -> Path:
+    def save(self, campaign_dir: Path, *, strict_mirror: bool = False) -> Path:
         save_dir = campaign_dir / "save"
         save_dir.mkdir(parents=True, exist_ok=True)
         path = save_dir / "sanity.json"
@@ -905,10 +983,15 @@ class SanitySession:
         # Mirror the player-facing fields the Story Director reads into
         # investigator-state, so build_director_context can see the live SAN
         # and indefinite-insanity flag without parsing the sanity snapshot.
-        self._sync_to_investigator_state(campaign_dir)
+        self._sync_to_investigator_state(campaign_dir, strict=strict_mirror)
         return path
 
-    def _sync_to_investigator_state(self, campaign_dir: Path) -> None:
+    def _sync_to_investigator_state(
+        self,
+        campaign_dir: Path,
+        *,
+        strict: bool = False,
+    ) -> None:
         """Merge ``current_san`` + ``indefinite_insane`` into investigator-state.
 
         The director reads these top-level fields from
@@ -918,7 +1001,16 @@ class SanitySession:
         """
         inv_path = campaign_dir / "save" / "investigator-state" / f"{self.investigator_id}.json"
         try:
-            data = json.loads(inv_path.read_text(encoding="utf-8")) if inv_path.exists() else {}
+            mirror_exists = inv_path.exists()
+            data = json.loads(inv_path.read_text(encoding="utf-8")) if mirror_exists else {}
+            if not isinstance(data, dict):
+                raise TypeError("investigator-state root must be an object")
+            if mirror_exists and data.get("investigator_id") != self.investigator_id:
+                raise SanityStateIdentityError(
+                    "persisted investigator-state investigator_id does not match session"
+                )
+            data.setdefault("schema_version", 1)
+            data["investigator_id"] = self.investigator_id
             data["current_san"] = int(self.san_current)
             data["indefinite_insane"] = bool(self.indefinite_insane)
             data["temporary_insane"] = bool(self.temporary_insane)
@@ -936,8 +1028,9 @@ class SanitySession:
             coc_fileio.write_json_atomic(
                 inv_path, data, indent=2, ensure_ascii=False, trailing_newline=False
             )
-        except (OSError, ValueError):
-            pass
+        except (OSError, UnicodeError, ValueError, TypeError):
+            if strict:
+                raise
 
     @classmethod
     def load(cls, campaign_dir: Path, investigator_id: str,
@@ -957,6 +1050,42 @@ class SanitySession:
                        campaign_dir=campaign_dir)
             return sess
         snap = json.loads(save_path.read_text(encoding="utf-8"))
+        if not isinstance(snap, dict):
+            raise ValueError("sanity snapshot root must be an object")
+        if snap.get("investigator_id") != investigator_id:
+            raise SanityStateIdentityError(
+                "persisted sanity investigator_id does not match requested investigator_id"
+            )
+        raw_bout_active = snap.get("bout_active", False)
+        raw_rounds = snap.get("bout_rounds_remaining", 0)
+        raw_bout_id = snap.get("active_bout_id")
+        raw_bouts = snap.get("bouts_of_madness") or []
+        if (
+            not isinstance(raw_bout_active, bool)
+            or isinstance(raw_rounds, bool)
+            or not isinstance(raw_rounds, int)
+            or raw_rounds < 0
+            or not isinstance(raw_bouts, list)
+        ):
+            raise ValueError("malformed bout state contract")
+        if raw_bout_active:
+            active_records = [
+                bout for bout in raw_bouts
+                if isinstance(bout, dict) and bout.get("bout_id") == raw_bout_id
+            ]
+            if (
+                not isinstance(raw_bout_id, str)
+                or not raw_bout_id
+                or raw_rounds < 1
+                or len(active_records) != 1
+                or active_records[0].get("mode") != "real_time"
+                or isinstance(active_records[0].get("duration_rounds"), bool)
+                or not isinstance(active_records[0].get("duration_rounds"), int)
+                or active_records[0]["duration_rounds"] < raw_rounds
+            ):
+                raise ValueError("active bout fields do not match a real-time bout record")
+        elif raw_bout_id is not None or raw_rounds != 0:
+            raise ValueError("inactive bout must have null id and zero remaining rounds")
         sess = cls(
             investigator_id,
             san_max=int(snap.get("san_max", 99)),
@@ -971,8 +1100,8 @@ class SanitySession:
             snap.get("temporary_insane_remaining_hours", 0))
         sess.indefinite_insane = bool(snap.get("indefinite_insane", False))
         sess.permanently_insane = bool(snap.get("permanently_insane", False))
-        sess.bout_active = bool(snap.get("bout_active", False))
-        sess.bout_rounds_remaining = int(snap.get("bout_rounds_remaining", 0))
+        sess.bout_active = raw_bout_active
+        sess.bout_rounds_remaining = raw_rounds
         sess.daily_san_lost = int(snap.get("daily_san_lost", 0))
         sess.day_start_san = int(snap.get("day_start_san", sess.san_current))
         sess.awfulness_caps = {str(k): int(v)
@@ -988,7 +1117,8 @@ class SanitySession:
         sess.symptoms_suppressed_until_next_san_loss = bool(
             snap.get("symptoms_suppressed_until_next_san_loss", False)
         )
-        sess.bouts_of_madness = list(snap.get("bouts_of_madness") or [])
+        sess.bouts_of_madness = list(raw_bouts)
+        sess.active_bout_id = raw_bout_id
         sess.involuntary_actions = list(snap.get("involuntary_actions") or [])
         saved_events = snap.get("events") or []
         sess.events = list(saved_events)
@@ -1017,25 +1147,28 @@ class SanitySession:
 
     def _roll_dice(self, expr: str) -> int:
         """Roll a dice expression like '1D6', '1D4+1', '2D10+1'."""
-        m = re.fullmatch(r"(\d+)D(\d+)(\+(\d+))?", expr.strip())
-        if m:
-            n, sides = int(m.group(1)), int(m.group(2))
-            mod = int(m.group(4)) if m.group(4) else 0
-            return sum(self._rng.randint(1, sides) for _ in range(n)) + mod
         try:
-            return int(expr)
+            parsed = validate_san_loss_expression(expr)
         except ValueError:
             return 1  # safe fallback
+        if parsed["kind"] == "constant":
+            return int(parsed["value"])
+        count = int(parsed["count"])
+        sides = int(parsed["sides"])
+        modifier = int(parsed["modifier"])
+        return sum(self._rng.randint(1, sides) for _ in range(count)) + modifier
 
     def _max_dice(self, expr: str) -> int:
         """Maximum possible value of a dice expression. Used for fumbled SAN rolls
         (p.166: 'losing the maximum Sanity points for that situation')."""
-        m = re.fullmatch(r"(\d+)D(\d+)(\+(\d+))?", expr.strip())
-        if m:
-            n, sides = int(m.group(1)), int(m.group(2))
-            mod = int(m.group(4)) if m.group(4) else 0
-            return n * sides + mod
         try:
-            return int(expr)
+            parsed = validate_san_loss_expression(expr)
         except ValueError:
             return 1
+        if parsed["kind"] == "constant":
+            return int(parsed["value"])
+        return (
+            int(parsed["count"])
+            * int(parsed["sides"])
+            + int(parsed["modifier"])
+        )

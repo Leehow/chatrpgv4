@@ -450,6 +450,8 @@ def read_chase_state(campaign_dir) -> dict[str, Any]:
         "active": status == "active",
         "chase_id": snap.get("chase_id"),
         "status": status,
+        "revision": snap.get("revision"),
+        "initiative_cursor": snap.get("initiative_cursor"),
         "participants": [
             {
                 "actor_id": p.get("actor_id"),

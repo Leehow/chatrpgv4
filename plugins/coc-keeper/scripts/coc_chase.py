@@ -18,6 +18,7 @@ Rulebook basis: Keeper Rulebook Chapter 7 (Chases), 7e 40th Anniversary.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import re
@@ -46,6 +47,196 @@ _DICE_RE = re.compile(r"^(\d+)D(\d+)(?:([+-])(\d+))?$", re.IGNORECASE)
 
 DEFAULT_GAP = 2
 DEFAULT_LOCATION_COUNT = 8
+CHASE_SCHEMA_VERSION = 4
+VALID_CHASE_OUTCOMES = {None, "escaped", "captured", "concluded"}
+
+
+def _require_exact_action_keys(
+    action: dict[str, Any], required: set[str], optional: set[str] = frozenset(),
+) -> None:
+    keys = set(action)
+    if not required <= keys or not keys <= required | optional:
+        raise ValueError("chase snapshot turn action contract is invalid")
+
+
+def _validate_chase_action_receipt(
+    action: Any, *, turn_actor: str, actor_ids: set[str],
+    locations: list[dict[str, Any]],
+) -> tuple[list[str], int | None, int | None]:
+    """Validate one immutable action receipt by its discriminator.
+
+    The persisted history is an audit input on reload, not descriptive prose.
+    Each action therefore has a closed schema and binds its actor, cost, roll
+    evidence, and location transition where applicable.
+    """
+    if not isinstance(action, dict) or not isinstance(action.get("type"), str):
+        raise ValueError("chase snapshot turn action is invalid")
+    action_type = action["type"]
+    roll_ids: list[str] = []
+    new_position: int | None = None
+    position_before: int | None = None
+
+    def exact(required: set[str], optional: set[str] = frozenset()) -> None:
+        _require_exact_action_keys(action, required, optional)
+
+    def cost(expected: int | set[int]) -> int:
+        value = action.get("actions_spent")
+        allowed = {expected} if isinstance(expected, int) else expected
+        if isinstance(value, bool) or not isinstance(value, int) or value not in allowed:
+            raise ValueError("chase snapshot action cost is invalid")
+        return value
+
+    def roll(key: str = "roll_id") -> None:
+        value = action.get(key)
+        if not isinstance(value, str) or not value:
+            raise ValueError("chase snapshot action roll evidence is invalid")
+        roll_ids.append(value)
+
+    def position(label_key: str | None = None) -> int:
+        value = action.get("new_position")
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < len(locations):
+            raise ValueError("chase snapshot action position is invalid")
+        if label_key is not None and action.get(label_key) != locations[value].get("label"):
+            raise ValueError("chase snapshot action location transition is invalid")
+        return value
+
+    def predecessor() -> int:
+        value = action.get("position_before")
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < len(locations):
+            raise ValueError("chase snapshot action predecessor is invalid")
+        return value
+
+    if action_type == "advance":
+        exact(
+            {"type", "position_before", "new_position", "location_label", "actions_spent"},
+            {"escaped"},
+        )
+        cost(1)
+        position_before = predecessor()
+        new_position = position("location_label")
+    elif action_type == "hazard":
+        exact(
+            {"type", "hazard_id", "passed", "roll_id", "bonus", "penalty",
+             "actions_spent", "position_before", "new_position", "location_label"},
+            {"escaped", "damage", "collision", "movement_debt"},
+        )
+        if not isinstance(action.get("passed"), bool):
+            raise ValueError("chase snapshot hazard result is invalid")
+        bonus = action.get("bonus")
+        if isinstance(bonus, bool) or not isinstance(bonus, int) or bonus not in {0, 1, 2}:
+            raise ValueError("chase snapshot hazard bonus is invalid")
+        cost(1 + bonus)
+        roll()
+        position_before = predecessor()
+        new_position = position("location_label")
+        if action["passed"] and set(action) & {"damage", "collision", "movement_debt"}:
+            raise ValueError("chase snapshot hazard result is inconsistent")
+        if not action["passed"] and "movement_debt" not in action:
+            raise ValueError("chase snapshot hazard failure is incomplete")
+    elif action_type == "barrier":
+        exact({"type", "position_before", "passed", "roll_id", "actions_spent", "barrier_id"},
+              {"new_position", "escaped"})
+        cost(1)
+        roll()
+        position_before = predecessor()
+        if not isinstance(action.get("passed"), bool):
+            raise ValueError("chase snapshot barrier result is invalid")
+        if action["passed"] != ("new_position" in action):
+            raise ValueError("chase snapshot barrier transition is inconsistent")
+        if "new_position" in action:
+            new_position = position()
+    elif action_type == "break_barrier":
+        exact(
+            {"type", "position_before", "damage_to_barrier", "barrier_hp_before", "barrier_hp_after",
+             "destroyed", "actions_spent", "vehicle_wrecked", "vehicle_damage"},
+            {"new_position"},
+        )
+        cost(1)
+        position_before = predecessor()
+        for key in ("damage_to_barrier", "barrier_hp_before", "barrier_hp_after", "vehicle_damage"):
+            value = action.get(key)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError("chase snapshot barrier damage is invalid")
+        if action["barrier_hp_after"] != max(
+            0, action["barrier_hp_before"] - action["damage_to_barrier"]
+        ) or action.get("destroyed") != (action["barrier_hp_after"] == 0):
+            raise ValueError("chase snapshot barrier damage transition is inconsistent")
+        if "new_position" in action:
+            new_position = position()
+    elif action_type == "conflict":
+        if "combat_receipt" in action:
+            exact({"type", "attacker_id", "defender_id", "combat_command_id",
+                   "combat_revision", "combat_id", "combat_receipt", "actions_spent"})
+            cost(1)
+            if action.get("attacker_id") != turn_actor or action.get("defender_id") not in actor_ids:
+                raise ValueError("chase snapshot conflict actors are invalid")
+        else:
+            exact({"type", "result", "target", "roll_id", "actions_spent"})
+            cost(1)
+            if action.get("result") not in {"grabbed", "missed"} or action.get("target") not in actor_ids:
+                raise ValueError("chase snapshot legacy conflict is invalid")
+            roll()
+    elif action_type == "conflict_melee":
+        exact({"type", "delegated", "combat_turn", "actions_spent", "attacker_id",
+               "defender_id", "position"})
+        cost(1)
+        if (action.get("delegated") is not True or action.get("attacker_id") != turn_actor
+                or action.get("defender_id") not in actor_ids
+                or not isinstance(action.get("combat_turn"), dict)):
+            raise ValueError("chase snapshot melee conflict is invalid")
+    elif action_type == "conflict_vehicle":
+        common = {"type", "actions_spent", "attacker_skill"}
+        if action.get("result") == "impossible":
+            exact(common | {"result", "reason"})
+        else:
+            exact(
+                common | {"attacker_outcome", "defender_outcome", "opposed",
+                          "attacker_roll_id", "defender_roll_id", "winner",
+                          "damage_to_loser"},
+                {"both_fail", "loser", "damage_to_winner", "build_loss", "collision",
+                 "movement_debt"},
+            )
+            roll("attacker_roll_id")
+            roll("defender_roll_id")
+        cost(1)
+    elif action_type == "hide":
+        exact({"type", "success", "roll_id", "actions_spent"})
+        cost(1)
+        roll()
+    elif action_type == "pedal_to_the_metal":
+        exact({"type", "locations_requested", "locations_moved", "penalty",
+               "assist_applied", "actions_spent", "position_before", "new_position", "hazard_results",
+               "escaped"})
+        cost(1)
+        position_before = predecessor()
+        if (action.get("locations_requested") not in {2, 3, 4, 5}
+                or not isinstance(action.get("locations_moved"), int)
+                or not 0 <= action["locations_moved"] <= action["locations_requested"]
+                or not isinstance(action.get("hazard_results"), list)):
+            raise ValueError("chase snapshot pedal result is invalid")
+        new_position = position()
+        for nested in action["hazard_results"]:
+            nested_rolls, _, _ = _validate_chase_action_receipt(
+                nested, turn_actor=turn_actor, actor_ids=actor_ids, locations=locations,
+            )
+            roll_ids.extend(nested_rolls)
+    elif action_type == "assist_driver":
+        exact({"type", "success", "roll_id", "vehicle_id", "actions_spent"})
+        cost(0)
+        roll()
+        if action.get("vehicle_id") not in actor_ids:
+            raise ValueError("chase snapshot passenger assist vehicle is invalid")
+    elif action_type == "fire_while_moving":
+        exact({"type", "moving", "penalty", "movement_action_cost", "hit", "damage",
+               "roll_id", "actions_spent", "target_id"})
+        expected = 0 if action.get("moving") is True else 1
+        cost(expected)
+        if action.get("movement_action_cost") != expected or action.get("target_id") not in actor_ids:
+            raise ValueError("chase snapshot firearm action is invalid")
+        roll()
+    else:
+        raise ValueError("chase snapshot turn action discriminator is invalid")
+    return roll_ids, new_position, position_before
 
 
 def _roll_dice(expr: str, rng: random.Random) -> int:
@@ -178,10 +369,14 @@ class ChaseSession:
         self.pending_rolls: list[dict[str, Any]] = []
         self.pending_events: list[dict[str, Any]] = []
         self._roll_counter = 0
+        self._roll_history: list[str] = []
         self._turn_counter = 0
         self._current_round = 0
         self._sudden_hazard_last_caller: str | None = None
         self._active_combat: Any | None = None
+        self.revision = 0
+        self.initiative_cursor = 0
+        self.consumed_combat_receipts: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------ #
     # Participants
@@ -202,6 +397,7 @@ class ChaseSession:
         dodge: int | None = None,
         firearms: int | None = None,
         luck: int | None = None,
+        conditions: list[str] | None = None,
         vehicle_key: str | None = None,
         armor: int = 0,
         role: str = "driver",
@@ -231,6 +427,7 @@ class ChaseSession:
             "vehicle_key": vehicle_key,
             "vehicle_actor_id": vehicle_actor_id,
             "position": current_position,
+            "position_origin": current_position,
             "build": build,
             "build_max": build,
             "armor": armor,
@@ -240,6 +437,7 @@ class ChaseSession:
             "dodge": dodge,
             "firearms": firearms,
             "luck": luck,
+            "conditions": list(conditions or []),
             "spot_hidden": spot_hidden,
             "navigate": navigate,
             "movement_actions": 1,
@@ -380,6 +578,8 @@ class ChaseSession:
                 vid = p.get("vehicle_actor_id")
                 if vid and vid in self.participants:
                     p["position"] = self.participants[vid]["position"]
+            if not self.rounds:
+                p["position_origin"] = p["position"]
 
         self.pending_events.append({
             "kind": "cut_to_the_chase",
@@ -429,6 +629,13 @@ class ChaseSession:
                 p["movement_actions_remaining"] = 0
 
     def begin_round(self) -> int:
+        if self.status != "active":
+            raise ValueError("cannot begin a round for a concluded chase")
+        if self.rounds and self.initiative_cursor < len(self.rounds[-1]["dex_order"]):
+            raise ValueError("current chase round still has unresolved initiative actors")
+        if not self.rounds:
+            for participant in self.participants.values():
+                participant["position_origin"] = participant["position"]
         self._current_round += 1
         self.compute_movement_actions()
         active = [
@@ -441,6 +648,8 @@ class ChaseSession:
             "dex_order": [p["actor_id"] for p in dex_order],
             "turns": [],
         })
+        self.initiative_cursor = 0
+        self.revision += 1
         return self._current_round
 
     def _spend_actions(self, p: dict[str, Any], n: int) -> None:
@@ -454,12 +663,26 @@ class ChaseSession:
             if p.get("vehicle_actor_id") == vehicle_id:
                 p["position"] = pos
 
+    @staticmethod
+    def _normalize_participant_conditions(participant: dict[str, Any]) -> None:
+        conditions = list(participant.get("conditions") or [])
+        if int(participant.get("hp", 0)) <= 0 and "unconscious" not in conditions:
+            conditions.append("unconscious")
+        participant["conditions"] = conditions
+
     # ------------------------------------------------------------------ #
     # Turn / action dispatch
     # ------------------------------------------------------------------ #
     def move_participant(
         self, actor_id: str, actions: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        if self.status != "active" or not self.rounds:
+            raise ValueError("active chase round required")
+        order = self.rounds[-1]["dex_order"]
+        if self.initiative_cursor >= len(order) or order[self.initiative_cursor] != actor_id:
+            raise ValueError("actor is out of chase initiative order")
+        if not isinstance(actions, list) or not actions:
+            raise ValueError("at least one structured chase action is required")
         p = self.participants[actor_id]
         if p.get("role") == "passenger":
             raise ValueError("passengers use passenger_action(), not move_participant()")
@@ -477,13 +700,8 @@ class ChaseSession:
                 break
             atype = action.get("type", "advance")
             cost_preview = self._action_cost_preview(atype, action)
-            if spent_total + cost_preview > budget and atype not in (
-                "fire_while_moving",  # free when moving
-            ):
-                # Allow if remaining covers at least the move portion.
-                remaining = budget - spent_total
-                if remaining <= 0 and cost_preview > 0:
-                    break
+            if spent_total + cost_preview > budget:
+                raise ValueError("chase action budget exceeded")
             result = self._resolve_movement_action(actor_id, action)
             turn["actions_taken"].append(result)
             spent = int(result.get("actions_spent", cost_preview))
@@ -492,6 +710,8 @@ class ChaseSession:
                 break
         if self.rounds:
             self.rounds[-1]["turns"].append(turn)
+        self.initiative_cursor += 1
+        self.revision += 1
         return turn
 
     def _action_cost_preview(self, atype: str, action: dict[str, Any]) -> int:
@@ -554,6 +774,7 @@ class ChaseSession:
         self, actor_id: str, action: dict[str, Any]
     ) -> dict[str, Any]:
         p = self.participants[actor_id]
+        position_before = p["position"]
         nxt = self._next_location(p["position"])
         if nxt is None:
             return {"type": "advance", "result": "end_of_chain", "actions_spent": 0}
@@ -584,6 +805,7 @@ class ChaseSession:
             self._sync_passengers(actor_id)
         result: dict[str, Any] = {
             "type": "advance",
+            "position_before": position_before,
             "new_position": p["position"],
             "location_label": nxt.get("label", "?"),
             "actions_spent": 1,
@@ -605,6 +827,7 @@ class ChaseSession:
     ) -> dict[str, Any]:
         """Hazard check: success or fail, character still advances (p.135)."""
         p = self.participants[actor_id]
+        position_before = p["position"]
         skill = action.get("skill") or hazard.get("skill") or (
             "Drive Auto" if p["is_vehicle"] else "DEX"
         )
@@ -638,6 +861,7 @@ class ChaseSession:
         passed = res["outcome"] not in ("failure", "fumble")
         out: dict[str, Any] = {
             "type": "hazard",
+            "position_before": position_before,
             "hazard_id": hazard.get("hazard_id"),
             "passed": passed,
             "roll_id": rid,
@@ -670,6 +894,7 @@ class ChaseSession:
             else:
                 dmg = max(0, _roll_dice(damage_dice, self._rng))
                 p["hp"] = max(0, int(p["hp"]) - dmg)
+                self._normalize_participant_conditions(p)
                 out["damage"] = dmg
             debt = self._rng.randint(1, 3)
             p["movement_debt"] = int(p.get("movement_debt") or 0) + debt
@@ -683,6 +908,7 @@ class ChaseSession:
         self, actor_id: str, action: dict[str, Any]
     ) -> dict[str, Any]:
         p = self.participants[actor_id]
+        position_before = p["position"]
         nxt = self._next_location(p["position"])
         if nxt is None or not nxt.get("barrier"):
             # Allow barrier on current location (legacy tests place barrier at next).
@@ -714,6 +940,7 @@ class ChaseSession:
         passed = res["outcome"] not in ("failure", "fumble")
         out: dict[str, Any] = {
             "type": "barrier",
+            "position_before": position_before,
             "passed": passed,
             "roll_id": rid,
             "actions_spent": 1,
@@ -736,6 +963,7 @@ class ChaseSession:
     ) -> dict[str, Any]:
         """Smash barrier: Build×1D10 damage; no attack roll (p.137)."""
         p = self.participants[actor_id]
+        position_before = p["position"]
         nxt = self._next_location(p["position"])
         if nxt is None or not nxt.get("barrier"):
             return {"type": "break_barrier", "result": "no_barrier", "actions_spent": 0}
@@ -761,6 +989,7 @@ class ChaseSession:
         destroyed = barrier["hp"] <= 0
         out: dict[str, Any] = {
             "type": "break_barrier",
+            "position_before": position_before,
             "damage_to_barrier": damage,
             "barrier_hp_before": hp_before,
             "barrier_hp_after": barrier["hp"],
@@ -922,6 +1151,55 @@ class ChaseSession:
             "defender_id": defender_id,
             "position": atk["position"],
         }
+
+    def record_external_conflict(
+        self, attacker_id: str, defender_id: str, *, combat_command_id: str,
+        combat_revision: int, combat_id: str, command_hash: str, receipt_hash: str,
+        hp_after: dict[str, int], conditions_after: dict[str, list[str]],
+    ) -> dict[str, Any]:
+        """Consume chase economy from a separately persisted combat receipt."""
+        if self.status != "active" or not self.rounds:
+            raise ValueError("active chase round required")
+        order = self.rounds[-1]["dex_order"]
+        if self.initiative_cursor >= len(order) or order[self.initiative_cursor] != attacker_id:
+            raise ValueError("actor is out of chase initiative order")
+        attacker = self.participants.get(attacker_id)
+        defender = self.participants.get(defender_id)
+        if not isinstance(attacker, dict) or not isinstance(defender, dict):
+            raise ValueError("unknown chase conflict actor")
+        if attacker["position"] != defender["position"]:
+            raise ValueError("melee conflict requires same location")
+        if int(attacker.get("movement_actions_remaining", 0)) < 1:
+            raise ValueError("chase action budget exceeded")
+        if any(row["combat_command_id"] == combat_command_id for row in self.consumed_combat_receipts):
+            raise ValueError("combat receipt was already consumed by this chase")
+        self._spend_actions(attacker, 1)
+        for actor_id, hp in hp_after.items():
+            if actor_id in self.participants:
+                self.participants[actor_id]["hp"] = max(0, int(hp))
+                self.participants[actor_id]["conditions"] = list(conditions_after.get(actor_id, []))
+                self._normalize_participant_conditions(self.participants[actor_id])
+        receipt = {
+            "combat_command_id": combat_command_id, "combat_id": combat_id,
+            "combat_revision": combat_revision, "command_hash": command_hash,
+            "receipt_hash": receipt_hash,
+        }
+        self.consumed_combat_receipts.append(receipt)
+        event = {
+            "type": "conflict", "attacker_id": attacker_id,
+            "defender_id": defender_id, "combat_command_id": combat_command_id,
+            "combat_revision": combat_revision, "combat_id": combat_id,
+            "combat_receipt": dict(receipt), "actions_spent": 1,
+        }
+        self.rounds[-1]["turns"].append({
+            "turn_id": f"t{self._current_round}-{self._next_turn()}",
+            "actor_id": attacker_id, "dex": attacker["dex"],
+            "movement_actions": attacker["movement_actions"],
+            "actions_taken": [event],
+        })
+        self.initiative_cursor += 1
+        self.revision += 1
+        return event
 
     def vehicle_conflict(
         self,
@@ -1135,6 +1413,7 @@ class ChaseSession:
         self, actor_id: str, action: dict[str, Any]
     ) -> dict[str, Any]:
         p = self.participants[actor_id]
+        position_before = p["position"]
         if not p.get("is_vehicle"):
             raise ValueError("Pedal to the Metal requires a vehicle")
         locations = int(action.get("locations") or 2)
@@ -1193,6 +1472,7 @@ class ChaseSession:
         self._sync_passengers(actor_id)
         return {
             "type": "pedal_to_the_metal",
+            "position_before": position_before,
             "locations_requested": locations,
             "locations_moved": moved,
             "penalty": penalty,
@@ -1209,6 +1489,11 @@ class ChaseSession:
     def passenger_action(
         self, actor_id: str, action: dict[str, Any]
     ) -> dict[str, Any]:
+        if self.status != "active" or not self.rounds:
+            raise ValueError("active chase round required")
+        order = self.rounds[-1]["dex_order"]
+        if self.initiative_cursor >= len(order) or order[self.initiative_cursor] != actor_id:
+            raise ValueError("actor is out of chase initiative order")
         p = self.participants[actor_id]
         if p.get("role") != "passenger":
             raise ValueError(f"{actor_id} is not a passenger")
@@ -1230,12 +1515,21 @@ class ChaseSession:
             vid = p.get("vehicle_actor_id")
             if success and vid and vid in self.participants:
                 self.participants[vid]["assist_penalty_reduction"] = 1
-            return {
+            result = {
                 "type": "assist_driver",
                 "success": success,
                 "roll_id": rid,
                 "vehicle_id": vid,
+                "actions_spent": 0,
             }
+            self.rounds[-1]["turns"].append({
+                "turn_id": f"t{self._current_round}-{self._next_turn()}",
+                "actor_id": actor_id, "dex": p["dex"],
+                "movement_actions": 0, "actions_taken": [result],
+            })
+            self.initiative_cursor += 1
+            self.revision += 1
+            return result
         if atype == "fire":
             return self.fire_while_moving(
                 attacker_id=actor_id,
@@ -1450,33 +1744,149 @@ class ChaseSession:
         return self.outcome
 
     def conclude(self, outcome: str) -> None:
+        if outcome not in VALID_CHASE_OUTCOMES - {None}:
+            raise ValueError("invalid chase outcome")
         self.status = "concluded"
         self.outcome = outcome
+        self.revision += 1
 
     def snapshot(self) -> dict[str, Any]:
         return {
+            "schema_version": CHASE_SCHEMA_VERSION,
             "chase_id": self.chase_id,
             "status": self.status,
             "outcome": self.outcome,
-            "participants": [dict(p) for p in self.participants.values()],
-            "location_chain": [dict(loc) for loc in self.location_chain],
-            "rounds": [dict(r) for r in self.rounds],
+            "revision": self.revision,
+            "initiative_cursor": self.initiative_cursor,
+            "roll_counter": self._roll_counter,
+            "roll_history": list(self._roll_history),
+            "turn_counter": self._turn_counter,
+            "current_round": self._current_round,
+            "participants": json.loads(json.dumps(list(self.participants.values()))),
+            "location_chain": json.loads(json.dumps(self.location_chain)),
+            "rounds": json.loads(json.dumps(self.rounds)),
             "sudden_hazard_last_caller": self._sudden_hazard_last_caller,
             "play_language": self._play_language,
+            "consumed_combat_receipts": json.loads(json.dumps(self.consumed_combat_receipts)),
         }
+
+    @staticmethod
+    def _location_chain_identity(locations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Project immutable route identity without mutable barrier HP."""
+        identity: list[dict[str, Any]] = []
+        for location in locations:
+            hazard = location.get("hazard")
+            barrier = location.get("barrier")
+            identity.append({
+                "index": location.get("index"),
+                "label": location.get("label"),
+                "kind": location.get("kind"),
+                "route_id": location.get("route_id"),
+                "hazard_id": hazard.get("hazard_id") if isinstance(hazard, dict) else None,
+                "barrier_id": barrier.get("barrier_id") if isinstance(barrier, dict) else None,
+            })
+        return identity
+
+    @staticmethod
+    def _canonical_json_hash(value: Any) -> str:
+        encoded = json.dumps(
+            value, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def _validate_genesis_evidence(cls, data: dict[str, Any], evidence: Any) -> None:
+        keys = {
+            "record_type", "sequence", "command_id", "command_hash",
+            "command_provenance", "command", "chase_id", "participants",
+            "location_chain", "location_chain_identity", "genesis_hash",
+        }
+        if not isinstance(evidence, dict) or set(evidence) != keys:
+            raise ValueError("chase genesis evidence contract is invalid")
+        material = {key: value for key, value in evidence.items() if key != "genesis_hash"}
+        if (
+            evidence.get("record_type") != "chase_genesis_v1"
+            or isinstance(evidence.get("sequence"), bool)
+            or not isinstance(evidence.get("sequence"), int)
+            or evidence["sequence"] < 1
+            or evidence.get("chase_id") != data.get("chase_id")
+            or evidence.get("genesis_hash") != cls._canonical_json_hash(material)
+        ):
+            raise ValueError("chase genesis evidence identity is invalid")
+        genesis_participants = evidence.get("participants")
+        participant_keys = {
+            "actor_id", "side", "move_rate", "build", "dex", "hp",
+            "conditions", "position_origin",
+        }
+        if (
+            not isinstance(genesis_participants, list)
+            or not genesis_participants
+            or any(not isinstance(row, dict) or set(row) != participant_keys
+                   for row in genesis_participants)
+            or len({row["actor_id"] for row in genesis_participants})
+            != len(genesis_participants)
+        ):
+            raise ValueError("chase genesis participant evidence is invalid")
+        persisted = {row["actor_id"]: row for row in data["participants"]}
+        if set(persisted) != {row["actor_id"] for row in genesis_participants}:
+            raise ValueError("chase genesis participant identity diverges")
+        for origin in genesis_participants:
+            current = persisted[origin["actor_id"]]
+            expected = {
+                "actor_id": current["actor_id"],
+                "side": current["side"],
+                "move_rate": current["mov_base"],
+                "build": current["build_max"],
+                "dex": current["dex"],
+                "hp": current["hp_max"],
+                "position_origin": current["position_origin"],
+            }
+            if any(origin.get(key) != value for key, value in expected.items()):
+                raise ValueError("chase genesis participant origin diverges")
+            if (not isinstance(origin.get("conditions"), list)
+                    or len(origin["conditions"]) != len(set(origin["conditions"]))
+                    or any(value not in coc_combat.VALID_CONDITIONS
+                           for value in origin["conditions"])):
+                raise ValueError("chase genesis participant conditions are invalid")
+        if (
+            not isinstance(evidence.get("location_chain"), list)
+            or evidence.get("location_chain_identity")
+            != cls._location_chain_identity(evidence["location_chain"])
+            or evidence.get("location_chain_identity")
+            != cls._location_chain_identity(data["location_chain"])
+        ):
+            raise ValueError("chase genesis location chain identity diverges")
 
     def save(self, campaign_dir: Path) -> Path:
         d = Path(campaign_dir) / "save"
         d.mkdir(parents=True, exist_ok=True)
         path = d / "chase.json"
+        snapshot = self.snapshot()
+        self._validate_snapshot(snapshot)
         coc_fileio.write_json_atomic(
-            path, self.snapshot(), indent=2, ensure_ascii=False, trailing_newline=False
+            path, snapshot, indent=2, ensure_ascii=False, trailing_newline=False
         )
         return path
 
     @classmethod
-    def load(cls, path: Path, rng: random.Random | None = None) -> "ChaseSession":
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    def load(
+        cls, path: Path, rng: random.Random | None = None, *,
+        genesis_evidence: dict[str, Any] | None = None,
+        trusted_standalone: bool = False,
+    ) -> "ChaseSession":
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            cls._validate_snapshot(data)
+            if genesis_evidence is None:
+                if not trusted_standalone:
+                    raise ValueError("chase genesis evidence is required")
+            else:
+                cls._validate_genesis_evidence(data, genesis_evidence)
+        except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ValueError) and str(exc).startswith(("chase snapshot", "chase genesis")):
+                raise
+            raise ValueError(f"chase snapshot is invalid: {exc}") from exc
         session = cls(
             data["chase_id"],
             rng=rng or random.Random(),
@@ -1484,19 +1894,306 @@ class ChaseSession:
         )
         session.status = data.get("status", "active")
         session.outcome = data.get("outcome")
-        session.location_chain = [
-            _normalize_location(loc, i)
-            for i, loc in enumerate(data.get("location_chain") or [])
-        ]
+        session.revision = data["revision"]
+        session.initiative_cursor = data["initiative_cursor"]
+        session._roll_counter = data["roll_counter"]
+        session._roll_history = list(data["roll_history"])
+        session._turn_counter = data["turn_counter"]
+        session.location_chain = json.loads(json.dumps(data["location_chain"]))
         session.rounds = list(data.get("rounds") or [])
         session._sudden_hazard_last_caller = data.get("sudden_hazard_last_caller")
-        session._current_round = max(
-            (r.get("round", 0) for r in session.rounds), default=0
-        )
+        session._current_round = data["current_round"]
+        session.consumed_combat_receipts = list(data["consumed_combat_receipts"])
         for p in data.get("participants") or []:
             aid = p["actor_id"]
             session.participants[aid] = dict(p)
         return session
+
+    @staticmethod
+    def _validate_snapshot(data: Any) -> None:
+        root_keys = {
+            "schema_version", "chase_id", "status", "outcome", "revision",
+            "initiative_cursor", "roll_counter", "turn_counter", "current_round",
+            "roll_history",
+            "participants", "location_chain", "rounds",
+            "sudden_hazard_last_caller", "play_language",
+            "consumed_combat_receipts",
+        }
+        if not isinstance(data, dict) or set(data) != root_keys:
+            raise ValueError("chase snapshot root contract is invalid")
+        if data.get("schema_version") != CHASE_SCHEMA_VERSION:
+            raise ValueError("chase snapshot schema_version is unsupported")
+        if not isinstance(data.get("chase_id"), str) or not data["chase_id"]:
+            raise ValueError("chase snapshot chase_id is invalid")
+        if data.get("status") not in {"active", "concluded"} or data.get("outcome") not in VALID_CHASE_OUTCOMES:
+            raise ValueError("chase snapshot status/outcome is invalid")
+        if (data["status"] == "active") != (data["outcome"] is None):
+            raise ValueError("chase snapshot status/outcome is inconsistent")
+        for key in ("revision", "initiative_cursor", "roll_counter", "turn_counter", "current_round"):
+            value = data.get(key)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"chase snapshot {key} is invalid")
+        participants = data.get("participants")
+        if not isinstance(participants, list) or not participants:
+            raise ValueError("chase snapshot participants are invalid")
+        actor_ids: list[str] = []
+        participant_keys = {
+            "actor_id", "side", "role", "mov_base", "mov_adjusted", "dex", "con",
+            "drive_auto", "is_vehicle", "vehicle_key", "vehicle_actor_id", "position",
+            "position_origin",
+            "build", "build_max", "armor", "hp", "hp_max", "fight", "dodge",
+            "firearms", "luck", "conditions", "spot_hidden", "navigate",
+            "movement_actions", "movement_actions_remaining", "movement_debt",
+            "assist_penalty_reduction", "captured", "escaped", "wrecked",
+        }
+        for participant in participants:
+            keys = set(participant) if isinstance(participant, dict) else set()
+            if (not isinstance(participant, dict)
+                    or (keys != participant_keys and keys != participant_keys | {"_build_damage_bank"})):
+                raise ValueError("chase snapshot participant is invalid")
+            actor_id = participant.get("actor_id")
+            if not isinstance(actor_id, str) or not actor_id or actor_id in actor_ids:
+                raise ValueError("chase snapshot actor identity is invalid")
+            actor_ids.append(actor_id)
+            if participant.get("side") not in {"quarry", "pursuer", "passenger", "neutral"}:
+                raise ValueError("chase snapshot participant side is invalid")
+            if participant.get("role") not in {"driver", "passenger"}:
+                raise ValueError("chase snapshot participant role is invalid")
+            if not isinstance(participant.get("is_vehicle"), bool):
+                raise ValueError("chase snapshot participant vehicle marker is invalid")
+            if any(not isinstance(participant.get(key), bool)
+                   for key in ("captured", "escaped", "wrecked")):
+                raise ValueError("chase snapshot participant flags are invalid")
+            conditions = participant.get("conditions")
+            if (not isinstance(conditions, list) or len(conditions) != len(set(conditions))
+                    or any(value not in coc_combat.VALID_CONDITIONS for value in conditions)):
+                raise ValueError("chase snapshot participant conditions are invalid")
+            for key in ("hp", "hp_max", "mov_base", "mov_adjusted", "dex", "build", "build_max", "armor"):
+                value = participant.get(key)
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    raise ValueError(f"chase snapshot participant {key} is invalid")
+            if participant["hp"] > participant["hp_max"] or participant["build"] > participant["build_max"]:
+                raise ValueError("chase snapshot participant health/build is invalid")
+            if "dead" in conditions and participant["hp"] != 0:
+                raise ValueError("chase snapshot dead participant HP is inconsistent")
+            if "dying" in conditions and (participant["hp"] > 1 or "major_wound" not in conditions):
+                raise ValueError("chase snapshot dying participant is inconsistent")
+            for key in (
+                "position", "position_origin", "movement_actions",
+                "movement_actions_remaining", "movement_debt",
+            ):
+                value = participant.get(key)
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    raise ValueError(f"chase snapshot participant {key} is invalid")
+            if participant["movement_actions_remaining"] > participant["movement_actions"]:
+                raise ValueError("chase snapshot participant action budget is invalid")
+        locations = data.get("location_chain")
+        if not isinstance(locations, list):
+            raise ValueError("chase snapshot location chain is invalid")
+        if locations and any(
+            not isinstance(loc, dict) or set(loc) - {"index", "label", "hazard", "barrier", "kind", "route_id", "notes"}
+            or set(loc) < {"index", "label", "hazard", "barrier"} or loc.get("index") != index
+            for index, loc in enumerate(locations)
+        ):
+            raise ValueError("chase snapshot location indexes are invalid")
+        hazard_keys = {"hazard_id", "skill", "target", "difficulty", "damage_dice", "collision_severity", "from_wreck", "from_debris", "sudden"}
+        barrier_keys = {"barrier_id", "hp", "hp_max", "skill", "target", "difficulty", "damage_dice", "description"}
+        for loc in locations:
+            if not isinstance(loc.get("label"), str) or not loc["label"]:
+                raise ValueError("chase snapshot location label is invalid")
+            hazard = loc.get("hazard")
+            barrier = loc.get("barrier")
+            if hazard is not None and (not isinstance(hazard, dict) or not set(hazard) <= hazard_keys
+                                       or not isinstance(hazard.get("hazard_id"), str)):
+                raise ValueError("chase snapshot hazard is invalid")
+            if barrier is not None and (not isinstance(barrier, dict) or not set(barrier) <= barrier_keys
+                                        or not isinstance(barrier.get("barrier_id"), str)):
+                raise ValueError("chase snapshot barrier is invalid")
+            if isinstance(barrier, dict):
+                for key in ("hp", "hp_max"):
+                    value = barrier.get(key)
+                    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                        raise ValueError("chase snapshot barrier HP is invalid")
+                if barrier["hp"] > barrier["hp_max"]:
+                    raise ValueError("chase snapshot barrier HP is inconsistent")
+        if locations and any(p["position"] >= len(locations) for p in participants):
+            raise ValueError("chase snapshot participant position is invalid")
+        participants_by_id = {row["actor_id"]: row for row in participants}
+        for participant in participants:
+            if participant["role"] == "passenger":
+                vehicle = participants_by_id.get(participant.get("vehicle_actor_id"))
+                if (participant["side"] != "passenger" or not isinstance(vehicle, dict)
+                        or vehicle.get("is_vehicle") is not True
+                        or participant["position"] != vehicle["position"]
+                        or participant["movement_actions"] != 0
+                        or participant["movement_actions_remaining"] != 0):
+                    raise ValueError("chase snapshot passenger state is inconsistent")
+        rounds = data.get("rounds")
+        if not isinstance(rounds, list) or data["current_round"] != len(rounds):
+            raise ValueError("chase snapshot round counter is invalid")
+        conflict_action_receipts: list[dict[str, Any]] = []
+        action_roll_ids: list[str] = []
+        replayed_positions = {
+            row["actor_id"]: row["position_origin"] for row in participants
+        }
+        for index, round_row in enumerate(rounds, start=1):
+            if (not isinstance(round_row, dict) or set(round_row) != {"round", "dex_order", "turns"}
+                    or round_row.get("round") != index
+                    or not isinstance(round_row.get("dex_order"), list)
+                    or len(round_row["dex_order"]) != len(set(round_row["dex_order"]))
+                    or any(actor not in actor_ids for actor in round_row["dex_order"])
+                    or not isinstance(round_row.get("turns"), list)):
+                raise ValueError("chase snapshot round contract is invalid")
+            turn_actors: list[str] = []
+            for turn in round_row["turns"]:
+                if (not isinstance(turn, dict)
+                        or set(turn) != {"turn_id", "actor_id", "dex", "movement_actions", "actions_taken"}
+                        or turn.get("actor_id") not in round_row["dex_order"]
+                        or not isinstance(turn.get("actions_taken"), list)
+                        or not isinstance(turn.get("turn_id"), str)):
+                    raise ValueError("chase snapshot turn history is invalid")
+                turn_actors.append(turn["actor_id"])
+                participant = next(row for row in participants if row["actor_id"] == turn["actor_id"])
+                if turn.get("dex") != participant["dex"] or turn.get("movement_actions") != participant["movement_actions"]:
+                    raise ValueError("chase snapshot turn actor state is inconsistent")
+                for action in turn["actions_taken"]:
+                    receipt_rolls, new_position, position_before = _validate_chase_action_receipt(
+                        action, turn_actor=turn["actor_id"], actor_ids=set(actor_ids),
+                        locations=locations,
+                    )
+                    action_roll_ids.extend(receipt_rolls)
+                    if position_before is not None:
+                        actor_id = turn["actor_id"]
+                        previous = replayed_positions[actor_id]
+                        if position_before != previous:
+                            raise ValueError("chase snapshot action position history is inconsistent")
+                        if action["type"] == "pedal_to_the_metal":
+                            expected = previous + action["locations_moved"]
+                            if new_position != expected or expected >= len(locations):
+                                raise ValueError("chase snapshot action position history is inconsistent")
+                            traversed_special = {
+                                index for index in range(previous + 1, expected + 1)
+                                if locations[index].get("hazard") is not None
+                                or (
+                                    locations[index].get("barrier") is not None
+                                    and int(locations[index]["barrier"].get("hp") or 0) > 0
+                                )
+                            }
+                            covered_special: set[int] = set()
+                            for nested in action["hazard_results"]:
+                                _, nested_new, nested_before = _validate_chase_action_receipt(
+                                    nested, turn_actor=actor_id, actor_ids=set(actor_ids),
+                                    locations=locations,
+                                )
+                                if (nested_before is None
+                                        or not previous <= nested_before <= expected
+                                        or nested_new is not None
+                                        and (nested_new != nested_before + 1 or nested_new > expected)
+                                        or nested_new is None
+                                        and nested["type"] not in {"barrier", "break_barrier"}):
+                                    raise ValueError("chase snapshot action position history is inconsistent")
+                                if nested_new is not None:
+                                    covered_special.add(nested_new)
+                            if not traversed_special <= covered_special:
+                                raise ValueError("chase snapshot action position history is inconsistent")
+                        elif action["type"] in {"advance", "hazard"}:
+                            if new_position != previous + 1:
+                                raise ValueError("chase snapshot action position history is inconsistent")
+                            destination = locations[new_position]
+                            if action["type"] == "advance" and (
+                                destination.get("hazard") is not None
+                                or (
+                                    destination.get("barrier") is not None
+                                    and int(destination["barrier"].get("hp") or 0) > 0
+                                )
+                            ):
+                                raise ValueError("chase snapshot action position history is inconsistent")
+                            if action["type"] == "hazard" and (
+                                not isinstance(destination.get("hazard"), dict)
+                                or destination["hazard"].get("hazard_id") != action["hazard_id"]
+                            ):
+                                raise ValueError("chase snapshot action position history is inconsistent")
+                        elif action["type"] in {"barrier", "break_barrier"}:
+                            destination_index = previous + 1
+                            if destination_index >= len(locations):
+                                raise ValueError("chase snapshot action position history is inconsistent")
+                            barrier = locations[destination_index].get("barrier")
+                            expected_barrier_id = action.get("barrier_id")
+                            if (not isinstance(barrier, dict)
+                                    or expected_barrier_id is not None
+                                    and barrier.get("barrier_id") != expected_barrier_id):
+                                raise ValueError("chase snapshot action position history is inconsistent")
+                            expected = previous + (1 if new_position is not None else 0)
+                            if new_position is not None and new_position != expected:
+                                raise ValueError("chase snapshot action position history is inconsistent")
+                        replayed_positions[actor_id] = (
+                            previous if new_position is None else new_position
+                        )
+                    if action["type"] == "conflict" and "combat_receipt" in action:
+                        receipt = action.get("combat_receipt")
+                        receipt_keys = {"combat_command_id", "combat_id", "combat_revision",
+                                        "command_hash", "receipt_hash"}
+                        if (not isinstance(receipt, dict) or set(receipt) != receipt_keys
+                                or any(receipt.get(key) != action.get(key)
+                                       for key in ("combat_command_id", "combat_id", "combat_revision"))
+                                or action.get("actions_spent") != 1
+                                or action.get("attacker_id") != turn.get("actor_id")
+                                or not isinstance(receipt.get("combat_revision"), int)
+                                or receipt["combat_revision"] < 0
+                                or any(not isinstance(receipt.get(key), str) or not receipt[key]
+                                       for key in receipt_keys - {"combat_revision"})):
+                            raise ValueError("chase snapshot combat receipt is invalid")
+                        conflict_action_receipts.append(receipt)
+                if sum(action["actions_spent"] for action in turn["actions_taken"]) > turn["movement_actions"]:
+                    raise ValueError("chase snapshot turn action budget is inconsistent")
+            if turn_actors != round_row["dex_order"][:len(turn_actors)]:
+                raise ValueError("chase snapshot turn order is inconsistent")
+            if index < len(rounds) and len(turn_actors) != len(round_row["dex_order"]):
+                raise ValueError("chase snapshot historical round is incomplete")
+        active_order = rounds[-1]["dex_order"] if rounds else []
+        if data["initiative_cursor"] > len(active_order):
+            raise ValueError("chase snapshot initiative_cursor is invalid")
+        if rounds and len(rounds[-1]["turns"]) != data["initiative_cursor"]:
+            raise ValueError("chase snapshot initiative history is inconsistent")
+        all_turns = [turn for row in rounds for turn in row["turns"]]
+        if data["turn_counter"] != len(all_turns) or [t["turn_id"] for t in all_turns] != [
+            f"t{row['round']}-{offset}"
+            for row in rounds for offset, _turn in enumerate(row["turns"], start=1 + sum(len(r["turns"]) for r in rounds[:row["round"] - 1]))
+        ]:
+            raise ValueError("chase snapshot turn counter/history is inconsistent")
+        expected_revision = data["current_round"] + len(all_turns) + (1 if data["status"] == "concluded" else 0)
+        if data["revision"] != expected_revision:
+            raise ValueError("chase snapshot revision/history is inconsistent")
+        if data.get("roll_history") != [f"chr{i}" for i in range(1, data["roll_counter"] + 1)]:
+            raise ValueError("chase snapshot roll counter/history is inconsistent")
+        if data.get("sudden_hazard_last_caller") not in {None, "keeper", "players"}:
+            raise ValueError("chase snapshot sudden hazard caller is invalid")
+        if not isinstance(data.get("play_language"), str) or not data["play_language"]:
+            raise ValueError("chase snapshot play language is invalid")
+        receipts = data.get("consumed_combat_receipts")
+        receipt_keys = {"combat_command_id", "combat_id", "combat_revision", "command_hash", "receipt_hash"}
+        if (not isinstance(receipts, list)
+                or any(not isinstance(row, dict) or set(row) != receipt_keys for row in receipts)
+                or len({row["combat_command_id"] for row in receipts}) != len(receipts)
+                or any(not isinstance(row["combat_revision"], int) or row["combat_revision"] < 0
+                       or not all(isinstance(row[k], str) and row[k] for k in receipt_keys - {"combat_revision"})
+                       for row in receipts)):
+            raise ValueError("chase snapshot combat receipts are invalid")
+        if conflict_action_receipts != receipts:
+            raise ValueError("chase snapshot combat receipt/action history diverges")
+        if (len(action_roll_ids) != len(set(action_roll_ids))
+                or any(roll_id not in data["roll_history"] for roll_id in action_roll_ids)
+                or [data["roll_history"].index(roll_id) for roll_id in action_roll_ids]
+                != sorted(data["roll_history"].index(roll_id) for roll_id in action_roll_ids)):
+            raise ValueError("chase snapshot action roll history diverges")
+        for participant in participants:
+            if participant["role"] == "passenger":
+                replayed_positions[participant["actor_id"]] = replayed_positions[
+                    participant["vehicle_actor_id"]
+                ]
+        final_positions = {row["actor_id"]: row["position"] for row in participants}
+        if final_positions != replayed_positions:
+            raise ValueError("chase snapshot action/final position diverges")
 
     def drain_pending(self) -> list[dict[str, Any]]:
         r = self.pending_rolls
@@ -1510,7 +2207,9 @@ class ChaseSession:
 
     def _roll_id(self) -> str:
         self._roll_counter += 1
-        return f"chr{self._roll_counter}"
+        roll_id = f"chr{self._roll_counter}"
+        self._roll_history.append(roll_id)
+        return roll_id
 
     def _next_turn(self) -> int:
         self._turn_counter += 1

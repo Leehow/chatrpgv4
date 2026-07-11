@@ -82,6 +82,15 @@ def test_sanitize_envelope_drops_rationale_and_secrets():
     assert cleaned["approved_reveals"]["must_include"] == ["门框有划痕"]
 
 
+def test_sanitize_envelope_recursively_drops_keeper_only_fields():
+    adapter = _load_adapter()
+    cleaned = adapter.sanitize_narration_envelope({
+        "nested": {"keeper_secrets": ["hidden"], "ok": {"rationale": "x"}},
+        "routes": [{"director_rationale": "hidden", "cue": "visible"}],
+    })
+    assert cleaned == {"nested": {"ok": {}}, "routes": [{"cue": "visible"}]}
+
+
 def test_parse_runner_response_requires_ok_and_final_text():
     adapter = _load_adapter()
     parsed = adapter.parse_runner_response(
@@ -109,6 +118,59 @@ def test_parse_runner_response_accepts_prose_degraded_shape():
         }
     )
     assert "narrator_missing_tool_use" in parsed["notes"]
+
+
+def test_parse_runner_response_preserves_observed_model_and_response_mode():
+    adapter = _load_adapter()
+    parsed = adapter.parse_runner_response(
+        {
+            "ok": True,
+            "final_text": "雨声压低了门后的脚步。",
+            "model_identity": {"provider": "anthropic", "id": "claude-evidence"},
+            "response_mode": "tool",
+        }
+    )
+
+    assert parsed["model_identity"] == {
+        "provider": "anthropic",
+        "id": "claude-evidence",
+    }
+    assert parsed["response_mode"] == "tool"
+
+
+def test_parse_runner_response_preserves_optional_model_usage_metadata():
+    parsed = _load_adapter().parse_runner_response({
+        "ok": True, "final_text": "雨声压低了门后的脚步。",
+        "usage": {"input_tokens": 21, "output_tokens": 7},
+    })
+    assert parsed["usage"] == {"input_tokens": 21, "output_tokens": 7}
+
+
+def test_parse_runner_response_preserves_structured_secret_audit_fields():
+    adapter = _load_adapter()
+    parsed = adapter.parse_runner_response({
+        "ok": True, "final_text": "雨敲着窗。",
+        "secret_audit_complete": True,
+        "asserted_fact_refs": ["fact-rain"],
+        "semantic_audit": [{"asserted_ref": "fact-rain", "forbidden_ref": "secret-1",
+                            "decision": "different_fact", "reason": "distinct ids"}],
+    })
+    assert parsed["asserted_fact_refs"] == ["fact-rain"]
+    assert parsed["semantic_audit"][0]["decision"] == "different_fact"
+    assert parsed["secret_audit_complete"] is True
+
+
+def test_parse_runner_response_does_not_infer_complete_from_field_presence():
+    parsed = _load_adapter().parse_runner_response({
+        "ok": True, "final_text": "雨敲着窗。",
+        "asserted_fact_refs": [], "semantic_audit": [],
+    })
+    assert parsed["secret_audit_complete"] is False
+
+
+def test_parse_runner_response_marks_missing_secret_audit_ineligible():
+    parsed = _load_adapter().parse_runner_response({"ok": True, "final_text": "雨敲着窗。"})
+    assert parsed["secret_audit_complete"] is False
 
 
 def test_narrator_send_turn_round_trip_strips_rationale(tmp_path):
@@ -151,6 +213,9 @@ def test_run_narration_mjs_is_real_bridge_not_placeholder():
     assert "coc_keeper_narration" in source
     assert "@earendil-works/pi-coding-agent" in source
     assert "narrator_missing_tool_use" in source
+    assert "session.model" in source
+    assert "model_identity" in source
+    assert "response_mode" in source
     assert "placeholder" not in source.lower()
     pkg = json.loads((NARRATOR_DIR / "package.json").read_text(encoding="utf-8"))
     assert pkg["dependencies"]["@earendil-works/pi-coding-agent"] == "0.79.9"

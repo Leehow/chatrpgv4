@@ -10,7 +10,8 @@ adjudicates rules or invents outcomes.
 
 **Key insight:** the live “KP narrator LLM” is the same class of brain as the
 player bridge — Pi Coding Agent (`@earendil-works/pi-coding-agent@0.79.9`),
-one process per turn, single allowlisted custom tool, auth via Pi’s normal
+one scoped server worker across turns (with one-shot compatibility), a single
+allowlisted custom tool, auth via Pi’s normal
 discovery.
 
 ## Install
@@ -31,8 +32,8 @@ Do not commit secrets or API keys.
 
 | File | Role |
 |------|------|
-| `adapter.py` | Python wrapper: `narrator_send_turn(request) -> {final_text, notes?}` |
-| `run_narration.mjs` | Real Pi bridge: stdin JSON → stdout `{ok, final_text\|error}` |
+| `adapter.py` | Python wrapper: `narrator_send_turn(request) -> {final_text, notes?, model_identity?, response_mode?}` |
+| `run_narration.mjs` | Real Pi bridge: stdin JSON → stdout `{ok, final_text\|error, model_identity?, response_mode?}` |
 | `package.json` | Node dependency pin |
 
 ## Live match
@@ -50,9 +51,17 @@ python3 plugins/coc-keeper/scripts/coc_live_match.py \
   --max-turns 8
 ```
 
-Only `--live` matches may claim LLM narration as gameplay evidence
-(AGENTS.md evidence standard). Scripted / fake narrator runners must omit
-`--live`.
+`--live` records a user claim only. The narrator is optional for gameplay
+evidence: deterministic template narration, including template fallback after
+a configured narrator failure, is allowed and counted. If narrator output is
+actually used, its runner must match the canonical path and exact digest in
+`plugins/coc-keeper/references/trusted-playtest-runners.json`, and its selected
+model identity must be present. Used output from a scripted, fake, modified, or
+unknown narrator makes the run ineligible.
+
+`evidence.json` derives model and fallback counts from the hashed
+`runner-invocations.jsonl` ledger and reconciles its player/narrator rows to the
+transcript. Caller provenance and caller turn counts are non-authoritative.
 
 ## Request / response
 
@@ -73,9 +82,15 @@ Only `--live` matches may claim LLM narration as gameplay evidence
 {
   "ok": true,
   "final_text": "...",
-  "notes": "optional; narrator_missing_tool_use when prose-degraded"
+  "notes": "optional; narrator_missing_tool_use when prose-degraded",
+  "model_identity": {"provider": "actual-provider", "id": "actual-model-id"},
+  "response_mode": "tool"
 }
 ```
+
+The canonical Node bridge reads `model_identity` from the selected Pi session
+model. `response_mode` is `tool` or `prose_fallback`; prose degradation remains
+eligible but is recorded as a fallback.
 
 ## Fallback ladder
 
@@ -86,8 +101,10 @@ Only `--live` matches may claim LLM narration as gameplay evidence
 3. On runner error / timeout: log `narrator_fallback` on the turn record and
    fall back to the deterministic template text from
    `coc_playtest_driver._keeper_turn_text` (current headless behavior).
-4. Match metadata: `narration_method` is `llm_narrator` when a narrator runner
-   was configured, else `template`. `fallback_turns` counts template fallbacks.
+4. Match metadata: `narration_method` is `llm_narrator` when at least one
+   narrator result was used, else `template`. `fallback_turns` is derived from
+   ledger markers and counts deterministic templates, template fallbacks, and
+   prose degradation.
 
 ## V1 behavior
 

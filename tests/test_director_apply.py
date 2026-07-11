@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import random
 import time
 from pathlib import Path
 
@@ -47,6 +48,48 @@ def _campaign(tmp_path):
     return camp
 
 
+def _character_file(tmp_path: Path, investigator_id: str = "inv1") -> Path:
+    path = tmp_path / "investigators" / investigator_id / "character.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "id": investigator_id,
+        "characteristics": {"INT": 70, "POW": 55},
+        "derived": {"SAN": 55},
+        "skills": {"Spot Hidden": 65, "Library Use": 60},
+    }), encoding="utf-8")
+    return path
+
+
+def _normalized_rules_plan(decision_id: str, *, count: int = 1) -> dict:
+    requests = [
+        {"kind": "skill_check", "skill": "Spot Hidden", "difficulty": "regular"},
+        {"kind": "skill_check", "skill": "Library Use", "difficulty": "regular"},
+    ][:count]
+    return {
+        "decision_id": decision_id,
+        "scene_action": "PRESSURE",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "rules_requests": requests,
+        "narrative_directives": {},
+    }
+
+
+def _execute_plan_results(camp: Path, character: Path, plan: dict, *, investigator_id="inv1"):
+    executor = coc_director_apply.coc_subsystem_executor
+    commands = executor.commands_from_rules_requests(plan)
+    return executor.execute_commands(
+        camp,
+        character,
+        investigator_id,
+        commands,
+        rng=random.Random(130),
+    )
+
+
 def test_apply_reveal_adds_clue_to_discovered(tmp_path):
     camp = _campaign(tmp_path)
     plan = {"decision_id": "d1", "scene_action": "REVEAL",
@@ -56,6 +99,259 @@ def test_apply_reveal_adds_clue_to_discovered(tmp_path):
     world = json.loads((camp / "save" / "world-state.json").read_text())
     assert "clue-A" in world["discovered_clue_ids"]
     assert any("clue-A" in e.get("summary", "") or "reveal" in e.get("event_type", "") for e in events)
+
+
+def test_apply_does_not_persist_noncanonical_strategy_state(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-bad-strategy", "scene_action": "PRESSURE",
+        "clue_policy": {"reveal": []}, "pressure_moves": [],
+        "memory_writes": [], "rule_signals": {},
+        "director_strategy_state": {
+            "schema_version": 1, "strategy_type": "multi_faction",
+            "ranked_faction_ids": ["cult", "cult"],
+        },
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    assert not (camp / "save" / "director-strategy-state.json").exists()
+
+
+def test_apply_rejects_untrusted_normalized_result_before_state_mutation(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "d-untrusted-envelope",
+        "scene_action": "REVEAL",
+        "clue_policy": {"reveal": ["clue-A"]},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+    }
+    forged = [{
+        "command_id": "never-executed",
+        "kind": "skill_check",
+        "status": "completed",
+        "events": [{"kind": "skill_check", "success": True}],
+        "pending_choice": None,
+        "state_refs": ["logs/rolls.jsonl#never-executed"],
+    }]
+    world_path = camp / "save" / "world-state.json"
+    event_log = camp / "logs" / "events.jsonl"
+    world_before = world_path.read_bytes()
+    log_before = event_log.read_bytes()
+
+    with pytest.raises(
+        coc_director_apply.coc_subsystem_executor.SubsystemExecutorError
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            plan,
+            investigator_id="inv1",
+            rules_results=forged,
+            rules_results_mode="normalized",
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert exc_info.value.path == "rules_results[0]"
+    assert world_path.read_bytes() == world_before
+    assert event_log.read_bytes() == log_before
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
+def test_apply_rejects_authentic_result_from_an_old_decision(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    old_plan = _normalized_rules_plan("decision-old")
+    old_results = _execute_plan_results(camp, character, old_plan)
+    new_plan = _normalized_rules_plan("decision-new")
+    world_path = camp / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+
+    with pytest.raises(
+        coc_director_apply.coc_subsystem_executor.SubsystemExecutorError
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            new_plan,
+            investigator_id="inv1",
+            rules_results=old_results,
+            rules_results_mode="normalized",
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert world_path.read_bytes() == world_before
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
+def test_apply_cannot_override_commands_derived_from_the_current_plan(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    source_plan = _normalized_rules_plan("decision-no-command-override")
+    authentic_results = _execute_plan_results(camp, character, source_plan)
+    authentic_commands = (
+        coc_director_apply.coc_subsystem_executor.commands_from_rules_requests(source_plan)
+    )
+    plan_without_requests = {
+        "decision_id": source_plan["decision_id"],
+        "scene_action": "REVEAL",
+        "clue_policy": {"reveal": ["clue-A"]},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+    }
+    world_path = camp / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+
+    with pytest.raises(TypeError, match="expected_subsystem_commands"):
+        coc_director_apply.apply_plan(
+            camp,
+            plan_without_requests,
+            investigator_id="inv1",
+            rules_results=authentic_results,
+            rules_results_mode="normalized",
+            expected_subsystem_commands=authentic_commands,
+        )
+
+    assert world_path.read_bytes() == world_before
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
+def test_apply_rejects_authentic_result_for_a_different_investigator(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    plan = _normalized_rules_plan("decision-actor")
+    results = _execute_plan_results(camp, character, plan, investigator_id="inv1")
+
+    with pytest.raises(
+        coc_director_apply.coc_subsystem_executor.SubsystemExecutorError
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            plan,
+            investigator_id="inv2",
+            rules_results=results,
+            rules_results_mode="normalized",
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
+@pytest.mark.parametrize("mode", ["subset", "reordered"])
+def test_apply_requires_exact_ordered_current_command_result_set(tmp_path, mode):
+    case_root = tmp_path / mode
+    camp = _campaign(case_root)
+    character = _character_file(case_root)
+    plan = _normalized_rules_plan(f"decision-{mode}", count=2)
+    results = _execute_plan_results(camp, character, plan)
+    supplied = results[:1] if mode == "subset" else list(reversed(results))
+
+    with pytest.raises(
+        coc_director_apply.coc_subsystem_executor.SubsystemExecutorError
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            plan,
+            investigator_id="inv1",
+            rules_results=supplied,
+            rules_results_mode="normalized",
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert not (camp / "save" / "apply-ledger.json").exists()
+
+
+def test_apply_accepts_exact_ordered_current_command_result_set(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    plan = _normalized_rules_plan("decision-current", count=2)
+    results = _execute_plan_results(camp, character, plan)
+
+    events = coc_director_apply.apply_plan(
+        camp,
+        plan,
+        investigator_id="inv1",
+        rules_results=results,
+        rules_results_mode="normalized",
+    )
+
+    assert isinstance(events, list)
+    ledger = json.loads((camp / "save" / "apply-ledger.json").read_text(encoding="utf-8"))
+    assert ledger["applied_decision_ids"] == ["decision-current"]
+
+
+def test_duplicate_apply_skips_before_mismatched_envelope_validation(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "decision-noop-first",
+        "scene_action": "PRESSURE",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    before = {
+        path.relative_to(camp).as_posix(): path.read_bytes()
+        for path in camp.rglob("*")
+        if path.is_file()
+    }
+    mismatched = [{
+        "command_id": "never-executed",
+        "kind": "skill_check",
+        "status": "completed",
+        "events": [{"kind": "skill_check", "success": True}],
+        "pending_choice": None,
+        "state_refs": [],
+    }]
+
+    events = coc_director_apply.apply_plan(
+        camp,
+        plan,
+        investigator_id="inv1",
+        rules_results=mismatched,
+        rules_results_mode="normalized",
+    )
+
+    assert events == [{
+        "event_type": "apply_skipped",
+        "skipped": "duplicate_decision_id",
+        "decision_id": "decision-noop-first",
+    }]
+    after = {
+        path.relative_to(camp).as_posix(): path.read_bytes()
+        for path in camp.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
+
+
+@pytest.mark.parametrize("missing_results", [None, []])
+def test_normalized_apply_rejects_empty_result_set_for_nonempty_commands(
+    tmp_path,
+    missing_results,
+):
+    camp = _campaign(tmp_path)
+    plan = _normalized_rules_plan("decision-missing-results")
+    world_path = camp / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+    log_before = (camp / "logs" / "events.jsonl").read_bytes()
+
+    with pytest.raises(
+        coc_director_apply.coc_subsystem_executor.SubsystemExecutorError
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            plan,
+            investigator_id="inv1",
+            rules_results=missing_results,
+            rules_results_mode="normalized",
+        )
+
+    assert exc_info.value.code == "untrusted_subsystem_result"
+    assert world_path.read_bytes() == world_before
+    assert (camp / "logs" / "events.jsonl").read_bytes() == log_before
+    assert not (camp / "save" / "apply-ledger.json").exists()
 
 
 def test_apply_reveal_clue_reveal_carries_handout_asset_when_clue_has_ref(tmp_path):
@@ -1799,6 +2095,342 @@ def test_apply_pushed_success_with_gate_does_not_set_pending(tmp_path):
     pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
     assert pacing.get("pushed_fail_pending") is not True
     assert not any(e.get("event_type") == "push_gate_violation" for e in events)
+
+
+def _execute_normalized_push_lifecycle(
+    camp: Path,
+    character: Path,
+    *,
+    reroll_seed: int,
+) -> tuple[dict, list[dict], dict, list[dict]]:
+    executor = coc_director_apply.coc_subsystem_executor
+    origin_plan = {
+        "decision_id": "push-origin-decision",
+        "scene_action": "REVEAL",
+        "clue_policy": {
+            "clue_type": "obscured",
+            "reveal": ["clue-A"],
+            "fallback_routes": ["clue-B"],
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+        },
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+        "rules_requests": [{
+            "kind": "skill_check",
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+            "roll_contract": {
+                "schema_version": 1,
+                "goal": "surface clue-A",
+                "success_effect": "commit clue-A",
+                "failure_effect": "the watcher notices the search",
+                "failure_outcome_mode": "clue_with_cost",
+                "push_policy": {
+                    "eligible": True,
+                    "requires_changed_method": True,
+                    "keeper_must_foreshadow_failure": True,
+                },
+                "roll_density_group": "clue:clue-A",
+                "must_not": ["do not reveal clue-A on failure"],
+            },
+            "resolution_context": {
+                "scene_action": "REVEAL",
+                "clue_policy": {
+                    "clue_type": "obscured",
+                    "reveal": ["clue-A"],
+                    "fallback_routes": ["clue-B"],
+                    "skill": "Spot Hidden",
+                    "difficulty": "regular",
+                },
+            },
+        }],
+    }
+    origin_commands = executor.commands_from_rules_requests(origin_plan)
+    origin_results = executor.execute_commands(
+        camp,
+        character,
+        "inv1",
+        origin_commands,
+        rng=random.Random(5),
+    )
+    assert origin_results[0]["events"][0]["outcome"] == "failure"
+    coc_director_apply.apply_plan(
+        camp,
+        origin_plan,
+        "inv1",
+        rules_results=origin_results,
+        rules_results_mode="normalized",
+    )
+    offer_plan = {
+        "decision_id": "push-offer-decision",
+        "scene_action": "SUBSYSTEM",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "narrative_directives": {},
+        "rules_requests": [{
+            "kind": "push_offer",
+            "original_command_id": origin_commands[0]["command_id"],
+            "changed_method_evidence": {
+                "changed": True,
+                "source": "player_proposal",
+                "summary": "inspect the binding impressions",
+            },
+            "announced_consequence": {
+                "summary": "the watcher identifies the investigator on failure",
+                "effect": {"kind": "fictional_position", "severity": "serious"},
+            },
+        }],
+    }
+    offer_results = executor.execute_commands(
+        camp,
+        character,
+        "inv1",
+        executor.commands_from_rules_requests(offer_plan),
+        rng=random.Random(216),
+    )
+    choice = offer_results[0]["pending_choice"]
+    response = {
+        "choice_id": choice["choice_id"],
+        "responder": "player",
+        "revision": choice["revision"],
+        "action": "confirm",
+    }
+    resume_plan = executor.plan_from_pending_choice_response(camp, "inv1", response)
+    resume_commands = executor.commands_from_rules_requests(resume_plan)
+    resume_results = executor.execute_commands(
+        camp,
+        character,
+        "inv1",
+        resume_commands,
+        rng=random.Random(reroll_seed),
+    )
+    return origin_plan, origin_results, resume_plan, resume_results
+
+
+def test_normalized_pushed_success_settles_originally_withheld_clue(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    _origin_plan, _origin_results, resume_plan, resume_results = (
+        _execute_normalized_push_lifecycle(camp, character, reroll_seed=1)
+    )
+    assert "clue-A" not in json.loads(
+        (camp / "save" / "world-state.json").read_text()
+    )["discovered_clue_ids"]
+
+    events = coc_director_apply.apply_plan(
+        camp,
+        resume_plan,
+        "inv1",
+        rules_results=resume_results,
+        rules_results_mode="normalized",
+    )
+
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert "clue-A" in world["discovered_clue_ids"]
+    assert any(event.get("event_type") == "clue_reveal" for event in events)
+
+
+def test_normalized_pushed_failure_applies_exact_announced_consequence_once(tmp_path):
+    camp = _campaign(tmp_path)
+    character = _character_file(tmp_path)
+    _origin_plan, _origin_results, resume_plan, resume_results = (
+        _execute_normalized_push_lifecycle(camp, character, reroll_seed=5)
+    )
+    expected = {
+        "summary": "the watcher identifies the investigator on failure",
+        "effect": {"kind": "fictional_position", "severity": "serious"},
+    }
+
+    events = coc_director_apply.apply_plan(
+        camp,
+        resume_plan,
+        "inv1",
+        rules_results=resume_results,
+        rules_results_mode="normalized",
+    )
+
+    pushed = [event for event in events if event.get("event_type") == "pushed_roll_failure"]
+    assert len(pushed) == 1
+    assert pushed[0]["push_gate"] == _FULL_PUSH_GATE
+    assert pushed[0]["announced_consequence"] == expected
+    assert pushed[0]["original_command_id"] == "push-origin-decision-rule-1"
+    assert pushed[0]["original_roll_id"] == "push-origin-decision-rule-1"
+    assert pushed[0]["source_command_id"] == resume_results[-1]["command_id"]
+    applied = [
+        event for event in events
+        if event.get("event_type") == "pushed_consequence_applied"
+    ]
+    assert applied == [{
+        "event_type": "pushed_consequence_applied",
+        "decision_id": resume_plan["decision_id"],
+        "investigator_id": "inv1",
+        "source_command_id": resume_results[-1]["command_id"],
+        "effect_kind": "fictional_position",
+        "consequence_summary": expected["summary"],
+        "ts": applied[0]["ts"],
+    }]
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world["pushed_consequences"] == [{
+        "source_command_id": resume_results[-1]["command_id"],
+        "decision_id": resume_plan["decision_id"],
+        "kind": "fictional_position",
+        "summary": expected["summary"],
+        "severity": "serious",
+    }]
+    assert not any(event.get("event_type") == "failure_consequence" for event in events)
+    before = (camp / "logs" / "events.jsonl").read_bytes()
+
+    replay = coc_director_apply.apply_plan(
+        camp,
+        resume_plan,
+        "inv1",
+        rules_results=resume_results,
+        rules_results_mode="normalized",
+    )
+
+    assert replay == [{
+        "event_type": "apply_skipped",
+        "skipped": "duplicate_decision_id",
+        "decision_id": resume_plan["decision_id"],
+    }]
+    assert (camp / "logs" / "events.jsonl").read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("effect", "expected_key", "expected_value"),
+    [
+        ({"kind": "fictional_position", "severity": "critical"}, "severity", "critical"),
+        ({"kind": "condition", "condition_id": "marked"}, "condition_id", "marked"),
+        ({"kind": "pressure_tick", "clock_id": "doom", "ticks": 2}, "ticks", 2),
+    ],
+)
+def test_typed_push_consequence_handlers_materialize_once(
+    tmp_path, effect, expected_key, expected_value,
+):
+    camp = _campaign(tmp_path)
+    (camp / "save" / "investigator-state").mkdir(parents=True, exist_ok=True)
+    (camp / "save" / "investigator-state" / "inv1.json").write_text(json.dumps({
+        "investigator_id": "inv1", "conditions": [],
+    }))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"clocks": [{"clock_id": "doom", "segments": 6}]}],
+    }))
+    world = {"discovered_clue_ids": []}
+    push_event = {
+        "event_type": "pushed_roll_failure",
+        "source_command_id": "push-resolve-typed",
+        "announced_consequence": {
+            "summary": "the announced cost lands",
+            "effect": effect,
+        },
+    }
+
+    first = coc_director_apply._apply_typed_push_consequences(
+        camp, "inv1", [push_event], world=world, decision_id="d-typed", ts="now"
+    )
+    second = coc_director_apply._apply_typed_push_consequences(
+        camp, "inv1", [push_event], world=world, decision_id="d-typed", ts="later"
+    )
+
+    assert len(first) == 1
+    assert second == []
+    assert world["pushed_consequences"][0][expected_key] == expected_value
+    if effect["kind"] == "condition":
+        investigator = json.loads(
+            (camp / "save" / "investigator-state" / "inv1.json").read_text()
+        )
+        assert investigator["conditions"] == ["marked"]
+    if effect["kind"] == "pressure_tick":
+        assert coc_director_apply.coc_threat_state.get_clock_segments(
+            camp / "save", "doom"
+        ) == 2
+
+
+def test_pressure_tick_push_consequence_retry_after_target_write_is_exactly_once(
+    tmp_path, monkeypatch,
+):
+    camp = _campaign(tmp_path)
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"clocks": [{"clock_id": "doom", "segments": 6}]}],
+    }))
+    failure = {
+        "event_type": "pushed_roll_failure",
+        "source_command_id": "push-resolve-crash",
+        "announced_consequence": {
+            "summary": "the doom clock advances",
+            "effect": {"kind": "pressure_tick", "clock_id": "doom", "ticks": 2},
+        },
+    }
+    real_save = coc_director_apply.coc_threat_state._save_state
+    writes = 0
+
+    def persist_then_crash(save_dir, state):
+        nonlocal writes
+        real_save(save_dir, state)
+        writes += 1
+        if writes == 1:
+            raise OSError("injected crash after threat-state target write")
+
+    monkeypatch.setattr(
+        coc_director_apply.coc_threat_state, "_save_state", persist_then_crash
+    )
+    with pytest.raises(OSError, match="after threat-state target write"):
+        coc_director_apply._apply_typed_push_consequences(
+            camp, "inv1", [failure], world={}, decision_id="d-crash", ts="first"
+        )
+
+    monkeypatch.setattr(coc_director_apply.coc_threat_state, "_save_state", real_save)
+    recovered_world = {}
+    applied = coc_director_apply._apply_typed_push_consequences(
+        camp, "inv1", [failure], world=recovered_world,
+        decision_id="d-crash", ts="retry",
+    )
+
+    assert coc_director_apply.coc_threat_state.get_clock_segments(
+        camp / "save", "doom"
+    ) == 2
+    assert len(recovered_world["pushed_consequences"]) == 1
+    assert len(applied) == 1
+    receipt = recovered_world["pushed_consequences"][0]["clock_transition"]
+    assert receipt["before_segments"] == 0
+    assert receipt["after_segments"] == 2
+    assert receipt["transition_id"].startswith("clock-transition:")
+
+
+def test_pressure_consequence_existing_world_receipt_still_verifies_clock_ledger(
+    tmp_path,
+):
+    camp = _campaign(tmp_path)
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({
+        "fronts": [{"clocks": [{"clock_id": "doom", "segments": 6}]}],
+    }))
+    failure = {
+        "event_type": "pushed_roll_failure",
+        "source_command_id": "push-resolve-tamper",
+        "announced_consequence": {
+            "summary": "the doom clock advances",
+            "effect": {"kind": "pressure_tick", "clock_id": "doom", "ticks": 2},
+        },
+    }
+    world = {}
+    coc_director_apply._apply_typed_push_consequences(
+        camp, "inv1", [failure], world=world, decision_id="d-tamper", ts="first"
+    )
+    threat_path = camp / "save" / "threat-state.json"
+    threat = json.loads(threat_path.read_text())
+    threat["clocks"]["doom"]["current_segments"] = 4
+    threat_path.write_text(json.dumps(threat))
+
+    with pytest.raises(ValueError, match="transition|clock"):
+        coc_director_apply._apply_typed_push_consequences(
+            camp, "inv1", [failure], world=world,
+            decision_id="d-tamper", ts="retry",
+        )
 
 
 # =============================================================================

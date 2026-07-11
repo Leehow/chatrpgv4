@@ -14,6 +14,7 @@ Spec: docs/superpowers/specs/2026-07-05-story-director-design.md (Section 6)
 from __future__ import annotations
 
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -24,13 +25,41 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from coc_narration_style import (
+    build_crisis_scene_render_frame,
     guard_player_visible_text,
     player_facing_style_contract as _player_facing_style_contract,
+    validate_crisis_scene_render_frame,
 )
+import coc_npc_state
+import coc_epistemic_narration
 
 # guard_player_visible_text findings use severity "rewrite" (advisory).
 # Only "block" would gate a turn; the prose guard does not emit it today.
 NARRATION_GUARD_BLOCKING_SEVERITY = "block"
+
+_RENDER_MODES = frozenset({"investigation", "social", "pressure", "crisis"})
+_HORROR_AXES = (
+    "dread", "uncertainty", "isolation", "helplessness",
+    "body_horror", "cosmic_scale", "urgency",
+)
+
+
+def _project_render_mode(value: Any) -> str:
+    return value if value in _RENDER_MODES else "investigation"
+
+
+def _project_horror_profile(value: Any) -> dict[str, float]:
+    fallback = {axis: 0.0 for axis in _HORROR_AXES}
+    if not isinstance(value, dict) or set(value) != set(_HORROR_AXES):
+        return fallback
+    projected: dict[str, float] = {}
+    for axis in _HORROR_AXES:
+        raw = value.get(axis)
+        if (not isinstance(raw, (int, float)) or isinstance(raw, bool)
+                or not math.isfinite(float(raw)) or not 0.0 <= float(raw) <= 1.0):
+            return fallback
+        projected[axis] = float(raw)
+    return projected
 
 
 class NarrationGuardBlockedError(RuntimeError):
@@ -121,6 +150,7 @@ def iter_player_visible_text_fields(
             "investigator_display_name",
             "skill",
             "outcome",
+            "consequence_summary",
         ),
     )
 
@@ -146,6 +176,12 @@ def iter_player_visible_text_fields(
         "narration_envelope.npc_moves",
         env.get("npc_moves"),
         dict_keys=("display_name", "dialogue_seed", "emotional_tone", "voice"),
+    )
+    _append_list_text_fields(
+        fields,
+        "narration_envelope.disclosure_decisions",
+        env.get("disclosure_decisions"),
+        dict_keys=("player_safe_line",),
     )
 
     choice_frame = env.get("choice_frame")
@@ -397,8 +433,17 @@ def _clue_lookup_player_safe(clue_graph: dict[str, Any] | None) -> dict[str, str
     return lookup
 
 
-def _approved_reveal_clue_ids(plan: dict[str, Any]) -> list[str]:
+def _approved_reveal_clue_ids(
+    plan: dict[str, Any], applied_events: list[dict[str, Any]] | None = None,
+) -> list[str]:
     """Prefer committed reveals after rules backfill; else planned reveal ids."""
+    if applied_events is not None:
+        return list(dict.fromkeys(
+            str(event.get("clue_id"))
+            for event in applied_events
+            if isinstance(event, dict) and event.get("event_type") == "clue_reveal"
+            and event.get("clue_id")
+        ))
     resolved = plan.get("resolved_clue_policy") or {}
     if isinstance(resolved, dict):
         committed = [
@@ -418,10 +463,11 @@ def _approved_reveal_clue_ids(plan: dict[str, Any]) -> list[str]:
 def _project_approved_reveal_clues(
     plan: dict[str, Any],
     clue_graph: dict[str, Any] | None,
+    applied_events: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     lookup = _clue_lookup_player_safe(clue_graph)
     clues: list[dict[str, str]] = []
-    for clue_id in _approved_reveal_clue_ids(plan):
+    for clue_id in _approved_reveal_clue_ids(plan, applied_events):
         summary = lookup.get(clue_id, "")
         entry: dict[str, str] = {"clue_id": clue_id}
         if summary:
@@ -489,6 +535,17 @@ def _project_rule_results(
         }
         if result.get("san_loss") is not None:
             entry["san_loss"] = result.get("san_loss")
+        consequence = result.get("announced_consequence")
+        if (
+            result.get("pushed") is True
+            and not entry["success"]
+            and isinstance(consequence, dict)
+            and isinstance(consequence.get("summary"), str)
+            and consequence["summary"].strip()
+        ):
+            # Only the already-announced player-safe summary crosses this
+            # boundary. The typed effect and private push context stay Keeper-side.
+            entry["consequence_summary"] = consequence["summary"].strip()
 
         if not entry["success"]:
             costs: list[str] = []
@@ -626,7 +683,12 @@ def _sanitize_agency_moves(agency_moves: Any) -> list[dict[str, Any]]:
         visibility = str(move.get("visibility") or "player_visible").strip().lower()
         if visibility not in {"player_visible", "player-safe", "public"}:
             continue
-        safe.append(move)
+        safe.append({
+            key: move.get(key) for key in (
+                "move_id", "kind", "player_safe_summary", "line_seed",
+                "requires_player_decision",
+            ) if move.get(key) is not None
+        })
     return safe
 
 
@@ -654,11 +716,57 @@ def _sanitize_npc_move(move: dict[str, Any]) -> dict[str, Any]:
         "persona": _sanitize_persona(move.get("persona")),
         "agency_moves": _sanitize_agency_moves(move.get("agency_moves")),
     }
-    if not has_secret:
-        safe_move["agenda"] = move.get("agenda")
-    if move.get("secret_id"):
-        safe_move["secret_id"] = move["secret_id"]
     return safe_move
+
+
+def _sanitize_disclosure_decisions(value: Any) -> list[dict[str, Any]]:
+    """Whitelist public outcome metadata; drop facts, lies, gates and schedules."""
+    safe: list[dict[str, Any]] = []
+    for decision in value or []:
+        if not isinstance(decision, dict):
+            continue
+        row = {
+            "npc_id": decision.get("npc_id"),
+            # Never tell the narrator that a spoken line is a lie. Only an
+            # approved reveal is semantically distinguished in the public view.
+            "outcome": (
+                "reveal" if decision.get("outcome") == "reveal" else "response"
+            ),
+            "clue_id": decision.get("clue_id") if decision.get("outcome") == "reveal" else None,
+        }
+        line = decision.get("player_safe_line")
+        if isinstance(line, str) and line.strip():
+            row["player_safe_line"] = line.strip()
+        safe.append(row)
+    return safe
+
+
+def _sanitize_choice_frame(value: Any) -> dict[str, Any]:
+    """Whitelist the public choice-frame contract and route affordances."""
+    if not isinstance(value, dict):
+        return {}
+    safe: dict[str, Any] = {}
+    for key in (
+        "prompt", "mode", "is_real_fork", "open_route_count",
+        "open_route_ids", "visible_affordances", "do_not_render_as_menu",
+    ):
+        if key in value:
+            safe[key] = value[key]
+    routes = []
+    for route in value.get("routes") or []:
+        if not isinstance(route, dict):
+            continue
+        public_route = {
+            key: route.get(key) for key in (
+                "route_id", "id", "clue_id", "cue", "label", "summary",
+                "player_safe_summary", "kind", "available",
+            ) if route.get(key) is not None
+        }
+        if public_route:
+            routes.append(public_route)
+    if routes:
+        safe["routes"] = routes
+    return safe
 
 
 _REDIRECTION_PLAYER_SAFE_STRATEGIES = frozenset({
@@ -698,12 +806,51 @@ def _sanitize_redirection(redirection: Any) -> dict[str, Any] | None:
     return {"strategy": strategy, "grounding": grounding}
 
 
+def _project_rules_requests(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return narrator-safe rule requests without Keeper-only effect data.
+
+    A push consequence has two deliberately different views: its summary is
+    announced to the player before confirmation, while its structured effect
+    remains in the subsystem's private pending context until resolution.  The
+    DirectorPlan needs the full request to execute the command, but the
+    narration envelope must expose only the announced summary.
+    """
+    projected: list[dict[str, Any]] = []
+    for request in plan.get("rules_requests") or []:
+        if not isinstance(request, dict):
+            continue
+        # A request may carry ``resolution_context`` containing the whole
+        # pre-gate DirectorPlan. Narration needs only the public roll prompt;
+        # settled fictional consequences arrive separately in rule_results.
+        safe_request = {
+            key: request.get(key)
+            for key in (
+                "kind", "skill", "characteristic", "difficulty", "reason",
+                "request_id", "bonus_penalty_dice",
+            )
+            if request.get(key) is not None
+        }
+        if request.get("kind") == "push_offer":
+            consequence = request.get("announced_consequence")
+            if isinstance(consequence, dict):
+                summary = consequence.get("summary")
+                safe_request["announced_consequence"] = (
+                    {"summary": summary}
+                    if isinstance(summary, str) and summary.strip()
+                    else {}
+                )
+        projected.append(safe_request)
+    return projected
+
+
 def build_narration_envelope(
     plan: dict[str, Any],
     *,
     clue_graph: dict[str, Any] | None = None,
+    epistemic_graph: dict[str, Any] | None = None,
     active_scene: dict[str, Any] | None = None,
     investigator_display_name: str | None = None,
+    applied_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the minimum-privilege narrator payload from a DirectorPlan.
 
@@ -715,7 +862,26 @@ def build_narration_envelope(
     directives = plan.get("narrative_directives") or {}
     clue_policy = plan.get("clue_policy") or {}
     mnr_refs = normalize_keeper_secret_refs(directives.get("must_not_reveal") or [])
-    clue_ids = _approved_reveal_clue_ids(plan)
+    clue_ids = _approved_reveal_clue_ids(plan, applied_events)
+    disclosure_decisions = list(plan.get("disclosure_decisions") or [])
+    if applied_events is not None:
+        approved_set = set(clue_ids)
+        disclosure_decisions = [
+            ({**decision, "outcome": "withhold"}
+             if isinstance(decision, dict) and decision.get("outcome") == "reveal"
+             and str(decision.get("clue_id") or "") not in approved_set
+             else decision)
+            for decision in disclosure_decisions
+        ]
+    reveal_must_include = list(directives.get("must_include") or [])
+    social_post_apply = (
+        applied_events is not None and coc_npc_state.is_social_clue_plan(plan)
+    )
+    if social_post_apply:
+        # Social prose may have been compiled before the apply-side disclosure
+        # gate. Only canonical clue summaries from actual clue_reveal events are
+        # authorized here; lie/deflect lines travel through their safe field.
+        reveal_must_include = []
     npc_moves = [
         _sanitize_npc_move(move)
         for move in (plan.get("npc_moves") or [])
@@ -731,28 +897,68 @@ def build_narration_envelope(
         "handoff": plan.get("handoff"),
         "approved_reveals": {
             "clue_ids": list(clue_ids),
-            "clues": _project_approved_reveal_clues(plan, clue_graph),
-            "must_include": list(directives.get("must_include") or []),
-            "leads": list(clue_policy.get("leads") or []),
-            "fallback_routes": list(clue_policy.get("fallback_routes") or []),
+            "clues": _project_approved_reveal_clues(plan, clue_graph, applied_events),
+            "must_include": reveal_must_include,
+            "leads": [] if social_post_apply else list(clue_policy.get("leads") or []),
+            "fallback_routes": (
+                [] if social_post_apply else list(clue_policy.get("fallback_routes") or [])
+            ),
         },
         "tone": list(directives.get("tone") or []),
         "must_not_reveal": mnr_refs,
         "improvisation_allowed": list(directives.get("improvisation_allowed") or []),
         "horror_escalation_stage": directives.get("horror_escalation_stage"),
+        "horror_profile": _project_horror_profile(directives.get("horror_profile")),
+        "render_mode": _project_render_mode(directives.get("render_mode")),
         "content_constraints": list(directives.get("content_constraints") or []),
         "player_facing_style": directives.get("player_facing_style"),
         "npc_moves": npc_moves,
+        "disclosure_decisions": _sanitize_disclosure_decisions(
+            disclosure_decisions
+        ),
         "pressure_moves": list(plan.get("pressure_moves") or []),
         "storylet_moves": list(plan.get("storylet_moves") or []),
-        "choice_frame": plan.get("choice_frame") or {},
-        "rules_requests": list(plan.get("rules_requests") or []),
+        # Pre-gate clue routes may name a withheld social clue. The actual
+        # response line and post-apply reveal summaries are sufficient.
+        "choice_frame": {} if social_post_apply else _sanitize_choice_frame(
+            plan.get("choice_frame") or {}
+        ),
+        "rules_requests": _project_rules_requests(plan),
         "rule_results": _project_rule_results(
             plan, investigator_display_name=investigator_display_name
         ),
         "scene_anchor": _build_scene_anchor(scene),
         "rationale": plan.get("rationale"),
     }
+    if envelope["render_mode"] == "crisis":
+        affordances = []
+        for raw in scene.get("visible_affordances") or []:
+            if isinstance(raw, str) and raw.strip():
+                affordances.append(raw.strip())
+            elif isinstance(raw, dict):
+                cue = raw.get("cue") or raw.get("player_safe_summary")
+                if isinstance(cue, str) and cue.strip():
+                    affordances.append(cue.strip())
+        frame = build_crisis_scene_render_frame(
+            viewpoint_anchor=str(scene.get("viewpoint_anchor") or "").strip(),
+            spatial_anchor=str(scene.get("spatial_anchor") or "").strip(),
+            active_motion=str(scene.get("active_motion") or "").strip(),
+            connection_or_force=str(scene.get("connection_or_force") or "").strip(),
+            risk_progression=str(scene.get("risk_progression") or "").strip(),
+            visible_affordances=affordances,
+            player_entry=str(scene.get("player_entry") or "").strip(),
+        )
+        findings = validate_crisis_scene_render_frame(frame)
+        if findings:
+            envelope["render_frame_findings"] = findings
+            envelope["render_mode"] = "pressure"
+        else:
+            envelope["render_frame"] = frame
+    belief_update = coc_epistemic_narration.build_belief_update_projection(
+        plan.get("epistemic_contract"), epistemic_graph
+    )
+    if belief_update is not None:
+        envelope["belief_update"] = belief_update
     redirection = _sanitize_redirection(plan.get("redirection"))
     if redirection is not None:
         envelope["redirection"] = redirection

@@ -55,6 +55,16 @@ coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
+coc_director_strategies = _load_sibling(
+    "coc_director_strategies_apply", "coc_director_strategies.py"
+)
+coc_subsystem_executor = _load_sibling(
+    "coc_subsystem_executor_director_apply",
+    "coc_subsystem_executor.py",
+)
+coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
+coc_epistemic_resolve = _load_sibling("coc_epistemic_resolve", "coc_epistemic_resolve.py")
+coc_epistemic_lifecycle = _load_sibling("coc_epistemic_lifecycle", "coc_epistemic_lifecycle.py")
 
 coc_memory = None
 try:
@@ -381,7 +391,7 @@ def _apply_scene_on_enter(
     events.append(enter_ev)
     _append_jsonl(logs / "events.jsonl", enter_ev)
 
-    for tick_spec in clock_ticks:
+    for tick_index, tick_spec in enumerate(clock_ticks):
         if not isinstance(tick_spec, dict):
             continue
         clock_id = tick_spec.get("clock_id")
@@ -404,7 +414,13 @@ def _apply_scene_on_enter(
         events.append(tick_ev)
         _append_jsonl(logs / "events.jsonl", tick_ev)
         if coc_threat_state is not None:
-            became_full = coc_threat_state.tick_clock(save, clock_id, segments)
+            became_full = coc_threat_state.tick_clock(
+                save, clock_id, segments,
+                source_id=(
+                    f"director:{decision_id}:scene-enter:{scene.get('scene_id')}:"
+                    f"clock:{clock_id}:{tick_index}"
+                ),
+            )
             if became_full and clock_def:
                 full_ev = {
                     "event_type": "clock_full", "decision_id": decision_id,
@@ -578,6 +594,26 @@ def _apply_npc_effects(
                 campaign_dir, str(npc_id), str(effect["promise_id"]), kept=effect.get("kept")
             )
             applied = {"promise_id": effect["promise_id"], "kept": effect.get("kept")}
+        elif kind == "record_leverage" and effect.get("leverage_id"):
+            coc_npc_state.record_leverage(
+                campaign_dir, str(npc_id), str(effect["leverage_id"])
+            )
+            applied = {"leverage_id": effect["leverage_id"]}
+        elif kind == "set_active_reaction" and isinstance(effect.get("reaction"), dict):
+            coc_npc_state.set_active_reaction(
+                campaign_dir, str(npc_id), effect["reaction"]
+            )
+            applied = {"reaction_id": effect["reaction"].get("reaction_id")}
+        elif kind == "clear_active_reaction" and effect.get("reaction_id"):
+            coc_npc_state.clear_active_reaction(
+                campaign_dir, str(npc_id), str(effect["reaction_id"])
+            )
+            applied = {"reaction_id": effect["reaction_id"]}
+        elif kind == "set_availability" and effect.get("status") in {"available", "unavailable"}:
+            coc_npc_state.set_availability(
+                campaign_dir, str(npc_id), str(effect["status"])
+            )
+            applied = {"status": effect["status"]}
         if applied is None:
             continue
         record = {
@@ -593,6 +629,131 @@ def _apply_npc_effects(
         events.append(record)
         _append_jsonl(logs / "events.jsonl", record)
     return events
+
+
+def _gate_social_clues_and_persist_disclosure(
+    campaign_dir: Path,
+    plan: dict[str, Any],
+    *,
+    investigator_id: str,
+    decision_id: str,
+    ts: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Apply A21 decisions and return a clue-gated plan copy.
+
+    A social/NPC-delivered clue is committed only when the matching structured
+    disclosure decision says ``reveal``. Missing or ambiguous evidence fails
+    closed. Lie/deflect state is persisted without exposing its authored text.
+    """
+    policy = plan.get("clue_policy") if isinstance(plan.get("clue_policy"), dict) else {}
+    decisions = [d for d in (plan.get("disclosure_decisions") or []) if isinstance(d, dict)]
+    if not coc_npc_state.is_social_clue_plan(plan):
+        return plan, []
+
+    events: list[dict[str, Any]] = []
+    approved: list[str] = []
+    planned = [str(cid) for cid in (policy.get("reveal") or []) if cid]
+    npc_agendas = _read_json(
+        campaign_dir / "scenario" / "npc-agendas.json", {"npcs": []}
+    )
+    clue_graph = _read_json(
+        campaign_dir / "scenario" / "clue-graph.json", {"conclusions": []}
+    )
+    contract_findings = coc_npc_state.validate_a21_contract(npc_agendas, clue_graph)
+    agenda_rows: dict[str, list[dict[str, Any]]] = {}
+    for agenda in (npc_agendas.get("npcs") or []) if isinstance(npc_agendas, dict) else []:
+        if isinstance(agenda, dict) and agenda.get("npc_id"):
+            agenda_rows.setdefault(str(agenda["npc_id"]), []).append(agenda)
+    clue_rows: dict[str, list[dict[str, Any]]] = {}
+    for conclusion in (clue_graph.get("conclusions") or []) if isinstance(clue_graph, dict) else []:
+        if not isinstance(conclusion, dict):
+            continue
+        for clue in conclusion.get("clues") or []:
+            if isinstance(clue, dict) and clue.get("clue_id"):
+                clue_rows.setdefault(str(clue["clue_id"]), []).append(clue)
+
+    decision_keys = [
+        (str(d.get("npc_id") or ""), str(d.get("fact_id") or ""), str(d.get("clue_id") or ""))
+        for d in decisions
+    ]
+    reveal_keys = [key for key, decision in zip(decision_keys, decisions)
+                   if decision.get("outcome") == "reveal"]
+    reveal_clues = [key[2] for key in reveal_keys]
+    decision_clues = [key[2] for key in decision_keys if key[2]]
+    ambiguous_decisions = (
+        len(decision_keys) != len(set(decision_keys))
+        or len(decision_clues) != len(set(decision_clues))
+        or len(planned) != len(set(planned))
+    )
+
+    def canonical_reveal(decision: dict[str, Any]) -> bool:
+        if contract_findings or ambiguous_decisions:
+            return False
+        npc_id = str(decision.get("npc_id") or "").strip()
+        fact_id = str(decision.get("fact_id") or "").strip()
+        clue_id = str(decision.get("clue_id") or "").strip()
+        if len(agenda_rows.get(npc_id, [])) != 1 or len(clue_rows.get(clue_id, [])) != 1:
+            return False
+        agenda = agenda_rows[npc_id][0]
+        knowledge = agenda.get("knowledge") if isinstance(agenda.get("knowledge"), dict) else {}
+        facts = agenda.get("facts") if isinstance(agenda.get("facts"), list) else knowledge.get("facts", [])
+        matches = [
+            fact for fact in facts
+            if isinstance(fact, dict) and fact.get("fact_id") == fact_id
+            and fact.get("clue_id") == clue_id
+        ]
+        clue = clue_rows[clue_id][0]
+        sources = clue.get("source_npc_ids")
+        return (
+            len(matches) == 1
+            and isinstance(sources, list)
+            and sources.count(npc_id) == 1
+            and clue.get("delivery_kind") in {"npc_dialogue", "social"}
+        )
+
+    for decision in decisions:
+        npc_id = str(decision.get("npc_id") or "").strip()
+        outcome = str(decision.get("outcome") or "withhold")
+        clue_id = str(decision.get("clue_id") or "").strip()
+        if outcome == "lie" and npc_id and decision.get("lie_id"):
+            coc_npc_state.record_lie(
+                campaign_dir, npc_id, str(decision["lie_id"]),
+                about=str(decision.get("about") or decision.get("fact_id") or "") or None,
+            )
+        if outcome == "deflect" and npc_id and decision.get("deflect_id"):
+            coc_npc_state.record_deflection(
+                campaign_dir, npc_id, str(decision["deflect_id"]),
+                about=str(decision.get("fact_id") or "") or None,
+            )
+        reveal_valid = outcome == "reveal" and canonical_reveal(decision)
+        if reveal_valid and clue_id and clue_id in planned:
+            approved.append(clue_id)
+        recorded_outcome = outcome if outcome != "reveal" or reveal_valid else "withhold"
+        record = {
+            "event_type": (
+                "npc_disclosure_approved" if recorded_outcome == "reveal"
+                else "npc_disclosure_withheld"
+            ),
+            "decision_id": decision_id,
+            "npc_id": npc_id or None,
+            "fact_id": decision.get("fact_id"),
+            "clue_id": clue_id or None,
+            "outcome": recorded_outcome,
+            "reason_code": (
+                decision.get("reason_code")
+                if recorded_outcome == outcome
+                else "apply_disclosure_validation_failed"
+            ),
+            "investigator_id": investigator_id,
+            "ts": ts,
+        }
+        events.append(record)
+
+    gated = _copy_jsonable(plan)
+    gated_policy = dict(gated.get("clue_policy") or {})
+    gated_policy["reveal"] = [cid for cid in planned if cid in set(approved)]
+    gated["clue_policy"] = gated_policy
+    return gated, events
 
 
 def _storylet_scheduler_debug_enabled(campaign_dir: Path | None = None) -> bool:
@@ -1010,6 +1171,18 @@ def _resolve_committed_clues(
     stalled = int(plan.get("rule_signals", {}).get("stalled_turns", 0) or 0)
     idea_plan = (plan.get("narrative_directives") or {}).get("idea_roll_plan") or {}
 
+    # The original ordinary failure has already settled its ordinary cost.
+    # A confirmed pushed failure applies only the exact pre-announced
+    # consequence emitted by _process_push_roll_gates; replaying the generic
+    # clue-with-cost branch here would charge the initial failure twice.
+    if isinstance(plan.get("push_continuation"), dict) and any(
+        isinstance(result, dict)
+        and result.get("pushed") is True
+        and _rule_result_success(result) is False
+        for result in (rules_results or [])
+    ):
+        return [], events, pressure
+
     # RECOVER is the Idea Roll recovery valve. Play always continues; the roll
     # (when required) decides cost/position, not whether the lead surfaces.
     if action == "RECOVER" and stalled >= 3 and fallback_ids:
@@ -1262,6 +1435,16 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
     else:
         directives.pop("failure_consequence", None)
 
+    planned_epistemic = resolved_plan.get("epistemic_contract")
+    resolved_epistemic = coc_epistemic_resolve.resolve_epistemic_contract(
+        planned_epistemic, committed
+    )
+    if isinstance(planned_epistemic, dict) and isinstance(resolved_epistemic, dict):
+        resolved_plan["planned_epistemic_contract"] = _copy_jsonable(planned_epistemic)
+        resolved_plan["epistemic_contract"] = resolved_epistemic
+        resolved_plan["resolved_epistemic_contract"] = resolved_epistemic
+        directives["belief_update_contract"] = resolved_epistemic
+
     return resolved_plan
 
 
@@ -1474,6 +1657,13 @@ def _process_push_roll_gates(
             "skill": result.get("skill"),
             "outcome": result.get("outcome"),
             "pushed_fail": True,
+            "push_gate": dict(result.get("push_gate") or {}),
+            "original_command_id": result.get("original_command_id"),
+            "original_roll_id": result.get("original_roll_id"),
+            "announced_consequence": _copy_jsonable(
+                result.get("announced_consequence") or {}
+            ),
+            "source_command_id": result.get("source_command_id"),
             "ts": ts,
         }
         if inv_state is None:
@@ -1487,6 +1677,104 @@ def _process_push_roll_gates(
         events.append(fail_ev)
 
     return events, pushed_fail_pending
+
+
+def _apply_typed_push_consequences(
+    campaign_dir: Path,
+    investigator_id: str,
+    push_events: list[dict[str, Any]],
+    *,
+    world: dict[str, Any],
+    decision_id: str,
+    ts: str,
+) -> list[dict[str, Any]]:
+    """Materialize closed-schema pushed-failure effects exactly once."""
+    applied: list[dict[str, Any]] = []
+    records = world.setdefault("pushed_consequences", [])
+    if not isinstance(records, list):
+        raise ValueError("world-state pushed_consequences must be a list")
+    known = {
+        str(row.get("source_command_id")) for row in records if isinstance(row, dict)
+    }
+    for failure in push_events:
+        if failure.get("event_type") != "pushed_roll_failure":
+            continue
+        source_id = str(failure.get("source_command_id") or "")
+        consequence = failure.get("announced_consequence")
+        effect = consequence.get("effect") if isinstance(consequence, dict) else None
+        summary = str(consequence.get("summary") or "") if isinstance(consequence, dict) else ""
+        if not isinstance(effect, dict):
+            continue
+        kind = effect.get("kind")
+        already_recorded = source_id in known
+        if already_recorded and kind != "pressure_tick":
+            continue
+        record: dict[str, Any] = {
+            "source_command_id": source_id,
+            "decision_id": decision_id,
+            "kind": kind,
+            "summary": summary,
+        }
+        evidence: dict[str, Any] = {
+            "event_type": "pushed_consequence_applied",
+            "decision_id": decision_id,
+            "investigator_id": investigator_id,
+            "source_command_id": source_id,
+            "effect_kind": kind,
+            "consequence_summary": summary,
+            "ts": ts,
+        }
+        if kind == "fictional_position":
+            record["severity"] = effect.get("severity", "serious")
+        elif kind == "condition":
+            condition_id = str(effect["condition_id"])
+            inv_path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+            investigator = _read_investigator_state(campaign_dir, investigator_id)
+            conditions = investigator.setdefault("conditions", [])
+            if not isinstance(conditions, list):
+                raise ValueError("investigator conditions must be a list")
+            if condition_id not in conditions:
+                conditions.append(condition_id)
+            _write_json(inv_path, investigator)
+            record["condition_id"] = condition_id
+            evidence["condition_id"] = condition_id
+        elif kind == "pressure_tick":
+            clock_id = str(effect["clock_id"])
+            ticks = int(effect["ticks"])
+            clock_def = _lookup_clock_def(campaign_dir, clock_id)
+            if coc_threat_state is None or clock_def is None:
+                raise ValueError(f"unknown pushed-consequence threat clock: {clock_id}")
+            total_segments = int(clock_def.get("segments", 0) or 0)
+            if total_segments < 1:
+                raise ValueError(f"invalid pushed-consequence threat clock: {clock_id}")
+            coc_threat_state.apply_clock_effect_once(
+                campaign_dir / "save",
+                clock_id,
+                total_segments,
+                ticks=ticks,
+                effect_id=f"pushed-consequence:{source_id}",
+            )
+            transition_receipt = coc_threat_state.get_clock_effect_receipt(
+                campaign_dir / "save", f"pushed-consequence:{source_id}"
+            )
+            record.update({"clock_id": clock_id, "ticks": ticks})
+            record["clock_transition"] = transition_receipt
+            evidence.update({"clock_id": clock_id, "ticks": ticks})
+            evidence["clock_transition"] = transition_receipt
+        else:
+            raise ValueError(f"unsupported pushed consequence effect kind: {kind!r}")
+        if already_recorded:
+            existing_record = next(
+                row for row in records
+                if isinstance(row, dict) and str(row.get("source_command_id")) == source_id
+            )
+            if existing_record.get("clock_transition") != record.get("clock_transition"):
+                raise ValueError("world pushed-consequence receipt diverges from threat transition")
+            continue
+        records.append(record)
+        known.add(source_id)
+        applied.append(evidence)
+    return applied
 
 
 def _record_development_ticks(
@@ -1536,6 +1824,7 @@ def apply_plan(
     rules_results: list[dict[str, Any]] | None = None,
     recording_mode: str | None = None,
     recording_flush: str | None = None,
+    rules_results_mode: str = "legacy",
 ) -> list[dict[str, Any]]:
     """Apply a DirectorPlan with sync or fast queued JSONL recording.
 
@@ -1560,6 +1849,27 @@ def apply_plan(
             "decision_id": decision_id,
         }]
 
+    expected_commands = coc_subsystem_executor.commands_from_rules_requests(plan)
+    settled_rule_results = coc_subsystem_executor.normalize_rule_results(
+        rules_results,
+        campaign_dir=campaign_dir,
+        expected_commands=expected_commands,
+        investigator_id=investigator_id,
+        decision_id=decision_id,
+        results_mode=rules_results_mode,
+    )
+
+    strategy_state = plan.get("director_strategy_state")
+    if isinstance(strategy_state, dict) and strategy_state:
+        canonical_strategy, strategy_findings = (
+            coc_director_strategies.validate_strategy_state(strategy_state)
+        )
+        if canonical_strategy is not None and not strategy_findings:
+            _write_json(save_dir / "director-strategy-state.json", {
+                **canonical_strategy,
+                "last_decision_id": decision_id,
+            })
+
     mode = "sync"
     flush_policy = "manual"
     recorder = None
@@ -1576,7 +1886,12 @@ def apply_plan(
     previous_recorder = _ACTIVE_JSONL_RECORDER
     _ACTIVE_JSONL_RECORDER = recorder
     try:
-        events = _apply_plan_impl(campaign_dir, plan, investigator_id, rules_results)
+        events = _apply_plan_impl(
+            campaign_dir,
+            plan,
+            investigator_id,
+            settled_rule_results,
+        )
         if recorder is not None:
             pending_batch = recorder.commit()
             if pending_batch is not None and flush_policy == "background":
@@ -1635,9 +1950,29 @@ def _apply_plan_impl(
     # 1. clue reveal / fail-forward resolution
     world_path = save / "world-state.json"
     world = _read_json(world_path, {"discovered_clue_ids": []})
+    for ev in _apply_typed_push_consequences(
+        campaign_dir,
+        investigator_id,
+        push_events,
+        world=world,
+        decision_id=decision_id,
+        ts=ts,
+    ):
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
     discovered = list(world.get("discovered_clue_ids", []))
+    clue_plan, disclosure_events = _gate_social_clues_and_persist_disclosure(
+        campaign_dir,
+        plan,
+        investigator_id=investigator_id,
+        decision_id=decision_id,
+        ts=ts,
+    )
+    for ev in disclosure_events:
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
     committed_clues, resolution_events, extra_pressure = _resolve_committed_clues(
-        plan, rules_results, ts, investigator_id
+        clue_plan, rules_results, ts, investigator_id
     )
     for ev in resolution_events:
         events.append(ev)
@@ -1661,6 +1996,40 @@ def _apply_plan_impl(
             events.append(ev)
             _append_jsonl(logs / "events.jsonl", ev)
     world["discovered_clue_ids"] = discovered
+    # Epistemic state updates only after clue commitment is resolved. Question
+    # opening/closure is evaluated from structured authored conditions.
+    epistemic_graph = _read_json(
+        campaign_dir / "scenario" / "epistemic-graph.json",
+        {"questions": [], "evidence_links": []},
+    )
+    current_belief = coc_belief_state.read_belief_state(campaign_dir)
+    flags_set = _truthy_flag_ids(_read_json(save / "flags.json", {}))
+    epistemic_contract = plan.get("epistemic_contract") or {}
+    resolved_effects = epistemic_contract.get("resolved_effects")
+    if not isinstance(resolved_effects, list):
+        resolved_effects = epistemic_contract.get("effects")
+    if not isinstance(resolved_effects, list):
+        resolved_effects = [epistemic_contract] if isinstance(epistemic_contract, dict) else []
+    question_transitions = coc_epistemic_lifecycle.evaluate_question_transitions(
+        epistemic_graph,
+        current_belief,
+        world,
+        committed_clues,
+        flags_set=flags_set,
+        visited_scene_ids=world.get("visited_scene_ids") or [],
+        resolved_effects=[effect for effect in resolved_effects if isinstance(effect, dict)],
+    )
+    belief_events = coc_belief_state.apply_belief_turn(
+        campaign_dir,
+        plan,
+        committed_clues,
+        investigator_id,
+        ts,
+        question_transitions=question_transitions,
+    )
+    for ev in belief_events:
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
     # Mark scene-level SAN triggers as fired (dedup: director won't re-request).
     fired = list(world.get("san_triggers_fired", []))
     for rr in (rules_results or []):
@@ -1822,10 +2191,11 @@ def _apply_plan_impl(
         _append_jsonl(logs / "events.jsonl", fw_ev)
 
     _write_json(pacing_path, pacing)
-    for move in pressure_moves:
+    for pressure_index, move in enumerate(pressure_moves):
         ev = {"event_type": "pressure_tick", "decision_id": decision_id,
               "clock_id": move.get("clock_id"), "visible_symptom": move.get("visible_symptom"),
               "reason": move.get("reason"),
+              "selection_reason": move.get("selection_reason"),
               "investigator_id": investigator_id, "ts": ts}
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)
@@ -1835,7 +2205,10 @@ def _apply_plan_impl(
         if clock_id and int(move.get("tick", 0) or 0) > 0 and coc_threat_state is not None:
             clock_def = _lookup_clock_def(campaign_dir, clock_id)
             segments = int(clock_def.get("segments", 6)) if clock_def else 6
-            became_full = coc_threat_state.tick_clock(save, clock_id, segments)
+            became_full = coc_threat_state.tick_clock(
+                save, clock_id, segments,
+                source_id=f"director:{decision_id}:pressure:{pressure_index}:{clock_id}",
+            )
             if became_full and clock_def:
                 full_ev = {
                     "event_type": "clock_full", "decision_id": decision_id,

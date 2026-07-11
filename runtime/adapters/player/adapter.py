@@ -129,13 +129,16 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
     if raw.get("ok") is not True:
         err = raw.get("error") or "player runner returned ok=false"
         raise RuntimeError(str(err))
-    player_text = raw.get("player_text")
-    if not isinstance(player_text, str) or not player_text.strip():
+    pending_response = raw.get("pending_choice_response")
+    player_text = raw.get("player_text", "")
+    if not isinstance(player_text, str) or (
+        not player_text.strip() and pending_response is None
+    ):
         raise RuntimeError("player runner response missing non-empty player_text string")
 
     notes = raw.get("player_notes")
     intent_class = raw.get("intent_class") if "intent_class" in raw else None
-    recovered = recover_player_action_scaffolding(player_text)
+    recovered = recover_player_action_scaffolding(player_text) if player_text else None
     if recovered:
         player_text = recovered["player_text"]
         if recovered.get("player_notes"):
@@ -155,7 +158,62 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
                 f"intent class (bridge contract violation)"
             )
         result["intent_class"] = intent_class
+    model_identity = raw.get("model_identity")
+    if model_identity is not None:
+        if not (
+            isinstance(model_identity, dict)
+            and isinstance(model_identity.get("provider"), str)
+            and model_identity["provider"].strip()
+            and isinstance(model_identity.get("id"), str)
+            and model_identity["id"].strip()
+        ):
+            raise RuntimeError("model_identity must contain non-empty provider and id")
+        result["model_identity"] = {
+            "provider": model_identity["provider"].strip(),
+            "id": model_identity["id"].strip(),
+        }
+    response_mode = raw.get("response_mode")
+    if response_mode is not None:
+        if response_mode not in {"tool", "prose_fallback"}:
+            raise RuntimeError("response_mode must be tool or prose_fallback")
+        result["response_mode"] = response_mode
+    usage = raw.get("usage")
+    if usage is not None:
+        result["usage"] = _validate_usage(usage)
+    if pending_response is not None:
+        if not isinstance(pending_response, dict) or set(pending_response) != {
+            "choice_id", "responder", "revision", "action",
+        }:
+            raise RuntimeError(
+                "pending_choice_response must contain exactly choice_id, responder, revision, and action"
+            )
+        if (
+            not isinstance(pending_response.get("choice_id"), str)
+            or not pending_response["choice_id"].strip()
+            or pending_response.get("responder") != "player"
+            or isinstance(pending_response.get("revision"), bool)
+            or not isinstance(pending_response.get("revision"), int)
+            or pending_response["revision"] < 0
+            or not isinstance(pending_response.get("action"), str)
+            or not pending_response["action"].strip()
+        ):
+            raise RuntimeError("pending_choice_response has invalid player choice fields")
+        result["pending_choice_response"] = dict(pending_response)
     return result
+
+
+def _validate_usage(value: Any) -> dict[str, int | None]:
+    if not isinstance(value, dict) or set(value) != {"input_tokens", "output_tokens"}:
+        raise RuntimeError("usage must contain exactly input_tokens and output_tokens")
+    clean: dict[str, int | None] = {}
+    for name in ("input_tokens", "output_tokens"):
+        count = value[name]
+        if count is not None and (
+            isinstance(count, bool) or not isinstance(count, int) or count < 0
+        ):
+            raise RuntimeError(f"usage {name} must be a non-negative integer or null")
+        clean[name] = count
+    return clean
 
 
 def player_send_turn(
@@ -163,6 +221,8 @@ def player_send_turn(
     *,
     runner_path: Path | str | None = None,
     timeout_s: float = 300,
+    worker_pool: Any | None = None,
+    worker_key: Any | None = None,
 ) -> dict[str, Any]:
     """Run one investigator turn through the player-brain bridge.
 
@@ -176,6 +236,20 @@ def player_send_turn(
     for key in PLAYER_REQUEST_KEYS:
         if key not in request:
             raise ValueError(f"player_send_turn request missing {key!r}")
+    pending = request.get("pending_choice")
+    if isinstance(pending, dict) and pending.get("responder") == "keeper":
+        raise ValueError("Keeper pending choices must never be sent to the player adapter")
+
+    # A scoped pool requires a caller-owned full session/campaign/match/role
+    # key. It is never inferred from player text or reused globally.
+    if worker_pool is not None:
+        if worker_key is None:
+            raise ValueError("worker_key is required with worker_pool")
+        raw = worker_pool.request(worker_key, request, timeout_s=timeout_s)
+        result = parse_runner_response(raw)
+        typed_response = result.get("pending_choice_response")
+        _validate_pending_response(pending, typed_response)
+        return result
 
     # Resolve against the caller's cwd *before* spawning: the subprocess runs
     # with cwd=_player_dir(), which would silently re-anchor relative paths.
@@ -221,4 +295,28 @@ def player_send_turn(
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"player runner stdout is not JSON: {stdout[:200]!r}") from exc
 
-    return parse_runner_response(raw)
+    result = parse_runner_response(raw)
+    typed_response = result.get("pending_choice_response")
+    _validate_pending_response(pending, typed_response)
+    return result
+
+
+def _validate_pending_response(pending: Any, typed_response: Any) -> None:
+    """Validate a model's structured choice against canonical player state."""
+    if isinstance(pending, dict) and pending.get("responder") == "player":
+        if not isinstance(typed_response, dict):
+            raise RuntimeError("player runner must return pending_choice_response")
+        allowed_actions = {
+            str(option.get("action"))
+            for option in (pending.get("options") or [])
+            if isinstance(option, dict) and option.get("action")
+        }
+        if (
+            typed_response.get("choice_id") != pending.get("choice_id")
+            or typed_response.get("responder") != "player"
+            or typed_response.get("revision") != pending.get("revision")
+            or typed_response.get("action") not in allowed_actions
+        ):
+            raise RuntimeError("player response does not match the canonical pending choice")
+    elif typed_response is not None:
+        raise RuntimeError("player returned pending_choice_response without a pending choice")

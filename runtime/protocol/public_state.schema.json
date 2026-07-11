@@ -12,9 +12,10 @@
     "discovered_clue_ids",
     "investigators",
     "brain",
-    "pending_choice"
+    "pending_choice",
+    "state_health"
   ],
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "type": "integer"
@@ -45,7 +46,7 @@
       "items": {
         "type": "object",
         "required": ["id", "current_hp", "current_san", "current_mp", "conditions"],
-        "additionalProperties": true,
+        "additionalProperties": false,
         "properties": {
           "id": {
             "type": "string"
@@ -73,7 +74,77 @@
       "enum": ["debug", "pi"]
     },
     "pending_choice": {
-      "type": ["object", "null"]
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["choice_id", "kind", "command_id", "responder", "revision", "prompt", "options"],
+          "additionalProperties": false,
+          "properties": {
+            "choice_id": {"type": "string"},
+            "kind": {"enum": ["push_confirm", "chase_action"]},
+            "command_id": {"type": "string"},
+            "responder": {"enum": ["player"]},
+            "revision": {"type": "integer", "minimum": 0},
+            "prompt": {"type": "string"},
+            "options": {"$ref": "#/$defs/playerOptions"}
+          }
+        },
+        {
+          "type": "object",
+          "required": ["choice_id", "kind", "command_id", "responder", "revision", "prompt", "options", "attack_id", "audience"],
+          "additionalProperties": false,
+          "properties": {
+            "choice_id": {"type": "string"},
+            "kind": {"enum": ["combat_defense"]},
+            "command_id": {"type": "string"},
+            "responder": {"enum": ["player"]},
+            "revision": {"type": "integer", "minimum": 0},
+            "prompt": {"type": "string"},
+            "options": {"$ref": "#/$defs/playerOptions"},
+            "attack_id": {"type": "string"},
+            "audience": {"enum": ["player"]}
+          }
+        }
+      ]
+    },
+    "state_health": {
+      "type": "object",
+      "required": ["status", "issues"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["ok", "degraded", "error"]
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["state", "code"],
+            "additionalProperties": false,
+            "properties": {
+              "state": {"type": "string", "enum": ["campaign", "world", "pacing", "investigator", "subsystem", "combat", "sanity", "chase"]},
+              "code": {"type": "string", "enum": ["missing", "corrupt", "invalid_utf8", "invalid_json", "non_object", "forward_version", "invalid_schema", "invalid_fields", "invalid_identifier"]}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "playerOptions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["action", "label"],
+        "additionalProperties": false,
+        "properties": {
+          "action": {"type": "string"},
+          "label": {"type": "string"}
+        }
+      }
     }
   }
 }

@@ -2,7 +2,15 @@
 
 Language-agnostic semantics for the headless COC agent runtime. V1 transport is an in-process SDK; HTTP/SSE may wrap the same contract later.
 
-Brain selection is **project-level only** via `.coc/runtime.json` (`"brain": "debug" | "pi"`). Missing config defaults to `debug`. Both brains emit the same Event schema and share `.coc/` campaign state. Third-party web-search vendors are out of scope.
+Runtime composition is explicit in `.coc/runtime.json` v2: `planner`, `rules`,
+`narrator`, and `player` each contain a constrained `kind`. Missing config
+defaults to deterministic planner/rules, template narrator, and human player.
+Legacy `brain: "debug" | "pi"` is migrated in memory with a deprecation
+warning; Pi is narrator-only and never proxies rule execution. Both
+compositions emit the same Event schema and share `.coc/` campaign state.
+Player/narrator/Pi Node bridges support scoped JSONL server workers keyed by
+session, campaign, match, and role; one-shot mode remains for compatibility.
+Third-party web-search vendors are out of scope.
 
 ## Session API
 
@@ -52,6 +60,13 @@ Required fields: `type`, `id`, `ts`, `visibility`, `payload`. JSON Schema: `even
 ## PublicState
 
 Player-safe snapshot for UI rendering: campaign id, scene, investigators’ public fields, known clues, pending choice if any, play language. Exact fields are defined alongside SDK implementation against existing `.coc/` artifacts.
+
+All consumed campaign/save paths are containment-checked at session creation
+and again on every `get_state`/`send`, including subsystem, combat, sanity, and
+chase snapshots. State schemas accept only non-boolean integer versions;
+invalid schemas project safe defaults plus sanitized `state_health` codes.
+When a session names an investigator, PublicState loads only that exact ID and
+never substitutes another investigator.
 
 ## Not in the public V1 API
 

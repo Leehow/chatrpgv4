@@ -2,6 +2,7 @@
   "fronts": [
     {
       "front_id": "polyp-horror-pursuit",
+      "severity": 5,
       "scope": "scenario",
       "description": "The released Polyp Horror, curious and lethal, pursues the patrol through the glacier and besieges their refuge.",
       "dangers": [
@@ -58,6 +59,7 @@
       "clocks": [
         {
           "clock_id": "siege-door-breach",
+          "scene_ids": ["shelter-night-siege"],
           "segments": 4,
           "on_tick_visible": [
             "the door groans and shifts",
@@ -68,6 +70,7 @@
         },
         {
           "clock_id": "entity-curiosity-exhausted",
+          "scene_ids": ["shelter-night-siege"],
           "segments": 6,
           "on_tick_visible": [
             "the whistling circles the shelter",
@@ -80,6 +83,8 @@
     },
     {
       "front_id": "avalanche-risk",
+      "severity": 4,
+      "scene_tags_any": ["outdoor", "mountain"],
       "scope": "scenario",
       "description": "The unprecedented snowfall has built a deadly overhang above the patrol's only refuge; the uneven thaw of sunset makes it increasingly unstable.",
       "dangers": [
@@ -97,6 +102,8 @@
     },
     {
       "front_id": "cold-and-exposure",
+      "severity": 2,
+      "scene_tags_any": ["outdoor", "extreme-cold"],
       "scope": "scenario",
       "description": "The -30C mountain and the patrol's finite stamina are a constant adversary independent of the entity.",
       "dangers": [

@@ -180,3 +180,39 @@ inference; pass `True`/`False` to force.
 - `pip install pymupdf4llm` — the parser (installs PyMuPDF + layout engine)
 - `pip install pdfplumber` — for overlay visualization (optional)
 - No GPU, no OCR models, no heavy downloads
+
+## Source Evidence Bundle and Cache Metadata v2
+
+`pdf_cache.extract_markdown()` writes metadata schema v2. A real source file is
+served from cache only when all applicable provenance fields still match:
+
+- `file_sha256` of the PDF;
+- `text_sha256` of extracted Markdown;
+- parser backend and `backend_version`;
+- `pipeline_version`;
+- requested page set and OCR mode.
+
+Legacy synthetic caches whose source path does not exist remain readable for
+fixtures and historical tests. Existing real files with missing or mismatched
+content provenance are reparsed.
+
+Scenario import promotes parse provenance into three local indexes:
+
+```text
+index/page-map.json
+index/parse-manifest.json
+index/evidence-segments.jsonl
+```
+
+`page-map.json` is the only authority for converting a printed page to a
+zero-based PDF index. Never guess an offset. `parse-manifest.json` records range
+hashes, backend identity, quality dimensions, and one of
+`auto_accepted|manual_accepted|needs_review|rejected`.
+`evidence-segments.jsonl` records stable segment IDs, locators, local text
+hashes, confidence, review state, and explicit grep anchors.
+
+The `text` member of an evidence segment is local working data. Strip it before
+copying a package into `.coc/module-library/` or preparing an external semantic
+artifact. A critical source is usable only after locator resolution, accepted
+range and segment review states, integrity checks, anchor validation, and the
+configured confidence threshold (default `0.80`).

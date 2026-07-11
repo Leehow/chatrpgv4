@@ -190,6 +190,76 @@ def test_llm_evaluator_writes_request_and_reads_result(tmp_path):
     assert "action_atoms" in written_request["expected_output_schema"]["required"]
 
 
+def test_llm_evaluator_preserves_catalog_backed_intent_detail(tmp_path):
+    evaluator = router.LLMIntentEvaluator(artifacts_dir=tmp_path)
+    request = evaluator._build_request("I scan the snowfield.", None)
+    evaluator._write_request(request)
+    _write_result(tmp_path, request, result_overrides={
+        "intent_detail": "quick_observation",
+        "reasons": {
+            "primary_intent": "The player is investigating the scene.",
+            "intent_detail": "The evaluator selected the exact quick-observation enum.",
+        },
+    })
+
+    result = evaluator.classify("I scan the snowfield.", None)
+
+    schema = request["expected_output_schema"]
+    assert "intent_detail" in schema["optional"]
+    assert schema["intent_detail_enum"] == list(router._TIME_CATEGORY_ENUM)
+    assert result["intent_detail"] == "quick_observation"
+
+
+def test_llm_evaluator_rejects_intent_detail_outside_time_catalog(tmp_path):
+    evaluator = router.LLMIntentEvaluator(artifacts_dir=tmp_path)
+    request = evaluator._build_request("I scan the snowfield.", None)
+    evaluator._write_request(request)
+    _write_result(tmp_path, request, result_overrides={
+        "intent_detail": "take_a_fast_peek",
+        "reasons": {
+            "primary_intent": "The player is investigating the scene.",
+            "intent_detail": "Free prose must not become a time category.",
+        },
+    })
+
+    with pytest.raises(router.IntentEvalError, match="intent_detail.*time category enum"):
+        evaluator.classify("I scan the snowfield.", None)
+
+
+def test_llm_evaluator_requires_reason_for_optional_intent_detail(tmp_path):
+    evaluator = router.LLMIntentEvaluator(artifacts_dir=tmp_path)
+    request = evaluator._build_request("I scan the snowfield.", None)
+    evaluator._write_request(request)
+    _write_result(tmp_path, request, result_overrides={
+        "intent_detail": "quick_observation",
+    })
+
+    with pytest.raises(router.IntentEvalError, match="reasons.intent_detail"):
+        evaluator.classify("I scan the snowfield.", None)
+
+
+def test_injected_evaluator_drops_invalid_intent_detail_with_reason():
+    fixture = FixtureIntentEvaluator(result={
+        "primary_intent": "investigate",
+        "secondary_intents": [],
+        "target_entities": [],
+        "risk_posture": "cautious",
+        "explicit_roll_request": False,
+        "player_hypothesis": None,
+        "action_atoms": [],
+        "intent_detail": "look around quickly",
+    })
+    router.set_intent_evaluator(fixture)
+
+    result = router.parse_intent("I scan the snowfield.")
+
+    assert "intent_detail" not in result
+    assert result["normalization_warnings"] == [{
+        "field": "intent_detail",
+        "reason_code": "not_in_time_cost_category_enum",
+    }]
+
+
 def test_action_atoms_are_preserved_from_semantic_evaluator():
     """Multi-step risky actions must survive the intent router into enrichment."""
     atoms = [

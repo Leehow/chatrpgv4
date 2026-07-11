@@ -6,6 +6,7 @@ success=insane), bout of madness structure, indefinite insanity threshold,
 permanent insanity at 0 SAN, recovery, and SAN gain.
 """
 import importlib.util
+import json
 import random
 
 import pytest
@@ -24,6 +25,26 @@ coc_sanity = _load("coc_sanity", "plugins/coc-keeper/scripts/coc_sanity.py")
 def _make_session(san=65, int_val=60, seed=42):
     return coc_sanity.SanitySession("ada", san_max=san, int_value=int_val,
                                     rng=random.Random(seed))
+
+
+@pytest.mark.parametrize("expression", ["1", "7", "1D6", "2d10+3"])
+def test_validate_san_loss_expression_accepts_runtime_grammar(expression):
+    coc_sanity.validate_san_loss_expression(expression)
+
+
+@pytest.mark.parametrize("expression", ["", "0", "-1", "0D6", "1D0", "not-dice"])
+def test_validate_san_loss_expression_rejects_unsafe_bounds(expression):
+    with pytest.raises(ValueError):
+        coc_sanity.validate_san_loss_expression(expression)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    ["101D6", "1D1001", "1D6+100001", "100D1000+1", "100001"],
+)
+def test_validate_san_loss_expression_rejects_oversized_work(expression):
+    with pytest.raises(ValueError):
+        coc_sanity.validate_san_loss_expression(expression)
 
 
 def test_sanity_session_initial_state():
@@ -244,6 +265,63 @@ def test_bout_state_survives_save_load(tmp_path):
     assert loaded.bout_rounds_remaining == s.bout_rounds_remaining
 
 
+def test_bout_id_is_stable_across_reload_and_bout_end_event(tmp_path):
+    s = coc_sanity.SanitySession(
+        "ada",
+        san_max=60,
+        int_value=50,
+        rng=random.Random(4),
+        campaign_dir=tmp_path,
+    )
+    bout = s._start_bout("ghoul", alone=False, module_bout_override=None)
+    bout_id = bout["bout_id"]
+    assert isinstance(bout_id, str) and bout_id
+    assert s.active_bout_id == bout_id
+    s.save(tmp_path)
+
+    loaded = coc_sanity.SanitySession.load(
+        tmp_path,
+        "ada",
+        rng=random.Random(99),
+    )
+    assert loaded.active_bout_id == bout_id
+    loaded.end_bout()
+
+    assert loaded.active_bout_id is None
+    ended = [event for event in loaded.events if event["type"] == "bout_ended"][-1]
+    assert ended["payload"]["bout_id"] == bout_id
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda snap: snap.update({"bout_active": True, "active_bout_id": None}),
+        lambda snap: snap.update({
+            "bout_active": False,
+            "active_bout_id": "bout:forged",
+            "bout_rounds_remaining": 2,
+        }),
+        lambda snap: snap.update({"active_bout_id": "bout:missing"}),
+    ],
+)
+def test_load_rejects_inconsistent_active_bout_snapshot(tmp_path, mutate):
+    s = coc_sanity.SanitySession(
+        "ada", san_max=60, int_value=50, rng=random.Random(4), campaign_dir=tmp_path
+    )
+    s._start_bout("ghoul", alone=False, module_bout_override=None)
+    s.save(tmp_path)
+    path = tmp_path / "save" / "sanity.json"
+    snapshot = json.loads(path.read_text())
+    mutate(snapshot)
+    path.write_text(json.dumps(snapshot))
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError, match="bout"):
+        coc_sanity.SanitySession.load(tmp_path, "ada")
+
+    assert path.read_bytes() == before
+
+
 def test_indefinite_insanity_threshold_uses_day_start_current_san():
     """p.168: the 1/5 threshold is against *current* SAN at the start of the
     day, not max SAN. san_max=99 but day starts at 25 → losing 5 triggers."""
@@ -265,6 +343,48 @@ def test_day_start_san_survives_save_load(tmp_path):
     s.save(tmp_path)
     loaded = coc_sanity.SanitySession.load(tmp_path, "ada")
     assert loaded.day_start_san == 40
+
+
+@pytest.mark.parametrize("stored_investigator_id", [None, "inv2"])
+def test_load_fails_closed_for_missing_or_mismatched_investigator_identity(
+    tmp_path,
+    stored_investigator_id,
+):
+    snapshot = coc_sanity.SanitySession(
+        "inv2",
+        san_max=55,
+        int_value=70,
+        rng=random.Random(131),
+    ).snapshot()
+    if stored_investigator_id is None:
+        snapshot.pop("investigator_id")
+    else:
+        snapshot["investigator_id"] = stored_investigator_id
+    save_dir = tmp_path / "save"
+    save_dir.mkdir()
+    (save_dir / "sanity.json").write_text(json.dumps(snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="investigator_id"):
+        coc_sanity.SanitySession.load(tmp_path, "inv1", rng=random.Random(132))
+
+
+def test_save_does_not_overwrite_mismatched_investigator_mirror(tmp_path):
+    mirror_path = tmp_path / "save" / "investigator-state" / "ada.json"
+    mirror_path.parent.mkdir(parents=True)
+    original = {
+        "schema_version": 1,
+        "investigator_id": "inv2",
+        "current_san": 12,
+    }
+    mirror_path.write_text(json.dumps(original), encoding="utf-8")
+    session = _make_session(san=55, seed=138)
+
+    session.save(tmp_path)
+    assert json.loads(mirror_path.read_text(encoding="utf-8")) == original
+
+    with pytest.raises(coc_sanity.SanityStateIdentityError):
+        session.save(tmp_path, strict_mirror=True)
+    assert json.loads(mirror_path.read_text(encoding="utf-8")) == original
 
 
 def test_summary_bout_carries_backstory_amend_suggestion():

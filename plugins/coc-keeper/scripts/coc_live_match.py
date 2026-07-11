@@ -12,6 +12,7 @@ import json
 import random
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,9 +43,13 @@ def _load_runtime_module(name: str, rel: str):
 
 
 playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
+playtest_evidence = _load_sibling("coc_playtest_evidence", "coc_playtest_evidence.py")
+playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
 live_turn_runner = _load_sibling("coc_live_turn_runner", "coc_live_turn_runner.py")
 narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
+secret_audit = _load_sibling("coc_secret_audit", "coc_secret_audit.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
+coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 try:
     coc_adherence = _load_sibling("coc_adherence", "coc_adherence.py")
 except Exception:
@@ -58,11 +63,15 @@ player_adapter = _load_runtime_module(
 narrator_adapter = _load_runtime_module(
     "runtime_narrator_adapter", "runtime/adapters/narrator/adapter.py"
 )
+worker_pool_mod = _load_runtime_module(
+    "runtime_adapter_worker_pool", "runtime/adapters/worker_pool.py"
+)
 
 NON_LIVE_EVIDENCE_DISCLAIMER = (
     "Non-live artifacts are never gameplay evidence per AGENTS.md "
     "Playtest Battle Report Evidence Standard."
 )
+_ACTIVE_WORKER_POOLS: list[Any] = []
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -144,52 +153,113 @@ def build_player_request(
     }
 
 
-def _investigator_terminal(campaign_dir: Path, investigator_id: str) -> str | None:
-    """Return a stop reason if the investigator is dead or indefinitely insane."""
-    inv = _read_json(
+def investigator_playability(
+    campaign_dir: Path,
+    investigator_id: str,
+) -> dict[str, Any]:
+    """Classify structured investigator state without equating 0 HP to death."""
+    state = _read_json(
         campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json",
         {},
     )
-    if not isinstance(inv, dict):
-        return None
-    hp = inv.get("current_hp")
+    if not isinstance(state, dict):
+        state = {}
+    raw_conditions = state.get("conditions") or []
+    conditions = {
+        str(condition).strip().lower()
+        for condition in raw_conditions
+        if str(condition).strip()
+    } if isinstance(raw_conditions, list) else set()
+
+    if "dead" in conditions:
+        return {"status": "dead", "playable": False, "terminal": True}
+
+    if "stabilized" in conditions:
+        return {
+            "status": "stabilized",
+            "playable": False,
+            "terminal": False,
+            "pending_resolution": {
+                "kind": "stabilized_death_clock",
+                "investigator_id": investigator_id,
+                "event_type": "stabilized_con_roll",
+            },
+        }
+
+    if "dying" in conditions:
+        return {
+            "status": "dying",
+            "playable": False,
+            "terminal": False,
+            "pending_resolution": {
+                "kind": "dying_rescue",
+                "investigator_id": investigator_id,
+                "rescue_event_type": "first_aid_stabilize",
+                "death_clock_event_type": "dying_con_roll",
+            },
+        }
+
+    if (
+        "permanently_unplayable" in conditions
+        or state.get("permanently_insane")
+        or state.get("permanent_insane")
+    ):
+        return {
+            "status": "permanently_unplayable",
+            "playable": False,
+            "terminal": False,
+        }
+
+    if (
+        "temporarily_unplayable" in conditions
+        or "bout_active" in conditions
+        or state.get("bout_active")
+    ):
+        return {
+            "status": "temporarily_unplayable",
+            "playable": False,
+            "terminal": False,
+        }
+
+    hp = state.get("current_hp")
+    hp_at_or_below_zero = False
     try:
-        if hp is not None and int(hp) <= 0:
-            return "investigator_dead"
+        hp_at_or_below_zero = hp is not None and int(hp) <= 0
     except (TypeError, ValueError):
         pass
-    conditions = inv.get("conditions") or []
-    if isinstance(conditions, list):
-        lowered = {str(c).lower() for c in conditions}
-        if "dead" in lowered or "dying" in lowered:
-            return "investigator_dead"
-    if inv.get("indefinite_insane") or inv.get("permanent_insane"):
-        return "investigator_indefinite_insanity"
+
+    if "unconscious" in conditions or hp_at_or_below_zero:
+        return {"status": "unconscious", "playable": False, "terminal": False}
+    return {"status": "active", "playable": True, "terminal": False}
+
+
+def _playability_stop_reason(playability: dict[str, Any]) -> str | None:
+    if playability.get("terminal") is True:
+        return "investigator_dead"
+    if isinstance(playability.get("pending_resolution"), dict):
+        return "pending_resolution"
+    if playability.get("playable") is False:
+        return f"investigator_{playability.get('status') or 'unplayable'}"
     return None
 
 
-def _result_has_session_ending(live_result: dict[str, Any]) -> bool:
-    for turn in live_result.get("turns") or []:
-        if not isinstance(turn, dict):
-            continue
-        for et in turn.get("event_types") or []:
-            if et == "session_ending":
-                return True
-        events = turn.get("events") or []
-        for ev in events:
-            if isinstance(ev, dict) and (
-                ev.get("type") == "session_ending" or ev.get("event_type") == "session_ending"
-            ):
-                return True
-    return False
-
-
-def _match_metadata(*, live: bool, campaign_id: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+def _match_metadata(
+    *,
+    user_claimed_live: bool,
+    campaign_id: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     meta: dict[str, Any] = {
         "campaign_id": campaign_id,
-        "live": bool(live),
-        "audit_profile": "live_llm_player_match",
+        "user_claimed_live": bool(user_claimed_live),
+        "audit_profile": "player_bridge_match",
         "play_language": "zh-Hans",
+        "runner_kind": "unknown",
+        "player_profile": "unattested_runner",
+        "simulation_method": "unattested_runner_match_not_gameplay_evidence",
+        "evidence_disclaimer": NON_LIVE_EVIDENCE_DISCLAIMER,
+        "eligible_as_gameplay_evidence": False,
+        "evidence_reasons": ["evidence_receipt_pending"],
         "subsystems_covered": [
             "investigation",
             "rules",
@@ -204,27 +274,96 @@ def _match_metadata(*, live: bool, campaign_id: str, extra: dict[str, Any] | Non
             "storylet_events",
         ],
         "failed_test_cases": [],
+        "future_enhancements": [
+            "Provide structured runner/model attestations for evidence-grade gameplay receipts."
+        ],
     }
-    if live:
-        meta["runner_kind"] = "live_bridge"
-        meta["player_profile"] = "external_llm_bridge"
-        meta["simulation_method"] = "live_llm_player_vs_kp"
-        meta["evidence_disclaimer"] = (
-            "Live external player bridge — eligible as gameplay evidence when "
-            "the run completes with a real LLM player."
-        )
-        meta["future_enhancements"] = []
-    else:
-        meta["runner_kind"] = "scripted_fake"
-        meta["player_profile"] = "bridged_scripted_player"
-        meta["simulation_method"] = "bridged_scripted_player_not_live_llm"
-        meta["evidence_disclaimer"] = NON_LIVE_EVIDENCE_DISCLAIMER
-        meta["future_enhancements"] = [
-            "Pass --live with a real external player LLM bridge for evidence-grade battle reports."
-        ]
     if extra:
         meta.update(extra)
     return meta
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _invocation_row(
+    *,
+    run_dir: Path,
+    role: str,
+    runner_path: Path | None,
+    attempt: int,
+    outcome: str,
+    model_identity: Any,
+    response_mode: Any,
+    fallback_kind: str | None,
+    secret_audit_receipt: Any = None,
+) -> dict[str, Any]:
+    observed = playtest_evidence.observe_runner(run_dir, role, runner_path)
+    row = {
+        "schema_version": 1,
+        "role": role,
+        "attempt": attempt,
+        "transcript_turn": None,
+        "runner_kind": observed.get("kind"),
+        "runner_identity": observed.get("identity"),
+        "runner_path": observed.get("path"),
+        "runner_sha256": observed.get("sha256"),
+        "model_identity": model_identity,
+        "outcome": outcome,
+        "response_mode": response_mode,
+        "fallback_kind": fallback_kind,
+    }
+    if role == "narrator" and isinstance(secret_audit_receipt, dict):
+        row["secret_audit"] = json.loads(json.dumps(secret_audit_receipt))
+    return row
+
+
+def _read_jsonl_rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path.is_file():
+        return rows
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _write_invocation_ledger(run_dir: Path, rows: list[dict[str, Any]]) -> Path:
+    transcript = _read_jsonl_rows(run_dir / "transcript.jsonl")
+    turns_by_role = {
+        "player": [
+            row.get("turn")
+            for row in transcript
+            if row.get("role") == "player_simulator"
+        ],
+        "narrator": [
+            row.get("turn")
+            for row in transcript
+            if row.get("role") == "keeper_under_test"
+        ],
+    }
+    role_offsets = {"player": 0, "narrator": 0}
+    for row in rows:
+        role = row.get("role")
+        available = turns_by_role.get(str(role), [])
+        offset = role_offsets.get(str(role), 0)
+        if offset < len(available):
+            row["transcript_turn"] = available[offset]
+        role_offsets[str(role)] = offset + 1
+    return playtest_evidence.write_invocation_ledger_artifact(
+        run_dir,
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+            for row in rows
+        ),
+    )
 
 
 def _enrich_transcript_with_player_notes(
@@ -302,13 +441,20 @@ def _apply_narrator_or_template(
     recent_narrations: list[str],
     narrator_runner: Path | None,
     timeout_s: float,
-) -> tuple[str, str, dict[str, Any] | None]:
-    """Return (keeper_text, method, fallback_event_or_none).
+    worker_pool: Any | None = None,
+    worker_key: dict[str, str] | None = None,
+) -> tuple[str, str, dict[str, Any] | None, dict[str, Any]]:
+    """Return text, method, fallback event, and structured runner outcome.
 
     Fallback ladder: narrator error/timeout → template text + narrator_fallback.
     """
     if narrator_runner is None:
-        return template_text, "template", None
+        return template_text, "template", None, {
+            "outcome": "template",
+            "fallback_kind": "template",
+            "model_identity": None,
+            "response_mode": "template",
+        }
 
     envelope = (
         projected.get("narration_envelope")
@@ -322,18 +468,36 @@ def _apply_narrator_or_template(
         recent_narrations=recent_narrations,
     )
     try:
-        result = narrator_adapter.narrator_send_turn(
-            request,
-            runner_path=narrator_runner,
-            timeout_s=timeout_s,
-        )
+        if worker_pool is None:
+            result = narrator_adapter.narrator_send_turn(
+                request, runner_path=narrator_runner, timeout_s=timeout_s,
+            )
+        else:
+            try:
+                result = narrator_adapter.narrator_send_turn(
+                    request, runner_path=narrator_runner, timeout_s=timeout_s,
+                    worker_pool=worker_pool, worker_key=worker_key,
+                )
+            except TypeError as exc:
+                # Small test doubles predating the v2 transport retain the
+                # one-shot call shape; production adapters always use the pool.
+                if "worker_pool" not in str(exc) and "worker_key" not in str(exc):
+                    raise
+                result = narrator_adapter.narrator_send_turn(
+                    request, runner_path=narrator_runner, timeout_s=timeout_s,
+                )
     except Exception as exc:  # noqa: BLE001 — fallback ladder must catch all runner failures
         fallback = {
             "event": "narrator_fallback",
             "error": str(exc),
             "decision_id": projected.get("decision_id") or live_turn.get("decision_id"),
         }
-        return template_text, "template", fallback
+        return template_text, "template", fallback, {
+            "outcome": "template_fallback",
+            "fallback_kind": "template",
+            "model_identity": None,
+            "response_mode": "runner_failure",
+        }
 
     final_text = str(result.get("final_text") or "").strip()
     if not final_text:
@@ -342,7 +506,43 @@ def _apply_narrator_or_template(
             "error": "narrator returned empty final_text",
             "decision_id": projected.get("decision_id") or live_turn.get("decision_id"),
         }
-        return template_text, "template", fallback
+        return template_text, "template", fallback, {
+            "outcome": "template_fallback",
+            "fallback_kind": "template",
+            "model_identity": None,
+            "response_mode": "runner_failure",
+        }
+
+    forbidden_refs = [
+        str(ref.get("id")).strip()
+        for ref in (envelope.get("must_not_reveal") or [])
+        if isinstance(ref, dict) and isinstance(ref.get("id"), str) and ref.get("id").strip()
+    ]
+    audit_complete = (
+        result.get("secret_audit_complete") is True
+        and result.get("response_mode") == "tool"
+        and "asserted_fact_refs" in result
+        and "semantic_audit" in result
+    )
+    structured_audit = secret_audit.audit_secret_claims(
+        forbidden_refs,
+        result.get("asserted_fact_refs") if audit_complete else None,
+        result.get("semantic_audit") if audit_complete else {"missing": True},
+    )
+    if not audit_complete or not structured_audit["passed"]:
+        fallback = {
+            "event": "narrator_fallback",
+            "error": "structured_secret_audit_failed",
+            "decision_id": projected.get("decision_id") or live_turn.get("decision_id"),
+            "secret_audit": structured_audit,
+        }
+        return template_text, "template", fallback, {
+            "outcome": "template_fallback",
+            "fallback_kind": "secret_audit",
+            "model_identity": result.get("model_identity"),
+            "response_mode": result.get("response_mode") or "audit_failure",
+            "secret_audit": structured_audit,
+        }
 
     audit = narration_contract.audit_final_text(
         final_text,
@@ -363,10 +563,19 @@ def _apply_narrator_or_template(
     notes = result.get("notes")
     if notes:
         projected["narrator_notes"] = notes
-    return final_text, "llm_narrator", None
+    response_mode = result.get("response_mode")
+    return final_text, "llm_narrator", None, {
+        "outcome": "external_success",
+        "fallback_kind": (
+            "prose_degradation" if response_mode == "prose_fallback" else None
+        ),
+        "model_identity": result.get("model_identity"),
+        "response_mode": response_mode,
+        "secret_audit": structured_audit,
+    }
 
 
-def run_live_match(
+def _run_live_match_impl(
     workspace: Path | str,
     campaign_id: str,
     investigator_id: str,
@@ -382,15 +591,17 @@ def run_live_match(
     timeout_s: float = 300,
     transcript_tail_limit: int = 6,
     narrator_runner: Path | str | None = None,
+    evidence_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a multi-turn match: external player brain ↔ KP ``run_live_turn``.
 
-    When ``live=False`` (default; all tests), metadata uses a non-live
-    ``simulation_method`` and stamps the AGENTS.md evidence disclaimer.
-    Only ``live=True`` may claim ``live_llm_player_vs_kp`` / ``external_llm_bridge``.
+    ``live`` is recorded only as ``user_claimed_live``.  Evidence eligibility,
+    runner kind, and model identity are derived from ``evidence.json`` and its
+    structured provenance; the flag itself carries no attestation authority.
     When ``narrator_runner`` is set, KP prose goes through the narrator bridge
     with a template fallback ladder.
     """
+    started_at = _utc_timestamp()
     ws = Path(workspace)
     camp = _campaign_dir(ws, campaign_id)
     if not camp.is_dir():
@@ -401,8 +612,10 @@ def run_live_match(
 
     character_card = load_character_card(char_path)
     rng = random.Random(rng_seed if rng_seed is not None else f"{campaign_id}|{time.time_ns()}")
-    runner = Path(player_runner)
-    narrator_path = Path(narrator_runner) if narrator_runner is not None else None
+    runner = Path(player_runner).resolve()
+    narrator_path = (
+        Path(narrator_runner).resolve() if narrator_runner is not None else None
+    )
 
     if run_dir is None:
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -410,6 +623,26 @@ def run_live_match(
     else:
         out = Path(run_dir)
     out.mkdir(parents=True, exist_ok=True)
+    match_id = out.name
+
+    def _server_pool(path: Path | None):
+        if path is None or path.suffix.lower() not in {".mjs", ".js"}:
+            return None
+        pool = worker_pool_mod.JsonlWorkerPool(
+            command_factory=lambda _key: ["node", str(path), "--server"],
+            cwd=path.parent,
+            default_timeout_s=timeout_s,
+        )
+        _ACTIVE_WORKER_POOLS.append(pool)
+        return pool
+
+    player_worker_pool = _server_pool(runner)
+    narrator_worker_pool = _server_pool(narrator_path)
+    player_worker_key = {
+        "session_id": f"live-match:{match_id}", "campaign_id": campaign_id,
+        "match_id": match_id, "role": "player",
+    }
+    narrator_worker_key = {**player_worker_key, "role": "narrator"}
 
     turns: list[dict[str, Any]] = []
     player_turns: list[dict[str, Any]] = []
@@ -417,9 +650,11 @@ def run_live_match(
     player_choices: list[dict[str, Any]] = []
     transcript_tail: list[dict[str, Any]] = []
     recent_narrations: list[str] = []
+    invocation_rows: list[dict[str, Any]] = []
     tension_curve: list[Any] = []
     scene_path: list[str] = []
     stop_reason = "max_turns_reached"
+    pending_resolution: dict[str, Any] | None = None
     last_turn: dict[str, Any] | None = None
     previous_affordance_ids: list[str] | None = None
     fallback_turns = 0
@@ -430,39 +665,154 @@ def run_live_match(
     play_language = str(
         campaign_meta.get("play_language") if isinstance(campaign_meta, dict) else "zh-Hans"
     ) or "zh-Hans"
+    story = _read_json(camp / "scenario" / "story-graph.json", {"scenes": []})
+    current_playability = investigator_playability(camp, investigator_id)
 
     for _offset in range(max(1, int(max_turns))):
-        terminal = _investigator_terminal(camp, investigator_id)
-        if terminal:
-            stop_reason = terminal
-            break
+        automatic_subsystem_request: dict[str, Any] | None = None
+        current_player_request: dict[str, Any] | None = None
+        canonical_pending = live_turn_runner.subsystem_executor.get_current_pending_choice(camp)
+        keeper_progression = (
+            isinstance(canonical_pending, dict)
+            and canonical_pending.get("responder") == "keeper"
+        )
+        if keeper_progression:
+            allowed_actions = {
+                str(option.get("action"))
+                for option in (canonical_pending.get("options") or [])
+                if isinstance(option, dict) and option.get("action")
+            }
+            if "tick" not in allowed_actions:
+                stop_reason = "keeper_pending_choice_requires_explicit_policy"
+                pending_resolution = {
+                    "kind": "keeper_subsystem_choice",
+                    "choice_id": canonical_pending.get("choice_id"),
+                }
+                break
+            player_result = {
+                "ok": True,
+                "player_text": "",
+                "pending_choice_response": {
+                    "choice_id": canonical_pending["choice_id"],
+                    "responder": "keeper",
+                    "revision": canonical_pending["revision"],
+                    "action": "tick",
+                },
+            }
+        else:
+            current_playability = investigator_playability(camp, investigator_id)
+            pending_playability = current_playability.get("pending_resolution")
+            pending_kind = (
+                pending_playability.get("kind")
+                if isinstance(pending_playability, dict)
+                else None
+            )
+            if pending_kind in {"dying_rescue", "stabilized_death_clock"}:
+                # The KP owns death-clock progression.  Do not ask an
+                # unconscious player-brain for prose merely to reach the
+                # structured rescue engine.
+                keeper_progression = True
+                automatic_subsystem_request = {
+                    "kind": "dying_tick",
+                    "payload": {
+                        "decision_id": f"live-match-rescue-{_offset + 1}",
+                        "clock_kind": (
+                            "hour" if pending_kind == "stabilized_death_clock" else "round"
+                        ),
+                    },
+                }
+                player_result = {"ok": True, "player_text": ""}
+            else:
+                playability_stop = _playability_stop_reason(current_playability)
+                if playability_stop:
+                    stop_reason = playability_stop
+                    pending = current_playability.get("pending_resolution")
+                    pending_resolution = dict(pending) if isinstance(pending, dict) else None
+                    break
 
-        narration = player_visible_narration(
-            last_turn,
-            camp,
-            play_language=play_language,
-            previous_affordance_ids=previous_affordance_ids,
-        )
-        request = build_player_request(
-            ws,
-            campaign_id,
-            narration=narration,
-            character_card=character_card,
-            transcript_tail=transcript_tail[-transcript_tail_limit:],
-        )
-        player_requests.append(json.loads(json.dumps(request, ensure_ascii=False)))
+            if automatic_subsystem_request is None:
+                narration = player_visible_narration(
+                    last_turn,
+                    camp,
+                    play_language=play_language,
+                    previous_affordance_ids=previous_affordance_ids,
+                )
+                request = build_player_request(
+                    ws,
+                    campaign_id,
+                    narration=narration,
+                    character_card=character_card,
+                    transcript_tail=transcript_tail[-transcript_tail_limit:],
+                )
+                current_player_request = request
+                player_requests.append(json.loads(json.dumps(request, ensure_ascii=False)))
 
-        player_result = player_adapter.player_send_turn(
-            request,
-            runner_path=runner,
-            timeout_s=timeout_s,
-        )
+                if player_worker_pool is None:
+                    player_result = player_adapter.player_send_turn(
+                        request, runner_path=runner, timeout_s=timeout_s,
+                    )
+                else:
+                    try:
+                        player_result = player_adapter.player_send_turn(
+                            request, runner_path=runner, timeout_s=timeout_s,
+                            worker_pool=player_worker_pool,
+                            worker_key=player_worker_key,
+                        )
+                    except TypeError as exc:
+                        if "worker_pool" not in str(exc) and "worker_key" not in str(exc):
+                            raise
+                        player_result = player_adapter.player_send_turn(
+                            request, runner_path=runner, timeout_s=timeout_s,
+                        )
+        player_response_mode = player_result.get("response_mode")
+        if not keeper_progression:
+            invocation_rows.append(
+                _invocation_row(
+                    run_dir=out,
+                    role="player",
+                    runner_path=runner,
+                    attempt=len(
+                        [r for r in invocation_rows if r.get("role") == "player"]
+                    ) + 1,
+                    outcome="external_success",
+                    model_identity=player_result.get("model_identity"),
+                    response_mode=player_response_mode,
+                    fallback_kind=(
+                        "prose_degradation"
+                        if player_response_mode == "prose_fallback"
+                        else None
+                    ),
+                )
+            )
         player_text = player_result["player_text"]
         player_notes = player_result.get("player_notes")
         # Per-turn structured intent from the player brain takes precedence over
         # the match-level CLI override (Semantic Matcher: structured evidence).
         turn_intent_class = player_result.get("intent_class") or intent_class
 
+        pending_response = player_result.get("pending_choice_response")
+        if automatic_subsystem_request is None and isinstance(pending_response, dict):
+            projected_pending = (
+                current_player_request.get("pending_choice")
+                if isinstance(current_player_request, dict) else None
+            )
+            if isinstance(projected_pending, dict) and projected_pending.get("kind") == "combat_defense":
+                if (
+                    pending_response.get("choice_id") != projected_pending.get("choice_id")
+                    or pending_response.get("revision") != projected_pending.get("revision")
+                ):
+                    raise ValueError("combat defense response is stale or mismatched")
+                automatic_subsystem_request = {
+                    "kind": "combat_defend",
+                    "payload": {
+                        "decision_id": f"live-match-defense-{_offset + 1}",
+                        "revision": projected_pending["revision"],
+                        "actor_id": investigator_id,
+                        "attack_command_id": projected_pending["attack_id"],
+                        "defense_kind": pending_response["action"],
+                    },
+                }
+                pending_response = None
         live_result = live_turn_runner.run_live_turn(
             camp,
             char_path,
@@ -470,6 +820,8 @@ def run_live_match(
             player_text,
             intent_class=turn_intent_class,
             player_intent_rich=player_intent_rich,
+            pending_choice_response=pending_response,
+            subsystem_request=automatic_subsystem_request,
             max_auto_advance=1,
             auto_advance_low_agency=False,
             recording_mode="sync",
@@ -484,18 +836,23 @@ def run_live_match(
             "player_notes": player_notes,
             "intent_class": turn_intent_class,
         }
-        player_choices.append(choice_record)
-        player_turns.append(
-            {
-                "player_text": player_text,
-                "player_notes": player_notes,
-                "live_result": {
-                    "auto_advance": live_result.get("auto_advance"),
-                    "final_state": live_result.get("final_state"),
-                },
-            }
-        )
-        transcript_tail.append({"role": "player", "text": player_text})
+        if not keeper_progression:
+            if isinstance(player_result.get("pending_choice_response"), dict):
+                choice_record["pending_choice_response"] = dict(
+                    player_result["pending_choice_response"]
+                )
+            player_choices.append(choice_record)
+            player_turns.append(
+                {
+                    "player_text": player_text,
+                    "player_notes": player_notes,
+                    "live_result": {
+                        "auto_advance": live_result.get("auto_advance"),
+                        "final_state": live_result.get("final_state"),
+                    },
+                }
+            )
+            transcript_tail.append({"role": "player", "text": player_text})
 
         for live_turn in live_result.get("turns") or []:
             decision_id = str(live_turn.get("decision_id") or "")
@@ -514,7 +871,7 @@ def run_live_match(
                 play_language=play_language,
                 previous_affordance_ids=previous_affordance_ids,
             )
-            keeper_text, method, fallback = _apply_narrator_or_template(
+            keeper_text, method, fallback, narrator_outcome = _apply_narrator_or_template(
                 template_text=template_text,
                 projected=projected,
                 live_turn=live_turn if isinstance(live_turn, dict) else {},
@@ -524,6 +881,24 @@ def run_live_match(
                 recent_narrations=recent_narrations,
                 narrator_runner=narrator_path,
                 timeout_s=timeout_s,
+                worker_pool=narrator_worker_pool,
+                worker_key=narrator_worker_key,
+            )
+            invocation_rows.append(
+                _invocation_row(
+                    run_dir=out,
+                    role="narrator",
+                    runner_path=narrator_path,
+                    attempt=len(
+                        [r for r in invocation_rows if r.get("role") == "narrator"]
+                    )
+                    + 1,
+                    outcome=str(narrator_outcome.get("outcome")),
+                    model_identity=narrator_outcome.get("model_identity"),
+                    response_mode=narrator_outcome.get("response_mode"),
+                    fallback_kind=narrator_outcome.get("fallback_kind"),
+                    secret_audit_receipt=narrator_outcome.get("secret_audit"),
+                )
             )
             if method == "llm_narrator":
                 used_llm_narrator = True
@@ -549,36 +924,44 @@ def run_live_match(
             if len(recent_narrations) > 2:
                 recent_narrations = recent_narrations[-2:]
 
-        if _result_has_session_ending(live_result):
+        world_after = _read_json(camp / "save" / "world-state.json", {})
+        turn_terminal = coc_scene_graph.terminal_evidence(
+            story, world_after, live_result
+        )
+        if turn_terminal["session_ending"]:
             stop_reason = "session_ending"
             break
-        terminal = _investigator_terminal(camp, investigator_id)
-        if terminal:
-            stop_reason = terminal
+        pending_after = live_turn_runner.subsystem_executor.get_current_pending_choice(camp)
+        if (
+            isinstance(pending_after, dict)
+            and pending_after.get("responder") == "keeper"
+        ):
+            continue
+        current_playability = investigator_playability(camp, investigator_id)
+        playability_stop = _playability_stop_reason(current_playability)
+        if playability_stop:
+            stop_reason = playability_stop
+            pending = current_playability.get("pending_resolution")
+            pending_resolution = dict(pending) if isinstance(pending, dict) else None
             break
 
-    discovered_final = _read_json(camp / "save" / "world-state.json", {}).get(
-        "discovered_clue_ids", []
-    )
-    story = _read_json(camp / "scenario" / "story-graph.json", {"scenes": []})
+    world_final = _read_json(camp / "save" / "world-state.json", {})
+    discovered_final = world_final.get("discovered_clue_ids", [])
+    current_playability = investigator_playability(camp, investigator_id)
+    if pending_resolution is None:
+        pending = current_playability.get("pending_resolution")
+        pending_resolution = dict(pending) if isinstance(pending, dict) else None
+    ending_evidence = coc_scene_graph.terminal_evidence(story, world_final, turns)
     clue_graph = _read_json(camp / "scenario" / "clue-graph.json", {"conclusions": []})
     total_clues: set[str] = set()
     for concl in clue_graph.get("conclusions", []) if isinstance(clue_graph, dict) else []:
         for cl in concl.get("clues", []) if isinstance(concl, dict) else []:
             if isinstance(cl, dict) and cl.get("clue_id"):
                 total_clues.add(str(cl["clue_id"]))
-    scene_ids = [
-        s["scene_id"]
-        for s in (story.get("scenes") or [])
-        if isinstance(s, dict) and s.get("scene_id")
-    ]
-
     session_result: dict[str, Any] = {
         "turns": turns,
         "final_state": {
-            "active_scene": _read_json(camp / "save" / "world-state.json", {}).get(
-                "active_scene_id"
-            ),
+            "active_scene": world_final.get("active_scene_id"),
             "discovered_clues": discovered_final,
             "tension": _read_json(camp / "save" / "pacing-state.json", {}).get(
                 "tension_level"
@@ -591,14 +974,17 @@ def run_live_match(
         },
         "tension_curve": tension_curve,
         "scene_path": scene_path,
-        "reached_terminal": bool(scene_path and scene_ids and scene_path[-1] == scene_ids[-1]),
+        "reached_terminal": ending_evidence["reached_terminal"],
+        "terminal_evidence": ending_evidence,
+        "investigator_playability": current_playability,
         "pipeline": "run_live_turn",
         "stop_reason": stop_reason,
         "player_turn_count": len(player_turns),
     }
+    if pending_resolution is not None:
+        session_result["pending_resolution"] = pending_resolution
 
     # Enrich play record with structured fields adherence evaluation consumes.
-    world_final = _read_json(camp / "save" / "world-state.json", {})
     if isinstance(world_final, dict):
         visited = world_final.get("visited_scene_ids") or scene_path
         session_result["visited_scene_ids"] = (
@@ -653,11 +1039,12 @@ def run_live_match(
         metadata_extra["narrative_adherence"] = narrative_adherence
 
     metadata = _match_metadata(
-        live=live,
+        user_claimed_live=live,
         campaign_id=campaign_id,
         extra=metadata_extra,
     )
-    # Force honest simulation_method / player_profile (do not let defaults overwrite).
+    # Package the run without rendering yet: evidence.json must exist before the
+    # first battle-report readout consumes these artifacts.
     battle_path = playtest_driver.write_playtest_artifacts(
         out,
         camp,
@@ -666,25 +1053,74 @@ def run_live_match(
         player_choices,
         session_result,
         metadata=metadata,
+        generate_report=False,
     )
     _enrich_transcript_with_player_notes(out, player_turns)
-    # Regenerate so battle-report.md picks up player_notes in transcript text.
-    playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
-    battle_path = playtest_report.generate_battle_report(out)
+    # Caller evidence_provenance is deliberately non-authoritative.  Trust,
+    # identities, observed model use, and counts come only from this ledger.
+    _ = evidence_provenance
+    invocation_ledger_path = _write_invocation_ledger(out, invocation_rows)
+    target_log_dir = (
+        out / "sandbox" / ".coc" / "campaigns" / campaign_id / "logs"
+    )
+    event_log_paths = [
+        path.resolve().relative_to(out.resolve()).as_posix()
+        for path in sorted(target_log_dir.glob("*.jsonl"))
+        if path.is_file()
+    ]
+    evidence_receipt = playtest_evidence.build_evidence_receipt(
+        out,
+        {
+            "started_at": started_at,
+            "ended_at": _utc_timestamp(),
+            "user_claimed_live": bool(live),
+            "transcript_path": "transcript.jsonl",
+            "invocation_ledger_path": invocation_ledger_path.name,
+            "event_log_paths": event_log_paths,
+        },
+    )
+    evidence_path = playtest_evidence.write_evidence_receipt(out, evidence_receipt)
+    evidence_receipt = playtest_evidence.read_evidence_receipt(out)
+    receipt_runners = evidence_receipt.get("runners") or {}
+    receipt_player = receipt_runners.get("player") or {}
+    receipt_narrator = receipt_runners.get("narrator") or {}
+    eligible = evidence_receipt.get("eligible_as_gameplay_evidence") is True
+    fallback_turns = int(evidence_receipt.get("fallback_turns") or 0)
+    metadata.update(
+        {
+            "runner_kind": receipt_player.get("kind") or "unknown",
+            "narrator_runner_kind": receipt_narrator.get("kind") or "absent",
+            "eligible_as_gameplay_evidence": eligible,
+            "evidence_reasons": list(evidence_receipt.get("evidence_reasons") or []),
+            "external_model_turns": evidence_receipt.get("external_model_turns", 0),
+            "fallback_turns": fallback_turns,
+        }
+    )
+    if eligible:
+        metadata.update(
+            {
+                "audit_profile": "evidence_grade_player_bridge_match",
+                "player_profile": "attested_external_model_bridge",
+                "simulation_method": "attested_external_model_playtest",
+                "evidence_disclaimer": "Gameplay evidence eligibility verified from evidence.json.",
+                "future_enhancements": [],
+            }
+        )
 
     # Re-stamp playtest.json in case write_playtest_artifacts setdefault'd differently.
     playtest_path = out / "playtest.json"
     stamped = _read_json(playtest_path, {})
     if not isinstance(stamped, dict):
         stamped = {}
+    stamped.pop("live", None)
+    stamped.update(metadata)
     stamped.update(
         {
-            "live": metadata["live"],
-            "runner_kind": metadata["runner_kind"],
-            "player_profile": metadata["player_profile"],
-            "simulation_method": metadata["simulation_method"],
-            "evidence_disclaimer": metadata["evidence_disclaimer"],
             "stop_reason": stop_reason,
+            "investigator_playability": current_playability,
+            "pending_resolution": pending_resolution,
+            "terminal_evidence": ending_evidence,
+            "reached_terminal": ending_evidence["reached_terminal"],
             "narration_method": narration_method,
             "fallback_turns": fallback_turns,
         }
@@ -704,7 +1140,9 @@ def run_live_match(
                 **session_result,
                 "simulation_method": metadata["simulation_method"],
                 "runner_kind": metadata["runner_kind"],
-                "live": live,
+                "user_claimed_live": bool(live),
+                "eligible_as_gameplay_evidence": eligible,
+                "evidence_reasons": metadata["evidence_reasons"],
                 "narration_method": narration_method,
                 "fallback_turns": fallback_turns,
             },
@@ -714,10 +1152,18 @@ def run_live_match(
         + "\n",
         encoding="utf-8",
     )
+    # This is deliberately the first report generation for the run.
+    battle_path = playtest_report.generate_battle_report(out)
 
+    if player_worker_pool is not None:
+        player_worker_pool.close()
+    if narrator_worker_pool is not None:
+        narrator_worker_pool.close()
     return {
         "run_dir": str(out),
         "battle_report_path": str(battle_path),
+        "evidence_path": str(evidence_path),
+        "evidence": evidence_receipt,
         "turns": turns,
         "player_turns": player_turns,
         "player_requests": player_requests,
@@ -725,9 +1171,26 @@ def run_live_match(
         "metadata": metadata,
         "result": session_result,
         "stop_reason": stop_reason,
+        "investigator_playability": current_playability,
+        "pending_resolution": pending_resolution,
+        "terminal_evidence": ending_evidence,
         "narration_method": narration_method,
         "fallback_turns": fallback_turns,
     }
+
+
+def run_live_match(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Run a match and always clean persistent adapter workers on exit."""
+    start = len(_ACTIVE_WORKER_POOLS)
+    try:
+        return _run_live_match_impl(*args, **kwargs)
+    finally:
+        for pool in _ACTIVE_WORKER_POOLS[start:]:
+            try:
+                pool.close()
+            finally:
+                if pool in _ACTIVE_WORKER_POOLS:
+                    _ACTIVE_WORKER_POOLS.remove(pool)
 
 
 def _main() -> int:
@@ -748,7 +1211,7 @@ def _main() -> int:
     ap.add_argument(
         "--live",
         action="store_true",
-        help="mark metadata as live external bridge (evidence-eligible)",
+        help="record a user claim that this is live; does not attest evidence eligibility",
     )
     ap.add_argument("--character", default=None, help="override character.json path")
     ap.add_argument("--run-dir", default=None, help="output playtest directory")
@@ -784,6 +1247,11 @@ def _main() -> int:
     print(f"simulation_method: {result['metadata']['simulation_method']}")
     print(f"narration_method: {result.get('narration_method')}")
     print(f"fallback_turns: {result.get('fallback_turns')}")
+    print(
+        "eligible_as_gameplay_evidence: "
+        f"{result['metadata']['eligible_as_gameplay_evidence']}"
+    )
+    print(f"evidence: {result['evidence_path']}")
     return 0
 
 

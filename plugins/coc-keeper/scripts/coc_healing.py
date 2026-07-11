@@ -98,6 +98,7 @@ class HealingSession:
         *,
         current_hp: int | None = None,
         conditions: list[str] | None = None,
+        healing_usage: dict[str, Any] | None = None,
     ) -> None:
         self.investigator_id = investigator_id
         self.hp_max = int(hp_max)
@@ -107,8 +108,26 @@ class HealingSession:
         self.conditions: list[str] = list(conditions or [])
         # Per-wound tracking: once a wound received First Aid or Medicine,
         # it cannot receive the same treatment again that day.
-        self._first_aid_used_today = False
-        self._medicine_used_today = False
+        usage = healing_usage if isinstance(healing_usage, dict) else {}
+        self.wound_id = str(usage.get("active_wound_id") or usage.get("wound_id") or "active-wound")
+        self.day_id = str(usage.get("active_day_id") or usage.get("day_id") or "day-0")
+        raw_records = usage.get("records") if isinstance(usage.get("records"), dict) else {}
+        self._usage_records: dict[str, dict[str, dict[str, bool]]] = {
+            str(wound): {
+                str(day): {
+                    "first_aid_used": flags.get("first_aid_used") is True,
+                    "medicine_used": flags.get("medicine_used") is True,
+                }
+                for day, flags in days.items() if isinstance(flags, dict)
+            }
+            for wound, days in raw_records.items() if isinstance(days, dict)
+        }
+        if not self._usage_records and any(key in usage for key in ("first_aid_used", "medicine_used")):
+            self._usage_records = {self.wound_id: {self.day_id: {
+                "first_aid_used": usage.get("first_aid_used") is True,
+                "medicine_used": usage.get("medicine_used") is True,
+            }}}
+        self._load_usage_flags()
         self.events: list[dict[str, Any]] = []
         self._event_counter = 0
 
@@ -166,16 +185,33 @@ class HealingSession:
         grants 1 temporary HP and the `stabilized` condition; the dying tick
         stays until a successful Medicine roll clears it.
         """
+        if self.is_dying and "stabilized" in self.conditions:
+            return self._event("healing_skipped", {
+                "reason": ("dying but already stabilized; use Medicine to "
+                           "clear dying (p.121)"),
+                "summary": f"{self.investigator_id} already stabilized; Medicine next.",
+            })
+        if self._first_aid_used_today and not pushed:
+            return self._event("first_aid", {
+                "skill": "First Aid", "difficulty": difficulty,
+                "outcome": None, "pushed": pushed, "already_used_today": True,
+                "hp_before": self.current_hp, "hp_gained": 0,
+                "hp_after": self.current_hp,
+                "summary": f"{self.investigator_id} First Aid already used today.",
+            })
         if self.is_dying and "stabilized" not in self.conditions:
             res = skill_roll_result or coc_roll.percentile_check(
                 skill_value, difficulty=difficulty, rng=self._rng)
+            self._first_aid_used_today = True
             success = res.get("outcome") in ("regular", "hard", "extreme", "critical")
             if success:
                 self.current_hp = 1
                 self.conditions.append("stabilized")
             return self._event("first_aid_stabilize" if success else "first_aid", {
                 "skill": "First Aid", "difficulty": difficulty,
-                "outcome": res.get("outcome"), "pushed": pushed,
+                "outcome": res.get("outcome"), "roll": res.get("roll"),
+                "target": skill_value, "pushed": pushed,
+                "already_used_today": False,
                 "stabilized": success,
                 "hp_after": self.current_hp,
                 "rule_ref": "core.combat.dying_stabilize",
@@ -184,19 +220,14 @@ class HealingSession:
                             + ("stabilized at 1 temporary HP."
                                if success else "failed to stabilize.")),
             })
-        if self.is_dying:
-            return self._event("healing_skipped", {
-                "reason": ("dying but already stabilized; use Medicine to "
-                           "clear dying (p.121)"),
-                "summary": f"{self.investigator_id} already stabilized; Medicine next.",
-            })
         res = skill_roll_result
         if res is None:
             res = coc_roll.percentile_check(skill_value, difficulty=difficulty, rng=self._rng)
         success = res.get("outcome") in ("regular", "hard", "extreme", "critical")
         hp_before = self.current_hp
         hp_gained = 0
-        already_used = self._first_aid_used_today and not pushed
+        already_used = False
+        self._first_aid_used_today = True
         if success and not already_used:
             hp_gained = self._heal(1)
             self._first_aid_used_today = True
@@ -204,6 +235,7 @@ class HealingSession:
             "skill": "First Aid",
             "difficulty": difficulty,
             "outcome": res.get("outcome"),
+            "roll": res.get("roll"), "target": skill_value,
             "pushed": pushed,
             "already_used_today": already_used,
             "hp_before": hp_before,
@@ -241,6 +273,13 @@ class HealingSession:
                 "summary": f"{self.investigator_id} needs First Aid stabilization first.",
             })
         clearing_dying = self.is_dying and "stabilized" in self.conditions
+        if self._medicine_used_today:
+            return self._event("medicine", {
+                "skill": "Medicine", "difficulty": "regular" if same_day else "hard",
+                "outcome": None, "already_used_today": True,
+                "hp_before": self.current_hp, "hp_gained": 0, "hp_after": self.current_hp,
+                "summary": f"{self.investigator_id} Medicine already used today.",
+            })
         difficulty = "regular" if same_day else "hard"
         res = skill_roll_result
         if res is None:
@@ -248,6 +287,7 @@ class HealingSession:
         success = res.get("outcome") in ("regular", "hard", "extreme", "critical")
         hp_before = self.current_hp
         hp_gained = 0
+        healing_dice: dict[str, Any] | None = None
         if success and not self._medicine_used_today:
             if clearing_dying:
                 # p.121: uncheck the dying box, then heal 1D3.
@@ -255,15 +295,27 @@ class HealingSession:
                 self.conditions.remove("stabilized")
             dice = coc_roll.roll_expression("1D3", rng=self._rng)
             roll_total = int(dice.get("total", 1))
+            healing_dice = {
+                "expression": "1D3",
+                "raw": list(dice.get("rolls") or []),
+                "total": roll_total,
+            }
             hp_gained = self._heal(roll_total)
+            self._medicine_used_today = True
+        elif not self._medicine_used_today:
+            # An attempted treatment consumes the persisted daily use even
+            # when the check fails; a new command cannot reroll it after reload.
             self._medicine_used_today = True
         event = self._event("medicine", {
             "skill": "Medicine",
             "difficulty": difficulty,
             "outcome": res.get("outcome"),
+            "roll": res.get("roll"), "target": skill_value,
+            "already_used_today": False,
             "hp_before": hp_before,
             "hp_gained": hp_gained,
             "hp_after": self.current_hp,
+            "healing_dice": healing_dice,
             "summary": (
                 f"{self.investigator_id} Medicine ({difficulty}) "
                 f"-> {res.get('outcome')}: +{hp_gained} HP."
@@ -282,7 +334,8 @@ class HealingSession:
         if died and "dead" not in self.conditions:
             self.conditions.append("dead")
         return self._event("dying_con_roll", {
-            "outcome": res.get("outcome"), "died": died,
+            "outcome": res.get("outcome"), "roll": res.get("roll"),
+            "target": self.con_value, "difficulty": "regular", "died": died,
             "rule_ref": "core.combat.dying_con_clock",
             "summary": (f"{self.investigator_id} dying CON roll -> {res.get('outcome')}"
                         + (": dies." if died else ": holds on.")),
@@ -299,7 +352,8 @@ class HealingSession:
             if "stabilized" in self.conditions:
                 self.conditions.remove("stabilized")
         return self._event("stabilized_con_roll", {
-            "outcome": res.get("outcome"), "deteriorated": deteriorated,
+            "outcome": res.get("outcome"), "roll": res.get("roll"),
+            "target": self.con_value, "difficulty": "regular", "deteriorated": deteriorated,
             "rule_ref": "core.combat.dying_stabilized_clock",
             "summary": (f"{self.investigator_id} hourly CON roll -> {res.get('outcome')}"
                         + (": condition deteriorates, back to dying."
@@ -406,6 +460,25 @@ class HealingSession:
         """Reset the per-wound First Aid / Medicine trackers for a new day."""
         self._first_aid_used_today = False
         self._medicine_used_today = False
+        self._store_usage_flags()
+
+    def _load_usage_flags(self) -> None:
+        flags = self._usage_records.get(self.wound_id, {}).get(self.day_id, {})
+        self._first_aid_used_today = flags.get("first_aid_used") is True
+        self._medicine_used_today = flags.get("medicine_used") is True
+
+    def _store_usage_flags(self) -> None:
+        self._usage_records.setdefault(self.wound_id, {})[self.day_id] = {
+            "first_aid_used": self._first_aid_used_today,
+            "medicine_used": self._medicine_used_today,
+        }
+
+    def set_usage_scope(self, wound_id: str, day_id: str) -> None:
+        """Select the persisted wound/day bucket, resetting only on a new scope."""
+        self._store_usage_flags()
+        self.wound_id = wound_id
+        self.day_id = day_id
+        self._load_usage_flags()
 
     # ------------------------------------------------------------------ #
     # Persistence
@@ -418,6 +491,18 @@ class HealingSession:
             "con_value": self.con_value,
             "conditions": list(self.conditions),
             "events": list(self.events),
+            "healing_usage": self._healing_usage_snapshot(),
+        }
+
+    def _healing_usage_snapshot(self) -> dict[str, Any]:
+        self._store_usage_flags()
+        return {
+            "active_wound_id": self.wound_id,
+            "active_day_id": self.day_id,
+            "records": {
+                wound: {day: dict(flags) for day, flags in days.items()}
+                for wound, days in self._usage_records.items()
+            },
         }
 
     def save(self, campaign_dir: Path) -> Path:
@@ -425,6 +510,7 @@ class HealingSession:
         data = _read_inv_state(campaign_dir, self.investigator_id)
         data["current_hp"] = self.current_hp
         data["conditions"] = list(self.conditions)
+        data["healing_usage"] = self.snapshot()["healing_usage"]
         _write_inv_state(campaign_dir, self.investigator_id, data)
         return _inv_state_path(campaign_dir, self.investigator_id)
 
@@ -442,6 +528,7 @@ class HealingSession:
             investigator_id, hp_max, con_value, rng,
             current_hp=data.get("current_hp", hp_max),
             conditions=data.get("conditions", []),
+            healing_usage=data.get("healing_usage"),
         )
         return sess
 
@@ -845,4 +932,3 @@ class PsychotherapySession:
             "monthly_gains_count": self.monthly_gains_count,
             "events": list(self.events),
         }
-

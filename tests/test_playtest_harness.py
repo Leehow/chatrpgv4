@@ -638,6 +638,8 @@ def significant_scene_replay_count(run_dir: Path) -> int:
 
 
 def section_text(markdown: str, heading: str) -> str:
+    if heading == "## Actual Play Replay" and "## Verification Replay" in markdown:
+        heading = "## Verification Replay"
     canonical_heading = heading.lstrip("#").strip()
     anchor = f"<!-- report-anchor: {canonical_heading} -->"
     if anchor in markdown:
@@ -711,9 +713,12 @@ def assert_terms_absent(text: str, canonical_terms: list[str]) -> None:
 
 
 def assert_localized_report_shell(text: str) -> None:
-    assert "# 跑团战报 <!-- report-anchor: Battle Report -->" in text
+    if text.startswith("# NON-GAMEPLAY Verification Sample"):
+        assert "## Verification Replay" in text
+    else:
+        assert "# 跑团战报 <!-- report-anchor: Battle Report -->" in text
+        assert "## 实际跑团回放 <!-- report-anchor: Actual Play Replay -->" in text
     assert "## 运行设置 <!-- report-anchor: Run Setup -->" in text
-    assert "## 实际跑团回放 <!-- report-anchor: Actual Play Replay -->" in text
     assert "## 会话记录 <!-- report-anchor: Session Transcript -->" in text
     assert "## 玩家对 KP 的反馈 <!-- report-anchor: Player Feedback On KP -->" in text
     assert "# Battle Report / 跑团战报" not in text
@@ -886,7 +891,7 @@ def test_rulebook_smoke_harness_generates_auditable_run(tmp_path):
     run_dir = coc_playtest_harness.create_rulebook_smoke_run(tmp_path, run_id="rulebook-smoke")
 
     audit = coc_playtest_audit.audit_run(run_dir)
-    battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    battle_text = (run_dir / "artifacts" / "verification-sample.md").read_text()
     evaluation_text = (run_dir / "artifacts" / "evaluation-report.md").read_text()
     audit_text = (run_dir / "artifacts" / "rulebook-audit.md").read_text()
 
@@ -920,7 +925,7 @@ def test_serious_harness_accepts_selected_play_language(tmp_path):
 
     metadata = playtest_metadata(run_dir)
     campaign = read_json(campaign_dir_for_run(run_dir) / "campaign.json")
-    battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    battle_text = (run_dir / "artifacts" / "verification-sample.md").read_text()
     transcript = {event.get("turn"): event for event in transcript_events(run_dir)}
     player_view = {
         event.get("turn"): event
@@ -941,7 +946,7 @@ def test_serious_harness_accepts_selected_play_language(tmp_path):
     assert metadata["language_profile"]["report_value_labels"]["multi_profile_pressure"] == "単独プレイヤー複数スタイル圧力テスト"
     assert metadata["language_profile"]["report_value_labels"]["multi_profile_matrix"] == "単独プレイヤー複数スタイル分岐"
     assert campaign["play_language"] == "ja-JP"
-    assert "# プレイ報告 <!-- report-anchor: Battle Report -->" in battle_text
+    assert battle_text.startswith("# NON-GAMEPLAY Verification Sample")
     assert "## 実行設定 <!-- report-anchor: Run Setup -->" in battle_text
     assert "監査プロファイル: 単独プレイヤー複数スタイル圧力テスト" in battle_text
     assert "プレイヤープロファイル: 単独プレイヤー複数スタイル分岐" in battle_text
@@ -1013,7 +1018,7 @@ def test_haunting_module_harness_uses_summary_bout_for_solo_corbitt_insanity(tmp
 
     bout_event = next(event for event in campaign_state_events(run_dir) if event.get("type") == "bout_of_madness")
     bout_payload = bout_event["payload"]
-    battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    battle_text = (run_dir / "artifacts" / "verification-sample.md").read_text()
 
     assert bout_payload["mode"] == "summary"
     assert bout_payload["summary_table"] == "table_viii_summary"
@@ -1227,7 +1232,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
 
     audit = coc_playtest_audit.audit_run(run_dir)
-    battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    battle_text = (run_dir / "artifacts" / "verification-sample.md").read_text()
     evaluation_text = (run_dir / "artifacts" / "evaluation-report.md").read_text()
     audit_text = (run_dir / "artifacts" / "rulebook-audit.md").read_text()
     metadata = playtest_metadata(run_dir)
@@ -1500,7 +1505,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     ])
     creation_section = section_text(battle_text, "## Investigator Creation")
     assert "## 角色创建记录 <!-- report-anchor: Investigator Creation -->" in battle_text
-    assert battle_text.index("report-anchor: Investigator Creation") < battle_text.index("report-anchor: Actual Play Replay")
+    assert battle_text.index("report-anchor: Investigator Creation") < battle_text.index("## Verification Replay")
     assert "生成属性: STR 60, CON 55, SIZ 65, DEX 50, APP 45, INT 70, POW 55, EDU 75, LUCK 55" in creation_section
     assert "属性半值/五分之一: STR 30/12, CON 27/11, SIZ 32/13, DEX 25/10, APP 22/9, INT 35/14, POW 27/11, EDU 37/15, LUCK 27/11" in creation_section
     assert "年龄: 32（20-39 岁）" in creation_section
@@ -1746,7 +1751,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "- 艾达·金用借助外套战技" in scene_replay
     assert_terms_absent(scene_replay, ["own-weapon clue", "three-Y eye symbol", "spare bedroom", "basement stairs", "pushed 地下室 search"])
     assert_terms_absent(scene_replay, ["Damage:", "DEX roll"])
-    assert "<!-- report-anchor: Actual Play Replay -->" in battle_text
+    assert "## Verification Replay" in battle_text
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_visible_terms_localized(actual_play, zh_terms)
     assert_localized_transcript_chrome(actual_play)
@@ -2064,7 +2069,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     run_dir = coc_playtest_harness.create_chase_drill_run(tmp_path, run_id="chase-drill")
 
     audit = coc_playtest_audit.audit_run(run_dir)
-    battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    battle_text = (run_dir / "artifacts" / "verification-sample.md").read_text()
     evaluation_text = (run_dir / "artifacts" / "evaluation-report.md").read_text()
     audit_text = (run_dir / "artifacts" / "rulebook-audit.md").read_text()
     metadata = playtest_metadata(run_dir)
@@ -2235,7 +2240,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "location" not in scene_replay
     assert "湿滑天窗" in scene_replay
     assert_terms_absent(scene_replay, ["print shop roof", "print-shop roof", "rain gutter", "locked roof door barrier", "slick 天窗"])
-    assert "<!-- report-anchor: Actual Play Replay -->" in battle_text
+    assert "## Verification Replay" in battle_text
     actual_play = section_text(battle_text, "## Actual Play Replay")
     assert_visible_terms_localized(actual_play, zh_terms)
     assert_localized_transcript_chrome(actual_play)
@@ -2616,7 +2621,7 @@ def test_multi_profile_pressure_run_records_single_player_virtual_styles(tmp_pat
     run_dir = coc_playtest_harness.create_multi_profile_pressure_run(tmp_path, run_id="multi-profile-pressure")
 
     audit = coc_playtest_audit.audit_run(run_dir)
-    battle_text = (run_dir / "artifacts" / "battle-report.md").read_text()
+    battle_text = (run_dir / "artifacts" / "verification-sample.md").read_text()
     evaluation_text = (run_dir / "artifacts" / "evaluation-report.md").read_text()
     metadata = playtest_metadata(run_dir)
 

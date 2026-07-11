@@ -42,10 +42,17 @@ def sanitize_narration_envelope(envelope: Any) -> dict[str, Any]:
     """
     if not isinstance(envelope, dict):
         return {}
-    cleaned = copy.deepcopy(envelope)
-    for key in _ENVELOPE_DROP_KEYS:
-        cleaned.pop(key, None)
-    return cleaned
+    def clean(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: clean(item)
+                for key, item in value.items()
+                if key not in _ENVELOPE_DROP_KEYS
+            }
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        return copy.deepcopy(value)
+    return clean(envelope)
 
 
 def prepare_narrator_request(request: dict[str, Any]) -> dict[str, Any]:
@@ -82,12 +89,66 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(final_text, str) or not final_text.strip():
         raise RuntimeError("narrator runner response missing non-empty final_text string")
     result: dict[str, Any] = {"ok": True, "final_text": final_text}
+    asserted_present = "asserted_fact_refs" in raw
+    semantic_present = "semantic_audit" in raw
+    asserted = raw.get("asserted_fact_refs")
+    semantic = raw.get("semantic_audit")
+    if asserted_present and not (
+        isinstance(asserted, list)
+        and all(isinstance(value, str) and value.strip() for value in asserted)
+    ):
+        raise RuntimeError("asserted_fact_refs must be a list of non-empty strings")
+    if semantic_present and not isinstance(semantic, list):
+        raise RuntimeError("semantic_audit must be a list")
+    result["asserted_fact_refs"] = [value.strip() for value in (asserted or [])]
+    result["semantic_audit"] = copy.deepcopy(semantic or [])
+    result["secret_audit_complete"] = (
+        raw.get("secret_audit_complete") is True
+        and asserted_present
+        and semantic_present
+    )
     notes = raw.get("notes")
     if notes is not None:
         if not isinstance(notes, str):
             raise RuntimeError("notes must be a string when present")
         result["notes"] = notes
+    model_identity = raw.get("model_identity")
+    if model_identity is not None:
+        if not (
+            isinstance(model_identity, dict)
+            and isinstance(model_identity.get("provider"), str)
+            and model_identity["provider"].strip()
+            and isinstance(model_identity.get("id"), str)
+            and model_identity["id"].strip()
+        ):
+            raise RuntimeError("model_identity must contain non-empty provider and id")
+        result["model_identity"] = {
+            "provider": model_identity["provider"].strip(),
+            "id": model_identity["id"].strip(),
+        }
+    response_mode = raw.get("response_mode")
+    if response_mode is not None:
+        if response_mode not in {"tool", "prose_fallback"}:
+            raise RuntimeError("response_mode must be tool or prose_fallback")
+        result["response_mode"] = response_mode
+    usage = raw.get("usage")
+    if usage is not None:
+        result["usage"] = _validate_usage(usage)
     return result
+
+
+def _validate_usage(value: Any) -> dict[str, int | None]:
+    if not isinstance(value, dict) or set(value) != {"input_tokens", "output_tokens"}:
+        raise RuntimeError("usage must contain exactly input_tokens and output_tokens")
+    clean: dict[str, int | None] = {}
+    for name in ("input_tokens", "output_tokens"):
+        count = value[name]
+        if count is not None and (
+            isinstance(count, bool) or not isinstance(count, int) or count < 0
+        ):
+            raise RuntimeError(f"usage {name} must be a non-negative integer or null")
+        clean[name] = count
+    return clean
 
 
 def narrator_send_turn(
@@ -95,6 +156,8 @@ def narrator_send_turn(
     *,
     runner_path: Path | str | None = None,
     timeout_s: float = 300,
+    worker_pool: Any | None = None,
+    worker_key: Any | None = None,
 ) -> dict[str, Any]:
     """Run one KP narration turn through the narrator-brain bridge.
 
@@ -103,6 +166,13 @@ def narrator_send_turn(
     ``rationale`` / keeper secrets before spawning.
     """
     prepared = prepare_narrator_request(request)
+
+    if worker_pool is not None:
+        if worker_key is None:
+            raise ValueError("worker_key is required with worker_pool")
+        return parse_runner_response(
+            worker_pool.request(worker_key, prepared, timeout_s=timeout_s)
+        )
 
     # Resolve against the caller's cwd *before* spawning: the subprocess runs
     # with cwd=_narrator_dir(), which would silently re-anchor relative paths.

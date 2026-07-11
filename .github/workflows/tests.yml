@@ -5,14 +5,155 @@ on:
   pull_request:
 
 jobs:
-  pytest:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install Python test dependencies
+        run: python -m pip install pytest pypdf 'jsonschema>=4.23,<5'
+      - name: Run Python suite
+        run: PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
+
+  plugin-metadata:
+    name: Plugin metadata and release consistency
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install pytest
+      - name: Install metadata test dependencies
         run: python -m pip install pytest
-      - name: Run tests
-        run: PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/ -q -p no:cacheprovider
+      - name: Validate plugin metadata and release consistency
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest
+          tests/test_plugin_metadata.py
+          tests/test_release_consistency.py
+          -q -p no:cacheprovider
+
+  node-adapters:
+    name: Node adapter contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          cache-dependency-path: |
+            runtime/adapters/narrator/package-lock.json
+            runtime/adapters/pi/package-lock.json
+            runtime/adapters/player/package-lock.json
+      - name: Install adapter and contract dependencies
+        run: |
+          python -m pip install pytest
+          npm ci --prefix runtime/adapters/narrator
+          npm ci --prefix runtime/adapters/pi
+          npm ci --prefix runtime/adapters/player
+      - name: Smoke narrator module load and JSONL framing without credentials
+        run: npm test --prefix runtime/adapters/narrator
+      - name: Run adapter contract tests
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest
+          tests/test_runtime_pi_adapter_contract.py
+          tests/test_runtime_player_adapter_contract.py
+          tests/test_narrator_adapter.py
+          -q -p no:cacheprovider
+          -k 'not optional_pi_node_integration_smoke'
+
+  product-smoke:
+    name: Quick start save and reload smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install product smoke dependencies
+        run: python -m pip install pytest pypdf
+      - name: Quick start, play four turns, reload, and continue
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python - <<'PY'
+          import os
+          import sys
+          import tempfile
+          from pathlib import Path
+
+          scripts = Path.cwd() / "plugins" / "coc-keeper" / "scripts"
+          sys.path.insert(0, str(scripts))
+
+          import coc_starter
+          from runtime.engine.events import validate_event
+          from runtime.sdk.api import close_session, create_session, get_state, send
+
+          workspace = Path(
+              tempfile.mkdtemp(
+                  prefix="coc-product-smoke-",
+                  dir=os.environ.get("RUNNER_TEMP"),
+              )
+          )
+          started = coc_starter.quick_start(
+              workspace,
+              "the-haunting",
+              "thomas-hayes",
+              campaign_id="ci-product-smoke",
+          )
+          session = create_session(
+              workspace,
+              campaign_id=started["campaign_id"],
+              investigator_id=started["investigator_id"],
+              character_path=started["character_path"],
+          )
+
+          previous_turn = get_state(session)["turn_number"]
+          for number in range(1, 5):
+              events = send(session, f"[meta] ci-product-smoke-turn-{number}")
+              assert events, f"turn {number} produced no events"
+              for event in events:
+                  validate_event(event)
+              assert any(event["type"] == "state_patch" for event in events)
+              state = get_state(session)
+              assert state["turn_number"] > previous_turn, (previous_turn, state)
+              previous_turn = state["turn_number"]
+
+          before_close = get_state(session)
+          close_session(session)
+          try:
+              get_state(session)
+          except KeyError:
+              pass
+          else:
+              raise AssertionError("closed session remained accessible")
+
+          reloaded_session = create_session(
+              workspace,
+              campaign_id=started["campaign_id"],
+              investigator_id=started["investigator_id"],
+              character_path=started["character_path"],
+          )
+          reloaded = get_state(reloaded_session)
+          assert reloaded == before_close, (before_close, reloaded)
+
+          events = send(reloaded_session, "[meta] ci-product-smoke-continued-turn")
+          assert events
+          for event in events:
+              validate_event(event)
+          continued = get_state(reloaded_session)
+          assert continued["turn_number"] > reloaded["turn_number"], (reloaded, continued)
+          close_session(reloaded_session)
+          print(
+              f"product smoke passed: campaign={started['campaign_id']} "
+              f"turn={continued['turn_number']}"
+          )
+          PY

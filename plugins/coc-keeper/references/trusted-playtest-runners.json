@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "runners": {
+    "player": {
+      "role": "player",
+      "kind": "external_model_bridge",
+      "identity": "coc-runtime-player-adapter@0.79.9",
+      "path": "runtime/adapters/player/run_player_turn.mjs",
+      "sha256": "4a03f70e8d38511d45d23ddb2c0699009d53435e95a87c1277ce168096ad2693",
+      "package_identity": {
+        "name": "@earendil-works/pi-coding-agent",
+        "version": "0.79.9"
+      }
+    },
+    "narrator": {
+      "role": "narrator",
+      "kind": "external_model_bridge",
+      "identity": "coc-runtime-narrator-adapter@0.79.9",
+      "path": "runtime/adapters/narrator/run_narration.mjs",
+      "sha256": "653050249bb2af7cdd6786796cc2e07a1a4766dcc64ad241dfde4e0bf2541107",
+      "package_identity": {
+        "name": "@earendil-works/pi-coding-agent",
+        "version": "0.79.9"
+      }
+    }
+  }
+}

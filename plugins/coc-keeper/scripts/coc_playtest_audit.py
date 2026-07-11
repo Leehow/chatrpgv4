@@ -349,7 +349,11 @@ def _load_context(run_dir: Path) -> dict[str, Any]:
         "feedback": _read_jsonl(run_dir / "player-feedback.jsonl"),
         "chase_state": _read_json(save_dir / "chase.json", {}) if save_dir else {},
         "combat_state": _read_json(save_dir / "combat.json", {}) if save_dir else {},
-        "battle_report": _read_text(run_dir / "artifacts" / "battle-report.md"),
+        "battle_report": _read_text(
+            run_dir / "artifacts" / "battle-report.md"
+            if (run_dir / "artifacts" / "battle-report.md").exists()
+            else run_dir / "artifacts" / "verification-sample.md"
+        ),
     }
 
 
@@ -1213,7 +1217,10 @@ def _localized_report_shell_gaps(battle_report: str, metadata: dict[str, Any]) -
     heading_labels = profile.get("report_heading_labels", {})
     field_labels = profile.get("report_field_labels", {})
     gaps: list[str] = []
+    verification_sample = battle_report.startswith("# NON-GAMEPLAY Verification Sample")
     for heading, prefix in REPORT_SHELL_REQUIRED_HEADINGS.items():
+        if verification_sample and heading in {"Battle Report", "Actual Play Replay"}:
+            continue
         label = heading_labels.get(heading) if isinstance(heading_labels, dict) else None
         if label and label != heading and f"{prefix} {label} <!-- report-anchor: {heading} -->" not in battle_report:
             gaps.append(f"heading:{heading}")
@@ -2223,6 +2230,8 @@ def _contains_marker_or_localized(text: str, marker: str, terms: dict[str, str])
 
 def _section_text(markdown: str, heading: str) -> str:
     marker = f"## {heading}"
+    if heading == "Actual Play Replay" and marker not in markdown:
+        marker = "## Verification Replay"
     start = markdown.find(marker)
     if start != -1:
         rest = markdown[start + len(marker):]

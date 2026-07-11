@@ -72,6 +72,107 @@ def test_validate_npc_without_agenda(tmp_path):
     result = coc_scenario_compile.validate_scenario(sc)
     assert any("agenda" in e for e in result["errors"])
 
+
+def test_social_clue_requires_registered_source_npc_in_both_validators(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    graph = json.loads((sc / "clue-graph.json").read_text())
+    graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "npc_dialogue", "source_npc_ids": ["missing-npc"],
+    })
+    (sc / "clue-graph.json").write_text(json.dumps(graph))
+    disk = coc_scenario_compile.validate_scenario(sc)
+    compiled = coc_scenario_compile.load_compiled_from_dir(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert any("unknown source NPC" in error for error in disk["errors"])
+    assert any(f["code"] == "social_clue_source_unknown" for f in findings)
+
+
+def test_npc_fact_requires_registered_clue_in_both_validators(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    npcs = json.loads((sc / "npc-agendas.json").read_text())
+    npcs["npcs"][0]["facts"] = [{"fact_id": "fact-a", "clue_id": "missing"}]
+    (sc / "npc-agendas.json").write_text(json.dumps(npcs))
+    compiled = coc_scenario_compile.load_compiled_from_dir(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert any(f["code"] == "npc_fact_reference_invalid" for f in findings)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda npc: npc.update({"known_fact_ids": "fact-a"}),
+    lambda npc: npc.update({"revealable_fact_ids": ["missing"]}),
+    lambda npc: npc.update({"disclosure_order": ["missing"]}),
+    lambda npc: npc.update({"leverage_ids": [1]}),
+    lambda npc: npc.update({"active_reactions": [{"reaction_id": "r", "blocks_disclosure": "yes"}]}),
+    lambda npc: npc.update({"availability": {"status": "maybe"}}),
+    lambda npc: npc.update({"schedule": [{"schedule_id": "s", "scene_ids": "s1", "status": "available"}]}),
+    lambda npc: npc.update({"facts": [{"fact_id": "fact-a", "clue_id": "a", "min_trust": True}]}),
+    lambda npc: npc.update({"lie_options": [{"lie_id": "l", "fact_id": "missing"}]}),
+    lambda npc: npc.update({"deflect_options": [{"deflect_id": "d", "player_safe_line": 3}]}),
+])
+def test_complete_a21_contract_fails_closed_in_disk_and_compiled_validators(tmp_path, mutate):
+    sc = _make_valid_scenario(tmp_path)
+    doc = json.loads((sc / "npc-agendas.json").read_text())
+    npc = doc["npcs"][0]
+    npc.update({
+        "known_fact_ids": ["fact-a"], "revealable_fact_ids": ["fact-a"],
+        "disclosure_order": ["fact-a"],
+        "facts": [{"fact_id": "fact-a", "clue_id": "a", "min_trust": 0}],
+        "leverage_ids": [], "active_reactions": [], "lie_options": [],
+        "deflect_options": [], "availability": {"status": "available"}, "schedule": [],
+    })
+    mutate(npc)
+    (sc / "npc-agendas.json").write_text(json.dumps(doc))
+    disk = coc_scenario_compile.validate_scenario(sc)
+    compiled = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+    assert any("A21" in error for error in disk["errors"])
+    assert any(f.get("severity") == "error" and "A21" in f["message"] for f in compiled)
+
+
+def test_runtime_context_rejects_invalid_a21_contract(tmp_path):
+    # The same canonical validator used by compile must reject runtime payloads.
+    findings = coc_scenario_compile.validate_npc_a21_contract(
+        {"npcs": [{"npc_id": "n1", "agenda": "x", "known_fact_ids": "bad"}]},
+        {"conclusions": []},
+    )
+    assert findings and findings[0]["code"] == "npc_a21_contract_invalid"
+
+
+def test_schedule_conflicts_fail_disk_and_compiled_validation(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    doc = json.loads((sc / "npc-agendas.json").read_text())
+    doc["npcs"][0].update({
+        "known_fact_ids": [], "revealable_fact_ids": [], "facts": [],
+        "availability": {"status": "available"},
+        "schedule": [
+            {"schedule_id": "a", "scene_ids": ["s1"], "status": "available"},
+            {"schedule_id": "b", "time_categories": ["overnight"], "status": "unavailable"},
+        ],
+    })
+    (sc / "npc-agendas.json").write_text(json.dumps(doc))
+    disk = coc_scenario_compile.validate_scenario(sc)
+    compiled = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+    assert any("overlapping" in error for error in disk["errors"])
+    assert any("overlapping" in finding["message"] for finding in compiled)
+
+
+def test_time_loop_scene_signals_fail_disk_and_compiled_validation(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "loop_boundary": "yes", "player_retained_memory_ids": ["memory-a", "memory-a"],
+    })
+    (sc / "story-graph.json").write_text(json.dumps(story))
+    disk = coc_scenario_compile.validate_scenario(sc)
+    compiled = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+    assert any("time-loop strategy signals" in error for error in disk["errors"])
+    assert any(f["code"] == "strategy_signals_invalid" for f in compiled)
+
 def test_validate_bad_structure_type(tmp_path):
     sc = _make_valid_scenario(tmp_path)
     m = json.loads((sc/"module-meta.json").read_text())
@@ -79,6 +180,137 @@ def test_validate_bad_structure_type(tmp_path):
     (sc/"module-meta.json").write_text(json.dumps(m))
     result = coc_scenario_compile.validate_scenario(sc)
     assert any("structure_type" in e for e in result["errors"])
+
+
+def test_normalize_scene_function_has_exact_six_field_contract():
+    normalized = coc_scenario_compile.normalize_scene_function({
+        "scene_type": " social ", "dramatic_question": " Will she talk? ",
+        "unknown_extension": {"preserve_on_scene": True},
+    })
+    assert normalized == {
+        "scene_function": "social",
+        "goals": ["Will she talk?"],
+        "required_reveals": [],
+        "failure_modes": [],
+        "exit_options": [],
+        "mode_affinity": [],
+    }
+
+
+@pytest.mark.parametrize("bad_field,bad_value", [
+    ("scene_function", ""), ("goals", "not-a-list"),
+    ("required_reveals", [""]), ("failure_modes", [1]),
+    ("exit_options", None), ("mode_affinity", {"mode": "x"}),
+])
+def test_scene_function_contract_fails_closed_in_both_validators(
+    tmp_path, bad_field, bad_value,
+):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0].update(coc_scenario_compile.normalize_scene_function(story["scenes"][0]))
+    story["scenes"][0][bad_field] = bad_value
+    (sc / "story-graph.json").write_text(json.dumps(story))
+
+    disk = coc_scenario_compile.validate_scenario(sc)
+    compiled = coc_scenario_compile.load_compiled_from_dir(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+
+    assert any("scene function" in error for error in disk["errors"])
+    assert any(f["code"] == "scene_function_contract_invalid" for f in findings)
+
+
+def test_valid_scene_function_contract_passes_both_validators(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0].update({
+        "scene_function": "investigation", "goals": ["find-record"],
+        "required_reveals": ["a"], "failure_modes": ["clock-tick"],
+        "exit_options": ["s2"], "mode_affinity": ["careful"],
+    })
+    (sc / "story-graph.json").write_text(json.dumps(story))
+    assert not [e for e in coc_scenario_compile.validate_scenario(sc)["errors"]
+                if "scene function" in e]
+    assert not [f for f in coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    ) if f["code"] == "scene_function_contract_invalid"]
+
+
+def test_partial_scene_function_contract_fails_at_runtime(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0]["goals"] = ["partial-is-not-legacy"]
+
+    with pytest.raises(ValueError, match="all six fields"):
+        coc_scenario_compile.normalize_scene_function(story["scenes"][0])
+
+
+@pytest.mark.parametrize("owner,field,value", [
+    ("front", "severity", "high"),
+    ("front", "scene_tags_any", "archive"),
+    ("clock", "scene_ids", [""]),
+    ("clock", "faction_ids", [1]),
+])
+def test_threat_affinity_contract_fails_closed_in_both_validators(
+    tmp_path, owner, field, value,
+):
+    sc = _make_valid_scenario(tmp_path)
+    front = {"front_id": "cult", "clocks": [{"clock_id": "doom", "segments": 6}]}
+    target = front if owner == "front" else front["clocks"][0]
+    target[field] = value
+    (sc / "threat-fronts.json").write_text(json.dumps({"fronts": [front]}))
+    disk = coc_scenario_compile.validate_scenario(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+    assert any("threat affinity" in error for error in disk["errors"])
+    assert any(f["code"] == "threat_affinity_contract_invalid" for f in findings)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("scene_tags", "archive"),
+    ("faction_ids", [""]),
+    ("threat_front_ids", [1]),
+    ("front_ids", ["cult"]),
+])
+def test_scene_affinity_contract_fails_closed_in_both_validators(
+    tmp_path, field, value,
+):
+    sc = _make_valid_scenario(tmp_path)
+    story = json.loads((sc / "story-graph.json").read_text())
+    story["scenes"][0][field] = value
+    (sc / "story-graph.json").write_text(json.dumps(story))
+
+    disk = coc_scenario_compile.validate_scenario(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+
+    assert any("scene affinity" in error for error in disk["errors"])
+    assert any(f["code"] == "scene_affinity_contract_invalid" for f in findings)
+
+
+@pytest.mark.parametrize("clock_ids", [
+    ["same", "same"],
+    ["same", " same "],
+    ["", "other"],
+])
+def test_clock_identity_is_global_nonempty_and_canonical_in_both_validators(
+    tmp_path, clock_ids,
+):
+    sc = _make_valid_scenario(tmp_path)
+    fronts = {"fronts": [
+        {"front_id": "one", "clocks": [{"clock_id": clock_ids[0], "segments": 6}]},
+        {"front_id": "two", "clocks": [{"clock_id": clock_ids[1], "segments": 6}]},
+    ]}
+    (sc / "threat-fronts.json").write_text(json.dumps(fronts))
+
+    disk = coc_scenario_compile.validate_scenario(sc)
+    findings = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+
+    assert any("clock_id" in error for error in disk["errors"])
+    assert any(f["code"] == "threat_clock_identity_invalid" for f in findings)
 
 
 def _scenario_script_path() -> Path:

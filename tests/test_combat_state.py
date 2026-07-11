@@ -159,6 +159,40 @@ def test_combat_session_snapshot_has_full_schema():
         assert key in p
 
 
+def test_combat_load_rejects_negative_revision_and_invalid_cursor(tmp_path):
+    s = _make_session()
+    s.begin_round()
+    s.save(tmp_path)
+    path = tmp_path / "save" / "combat.json"
+    raw = json.loads(path.read_text())
+    raw["revision"] = -1
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="revision"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(1))
+    raw["revision"] = 0
+    raw["initiative_cursor"] = 99
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="initiative cursor"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(1))
+
+
+def test_combat_load_rejects_dead_hp_coherence_and_extra_root_key(tmp_path):
+    s = _make_session()
+    s.begin_round()
+    s.save(tmp_path)
+    path = tmp_path / "save" / "combat.json"
+    raw = json.loads(path.read_text())
+    raw["participants"][0]["conditions"].append("dead")
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="dead participant"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(1))
+    raw = s.snapshot()
+    raw["forged"] = True
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="exact schema"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(1))
+
+
 # --------------------------------------------------------------------------- #
 # Audit function tests (call _combat_*_gaps directly with crafted state)
 # --------------------------------------------------------------------------- #
@@ -893,6 +927,502 @@ def test_zero_hp_with_major_wound_is_dying():
     assert p["hp_current"] == 0
     assert "dying" in p["conditions"]
     assert "unconscious" in p["conditions"]
+
+
+def test_successful_fight_back_damages_original_attacker_and_records_roll():
+    """p.115: a winning ordinary Fight Back is a counter-hit, not a miss."""
+    class FixedRng:
+        def __init__(self):
+            self.values = iter([70, 20, 3])
+
+        def randint(self, low, high):
+            value = next(self.values)
+            assert low <= value <= high
+            return value
+
+    s = coc_combat.CombatSession("fight-back-damage", "test", 1, rng=FixedRng())
+    s.add_participant("attacker", "monster", 60, 50, 0, 10,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.add_participant("defender", "investigator", 50, 60, 0, 10,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.begin_round()
+
+    turn = s.declare_and_resolve_turn(
+        "attacker", "strike", action="attack", target_actor_id="defender",
+        defense_kind="fight_back", weapon_id="unarmed")
+
+    assert turn["outcome"] == "fight_back_hit"
+    assert turn["fight_back_damage_roll_id"]
+    assert s.participants["attacker"]["hp_current"] == 7
+    damage = s.damage_chain[-1]
+    assert damage["source_actor_id"] == "defender"
+    assert damage["target_actor_id"] == "attacker"
+
+
+def test_odd_max_hp_major_wound_uses_ceiling_half_threshold():
+    s = coc_combat.CombatSession("odd-hp", "test", 1, rng=random.Random(13))
+    s.add_participant("source", "monster", 60, 50, 0, 10,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.add_participant("target", "investigator", 50, 50, 0, 11)
+    s.damage_chain.append({
+        "source_actor_id": "source", "target_actor_id": "target",
+        "raw_damage": 5, "armor_absorbed": 0,
+    })
+    s.participants["target"]["hp_current"] = 6
+    s._update_conditions("target")
+    assert "major_wound" not in s.participants["target"]["conditions"]
+
+
+def test_major_wound_con_roll_has_stable_roll_evidence():
+    s = coc_combat.CombatSession("major-con", "test", 1, rng=random.Random(2))
+    s.add_participant("source", "monster", 60, 50, 0, 10,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.add_participant("target", "investigator", 50, 50, 0, 10, con=50)
+    s.damage_chain.append({
+        "source_actor_id": "source", "target_actor_id": "target",
+        "raw_damage": 5, "armor_absorbed": 0,
+    })
+    s.participants["target"]["hp_current"] = 5
+    s._update_conditions("target")
+    evidence = s.participants["target"]["major_wound_con"]
+    assert set(evidence) >= {"roll_id", "roll", "target", "outcome"}
+    assert evidence["roll_id"] == "major-con:cr1"
+
+
+def test_combat_snapshot_round_trip_preserves_revision_and_initiative(tmp_path):
+    s = coc_combat.CombatSession("round-trip", "test", 1, rng=random.Random(4))
+    s.add_participant("inv", "investigator", 60, 55, 0, 10,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.add_participant("foe", "monster", 50, 45, 0, 8,
+                      weapons=[{"weapon_id": "unarmed"}])
+    s.begin_round()
+    s.revision = 7
+    s.save(tmp_path)
+    loaded = coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+    assert loaded.revision == 7
+    assert loaded._current_round == 1
+    assert loaded._current_initiative == s._current_initiative
+    assert loaded.snapshot() == s.snapshot()
+
+
+def _save_two_round_initiative_evidence(tmp_path):
+    """Persist valid current and historical skip/exclusion evidence."""
+    s = coc_combat.CombatSession("initiative-evidence", "test", 1, rng=random.Random(4))
+    lethal_weapon = [{
+        "weapon_id": "lethal", "skill": "Fighting", "damage": "20",
+        "adds_damage_bonus": False, "impales": False, "special": None,
+    }]
+    s.add_participant("fast", "monster", 90, 70, 0, 10, weapons=lethal_weapon)
+    s.add_participant("foe", "monster", 80, 45, 0, 8)
+    s.add_participant("hero", "investigator", 70, 60, 0, 10)
+    s.add_participant(
+        "fallen", "npc", 30, 30, 0, 6, conditions=["unconscious"]
+    )
+    s.participants["fallen"]["hp_current"] = 0
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "fast", "lethal round-one damage", target_actor_id="hero",
+        weapon_id="lethal", resolution_hint="damage_only",
+    )
+    s.mark_current_initiative_acted()
+    s.initiative_cursor += 1
+    s.declare_and_resolve_turn(
+        "foe", "hold", resolution_hint="skill_check", skill="Listen",
+        target_value=45,
+    )
+    s.mark_current_initiative_acted()
+    s.initiative_cursor += 1
+    s.mark_current_initiative_skipped()
+    s.initiative_cursor += 1
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "fast", "lethal round-two damage", target_actor_id="foe",
+        weapon_id="lethal", resolution_hint="damage_only",
+    )
+    s.mark_current_initiative_acted()
+    s.initiative_cursor += 1
+    s.mark_current_initiative_skipped()
+    s.initiative_cursor += 1
+    s.save(tmp_path)
+    return tmp_path / "save" / "combat.json"
+
+
+@pytest.mark.parametrize(
+    ("scope", "actor_id", "replacement"),
+    [
+        ("current", "foe", {"hp_current": True, "conditions": ["unconscious"]}),
+        ("current", "foe", {"hp_current": -1, "conditions": ["unconscious"]}),
+        ("current", "foe", {"hp_current": 0, "conditions": ["unconscious", "unconscious"]}),
+        ("current", "foe", {"hp_current": 0, "conditions": ["unconscious", "invented"]}),
+        ("historical", "hero", {"hp_current": True, "conditions": ["unconscious"]}),
+        ("historical", "hero", {"hp_current": -1, "conditions": ["unconscious"]}),
+        ("historical", "hero", {"hp_current": 0, "conditions": ["unconscious", "unconscious"]}),
+        ("historical", "hero", {"hp_current": 0, "conditions": ["unconscious", "invented"]}),
+        ("historical", "hero", {"hp_current": 1, "conditions": []}),
+    ],
+)
+def test_combat_load_strictly_validates_current_and_historical_skip_evidence(
+    tmp_path, scope, actor_id, replacement
+):
+    path = _save_two_round_initiative_evidence(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    rows = (
+        forged["initiative_progress"]
+        if scope == "current"
+        else forged["rounds"][0]["initiative_progress"]
+    )
+    next(row for row in rows if row["actor_id"] == actor_id)["skip_evidence"] = replacement
+    if scope == "current":
+        next(
+            row for row in forged["rounds"][-1]["initiative_progress"]
+            if row["actor_id"] == actor_id
+        )["skip_evidence"] = replacement
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="initiative skip"):
+        coc_combat.CombatSession.load(
+            tmp_path, rng=random.Random(999), trusted_in_memory=True,
+        )
+
+
+@pytest.mark.parametrize("scope", ["current", "historical"])
+def test_combat_load_rejects_skip_evidence_on_excluded_initiative_entries(tmp_path, scope):
+    path = _save_two_round_initiative_evidence(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    rows = (
+        forged["initiative_progress"]
+        if scope == "current"
+        else forged["rounds"][0]["initiative_progress"]
+    )
+    next(row for row in rows if row["actor_id"] == "fallen")["skip_evidence"] = {
+        "hp_current": 0,
+        "conditions": ["unconscious"],
+    }
+    if scope == "current":
+        next(
+            row for row in forged["rounds"][-1]["initiative_progress"]
+            if row["actor_id"] == "fallen"
+        )["skip_evidence"] = {"hp_current": 0, "conditions": ["unconscious"]}
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="excluded initiative actor"):
+        coc_combat.CombatSession.load(
+            tmp_path, rng=random.Random(999), trusted_in_memory=True,
+        )
+
+
+@pytest.mark.parametrize("scope", ["current", "historical"])
+def test_combat_load_rejects_coordinated_valid_looking_skip_replacement(tmp_path, scope):
+    """A plausible participant + skip edit cannot replace the source receipt."""
+    path = _save_two_round_initiative_evidence(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    actor_id = "foe" if scope == "current" else "hero"
+    rows = (
+        forged["initiative_progress"]
+        if scope == "current"
+        else forged["rounds"][0]["initiative_progress"]
+    )
+    row = next(item for item in rows if item["actor_id"] == actor_id)
+    assert row["skip_evidence"]["source_receipt"]["kind"] == "damage_status"
+    replacement = {"hp_current": 1, "conditions": ["unconscious"]}
+    row["skip_evidence"].update(replacement)
+    row["skip_evidence"]["source_receipt"].update(replacement)
+    forged_participant = next(
+        item for item in forged["participants"] if item["actor_id"] == actor_id
+    )
+    forged_participant.update(replacement)
+    if scope == "current":
+        mirrored = next(
+            item for item in forged["rounds"][-1]["initiative_progress"]
+            if item["actor_id"] == actor_id
+        )
+        mirrored["skip_evidence"].update(replacement)
+        mirrored["skip_evidence"]["source_receipt"].update(replacement)
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="initiative skip.*source|source.*initiative skip"):
+        coc_combat.CombatSession.load(
+            tmp_path, rng=random.Random(999), trusted_in_memory=True,
+        )
+
+
+@pytest.mark.parametrize("scope", ["current", "historical"])
+def test_combat_load_rejects_coordinated_damage_status_and_skip_forgery(tmp_path, scope):
+    """Damage history cannot become a second mutable authority for a skip."""
+    path = _save_two_round_initiative_evidence(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    actor_id = "foe" if scope == "current" else "hero"
+    round_index = 1 if scope == "current" else 0
+    damage = next(
+        row for row in forged["damage_chain"] if row["target_actor_id"] == actor_id
+    )
+    damage["hp_after"] = 1
+    damage["hp_delta"] = 1 - damage["hp_before"]
+    damage["raw_damage"] = damage["armor_absorbed"] - damage["hp_delta"]
+    damage["status_after"] = {"hp_current": 1, "conditions": ["unconscious"]}
+    participant = next(row for row in forged["participants"] if row["actor_id"] == actor_id)
+    participant["hp_current"] = 1
+    participant["conditions"] = ["unconscious"]
+    progress = next(
+        row for row in forged["rounds"][round_index]["initiative_progress"]
+        if row["actor_id"] == actor_id
+    )
+    progress["skip_evidence"]["hp_current"] = 1
+    progress["skip_evidence"]["conditions"] = ["unconscious"]
+    progress["skip_evidence"]["source_receipt"]["hp_current"] = 1
+    progress["skip_evidence"]["source_receipt"]["conditions"] = ["unconscious"]
+    if scope == "current":
+        mirrored = next(
+            row for row in forged["initiative_progress"] if row["actor_id"] == actor_id
+        )
+        mirrored.update(json.loads(json.dumps(progress)))
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="damage provenance|damage chain"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "duplicate_roll_id",
+        "missing_record",
+        "missing_roll_id",
+        "cross_turn",
+        "wrong_source_actor",
+        "wrong_target_actor",
+        "wrong_turn_outcome",
+        "wrong_turn_roll",
+        "hp_arithmetic",
+        "armor_arithmetic",
+        "status_hp",
+        "extra_damage_field",
+        "extra_turn_field",
+    ],
+)
+def test_combat_load_rejects_noncanonical_damage_and_turn_provenance(tmp_path, mutation):
+    path = _save_two_round_initiative_evidence(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    damage = forged["damage_chain"][0]
+    turn = forged["rounds"][0]["turns"][0]
+    if mutation == "duplicate_roll_id":
+        forged["damage_chain"][1]["damage_roll_id"] = damage["damage_roll_id"]
+    elif mutation == "missing_record":
+        forged["damage_chain"].pop(0)
+    elif mutation == "missing_roll_id":
+        damage["damage_roll_id"] = ""
+    elif mutation == "cross_turn":
+        damage["source_turn_id"] = forged["rounds"][0]["turns"][1]["turn_id"]
+    elif mutation == "wrong_source_actor":
+        damage["source_actor_id"] = "foe"
+    elif mutation == "wrong_target_actor":
+        damage["target_actor_id"] = "foe"
+    elif mutation == "wrong_turn_outcome":
+        turn["outcome"] = "miss"
+    elif mutation == "wrong_turn_roll":
+        turn["damage_roll_id"] = "different-roll"
+    elif mutation == "hp_arithmetic":
+        damage["hp_delta"] += 1
+    elif mutation == "armor_arithmetic":
+        damage["armor_absorbed"] += 1
+    elif mutation == "status_hp":
+        damage["status_after"]["hp_current"] += 1
+    elif mutation == "extra_damage_field":
+        damage["keeper_secret"] = True
+    elif mutation == "extra_turn_field":
+        turn["keeper_secret"] = True
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="damage provenance|damage chain|combat turn"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+def _save_adjacent_damage_records(tmp_path):
+    s = coc_combat.CombatSession("adjacent-damage", "test", 1, rng=random.Random(8))
+    weapon = [{
+        "weapon_id": "chip", "skill": "Fighting", "damage": "2",
+        "adds_damage_bonus": False, "impales": False, "special": None,
+    }]
+    s.add_participant("source", "monster", 80, 60, 0, 10, weapons=weapon)
+    s.add_participant("target", "investigator", 50, 50, 0, 10)
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "source", "first hit", target_actor_id="target",
+        weapon_id="chip", resolution_hint="damage_only",
+    )
+    s.declare_and_resolve_turn(
+        "source", "second hit", target_actor_id="target",
+        weapon_id="chip", resolution_hint="damage_only",
+    )
+    s.save(tmp_path)
+    return tmp_path / "save" / "combat.json"
+
+
+def _refresh_damage_receipt(snapshot, damage):
+    turn = next(
+        turn
+        for round_row in snapshot["rounds"]
+        for turn in round_row["turns"]
+        if turn["turn_id"] == damage["source_turn_id"]
+    )
+    binding = next(
+        row for row in coc_combat.CombatSession._damage_bindings_for_turn(turn)
+        if row["damage_roll_id"] == damage["damage_roll_id"]
+    )
+    round_number = int(turn["turn_id"].split("-", 1)[0][1:])
+    damage["provenance"] = coc_combat.CombatSession._damage_transaction_receipt(
+        round_number=round_number, turn=turn, damage=damage, binding=binding,
+    )
+
+
+def _external_damage_rows(session):
+    return session.damage_evidence_rows(command_actor_id="inv")
+
+
+@pytest.mark.parametrize("scope", ["current", "historical"])
+def test_combat_load_rejects_recomputed_internal_damage_receipt_without_external_change(
+    tmp_path, scope
+):
+    """A coordinated combat.json rewrite cannot replace canonical roll evidence."""
+    s = coc_combat.CombatSession("external-anchor", "test", 1, rng=random.Random(8))
+    weapon = [{
+        "weapon_id": "chip", "skill": "Fighting", "damage": "2",
+        "adds_damage_bonus": False, "impales": False, "special": None,
+    }]
+    s.add_participant("source", "monster", 80, 60, 0, 10, weapons=weapon)
+    s.add_participant("target", "investigator", 50, 50, 0, 10)
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "source", "round one", target_actor_id="target", weapon_id="chip",
+        resolution_hint="damage_only", resolution_command_id="defend-r1",
+    )
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "source", "round two", target_actor_id="target", weapon_id="chip",
+        resolution_hint="damage_only", resolution_command_id="defend-r2",
+    )
+    evidence = _external_damage_rows(s)
+    s.save(tmp_path)
+    path = tmp_path / "save" / "combat.json"
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    damage = forged["damage_chain"][1 if scope == "current" else 0]
+    damage["die"] = "1"
+    damage["die_rolls"] = []
+    damage["raw_damage"] = 1
+    damage["hp_delta"] = -1
+    damage["hp_after"] = damage["hp_before"] - 1
+    damage["status_after"]["hp_current"] = damage["hp_after"]
+    # Keep the next record internally continuous for a historical mutation.
+    if scope == "historical":
+        following = forged["damage_chain"][1]
+        following["hp_before"] = damage["hp_after"]
+        following["hp_after"] = following["hp_before"] - following["raw_damage"]
+        following["hp_delta"] = following["hp_after"] - following["hp_before"]
+        following["status_after"]["hp_current"] = following["hp_after"]
+        round_two_progress = next(
+            row for row in forged["rounds"][1]["initiative_progress"]
+            if row["actor_id"] == "target"
+        )
+        round_two_progress["round_start_eligibility"]["hp_current"] = damage["hp_after"]
+        next(
+            row for row in forged["initiative_progress"]
+            if row["actor_id"] == "target"
+        )["round_start_eligibility"]["hp_current"] = damage["hp_after"]
+        _refresh_damage_receipt(forged, following)
+    target = next(row for row in forged["participants"] if row["actor_id"] == "target")
+    target["hp_current"] = forged["damage_chain"][-1]["hp_after"]
+    target["conditions"] = list(forged["damage_chain"][-1]["status_after"]["conditions"])
+    _refresh_damage_receipt(forged, damage)
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="external damage evidence"):
+        coc_combat.CombatSession.load(
+            tmp_path, rng=random.Random(999), damage_evidence=evidence,
+            damage_evidence_actor="inv",
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation", ["missing", "duplicate", "cross_command", "wrong_actor"]
+)
+def test_combat_load_requires_unique_command_bound_external_damage_evidence(
+    tmp_path, mutation
+):
+    s = coc_combat.CombatSession("external-contract", "test", 1, rng=random.Random(8))
+    weapon = [{
+        "weapon_id": "chip", "skill": "Fighting", "damage": "2",
+        "adds_damage_bonus": False, "impales": False, "special": None,
+    }]
+    s.add_participant("source", "monster", 80, 60, 0, 10, weapons=weapon)
+    s.add_participant("target", "investigator", 50, 50, 0, 10)
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "source", "hit", target_actor_id="target", weapon_id="chip",
+        resolution_hint="damage_only", resolution_command_id="defend-one",
+    )
+    evidence = _external_damage_rows(s)
+    s.save(tmp_path)
+    if mutation == "missing":
+        evidence = []
+    elif mutation == "duplicate":
+        evidence.append(json.loads(json.dumps(evidence[0])))
+    elif mutation == "cross_command":
+        evidence[0]["command_id"] = "different-command"
+    else:
+        evidence[0]["actor"] = "different-investigator"
+    with pytest.raises(ValueError, match="external damage evidence"):
+        coc_combat.CombatSession.load(
+            tmp_path, rng=random.Random(999), damage_evidence=evidence,
+            damage_evidence_actor="inv",
+        )
+
+
+def test_combat_load_rejects_adjacent_damage_gap_even_with_refreshed_receipt(tmp_path):
+    path = _save_adjacent_damage_records(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    second = forged["damage_chain"][1]
+    second["hp_before"] += 1
+    second["hp_after"] += 1
+    second["status_after"]["hp_current"] += 1
+    _refresh_damage_receipt(forged, second)
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="cross-record HP"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+def test_combat_load_rejects_damage_roll_arithmetic_with_refreshed_receipt(tmp_path):
+    path = _save_adjacent_damage_records(tmp_path)
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    first = forged["damage_chain"][0]
+    first["raw_damage"] = 1
+    first["hp_delta"] = -1
+    first["hp_after"] = first["hp_before"] - 1
+    first["status_after"]["hp_current"] = first["hp_after"]
+    # Keep the adjacent record internally continuous so only roll evidence is wrong.
+    second = forged["damage_chain"][1]
+    second["hp_before"] = first["hp_after"]
+    second["hp_after"] = second["hp_before"] - 2
+    second["hp_delta"] = -2
+    second["status_after"]["hp_current"] = second["hp_after"]
+    _refresh_damage_receipt(forged, first)
+    _refresh_damage_receipt(forged, second)
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="roll evidence"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+def test_combat_load_rejects_forged_pending_defense_contract(tmp_path):
+    s = coc_combat.CombatSession("pending-contract", "test", 1, rng=random.Random(5))
+    s.add_participant("inv", "investigator", 60, 55, 0, 10)
+    s.add_participant("foe", "monster", 50, 45, 0, 8)
+    s.begin_round()
+    s.pending_attack = {
+        "attack_command_id": "attack-1", "actor_id": "foe",
+        "target_actor_id": "inv", "declared_intent": "strike",
+        "resolution_hint": "opposed_melee", "weapon_id": "unarmed",
+        "allowed_defenses": ["dodge", "fight_back"],
+    }
+    s.save(tmp_path)
+    path = tmp_path / "save" / "combat.json"
+    forged = json.loads(path.read_text(encoding="utf-8"))
+    forged["pending_attack"]["allowed_defenses"].append("keeper_secret")
+    path.write_text(json.dumps(forged), encoding="utf-8")
+    with pytest.raises(ValueError, match="pending attack"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(5))
 
 
 # --------------------------------------------------------------------------- #

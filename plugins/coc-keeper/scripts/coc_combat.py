@@ -22,6 +22,7 @@ Rulebook basis: Chapter 6 (Combat), 7e 40th Anniversary.
 from __future__ import annotations
 
 import json
+import hashlib
 import random
 import re
 from pathlib import Path
@@ -195,8 +196,9 @@ LVL = {"fumble": 0, "failure": 1, "regular": 2, "hard": 3, "extreme": 4, "critic
 VALID_SIDES = {"investigator", "monster", "npc"}
 VALID_ACTIONS = {"attack", "maneuver", "flee", "cast", "other", "surprise_attack"}
 VALID_DEFENSE = {"fight_back", "dodge", "dive_for_cover", "maneuver", "none", None}
-VALID_CONDITIONS = {"major_wound", "dying", "unconscious", "prone",
-                     "grappled", "surprised", "outnumbered"}
+VALID_CONDITIONS = {"major_wound", "dying", "stabilized", "dead",
+                     "unconscious", "prone", "grappled", "surprised",
+                     "outnumbered", "fled"}
 VALID_OUTCOMES = {"investigators_win", "monsters_win", "fled", "stalemate", None}
 VALID_ARMOR_RULES = {"fixed", "degrades_1_per_damage", None}
 
@@ -244,6 +246,15 @@ class CombatSession:
         self._roll_counter = 0
         self._current_round = 0
         self._current_initiative: list[dict[str, Any]] = []
+        self.initiative_cursor = 0
+        # Complete current-round roster/progress.  Unlike the initiative list,
+        # this includes actors excluded at round start and retains structured
+        # evidence for every later eligibility skip.
+        self.initiative_progress: list[dict[str, Any]] = []
+        # Monotonic persisted revision used by live command bridges to reject
+        # stale defense/rescue actions after a reload.
+        self.revision = 0
+        self.pending_attack: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------ #
     # Participant management
@@ -328,12 +339,140 @@ class CombatSession:
             {"actor_id": aid, "dex": dex_eff, "dex_reason": reason}
             for _, _, aid, dex_eff, reason in ranked
         ]
+        initiative_by_actor = {
+            row["actor_id"]: dict(row) for row in self._current_initiative
+        }
+        self.initiative_progress = []
+        for actor_id in sorted(self.participants):
+            participant = self.participants[actor_id]
+            eligibility = {
+                "hp_current": participant["hp_current"],
+                "conditions": list(participant["conditions"]),
+                "dex": participant["dex"],
+                "combat_skill": participant["combat_skill"],
+                "firearms_skill": participant["firearms_skill"],
+                "has_ready_firearm": participant["has_ready_firearm"],
+            }
+            initiative = initiative_by_actor.get(actor_id)
+            self.initiative_progress.append({
+                "actor_id": actor_id,
+                "round_start_eligibility": eligibility,
+                "initiative": dict(initiative) if initiative is not None else None,
+                "status": "pending" if initiative is not None else "excluded_at_round_start",
+                "skip_evidence": None,
+            })
         self.rounds.append({
             "round": self._current_round,
             "initiative_order": [dict(item) for item in self._current_initiative],
+            "initiative_progress": [dict(item) for item in self.initiative_progress],
             "turns": [],
         })
+        self.initiative_cursor = 0
         return self._current_round
+
+    def mark_current_initiative_acted(self) -> None:
+        if self.initiative_cursor >= len(self._current_initiative):
+            raise ValueError("initiative cursor has no current actor")
+        actor_id = self._current_initiative[self.initiative_cursor]["actor_id"]
+        row = next(item for item in self.initiative_progress if item["actor_id"] == actor_id)
+        if row["status"] != "pending":
+            raise ValueError("initiative actor is not pending")
+        row["status"] = "acted"
+        self._sync_initiative_progress_history()
+
+    def mark_current_initiative_skipped(self) -> None:
+        if self.initiative_cursor >= len(self._current_initiative):
+            raise ValueError("initiative cursor has no current actor")
+        actor_id = self._current_initiative[self.initiative_cursor]["actor_id"]
+        participant = self.participants[actor_id]
+        row = next(item for item in self.initiative_progress if item["actor_id"] == actor_id)
+        if row["status"] != "pending":
+            raise ValueError("initiative actor is not pending")
+        source_receipt = self._canonical_skip_source_receipt(
+            actor_id, self.rounds[-1]
+        )
+        if source_receipt is None:
+            raise ValueError("initiative skip lacks an authoritative source transition")
+        row["status"] = "skipped_ineligible"
+        row["skip_evidence"] = {
+            "hp_current": participant["hp_current"],
+            "conditions": list(participant["conditions"]),
+            "source_receipt": source_receipt,
+        }
+        self._sync_initiative_progress_history()
+
+    def _canonical_skip_source_receipt(
+        self, actor_id: str, round_row: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Rebuild the exact pre-initiative transition that made an actor skip.
+
+        A skip is not self-authenticating: its HP/condition snapshot must point
+        at a damage/status receipt produced by an earlier turn in the same
+        round.  Limiting eligible source turns to actors earlier in initiative
+        prevents a historical row from being rebound to a later plausible
+        damage record.
+        """
+        initiative = round_row.get("initiative_order") or []
+        positions = {
+            item.get("actor_id"): index
+            for index, item in enumerate(initiative)
+            if isinstance(item, dict)
+        }
+        skip_position = positions.get(actor_id)
+        if not isinstance(skip_position, int):
+            return None
+        allowed_turn_ids: list[str] = []
+        for turn in round_row.get("turns") or []:
+            if not isinstance(turn, dict):
+                continue
+            actor_position = positions.get(turn.get("actor_id"))
+            if not isinstance(actor_position, int) or actor_position >= skip_position:
+                continue
+            turn_id = turn.get("turn_id")
+            if isinstance(turn_id, str):
+                allowed_turn_ids.append(turn_id)
+        candidate: dict[str, Any] | None = None
+        for turn_id in allowed_turn_ids:
+            for damage in self.damage_chain:
+                if (
+                    not isinstance(damage, dict)
+                    or damage.get("source_turn_id") != turn_id
+                    or damage.get("target_actor_id") != actor_id
+                    or not isinstance(damage.get("damage_roll_id"), str)
+                ):
+                    continue
+                status_after = damage.get("status_after")
+                if not isinstance(status_after, dict):
+                    continue
+                hp_current = status_after.get("hp_current")
+                conditions = status_after.get("conditions")
+                if (
+                    isinstance(hp_current, bool)
+                    or not isinstance(hp_current, int)
+                    or not isinstance(conditions, list)
+                    or hp_current != damage.get("hp_after")
+                ):
+                    continue
+                if hp_current > 0 and not any(
+                    value in conditions
+                    for value in ("dead", "dying", "unconscious", "fled")
+                ):
+                    continue
+                candidate = {
+                    "kind": "damage_status",
+                    "round": round_row.get("round"),
+                    "source_turn_id": turn_id,
+                    "damage_roll_id": damage["damage_roll_id"],
+                    "hp_current": hp_current,
+                    "conditions": list(conditions),
+                }
+        return candidate
+
+    def _sync_initiative_progress_history(self) -> None:
+        if self.rounds:
+            self.rounds[-1]["initiative_progress"] = [
+                dict(item) for item in self.initiative_progress
+            ]
 
     def _mark_defended(self, target_id: str) -> None:
         """Mark that target has defended this round (mechanism 4: outnumbered)."""
@@ -418,10 +557,234 @@ class CombatSession:
             "damage_roll_id": None,
         }
 
+    @staticmethod
+    def _damage_bindings_for_turn(turn: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return the canonical damage-roll ownership encoded by one turn."""
+        bindings: list[dict[str, Any]] = []
+
+        def add(
+            roll_id: Any, kind: str, index: str,
+            source_actor_id: Any, target_actor_id: Any,
+        ) -> None:
+            if isinstance(roll_id, str) and roll_id:
+                bindings.append({
+                    "damage_roll_id": roll_id,
+                    "binding_kind": kind,
+                    "binding_index": index,
+                    "source_actor_id": source_actor_id,
+                    "target_actor_id": target_actor_id,
+                })
+
+        actor_id = turn.get("actor_id")
+        target_actor_id = turn.get("target_actor_id")
+        primary_source = actor_id
+        primary_target = target_actor_id
+        if turn.get("outcome") == "maneuver_failed_fight_back_damage":
+            primary_source, primary_target = target_actor_id, actor_id
+        add(
+            turn.get("damage_roll_id"), "primary", "0",
+            primary_source, primary_target,
+        )
+        add(
+            turn.get("fight_back_damage_roll_id"), "fight_back", "0",
+            target_actor_id, actor_id,
+        )
+        for shot_index, shot in enumerate(turn.get("shots") or []):
+            if isinstance(shot, dict):
+                add(
+                    shot.get("damage_roll_id"), "shot", str(shot_index),
+                    actor_id, target_actor_id,
+                )
+        for volley_index, volley in enumerate(turn.get("volleys") or []):
+            if not isinstance(volley, dict):
+                continue
+            for hit_index, roll_id in enumerate(volley.get("damage_roll_ids") or []):
+                add(
+                    roll_id, "volley", f"{volley_index}:{hit_index}",
+                    actor_id, target_actor_id,
+                )
+        for target_index, target in enumerate(turn.get("suppression_targets") or []):
+            if not isinstance(target, dict):
+                continue
+            for hit_index, roll_id in enumerate(target.get("damage_roll_ids") or []):
+                add(
+                    roll_id, "suppression", f"{target_index}:{hit_index}",
+                    actor_id, target.get("target_actor_id"),
+                )
+        return bindings
+
+    @staticmethod
+    def _damage_transaction_receipt(
+        *, round_number: int, turn: dict[str, Any],
+        damage: dict[str, Any], binding: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create an independent canonical receipt for a damage transaction.
+
+        The digest covers the complete closed damage record (apart from the
+        receipt itself) plus the durable turn fields that authorize it.  Load
+        reconstructs this receipt before initiative skip evidence is read.
+        """
+        payload = {
+            "round": round_number,
+            "turn": {
+                "turn_id": turn.get("turn_id"),
+                "actor_id": turn.get("actor_id"),
+                "target_actor_id": turn.get("target_actor_id"),
+                "resolution_hint": turn.get("resolution_hint"),
+                "outcome": turn.get("outcome"),
+                "roll_id": turn.get("roll_id"),
+                "damage_roll_id": turn.get("damage_roll_id"),
+                "fight_back_damage_roll_id": turn.get("fight_back_damage_roll_id"),
+                "resolution_command_id": turn.get("resolution_command_id"),
+            },
+            "binding": dict(binding),
+            "damage": {
+                key: value for key, value in damage.items()
+                if key != "provenance"
+            },
+        }
+        encoded = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return {
+            "kind": "combat_damage_transaction_v1",
+            "round": round_number,
+            "turn_id": turn.get("turn_id"),
+            "binding_kind": binding["binding_kind"],
+            "binding_index": binding["binding_index"],
+            "transaction_sha256": hashlib.sha256(encoded).hexdigest(),
+        }
+
+    @staticmethod
+    def _external_damage_receipt(
+        *, turn: dict[str, Any], damage: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build the canonical cross-file receipt for one HP transition."""
+        return {
+            "kind": "combat_damage_external_v1",
+            "command_id": turn.get("resolution_command_id"),
+            "roll_id": damage.get("damage_roll_id"),
+            "source_turn_id": damage.get("source_turn_id"),
+            "source_actor_id": damage.get("source_actor_id"),
+            "target_actor_id": damage.get("target_actor_id"),
+            "weapon_id": damage.get("weapon_id"),
+            "die": damage.get("die"),
+            "die_rolls": list(damage.get("die_rolls") or []),
+            "raw_damage": damage.get("raw_damage"),
+            "total": damage.get("raw_damage"),
+            "hp_before": damage.get("hp_before"),
+            "hp_delta": damage.get("hp_delta"),
+            "hp_after": damage.get("hp_after"),
+            "status_after": dict(damage.get("status_after") or {}),
+            "internal_provenance": dict(damage.get("provenance") or {}),
+        }
+
+    def damage_evidence_rows(self, *, command_actor_id: str) -> list[dict[str, Any]]:
+        """Export trusted in-memory damage evidence in canonical roll-log shape.
+
+        This is primarily useful to component tests and embedding hosts that
+        persist their own append-only evidence ledger.  Reload never derives
+        these rows from ``combat.json`` itself.
+        """
+        turns = {
+            turn["turn_id"]: turn
+            for round_row in self.rounds
+            for turn in round_row.get("turns", [])
+            if isinstance(turn, dict) and isinstance(turn.get("turn_id"), str)
+        }
+        rows: list[dict[str, Any]] = []
+        for damage in self.damage_chain:
+            roll_id = damage.get("damage_roll_id")
+            if not isinstance(roll_id, str):
+                continue
+            turn = turns.get(damage.get("source_turn_id"))
+            if not isinstance(turn, dict):
+                raise ValueError("combat damage lacks its source turn")
+            receipt = self._external_damage_receipt(turn=turn, damage=damage)
+            if not isinstance(receipt["command_id"], str) or not receipt["command_id"]:
+                raise ValueError("combat damage lacks a resolution command ID")
+            rows.append({
+                "type": "roll",
+                "actor": command_actor_id,
+                "command_id": receipt["command_id"],
+                "payload": {
+                    "event_type": "combat_roll",
+                    "roll_id": roll_id,
+                    "actor_id": damage["source_actor_id"],
+                    "skill": "HP Damage",
+                    "source_command_id": receipt["command_id"],
+                    "target": damage["target_actor_id"],
+                    "raw_roll": damage["raw_damage"],
+                    "dice": {
+                        "expression": damage["die"],
+                        "raw": list(damage["die_rolls"]),
+                        "total": damage["raw_damage"],
+                    },
+                    "combat_damage_receipt": receipt,
+                },
+                "ts": "trusted-in-memory",
+            })
+        return rows
+
+    @staticmethod
+    def _reconstruct_damage_roll(die_expr: Any, die_rolls: Any) -> int:
+        """Reconstruct an ordinary damage total from its exact dice evidence."""
+        if not isinstance(die_expr, str) or not die_expr or not isinstance(die_rolls, list):
+            raise ValueError("combat damage roll evidence is invalid")
+        rolls = iter(die_rolls)
+        total = 0
+        normalized = die_expr.replace("-", "+-")
+        for token in (part.strip() for part in normalized.split("+") if part.strip()):
+            match = re.fullmatch(r"(\d+)D(\d+)", token)
+            if match:
+                count, sides = int(match.group(1)), int(match.group(2))
+                for _ in range(count):
+                    try:
+                        value = next(rolls)
+                    except StopIteration as exc:
+                        raise ValueError("combat damage roll evidence is invalid") from exc
+                    if (
+                        isinstance(value, bool) or not isinstance(value, int)
+                        or value < 1 or value > sides
+                    ):
+                        raise ValueError("combat damage roll evidence is invalid")
+                    total += value
+            else:
+                try:
+                    total += int(token)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("combat damage roll evidence is invalid") from exc
+        try:
+            next(rolls)
+        except StopIteration:
+            return total
+        raise ValueError("combat damage roll evidence is invalid")
+
+    def _bind_damage_provenance(self, turn: dict[str, Any]) -> None:
+        bindings = {
+            row["damage_roll_id"]: row
+            for row in self._damage_bindings_for_turn(turn)
+        }
+        for damage in self.damage_chain:
+            if damage.get("source_turn_id") != turn.get("turn_id"):
+                continue
+            roll_id = damage.get("damage_roll_id")
+            if not isinstance(roll_id, str):
+                continue  # Malfunction records are validated separately.
+            binding = bindings.get(roll_id)
+            if binding is None:
+                raise ValueError("damage roll is not owned by its combat turn")
+            damage["provenance"] = self._damage_transaction_receipt(
+                round_number=self._current_round,
+                turn=turn,
+                damage=damage,
+                binding=binding,
+            )
+
     def _roll_id(self) -> str:
         # Stable id; the harness may remap to its global roll sequence.
         self._roll_counter += 1
-        return f"cr{self._roll_counter}"
+        return f"{self.combat_id}:cr{self._roll_counter}"
 
     # ------------------------------------------------------------------ #
     # Skill rolls
@@ -819,7 +1182,8 @@ class CombatSession:
                                  load_and_fire: bool = False,
                                  suppress_targets: list[str] | None = None,
                                  dive_for_cover_actors: list[str] | None = None,
-                                 defender_goal: str | None = None) -> dict[str, Any]:
+                                 defender_goal: str | None = None,
+                                 resolution_command_id: str | None = None) -> dict[str, Any]:
         """Resolve one combatant's turn per the rulebook's semantic model.
 
         The primary inputs are ``declared_intent`` (open-ended natural language
@@ -879,6 +1243,10 @@ class CombatSession:
         turn["resolution_hint"] = resolution_hint
         turn["action"] = action or resolution_hint  # backward-compat field
         turn["target_actor_id"] = target_actor_id
+        if resolution_command_id is not None:
+            if not isinstance(resolution_command_id, str) or not resolution_command_id:
+                raise ValueError("resolution_command_id must be a non-empty string")
+            turn["resolution_command_id"] = resolution_command_id
         if goal:
             turn["goal"] = goal
         # Mechanism 4: outnumbered — if target already defended this round,
@@ -929,6 +1297,21 @@ class CombatSession:
             elif resolution_hint == "other":
                 turn["outcome"] = "other"
             self._update_conditions(target_actor_id)
+            # Bind every damage record from this turn to the exact durable
+            # status it produced.  Initiative skip receipts later reference
+            # this canonical history instead of trusting a free-standing HP
+            # and conditions copy.
+            for damage in self.damage_chain:
+                if damage.get("source_turn_id") != turn["turn_id"]:
+                    continue
+                damaged_id = damage.get("target_actor_id")
+                damaged = self.participants.get(damaged_id)
+                if isinstance(damaged, dict):
+                    damage["status_after"] = {
+                        "hp_current": damaged["hp_current"],
+                        "conditions": list(damaged["conditions"]),
+                    }
+            self._bind_damage_provenance(turn)
             self.rounds[-1]["turns"].append(turn)
             return turn
         finally:
@@ -1240,9 +1623,23 @@ class CombatSession:
                 goal=defender_goal or "ongoing_disadvantage",
                 target_weapon_id=None, as_counter=True)
         elif defense_kind == "fight_back" and opp == "defender_higher":
-            # Fight back deals damage to the attacker (existing behaviour via miss;
-            # keep outcome as miss — damage-on-fight-back is optional narrative).
-            turn["outcome"] = "miss"
+            # p.115: a successful Fight Back is a real counter-hit.  Resolve
+            # the defender's own first weapon (or unarmed default) against the
+            # original attacker and keep the damage receipt on this turn.
+            counter_weapon = self._weapon(target_id, None)
+            counter_weapon_id = str(counter_weapon.get("weapon_id") or "unarmed")
+            _, dmg_id, _ = self._damage_roll(
+                str(counter_weapon.get("damage") or "1D3"),
+                target_id,
+                actor_id,
+                counter_weapon_id,
+                turn["turn_id"],
+                db_expr=self._weapon_db_expr(target, counter_weapon),
+            )
+            self._update_conditions(actor_id)
+            turn["outcome"] = "fight_back_hit"
+            turn["fight_back_damage_roll_id"] = dmg_id
+            turn["fight_back_weapon_id"] = counter_weapon_id
         elif opp == "both_fail":
             turn["outcome"] = "no_damage"
         else:
@@ -1915,7 +2312,9 @@ class CombatSession:
         if target_id is None or target_id not in self.participants:
             return
         p = self.participants[target_id]
-        half_max = p["hp_max"] // 2
+        # "half or more" means ceil(max/2) for odd HP totals.  Floor division
+        # incorrectly made 5 damage a Major Wound on an 11 HP investigator.
+        half_max = (p["hp_max"] + 1) // 2
         # Worst single delivered hit (post-armor, NOT capped by remaining HP —
         # p.120 triage keys off the damage the attack delivered), skipping
         # non-damage records (e.g. malfunction events).
@@ -1941,13 +2340,18 @@ class CombatSession:
             # CON roll to avoid falling unconscious.
             if "prone" not in p["conditions"]:
                 p["conditions"].append("prone")
-            con_res = coc_roll.percentile_check(int(p.get("con", 50)), rng=self._rng)
-            if con_res.get("outcome") in ("failure", "fumble"):
+            con_outcome, con_record = self._percentile(
+                target_id,
+                "CON",
+                int(p.get("con", 50)),
+                "remain conscious after a major wound",
+            )
+            if con_outcome in ("failure", "fumble"):
                 if "unconscious" not in p["conditions"]:
                     p["conditions"].append("unconscious")
-            # Recorded on the participant (not damage_chain) so damage-chain
-            # consumers keep seeing pure damage records.
-            p["major_wound_con"] = con_res.get("outcome")
+            # Keep complete stable roll evidence without polluting the damage
+            # chain; pending_rolls remains the canonical roll log sink.
+            p["major_wound_con"] = dict(con_record)
         if p["hp_current"] == 0:
             # p.120: on zero HP the character is unconscious; dying only when
             # a major wound has also been taken.
@@ -1965,11 +2369,88 @@ class CombatSession:
         self.status = "concluded"
         self.outcome = outcome
 
+    @classmethod
+    def _validate_external_damage_evidence(
+        cls, *, session: "CombatSession",
+        evidence: list[dict[str, Any]] | None,
+        turns_by_id: dict[str, tuple[int, dict[str, Any]]],
+        damage_roll_ids: set[str],
+        expected_command_actor: str | None,
+    ) -> None:
+        """Cross-check every damage transition against append-only roll rows."""
+        if not isinstance(evidence, list):
+            raise ValueError("combat external damage evidence is required")
+        evidence_by_roll: dict[str, list[dict[str, Any]]] = {}
+        for row in evidence:
+            if not isinstance(row, dict) or set(row) != {
+                "type", "actor", "command_id", "payload", "ts",
+            }:
+                raise ValueError("combat external damage evidence contract is invalid")
+            payload = row.get("payload")
+            receipt = (
+                payload.get("combat_damage_receipt")
+                if isinstance(payload, dict) else None
+            )
+            if not isinstance(receipt, dict):
+                continue
+            roll_id = receipt.get("roll_id")
+            if isinstance(roll_id, str):
+                evidence_by_roll.setdefault(roll_id, []).append(row)
+        damage_by_roll = {
+            damage["damage_roll_id"]: damage
+            for damage in session.damage_chain
+            if isinstance(damage.get("damage_roll_id"), str)
+        }
+        for roll_id in damage_roll_ids:
+            rows = evidence_by_roll.get(roll_id, [])
+            if len(rows) != 1:
+                raise ValueError(
+                    "combat external damage evidence is missing or duplicated"
+                )
+            row = rows[0]
+            payload = row["payload"]
+            damage = damage_by_roll[roll_id]
+            linked = turns_by_id.get(damage["source_turn_id"])
+            turn = linked[1] if linked is not None else None
+            if not isinstance(turn, dict):
+                raise ValueError("combat external damage evidence source is invalid")
+            expected = cls._external_damage_receipt(turn=turn, damage=damage)
+            command_id = turn.get("resolution_command_id")
+            if (
+                not isinstance(command_id, str)
+                or not command_id
+                or row.get("type") != "roll"
+                or not isinstance(row.get("actor"), str)
+                or not row["actor"]
+                or (
+                    expected_command_actor is not None
+                    and row.get("actor") != expected_command_actor
+                )
+                or row.get("command_id") != command_id
+                or not isinstance(row.get("ts"), str)
+                or not row["ts"]
+                or payload.get("event_type") != "combat_roll"
+                or payload.get("roll_id") != roll_id
+                or payload.get("actor_id") != damage["source_actor_id"]
+                or payload.get("skill") != "HP Damage"
+                or payload.get("source_command_id") != command_id
+                or payload.get("target") != damage["target_actor_id"]
+                or payload.get("raw_roll") != damage["raw_damage"]
+                or payload.get("dice") != {
+                    "expression": damage["die"],
+                    "raw": damage["die_rolls"],
+                    "total": damage["raw_damage"],
+                }
+                or payload.get("combat_damage_receipt") != expected
+            ):
+                raise ValueError("combat external damage evidence diverges")
+
     # ------------------------------------------------------------------ #
     # Persistence
     # ------------------------------------------------------------------ #
     def snapshot(self) -> dict[str, Any]:
         return {
+            "schema_version": 2,
             "combat_id": self.combat_id,
             "scene_ref": self.scene_ref,
             "started_at_turn": self.started_at_turn,
@@ -1979,6 +2460,21 @@ class CombatSession:
             "participants": [dict(p) for p in self.participants.values()],
             "rounds": [dict(r) for r in self.rounds],
             "damage_chain": [dict(d) for d in self.damage_chain],
+            "revision": self.revision,
+            "current_round": self._current_round,
+            "current_initiative": [dict(row) for row in self._current_initiative],
+            "initiative_cursor": self.initiative_cursor,
+            "initiative_progress": [dict(row) for row in self.initiative_progress],
+            "jammed_weapons": sorted(self.jammed_weapons),
+            "weapon_catalog": {
+                weapon_id: dict(spec)
+                for weapon_id, spec in self._weapon_catalog.items()
+            },
+            "turn_counter": self._turn_counter,
+            "roll_counter": self._roll_counter,
+            "pending_attack": (
+                dict(self.pending_attack) if isinstance(self.pending_attack, dict) else None
+            ),
         }
 
     def save(self, campaign_dir: Path) -> Path:
@@ -1989,6 +2485,616 @@ class CombatSession:
             path, self.snapshot(), indent=2, ensure_ascii=False, trailing_newline=False
         )
         return path
+
+    @classmethod
+    def load(
+        cls, campaign_dir: Path, *, rng: random.Random,
+        damage_evidence: list[dict[str, Any]] | None = None,
+        damage_evidence_actor: str | None = None,
+        trusted_in_memory: bool = False,
+    ) -> "CombatSession":
+        """Load and validate the live combat snapshot without consuming RNG."""
+        path = Path(campaign_dir) / "save" / "combat.json"
+        data = load_combat_state(path)
+        if not isinstance(data, dict) or data.get("schema_version") != 2:
+            raise ValueError("unsupported combat snapshot schema")
+        required = {
+            "schema_version",
+            "combat_id", "scene_ref", "started_at_turn", "status",
+            "participants", "rounds", "damage_chain", "revision",
+            "current_round", "current_initiative", "initiative_cursor",
+            "initiative_progress",
+            "pending_attack", "ended_at_turn", "outcome", "jammed_weapons",
+            "weapon_catalog", "turn_counter", "roll_counter",
+        }
+        if set(data) != required:
+            raise ValueError("combat snapshot must use the exact schema")
+        def strict_int(value: Any, label: str, *, minimum: int = 0) -> int:
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"combat {label} is invalid")
+            return value
+        for field in ("combat_id", "scene_ref"):
+            if not isinstance(data[field], str) or not data[field].strip():
+                raise ValueError(f"combat {field} is invalid")
+        session = cls(
+            data["combat_id"], data["scene_ref"],
+            strict_int(data["started_at_turn"], "started_at_turn"), rng=rng,
+        )
+        participants = data["participants"]
+        if not isinstance(participants, list):
+            raise ValueError("combat participants must be a list")
+        for participant in participants:
+            if not isinstance(participant, dict):
+                raise ValueError("combat participant must be an object")
+            participant_keys = {
+                "actor_id", "side", "dex", "combat_skill", "dodge_skill",
+                "firearms_skill", "has_ready_firearm", "build", "damage_bonus",
+                "con", "hp_max", "hp_current", "magic_points", "armor",
+                "armor_rule", "weapons", "conditions", "active_effects",
+                "_defended_this_round", "_dived_for_cover", "_forfeit_next_attack",
+                "_aiming", "_ammo", "_reload_remaining",
+            }
+            if set(participant) not in (participant_keys, participant_keys | {"major_wound_con"}):
+                raise ValueError("combat participant must use the exact schema")
+            actor_id = participant.get("actor_id")
+            if not isinstance(actor_id, str) or actor_id in session.participants:
+                raise ValueError("combat participant IDs must be unique strings")
+            if participant.get("side") not in VALID_SIDES:
+                raise ValueError("combat participant side is invalid")
+            conditions = participant.get("conditions")
+            if (not isinstance(conditions, list)
+                    or len(conditions) != len(set(conditions))
+                    or any(item not in VALID_CONDITIONS for item in conditions)):
+                raise ValueError("combat participant conditions are invalid")
+            hp_max = strict_int(participant.get("hp_max"), "participant hp_max", minimum=1)
+            hp_current = strict_int(participant.get("hp_current"), "participant hp_current")
+            if hp_current > hp_max:
+                raise ValueError("combat participant HP is out of range")
+            if "dead" in conditions and hp_current != 0:
+                raise ValueError("dead participant must have zero HP")
+            if "dying" in conditions and (hp_current > 1 or "major_wound" not in conditions):
+                raise ValueError("dying participant state is incoherent")
+            for field in ("dex", "combat_skill", "dodge_skill", "firearms_skill", "con"):
+                value = strict_int(participant.get(field), f"participant {field}")
+                if value > 150:
+                    raise ValueError(f"combat participant {field} is out of range")
+            for field in ("build", "magic_points", "armor"):
+                if isinstance(participant.get(field), bool) or not isinstance(participant.get(field), int):
+                    raise ValueError(f"combat participant {field} is invalid")
+            if participant.get("armor_rule") not in VALID_ARMOR_RULES:
+                raise ValueError("combat participant armor rule is invalid")
+            if not isinstance(participant.get("weapons"), list) or not all(
+                isinstance(weapon, dict) for weapon in participant["weapons"]
+            ):
+                raise ValueError("combat participant weapons are invalid")
+            if not isinstance(participant.get("active_effects"), list):
+                raise ValueError("combat participant active effects are invalid")
+            if any(not isinstance(participant.get(field), bool) for field in (
+                "has_ready_firearm", "_defended_this_round", "_dived_for_cover",
+                "_forfeit_next_attack", "_aiming",
+            )):
+                raise ValueError("combat participant flags are invalid")
+            if not isinstance(participant.get("_ammo"), dict) or not isinstance(participant.get("_reload_remaining"), dict):
+                raise ValueError("combat participant weapon counters are invalid")
+            session.participants[actor_id] = dict(participant)
+        if not isinstance(data["rounds"], list) or not all(isinstance(row, dict) for row in data["rounds"]):
+            raise ValueError("combat rounds are invalid")
+        if not isinstance(data["damage_chain"], list) or not all(isinstance(row, dict) for row in data["damage_chain"]):
+            raise ValueError("combat damage chain is invalid")
+        session.rounds = list(data["rounds"])
+        session.damage_chain = list(data["damage_chain"])
+        session.revision = strict_int(data["revision"], "revision")
+        session._current_round = strict_int(data["current_round"], "current round")
+        session._current_initiative = list(data["current_initiative"])
+        session.initiative_cursor = strict_int(data["initiative_cursor"], "initiative cursor")
+        session.initiative_progress = list(data["initiative_progress"])
+        if not isinstance(data["jammed_weapons"], list) or not all(isinstance(v, str) for v in data["jammed_weapons"]):
+            raise ValueError("combat jammed weapons are invalid")
+        session.jammed_weapons = set(data["jammed_weapons"])
+        weapon_catalog = data.get("weapon_catalog")
+        if not isinstance(weapon_catalog, dict) or not all(
+            isinstance(weapon_id, str) and isinstance(spec, dict)
+            for weapon_id, spec in weapon_catalog.items()
+        ):
+            raise ValueError("combat weapon catalog is invalid")
+        session._weapon_catalog = {
+            weapon_id: dict(spec) for weapon_id, spec in weapon_catalog.items()
+        }
+        session._turn_counter = strict_int(data["turn_counter"], "turn counter")
+        session._roll_counter = strict_int(data["roll_counter"], "roll counter")
+        session.pending_attack = (
+            dict(data["pending_attack"])
+            if isinstance(data.get("pending_attack"), dict)
+            else None
+        )
+        session.status = str(data["status"])
+        session.outcome = data.get("outcome")
+        session.ended_at_turn = data.get("ended_at_turn")
+        if session.status not in {"active", "concluded"}:
+            raise ValueError("combat status is invalid")
+        if session.ended_at_turn is not None:
+            session.ended_at_turn = strict_int(session.ended_at_turn, "ended_at_turn")
+        if session._current_round != len(session.rounds):
+            raise ValueError("combat round cursor does not match round history")
+        expected_initiative = (
+            session.rounds[-1].get("initiative_order", []) if session.rounds else []
+        )
+        if session._current_initiative != expected_initiative:
+            raise ValueError("combat initiative does not match current round")
+        for index, round_row in enumerate(session.rounds, 1):
+            if (
+                set(round_row) != {"round", "initiative_order", "initiative_progress", "turns"}
+                or round_row.get("round") != index
+                or not isinstance(round_row.get("initiative_order"), list)
+                or not isinstance(round_row.get("initiative_progress"), list)
+                or not isinstance(round_row.get("turns"), list)
+                or not all(isinstance(turn, dict) for turn in round_row["turns"])
+            ):
+                raise ValueError("combat round history is invalid")
+        turn_required_keys = {
+            "turn_id", "actor_id", "dex", "dex_reason", "declared_intent",
+            "action", "target_actor_id", "roll_id", "opposed_roll_id",
+            "opposed_outcome", "defense_kind", "outcome", "effect_applied",
+            "damage_roll_id", "resolution_hint",
+        }
+        turn_optional_keys = {
+            "goal", "weapon_id", "attack_modifiers", "malfunction",
+            "cover_reroll_roll_id", "defender_goal",
+            "fight_back_damage_roll_id", "fight_back_weapon_id", "shots",
+            "hits", "volleys", "rounds_fired", "dived_for_cover",
+            "suppression_targets", "dive_rolls", "maneuver_build_difference",
+            "maneuver_penalty_dice", "ammo_loaded", "ammo_after",
+            "reload_rounds_remaining",
+            "resolution_command_id",
+        }
+        turns_by_id: dict[str, tuple[int, dict[str, Any]]] = {}
+        bindings_by_damage_roll: dict[str, tuple[int, dict[str, Any], dict[str, Any]]] = {}
+        for round_number, round_row in enumerate(session.rounds, 1):
+            for turn in round_row["turns"]:
+                if (
+                    not turn_required_keys <= set(turn)
+                    or not set(turn) <= turn_required_keys | turn_optional_keys
+                ):
+                    raise ValueError("combat turn must use the exact schema")
+                turn_id = turn.get("turn_id")
+                if (
+                    not isinstance(turn_id, str)
+                    or re.fullmatch(rf"t{round_number}-[1-9][0-9]*", turn_id) is None
+                    or turn_id in turns_by_id
+                    or turn.get("actor_id") not in session.participants
+                    or isinstance(turn.get("dex"), bool)
+                    or not isinstance(turn.get("dex"), int)
+                    or not isinstance(turn.get("declared_intent"), str)
+                    or not turn["declared_intent"].strip()
+                    or turn.get("resolution_hint") not in cls.VALID_RESOLUTION_HINTS
+                    or not isinstance(turn.get("action"), str)
+                    or turn.get("target_actor_id") not in ({None} | set(session.participants))
+                    or not isinstance(turn.get("outcome"), str)
+                    or not turn["outcome"]
+                ):
+                    raise ValueError("combat turn provenance is invalid")
+                for roll_field in (
+                    "roll_id", "opposed_roll_id", "damage_roll_id",
+                    "fight_back_damage_roll_id", "cover_reroll_roll_id",
+                ):
+                    value = turn.get(roll_field)
+                    if value is not None and (not isinstance(value, str) or not value):
+                        raise ValueError("combat turn roll provenance is invalid")
+                resolution_command_id = turn.get("resolution_command_id")
+                if resolution_command_id is not None and (
+                    not isinstance(resolution_command_id, str)
+                    or not resolution_command_id
+                ):
+                    raise ValueError("combat turn command provenance is invalid")
+                turns_by_id[turn_id] = (round_number, turn)
+                for binding in cls._damage_bindings_for_turn(turn):
+                    roll_id = binding["damage_roll_id"]
+                    if roll_id in bindings_by_damage_roll:
+                        raise ValueError("combat turn damage roll provenance is duplicated")
+                    bindings_by_damage_roll[roll_id] = (round_number, turn, binding)
+
+        damage_required_keys = {
+            "damage_roll_id", "source_turn_id", "source_actor_id",
+            "target_actor_id", "weapon_id", "die", "die_rolls",
+            "raw_damage", "hp_before", "hp_delta", "hp_after",
+            "armor_absorbed", "armor_before", "armor_after",
+            "rulebook_exception", "bypass_armor", "half_damage_bonus",
+            "marker", "status_after", "provenance",
+        }
+        extreme_damage_keys = {
+            "impale_or_max", "extreme_damage", "extreme_breakdown", "is_impale",
+        }
+        malfunction_keys = {
+            "malfunction_roll_id", "source_turn_id", "source_actor_id",
+            "weapon_id", "weapon_display_name", "roll",
+            "malfunction_threshold", "effect", "marker",
+        }
+        seen_damage_rolls: set[str] = set()
+        last_hp_by_round_target: dict[tuple[int, str], int] = {}
+        for damage in session.damage_chain:
+            if set(damage) == malfunction_keys:
+                linked = turns_by_id.get(damage.get("source_turn_id"))
+                if (
+                    linked is None
+                    or damage.get("source_actor_id") != linked[1].get("actor_id")
+                    or not isinstance(damage.get("malfunction_roll_id"), str)
+                    or not damage["malfunction_roll_id"]
+                    or isinstance(damage.get("roll"), bool)
+                    or not isinstance(damage.get("roll"), int)
+                    or isinstance(damage.get("malfunction_threshold"), bool)
+                    or not isinstance(damage.get("malfunction_threshold"), int)
+                    or damage["roll"] < damage["malfunction_threshold"]
+                    or damage.get("effect") != "jammed_until_repaired"
+                ):
+                    raise ValueError("combat damage chain malfunction provenance is invalid")
+                continue
+            if (
+                not damage_required_keys <= set(damage)
+                or not set(damage) <= damage_required_keys | extreme_damage_keys
+                or (set(damage) & extreme_damage_keys
+                    and not extreme_damage_keys <= set(damage))
+            ):
+                raise ValueError("combat damage chain must use the exact schema")
+            roll_id = damage.get("damage_roll_id")
+            binding_row = bindings_by_damage_roll.get(roll_id)
+            if (
+                not isinstance(roll_id, str)
+                or not roll_id
+                or roll_id in seen_damage_rolls
+                or binding_row is None
+            ):
+                raise ValueError("combat damage provenance is missing or duplicated")
+            seen_damage_rolls.add(roll_id)
+            round_number, turn, binding = binding_row
+            if (
+                damage.get("source_turn_id") != turn.get("turn_id")
+                or damage.get("source_actor_id") != binding["source_actor_id"]
+                or damage.get("target_actor_id") != binding["target_actor_id"]
+                or damage.get("source_actor_id") not in session.participants
+                or damage.get("target_actor_id") not in session.participants
+            ):
+                raise ValueError("combat damage provenance diverges from its turn")
+            integer_fields = (
+                "raw_damage", "hp_before", "hp_delta", "hp_after",
+                "armor_absorbed", "armor_before", "armor_after",
+            )
+            if any(
+                isinstance(damage.get(field), bool)
+                or not isinstance(damage.get(field), int)
+                for field in integer_fields
+            ):
+                raise ValueError("combat damage chain arithmetic is invalid")
+            raw_damage = damage["raw_damage"]
+            hp_before = damage["hp_before"]
+            hp_after = damage["hp_after"]
+            absorbed = damage["armor_absorbed"]
+            if not damage.get("extreme_damage") and (
+                cls._reconstruct_damage_roll(damage.get("die"), damage.get("die_rolls"))
+                != raw_damage
+            ):
+                raise ValueError("combat damage chain roll evidence diverges from total")
+            if (
+                raw_damage < 0 or hp_before < 0 or hp_after < 0
+                or absorbed < 0 or absorbed > raw_damage
+                or damage["hp_delta"] != hp_after - hp_before
+                or hp_after != max(0, hp_before - (raw_damage - absorbed))
+                or damage["armor_before"] < 0 or damage["armor_after"] < 0
+            ):
+                raise ValueError("combat damage chain arithmetic is invalid")
+            target = session.participants[damage["target_actor_id"]]
+            if damage.get("bypass_armor") is True:
+                if absorbed != 0 or damage["armor_after"] != damage["armor_before"]:
+                    raise ValueError("combat damage chain armor arithmetic is invalid")
+            elif target.get("armor_rule") == "degrades_1_per_damage":
+                if damage["armor_after"] != max(0, damage["armor_before"] - absorbed):
+                    raise ValueError("combat damage chain armor arithmetic is invalid")
+            elif damage["armor_after"] != damage["armor_before"]:
+                raise ValueError("combat damage chain armor arithmetic is invalid")
+            status_after = damage.get("status_after")
+            if (
+                not isinstance(status_after, dict)
+                or set(status_after) != {"hp_current", "conditions"}
+                or status_after.get("hp_current") != hp_after
+                or not isinstance(status_after.get("conditions"), list)
+                or len(status_after["conditions"]) != len(set(status_after["conditions"]))
+                or any(value not in VALID_CONDITIONS for value in status_after["conditions"])
+                or (hp_after == 0 and "unconscious" not in status_after["conditions"]
+                    and "dead" not in status_after["conditions"])
+                or ("dead" in status_after["conditions"] and hp_after != 0)
+                or ("dying" in status_after["conditions"]
+                    and "major_wound" not in status_after["conditions"])
+            ):
+                raise ValueError("combat damage chain status transition is invalid")
+            round_row = session.rounds[round_number - 1]
+            roster = {
+                row.get("actor_id"): row.get("round_start_eligibility")
+                for row in round_row.get("initiative_progress", [])
+                if isinstance(row, dict)
+            }
+            continuity_key = (round_number, damage["target_actor_id"])
+            expected_hp_before = last_hp_by_round_target.get(continuity_key)
+            if expected_hp_before is None:
+                eligibility = roster.get(damage["target_actor_id"])
+                expected_hp_before = (
+                    eligibility.get("hp_current") if isinstance(eligibility, dict) else None
+                )
+            if hp_before != expected_hp_before:
+                raise ValueError("combat damage chain cross-record HP is invalid")
+            last_hp_by_round_target[continuity_key] = hp_after
+            expected_receipt = cls._damage_transaction_receipt(
+                round_number=round_number,
+                turn=turn,
+                damage=damage,
+                binding=binding,
+            )
+            if damage.get("provenance") != expected_receipt:
+                raise ValueError("combat damage provenance receipt diverges")
+        if set(bindings_by_damage_roll) != seen_damage_rolls:
+            raise ValueError("combat turn references missing damage provenance")
+        if seen_damage_rolls and not trusted_in_memory:
+            cls._validate_external_damage_evidence(
+                session=session,
+                evidence=damage_evidence,
+                turns_by_id=turns_by_id,
+                damage_roll_ids=seen_damage_rolls,
+                expected_command_actor=damage_evidence_actor,
+            )
+        if session._turn_counter < sum(len(row["turns"]) for row in session.rounds):
+            raise ValueError("combat turn counter is behind round history")
+        if any(
+            not isinstance(row, dict)
+            or set(row) != {"actor_id", "dex", "dex_reason"}
+            or isinstance(row.get("dex"), bool)
+            or not isinstance(row.get("dex"), int)
+            or row.get("dex_reason") not in {None, "ready_firearm"}
+            for row in session._current_initiative
+        ):
+            raise ValueError("combat initiative order is invalid")
+        initiative_ids = [row.get("actor_id") for row in session._current_initiative]
+        if (
+            len(initiative_ids) != len(session._current_initiative)
+            or len(initiative_ids) != len(set(initiative_ids))
+            or any(actor_id not in session.participants for actor_id in initiative_ids)
+            or session.initiative_cursor > len(session._current_initiative)
+        ):
+            raise ValueError("combat initiative cursor/order is invalid")
+        expected_sorted = sorted(
+            session._current_initiative,
+            key=lambda row: (
+                -row["dex"],
+                -session.participants[row["actor_id"]]["combat_skill"],
+                row["actor_id"],
+            ),
+        )
+        if session._current_initiative != expected_sorted or any(
+            row["dex"] != session.participants[row["actor_id"]]["dex"]
+            + (50 if row["dex_reason"] == "ready_firearm" else 0)
+            for row in session._current_initiative
+        ):
+            raise ValueError("combat initiative order is not canonical")
+        if not session.rounds or session.initiative_progress != session.rounds[-1]["initiative_progress"]:
+            raise ValueError("combat initiative progress does not match current round")
+        progress_keys = {
+            "actor_id", "round_start_eligibility", "initiative", "status",
+            "skip_evidence",
+        }
+        eligibility_keys = {
+            "hp_current", "conditions", "dex", "combat_skill",
+            "firearms_skill", "has_ready_firearm",
+        }
+        def validate_skip_evidence(
+            row: dict[str, Any], *, historical: bool,
+            round_row: dict[str, Any],
+        ) -> None:
+            """Validate the same eligibility receipt in live and past rounds."""
+            evidence = row.get("skip_evidence")
+            status = row.get("status")
+            prefix = "combat historical" if historical else "combat"
+            if status != "skipped_ineligible":
+                if evidence is not None:
+                    if status == "excluded_at_round_start":
+                        raise ValueError(f"{prefix} excluded initiative actor is invalid")
+                    raise ValueError(f"{prefix} initiative progress has unexpected skip evidence")
+                return
+            if not isinstance(evidence, dict) or set(evidence) != {
+                "hp_current", "conditions", "source_receipt",
+            }:
+                raise ValueError(f"{prefix} initiative skip lacks eligibility evidence")
+            hp_current = evidence.get("hp_current")
+            conditions = evidence.get("conditions")
+            if (
+                isinstance(hp_current, bool)
+                or not isinstance(hp_current, int)
+                or hp_current < 0
+                or not isinstance(conditions, list)
+                or len(conditions) != len(set(conditions))
+                or any(value not in VALID_CONDITIONS for value in conditions)
+                or (hp_current > 0 and not any(
+                    value in conditions
+                    for value in ("dead", "dying", "unconscious", "fled")
+                ))
+            ):
+                raise ValueError(f"{prefix} initiative skip lacks eligibility evidence")
+            expected_source = session._canonical_skip_source_receipt(
+                row["actor_id"], round_row
+            )
+            if (
+                expected_source is None
+                or evidence.get("source_receipt") != expected_source
+                or hp_current != expected_source["hp_current"]
+                or conditions != expected_source["conditions"]
+            ):
+                raise ValueError(
+                    f"{prefix} initiative skip source receipt diverges from history"
+                )
+        progress_by_actor: dict[str, dict[str, Any]] = {}
+        for row in session.initiative_progress:
+            if not isinstance(row, dict) or set(row) != progress_keys:
+                raise ValueError("combat initiative progress is invalid")
+            actor_id = row.get("actor_id")
+            eligibility = row.get("round_start_eligibility")
+            if (
+                actor_id not in session.participants
+                or actor_id in progress_by_actor
+                or not isinstance(eligibility, dict)
+                or set(eligibility) != eligibility_keys
+                or not isinstance(eligibility.get("conditions"), list)
+                or any(value not in VALID_CONDITIONS for value in eligibility["conditions"])
+                or any(isinstance(eligibility.get(field), bool) or not isinstance(eligibility.get(field), int)
+                       for field in ("hp_current", "dex", "combat_skill", "firearms_skill"))
+                or not isinstance(eligibility.get("has_ready_firearm"), bool)
+            ):
+                raise ValueError("combat initiative round-start eligibility is invalid")
+            progress_by_actor[actor_id] = row
+        if set(progress_by_actor) != set(session.participants):
+            raise ValueError("combat initiative roster omits a participant")
+        expected_from_roster: list[dict[str, Any]] = []
+        for actor_id, row in progress_by_actor.items():
+            eligibility = row["round_start_eligibility"]
+            eligible = (
+                eligibility["hp_current"] > 0
+                and not any(value in eligibility["conditions"] for value in
+                            ("dead", "dying", "unconscious", "fled"))
+            )
+            initiative = row["initiative"]
+            if not eligible:
+                if initiative is not None or row["status"] != "excluded_at_round_start":
+                    raise ValueError("combat excluded initiative actor is invalid")
+                validate_skip_evidence(
+                    row, historical=False, round_row=session.rounds[-1]
+                )
+                continue
+            dex_reason = (
+                "ready_firearm"
+                if eligibility["has_ready_firearm"] and eligibility["firearms_skill"] > 0
+                else None
+            )
+            expected_row = {
+                "actor_id": actor_id,
+                "dex": eligibility["dex"] + (50 if dex_reason else 0),
+                "dex_reason": dex_reason,
+            }
+            if initiative != expected_row or row["status"] not in {"pending", "acted", "skipped_ineligible"}:
+                raise ValueError("combat eligible initiative actor is invalid")
+            validate_skip_evidence(
+                row, historical=False, round_row=session.rounds[-1]
+            )
+            expected_from_roster.append(expected_row)
+        expected_from_roster.sort(key=lambda row: (
+            -row["dex"],
+            -progress_by_actor[row["actor_id"]]["round_start_eligibility"]["combat_skill"],
+            row["actor_id"],
+        ))
+        if expected_from_roster != session._current_initiative:
+            raise ValueError("combat initiative order diverges from round-start roster")
+        for index, initiative in enumerate(session._current_initiative):
+            status = progress_by_actor[initiative["actor_id"]]["status"]
+            if (index < session.initiative_cursor and status not in {"acted", "skipped_ineligible"}) or (
+                index >= session.initiative_cursor and status != "pending"
+            ):
+                raise ValueError("combat initiative cursor diverges from persisted progress")
+        # Completed rounds retain the same complete roster evidence.  This
+        # prevents history edits from deleting an eligible actor even after a
+        # later round has replaced the live cursor/progress view.
+        for historical in session.rounds[:-1]:
+            rows = historical["initiative_progress"]
+            if not isinstance(rows, list) or len(rows) != len(session.participants):
+                raise ValueError("combat historical initiative roster is invalid")
+            by_actor: dict[str, dict[str, Any]] = {}
+            reconstructed: list[dict[str, Any]] = []
+            for row in rows:
+                if not isinstance(row, dict) or set(row) != progress_keys:
+                    raise ValueError("combat historical initiative progress is invalid")
+                actor_id = row.get("actor_id")
+                evidence = row.get("round_start_eligibility")
+                if actor_id not in session.participants or actor_id in by_actor or not isinstance(evidence, dict) or set(evidence) != eligibility_keys:
+                    raise ValueError("combat historical initiative roster is invalid")
+                by_actor[actor_id] = row
+                eligible = (
+                    isinstance(evidence.get("hp_current"), int)
+                    and not isinstance(evidence.get("hp_current"), bool)
+                    and evidence["hp_current"] > 0
+                    and isinstance(evidence.get("conditions"), list)
+                    and not any(value in evidence["conditions"] for value in
+                                ("dead", "dying", "unconscious", "fled"))
+                )
+                if not eligible:
+                    if row.get("initiative") is not None or row.get("status") != "excluded_at_round_start":
+                        raise ValueError("combat historical excluded actor is invalid")
+                    validate_skip_evidence(
+                        row, historical=True, round_row=historical
+                    )
+                    continue
+                if row.get("status") not in {"acted", "skipped_ineligible"}:
+                    raise ValueError("combat historical initiative progress is incomplete")
+                validate_skip_evidence(
+                    row, historical=True, round_row=historical
+                )
+                dex_reason = (
+                    "ready_firearm"
+                    if evidence.get("has_ready_firearm") is True and evidence.get("firearms_skill", 0) > 0
+                    else None
+                )
+                expected_row = {
+                    "actor_id": actor_id,
+                    "dex": evidence.get("dex", 0) + (50 if dex_reason else 0),
+                    "dex_reason": dex_reason,
+                }
+                if row.get("initiative") != expected_row:
+                    raise ValueError("combat historical initiative entry is invalid")
+                reconstructed.append(expected_row)
+            if set(by_actor) != set(session.participants):
+                raise ValueError("combat historical initiative roster omits a participant")
+            reconstructed.sort(key=lambda row: (
+                -row["dex"],
+                -by_actor[row["actor_id"]]["round_start_eligibility"].get("combat_skill", 0),
+                row["actor_id"],
+            ))
+            if reconstructed != historical["initiative_order"]:
+                raise ValueError("combat historical initiative order diverges from roster")
+        if session.status == "active" and session.outcome is not None:
+            raise ValueError("active combat cannot have an outcome")
+        if session.status == "concluded" and (
+            session.outcome not in VALID_OUTCOMES - {None}
+            or session.ended_at_turn is None
+            or session.pending_attack is not None
+        ):
+            raise ValueError("concluded combat state is incoherent")
+        if session.pending_attack is not None:
+            pending = session.pending_attack
+            expected_pending_keys = {
+                "attack_command_id", "actor_id", "target_actor_id",
+                "declared_intent", "resolution_hint", "weapon_id",
+                "allowed_defenses",
+            }
+            hint = pending.get("resolution_hint")
+            expected_defenses = (
+                ["dive_for_cover", "none"]
+                if hint == "firearm_attack"
+                else ["dodge", "fight_back"]
+                if hint == "opposed_melee"
+                else None
+            )
+            if (
+                set(pending) != expected_pending_keys
+                or not isinstance(pending.get("attack_command_id"), str)
+                or not pending["attack_command_id"]
+                or pending.get("actor_id") not in session.participants
+                or pending.get("target_actor_id") not in session.participants
+                or pending.get("actor_id") == pending.get("target_actor_id")
+                or not isinstance(pending.get("declared_intent"), str)
+                or not pending["declared_intent"].strip()
+                or pending.get("allowed_defenses") != expected_defenses
+            ):
+                raise ValueError("combat pending attack contract is invalid")
+            if (
+                session.status != "active"
+                or session.initiative_cursor >= len(session._current_initiative)
+                or session._current_initiative[session.initiative_cursor]["actor_id"]
+                != pending["actor_id"]
+            ):
+                raise ValueError("combat pending attack is not at the initiative cursor")
+        return session
 
     def drain_pending(self) -> tuple[list[dict], list[dict]]:
         """Return and clear pending roll/event records for the harness to flush."""

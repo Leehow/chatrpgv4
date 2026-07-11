@@ -16,6 +16,7 @@
  */
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline";
 import path from "node:path";
 import {
   createAgentSession,
@@ -26,7 +27,8 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const require = createRequire(
   path.join(__dirname, "node_modules/@earendil-works/pi-coding-agent/package.json"),
@@ -48,6 +50,9 @@ const SYSTEM_PROMPT =
   "「现场同时露出这些可行动线索」以及类似日志/摘要腔。" +
   "不得发明 envelope 中没有的掷骰、规则结果或隐藏事实。" +
   "不得揭示 must_not_reveal 中的任何 id/category 所指内容。" +
+  "必须声明 final_text 使用到的 asserted_fact_refs；semantic_audit 必须对每个" +
+  " asserted_fact_ref × must_not_reveal.id 组合恰好给出一条" +
+  " same_fact/different_fact/uncertain 与非空 reason，不能遗漏、重复或增加组合。" +
   "若 envelope 含 rules_requests / 已批准揭示，用虚构后果叙述检定结果，不要报骰面或技能名堆砌。" +
   "优先调用 coc_keeper_narration 一次提交 final_text。";
 
@@ -81,10 +86,17 @@ function summarizeEnvelope(envelope) {
     return "(empty envelope)";
   }
   // Send structured JSON; rationale already stripped by the Python adapter.
-  const safe = { ...envelope };
-  delete safe.rationale;
-  delete safe.keeper_secrets;
-  delete safe.director_rationale;
+  function sanitize(value) {
+    if (Array.isArray(value)) return value.map(sanitize);
+    if (!value || typeof value !== "object") return value;
+    const safe = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (["rationale", "keeper_secrets", "director_rationale"].includes(key)) continue;
+      safe[key] = sanitize(item);
+    }
+    return safe;
+  }
+  const safe = sanitize(envelope);
   try {
     return JSON.stringify(safe, null, 2);
   } catch {
@@ -222,6 +234,20 @@ function formatRedirection(envelope) {
   return lines.join("\n");
 }
 
+function formatRenderContract(envelope) {
+  const mode = String(envelope?.render_mode || "investigation");
+  const frame = envelope?.render_frame;
+  const profile = envelope?.horror_profile;
+  const rows = [`render_mode: ${mode}`];
+  if (frame && typeof frame === "object") {
+    rows.push(`render_frame: ${JSON.stringify(frame)}`);
+  }
+  if (profile && typeof profile === "object") {
+    rows.push(`horror_profile: ${JSON.stringify(profile)}`);
+  }
+  return rows.join("\n");
+}
+
 function formatRecent(recent) {
   if (!Array.isArray(recent) || recent.length === 0) {
     return "(none)";
@@ -257,6 +283,9 @@ function buildPromptText(request) {
     "## Narrative redirection (explicit strategy; never hard_denial)",
     formatRedirection(envelope),
     "",
+    "## Render mode and bounded horror profile",
+    formatRenderContract(envelope),
+    "",
     "## Narration envelope (player-safe; do not invent beyond this)",
     summarizeEnvelope(envelope),
     "",
@@ -284,7 +313,27 @@ function extractAssistantProse(messages) {
   return "";
 }
 
-function buildNarrationTool(capture) {
+function selectedModelIdentity(session) {
+  const model = session && session.model;
+  if (
+    !model ||
+    typeof model.provider !== "string" ||
+    !model.provider.trim() ||
+    typeof model.id !== "string" ||
+    !model.id.trim()
+  ) {
+    return undefined;
+  }
+  return { provider: model.provider.trim(), id: model.id.trim() };
+}
+
+function withRuntimeProvenance(result, modelIdentity, responseMode) {
+  const enriched = { ...result, response_mode: responseMode };
+  if (modelIdentity) enriched.model_identity = modelIdentity;
+  return enriched;
+}
+
+function buildNarrationTool(holder) {
   return defineTool({
     name: "coc_keeper_narration",
     label: "COC Keeper Narration",
@@ -305,6 +354,18 @@ function buildNarrationTool(capture) {
         description:
           "Required player-visible KP narration in the campaign play_language.",
       }),
+      asserted_fact_refs: Type.Array(Type.String(), {
+        description: "Structured fact ids asserted by final_text; empty when none.",
+      }),
+      semantic_audit: Type.Array(Type.Object({
+        asserted_ref: Type.String(),
+        forbidden_ref: Type.String(),
+        decision: Type.Union([
+          Type.Literal("same_fact"), Type.Literal("different_fact"),
+          Type.Literal("uncertain"),
+        ]),
+        reason: Type.String(),
+      }), {description: "Exactly one semantic-router record for every asserted_fact_refs × must_not_reveal.id pair."}),
       notes: Type.Optional(
         Type.String({
           description: "Optional out-of-character notes for the battle report only.",
@@ -312,6 +373,7 @@ function buildNarrationTool(capture) {
       ),
     }),
     async execute(_toolCallId, params) {
+      const capture = holder.capture;
       capture.usedTool = true;
       const finalText =
         typeof params.final_text === "string" ? params.final_text.trim() : "";
@@ -328,7 +390,14 @@ function buildNarrationTool(capture) {
           terminate: true,
         };
       }
-      const result = { ok: true, final_text: finalText };
+      const result = {
+        ok: true,
+        final_text: finalText,
+        secret_audit_complete: true,
+        asserted_fact_refs: Array.isArray(params.asserted_fact_refs)
+          ? params.asserted_fact_refs : [],
+        semantic_audit: Array.isArray(params.semantic_audit) ? params.semantic_audit : [],
+      };
       if (typeof params.notes === "string" && params.notes.trim()) {
         result.notes = params.notes.trim();
       }
@@ -347,7 +416,7 @@ function buildNarrationTool(capture) {
   });
 }
 
-async function runNarration(request) {
+export async function runNarration(request, serverState = null) {
   const required = [
     "narration_envelope",
     "last_player_text",
@@ -366,7 +435,9 @@ async function runNarration(request) {
     error: null,
     assistantProse: "",
   };
-  const tool = buildNarrationTool(capture);
+  const holder = serverState || { capture };
+  holder.capture = capture;
+  const tool = serverState?.tool || buildNarrationTool(holder);
   const cwd = __dirname;
   const agentDir = getAgentDir();
 
@@ -385,16 +456,23 @@ async function runNarration(request) {
       runtime: createExtensionRuntime(),
     }),
   });
-  await loader.reload();
+  let session = serverState?.session;
+  let ownsSession = false;
+  if (!session) {
+    await loader.reload();
+    const created = await createAgentSession({
+      cwd, agentDir, tools: ["coc_keeper_narration"], customTools: [tool],
+      resourceLoader: loader, sessionManager: SessionManager.inMemory(cwd),
+    });
+    session = created.session;
+    ownsSession = true;
+    if (serverState) {
+      serverState.session = session;
+      serverState.tool = tool;
+    }
+  }
 
-  const { session } = await createAgentSession({
-    cwd,
-    agentDir,
-    tools: ["coc_keeper_narration"],
-    customTools: [tool],
-    resourceLoader: loader,
-    sessionManager: SessionManager.inMemory(cwd),
-  });
+  let modelIdentity;
 
   try {
     session.subscribe((event) => {
@@ -417,13 +495,14 @@ async function runNarration(request) {
     if (!capture.assistantProse) {
       capture.assistantProse = extractAssistantProse(session.messages);
     }
+    modelIdentity = selectedModelIdentity(session);
   } finally {
-    session.dispose();
+    if (ownsSession && !serverState) session.dispose();
   }
 
   if (capture.usedTool) {
     if (capture.result && capture.result.ok) {
-      return capture.result;
+      return withRuntimeProvenance(capture.result, modelIdentity, "tool");
     }
     return {
       ok: false,
@@ -433,11 +512,11 @@ async function runNarration(request) {
 
   const prose = (capture.assistantProse || "").trim();
   if (prose) {
-    return {
+    return withRuntimeProvenance({
       ok: true,
       final_text: prose,
       notes: PROSE_DEGRADE_NOTE,
-    };
+    }, modelIdentity, "prose_fallback");
   }
 
   return {
@@ -459,4 +538,35 @@ async function main() {
   }
 }
 
-main();
+async function serveJsonl() {
+  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const serverState = {};
+  for await (const line of lines) {
+    let envelope;
+    try {
+      envelope = JSON.parse(line);
+      if (!envelope || typeof envelope !== "object" || typeof envelope.request_id !== "string") {
+        throw new Error("server request requires request_id");
+      }
+      const result = await runNarration(envelope.payload, serverState);
+      writeResult({ request_id: envelope.request_id, ...result });
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      writeResult({ request_id: envelope && envelope.request_id, ok: false, error: message });
+    }
+  }
+  if (serverState.session) serverState.session.dispose();
+}
+
+const isEntrypoint =
+  process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename);
+if (isEntrypoint) {
+  if (process.argv.includes("--server")) {
+    serveJsonl().catch((err) => {
+      process.stderr.write(`${err && err.message ? err.message : String(err)}\n`);
+      process.exitCode = 1;
+    });
+  } else {
+    main();
+  }
+}

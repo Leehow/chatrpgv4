@@ -88,6 +88,7 @@ def _make_valid_scenario(tmp_path: Path, *, with_identity: bool = True) -> Path:
                                 "clue_id": "b",
                                 "delivery": "npc",
                                 "delivery_kind": "npc_dialogue",
+                                "source_npc_ids": ["n1"],
                                 "visibility": "player-safe",
                             },
                             {
