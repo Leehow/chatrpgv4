@@ -39,10 +39,24 @@ After activation, read and follow these canonical skills (same tree Codex uses):
 2. `plugins/coc-keeper/references/mode-protocol.md`
 3. Then route to `coc-campaign-state`, `coc-character`, `coc-scenario-import`,
    `coc-keeper-play`, `coc-meta`, `coc-combat`, `coc-chase`, `coc-sanity`,
-   and other skills under `plugins/coc-keeper/skills/` as needed.
+   `coc-playtest`, and other skills under `plugins/coc-keeper/skills/` as needed.
 
 Runtime scripts and rules JSON also stay under `plugins/coc-keeper/`
 (`scripts/`, `references/`).
+
+## Canonical evaluation routing
+
+For official testing, report generation, or report verification, follow the
+root `AGENTS.md` **Canonical Evaluation Contract** and invoke the shared CLI:
+
+```bash
+python3 plugins/coc-keeper/scripts/coc_eval.py run --suite <suite> --root .
+```
+
+Do not replace a named suite with Cursor-specific commands. Read
+`artifacts/report-completeness.json` before delivering a battle report, and
+**must not rewrite** generated factual content or reconstruct missing dice by
+hand.
 
 ## Platform gating
 
