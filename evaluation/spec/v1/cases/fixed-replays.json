@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "eval_spec": "eval-spec-v1",
+  "cases": [
+    {
+      "case_id": "fixed-replay-self-test",
+      "description": "Fixed replay detects the first structural divergence and records state-diffs.jsonl from structured classifications.",
+      "kind": "fixed_replay",
+      "structural_fields": [
+        "scene",
+        "rules_request",
+        "state_sha256",
+        "reveal_set",
+        "pending_choice_revision"
+      ],
+      "classification_values": ["allowed", "beneficial", "regression"],
+      "self_test": "tests/test_eval_replay.py::test_fixed_replay_detects_first_structural_divergence"
+    }
+  ]
+}

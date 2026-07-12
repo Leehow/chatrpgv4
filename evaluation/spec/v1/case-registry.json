@@ -176,6 +176,36 @@
         "-q", "-p", "no:cacheprovider"
       ],
       "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "host-parity-normalized-hash",
+      "description": "Host-parity normalization yields one SHA-256 across codex, zcode, cursor, ci, and local.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_eval_replay.py::test_host_parity_normalized_hash_matches_across_five_hosts",
+        "tests/test_eval_replay.py::test_normalization_is_volatile_allowlist_only",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "fixed-replay-first-divergence",
+      "description": "Fixed replay records the first structural divergence into state-diffs.jsonl using structured classifications.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_eval_replay.py::test_fixed_replay_detects_first_structural_divergence",
+        "tests/test_eval_replay.py::test_state_diffs_classification_comes_from_structured_values_not_prose",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
     }
   ]
 }
