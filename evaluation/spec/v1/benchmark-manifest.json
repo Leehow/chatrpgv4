@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "eval_spec": "eval-spec-v1",
+  "benchmark_version": "2026.07.1",
+  "report_schema_version": 2,
+  "implemented_capabilities": [
+    "canonical_cli",
+    "report_contract",
+    "roll_completeness",
+    "baseline_identity_compare"
+  ],
+  "suites": {
+    "smoke": {
+      "description": "Fast host-neutral contract and plugin routing checks.",
+      "required_capabilities": [
+        "canonical_cli",
+        "report_contract",
+        "roll_completeness"
+      ],
+      "commands": [
+        [
+          "python3",
+          "-m",
+          "pytest",
+          "tests/test_eval_contract.py",
+          "tests/test_plugin_metadata.py",
+          "-q",
+          "-p",
+          "no:cacheprovider"
+        ]
+      ]
+    },
+    "pr": {
+      "description": "Deterministic merge protection for evaluation and report regressions.",
+      "required_capabilities": [
+        "canonical_cli",
+        "report_contract",
+        "roll_completeness",
+        "baseline_identity_compare"
+      ],
+      "commands": [
+        [
+          "python3",
+          "-m",
+          "pytest",
+          "tests/test_eval_contract.py",
+          "tests/test_playtest_report.py",
+          "tests/test_playtest_audit.py",
+          "tests/test_plugin_metadata.py",
+          "-q",
+          "-p",
+          "no:cacheprovider"
+        ]
+      ]
+    },
+    "nightly": {
+      "description": "Distributional AI-player, language, and long-memory regression suite.",
+      "required_capabilities": [
+        "canonical_cli",
+        "report_contract",
+        "roll_completeness",
+        "baseline_identity_compare",
+        "ai_player_matrix",
+        "long_memory"
+      ],
+      "commands": []
+    },
+    "release": {
+      "description": "Release-candidate acceptance with external-model and human-calibrated evidence.",
+      "required_capabilities": [
+        "canonical_cli",
+        "report_contract",
+        "roll_completeness",
+        "baseline_identity_compare",
+        "ai_player_matrix",
+        "long_memory",
+        "chapter_transition",
+        "human_calibration"
+      ],
+      "commands": []
+    },
+    "diagnostic": {
+      "description": "Targeted investigation. Never sufficient by itself for release readiness.",
+      "required_capabilities": [
+        "canonical_cli",
+        "report_contract",
+        "roll_completeness"
+      ],
+      "commands": []
+    }
+  }
+}
