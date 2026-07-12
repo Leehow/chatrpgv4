@@ -20,6 +20,43 @@ Before finishing plugin work, run at minimum:
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
 ```
 
+## Canonical Evaluation Contract
+
+Codex, ZCode, Cursor, CI, and local agents must use the same versioned evaluation
+entry point for official COC Keeper validation:
+
+```bash
+python3 plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root .
+```
+
+Use `smoke` for fast local contract checks and `pr` for ordinary change
+validation. Do not replace the named suite with an agent-specific collection of
+commands and still call the result an official evaluation. `nightly` or
+`release` may be claimed only when that exact suite records `PASS`; a
+`NOT_RUN` capability must not be hidden by running a smaller suite.
+
+For an existing playtest run, generate or verify its report contract with:
+
+```bash
+python3 plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
+python3 plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
+```
+
+The exact status vocabulary is `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`, and
+`NON_COMPARABLE`. Missing evidence never becomes `PASS`.
+
+### Dice Completeness Gate
+
+Structured roll logs are authoritative. Every required `public` or
+`consequence_public` roll must appear exactly once in the report's
+`rules-and-dice` section with source-traceable numerical detail. A missing
+required public roll, duplicate marker, untraced marker, malformed roll log, or
+missing roll source log is a hard failure. If no public rolls occurred, the
+report must explicitly record a public roll count of zero.
+
+Never reconstruct missing dice from memory or report prose. Never remove a
+failed completeness finding when delivering a report.
+
 ## Playtest Battle Report Evidence Standard
 
 When the user asks to see a COC playtest battle report, "战报" means an actual
@@ -35,6 +72,8 @@ synthetic unit-test fixture.
   investigator context, player/KP transcript or actual-play turns, rules/rolls
   when relevant, discovered clues, scene progression, and any narrative
   enrichment/storylet effects being evaluated.
+- Before delivering any report, read `artifacts/report-completeness.json`; a
+  failed or missing receipt must be stated directly.
 - If no live LLM-vs-KP runner or real playtest artifact is available, state that
   limitation directly and do not substitute a smoke-test artifact as if it were
   gameplay evidence.
