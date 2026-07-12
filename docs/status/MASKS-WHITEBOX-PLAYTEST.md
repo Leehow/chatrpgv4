@@ -18,7 +18,7 @@ Canary (prep): both sandboxes attested `{"provider":"zhipu-coding","id":"glm-5.2
 |---|-----------|--------|
 | 1 | Packages/gates | **Pass** |
 | 2 | GLM canary | **Pass** |
-| 3 | Run A Peru+America (or legitimate terminal/blocker before 500) | **In progress** — durable tip **turn 20** @ `puno-hub` after museum→Puno unlock fix; target 120–220 |
+| 3 | Run A Peru+America (or legitimate terminal/blocker before 500) | **In progress** — durable tip **turn 27** @ `puno-hub` after museum→Puno unlock fix; target 120–220 |
 | 4 | Run B blind | **Not started** |
 | 5 | Route compare | **Not started** |
 | 6 | England/Egypt probes | Infra smoke only; live probes **not done** |
@@ -33,7 +33,7 @@ Canary (prep): both sandboxes attested `{"provider":"zhipu-coding","id":"glm-5.2
 ## Run A durable tip
 
 - Path: `.coc/playtests/masks-peru-america-run-a-20260712/primary-run/`
-- Checkpoint: `checkpoints/turn-000020`
+- Checkpoint: `checkpoints/turn-000027`
 - Scene: `puno-hub` (Peru); chapter switch **not** yet
 - Latest accepted model: `zhipu-coding/glm-5.2`, `deterministic_fallback=false`
 - Invalidated: turns 21–33 museum stall (pre-flag fix narration-only travel); recovered tip after `turn_persistence_failed` caused by leftover contaminated checkpoints `turn-000020`–`033`
