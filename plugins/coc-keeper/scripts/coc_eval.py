@@ -19,6 +19,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_eval_cases as cases
+import coc_eval_compare as compare
 import coc_eval_contract as contract
 
 
@@ -350,11 +351,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify.add_argument("run_dir", type=Path)
 
-    compare = subparsers.add_parser(
-        "compare", help="compare baseline and candidate run identities and hard gates"
+    compare_parser = subparsers.add_parser(
+        "compare",
+        help="compare baseline and candidate identities, hard gates, and dimensions",
     )
-    compare.add_argument("--baseline", type=Path, required=True)
-    compare.add_argument("--candidate", type=Path, required=True)
+    compare_parser.add_argument("--baseline", type=Path, required=True)
+    compare_parser.add_argument("--candidate", type=Path, required=True)
+    compare_parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path.cwd(),
+        help="repository root used to load evaluation thresholds",
+    )
 
     baseline = subparsers.add_parser(
         "baseline", help="write a normalized baseline manifest from a verified run"
@@ -386,8 +394,11 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "verify":
             payload = contract.verify_report_contract(args.run_dir)
         elif args.command == "compare":
-            payload = contract.compare_run_manifests(
-                args.baseline, args.candidate
+            payload = compare.compare_cli_runs(
+                args.baseline,
+                args.candidate,
+                root=args.root,
+                identity_compare=contract.compare_run_manifests,
             )
         elif args.command == "baseline":
             payload = contract.write_baseline_manifest(

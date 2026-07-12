@@ -5,16 +5,22 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import random
+import tempfile
 from pathlib import Path
 from typing import Any
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parents[2]
 EVAL_SPEC = "eval-spec-v1"
 THRESHOLDS_PATH = Path("evaluation/spec/v1/thresholds.json")
 METRICS_PATH = Path("artifacts/metric-results.json")
 COMPLETENESS_PATH = Path("artifacts/report-completeness.json")
 CASE_RESULTS_PATH = Path("case-results.json")
+COMPARISON_JSON = Path("artifacts/baseline-comparison.json")
+COMPARISON_MD = Path("artifacts/baseline-comparison.md")
 IDENTITY_KEYS = (
     "eval_spec",
     "benchmark_version",
@@ -39,6 +45,40 @@ def _read_json(path: Path) -> Any:
         return None
 
 
+def _write_text_atomic(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return path
+
+
+def _write_json_atomic(path: Path, payload: Any) -> Path:
+    return _write_text_atomic(
+        path,
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    )
+
+
 def _manifest_path(value: Path | str) -> Path:
     path = Path(value)
     return path / "run-manifest.json" if path.is_dir() else path
@@ -54,6 +94,10 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _metrics_present(run_root: Path) -> bool:
+    return (run_root / METRICS_PATH).is_file()
 
 
 def load_thresholds(root: Path | str) -> dict[str, Any]:
@@ -486,3 +530,197 @@ def compare_evaluation_runs(
             "candidate_metric_results": _sha256(candidate_metric_path),
         },
     }
+
+
+def _default_evidence_paths(
+    *,
+    baseline_root: Path,
+    candidate_root: Path,
+    include_metrics: bool,
+) -> list[str]:
+    paths: list[str] = []
+    for root in (baseline_root, candidate_root):
+        completeness = root / COMPLETENESS_PATH
+        if completeness.is_file():
+            paths.append(str(completeness))
+        if include_metrics:
+            metrics = root / METRICS_PATH
+            if metrics.is_file():
+                paths.append(str(metrics))
+    return paths
+
+
+def _enrich_comparison_payload(
+    payload: dict[str, Any],
+    *,
+    baseline_root: Path,
+    candidate_root: Path,
+    include_metrics: bool,
+) -> dict[str, Any]:
+    enriched = dict(payload)
+    case_id = None
+    candidate_manifest = _read_json(candidate_root / "run-manifest.json")
+    if isinstance(candidate_manifest, dict):
+        value = candidate_manifest.get("case_id")
+        if isinstance(value, str) and value:
+            case_id = value
+    evidence_paths = _default_evidence_paths(
+        baseline_root=baseline_root,
+        candidate_root=candidate_root,
+        include_metrics=include_metrics,
+    )
+    regressions = []
+    for item in enriched.get("regressions") or []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        row.setdefault("case_id", case_id)
+        row.setdefault("evidence_paths", list(evidence_paths))
+        row.setdefault("release_blocking", True)
+        if "finding_id" not in row and isinstance(row.get("key"), str):
+            row["finding_id"] = row["key"]
+        if "dimension" not in row and isinstance(row.get("key"), str):
+            row["dimension"] = row["key"]
+        regressions.append(row)
+    enriched["regressions"] = regressions
+    enriched["baseline_root"] = str(baseline_root)
+    enriched["candidate_root"] = str(candidate_root)
+    return enriched
+
+
+def render_baseline_comparison_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Baseline Comparison",
+        "",
+        f"- Status: {payload.get('status')}",
+        f"- Eval spec: {payload.get('eval_spec', EVAL_SPEC)}",
+        f"- Comparison mode: {payload.get('comparison_mode', 'dimension')}",
+    ]
+    mismatches = payload.get("identity_mismatches") or []
+    if mismatches:
+        lines.append(f"- Identity mismatches: {', '.join(str(item) for item in mismatches)}")
+    lines.extend(["", "## Regressions", ""])
+    regressions = list(payload.get("regressions") or [])
+    regressions.sort(
+        key=lambda item: (
+            str(item.get("finding_id") or item.get("key") or ""),
+            str(item.get("dimension") or ""),
+        )
+    )
+    if not regressions:
+        lines.append("None.")
+        lines.append("")
+        return "\n".join(lines)
+    for item in regressions:
+        finding_id = item.get("finding_id") or item.get("key") or "unknown"
+        lines.append(f"### {finding_id}")
+        lines.append(f"- Dimension: {item.get('dimension')}")
+        if item.get("case_id") is not None:
+            lines.append(f"- Case ID: {item.get('case_id')}")
+        lines.append(f"- Baseline: {item.get('baseline')}")
+        lines.append(f"- Candidate: {item.get('candidate')}")
+        lines.append(f"- Release blocking: {item.get('release_blocking', True)}")
+        evidence = item.get("evidence_paths") or []
+        if evidence:
+            lines.append(f"- Evidence paths: {', '.join(str(path) for path in evidence)}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def write_baseline_comparison(
+    candidate_root: Path | str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    root = Path(candidate_root)
+    json_path = root / COMPARISON_JSON
+    md_path = root / COMPARISON_MD
+    _write_json_atomic(json_path, payload)
+    _write_text_atomic(md_path, render_baseline_comparison_markdown(payload))
+    hashes = dict(payload.get("artifact_hashes") or {})
+    hashes["baseline_comparison_json"] = _sha256(json_path)
+    hashes["baseline_comparison_md"] = _sha256(md_path)
+    result = dict(payload)
+    result["artifact_hashes"] = hashes
+    result["baseline_comparison_json"] = str(json_path)
+    result["baseline_comparison_md"] = str(md_path)
+    _write_json_atomic(json_path, result)
+    return result
+
+
+def compare_cli_runs(
+    baseline: Path | str,
+    candidate: Path | str,
+    *,
+    root: Path | str | None = None,
+    identity_compare,
+) -> dict[str, Any]:
+    """Compare runs for the CLI: identity first, then optional dimension gates."""
+    repo_root = Path(root) if root is not None else REPO_ROOT
+    baseline_manifest = _manifest_path(baseline)
+    candidate_manifest = _manifest_path(candidate)
+    baseline_root = _run_root(baseline_manifest)
+    candidate_root = _run_root(candidate_manifest)
+
+    identity = identity_compare(baseline, candidate)
+    if not isinstance(identity, dict):
+        raise ValueError("identity compare must return a dict")
+
+    if identity.get("status") == "NON_COMPARABLE":
+        payload = _enrich_comparison_payload(
+            {**identity, "comparison_mode": "identity"},
+            baseline_root=baseline_root,
+            candidate_root=candidate_root,
+            include_metrics=False,
+        )
+        return write_baseline_comparison(candidate_root, payload)
+
+    baseline_has = _metrics_present(baseline_root)
+    candidate_has = _metrics_present(candidate_root)
+
+    if baseline_has and candidate_has:
+        thresholds = load_thresholds(repo_root)
+        dimension = compare_evaluation_runs(
+            baseline_root, candidate_root, thresholds
+        )
+        if identity.get("status") == "FAIL":
+            merged = dict(dimension)
+            regressions = list(merged.get("regressions") or [])
+            for item in identity.get("regressions") or []:
+                if isinstance(item, dict):
+                    regressions.append(dict(item))
+            merged["regressions"] = regressions
+            merged["status"] = "FAIL"
+            merged["identity_hard_gate"] = identity
+            dimension = merged
+        payload = _enrich_comparison_payload(
+            {**dimension, "comparison_mode": "dimension"},
+            baseline_root=baseline_root,
+            candidate_root=candidate_root,
+            include_metrics=True,
+        )
+        return write_baseline_comparison(candidate_root, payload)
+
+    if not baseline_has and not candidate_has:
+        payload = _enrich_comparison_payload(
+            {**identity, "comparison_mode": "identity_hard_gate"},
+            baseline_root=baseline_root,
+            candidate_root=candidate_root,
+            include_metrics=False,
+        )
+        return write_baseline_comparison(candidate_root, payload)
+
+    payload = _enrich_comparison_payload(
+        {
+            "schema_version": 1,
+            "eval_spec": EVAL_SPEC,
+            "status": "NON_COMPARABLE",
+            "identity_mismatches": ["metric_results_presence_mismatch"],
+            "regressions": [],
+            "comparison_mode": "dimension",
+            "identity_hard_gate": identity,
+        },
+        baseline_root=baseline_root,
+        candidate_root=candidate_root,
+        include_metrics=True,
+    )
+    return write_baseline_comparison(candidate_root, payload)
