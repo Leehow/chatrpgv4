@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "eval_spec": "eval-spec-v1",
+  "manifest_version": "2026.07.1",
+  "description": "Holdout binding manifest. Repository stores only stable IDs, suites, expected artifact kinds, and sha256 hashes. Content payloads live outside the repo.",
+  "holdouts": [
+    {
+      "holdout_id": "holdout-agency-zh-01",
+      "suite": "release",
+      "artifact_kind": "blind_pair_bundle",
+      "relative_path": "holdout-agency-zh-01/bundle.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "holdout_id": "holdout-module-fidelity-01",
+      "suite": "release",
+      "artifact_kind": "blind_pair_bundle",
+      "relative_path": "holdout-module-fidelity-01/bundle.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ]
+}
