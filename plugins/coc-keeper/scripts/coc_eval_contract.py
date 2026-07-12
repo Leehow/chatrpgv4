@@ -3,8 +3,9 @@
 
 Structured playtest evidence is authoritative. This module renders the
 player-facing rules-and-dice section from roll logs, verifies that every
-required public result is present exactly once, and rejects baselines that are
-not bound to a verified completeness receipt.
+required public result is present exactly once, injects report schema v2
+identity metadata, and rejects baselines that are not bound to a verified
+completeness receipt.
 """
 from __future__ import annotations
 
@@ -25,11 +26,15 @@ REPO_ROOT = SCRIPT_DIR.parents[2]
 EVAL_SPEC_DIR = Path("evaluation/spec/v1")
 EVAL_SPEC = "eval-spec-v1"
 REPORT_SCHEMA_VERSION = 2
+REPORT_SCHEMA_MARKER = "<!-- report-schema-version: 2 -->"
+RUN_IDENTITY_ANCHOR = "run-identity-and-evidence"
+EVALUATION_CONTRACT_ANCHOR = "evaluation-contract"
+RULES_AND_DICE_ANCHOR = "rules-and-dice"
 ROLL_VISIBILITIES = {"public", "consequence_public", "keeper_only"}
 ROLL_MARKER_RE = re.compile(r"\[roll-id:\s*([A-Za-z0-9_.:-]+)\]")
 ROLL_SOURCE_RE = re.compile(r"<!--\s*roll-source:\s*([^#\s]+)#(\d+)\s*-->")
 SAFE_ROLL_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
-RULES_AND_DICE_ANCHOR = "rules-and-dice"
+SCHEMA_MARKER_RE = re.compile(r"^\s*<!--\s*report-schema-version:\s*\d+\s*-->\s*$")
 ZERO_PUBLIC_ROLL_ZH = "本场没有发生需要记录的公开检定（公开骰数：0）。"
 ZERO_PUBLIC_ROLL_DEFAULT = (
     "No public rolls required recording in this session (public roll count: 0)."
@@ -155,6 +160,11 @@ def _load_sibling(module_name: str, filename: str) -> Any:
 
 def _metadata(run_dir: Path) -> dict[str, Any]:
     value = _read_json(run_dir / "playtest.json", {})
+    return value if isinstance(value, dict) else {}
+
+
+def _run_manifest(run_dir: Path) -> dict[str, Any]:
+    value = _read_json(run_dir / "run-manifest.json", {})
     return value if isinstance(value, dict) else {}
 
 
@@ -591,7 +601,9 @@ def render_rules_and_dice(
             keeper_ids.append(roll_id)
             continue
         public_ids.append(roll_id)
-        renderer = _render_non_percentile if _is_non_percentile(event) else _render_percentile
+        renderer = (
+            _render_non_percentile if _is_non_percentile(event) else _render_percentile
+        )
         public_lines.append(
             renderer(
                 event,
@@ -679,6 +691,92 @@ def inject_rules_and_dice(report_text: str, section: str) -> str:
     )
 
 
+def _public_identity_value(value: Any) -> str:
+    if value in (None, "", [], {}):
+        return "unknown"
+    if isinstance(value, dict):
+        provider = value.get("provider")
+        model_id = value.get("id", value.get("model"))
+        if provider and model_id:
+            return f"{provider}/{model_id}"
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value) or "none"
+    return str(value)
+
+
+def render_run_identity_section(
+    metadata: dict[str, Any],
+    run_manifest: dict[str, Any],
+    evidence: dict[str, Any],
+    *,
+    language: str,
+) -> str:
+    run_id = run_manifest.get("run_id") or metadata.get("run_id") or "unknown"
+    scenario = (
+        run_manifest.get("scenario_id")
+        or metadata.get("scenario")
+        or metadata.get("scenario_id")
+        or "unknown"
+    )
+    eligible = evidence.get("eligible") is True
+    reasons = evidence.get("reasons")
+    reason_text = ", ".join(str(value) for value in reasons) if reasons else "none"
+    kp_model = _public_identity_value(run_manifest.get("kp_model"))
+    player_model = _public_identity_value(run_manifest.get("player_model"))
+    host_id = _public_identity_value(run_manifest.get("host_id"))
+    benchmark = _public_identity_value(run_manifest.get("benchmark_version"))
+
+    if language == "zh-Hans":
+        heading = "## 运行身份与证据 <!-- report-anchor: run-identity-and-evidence -->"
+    else:
+        heading = "## Run Identity & Evidence <!-- report-anchor: run-identity-and-evidence -->"
+    return "\n".join(
+        [
+            heading,
+            "",
+            f"- Run ID: {run_id}",
+            f"- Scenario: {scenario}",
+            f"- Eval spec: {run_manifest.get('eval_spec') or EVAL_SPEC}",
+            f"- Benchmark version: {benchmark}",
+            f"- Report schema version: {REPORT_SCHEMA_VERSION}",
+            f"- Host: {host_id}",
+            f"- KP model: {kp_model}",
+            f"- Player model: {player_model}",
+            f"- Evidence eligibility: {'eligible' if eligible else 'ineligible'}",
+            f"- Evidence reasons: {reason_text}",
+            "",
+        ]
+    )
+
+
+def inject_report_schema_v2(report_text: str, section: str) -> str:
+    """Ensure one schema marker and one identity section, deterministically."""
+    clean = remove_anchored_section(report_text, RUN_IDENTITY_ANCHOR)
+    lines = [line for line in clean.splitlines() if not SCHEMA_MARKER_RE.match(line)]
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    first_heading = next(
+        (index for index, line in enumerate(lines) if _heading_level(line) == 1), None
+    )
+    if first_heading is None:
+        prefix: list[str] = [REPORT_SCHEMA_MARKER, "", section.rstrip()]
+        if lines:
+            prefix.extend(["", *lines])
+        return "\n".join(prefix).rstrip() + "\n"
+
+    insertion = first_heading + 1
+    before = lines[:insertion]
+    after = lines[insertion:]
+    while after and not after[0].strip():
+        after.pop(0)
+    combined = before + ["", REPORT_SCHEMA_MARKER, "", section.rstrip()]
+    if after:
+        combined.extend(["", *after])
+    return "\n".join(combined).rstrip() + "\n"
+
+
 def _zero_statement(language: str) -> str:
     return ZERO_PUBLIC_ROLL_ZH if language == "zh-Hans" else ZERO_PUBLIC_ROLL_DEFAULT
 
@@ -723,7 +821,9 @@ def build_report_completeness(
     rendered_public_count = sum(
         1 for roll_id in required_set if marker_counts[roll_id] == 1
     )
-    anchor_count = report_text.count(f"report-anchor: {RULES_AND_DICE_ANCHOR}")
+    rules_anchor_count = report_text.count(f"report-anchor: {RULES_AND_DICE_ANCHOR}")
+    schema_marker_count = report_text.count(REPORT_SCHEMA_MARKER)
+    identity_anchor_count = report_text.count(f"report-anchor: {RUN_IDENTITY_ANCHOR}")
     zero_statement_present = (
         _zero_statement(play_language) in report_text if not required_ids else True
     )
@@ -743,7 +843,9 @@ def build_report_completeness(
         )
         and source_logs_present
         and zero_statement_present
-        and anchor_count == 1
+        and rules_anchor_count == 1
+        and schema_marker_count == 1
+        and identity_anchor_count == 1
     )
     return {
         "schema_version": 1,
@@ -765,7 +867,10 @@ def build_report_completeness(
         "source_logs_present": source_logs_present,
         "source_log_paths": list(roll_source.get("source_paths") or []),
         "parse_errors": parse_errors,
-        "rules_and_dice_anchor_count": anchor_count,
+        "rules_and_dice_anchor_count": rules_anchor_count,
+        "report_schema_marker_present": schema_marker_count == 1,
+        "report_schema_marker_count": schema_marker_count,
+        "run_identity_anchor_count": identity_anchor_count,
         "zero_public_roll_statement_present": zero_statement_present,
         "passed": passed,
     }
@@ -798,7 +903,7 @@ def _evidence_status(run_dir: Path) -> dict[str, Any]:
             "coc_playtest_evidence_eval_contract", "coc_playtest_evidence.py"
         )
         receipt = module.read_evidence_receipt(run_dir)
-    except Exception as exc:  # provenance tooling failure must not become PASS
+    except Exception as exc:
         return {
             "eligible": False,
             "reasons": [f"evidence_validation_error:{type(exc).__name__}"],
@@ -822,12 +927,58 @@ def contract_status(*, completeness_passed: bool, eligible: bool) -> str:
 
 def _render_context(
     run_dir: Path,
-) -> tuple[dict[str, Any], str, dict[str, str], dict[str, str]]:
+) -> tuple[dict[str, Any], dict[str, Any], str, dict[str, str], dict[str, str]]:
     metadata = _metadata(run_dir)
+    manifest = _run_manifest(run_dir)
     language = str(metadata.get("play_language") or "zh-Hans")
     terms = _localized_terms(metadata, language)
     names = _actor_names(run_dir, terms)
-    return metadata, language, terms, names
+    return metadata, manifest, language, terms, names
+
+
+def _evaluation_contract_section(
+    *,
+    status: str,
+    completeness: dict[str, Any],
+    evidence: dict[str, Any],
+) -> str:
+    missing_ids = completeness.get("missing_roll_ids") or []
+    return "\n".join(
+        [
+            "## Evaluation Contract <!-- report-anchor: evaluation-contract -->",
+            "",
+            f"- Contract status: {status}",
+            f"- Report schema version: {REPORT_SCHEMA_VERSION}",
+            f"- Required public rolls: {completeness.get('required_public_roll_count', 0)}",
+            f"- Rendered public rolls: {completeness.get('rendered_public_roll_count', 0)}",
+            f"- Keeper-only rolls: {completeness.get('keeper_only_roll_count', 0)}",
+            f"- Missing roll IDs: {', '.join(str(value) for value in missing_ids) if missing_ids else 'none'}",
+            f"- Evidence eligibility: {'eligible' if evidence.get('eligible') is True else 'ineligible'}",
+            "",
+        ]
+    )
+
+
+def update_evaluation_contract_section(
+    path: Path,
+    *,
+    status: str,
+    completeness: dict[str, Any],
+    evidence: dict[str, Any],
+) -> Path:
+    if not path.is_file():
+        return path
+    current = path.read_text(encoding="utf-8")
+    clean = remove_anchored_section(current, EVALUATION_CONTRACT_ANCHOR)
+    while clean.endswith("\n\n"):
+        clean = clean[:-1]
+    section = _evaluation_contract_section(
+        status=status,
+        completeness=completeness,
+        evidence=evidence,
+    )
+    final = clean.rstrip() + "\n\n" + section.rstrip() + "\n"
+    return _write_text_atomic(path, final)
 
 
 def _missing_report_result(root: Path) -> dict[str, Any]:
@@ -840,6 +991,9 @@ def _missing_report_result(root: Path) -> dict[str, Any]:
         "missing_roll_ids": [],
         "duplicate_roll_ids": [],
         "untraced_roll_ids": [],
+        "report_schema_marker_present": False,
+        "report_schema_marker_count": 0,
+        "run_identity_anchor_count": 0,
     }
     receipt_path = _write_json_atomic(
         root / "artifacts" / "report-completeness.json", completeness
@@ -853,6 +1007,45 @@ def _missing_report_result(root: Path) -> dict[str, Any]:
         "evaluation_report_path": None,
         "report_completeness_path": str(receipt_path),
         "evidence_eligibility": {"eligible": False, "reasons": ["report_missing"]},
+        "report_completeness": completeness,
+    }
+
+
+def _finalize_report_result(
+    *,
+    root: Path,
+    report_path: Path,
+    evaluation_report_path: Path | None,
+    completeness: dict[str, Any],
+    evidence: dict[str, Any],
+) -> dict[str, Any]:
+    receipt_path = _write_json_atomic(
+        root / "artifacts" / "report-completeness.json", completeness
+    )
+    status = contract_status(
+        completeness_passed=completeness["passed"], eligible=evidence["eligible"]
+    )
+    if evaluation_report_path is not None and evaluation_report_path.is_file():
+        update_evaluation_contract_section(
+            evaluation_report_path,
+            status=status,
+            completeness=completeness,
+            evidence=evidence,
+        )
+    return {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "report_schema_version": REPORT_SCHEMA_VERSION,
+        "status": status,
+        "report_path": str(report_path),
+        "evaluation_report_path": str(evaluation_report_path)
+        if evaluation_report_path is not None and evaluation_report_path.is_file()
+        else None,
+        "report_completeness_path": str(receipt_path),
+        "evidence_eligibility": {
+            "eligible": evidence["eligible"],
+            "reasons": evidence["reasons"],
+        },
         "report_completeness": completeness,
     }
 
@@ -873,7 +1066,14 @@ def compile_report_contract(
     if report_path is None or not report_path.is_file():
         return _missing_report_result(root)
 
-    _metadata_value, language, terms, names = _render_context(root)
+    metadata, manifest, language, terms, names = _render_context(root)
+    evidence = _evidence_status(root)
+    identity = render_run_identity_section(
+        metadata,
+        manifest,
+        evidence,
+        language=language,
+    )
     roll_source = load_roll_records(root)
     rendered = render_rules_and_dice(
         roll_source["records"],
@@ -881,9 +1081,10 @@ def compile_report_contract(
         actor_names=names,
         localized_terms=terms,
     )
-    final_text = inject_rules_and_dice(
-        report_path.read_text(encoding="utf-8"), rendered["markdown"]
+    final_text = inject_report_schema_v2(
+        report_path.read_text(encoding="utf-8"), identity
     )
+    final_text = inject_rules_and_dice(final_text, rendered["markdown"])
     _write_text_atomic(report_path, final_text)
     completeness = build_report_completeness(
         final_text,
@@ -891,29 +1092,13 @@ def compile_report_contract(
         rendered,
         play_language=language,
     )
-    receipt_path = _write_json_atomic(
-        root / "artifacts" / "report-completeness.json", completeness
+    return _finalize_report_result(
+        root=root,
+        report_path=report_path,
+        evaluation_report_path=evaluation_report_path,
+        completeness=completeness,
+        evidence=evidence,
     )
-    evidence = _evidence_status(root)
-    status = contract_status(
-        completeness_passed=completeness["passed"], eligible=evidence["eligible"]
-    )
-    return {
-        "schema_version": 1,
-        "eval_spec": EVAL_SPEC,
-        "report_schema_version": REPORT_SCHEMA_VERSION,
-        "status": status,
-        "report_path": str(report_path),
-        "evaluation_report_path": str(evaluation_report_path)
-        if evaluation_report_path is not None
-        else None,
-        "report_completeness_path": str(receipt_path),
-        "evidence_eligibility": {
-            "eligible": evidence["eligible"],
-            "reasons": evidence["reasons"],
-        },
-        "report_completeness": completeness,
-    }
 
 
 def verify_report_contract(run_dir: Path | str) -> dict[str, Any]:
@@ -922,7 +1107,7 @@ def verify_report_contract(run_dir: Path | str) -> dict[str, Any]:
     if report_path is None:
         return _missing_report_result(root)
 
-    _metadata_value, language, terms, names = _render_context(root)
+    _metadata_value, _manifest_value, language, terms, names = _render_context(root)
     roll_source = load_roll_records(root)
     rendered = render_rules_and_dice(
         roll_source["records"],
@@ -930,36 +1115,22 @@ def verify_report_contract(run_dir: Path | str) -> dict[str, Any]:
         actor_names=names,
         localized_terms=terms,
     )
+    report_text = report_path.read_text(encoding="utf-8")
     completeness = build_report_completeness(
-        report_path.read_text(encoding="utf-8"),
+        report_text,
         roll_source,
         rendered,
         play_language=language,
     )
-    receipt_path = _write_json_atomic(
-        root / "artifacts" / "report-completeness.json", completeness
-    )
     evidence = _evidence_status(root)
-    status = contract_status(
-        completeness_passed=completeness["passed"], eligible=evidence["eligible"]
-    )
     evaluation_report = root / "artifacts" / "evaluation-report.md"
-    return {
-        "schema_version": 1,
-        "eval_spec": EVAL_SPEC,
-        "report_schema_version": REPORT_SCHEMA_VERSION,
-        "status": status,
-        "report_path": str(report_path),
-        "evaluation_report_path": str(evaluation_report)
-        if evaluation_report.is_file()
-        else None,
-        "report_completeness_path": str(receipt_path),
-        "evidence_eligibility": {
-            "eligible": evidence["eligible"],
-            "reasons": evidence["reasons"],
-        },
-        "report_completeness": completeness,
-    }
+    return _finalize_report_result(
+        root=root,
+        report_path=report_path,
+        evaluation_report_path=evaluation_report if evaluation_report.is_file() else None,
+        completeness=completeness,
+        evidence=evidence,
+    )
 
 
 def _manifest_path(value: Path | str) -> Path:
