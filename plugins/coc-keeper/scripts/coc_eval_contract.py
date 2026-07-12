@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Versioned evaluation/report contract for COC Keeper.
+"""Versioned evaluation and report contract for COC Keeper.
 
-This module is intentionally evidence-first.  It reads structured roll logs,
-renders a canonical player-facing dice section, and recomputes completeness
-from the source records and the current Markdown.  It never invents a die
-result and it never treats report prose as proof that a roll occurred.
+Structured playtest evidence is authoritative. This module renders the
+player-facing rules-and-dice section from roll logs, verifies that every
+required public result is present exactly once, and rejects baselines that are
+not bound to a verified completeness receipt.
 """
 from __future__ import annotations
 
@@ -23,11 +23,13 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
 EVAL_SPEC_DIR = Path("evaluation/spec/v1")
-REPORT_SCHEMA_VERSION = 2
 EVAL_SPEC = "eval-spec-v1"
+REPORT_SCHEMA_VERSION = 2
 ROLL_VISIBILITIES = {"public", "consequence_public", "keeper_only"}
 ROLL_MARKER_RE = re.compile(r"\[roll-id:\s*([A-Za-z0-9_.:-]+)\]")
+ROLL_SOURCE_RE = re.compile(r"<!--\s*roll-source:\s*([^#\s]+)#(\d+)\s*-->")
 SAFE_ROLL_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
+RULES_AND_DICE_ANCHOR = "rules-and-dice"
 ZERO_PUBLIC_ROLL_ZH = "本场没有发生需要记录的公开检定（公开骰数：0）。"
 ZERO_PUBLIC_ROLL_DEFAULT = (
     "No public rolls required recording in this session (public roll count: 0)."
@@ -50,18 +52,20 @@ IDENTITY_KEYS = (
 )
 
 
+def file_sha256(path: Path | str) -> str:
+    """Return the SHA-256 digest of a file without loading it all into memory."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _read_json(path: Path, default: Any) -> Any:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return default
-    return value
-
-
-def _write_json_atomic(path: Path, payload: Any) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    return _write_text_atomic(path, text)
 
 
 def _write_text_atomic(path: Path, text: str) -> Path:
@@ -89,6 +93,13 @@ def _write_text_atomic(path: Path, text: str) -> Path:
             except OSError:
                 pass
     return path
+
+
+def _write_json_atomic(path: Path, payload: Any) -> Path:
+    return _write_text_atomic(
+        path,
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    )
 
 
 def load_benchmark_manifest(root: Path | str = REPO_ROOT) -> dict[str, Any]:
@@ -162,27 +173,29 @@ def _campaign_dirs(run_dir: Path, metadata: dict[str, Any]) -> list[Path]:
 def _relative_to_run(run_dir: Path, path: Path) -> str:
     try:
         return path.resolve().relative_to(run_dir.resolve()).as_posix()
-    except ValueError:
+    except (OSError, ValueError):
         return path.name
 
 
 def load_roll_records(run_dir: Path | str) -> dict[str, Any]:
+    """Read all campaign roll logs while preserving parse errors and provenance."""
     root = Path(run_dir)
     metadata = _metadata(root)
-    paths = [
+    candidate_paths = [
         campaign_dir / "logs" / "rolls.jsonl"
         for campaign_dir in _campaign_dirs(root, metadata)
     ]
-    existing_paths = [path for path in paths if path.is_file()]
+    existing_paths = [path for path in candidate_paths if path.is_file()]
     records: list[dict[str, Any]] = []
-    errors: list[dict[str, Any]] = []
+    parse_errors: list[dict[str, Any]] = []
     ordinal = 0
+
     for path in existing_paths:
         relative = _relative_to_run(root, path)
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except OSError as exc:
-            errors.append(
+            parse_errors.append(
                 {
                     "path": relative,
                     "line": None,
@@ -196,7 +209,7 @@ def load_roll_records(run_dir: Path | str) -> dict[str, Any]:
             try:
                 row = json.loads(line)
             except json.JSONDecodeError as exc:
-                errors.append(
+                parse_errors.append(
                     {
                         "path": relative,
                         "line": line_number,
@@ -205,7 +218,7 @@ def load_roll_records(run_dir: Path | str) -> dict[str, Any]:
                 )
                 continue
             if not isinstance(row, dict):
-                errors.append(
+                parse_errors.append(
                     {
                         "path": relative,
                         "line": line_number,
@@ -219,11 +232,12 @@ def load_roll_records(run_dir: Path | str) -> dict[str, Any]:
             record["_eval_source_line"] = line_number
             record["_eval_source_ordinal"] = ordinal
             records.append(record)
+
     return {
         "records": records,
         "source_paths": [_relative_to_run(root, path) for path in existing_paths],
         "source_logs_present": bool(existing_paths),
-        "parse_errors": errors,
+        "parse_errors": parse_errors,
     }
 
 
@@ -235,8 +249,7 @@ def _payload(event: dict[str, Any]) -> dict[str, Any]:
 def _safe_marker_id(value: str) -> str:
     if SAFE_ROLL_ID_RE.fullmatch(value):
         return value
-    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
-    return f"roll-{digest}"
+    return f"roll-{hashlib.sha256(value.encode('utf-8')).hexdigest()[:16]}"
 
 
 def _roll_identity(event: dict[str, Any]) -> tuple[str, bool, str | None]:
@@ -250,8 +263,8 @@ def _roll_identity(event: dict[str, Any]) -> tuple[str, bool, str | None]:
         or payload.get("id")
     )
     if raw not in (None, ""):
-        source = str(raw)
-        return _safe_marker_id(source), False, source
+        source_id = str(raw)
+        return _safe_marker_id(source_id), False, source_id
     ordinal = int(event.get("_eval_source_ordinal") or 0)
     return f"legacy-roll-{ordinal:04d}", True, None
 
@@ -264,7 +277,7 @@ def roll_visibility(event: dict[str, Any]) -> str:
     if event.get("hidden") is True or payload.get("hidden") is True:
         return "keeper_only"
     if any(
-        key in payload and payload.get(key) is not None
+        payload.get(key) is not None
         for key in (
             "hp_before",
             "hp_after",
@@ -298,6 +311,15 @@ def _is_non_percentile(event: dict[str, Any]) -> bool:
     }
 
 
+def _numeric_count(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _missing_fields(event: dict[str, Any], missing_id: bool) -> list[str]:
     payload = _payload(event)
     missing: list[str] = []
@@ -305,6 +327,7 @@ def _missing_fields(event: dict[str, Any], missing_id: bool) -> list[str]:
         missing.append("roll_id")
     if event.get("actor") in (None, "") and event.get("actor_id") in (None, ""):
         missing.append("actor_id")
+
     if _is_non_percentile(event):
         if payload.get("die") in (None, "") and payload.get("die_expression") in (
             None,
@@ -325,9 +348,7 @@ def _missing_fields(event: dict[str, Any], missing_id: bool) -> list[str]:
             missing.append("effective_target")
         if payload.get("outcome") in (None, ""):
             missing.append("outcome")
-        bonus = int(payload.get("bonus") or 0) if not isinstance(payload.get("bonus"), bool) else 0
-        penalty = int(payload.get("penalty") or 0) if not isinstance(payload.get("penalty"), bool) else 0
-        if bonus or penalty:
+        if _numeric_count(payload.get("bonus")) or _numeric_count(payload.get("penalty")):
             if not isinstance(payload.get("tens_values"), list) or not payload.get(
                 "tens_values"
             ):
@@ -344,9 +365,7 @@ def _missing_fields(event: dict[str, Any], missing_id: bool) -> list[str]:
 
 def _localized_terms(metadata: dict[str, Any], language: str) -> dict[str, str]:
     outer = metadata.get("localized_terms")
-    if not isinstance(outer, dict):
-        return {}
-    selected = outer.get(language)
+    selected = outer.get(language) if isinstance(outer, dict) else None
     if not isinstance(selected, dict):
         return {}
     return {
@@ -358,12 +377,14 @@ def _localized_terms(metadata: dict[str, Any], language: str) -> dict[str, str]:
 
 def _localize(value: Any, terms: dict[str, str]) -> str:
     text = str(value)
-    for canonical, display in sorted(terms.items(), key=lambda item: len(item[0]), reverse=True):
+    for canonical, display in sorted(
+        terms.items(), key=lambda item: len(item[0]), reverse=True
+    ):
         text = text.replace(canonical, display)
     return text
 
 
-def _actor_names(run_dir: Path, metadata: dict[str, Any], terms: dict[str, str]) -> dict[str, str]:
+def _actor_names(run_dir: Path, terms: dict[str, str]) -> dict[str, str]:
     result: dict[str, str] = {}
     investigator_root = run_dir / "sandbox" / ".coc" / "investigators"
     if not investigator_root.is_dir():
@@ -372,7 +393,9 @@ def _actor_names(run_dir: Path, metadata: dict[str, Any], terms: dict[str, str])
         character = _read_json(path, {})
         if not isinstance(character, dict):
             continue
-        investigator_id = character.get("investigator_id") or character.get("id") or path.parent.name
+        investigator_id = (
+            character.get("investigator_id") or character.get("id") or path.parent.name
+        )
         name = character.get("name") or investigator_id
         display = _localize(name, terms)
         result[str(investigator_id)] = display
@@ -381,7 +404,9 @@ def _actor_names(run_dir: Path, metadata: dict[str, Any], terms: dict[str, str])
     return result
 
 
-def _display_actor(event: dict[str, Any], actor_names: dict[str, str], terms: dict[str, str]) -> str:
+def _display_actor(
+    event: dict[str, Any], actor_names: dict[str, str], terms: dict[str, str]
+) -> str:
     actor = event.get("actor_id") or event.get("actor") or "unknown"
     return actor_names.get(str(actor), _localize(actor, terms))
 
@@ -399,8 +424,28 @@ def _format_modifier(value: Any) -> str:
         return f" + {value}" if value not in (None, "", 0) else ""
     if number == 0:
         return ""
-    shown = int(number) if number.is_integer() else number
+    shown: int | float = int(number) if number.is_integer() else number
     return f" + {shown}" if number > 0 else f" - {abs(shown)}"
+
+
+def _state_delta_details(payload: dict[str, Any], language: str) -> list[str]:
+    details: list[str] = []
+    if payload.get("san_loss") not in (None, ""):
+        details.append(
+            f"SAN 损失：{payload['san_loss']}"
+            if language == "zh-Hans"
+            else f"SAN loss: {payload['san_loss']}"
+        )
+    for label, before_key, after_key in (
+        ("HP", "hp_before", "hp_after"),
+        ("SAN", "san_before", "san_after"),
+        ("MP", "mp_before", "mp_after"),
+    ):
+        before = payload.get(before_key)
+        after = payload.get(after_key)
+        if before is not None and after is not None:
+            details.append(f"{label} {before} → {after}")
+    return details
 
 
 def _render_non_percentile(
@@ -414,34 +459,32 @@ def _render_non_percentile(
     payload = _payload(event)
     actor = _display_actor(event, actor_names, terms)
     purpose = _localize(
-        payload.get("purpose") or payload.get("skill") or event.get("type") or "die roll",
+        payload.get("purpose")
+        or payload.get("skill")
+        or event.get("type")
+        or "die roll",
         terms,
     )
     die = payload.get("die") or payload.get("die_expression") or "?"
     faces = payload.get("die_rolls", payload.get("individual_faces"))
-    face_text = " + ".join(str(value) for value in faces) if isinstance(faces, list) and faces else "?"
+    face_text = (
+        " + ".join(str(value) for value in faces)
+        if isinstance(faces, list) and faces
+        else "?"
+    )
     modifier = _format_modifier(payload.get("flat_modifier", 0))
     total = payload.get("roll", payload.get("final_total", "?"))
-    deltas: list[str] = []
-    for label, before_key, after_key in (
-        ("HP", "hp_before", "hp_after"),
-        ("SAN", "san_before", "san_after"),
-        ("MP", "mp_before", "mp_after"),
-    ):
-        before = payload.get(before_key)
-        after = payload.get(after_key)
-        if before is not None and after is not None:
-            deltas.append(f"{label} {before} → {after}")
-    delta_text = f"；{'；'.join(deltas)}" if deltas else ""
+    details = _state_delta_details(payload, language)
     if language == "zh-Hans":
+        tail = f"；{'；'.join(details)}" if details else ""
         return (
             f"- [roll-id: {roll_id}] {purpose}（{actor}） {die}："
-            f"{face_text}{modifier} = {total}{delta_text}。 {_source_comment(event)}"
+            f"{face_text}{modifier} = {total}{tail}。 {_source_comment(event)}"
         )
+    tail = f"; {'; '.join(details)}" if details else ""
     return (
         f"- [roll-id: {roll_id}] {purpose} ({actor}) {die}: "
-        f"{face_text}{modifier} = {total}{'; ' + '; '.join(deltas) if deltas else ''}. "
-        f"{_source_comment(event)}"
+        f"{face_text}{modifier} = {total}{tail}. {_source_comment(event)}"
     )
 
 
@@ -456,29 +499,36 @@ def _render_percentile(
     payload = _payload(event)
     actor = _display_actor(event, actor_names, terms)
     skill = _localize(
-        payload.get("skill") or payload.get("characteristic") or "check",
-        terms,
+        payload.get("skill") or payload.get("characteristic") or "check", terms
     )
     roll = payload.get("roll", payload.get("selected_roll", "?"))
     target = payload.get("effective_target", payload.get("target", "?"))
     outcome = _localize(payload.get("outcome", "unknown"), terms)
     difficulty = _localize(payload.get("difficulty", "regular"), terms)
     details: list[str] = []
-    bonus = int(payload.get("bonus") or 0) if not isinstance(payload.get("bonus"), bool) else 0
-    penalty = int(payload.get("penalty") or 0) if not isinstance(payload.get("penalty"), bool) else 0
+
+    bonus = _numeric_count(payload.get("bonus"))
+    penalty = _numeric_count(payload.get("penalty"))
     if bonus or penalty:
         label = "奖励骰" if bonus else "惩罚骰"
         if language != "zh-Hans":
             label = "bonus die" if bonus else "penalty die"
         units = payload.get("units", "?")
         tens_values = payload.get("tens_values")
-        tens = "/".join(str(value) for value in tens_values) if isinstance(tens_values, list) else "?"
-        if language == "zh-Hans":
-            details.append(f"{label}：个位 {units}，十位 {tens}，取 {roll}")
-        else:
-            details.append(f"{label}: units {units}, tens {tens}, selected {roll}")
+        tens = (
+            "/".join(str(value) for value in tens_values)
+            if isinstance(tens_values, list)
+            else "?"
+        )
+        details.append(
+            f"{label}：个位 {units}，十位 {tens}，取 {roll}"
+            if language == "zh-Hans"
+            else f"{label}: units {units}, tens {tens}, selected {roll}"
+        )
     if payload.get("pushed") is True:
-        consequence = payload.get("failure_consequence") or payload.get("foreshadowed_failure")
+        consequence = payload.get("failure_consequence") or payload.get(
+            "foreshadowed_failure"
+        )
         details.append(
             f"推骰：是，失败后果：{consequence or '?'}"
             if language == "zh-Hans"
@@ -490,16 +540,18 @@ def _render_percentile(
             if language == "zh-Hans"
             else f"Luck spent: {payload['luck_spent']}"
         )
-    detail_text = f"；{'；'.join(details)}" if details else ""
+    details.extend(_state_delta_details(payload, language))
+
     if language == "zh-Hans":
+        tail = f"；{'；'.join(details)}" if details else ""
         return (
             f"- [roll-id: {roll_id}] {skill}（{actor}）：掷骰 {roll} / 目标 {target}"
-            f"（{difficulty}）→ {outcome}{detail_text}。 {_source_comment(event)}"
+            f"（{difficulty}）→ {outcome}{tail}。 {_source_comment(event)}"
         )
+    tail = f"; {'; '.join(details)}" if details else ""
     return (
         f"- [roll-id: {roll_id}] {skill} ({actor}): rolled {roll} / target {target} "
-        f"({difficulty}) -> {outcome}{'; ' + '; '.join(details) if details else ''}. "
-        f"{_source_comment(event)}"
+        f"({difficulty}) -> {outcome}{tail}. {_source_comment(event)}"
     )
 
 
@@ -517,42 +569,38 @@ def render_rules_and_dice(
     keeper_ids: list[str] = []
     incomplete_ids: list[str] = []
     missing_by_id: dict[str, list[str]] = {}
+    source_refs_by_id: dict[str, str] = {}
     public_lines: list[str] = []
 
     for event in records:
         roll_id, missing_id, source_id = _roll_identity(event)
         source_ids.append(roll_id)
+        source_refs_by_id[roll_id] = (
+            f"{event.get('_eval_source_path', 'unknown')}#"
+            f"{event.get('_eval_source_line', '?')}"
+        )
         visibility = roll_visibility(event)
         missing = _missing_fields(event, missing_id)
         if source_id is not None and source_id != roll_id:
             missing.append("marker_safe_roll_id")
         if missing:
             incomplete_ids.append(roll_id)
-            missing_by_id[roll_id] = list(dict.fromkeys(missing))
+            existing = missing_by_id.setdefault(roll_id, [])
+            existing.extend(value for value in missing if value not in existing)
         if visibility == "keeper_only":
             keeper_ids.append(roll_id)
             continue
         public_ids.append(roll_id)
-        if _is_non_percentile(event):
-            public_lines.append(
-                _render_non_percentile(
-                    event,
-                    roll_id,
-                    language=play_language,
-                    actor_names=names,
-                    terms=terms,
-                )
+        renderer = _render_non_percentile if _is_non_percentile(event) else _render_percentile
+        public_lines.append(
+            renderer(
+                event,
+                roll_id,
+                language=play_language,
+                actor_names=names,
+                terms=terms,
             )
-        else:
-            public_lines.append(
-                _render_percentile(
-                    event,
-                    roll_id,
-                    language=play_language,
-                    actor_names=names,
-                    terms=terms,
-                )
-            )
+        )
 
     if play_language == "zh-Hans":
         heading = "## 规则与骰子 <!-- report-anchor: rules-and-dice -->"
@@ -572,6 +620,7 @@ def render_rules_and_dice(
         "keeper_only_roll_ids": keeper_ids,
         "incomplete_roll_ids": incomplete_ids,
         "missing_fields_by_roll_id": missing_by_id,
+        "source_refs_by_roll_id": source_refs_by_id,
     }
 
 
@@ -603,14 +652,17 @@ def remove_anchored_section(report_text: str, anchor: str) -> str:
 
 
 def inject_rules_and_dice(report_text: str, section: str) -> str:
-    clean = remove_anchored_section(report_text, "rules-and-dice")
+    clean = remove_anchored_section(report_text, RULES_AND_DICE_ANCHOR)
     lines = clean.splitlines()
-    marker = "report-anchor: Mechanical Log"
-    insertion = next((index for index, line in enumerate(lines) if marker in line), None)
+    mechanical_marker = "report-anchor: Mechanical Log"
+    insertion = next(
+        (index for index, line in enumerate(lines) if mechanical_marker in line), None
+    )
     if insertion is None:
         while lines and not lines[-1].strip():
             lines.pop()
-        return "\n".join(lines) + "\n\n" + section.rstrip() + "\n"
+        prefix = "\n".join(lines)
+        return (prefix + "\n\n" if prefix else "") + section.rstrip() + "\n"
     prefix = lines[:insertion]
     suffix = lines[insertion:]
     while prefix and not prefix[-1].strip():
@@ -631,6 +683,15 @@ def _zero_statement(language: str) -> str:
     return ZERO_PUBLIC_ROLL_ZH if language == "zh-Hans" else ZERO_PUBLIC_ROLL_DEFAULT
 
 
+def _marker_source_comments(report_text: str) -> dict[str, bool]:
+    result: dict[str, bool] = {}
+    for line in report_text.splitlines():
+        marker = ROLL_MARKER_RE.search(line)
+        if marker:
+            result[marker.group(1)] = bool(ROLL_SOURCE_RE.search(line))
+    return result
+
+
 def build_report_completeness(
     report_text: str,
     roll_source: dict[str, Any],
@@ -640,29 +701,50 @@ def build_report_completeness(
 ) -> dict[str, Any]:
     marker_counts = Counter(ROLL_MARKER_RE.findall(report_text))
     source_ids = list(rendered["source_roll_ids"])
+    source_counts = Counter(source_ids)
     source_id_set = set(source_ids)
     required_ids = list(rendered["required_public_roll_ids"])
     required_set = set(required_ids)
     incomplete_set = set(rendered["incomplete_roll_ids"])
+    source_comment_presence = _marker_source_comments(report_text)
+
     missing = sorted(roll_id for roll_id in required_set if marker_counts[roll_id] == 0)
     duplicate = sorted(roll_id for roll_id, count in marker_counts.items() if count > 1)
+    duplicate_source = sorted(
+        roll_id for roll_id, count in source_counts.items() if count > 1
+    )
     untraced = sorted(roll_id for roll_id in marker_counts if roll_id not in source_id_set)
     incomplete_required = sorted(required_set & incomplete_set)
-    rendered_public_count = sum(1 for roll_id in required_set if marker_counts[roll_id] == 1)
+    missing_source_comment = sorted(
+        roll_id
+        for roll_id in required_set
+        if marker_counts[roll_id] == 1 and not source_comment_presence.get(roll_id, False)
+    )
+    rendered_public_count = sum(
+        1 for roll_id in required_set if marker_counts[roll_id] == 1
+    )
+    anchor_count = report_text.count(f"report-anchor: {RULES_AND_DICE_ANCHOR}")
     zero_statement_present = (
         _zero_statement(play_language) in report_text if not required_ids else True
     )
     parse_errors = list(roll_source.get("parse_errors") or [])
     source_logs_present = roll_source.get("source_logs_present") is True
-    passed = not any(
-        (
-            missing,
-            duplicate,
-            untraced,
-            incomplete_required,
-            parse_errors,
+    passed = (
+        not any(
+            (
+                missing,
+                duplicate,
+                duplicate_source,
+                untraced,
+                incomplete_required,
+                missing_source_comment,
+                parse_errors,
+            )
         )
-    ) and source_logs_present and zero_statement_present
+        and source_logs_present
+        and zero_statement_present
+        and anchor_count == 1
+    )
     return {
         "schema_version": 1,
         "eval_spec": EVAL_SPEC,
@@ -673,13 +755,17 @@ def build_report_completeness(
         "keeper_only_roll_count": len(rendered["keeper_only_roll_ids"]),
         "missing_roll_ids": missing,
         "duplicate_roll_ids": duplicate,
+        "duplicate_source_roll_ids": duplicate_source,
         "untraced_roll_ids": untraced,
         "incomplete_roll_ids": sorted(incomplete_set),
         "incomplete_required_public_roll_ids": incomplete_required,
+        "missing_source_comment_roll_ids": missing_source_comment,
         "missing_fields_by_roll_id": rendered["missing_fields_by_roll_id"],
+        "source_refs_by_roll_id": rendered["source_refs_by_roll_id"],
         "source_logs_present": source_logs_present,
         "source_log_paths": list(roll_source.get("source_paths") or []),
         "parse_errors": parse_errors,
+        "rules_and_dice_anchor_count": anchor_count,
         "zero_public_roll_statement_present": zero_statement_present,
         "passed": passed,
     }
@@ -694,16 +780,25 @@ def _find_report_path(run_dir: Path) -> Path | None:
     return None
 
 
-def _generate_base_report(run_dir: Path) -> Path:
-    module = _load_sibling("coc_playtest_report_eval_contract", "coc_playtest_report.py")
-    return Path(module.generate_battle_report(run_dir))
+def _generate_base_reports(run_dir: Path) -> tuple[Path, Path | None]:
+    module = _load_sibling(
+        "coc_playtest_report_eval_contract", "coc_playtest_report.py"
+    )
+    battle_report = Path(module.generate_battle_report(run_dir))
+    evaluation_report: Path | None = None
+    generator = getattr(module, "generate_evaluation_report", None)
+    if callable(generator):
+        evaluation_report = Path(generator(run_dir))
+    return battle_report, evaluation_report
 
 
 def _evidence_status(run_dir: Path) -> dict[str, Any]:
     try:
-        module = _load_sibling("coc_playtest_evidence_eval_contract", "coc_playtest_evidence.py")
+        module = _load_sibling(
+            "coc_playtest_evidence_eval_contract", "coc_playtest_evidence.py"
+        )
         receipt = module.read_evidence_receipt(run_dir)
-    except Exception as exc:  # fail closed: provenance tooling itself is evidence
+    except Exception as exc:  # provenance tooling failure must not become PASS
         return {
             "eligible": False,
             "reasons": [f"evidence_validation_error:{type(exc).__name__}"],
@@ -712,7 +807,9 @@ def _evidence_status(run_dir: Path) -> dict[str, Any]:
     reasons = receipt.get("evidence_reasons")
     return {
         "eligible": receipt.get("eligible_as_gameplay_evidence") is True,
-        "reasons": [str(value) for value in reasons] if isinstance(reasons, list) else [],
+        "reasons": [str(value) for value in reasons]
+        if isinstance(reasons, list)
+        else [],
         "receipt": receipt,
     }
 
@@ -723,12 +820,41 @@ def contract_status(*, completeness_passed: bool, eligible: bool) -> str:
     return "PASS" if eligible else "INELIGIBLE"
 
 
-def _render_context(run_dir: Path) -> tuple[dict[str, Any], str, dict[str, str], dict[str, str]]:
+def _render_context(
+    run_dir: Path,
+) -> tuple[dict[str, Any], str, dict[str, str], dict[str, str]]:
     metadata = _metadata(run_dir)
     language = str(metadata.get("play_language") or "zh-Hans")
     terms = _localized_terms(metadata, language)
-    names = _actor_names(run_dir, metadata, terms)
+    names = _actor_names(run_dir, terms)
     return metadata, language, terms, names
+
+
+def _missing_report_result(root: Path) -> dict[str, Any]:
+    completeness = {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "report_schema_version": REPORT_SCHEMA_VERSION,
+        "passed": False,
+        "failure": "report_missing",
+        "missing_roll_ids": [],
+        "duplicate_roll_ids": [],
+        "untraced_roll_ids": [],
+    }
+    receipt_path = _write_json_atomic(
+        root / "artifacts" / "report-completeness.json", completeness
+    )
+    return {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "report_schema_version": REPORT_SCHEMA_VERSION,
+        "status": "FAIL",
+        "report_path": None,
+        "evaluation_report_path": None,
+        "report_completeness_path": str(receipt_path),
+        "evidence_eligibility": {"eligible": False, "reasons": ["report_missing"]},
+        "report_completeness": completeness,
+    }
 
 
 def compile_report_contract(
@@ -737,24 +863,15 @@ def compile_report_contract(
     generate_base_report: bool = True,
 ) -> dict[str, Any]:
     root = Path(run_dir)
-    report_path = _generate_base_report(root) if generate_base_report else _find_report_path(root)
+    evaluation_report_path: Path | None = None
+    if generate_base_report:
+        report_path, evaluation_report_path = _generate_base_reports(root)
+    else:
+        report_path = _find_report_path(root)
+        candidate = root / "artifacts" / "evaluation-report.md"
+        evaluation_report_path = candidate if candidate.is_file() else None
     if report_path is None or not report_path.is_file():
-        result = {
-            "schema_version": 1,
-            "eval_spec": EVAL_SPEC,
-            "report_schema_version": REPORT_SCHEMA_VERSION,
-            "status": "FAIL",
-            "report_path": None,
-            "evidence_eligibility": {"eligible": False, "reasons": ["report_missing"]},
-            "report_completeness": {
-                "schema_version": 1,
-                "report_schema_version": REPORT_SCHEMA_VERSION,
-                "passed": False,
-                "failure": "report_missing",
-            },
-        }
-        _write_json_atomic(root / "artifacts" / "report-completeness.json", result["report_completeness"])
-        return result
+        return _missing_report_result(root)
 
     _metadata_value, language, terms, names = _render_context(root)
     roll_source = load_roll_records(root)
@@ -764,8 +881,9 @@ def compile_report_contract(
         actor_names=names,
         localized_terms=terms,
     )
-    current = report_path.read_text(encoding="utf-8")
-    final_text = inject_rules_and_dice(current, rendered["markdown"])
+    final_text = inject_rules_and_dice(
+        report_path.read_text(encoding="utf-8"), rendered["markdown"]
+    )
     _write_text_atomic(report_path, final_text)
     completeness = build_report_completeness(
         final_text,
@@ -786,6 +904,9 @@ def compile_report_contract(
         "report_schema_version": REPORT_SCHEMA_VERSION,
         "status": status,
         "report_path": str(report_path),
+        "evaluation_report_path": str(evaluation_report_path)
+        if evaluation_report_path is not None
+        else None,
         "report_completeness_path": str(receipt_path),
         "evidence_eligibility": {
             "eligible": evidence["eligible"],
@@ -799,25 +920,8 @@ def verify_report_contract(run_dir: Path | str) -> dict[str, Any]:
     root = Path(run_dir)
     report_path = _find_report_path(root)
     if report_path is None:
-        completeness = {
-            "schema_version": 1,
-            "eval_spec": EVAL_SPEC,
-            "report_schema_version": REPORT_SCHEMA_VERSION,
-            "passed": False,
-            "failure": "report_missing",
-            "missing_roll_ids": [],
-            "duplicate_roll_ids": [],
-            "untraced_roll_ids": [],
-        }
-        _write_json_atomic(root / "artifacts" / "report-completeness.json", completeness)
-        return {
-            "schema_version": 1,
-            "eval_spec": EVAL_SPEC,
-            "status": "FAIL",
-            "report_path": None,
-            "evidence_eligibility": {"eligible": False, "reasons": ["report_missing"]},
-            "report_completeness": completeness,
-        }
+        return _missing_report_result(root)
+
     _metadata_value, language, terms, names = _render_context(root)
     roll_source = load_roll_records(root)
     rendered = render_rules_and_dice(
@@ -826,9 +930,8 @@ def verify_report_contract(run_dir: Path | str) -> dict[str, Any]:
         actor_names=names,
         localized_terms=terms,
     )
-    report_text = report_path.read_text(encoding="utf-8")
     completeness = build_report_completeness(
-        report_text,
+        report_path.read_text(encoding="utf-8"),
         roll_source,
         rendered,
         play_language=language,
@@ -840,12 +943,16 @@ def verify_report_contract(run_dir: Path | str) -> dict[str, Any]:
     status = contract_status(
         completeness_passed=completeness["passed"], eligible=evidence["eligible"]
     )
+    evaluation_report = root / "artifacts" / "evaluation-report.md"
     return {
         "schema_version": 1,
         "eval_spec": EVAL_SPEC,
         "report_schema_version": REPORT_SCHEMA_VERSION,
         "status": status,
         "report_path": str(report_path),
+        "evaluation_report_path": str(evaluation_report)
+        if evaluation_report.is_file()
+        else None,
         "report_completeness_path": str(receipt_path),
         "evidence_eligibility": {
             "eligible": evidence["eligible"],
@@ -860,11 +967,11 @@ def _manifest_path(value: Path | str) -> Path:
     return path / "run-manifest.json" if path.is_dir() else path
 
 
-def _completeness_for_manifest(manifest_path: Path) -> dict[str, Any]:
+def _completeness_for_manifest(manifest_path: Path) -> dict[str, Any] | None:
     value = _read_json(
-        manifest_path.parent / "artifacts" / "report-completeness.json", {}
+        manifest_path.parent / "artifacts" / "report-completeness.json", None
     )
-    return value if isinstance(value, dict) else {}
+    return value if isinstance(value, dict) else None
 
 
 def compare_run_manifests(
@@ -875,7 +982,9 @@ def compare_run_manifests(
     candidate_path = _manifest_path(candidate)
     baseline_manifest = _read_json(baseline_path, None)
     candidate_manifest = _read_json(candidate_path, None)
-    if not isinstance(baseline_manifest, dict) or not isinstance(candidate_manifest, dict):
+    if not isinstance(baseline_manifest, dict) or not isinstance(
+        candidate_manifest, dict
+    ):
         return {
             "schema_version": 1,
             "eval_spec": EVAL_SPEC,
@@ -883,6 +992,7 @@ def compare_run_manifests(
             "identity_mismatches": ["run_manifest_missing_or_malformed"],
             "regressions": [],
         }
+
     mismatches = [
         key
         for key in IDENTITY_KEYS
@@ -896,12 +1006,34 @@ def compare_run_manifests(
             "identity_mismatches": mismatches,
             "regressions": [],
         }
+
     baseline_completeness = _completeness_for_manifest(baseline_path)
     candidate_completeness = _completeness_for_manifest(candidate_path)
-    regressions: list[dict[str, Any]] = []
-    if baseline_completeness.get("passed") is True and candidate_completeness.get(
+    if not isinstance(baseline_completeness, dict) or baseline_completeness.get(
         "passed"
     ) is not True:
+        return {
+            "schema_version": 1,
+            "eval_spec": EVAL_SPEC,
+            "status": "NON_COMPARABLE",
+            "identity_mismatches": [
+                "baseline_report_completeness_missing_or_failed"
+            ],
+            "regressions": [],
+            "baseline_report_completeness": baseline_completeness or {},
+            "candidate_report_completeness": candidate_completeness or {},
+        }
+
+    regressions: list[dict[str, Any]] = []
+    if not isinstance(candidate_completeness, dict):
+        regressions.append(
+            {
+                "key": "report_completeness_missing",
+                "baseline": True,
+                "candidate": None,
+            }
+        )
+    elif candidate_completeness.get("passed") is not True:
         regressions.append(
             {
                 "key": "report_completeness",
@@ -919,7 +1051,7 @@ def compare_run_manifests(
         "identity_mismatches": [],
         "regressions": regressions,
         "baseline_report_completeness": baseline_completeness,
-        "candidate_report_completeness": candidate_completeness,
+        "candidate_report_completeness": candidate_completeness or {},
     }
 
 
@@ -928,6 +1060,12 @@ def write_baseline_manifest(source: Path | str, output: Path | str) -> dict[str,
     payload = _read_json(source_path, None)
     if not isinstance(payload, dict):
         raise ValueError(f"run manifest missing or malformed: {source_path}")
+    receipt_path = source_path.parent / "artifacts" / "report-completeness.json"
+    receipt = _read_json(receipt_path, None)
+    if not isinstance(receipt, dict) or receipt.get("passed") is not True:
+        raise ValueError(
+            "baseline source requires a verified report-completeness receipt"
+        )
     normalized = {
         key: payload.get(key)
         for key in (
@@ -941,6 +1079,14 @@ def write_baseline_manifest(source: Path | str, output: Path | str) -> dict[str,
         if key in payload
     }
     normalized["baseline_source"] = str(source_path)
+    normalized["report_completeness_sha256"] = file_sha256(receipt_path)
+    report_path = _find_report_path(source_path.parent)
+    if report_path is not None:
+        normalized["battle_report_sha256"] = file_sha256(report_path)
     target = Path(output)
     _write_json_atomic(target, normalized)
-    return {"status": "PASS", "baseline_manifest": str(target), "payload": normalized}
+    return {
+        "status": "PASS",
+        "baseline_manifest": str(target),
+        "payload": normalized,
+    }
