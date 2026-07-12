@@ -46,7 +46,7 @@ def _report_for_host(host_id: str, *, run_id: str = "run-abc") -> str:
             "- KP model: fixture/kp-1",
             "- Player model: fixture/player-1",
             "- Decision: accept-clue-door",
-            "- State hash: a" * 64,
+            "- State hash: " + ("a" * 64),
             "- Roll ID: roll-public-001",
             "- Source comment: <!-- roll-source: campaign-rolls.jsonl -->",
             "",
@@ -216,7 +216,6 @@ def test_state_diffs_classification_comes_from_structured_values_not_prose(
         {
             **baseline_turns[0],
             "reveal_set": ["note"],
-            "state_sha256": "2" * 64,
             "narration": "This prose says the change is beneficial and should be ignored.",
         }
     ]
