@@ -1518,7 +1518,10 @@ def _run_resume(args: argparse.Namespace) -> int:
                     metadata["campaign_id"],
                     metadata["investigator_id"],
                 )
-                live_store.git_head = _current_git_head()
+                # Keep writing checkpoints under the journal/metadata HEAD so tip
+                # resume stays aligned after an invalidated code-revision resume.
+                # Restore validation still uses current HEAD via source_store.
+                live_store.git_head = str(metadata["git_head"])
             except DriverError:
                 raise
             except Exception:
