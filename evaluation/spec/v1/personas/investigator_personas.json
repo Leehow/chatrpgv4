@@ -1,0 +1,1 @@
+{"schema_version":1,"personas":[{"id":"careful_investigator","risk_tolerance":0.2,"rules_knowledge":0.7,"goal":"collect_evidence"},{"id":"reckless_investigator","risk_tolerance":0.9,"rules_knowledge":0.3,"goal":"act_fast"},{"id":"memory_challenger","risk_tolerance":0.5,"rules_knowledge":0.8,"goal":"test_continuity"}]}
