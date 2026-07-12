@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "eval_spec": "eval-spec-v1",
+  "registry_version": "2026.07.1",
+  "cases": [
+    {
+      "case_id": "evaluation-contract-core",
+      "description": "Canonical CLI, report schema v2, source-traceable dice, and baseline contract tests.",
+      "kind": "pytest_node",
+      "suites": ["smoke", "pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli", "report_contract", "roll_completeness"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_eval_contract.py",
+        "tests/test_eval_contract_hardening.py",
+        "tests/test_eval_report_schema.py",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "plugin-routing-metadata",
+      "description": "Single-track plugin routing and release metadata remain consistent.",
+      "kind": "pytest_node",
+      "suites": ["smoke", "pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_plugin_metadata.py",
+        "tests/test_release_consistency.py",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "flag-set-scene-gates",
+      "description": "Structured move commits authored flag_set gates before same-turn scene transition.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_director_apply.py::test_apply_plan_flags_set_unlocks_and_cuts",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "separator-normalized-location-tags",
+      "description": "Structured location targets match authored tags across whitespace, hyphen, and underscore separators.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_scene_graph.py::test_location_tag_separator_folding_intersects",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "investigator-state-party-seeding",
+      "description": "Linking a campaign party seeds missing investigator state and preserves existing live state.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_state.py::test_link_party_does_not_overwrite_existing_investigator_state",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "epistemic-sidecar-chapter-switch",
+      "description": "Chapter switching preserves the target scenario epistemic sidecar bundle atomically.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_chapter_switch.py::test_switch_preserves_target_epistemic_sidecars",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "stale-roll-signal-expiry",
+      "description": "Turn-aware fumble and critical pressure signals expire instead of sticking indefinitely.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_story_director.py",
+        "-q", "-p", "no:cacheprovider",
+        "-k", "last_roll or stale"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "invalidated-checkpoint-resume",
+      "description": "An explicit invalidated_segment bridge permits controlled resume across a code revision.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_interactive_playtest.py::test_git_head_binding_requires_metadata_manifest_and_current_head_to_match",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "narrator-secret-audit-persistence",
+      "description": "Tool-mode narrator attestations require and preserve valid secret-audit receipts.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_interactive_playtest.py::test_model_attestation_blockers_and_same_model_prose_fallback",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "battle-report-roll-omission",
+      "description": "Deleting a required public roll from the generated report is a hard verification failure.",
+      "kind": "pytest_node",
+      "suites": ["smoke", "pr"],
+      "gate": "hard",
+      "required_capabilities": ["report_contract", "roll_completeness"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_eval_contract.py::test_deleting_rendered_public_roll_makes_verification_fail",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "battle-report-generation-audit",
+      "description": "Canonical battle report rendering and rulebook audit remain regression clean.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["report_contract"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_playtest_report.py",
+        "tests/test_playtest_audit.py",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "completion-audit-contract",
+      "description": "Completion audit fails closed on missing active evidence and stale suite artifacts.",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["report_contract"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_playtest_completion_audit.py",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    }
+  ]
+}
