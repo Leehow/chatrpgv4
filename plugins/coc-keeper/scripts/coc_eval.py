@@ -19,6 +19,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_eval_cases as cases
+import coc_eval_calibration as calibration
 import coc_eval_compare as compare
 import coc_eval_contract as contract
 import coc_eval_matrix as matrix
@@ -387,6 +388,35 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write matrix-plan.json without executing READY cells",
     )
+
+    calibrate = subparsers.add_parser(
+        "calibrate",
+        help="validate blinded human calibration reviews and compute agreement",
+    )
+    calibrate.add_argument(
+        "--reviews",
+        type=Path,
+        required=True,
+        help="path to a reviews JSON file or directory of review JSON files",
+    )
+    calibrate.add_argument("--root", type=Path, default=Path.cwd())
+
+    holdouts = subparsers.add_parser(
+        "holdouts",
+        help="validate a separately supplied holdout bundle against the repository manifest",
+    )
+    holdouts.add_argument(
+        "--manifest",
+        type=Path,
+        help="holdout manifest path (defaults to evaluation/spec/v1/holdout-manifest.json)",
+    )
+    holdouts.add_argument(
+        "--bundle",
+        type=Path,
+        required=True,
+        help="directory containing holdout artifacts referenced by the manifest",
+    )
+    holdouts.add_argument("--root", type=Path, default=Path.cwd())
     return parser
 
 
@@ -428,6 +458,22 @@ def main(argv: list[str] | None = None) -> int:
                 suite=args.suite,
                 output=args.output,
                 plan_only=bool(args.plan_only),
+            )
+        elif args.command == "calibrate":
+            payload = calibration.run_calibrate_cli(
+                reviews=args.reviews,
+                root=args.root,
+            )
+        elif args.command == "holdouts":
+            manifest = args.manifest
+            if manifest is None:
+                manifest = (
+                    Path(args.root) / "evaluation" / "spec" / "v1" / "holdout-manifest.json"
+                )
+            payload = calibration.run_holdouts_cli(
+                manifest=manifest,
+                bundle=args.bundle,
+                root=args.root,
             )
         else:
             raise ValueError(f"unsupported command: {args.command}")
