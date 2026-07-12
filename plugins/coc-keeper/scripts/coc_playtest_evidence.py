@@ -25,6 +25,13 @@ LEDGER_OUTCOMES = frozenset(
     {"external_success", "template", "template_fallback", "runner_failure"}
 )
 FALLBACK_KINDS = frozenset({"template", "prose_degradation", "secret_audit"})
+RUN_KINDS = frozenset({"diagnostic_spoiler_run", "blind_actual_play"})
+EXPECTED_INTERACTIVE_NARRATOR_MODEL = {"provider": "zhipu-coding", "id": "glm-5.2"}
+_TRUSTED_KIND_BY_ROLE = {
+    "player": "external_model_bridge",
+    "narrator": "external_model_bridge",
+    "interactive_driver": "python_cli",
+}
 _FIXED_ARTIFACT_BASENAMES = {
     "evidence_receipt": "evidence.json",
     "invocation_ledger": "runner-invocations.jsonl",
@@ -172,6 +179,8 @@ def _normalize_model_identity(value: Any) -> dict[str, str] | None:
 
 def _load_trusted_registry(
     findings: list[dict[str, str]],
+    *,
+    roles: tuple[str, ...] | None = None,
 ) -> dict[str, dict[str, Any]]:
     try:
         payload = json.loads(TRUSTED_RUNNER_REGISTRY_PATH.read_text(encoding="utf-8"))
@@ -185,17 +194,20 @@ def _load_trusted_registry(
     if payload.get("schema_version") != 1 or not isinstance(runners, dict):
         _finding(findings, "trusted_runner_registry_invalid", "trusted_runner_registry")
         return {}
+    selected = roles or ("player", "narrator", "interactive_driver")
     valid: dict[str, dict[str, Any]] = {}
-    for role in ("player", "narrator"):
+    for role in selected:
         entry = runners.get(role)
         if not isinstance(entry, dict):
             _finding(findings, "trusted_runner_registry_invalid", f"registry.{role}")
             continue
+        expected_kind = _TRUSTED_KIND_BY_ROLE.get(role)
         canonical = (REPO_ROOT / str(entry.get("path") or "")).resolve()
         expected = entry.get("sha256")
         if (
             entry.get("role") != role
-            or entry.get("kind") != "external_model_bridge"
+            or expected_kind is None
+            or entry.get("kind") != expected_kind
             or not isinstance(entry.get("identity"), str)
             or not entry["identity"].strip()
             or not canonical.is_file()
@@ -211,7 +223,7 @@ def _load_trusted_registry(
 def observe_runner(run_dir: Path, role: str, runner_path: Path | str | None) -> dict[str, Any]:
     """Describe an observed path using repository-owned trust data only."""
     findings: list[dict[str, str]] = []
-    registry = _load_trusted_registry(findings)
+    registry = _load_trusted_registry(findings, roles=(role,))
     if runner_path is None:
         return {
             "role": role,
@@ -439,6 +451,285 @@ def _evaluate_ledger(
     return runners, external_model_turns, fallback_turns
 
 
+def _canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _validate_action_ledger_chain(
+    path: Path | None,
+    findings: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    rows = _read_jsonl(path, findings, "action_ledger_malformed")
+    if path is None:
+        _finding(findings, "action_ledger_missing", "artifacts.action_ledger")
+        return []
+    if not rows:
+        _finding(findings, "action_ledger_empty", "artifacts.action_ledger")
+        return []
+    previous = "0" * 64
+    for index, row in enumerate(rows):
+        field = f"action_ledger.{index}"
+        turn = row.get("turn_number")
+        previous_sha = row.get("previous_sha256")
+        row_sha = row.get("row_sha256")
+        action = row.get("action")
+        if (
+            not isinstance(turn, int)
+            or isinstance(turn, bool)
+            or turn != index + 1
+            or previous_sha != previous
+            or not isinstance(row_sha, str)
+            or not isinstance(action, dict)
+        ):
+            _finding(findings, "action_ledger_chain_invalid", field)
+            return rows
+        expected = _sha256_bytes(
+            _canonical_json_bytes(
+                {key: value for key, value in row.items() if key != "row_sha256"}
+            )
+        )
+        if row_sha != expected:
+            _finding(findings, "action_ledger_chain_invalid", f"{field}.row_sha256")
+            return rows
+        previous = row_sha
+    return rows
+
+
+def _validate_checkpoint_chain(
+    run_dir: Path,
+    artifacts: dict[str, Any],
+    action_rows: list[dict[str, Any]],
+    findings: list[dict[str, str]],
+) -> None:
+    checkpoint_artifacts = artifacts.get("checkpoints")
+    if not isinstance(checkpoint_artifacts, list) or not checkpoint_artifacts:
+        _finding(findings, "checkpoint_chain_missing", "artifacts.checkpoints")
+        return
+    if len(checkpoint_artifacts) != len(action_rows):
+        _finding(findings, "checkpoint_chain_mismatch", "artifacts.checkpoints")
+    previous_chain = "0" * 64
+    for index, artifact in enumerate(checkpoint_artifacts):
+        field = f"artifacts.checkpoints.{index}"
+        resolved = _validate_artifact(
+            run_dir,
+            artifact,
+            findings,
+            field=field,
+            missing_code="checkpoint_missing",
+            mismatch_code="checkpoint_hash_mismatch",
+        )
+        if resolved is None:
+            continue
+        try:
+            manifest = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            _finding(findings, "checkpoint_malformed", field)
+            continue
+        if not isinstance(manifest, dict):
+            _finding(findings, "checkpoint_malformed", field)
+            continue
+        turn = manifest.get("turn_number")
+        chain = manifest.get("action_chain_sha256")
+        if (
+            not isinstance(turn, int)
+            or isinstance(turn, bool)
+            or turn != index + 1
+            or not isinstance(chain, str)
+        ):
+            _finding(findings, "checkpoint_chain_invalid", field)
+            continue
+        if index < len(action_rows) and chain != action_rows[index].get("row_sha256"):
+            _finding(findings, "checkpoint_action_mismatch", field)
+            continue
+        if index > 0 and previous_chain == "0" * 64:
+            _finding(findings, "checkpoint_chain_invalid", field)
+        previous_chain = chain if isinstance(chain, str) else previous_chain
+
+
+def _validate_interactive_driver(
+    run_dir: Path,
+    artifacts: dict[str, Any],
+    registry: dict[str, dict[str, Any]],
+    findings: list[dict[str, str]],
+) -> dict[str, Any]:
+    entry = registry.get("interactive_driver")
+    observed = artifacts.get("interactive_driver")
+    if not isinstance(observed, dict):
+        _finding(findings, "interactive_driver_missing", "artifacts.interactive_driver")
+        return {"kind": "missing", "identity": None, "sha256": None}
+    resolved, _stored = _artifact_path(run_dir, observed.get("path"))
+    # Driver path is repository-owned; allow absolute path to the trusted script.
+    raw_path = observed.get("path")
+    candidate = Path(str(raw_path)).resolve() if isinstance(raw_path, (str, Path)) else None
+    stored_hash = observed.get("sha256")
+    if entry is None:
+        _finding(findings, "interactive_driver_untrusted", "artifacts.interactive_driver")
+        return {"kind": "unknown", "identity": None, "sha256": stored_hash}
+    if (
+        candidate is None
+        or not candidate.is_file()
+        or not isinstance(stored_hash, str)
+        or str(candidate) != entry.get("resolved_path")
+        or sha256_path(candidate) != entry.get("sha256")
+        or stored_hash != entry.get("sha256")
+    ):
+        _finding(findings, "interactive_driver_untrusted", "artifacts.interactive_driver")
+        return {
+            "kind": "unknown",
+            "identity": None,
+            "sha256": stored_hash if isinstance(stored_hash, str) else None,
+        }
+    return {
+        "kind": entry["kind"],
+        "identity": entry["identity"],
+        "sha256": entry["sha256"],
+        "path": entry["resolved_path"],
+    }
+
+
+def _validate_interactive_narrator_models(
+    ledger_rows: list[dict[str, Any]],
+    registry: dict[str, dict[str, Any]],
+    findings: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    models: list[dict[str, str]] = []
+    narrator_rows = [row for row in ledger_rows if row.get("role") == "narrator"]
+    if not narrator_rows:
+        _finding(findings, "interactive_narrator_missing", "invocation_ledger.narrator")
+        return models
+    for index, row in enumerate(narrator_rows):
+        field = f"invocation_ledger.narrator.{index}"
+        if row.get("outcome") != "external_success":
+            _finding(findings, "interactive_narrator_not_external", field)
+            continue
+        if not _row_matches_registry(row, registry.get("narrator")):
+            _finding(findings, "untrusted_narrator_runner_used", f"{field}.runner_path")
+            continue
+        model = _normalize_model_identity(row.get("model_identity"))
+        if model is None:
+            _finding(findings, "model_identity_missing", f"{field}.model_identity")
+            continue
+        if model != EXPECTED_INTERACTIVE_NARRATOR_MODEL:
+            _finding(findings, "interactive_narrator_model_mismatch", f"{field}.model_identity")
+            continue
+        if row.get("fallback_kind") is not None:
+            _finding(findings, "interactive_narrator_fallback", f"{field}.fallback_kind")
+            continue
+        audit_validation = coc_secret_audit.validate_audit_receipt(row.get("secret_audit"))
+        if not audit_validation.get("valid") or not audit_validation.get("passed"):
+            _finding(findings, "narrator_secret_audit_invalid", f"{field}.secret_audit")
+            continue
+        if model not in models:
+            models.append(model)
+    return models
+
+
+def _evaluate_interactive_evidence(
+    run_dir: Path,
+    validated: dict[str, Any],
+    findings: list[dict[str, str]],
+) -> None:
+    run_kind = validated.get("run_kind")
+    if run_kind not in RUN_KINDS:
+        _finding(findings, "run_kind_invalid", "run_kind")
+        return
+    registry = _load_trusted_registry(
+        findings, roles=("interactive_driver", "narrator")
+    )
+    artifacts = validated.get("artifacts")
+    if not isinstance(artifacts, dict):
+        artifacts = {}
+        validated["artifacts"] = artifacts
+
+    driver = _validate_interactive_driver(run_dir, artifacts, registry, findings)
+    _validate_artifact(
+        run_dir,
+        artifacts.get("transcript"),
+        findings,
+        field="artifacts.transcript",
+        missing_code="transcript_hash_missing",
+        mismatch_code="transcript_hash_mismatch",
+    )
+    _validate_artifact(
+        run_dir,
+        artifacts.get("player_view"),
+        findings,
+        field="artifacts.player_view",
+        missing_code="player_view_hash_missing",
+        mismatch_code="player_view_hash_mismatch",
+    )
+    action_path = _validate_artifact(
+        run_dir,
+        artifacts.get("action_ledger"),
+        findings,
+        field="artifacts.action_ledger",
+        missing_code="action_ledger_missing",
+        mismatch_code="action_ledger_hash_mismatch",
+    )
+    action_rows = _validate_action_ledger_chain(action_path, findings)
+    _validate_checkpoint_chain(run_dir, artifacts, action_rows, findings)
+
+    ledger_path = _validate_artifact(
+        run_dir,
+        artifacts.get("invocation_ledger"),
+        findings,
+        field="artifacts.invocation_ledger",
+        missing_code="invocation_ledger_missing",
+        mismatch_code="invocation_ledger_hash_mismatch",
+    )
+    ledger_rows = _read_jsonl(ledger_path, findings, "invocation_ledger_malformed")
+    models = _validate_interactive_narrator_models(ledger_rows, registry, findings)
+
+    event_logs = artifacts.get("event_logs")
+    if not isinstance(event_logs, list) or not event_logs:
+        _finding(findings, "event_log_hash_missing", "artifacts.event_logs")
+    else:
+        for index, artifact in enumerate(event_logs):
+            _validate_artifact(
+                run_dir,
+                artifact,
+                findings,
+                field=f"artifacts.event_logs.{index}",
+                missing_code="event_log_hash_missing",
+                mismatch_code="event_log_hash_mismatch",
+            )
+
+    validated["runners"] = {
+        "interactive_driver": driver,
+        "narrator": {
+            "kind": registry["narrator"]["kind"] if "narrator" in registry else "unknown",
+            "identity": registry["narrator"]["identity"] if "narrator" in registry else None,
+            "sha256": registry["narrator"]["sha256"] if "narrator" in registry else None,
+            "model_identities": models,
+        },
+    }
+    validated["external_model_turns"] = len(
+        [
+            row
+            for row in ledger_rows
+            if row.get("role") == "narrator" and row.get("outcome") == "external_success"
+        ]
+    )
+    validated["fallback_turns"] = sum(
+        1 for row in ledger_rows if row.get("fallback_kind") in FALLBACK_KINDS
+    )
+    if run_kind == "diagnostic_spoiler_run":
+        _finding(
+            findings,
+            "diagnostic_spoiler_run_not_battle_report_eligible",
+            "run_kind",
+        )
+
+
 def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[str, Any]:
     """Recompute trust, counts, and current artifact hashes from the ledger."""
     root = Path(run_dir)
@@ -450,7 +741,20 @@ def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[st
     ):
         _finding(findings, "evidence_schema_invalid", "schema_version")
     _validate_timestamps(validated, findings)
-    registry = _load_trusted_registry(findings)
+
+    run_kind = validated.get("run_kind")
+    if run_kind is not None:
+        _evaluate_interactive_evidence(root, validated, findings)
+        reasons = list(dict.fromkeys(item["code"] for item in findings))
+        validated["validation_findings"] = findings
+        validated["evidence_reasons"] = reasons
+        validated["eligible_as_gameplay_evidence"] = (
+            run_kind == "blind_actual_play" and not reasons
+        )
+        validated["run_kind"] = run_kind if run_kind in RUN_KINDS else None
+        return validated
+
+    registry = _load_trusted_registry(findings, roles=("player", "narrator"))
 
     artifacts = validated.get("artifacts")
     if not isinstance(artifacts, dict):
@@ -512,25 +816,52 @@ def build_evidence_receipt(
     source = provenance if isinstance(provenance, dict) else {}
     event_paths = source.get("event_log_paths")
     event_paths = event_paths if isinstance(event_paths, list) else []
+    run_kind = source.get("run_kind")
+    artifacts: dict[str, Any] = {
+        "transcript": _build_artifact(root, source.get("transcript_path")),
+        "invocation_ledger": _build_artifact(
+            root, source.get("invocation_ledger_path")
+        ),
+        "event_logs": [_build_artifact(root, path) for path in event_paths],
+    }
+    if run_kind in RUN_KINDS:
+        artifacts["player_view"] = _build_artifact(root, source.get("player_view_path"))
+        artifacts["action_ledger"] = _build_artifact(
+            root, source.get("action_ledger_path")
+        )
+        checkpoint_paths = source.get("checkpoint_manifest_paths")
+        checkpoint_paths = checkpoint_paths if isinstance(checkpoint_paths, list) else []
+        artifacts["checkpoints"] = [
+            _build_artifact(root, path) for path in checkpoint_paths
+        ]
+        driver_path = source.get("interactive_driver_path")
+        if driver_path is None:
+            driver_path = str(
+                (REPO_ROOT / "plugins/coc-keeper/scripts/coc_interactive_playtest.py")
+                .resolve()
+            )
+        resolved_driver = Path(driver_path).resolve()
+        artifacts["interactive_driver"] = {
+            "path": str(resolved_driver),
+            "sha256": sha256_path(resolved_driver) if resolved_driver.is_file() else None,
+        }
     receipt: dict[str, Any] = {
         "schema_version": EVIDENCE_SCHEMA_VERSION,
         "started_at": source.get("started_at"),
         "ended_at": source.get("ended_at"),
         "user_claimed_live": source.get("user_claimed_live") is True,
+        "run_kind": run_kind if run_kind in RUN_KINDS else None,
         "runners": {},
         "external_model_turns": 0,
         "fallback_turns": 0,
-        "artifacts": {
-            "transcript": _build_artifact(root, source.get("transcript_path")),
-            "invocation_ledger": _build_artifact(
-                root, source.get("invocation_ledger_path")
-            ),
-            "event_logs": [_build_artifact(root, path) for path in event_paths],
-        },
+        "artifacts": artifacts,
         "validation_findings": [],
         "eligible_as_gameplay_evidence": False,
         "evidence_reasons": [],
     }
+    if receipt["run_kind"] is None and "run_kind" in source and source.get("run_kind") is not None:
+        # Preserve invalid declared run_kind so validation can fail closed.
+        receipt["run_kind"] = source.get("run_kind")
     return validate_evidence_receipt(root, receipt)
 
 

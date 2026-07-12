@@ -349,12 +349,21 @@ def _load_context(run_dir: Path) -> dict[str, Any]:
         "feedback": _read_jsonl(run_dir / "player-feedback.jsonl"),
         "chase_state": _read_json(save_dir / "chase.json", {}) if save_dir else {},
         "combat_state": _read_json(save_dir / "combat.json", {}) if save_dir else {},
-        "battle_report": _read_text(
-            run_dir / "artifacts" / "battle-report.md"
-            if (run_dir / "artifacts" / "battle-report.md").exists()
-            else run_dir / "artifacts" / "verification-sample.md"
-        ),
+        "battle_report": _read_text(_select_play_report_path(run_dir)),
     }
+
+
+def _select_play_report_path(run_dir: Path) -> Path:
+    artifacts = run_dir / "artifacts"
+    for name in (
+        "battle-report.md",
+        "diagnostic-play-report.md",
+        "verification-sample.md",
+    ):
+        candidate = artifacts / name
+        if candidate.is_file():
+            return candidate
+    return artifacts / "verification-sample.md"
 
 
 def _finding(code: str, cause: str, severity: str, evidence: str, recommendation: str) -> Finding:

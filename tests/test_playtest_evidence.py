@@ -478,3 +478,223 @@ def test_tampered_receipt_downgrades_evidence_sensitive_report_metadata(
     assert "Player Profile: unattested_runner" in text
     assert "Audit Profile: player_bridge_match" in text
     assert "attested_external_model_playtest" not in text
+
+
+def _canonical_json(value) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+
+
+def _action_row(turn: int, previous: str, action: dict) -> dict:
+    row = {
+        "turn_number": turn,
+        "previous_sha256": previous,
+        "action": action,
+        "events": [],
+        "state_before": {"sha256": "a" * 64},
+        "state_after": {"sha256": "b" * 64},
+        "provenance": {"recording_mode": "sync"},
+    }
+    row["row_sha256"] = _sha256(_canonical_json(row))
+    return row
+
+
+def _complete_interactive_provenance(run_dir: Path, *, run_kind: str) -> dict:
+    registry = json.loads(TRUSTED_RUNNER_REGISTRY.read_text(encoding="utf-8"))[
+        "runners"
+    ]
+    driver = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_interactive_playtest.py"
+    transcript = (
+        b'{"turn":1,"role":"player","text":"look"}\n'
+        b'{"turn":1,"role":"keeper","text":"rain"}\n'
+    )
+    player_view = b'{"turn":1,"visible":true}\n'
+    events = b'{"event_type":"clue_reveal","clue_id":"c1"}\n'
+    _write_bytes(run_dir / "transcript.jsonl", transcript)
+    _write_bytes(run_dir / "player-view.jsonl", player_view)
+    _write_bytes(run_dir / "logs" / "events.jsonl", events)
+
+    previous = "0" * 64
+    rows = []
+    for turn in (1, 2):
+        row = _action_row(turn, previous, {"kind": "turn", "text": f"act-{turn}"})
+        rows.append(row)
+        previous = row["row_sha256"]
+        manifest = {
+            "schema_version": 2,
+            "turn_number": turn,
+            "action_chain_sha256": row["row_sha256"],
+        }
+        path = run_dir / "checkpoints" / f"turn-{turn:06d}" / "manifest.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+    (run_dir / "action-journal.jsonl").write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    narrator = registry["narrator"]
+    audit_mod = _load("coc_secret_audit_interactive", SECRET_AUDIT_SCRIPT)
+    ledger_row = {
+        "schema_version": 1,
+        "role": "narrator",
+        "attempt": 1,
+        "transcript_turn": 1,
+        "runner_kind": narrator["kind"],
+        "runner_identity": narrator["identity"],
+        "runner_path": str(CANONICAL_RUNNERS["narrator"].resolve()),
+        "runner_sha256": narrator["sha256"],
+        "model_identity": {"provider": "zhipu-coding", "id": "glm-5.2"},
+        "outcome": "external_success",
+        "response_mode": "tool",
+        "fallback_kind": None,
+        "secret_audit": audit_mod.audit_secret_claims([], [], []),
+    }
+    (run_dir / "runner-invocations.jsonl").write_text(
+        json.dumps(ledger_row, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "started_at": "2026-07-12T01:02:03Z",
+        "ended_at": "2026-07-12T01:03:04Z",
+        "user_claimed_live": True,
+        "run_kind": run_kind,
+        "transcript_path": "transcript.jsonl",
+        "player_view_path": "player-view.jsonl",
+        "action_ledger_path": "action-journal.jsonl",
+        "checkpoint_manifest_paths": [
+            "checkpoints/turn-000001/manifest.json",
+            "checkpoints/turn-000002/manifest.json",
+        ],
+        "invocation_ledger_path": "runner-invocations.jsonl",
+        "event_log_paths": ["logs/events.jsonl"],
+        "interactive_driver_path": str(driver.resolve()),
+    }
+
+
+def test_interactive_run_b_eligible_when_trusted_chain_attests(tmp_path, evidence):
+    provenance = _complete_interactive_provenance(
+        tmp_path, run_kind="blind_actual_play"
+    )
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+    assert receipt["run_kind"] == "blind_actual_play"
+    assert receipt["eligible_as_gameplay_evidence"] is True
+    assert receipt["runners"]["interactive_driver"]["sha256"] == (
+        json.loads(TRUSTED_RUNNER_REGISTRY.read_text(encoding="utf-8"))["runners"][
+            "interactive_driver"
+        ]["sha256"]
+    )
+    assert receipt["runners"]["narrator"]["model_identities"] == [
+        {"provider": "zhipu-coding", "id": "glm-5.2"}
+    ]
+
+
+def test_interactive_run_a_never_battle_report_eligible(tmp_path, evidence):
+    provenance = _complete_interactive_provenance(
+        tmp_path, run_kind="diagnostic_spoiler_run"
+    )
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+    assert receipt["run_kind"] == "diagnostic_spoiler_run"
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert "diagnostic_spoiler_run_not_battle_report_eligible" in receipt["evidence_reasons"]
+
+
+def test_interactive_tampered_action_breaks_chain(tmp_path, evidence):
+    provenance = _complete_interactive_provenance(
+        tmp_path, run_kind="blind_actual_play"
+    )
+    path = tmp_path / "action-journal.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    rows[0]["action"] = {"kind": "turn", "text": "tampered"}
+    path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert "action_ledger_chain_invalid" in receipt["evidence_reasons"]
+
+
+def test_interactive_missing_checkpoint_fails(tmp_path, evidence):
+    provenance = _complete_interactive_provenance(
+        tmp_path, run_kind="blind_actual_play"
+    )
+    (tmp_path / "checkpoints" / "turn-000002" / "manifest.json").unlink()
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert "checkpoint_missing" in receipt["evidence_reasons"]
+
+
+def test_interactive_glm_model_mismatch_fails(tmp_path, evidence):
+    provenance = _complete_interactive_provenance(
+        tmp_path, run_kind="blind_actual_play"
+    )
+
+    def mutate(rows):
+        rows[0]["model_identity"] = {"provider": "openai", "id": "gpt-5"}
+
+    _rewrite_ledger(tmp_path, mutate)
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert "interactive_narrator_model_mismatch" in receipt["evidence_reasons"]
+
+
+def test_self_declared_run_b_without_trusted_driver_fails(tmp_path, evidence):
+    provenance = _complete_interactive_provenance(
+        tmp_path, run_kind="blind_actual_play"
+    )
+    forged = tmp_path / "forged-driver.py"
+    forged.write_text("print('nope')\n", encoding="utf-8")
+    provenance["interactive_driver_path"] = str(forged)
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert "interactive_driver_untrusted" in receipt["evidence_reasons"]
+
+
+def test_run_a_report_uses_diagnostic_filename_and_spoiler_heading(tmp_path, evidence):
+    provenance = _complete_interactive_provenance(
+        tmp_path, run_kind="diagnostic_spoiler_run"
+    )
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+    evidence.write_evidence_receipt(tmp_path, receipt)
+    (tmp_path / "playtest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "diag-run",
+                "campaign_id": "diag-run",
+                "play_language": "en-US",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "artifacts" / "battle-report.md").write_text("stale\n", encoding="utf-8")
+    report = _load("coc_playtest_report_diag_test", REPORT_SCRIPT)
+    path = report.generate_battle_report(tmp_path)
+    assert path.name == "diagnostic-play-report.md"
+    text = path.read_text(encoding="utf-8")
+    assert "DIAGNOSTIC SPOILER-AWARE" in text
+    assert not (tmp_path / "artifacts" / "battle-report.md").exists()
+
+
+def test_run_b_eligible_report_is_battle_report(tmp_path, evidence):
+    provenance = _complete_interactive_provenance(
+        tmp_path, run_kind="blind_actual_play"
+    )
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+    evidence.write_evidence_receipt(tmp_path, receipt)
+    (tmp_path / "playtest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "blind-run",
+                "campaign_id": "blind-run",
+                "play_language": "en-US",
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = _load("coc_playtest_report_blind_test", REPORT_SCRIPT)
+    path = report.generate_battle_report(tmp_path)
+    assert path.name == "battle-report.md"
+    assert "evidence-eligibility: eligible" in path.read_text(encoding="utf-8")

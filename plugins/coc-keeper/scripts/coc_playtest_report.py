@@ -109,12 +109,21 @@ def _artifacts_dir(run_dir: Path) -> Path:
 def _write_report_artifact_atomic(
     run_dir: Path,
     basename: str,
-    sibling_basename: str,
+    sibling_basenames: list[str] | str,
     text: str,
 ) -> Path:
     """Write a fixed report artifact without following attacker-controlled links."""
-    if basename not in {"battle-report.md", "verification-sample.md"}:
+    allowed = {"battle-report.md", "verification-sample.md", "diagnostic-play-report.md"}
+    if basename not in allowed:
         raise ValueError("unsupported report artifact")
+    siblings = (
+        [sibling_basenames]
+        if isinstance(sibling_basenames, str)
+        else list(sibling_basenames)
+    )
+    for sibling in siblings:
+        if sibling not in allowed:
+            raise ValueError("unsupported report artifact sibling")
     root = Path(run_dir).resolve(strict=True)
     artifacts = root / "artifacts"
     try:
@@ -177,10 +186,13 @@ def _write_report_artifact_atomic(
         os.replace(temp_name, basename, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
         replaced = True
         verify_directory()
-        try:
-            os.unlink(sibling_basename, dir_fd=directory_fd)
-        except FileNotFoundError:
-            pass
+        for sibling_basename in siblings:
+            if sibling_basename == basename:
+                continue
+            try:
+                os.unlink(sibling_basename, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
         os.fsync(directory_fd)
         verify_directory()
     finally:
@@ -2501,7 +2513,26 @@ def generate_battle_report(run_dir: Path) -> Path:
     evidence_receipt = read_evidence_receipt(run_dir)
     # Classification is derived only from the recomputed receipt. Metadata is
     # descriptive and cannot self-attest an unknown/scripted runner as actual play.
-    non_gameplay_sample = evidence_receipt.get("eligible_as_gameplay_evidence") is not True
+    run_kind = evidence_receipt.get("run_kind")
+    eligible = evidence_receipt.get("eligible_as_gameplay_evidence") is True
+    if run_kind == "diagnostic_spoiler_run":
+        report_basename = "diagnostic-play-report.md"
+        non_gameplay_sample = True
+        diagnostic_spoiler = True
+    elif run_kind == "blind_actual_play" and eligible:
+        report_basename = "battle-report.md"
+        non_gameplay_sample = False
+        diagnostic_spoiler = False
+    elif run_kind == "blind_actual_play":
+        report_basename = "verification-sample.md"
+        non_gameplay_sample = True
+        diagnostic_spoiler = False
+    else:
+        report_basename = (
+            "verification-sample.md" if not eligible else "battle-report.md"
+        )
+        non_gameplay_sample = not eligible
+        diagnostic_spoiler = False
     display_metadata = {
         **metadata,
         **_evidence_sensitive_metadata(evidence_receipt, metadata),
@@ -2563,9 +2594,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         if context["campaign_dir"]
         else {}
     )
-    output = _artifacts_dir(run_dir) / (
-        "verification-sample.md" if non_gameplay_sample else "battle-report.md"
-    )
+    output = _artifacts_dir(run_dir) / report_basename
 
     campaign_title = _first_value(
         "unknown",
@@ -2761,11 +2790,31 @@ def generate_battle_report(run_dir: Path) -> Path:
     )
 
     body = [
-        ("# NON-GAMEPLAY Verification Sample"
-         if non_gameplay_sample else _report_heading(1, "Battle Report", language_profile)),
+        (
+            "# DIAGNOSTIC SPOILER-AWARE Play Report"
+            if diagnostic_spoiler
+            else (
+                "# NON-GAMEPLAY Verification Sample"
+                if non_gameplay_sample
+                else _report_heading(1, "Battle Report", language_profile)
+            )
+        ),
         "",
-        *(["**NON-GAMEPLAY verification evidence. This scripted sample is not an actual-play battle report.**", ""]
-          if non_gameplay_sample else []),
+        *(
+            [
+                "**DIAGNOSTIC spoiler-aware evidence. This is not a spoiler-blind actual-play battle report.**",
+                "",
+            ]
+            if diagnostic_spoiler
+            else (
+                [
+                    "**NON-GAMEPLAY verification evidence. This scripted sample is not an actual-play battle report.**",
+                    "",
+                ]
+                if non_gameplay_sample
+                else []
+            )
+        ),
         _report_heading(2, "Run Setup", language_profile),
         _report_field("Run ID", metadata.get("run_id", "unknown"), language_profile),
         _report_field("Campaign ID", metadata.get("campaign_id", "unknown"), language_profile),
@@ -2891,14 +2940,19 @@ def generate_battle_report(run_dir: Path) -> Path:
     ]
     # Drop empty strings left by optional sections that emitted nothing.
     body = [line for line in body if line is not None]
-    sibling_name = (
-        "battle-report.md" if output.name == "verification-sample.md"
-        else "verification-sample.md"
-    )
+    siblings = [
+        name
+        for name in (
+            "battle-report.md",
+            "verification-sample.md",
+            "diagnostic-play-report.md",
+        )
+        if name != output.name
+    ]
     return _write_report_artifact_atomic(
         run_dir,
         output.name,
-        sibling_name,
+        siblings,
         "\n".join(body),
     )
 
