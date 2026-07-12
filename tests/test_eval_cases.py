@@ -11,6 +11,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_cases.py"
 CONTRACT_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_contract.py"
+CLI_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval.py"
 
 
 def _load(name: str, path: Path):
@@ -29,6 +30,10 @@ def cases_module():
 
 def contract_module():
     return _load("coc_eval_contract_cases_test", CONTRACT_PATH)
+
+
+def cli_module():
+    return _load("coc_eval_cli_cases_test", CLI_PATH)
 
 
 def _write(path: Path, payload: object) -> Path:
@@ -213,3 +218,60 @@ def test_suite_status_fails_closed_for_required_hard_case():
     assert cases.aggregate_suite_status(
         [{"case_id": "a", "gate": "hard", "status": "INELIGIBLE"}]
     ) == "INELIGIBLE"
+
+
+def test_cli_run_suite_uses_registry_and_writes_case_results(
+    tmp_path: Path, capsys
+):
+    cli = cli_module()
+    root = tmp_path / "repo"
+    spec = root / "evaluation" / "spec" / "v1"
+    spec.mkdir(parents=True)
+    _write(
+        spec / "benchmark-manifest.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "benchmark_version": "fixture-1",
+            "report_schema_version": 2,
+            "implemented_capabilities": ["canonical_cli", "case_registry"],
+            "suites": {
+                "smoke": {
+                    "description": "fixture",
+                    "required_capabilities": ["canonical_cli", "case_registry"],
+                    "commands": [],
+                }
+            },
+        },
+    )
+    _write(
+        spec / "case-registry.json",
+        _registry(
+            [
+                _case(
+                    kind="python_command",
+                    command=["python3", "-c", "print('registry-case-ok')"],
+                    required_capabilities=["canonical_cli"],
+                )
+            ]
+        ),
+    )
+    output = tmp_path / "out"
+
+    code = cli.main(
+        ["run", "--suite", "smoke", "--root", str(root), "--output", str(output)]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["status"] == "PASS"
+    assert payload["case_results"][0]["case_id"] == "fixture-case"
+    assert payload["case_results"][0]["status"] == "PASS"
+    case_results = json.loads(
+        (output / "case-results.json").read_text(encoding="utf-8")
+    )
+    assert case_results["status"] == "PASS"
+    assert case_results["cases"][0]["case_id"] == "fixture-case"
+    manifest = json.loads((output / "run-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["case_results_path"] == "case-results.json"
+    assert manifest["case_ids"] == ["fixture-case"]
