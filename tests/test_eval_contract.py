@@ -428,11 +428,11 @@ def test_project_rules_require_canonical_eval_cli():
     assert "missing required public roll" in text
 
 
-def test_coc_eval_skill_forbids_handwritten_substitute_reports():
-    path = REPO / "plugins" / "coc-keeper" / "skills" / "coc-eval" / "SKILL.md"
-    assert path.is_file()
+def test_cursor_adapter_routes_evaluation_without_parallel_skill_tree():
+    path = REPO / ".cursor" / "skills" / "coc-keeper" / "SKILL.md"
     text = path.read_text(encoding="utf-8")
 
     assert "coc_eval.py run --suite" in text
     assert "must not rewrite" in text.lower()
     assert "report-completeness.json" in text
+    assert not (REPO / "plugins" / "coc-keeper" / "skills" / "coc-eval").exists()
