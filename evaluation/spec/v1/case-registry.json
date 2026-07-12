@@ -5,16 +5,17 @@
   "cases": [
     {
       "case_id": "evaluation-contract-core",
-      "description": "Canonical CLI, report schema v2, source-traceable dice, and baseline contract tests.",
+      "description": "Canonical CLI, case registry, report schema v2, source-traceable dice, and baseline contract tests.",
       "kind": "pytest_node",
       "suites": ["smoke", "pr"],
       "gate": "hard",
-      "required_capabilities": ["canonical_cli", "report_contract", "roll_completeness"],
+      "required_capabilities": ["canonical_cli", "case_registry", "report_contract", "roll_completeness"],
       "command": [
         "python3", "-m", "pytest",
         "tests/test_eval_contract.py",
         "tests/test_eval_contract_hardening.py",
         "tests/test_eval_report_schema.py",
+        "tests/test_eval_cases.py",
         "-q", "-p", "no:cacheprovider"
       ],
       "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
