@@ -25,11 +25,12 @@ def _load(name: str, rel: str):
 coc_module_registry = _load("coc_module_registry", str(SCRIPTS / "coc_module_registry.py"))
 coc_scenario_compile = _load("coc_scenario_compile", str(SCRIPTS / "coc_scenario_compile.py"))
 coc_state = _load("coc_state", str(SCRIPTS / "coc_state.py"))
+coc_pdf_source = _load("coc_pdf_source", str(SCRIPTS / "coc_pdf_source.py"))
 
 
 def _make_valid_scenario(tmp_path: Path, *, with_identity: bool = True) -> Path:
     sc = tmp_path / "scenario"
-    sc.mkdir()
+    sc.mkdir(parents=True, exist_ok=True)
     meta = {
         "schema_version": 1,
         "scenario_id": "demo-module",
@@ -811,3 +812,158 @@ def test_load_registry_migrates_chapter_alias_keys(tmp_path: Path):
     assert loaded["alias_index"][chapter_key] == "masks-of-nyarlathotep-ch-peru"
     assert legacy_key not in loaded["alias_index"]
     assert chapter_key in loaded["modules"]["masks-of-nyarlathotep-ch-peru"]["alias_keys"]
+
+
+def _write_source_index(
+    package_root: Path,
+    *,
+    with_text: bool = True,
+    file_sha256: str = "a" * 64,
+) -> None:
+    index = package_root / "index"
+    index.mkdir(parents=True, exist_ok=True)
+    page_map = {
+        "schema_version": 1,
+        "scenario_id": "demo-module",
+        "sources": [
+            {
+                "source_id": "pdf:x",
+                "path": "source/book.pdf",
+                "file_sha256": file_sha256,
+                "pages": [
+                    {"pdf_index": 9, "printed_page": 12, "printed_label": "12"},
+                ],
+            }
+        ],
+    }
+    parse_manifest = {
+        "schema_version": 1,
+        "scenario_id": "demo-module",
+        "default_threshold": 0.8,
+        "ranges": [
+            {
+                "range_id": "r1",
+                "source_id": "pdf:x",
+                "pdf_indices": [9],
+                "review_state": "manual_accepted",
+                "quality": {"overall": 0.91},
+                "file_sha256": file_sha256,
+                "text_sha256": "c" * 64,
+            }
+        ],
+    }
+    segment = {
+        "segment_id": "seg-1",
+        "source_id": "pdf:x",
+        "locator": {"pdf_index": 9, "printed_page": 12},
+        "parse_confidence": 0.91,
+        "review_state": "manual_accepted",
+        "text_sha256": "b" * 64,
+        "grep_anchors": ["Corbitt"],
+    }
+    if with_text:
+        segment["text"] = "SECRET SOURCE PROSE MUST NOT ENTER THE REGISTRY"
+    (index / "page-map.json").write_text(json.dumps(page_map), encoding="utf-8")
+    (index / "parse-manifest.json").write_text(
+        json.dumps(parse_manifest), encoding="utf-8"
+    )
+    (index / "evidence-segments.jsonl").write_text(
+        json.dumps(segment) + "\n", encoding="utf-8"
+    )
+
+
+def test_register_strips_evidence_text_and_install_rebinds_source_root(tmp_path: Path):
+    import hashlib
+
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    coc_state.create_campaign(root, "camp-1", "Camp", era="1920s")
+    package = tmp_path / "package"
+    sc = _make_valid_scenario(package)
+    pdf_bytes = b"pdf-bytes-for-demo"
+    digest = hashlib.sha256(pdf_bytes).hexdigest()
+    _write_source_index(package, with_text=True, file_sha256=digest)
+    campaign_source = root / "campaigns" / "camp-1" / "source"
+    campaign_source.mkdir(parents=True, exist_ok=True)
+    (campaign_source / "book.pdf").write_bytes(pdf_bytes)
+
+    entry = coc_module_registry.register_module(
+        root,
+        sc,
+        {
+            "canonical_module_id": "demo-module",
+            "canonical_title": "Demo Module",
+            "edition": "7e",
+        },
+    )
+    assert entry["has_source_index"] is True
+    library_segments = (
+        root / "module-library" / "demo-module" / "index" / "evidence-segments.jsonl"
+    ).read_text(encoding="utf-8")
+    assert "SECRET SOURCE PROSE" not in library_segments
+    assert '"text"' not in library_segments
+    assert "seg-1" in library_segments
+    assert "b" * 64 in library_segments
+
+    result = coc_module_registry.install_to_campaign(root, "demo-module", "camp-1")
+    assert result["has_source_index"] is True
+    campaign = root / "campaigns" / "camp-1"
+    installed_segment = json.loads(
+        (campaign / "index" / "evidence-segments.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+    )
+    assert "text" not in installed_segment
+    bundle = coc_pdf_source.load_source_bundle(campaign)
+    assert bundle["source_root"] == str(campaign.resolve())
+    gate = coc_pdf_source.critical_source_allowed(
+        [{"source_id": "pdf:x", "printed_page": 12, "grep_anchor": "Corbitt"}],
+        bundle["parse_manifest"],
+        bundle["evidence_segments"],
+        page_map=bundle["page_map"],
+        source_root=bundle["source_root"],
+    )
+    assert gate["allowed"] is True
+
+
+def test_register_rejects_partial_source_bundle(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    package = tmp_path / "package"
+    sc = _make_valid_scenario(package)
+    index = package / "index"
+    index.mkdir()
+    (index / "page-map.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="partial source evidence"):
+        coc_module_registry.register_module(
+            root,
+            sc,
+            {
+                "canonical_module_id": "demo-module",
+                "canonical_title": "Demo Module",
+                "edition": "7e",
+            },
+        )
+
+
+def test_register_rejects_symlink_source_index(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    package = tmp_path / "package"
+    sc = _make_valid_scenario(package)
+    _write_source_index(package, with_text=False)
+    outside = tmp_path / "outside-page-map.json"
+    outside.write_text("{}", encoding="utf-8")
+    target = package / "index" / "page-map.json"
+    target.unlink()
+    target.symlink_to(outside)
+    with pytest.raises(ValueError, match="regular file|unsafe"):
+        coc_module_registry.register_module(
+            root,
+            sc,
+            {
+                "canonical_module_id": "demo-module",
+                "canonical_title": "Demo Module",
+                "edition": "7e",
+            },
+        )

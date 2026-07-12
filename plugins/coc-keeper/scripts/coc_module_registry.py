@@ -50,6 +50,7 @@ import argparse
 import json
 import re
 import shutil
+import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,6 +61,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_fileio
+import coc_pdf_source
 import coc_scenario_compile
 import coc_starter
 import coc_state
@@ -67,6 +69,11 @@ import coc_state
 SCENARIO_FILES = coc_starter.STARTER_SCENARIO_FILES
 REGISTRY_SCHEMA_VERSION = 1
 IDENTITY_SCHEMA_VERSION = 1
+SOURCE_INDEX_FILES = (
+    "page-map.json",
+    "parse-manifest.json",
+    "evidence-segments.jsonl",
+)
 
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _WS_RE = re.compile(r"\s+", re.UNICODE)
@@ -342,6 +349,170 @@ def _copy_scenario_atomic(src: Path, dest: Path) -> None:
             shutil.rmtree(staging, ignore_errors=True)
 
 
+def _contained_regular_file(root: Path, path: Path) -> Path:
+    root_resolved = root.resolve()
+    candidate = path if path.is_absolute() else root / path
+    try:
+        named = candidate.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError(f"unsafe source index path: {path}") from exc
+    if stat.S_ISLNK(named.st_mode) or not stat.S_ISREG(named.st_mode):
+        raise ValueError(f"source index path must be a regular file: {path}")
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError as exc:
+        raise ValueError(f"source index path escapes package root: {path}") from exc
+    if ".." in Path(path).parts:
+        raise ValueError(f"source index path escapes package root: {path}")
+    return resolved
+
+
+def _discover_source_index_dir(scenario_dir: Path) -> Path | None:
+    """Return sibling package index/ when present as an atomic optional bundle."""
+    package_root = Path(scenario_dir).resolve().parent
+    index_dir = package_root / "index"
+    if not index_dir.exists():
+        return None
+    try:
+        named = index_dir.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError("unsafe source index directory") from exc
+    if stat.S_ISLNK(named.st_mode) or not stat.S_ISDIR(named.st_mode):
+        raise ValueError("source index directory must be a real directory")
+    present = []
+    for name in SOURCE_INDEX_FILES:
+        candidate = index_dir / name
+        if candidate.exists():
+            _contained_regular_file(index_dir, candidate)
+            present.append(name)
+    if not present:
+        return None
+    if set(present) != set(SOURCE_INDEX_FILES):
+        missing = sorted(set(SOURCE_INDEX_FILES) - set(present))
+        raise ValueError(
+            "partial source evidence bundle is rejected; missing: "
+            + ", ".join(missing)
+        )
+    return index_dir
+
+
+def _load_and_strip_source_bundle(index_dir: Path) -> dict[str, Any]:
+    page_map = json.loads((index_dir / "page-map.json").read_text(encoding="utf-8"))
+    parse_manifest = json.loads(
+        (index_dir / "parse-manifest.json").read_text(encoding="utf-8")
+    )
+    segments: list[dict[str, Any]] = []
+    for line in (index_dir / "evidence-segments.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if not isinstance(row, dict):
+            raise ValueError("evidence segment rows must be objects")
+        segments.append(row)
+    if not isinstance(page_map, dict) or not isinstance(parse_manifest, dict):
+        raise ValueError("source evidence page-map/parse-manifest must be objects")
+    # Never persist absolute staging roots into the library entry.
+    if "source_root" in page_map:
+        page_map = dict(page_map)
+        page_map.pop("source_root", None)
+    bundle = {
+        "page_map": page_map,
+        "parse_manifest": parse_manifest,
+        "evidence_segments": segments,
+    }
+    return coc_pdf_source.strip_local_evidence_text(bundle)
+
+
+def _install_stripped_index_bundle(entry_index: Path, campaign_dir: Path) -> None:
+    """Copy a library index bundle into the campaign and rebind source_root locally."""
+    if not entry_index.is_dir():
+        return
+    for name in SOURCE_INDEX_FILES:
+        _contained_regular_file(entry_index, entry_index / name)
+    bundle = _load_and_strip_source_bundle(entry_index)
+    # Fail closed if registry somehow retained local prose.
+    for segment in bundle.get("evidence_segments") or []:
+        if isinstance(segment, dict) and "text" in segment:
+            raise ValueError("registry source evidence must not contain text")
+    dest = campaign_dir / "index"
+    if dest.exists():
+        for name in SOURCE_INDEX_FILES:
+            if (dest / name).exists():
+                raise FileExistsError(
+                    f"campaign already has source index file {name}; "
+                    "refusing to overwrite"
+                )
+    staging = campaign_dir / ".index.staging-root"
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True, exist_ok=True)
+    try:
+        coc_pdf_source.write_source_bundle(
+            staging,
+            bundle["page_map"],
+            bundle["parse_manifest"],
+            bundle["evidence_segments"],
+        )
+        staged_index = staging / "index"
+        if dest.exists():
+            backup = campaign_dir / ".index.bak"
+            if backup.exists():
+                shutil.rmtree(backup)
+            dest.rename(backup)
+            try:
+                staged_index.rename(dest)
+            except Exception:
+                backup.rename(dest)
+                raise
+            shutil.rmtree(backup, ignore_errors=True)
+        else:
+            staged_index.rename(dest)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+
+
+def _register_source_index(scenario_dir: Path, entry_dir: Path) -> bool:
+    index_dir = _discover_source_index_dir(scenario_dir)
+    if index_dir is None:
+        return False
+    bundle = _load_and_strip_source_bundle(index_dir)
+    for segment in bundle.get("evidence_segments") or []:
+        if isinstance(segment, dict) and "text" in segment:
+            raise ValueError("stripped source evidence still contains text")
+    staging_root = entry_dir / ".index.staging-root"
+    if staging_root.exists():
+        shutil.rmtree(staging_root)
+    staging_root.mkdir(parents=True, exist_ok=True)
+    try:
+        coc_pdf_source.write_source_bundle(
+            staging_root,
+            bundle["page_map"],
+            bundle["parse_manifest"],
+            bundle["evidence_segments"],
+        )
+        staged = staging_root / "index"
+        dest = entry_dir / "index"
+        if dest.exists():
+            backup = entry_dir / ".index.bak"
+            if backup.exists():
+                shutil.rmtree(backup)
+            dest.rename(backup)
+            try:
+                staged.rename(dest)
+            except Exception:
+                backup.rename(dest)
+                raise
+            shutil.rmtree(backup, ignore_errors=True)
+        else:
+            staged.rename(dest)
+    finally:
+        if staging_root.exists():
+            shutil.rmtree(staging_root, ignore_errors=True)
+    return True
+
+
 def _write_license_note(entry_dir: Path) -> None:
     path = entry_dir / LICENSE_NOTE_FILENAME
     path.write_text(LICENSE_NOTE_TEXT, encoding="utf-8")
@@ -387,6 +558,7 @@ def register_module(
     entry_dir = module_dir(coc_root, cid)
     entry_dir.mkdir(parents=True, exist_ok=True)
     _copy_scenario_atomic(scenario_dir, entry_dir / "scenario")
+    has_source_index = _register_source_index(scenario_dir, entry_dir)
     coc_fileio.write_json_atomic(
         entry_dir / "identity.json",
         identity,
@@ -397,6 +569,8 @@ def register_module(
     _write_license_note(entry_dir)
 
     registry["modules"][cid] = _summary_for(identity, alias_keys=alias_keys)
+    if has_source_index:
+        registry["modules"][cid]["has_source_index"] = True
     _rebuild_alias_index(registry)
     _write_registry(coc_root, registry)
 
@@ -406,6 +580,7 @@ def register_module(
         "identity": identity,
         "summary": registry["modules"][cid],
         "validation_warnings": result.get("warnings") or [],
+        "has_source_index": has_source_index,
     }
 
 
@@ -567,6 +742,10 @@ def install_to_campaign(
     for fname in SCENARIO_FILES:
         shutil.copy2(src_dir / fname, scenario_dir / fname)
 
+    entry_index = Path(entry["path"]) / "index"
+    if entry_index.is_dir():
+        _install_stripped_index_bundle(entry_index, campaign_dir)
+
     meta = json.loads((scenario_dir / "module-meta.json").read_text(encoding="utf-8"))
     scenario_id = str(meta.get("scenario_id") or canonical_module_id)
 
@@ -606,6 +785,7 @@ def install_to_campaign(
         "scenario_id": scenario_id,
         "scenario_dir": str(scenario_dir),
         "paths": {fname: str(scenario_dir / fname) for fname in SCENARIO_FILES},
+        "has_source_index": (campaign_dir / "index" / "page-map.json").is_file(),
     }
 
 
