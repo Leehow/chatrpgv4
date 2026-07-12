@@ -967,3 +967,72 @@ def test_register_rejects_symlink_source_index(tmp_path: Path):
                 "edition": "7e",
             },
         )
+
+
+def _write_epistemic_sidecars(scenario_dir: Path, *, partial: bool = False) -> None:
+    (scenario_dir / "epistemic-graph.json").write_text(
+        json.dumps({"schema_version": 1, "questions": [], "evidence_links": []}),
+        encoding="utf-8",
+    )
+    (scenario_dir / "reveal-contracts.json").write_text(
+        json.dumps({"schema_version": 1, "contracts": []}),
+        encoding="utf-8",
+    )
+    if not partial:
+        (scenario_dir / "compile-confidence.json").write_text(
+            json.dumps({"schema_version": 1, "overall": 0.9, "nodes": []}),
+            encoding="utf-8",
+        )
+
+
+def test_register_and_install_preserve_epistemic_sidecars(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    coc_state.create_campaign(root, "camp-1", "Camp", era="1920s")
+    package = tmp_path / "package"
+    sc = _make_valid_scenario(package)
+    _write_epistemic_sidecars(sc)
+    marker = "EPISTEMIC_SIDECAR_MARKER"
+    confidence = json.loads((sc / "compile-confidence.json").read_text(encoding="utf-8"))
+    confidence["note"] = marker
+    (sc / "compile-confidence.json").write_text(json.dumps(confidence), encoding="utf-8")
+
+    entry = coc_module_registry.register_module(
+        root,
+        sc,
+        {
+            "canonical_module_id": "demo-module",
+            "canonical_title": "Demo Module",
+            "edition": "7e",
+        },
+    )
+    assert entry["has_epistemic_sidecars"] is True
+    library_sc = root / "module-library" / "demo-module" / "scenario"
+    for name in coc_module_registry.OPTIONAL_SCENARIO_SIDECAR_FILES:
+        assert (library_sc / name).is_file()
+    assert marker in (library_sc / "compile-confidence.json").read_text(encoding="utf-8")
+
+    result = coc_module_registry.install_to_campaign(root, "demo-module", "camp-1")
+    assert result["has_epistemic_sidecars"] is True
+    campaign_sc = root / "campaigns" / "camp-1" / "scenario"
+    for name in coc_module_registry.OPTIONAL_SCENARIO_SIDECAR_FILES:
+        assert (campaign_sc / name).is_file()
+    assert marker in (campaign_sc / "compile-confidence.json").read_text(encoding="utf-8")
+
+
+def test_register_rejects_partial_epistemic_sidecars(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    package = tmp_path / "package"
+    sc = _make_valid_scenario(package)
+    _write_epistemic_sidecars(sc, partial=True)
+    with pytest.raises(ValueError, match="partial epistemic sidecar"):
+        coc_module_registry.register_module(
+            root,
+            sc,
+            {
+                "canonical_module_id": "demo-module",
+                "canonical_title": "Demo Module",
+                "edition": "7e",
+            },
+        )

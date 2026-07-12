@@ -60,6 +60,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import coc_epistemic_compile
 import coc_fileio
 import coc_pdf_source
 import coc_scenario_compile
@@ -67,6 +68,7 @@ import coc_starter
 import coc_state
 
 SCENARIO_FILES = coc_starter.STARTER_SCENARIO_FILES
+OPTIONAL_SCENARIO_SIDECAR_FILES = coc_epistemic_compile.SIDECAR_FILES
 REGISTRY_SCHEMA_VERSION = 1
 IDENTITY_SCHEMA_VERSION = 1
 SOURCE_INDEX_FILES = (
@@ -321,6 +323,41 @@ def _collect_alias_keys(identity: dict[str, Any]) -> list[str]:
     return keys
 
 
+def discover_optional_scenario_sidecars(scenario_dir: Path) -> list[str]:
+    """Return present epistemic sidecar filenames, or [] when absent.
+
+    Partial bundles are rejected: either all sidecars are present, or none.
+    """
+    scenario_dir = Path(scenario_dir)
+    present = [
+        name
+        for name in OPTIONAL_SCENARIO_SIDECAR_FILES
+        if (scenario_dir / name).exists()
+    ]
+    if not present:
+        return []
+    if set(present) != set(OPTIONAL_SCENARIO_SIDECAR_FILES):
+        missing = sorted(set(OPTIONAL_SCENARIO_SIDECAR_FILES) - set(present))
+        raise ValueError(
+            "partial epistemic sidecar bundle is rejected; missing: "
+            + ", ".join(missing)
+        )
+    for name in present:
+        _contained_regular_file(scenario_dir, scenario_dir / name)
+    return list(OPTIONAL_SCENARIO_SIDECAR_FILES)
+
+
+def _copy_scenario_files(src: Path, dest: Path) -> list[str]:
+    """Copy the seven IR files plus an optional atomic epistemic sidecar set."""
+    dest.mkdir(parents=True, exist_ok=True)
+    for fname in SCENARIO_FILES:
+        shutil.copy2(src / fname, dest / fname)
+    sidecars = discover_optional_scenario_sidecars(src)
+    for fname in sidecars:
+        shutil.copy2(src / fname, dest / fname)
+    return sidecars
+
+
 def _copy_scenario_atomic(src: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     staging = dest.parent / f".{dest.name}.staging"
@@ -328,8 +365,7 @@ def _copy_scenario_atomic(src: Path, dest: Path) -> None:
         shutil.rmtree(staging)
     staging.mkdir(parents=True, exist_ok=True)
     try:
-        for fname in SCENARIO_FILES:
-            shutil.copy2(src / fname, staging / fname)
+        _copy_scenario_files(src, staging)
         # Replace dest contents atomically-ish: write into staging then swap.
         if dest.exists():
             backup = dest.parent / f".{dest.name}.bak"
@@ -559,6 +595,7 @@ def register_module(
     entry_dir.mkdir(parents=True, exist_ok=True)
     _copy_scenario_atomic(scenario_dir, entry_dir / "scenario")
     has_source_index = _register_source_index(scenario_dir, entry_dir)
+    sidecar_names = discover_optional_scenario_sidecars(entry_dir / "scenario")
     coc_fileio.write_json_atomic(
         entry_dir / "identity.json",
         identity,
@@ -571,6 +608,8 @@ def register_module(
     registry["modules"][cid] = _summary_for(identity, alias_keys=alias_keys)
     if has_source_index:
         registry["modules"][cid]["has_source_index"] = True
+    if sidecar_names:
+        registry["modules"][cid]["has_epistemic_sidecars"] = True
     _rebuild_alias_index(registry)
     _write_registry(coc_root, registry)
 
@@ -581,6 +620,7 @@ def register_module(
         "summary": registry["modules"][cid],
         "validation_warnings": result.get("warnings") or [],
         "has_source_index": has_source_index,
+        "has_epistemic_sidecars": bool(sidecar_names),
     }
 
 
@@ -741,6 +781,9 @@ def install_to_campaign(
     scenario_dir.mkdir(parents=True, exist_ok=True)
     for fname in SCENARIO_FILES:
         shutil.copy2(src_dir / fname, scenario_dir / fname)
+    sidecars = discover_optional_scenario_sidecars(src_dir)
+    for fname in sidecars:
+        shutil.copy2(src_dir / fname, scenario_dir / fname)
 
     entry_index = Path(entry["path"]) / "index"
     if entry_index.is_dir():
@@ -779,13 +822,17 @@ def install_to_campaign(
         # Briefing is best-effort; scenario install + activation are the contract.
         pass
 
+    installed_paths = {fname: str(scenario_dir / fname) for fname in SCENARIO_FILES}
+    for fname in sidecars:
+        installed_paths[fname] = str(scenario_dir / fname)
     return {
         "canonical_module_id": canonical_module_id,
         "campaign_id": campaign_id,
         "scenario_id": scenario_id,
         "scenario_dir": str(scenario_dir),
-        "paths": {fname: str(scenario_dir / fname) for fname in SCENARIO_FILES},
+        "paths": installed_paths,
         "has_source_index": (campaign_dir / "index" / "page-map.json").is_file(),
+        "has_epistemic_sidecars": bool(sidecars),
     }
 
 

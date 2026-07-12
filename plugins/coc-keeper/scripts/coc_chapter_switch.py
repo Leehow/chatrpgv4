@@ -31,6 +31,7 @@ import coc_state
 PRESERVED_TREES = ("save", "memory", "logs")
 PRESERVED_ROOT_FILES = ("campaign.json", "party.json")
 SCENARIO_FILES = coc_module_registry.SCENARIO_FILES
+OPTIONAL_SCENARIO_SIDECAR_FILES = coc_module_registry.OPTIONAL_SCENARIO_SIDECAR_FILES
 SOURCE_INDEX_FILES = coc_module_registry.SOURCE_INDEX_FILES
 
 
@@ -174,18 +175,26 @@ def _snapshot_preserved(campaign_dir: Path) -> dict[str, str]:
 def _stage_target_package(
     campaign_dir: Path,
     entry: dict[str, Any],
-) -> tuple[Path, Path | None]:
+) -> tuple[Path, Path | None, Path]:
+    """Stage target scenario(+optional index) as a sibling package tree.
+
+    Returns ``(staging_scenario, staging_index_or_none, staging_package_root)``.
+    The package layout lets ``validate_scenario`` discover ``../index`` the same
+    way module-library packages do, instead of accidentally reading the live
+    campaign's previous-chapter index.
+    """
     src_scenario = Path(entry["scenario_dir"])
     _require_regular_dir(src_scenario, "target scenario")
     for fname in SCENARIO_FILES:
         _require_regular_file(src_scenario, src_scenario / fname, f"target {fname}")
 
-    staging_scenario = campaign_dir / ".scenario.switch-staging"
-    if staging_scenario.exists():
-        shutil.rmtree(staging_scenario)
+    staging_root = campaign_dir / ".chapter-switch-staging"
+    if staging_root.exists():
+        shutil.rmtree(staging_root)
+    staging_root.mkdir(parents=True, exist_ok=True)
+    staging_scenario = staging_root / "scenario"
     staging_scenario.mkdir(parents=True, exist_ok=True)
-    for fname in SCENARIO_FILES:
-        shutil.copy2(src_scenario / fname, staging_scenario / fname)
+    coc_module_registry._copy_scenario_files(src_scenario, staging_scenario)
 
     staging_index: Path | None = None
     entry_index = Path(entry["path"]) / "index"
@@ -193,15 +202,16 @@ def _stage_target_package(
         _require_regular_dir(entry_index, "target index")
         for fname in SOURCE_INDEX_FILES:
             _require_regular_file(entry_index, entry_index / fname, f"target {fname}")
-        staging_root = campaign_dir / ".index.switch-staging-root"
-        if staging_root.exists():
-            shutil.rmtree(staging_root)
-        staging_root.mkdir(parents=True, exist_ok=True)
-        for fname in SOURCE_INDEX_FILES:
-            (staging_root / "index").mkdir(parents=True, exist_ok=True)
-            shutil.copy2(entry_index / fname, staging_root / "index" / fname)
         staging_index = staging_root / "index"
-    return staging_scenario, staging_index
+        staging_index.mkdir(parents=True, exist_ok=True)
+        for fname in SOURCE_INDEX_FILES:
+            shutil.copy2(entry_index / fname, staging_index / fname)
+    return staging_scenario, staging_index, staging_root
+
+
+def _cleanup_staging(staging_root: Path | None) -> None:
+    if staging_root is not None and staging_root.exists():
+        shutil.rmtree(staging_root, ignore_errors=True)
 
 
 def _atomic_replace_dir(dest: Path, staged: Path) -> None:
@@ -333,12 +343,12 @@ def switch_chapter(
     _reject_id_collisions(source_ids, target_ids)
 
     before = _snapshot_preserved(campaign_dir)
-    staging_scenario, staging_index = _stage_target_package(campaign_dir, entry)
+    staging_scenario, staging_index, staging_root = _stage_target_package(
+        campaign_dir, entry
+    )
     staged_validation = coc_scenario_compile.validate_scenario(staging_scenario)
     if staged_validation.get("errors"):
-        shutil.rmtree(staging_scenario, ignore_errors=True)
-        if staging_index is not None:
-            shutil.rmtree(staging_index.parent, ignore_errors=True)
+        _cleanup_staging(staging_root)
         raise ValueError(
             "staged target chapter failed validation: "
             + "; ".join(staged_validation["errors"])
@@ -368,12 +378,10 @@ def switch_chapter(
                 original_index.rename(index_backup)
                 replaced_index = True
             staging_index.rename(original_index)
-            staging_root = campaign_dir / ".index.switch-staging-root"
-            if staging_root.exists():
-                shutil.rmtree(staging_root, ignore_errors=True)
         elif original_index.exists():
             original_index.rename(index_backup)
             removed_index = True
+        _cleanup_staging(staging_root)
 
         world_path = campaign_dir / "save" / "world-state.json"
         world_before = world_path.read_bytes() if world_path.is_file() else None
@@ -475,6 +483,7 @@ def switch_chapter(
             if index_backup.exists():
                 index_backup.rename(original_index)
         for leftover in (
+            campaign_dir / ".chapter-switch-staging",
             campaign_dir / ".scenario.switch-staging",
             campaign_dir / ".index.switch-staging-root",
         ):

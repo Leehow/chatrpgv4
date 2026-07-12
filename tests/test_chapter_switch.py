@@ -498,3 +498,66 @@ def test_symlink_module_scenario_rejected(tmp_path: Path):
                 "session_ending": False,
             },
         )
+
+
+def test_switch_preserves_target_epistemic_sidecars(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    peru = _write_chapter_package(
+        tmp_path,
+        chapter="peru",
+        module_id="masks-of-nyarlathotep-ch-peru",
+        scene_id="lima-dock",
+        clue_prefix="peru",
+        npc_id="npc-peru-guide",
+    )
+    america = _write_chapter_package(
+        tmp_path,
+        chapter="america",
+        module_id="masks-of-nyarlathotep-ch-america",
+        scene_id="ny-harbor",
+        clue_prefix="america",
+        npc_id="npc-america-contact",
+    )
+    america_sc = america  # _write_chapter_package returns scenario dir
+    marker = "america-sidecar-marker"
+    (america_sc / "epistemic-graph.json").write_text(
+        json.dumps({"schema_version": 1, "questions": [], "evidence_links": []}),
+        encoding="utf-8",
+    )
+    (america_sc / "reveal-contracts.json").write_text(
+        json.dumps({"schema_version": 1, "contracts": []}),
+        encoding="utf-8",
+    )
+    (america_sc / "compile-confidence.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "overall": 0.91,
+            "nodes": [],
+            "note": marker,
+        }),
+        encoding="utf-8",
+    )
+    _register(root, peru, "masks-of-nyarlathotep-ch-peru", "peru", "masks-of-nyarlathotep")
+    _register(
+        root, america, "masks-of-nyarlathotep-ch-america", "america", "masks-of-nyarlathotep"
+    )
+    campaign = _seed_campaign(root, "camp-1", "masks-of-nyarlathotep-ch-peru")
+
+    result = coc_chapter_switch.switch_chapter(
+        root,
+        "camp-1",
+        "masks-of-nyarlathotep-ch-america",
+        {
+            "reached_terminal": True,
+            "active_scene_id": "lima-dock-end",
+            "graph_terminal": True,
+            "session_ending": True,
+        },
+    )
+    assert result["ok"] is True
+    for name in coc_module_registry.OPTIONAL_SCENARIO_SIDECAR_FILES:
+        assert (campaign / "scenario" / name).is_file()
+    assert marker in (campaign / "scenario" / "compile-confidence.json").read_text(
+        encoding="utf-8"
+    )
