@@ -17,11 +17,18 @@
       "kind": "external_model_bridge",
       "identity": "coc-runtime-narrator-adapter@0.79.9",
       "path": "runtime/adapters/narrator/run_narration.mjs",
-      "sha256": "653050249bb2af7cdd6786796cc2e07a1a4766dcc64ad241dfde4e0bf2541107",
+      "sha256": "5b775ea7f23da7dde1889ebaaca9798299e866c2d34a90d0fe58e9d7277da134",
       "package_identity": {
         "name": "@earendil-works/pi-coding-agent",
         "version": "0.79.9"
       }
+    },
+    "interactive_driver": {
+      "role": "interactive_driver",
+      "kind": "python_cli",
+      "identity": "coc-interactive-playtest@1",
+      "path": "plugins/coc-keeper/scripts/coc_interactive_playtest.py",
+      "sha256": "3f08aa8ef054c7e46bc86cb9c3985b5ef01fe5c7f8502d868fc7f54651dfc41d"
     }
   }
 }

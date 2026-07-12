@@ -871,6 +871,21 @@ def test_coc_playtest_skill_documents_suite_report_index():
         assert term in spec_text
 
 
+def test_coc_playtest_skill_documents_interactive_whitebox_driver():
+    skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    required_terms = [
+        "Interactive White-Box Driver",
+        "coc_interactive_playtest.py",
+        "diagnostic_spoiler_run",
+        "blind_actual_play",
+        "runtime.sdk.api.send",
+        "haunting-module",
+        "coc_playtest_harness.py",
+    ]
+    for term in required_terms:
+        assert term in skill_text
+
+
 def test_coc_playtest_skill_documents_semantic_matcher_constitution():
     skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
     spec_text = Path("docs/superpowers/specs/2026-07-03-coc-keeper-design.md").read_text()

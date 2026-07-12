@@ -15,6 +15,26 @@ Playtests write to `.coc/playtests/<run-id>/` and must not mutate real `.coc/cam
 - `player_simulator`: sees player-safe information only.
 - `evaluator`: inspects full logs and reports after the run.
 
+## Interactive White-Box Driver
+
+For long-lived production-path white-box play (Masks Peru/America and similar), use
+`../../scripts/coc_interactive_playtest.py` rather than the Haunting simulated-player
+harness profiles below. The interactive driver speaks JSONL over stdin/stdout,
+calls only `runtime.sdk.api.send`, checkpoints every accepted turn, and resumes from
+validated checkpoints into a fresh workspace generation.
+
+```bash
+python3 ../../scripts/coc_interactive_playtest.py start \
+  --workspace <workspace> --campaign <campaign> --investigator <investigator> \
+  --run-dir <run-dir> --run-kind diagnostic_spoiler_run|blind_actual_play \
+  --rng-seed <seed> --max-turns <1..500>
+```
+
+Keep The Haunting `coc_playtest_harness.py` profiles (`rulebook-smoke`,
+`haunting-module`, chase/multi-profile drills) as the distinct simulated suite for
+rulebook regression coverage. Do not treat those harness artifacts as Masks
+interactive white-box battle-report evidence.
+
 ## Reports
 
 Use `../../scripts/coc_playtest_harness.py` when you need a reproducible baseline run:

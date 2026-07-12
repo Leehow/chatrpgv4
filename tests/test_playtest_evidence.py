@@ -115,15 +115,20 @@ def test_trusted_runner_registry_pins_canonical_entrypoints_and_hashes():
     assert TRUSTED_RUNNER_REGISTRY.is_file()
     registry = json.loads(TRUSTED_RUNNER_REGISTRY.read_text(encoding="utf-8"))
     assert registry["schema_version"] == 1
-    assert set(registry["runners"]) == {"player", "narrator"}
-    for role, expected_path in {
-        "player": "runtime/adapters/player/run_player_turn.mjs",
-        "narrator": "runtime/adapters/narrator/run_narration.mjs",
-    }.items():
+    assert set(registry["runners"]) == {"player", "narrator", "interactive_driver"}
+    for role, expected_path, expected_kind in (
+        ("player", "runtime/adapters/player/run_player_turn.mjs", "external_model_bridge"),
+        ("narrator", "runtime/adapters/narrator/run_narration.mjs", "external_model_bridge"),
+        (
+            "interactive_driver",
+            "plugins/coc-keeper/scripts/coc_interactive_playtest.py",
+            "python_cli",
+        ),
+    ):
         entry = registry["runners"][role]
         assert entry["role"] == role
         assert entry["path"] == expected_path
-        assert entry["kind"] == "external_model_bridge"
+        assert entry["kind"] == expected_kind
         assert entry["identity"]
         assert entry["sha256"] == _sha256((REPO / expected_path).read_bytes())
 
