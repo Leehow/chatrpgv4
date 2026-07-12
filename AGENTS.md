@@ -29,6 +29,10 @@ entry point for official COC Keeper validation:
 python3 plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root .
 ```
 
+Additional official commands on the same CLI: `report`, `verify`, `compare`,
+`baseline`, `matrix`, `calibrate`, and `holdouts`. Details live in
+`plugins/coc-keeper/skills/coc-eval/SKILL.md`.
+
 Use `smoke` for fast local contract checks and `pr` for ordinary change
 validation. Do not replace the named suite with an agent-specific collection of
 commands and still call the result an official evaluation. `nightly` or
@@ -43,7 +47,9 @@ python3 plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
 ```
 
 The exact status vocabulary is `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`, and
-`NON_COMPARABLE`. Missing evidence never becomes `PASS`.
+`NON_COMPARABLE`. Missing evidence never becomes `PASS`. Deterministic fixture
+and registry self-tests are contract evidence; they are not external-model
+gameplay battle reports.
 
 ### Dice Completeness Gate
 

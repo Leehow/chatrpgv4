@@ -172,6 +172,29 @@ pip install pytest pypdf
 pytest tests/ -q
 ```
 
+### Official evaluation contract
+
+All hosts use the same CLI. Do not replace a named suite with an ad-hoc command
+list and still call it official evaluation:
+
+```bash
+python3 plugins/coc-keeper/scripts/coc_eval.py run --suite smoke --root .
+python3 plugins/coc-keeper/scripts/coc_eval.py run --suite pr --root .
+python3 plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
+python3 plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
+python3 plugins/coc-keeper/scripts/coc_eval.py compare --baseline <a> --candidate <b>
+python3 plugins/coc-keeper/scripts/coc_eval.py baseline --source <run-manifest> --output <baseline.json>
+python3 plugins/coc-keeper/scripts/coc_eval.py matrix --suite nightly --root . --plan-only
+python3 plugins/coc-keeper/scripts/coc_eval.py calibrate --reviews <reviews.json>
+python3 plugins/coc-keeper/scripts/coc_eval.py holdouts --bundle <holdout-dir>
+```
+
+Status vocabulary: `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`, `NON_COMPARABLE`.
+Missing evidence never becomes `PASS`. Deterministic fixture / registry self-tests
+are contract evidence; external-model and human lanes stay `NOT_RUN` without
+secrets or attested artifacts. See `plugins/coc-keeper/skills/coc-eval/SKILL.md`
+and root `AGENTS.md`.
+
 运行 playtest profile：
 
 ```bash

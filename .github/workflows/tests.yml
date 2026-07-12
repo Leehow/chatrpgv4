@@ -40,7 +40,7 @@ jobs:
           -q -p no:cacheprovider
 
   evaluation-contract:
-    name: Evaluation contract phase 1
+    name: Evaluation contract
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,6 +59,14 @@ jobs:
             tests/test_eval_contract.py \
             tests/test_eval_contract_hardening.py \
             tests/test_eval_report_schema.py \
+            tests/test_eval_cases.py \
+            tests/test_eval_compare.py \
+            tests/test_eval_replay.py \
+            tests/test_eval_semantic.py \
+            tests/test_eval_matrix.py \
+            tests/test_eval_longrun.py \
+            tests/test_eval_calibration.py \
+            tests/test_eval_integration.py \
             -q -p no:cacheprovider \
             2>&1 | tee "${RUNNER_TEMP}/eval-contract-pytest.log"
       - name: Upload focused evaluation diagnostics
@@ -86,14 +94,38 @@ jobs:
           python3 plugins/coc-keeper/scripts/coc_eval.py
           run --suite pr --root .
           --output "${RUNNER_TEMP}/coc-eval-pr"
+      - name: Record external/human lanes as NOT_RUN without secrets
+        if: steps.focused-eval-tests.outcome == 'success'
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/coc-eval-not-run"
+          PYTHONDONTWRITEBYTECODE=1 python3 plugins/coc-keeper/scripts/coc_eval.py \
+            run --suite nightly --root . \
+            --output "${RUNNER_TEMP}/coc-eval-not-run/nightly" \
+            > "${RUNNER_TEMP}/coc-eval-not-run/nightly.stdout" || true
+          PYTHONDONTWRITEBYTECODE=1 python3 plugins/coc-keeper/scripts/coc_eval.py \
+            run --suite release --root . \
+            --output "${RUNNER_TEMP}/coc-eval-not-run/release" \
+            > "${RUNNER_TEMP}/coc-eval-not-run/release.stdout" || true
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          base = Path("${{ runner.temp }}") / "coc-eval-not-run"
+          for suite in ("nightly", "release"):
+              manifest = json.loads((base / suite / "run-manifest.json").read_text())
+              assert manifest["status"] == "NOT_RUN", (suite, manifest.get("status"))
+              assert manifest.get("missing_capabilities"), suite
+          print("nightly/release honestly NOT_RUN without external/human evidence")
+          PY
       - name: Upload canonical evaluation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coc-eval-phase1-${{ github.run_id }}
+          name: coc-eval-contract-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/coc-eval-smoke
             ${{ runner.temp }}/coc-eval-pr
+            ${{ runner.temp }}/coc-eval-not-run
           if-no-files-found: warn
           retention-days: 7
 

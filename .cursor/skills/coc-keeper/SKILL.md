@@ -46,17 +46,28 @@ Runtime scripts and rules JSON also stay under `plugins/coc-keeper/`
 
 ## Canonical evaluation routing
 
-For official testing, report generation, or report verification, follow the
-root `AGENTS.md` **Canonical Evaluation Contract** and invoke the shared CLI:
+For official testing, report generation, report verification, baseline
+compare, matrix planning, calibration, or holdouts, follow the root
+`AGENTS.md` **Canonical Evaluation Contract** and the canonical skill
+`plugins/coc-keeper/skills/coc-eval/SKILL.md`. Invoke the shared CLI only:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_eval.py run --suite <suite> --root .
+python3 plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root .
+python3 plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
+python3 plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
+python3 plugins/coc-keeper/scripts/coc_eval.py compare --baseline <a> --candidate <b>
+python3 plugins/coc-keeper/scripts/coc_eval.py baseline --source <run-manifest> --output <baseline.json>
+python3 plugins/coc-keeper/scripts/coc_eval.py matrix --suite nightly --root . --plan-only
+python3 plugins/coc-keeper/scripts/coc_eval.py calibrate --reviews <reviews.json>
+python3 plugins/coc-keeper/scripts/coc_eval.py holdouts --bundle <holdout-dir>
 ```
 
-Do not replace a named suite with Cursor-specific commands. Read
-`artifacts/report-completeness.json` before delivering a battle report, and
-**must not rewrite** generated factual content or reconstruct missing dice by
-hand.
+Do not replace a named suite with Cursor-specific commands. Status vocabulary
+is `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`, and `NON_COMPARABLE`. Read
+`artifacts/report-completeness.json` before delivering a battle report, bind
+delivery to report hashes, and **must not rewrite** generated factual content
+or reconstruct missing dice by hand. Deterministic fixture evidence is not
+external-model gameplay evidence.
 
 ## Platform gating
 

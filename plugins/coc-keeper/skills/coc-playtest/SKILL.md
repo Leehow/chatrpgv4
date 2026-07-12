@@ -5,6 +5,27 @@ description: Use when running isolated COC Keeper simulated-player tests, evalua
 
 # COC Playtest
 
+## Official evaluation entry point
+
+For official readiness claims (`smoke` / `pr` / `nightly` / `release`), use
+`coc-eval` and the canonical CLI — do not replace a named suite with an ad-hoc
+command list:
+
+```bash
+python3 ../../scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root <repo-root>
+```
+
+Also available: `report`, `verify`, `compare`, `baseline`, `matrix`,
+`calibrate`, and `holdouts`. Status vocabulary is `PASS`, `FAIL`,
+`INELIGIBLE`, `NOT_RUN`, and `NON_COMPARABLE`. Missing evidence never becomes
+`PASS`. Deterministic fixture evidence proves contract self-tests; it is not
+external-model gameplay evidence. See `../coc-eval/SKILL.md`.
+
+Completion audit and suite aggregation now also surface versioned
+`evaluation/spec/v1` case/persona/seed gaps. Historical profiles
+(`haunting_module`, `chase_drill`, `multi_profile_pressure`) remain visible
+but cannot alone satisfy release-required eval-contract cells.
+
 ## Isolation
 
 Playtests write to `.coc/playtests/<run-id>/` and must not mutate real `.coc/campaigns/` or `.coc/investigators/` data.

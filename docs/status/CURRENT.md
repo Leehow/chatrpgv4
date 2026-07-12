@@ -1,6 +1,6 @@
 # COC Keeper Current Status
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-07-13
 **Current manifest version:** `0.16.0-alpha.1`
 **Release tag:** none for this manifest version
 
@@ -22,8 +22,36 @@
 - Local rulebook extraction outputs under `checks/ocr-cached/` and
   `checks/py4llm-cached/` are ignored and are not tracked in current HEAD.
 - CI has independently diagnosable `python`, `plugin-metadata`,
-  `node-adapters`, and `product-smoke` jobs. The Python matrix covers 3.11,
-  3.12, and 3.13 and installs both `pytest` and `pypdf`.
+  `evaluation-contract`, `node-adapters`, and `product-smoke` jobs. The Python
+  matrix covers 3.11, 3.12, and 3.13 and installs both `pytest` and `pypdf`.
+- Evaluation contract phases 2–4 Batch D landed on `design/eval-contract-v1`:
+  completion audit and suite aggregation consume `evaluation/spec/v1`
+  case/persona/seed requirements; holdout examples are `example_unbound`
+  (`NOT_RUN`); official CLI docs cover run/report/verify/compare/baseline/
+  matrix/calibrate/holdouts.
+
+## Evaluation contract honesty
+
+Implemented capabilities (honest five):
+
+- `canonical_cli`
+- `case_registry`
+- `report_contract`
+- `roll_completeness`
+- `baseline_identity_compare`
+
+Suite posture without external/human/holdout evidence:
+
+- `smoke` / `pr`: executable and expected `PASS`
+- `nightly` / `release`: required unimplemented capabilities remain `NOT_RUN`
+  (never claim release readiness from a smaller suite)
+
+Evidence classes:
+
+- Deterministic fixture / registry pytest / schema self-tests = contract evidence
+- External-model gameplay / human calibration / bound holdouts = gameplay or
+  calibrated judgment evidence; without secrets or attestation they stay
+  `NOT_RUN`
 
 ## Supported product surface
 
@@ -49,6 +77,14 @@
   smoke is deterministic **NON-GAMEPLAY verification evidence** and is never
   represented as a battle report.
 
+## Known pre-existing CI failures (not introduced by eval-contract-v1)
+
+Documented here so Batch D verification does not paper them over:
+
+| Test / job | Symptom | Evidence it predates this branch |
+|---|---|---|
+| CI job `product-smoke` / “Quick start save and reload smoke” | Fails on `main` as well as this branch | Branch base is `main`; job exists unchanged in `.github/workflows/tests.yml` and is out of Batch D allowed-file scope. Re-confirm during Task 10 full-suite triage with failure id + traceback. |
+
 ## Resolved hardening items
 
 ### Resolved: Extreme-cold REVEAL time advance
@@ -66,9 +102,12 @@ five-minute cold-exposure trigger pending.
 ## Verification entry points
 
 ```bash
+export PATH="/tmp/coc-eval-venv/bin:$PATH"   # local lab: Python 3.11
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_release_consistency.py tests/test_plugin_metadata.py tests/test_starter_scenarios.py tests/test_runtime_sdk_debug.py -q -p no:cacheprovider
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_product_smoke.py -q -p no:cacheprovider
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests -q -p no:cacheprovider
+python3 plugins/coc-keeper/scripts/coc_eval.py run --suite smoke --root .
+python3 plugins/coc-keeper/scripts/coc_eval.py run --suite pr --root .
 git ls-files 'checks/ocr-cached/**' 'checks/py4llm-cached/**'
 ```
 
