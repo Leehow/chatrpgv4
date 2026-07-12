@@ -122,7 +122,7 @@ def _build_live_campaign(tmp_path):
     return camp, char_path
 
 
-def test_maps_choice_frame_and_stop_reason():
+def test_keeper_choice_frame_is_not_public_but_state_and_stop_reason_remain():
     mapper = _load("live_turn_mapper", "runtime/engine/live_turn_mapper.py")
     events_mod = _load("runtime_events", "runtime/engine/events.py")
     result = {
@@ -147,12 +147,10 @@ def test_maps_choice_frame_and_stop_reason():
     for ev in events:
         events_mod.validate_event(ev)
     types = [e["type"] for e in events]
-    assert "choice" in types
+    assert "choice" not in types
     assert "state_patch" in types
     assert "system" in types
-    choice = next(e for e in events if e["type"] == "choice")
-    assert choice["payload"]["id"] == "onboarding"
-    assert len(choice["payload"]["options"]) == 2
+    assert "onboarding" not in json.dumps(events, ensure_ascii=False)
 
 
 def test_maps_narration_final_text_first():
@@ -210,8 +208,11 @@ def test_rule_results_with_roll_emit_roll_event():
                 "outcome": "regular_success",
                 "roll": 42,
             }],
+            "narration": {
+                "final_text": "The shelves creak as you find a marked folio.",
+            },
             "narrative_directives": {
-                "narration": "The shelves creak as you find a marked folio.",
+                "keeper_narration": "PRIVATE DIRECTOR PROSE",
                 "must_include": ["do not invent a second clue"],
             },
         }],
@@ -227,6 +228,7 @@ def test_rule_results_with_roll_emit_roll_event():
     narrations = [e for e in events if e["type"] == "narration"]
     assert len(narrations) == 1
     assert narrations[0]["payload"]["text"] == "The shelves creak as you find a marked folio."
+    assert "PRIVATE DIRECTOR PROSE" not in json.dumps(events)
 
 
 def test_combat_pending_defense_emits_player_choice_event():
@@ -245,6 +247,146 @@ def test_combat_pending_defense_emits_player_choice_event():
     assert len(choices) == 1
     assert choices[0]["visibility"] == "player"
     assert choices[0]["payload"]["attack_id"] == "attack-1"
+
+
+def test_session_ending_event_type_maps_to_player_safe_structured_event():
+    mapper = _load("live_turn_mapper_terminal", "runtime/engine/live_turn_mapper.py")
+    events = mapper.map_live_turn_result({
+        "turns": [{
+            "decision_id": "turn-terminal",
+            "scene_id": "ending",
+            "event_types": ["clue_reveal", "session_ending"],
+            "narration_envelope": {"keeper_secret": "must never surface"},
+        }],
+    })
+
+    terminal = [event for event in events if event["type"] == "session_ending"]
+    assert terminal == [{
+        "type": "session_ending",
+        "id": terminal[0]["id"],
+        "ts": terminal[0]["ts"],
+        "visibility": "player",
+        "payload": {
+            "kind": "session_ending",
+            "decision_id": "turn-terminal",
+            "scene_id": "ending",
+        },
+    }]
+    assert "keeper_secret" not in json.dumps(terminal)
+
+
+def test_player_event_projection_strips_keeper_fields_and_paths():
+    mapper = _load("live_turn_mapper_privacy_poison", "runtime/engine/live_turn_mapper.py")
+    events = mapper.map_live_turn_result({
+        "turns": [{
+            "decision_id": "turn-poison",
+            "scene_id": "ending",
+            "event_types": ["session_ending"],
+            "narration": {
+                "final_text": "你听见门后的脚步。",
+                "scenario_path": "/private/scenario.json",
+                "keeper_text": "KEEPER-NARRATION",
+            },
+            "narrative_directives": {
+                "keeper_narration": "KEEPER-DIRECTIVE",
+            },
+            "rule_results": [{
+                "roll_id": "roll-public",
+                "kind": "skill_check",
+                "skill": "Spot Hidden",
+                "target": 60,
+                "difficulty": "regular",
+                "roll": 42,
+                "outcome": "regular_success",
+                "success": True,
+                "resolution_context": {"missed_clue_id": "PRIVATE-CLUE"},
+                "_session_events": [{"keeper_secret": "KEEPER-ROLL"}],
+                "missed_clue_id": "PRIVATE-CLUE",
+            }],
+            "choice_frame": {
+                "id": "keeper-frame",
+                "options": [{"label": "unsafe"}],
+                "forbidden_reveal": "KEEPER-CHOICE",
+            },
+            "pending_choice": {
+                "choice_id": "choice-public",
+                "kind": "chase_action",
+                "command_id": "command-public",
+                "responder": "player",
+                "revision": 1,
+                "prompt": "Choose.",
+                "options": [{
+                    "action": "dodge",
+                    "label": "Dodge",
+                    "forbidden_reveal": "KEEPER-OPTION",
+                }],
+                "keeper_branch": "KEEPER-BRANCH",
+                "audience": "keeper",
+            },
+        }],
+        "final_state": {
+            "active_scene": "ending",
+            "tension": "high",
+            "turn_number": 7,
+            "scenario_path": "/private/final-state.json",
+        },
+        "state_patch": {
+            "applied": True,
+            "world_active_scene_updated": True,
+            "active_scene_path": "/private/active-scene.json",
+            "detail_pending_batch": "/private/pending.jsonl",
+        },
+    })
+
+    by_type = {event["type"]: event for event in events}
+    assert by_type["narration"]["payload"] == {
+        "text": "你听见门后的脚步。",
+        "decision_id": "turn-poison",
+    }
+    assert by_type["roll"]["payload"] == {
+        "roll_id": "roll-public",
+        "decision_id": "turn-poison",
+        "kind": "skill_check",
+        "skill": "Spot Hidden",
+        "target": 60,
+        "difficulty": "regular",
+        "roll": 42,
+        "outcome": "regular_success",
+        "success": True,
+    }
+    assert [event["payload"] for event in events if event["type"] == "choice"] == [{
+        "choice_id": "choice-public",
+        "kind": "chase_action",
+        "command_id": "command-public",
+        "responder": "player",
+        "revision": 1,
+        "prompt": "Choose.",
+        "options": [{"action": "dodge", "label": "Dodge"}],
+        "decision_id": "turn-poison",
+    }]
+    assert by_type["state_patch"]["payload"] == {
+        "final_state": {
+            "active_scene": "ending",
+            "tension": "high",
+            "turn_number": 7,
+        },
+        "state_patch": {
+            "applied": True,
+            "world_active_scene_updated": True,
+        },
+    }
+    assert by_type["session_ending"]["payload"] == {
+        "kind": "session_ending",
+        "decision_id": "turn-poison",
+        "scene_id": "ending",
+    }
+    encoded = json.dumps(events, ensure_ascii=False)
+    for secret in (
+        "KEEPER-NARRATION", "KEEPER-DIRECTIVE", "KEEPER-ROLL",
+        "PRIVATE-CLUE", "KEEPER-CHOICE", "KEEPER-OPTION", "KEEPER-BRANCH",
+        "/private/",
+    ):
+        assert secret not in encoded
 
 
 def test_debug_adapter_runs_live_turn(tmp_path):

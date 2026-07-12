@@ -81,6 +81,12 @@ def test_build_public_state_round_trips_hp_san_and_scene(tmp_path):
     assert state["discovered_clue_ids"] == ["ledger-mark", "wet-footprints"]
     assert state["brain"] == "pi"
     assert state["pending_choice"] is None
+    assert state["terminal_evidence"] == {
+        "reached_terminal": False,
+        "active_scene_id": "dock-warehouse",
+        "graph_terminal": False,
+        "session_ending": False,
+    }
 
     assert len(state["investigators"]) == 1
     inv = state["investigators"][0]
@@ -89,6 +95,102 @@ def test_build_public_state_round_trips_hp_san_and_scene(tmp_path):
     assert inv["current_san"] == 55
     assert inv["current_mp"] == 10
     assert inv["conditions"] == ["shaken"]
+
+
+def test_public_state_projects_structured_graph_terminal_without_source_prose(
+    tmp_path,
+):
+    campaign = _seed_campaign(tmp_path)
+    scenario = campaign / "scenario"
+    scenario.mkdir()
+    (scenario / "story-graph.json").write_text(json.dumps({
+        "scenes": [{
+            "scene_id": "dock-warehouse",
+            "scene_type": "resolution",
+            "is_final": True,
+            "keeper_summary": "PRIVATE ENDING SOURCE PROSE",
+        }],
+        "scene_edges": [],
+    }), encoding="utf-8")
+
+    state = _load().build_public_state(tmp_path, "camp-1")
+
+    assert state["terminal_evidence"] == {
+        "reached_terminal": False,
+        "active_scene_id": "dock-warehouse",
+        "graph_terminal": False,
+        "session_ending": False,
+    }
+    assert {"state": "terminal", "code": "invalid_fields"} in state[
+        "state_health"
+    ]["issues"]
+    assert "PRIVATE ENDING SOURCE PROSE" not in json.dumps(state)
+
+
+def _write_valid_terminal_scenario(campaign: Path) -> None:
+    scenario = campaign / "scenario"
+    scenario.mkdir(exist_ok=True)
+    documents = {
+        "module-meta.json": {
+            "schema_version": 1,
+            "scenario_id": "camp-1-scenario",
+            "structure_type": "linear_acts",
+        },
+        "story-graph.json": {"scenes": [{
+            "scene_id": "dock-warehouse",
+            "scene_type": "resolution",
+            "is_final": True,
+            "dramatic_question": "Does the investigation reach its ending?",
+            "entry_conditions": [],
+            "exit_conditions": [],
+            "available_clues": [],
+            "npc_ids": [],
+            "pressure_moves": [],
+            "tone": ["tense"],
+            "allowed_improvisation": [],
+        }]},
+        "clue-graph.json": {"conclusions": []},
+        "npc-agendas.json": {"npcs": []},
+        "threat-fronts.json": {"fronts": []},
+        "pacing-map.json": {"pacing_curve": []},
+        "improvisation-boundaries.json": {
+            "invent_allowed": [], "never_invent": [], "keeper_secrets": []
+        },
+    }
+    for name, payload in documents.items():
+        (scenario / name).write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_public_state_accepts_terminal_only_from_validated_scenario(tmp_path):
+    campaign = _seed_campaign(tmp_path)
+    _write_valid_terminal_scenario(campaign)
+
+    state = _load().build_public_state(tmp_path, "camp-1")
+
+    assert state["terminal_evidence"] == {
+        "reached_terminal": True,
+        "active_scene_id": "dock-warehouse",
+        "graph_terminal": True,
+        "session_ending": False,
+    }
+    assert not any(
+        issue["state"] == "terminal" for issue in state["state_health"]["issues"]
+    )
+
+
+def test_public_state_bad_terminal_event_log_fails_closed_with_health(tmp_path):
+    campaign = _seed_campaign(tmp_path)
+    _write_valid_terminal_scenario(campaign)
+    logs = campaign / "logs"
+    logs.mkdir()
+    (logs / "events.jsonl").write_text("{bad-json\n", encoding="utf-8")
+
+    state = _load().build_public_state(tmp_path, "camp-1")
+
+    assert state["terminal_evidence"]["reached_terminal"] is False
+    assert {"state": "terminal", "code": "invalid_fields"} in state[
+        "state_health"
+    ]["issues"]
 
 
 def test_public_state_projects_player_safe_combat_defense(tmp_path):
@@ -388,6 +490,7 @@ def test_public_state_schema_lists_required_keys():
         "investigators",
         "brain",
         "pending_choice",
+        "terminal_evidence",
         "state_health",
     }.issubset(required)
     assert schema["additionalProperties"] is False

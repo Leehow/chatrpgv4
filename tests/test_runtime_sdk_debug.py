@@ -194,7 +194,7 @@ def test_sdk_debug_create_send_state_close(tmp_path):
     assert set(telemetry) == {
         "intent_ms", "director_ms", "rules_ms", "persistence_ms",
         "player_llm_ms", "narrator_llm_ms", "total_ms", "input_tokens",
-        "output_tokens", "fallback", "runner",
+        "output_tokens", "fallback", "runner", "narrator",
     }
     assert telemetry["total_ms"] >= sum(
         telemetry[key] for key in (
@@ -214,6 +214,25 @@ def test_sdk_debug_create_send_state_close(tmp_path):
     api.close_session(sid)
     with pytest.raises(Exception):
         api.send(sid, "再试一次。")
+
+
+def test_sdk_public_workspace_session_snapshot_restore_round_trip(tmp_path):
+    _camp, _char = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(
+        json.dumps({"schema_version": 1, "brain": "debug"}),
+        encoding="utf-8",
+    )
+    writer = _load("runtime_sdk_api_snapshot_writer", "runtime/sdk/api.py")
+    sid = writer.create_session(
+        tmp_path, campaign_id="live", investigator_id="inv1"
+    )
+
+    snapshot_path = writer.snapshot_workspace_sessions(tmp_path)
+    assert snapshot_path == tmp_path / ".coc" / "runtime" / "sessions.json"
+
+    reader = _load("runtime_sdk_api_snapshot_reader", "runtime/sdk/api.py")
+    assert reader.restore_workspace_sessions(tmp_path) == [sid]
+    assert reader.get_state(sid) == writer.get_state(sid)
 
 
 @pytest.mark.parametrize(
@@ -378,7 +397,16 @@ def test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only(tmp_path,
         @staticmethod
         def debug_send_turn(*_args, **kwargs):
             assert kwargs["include_result"] is True
-            return [], {
+            return [{
+                "type": "narration",
+                "id": "evt-template",
+                "ts": "2026-07-12T00:00:00Z",
+                "visibility": "player",
+                "payload": {
+                    "text": "门后的动静仍被雨声遮住。",
+                    "decision_id": "turn-pi-safe",
+                },
+            }], {
                 "turns": [{
                     "decision_id": "turn-pi-safe",
                     "narration_envelope": {
@@ -387,6 +415,7 @@ def test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only(tmp_path,
                     },
                 }],
                 "runtime_phase_ms": {},
+                "runtime_receipt_sha256": "0" * 64,
             }
 
     class Pi:
@@ -406,7 +435,14 @@ def test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only(tmp_path,
             self.closed = []
         def request(self, key, _request):
             self.keys.append(dict(key))
-            return {"ok": True, "final_text": "雨声压住了门后的脚步。"}
+            return {
+                "ok": True,
+                "final_text": "雨声压住了门后的脚步。",
+                "model_identity": {
+                    "provider": "zhipu-coding", "id": "glm-5.2",
+                },
+                "response_mode": "prose_fallback",
+            }
         def close_scope(self, key):
             self.closed.append(dict(key))
 
@@ -417,12 +453,128 @@ def test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only(tmp_path,
     sid = session.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
     events = session.send(sid, "我等着听门后。")
     session.send(sid, "我再听一轮。")
-    assert calls and events[-1]["payload"]["text"].startswith("雨声")
+    assert calls and events[-1]["payload"]["text"].startswith("门后的动静")
     assert len(pool.keys) == 2 and pool.keys[0] == pool.keys[1]
     telemetry = session.get_telemetry_receipts(sid)[-1]["telemetry"]
     assert telemetry["runner"]["worker"] == "jsonl_pool"
+    assert telemetry["fallback"] is True
+    assert telemetry["narrator"]["deterministic_fallback"] is True
+    assert telemetry["narrator"]["consistent"] is False
     session.close_session(sid)
     assert pool.closed == [pool.keys[0]]
+
+
+def test_sdk_last_turn_attestation_uses_observed_glm_and_durable_receipt(
+    tmp_path, monkeypatch
+):
+    camp, _char = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(json.dumps({
+        "schema_version": 2,
+        "planner": {"kind": "deterministic"},
+        "rules": {"kind": "deterministic"},
+        "narrator": {"kind": "pi"},
+        "player": {"kind": "human"},
+    }), encoding="utf-8")
+    api = _load("runtime_sdk_api_glm_attestation", "runtime/sdk/api.py")
+
+    class Pi:
+        @staticmethod
+        def pi_narrate(_request, *, worker_pool, worker_key):
+            return {
+                "ok": True,
+                "final_text": "门锁上有一道新鲜的刮痕。",
+                "secret_audit_complete": True,
+                "asserted_fact_refs": [],
+                "semantic_audit": [],
+                "model_identity": {"provider": "zhipu-coding", "id": "glm-5.2"},
+                "response_mode": "tool",
+                "usage": {"input_tokens": 21, "output_tokens": 7},
+            }
+
+    class Pool:
+        def close_scope(self, _key):
+            pass
+
+    monkeypatch.setattr(api._session, "_load_pi_adapter", lambda: Pi)
+    api._session._REGISTRY._worker_pool = Pool()
+    sid = api.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+    api.send(
+        sid,
+        "我检查门锁。",
+        player_intent=_structured_player_intent(),
+        rng_seed="masks-run-a-20260712:000001",
+        durability_mode="checkpoint",
+    )
+
+    attestation = api.get_last_turn_attestation(sid)
+    assert attestation["session_id"] == sid
+    assert attestation["recording_mode"] == "sync"
+    assert attestation["recording_flush"] == "manual"
+    assert len(attestation["runtime_receipt_sha256"]) == 64
+    assert attestation["decision_ids"]
+    assert attestation["usage"] == {"input_tokens": 21, "output_tokens": 7}
+    assert isinstance(attestation["narrator_llm_ms"], float)
+    assert attestation["narrator_llm_ms"] >= 0.0
+    assert attestation["narrator"] == {
+        "call_count": 1,
+        "model_identity": {"provider": "zhipu-coding", "id": "glm-5.2"},
+        "response_mode": "tool",
+        "consistent": True,
+        "deterministic_fallback": False,
+    }
+    raw = (camp / "logs" / "runtime-telemetry.jsonl").read_text(encoding="utf-8")
+    assert "zhipu-coding" in raw and "glm-5.2" in raw
+    assert "我检查门锁" not in raw
+
+    with (camp / "logs" / "runtime-telemetry.jsonl").open(
+        "a", encoding="utf-8"
+    ) as handle:
+        handle.write("{malformed-tail\n")
+    with pytest.raises(RuntimeError, match="attestation|receipt"):
+        api.get_last_turn_attestation(sid)
+
+
+def test_sdk_last_turn_attestation_binds_exact_session_not_global_tail(tmp_path):
+    _camp, _char = _build_live_campaign(tmp_path)
+    (tmp_path / ".coc" / "runtime.json").write_text(json.dumps({
+        "schema_version": 2,
+        "planner": {"kind": "deterministic"},
+        "rules": {"kind": "deterministic"},
+        "narrator": {"kind": "template"},
+        "player": {"kind": "human"},
+    }), encoding="utf-8")
+    api = _load("runtime_sdk_api_exact_session_attestation", "runtime/sdk/api.py")
+    first = api.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+    second = api.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+    api.send(first, "第一轮。", durability_mode="checkpoint")
+    first_attestation = api.get_last_turn_attestation(first)
+    api.send(second, "第二轮。", durability_mode="checkpoint")
+
+    assert api.get_last_turn_attestation(first) == first_attestation
+    assert api.get_last_turn_attestation(second)["session_id"] == second
+
+
+def test_sdk_marks_telemetry_failure_as_post_commit(tmp_path, monkeypatch):
+    _camp, _char = _build_live_campaign(tmp_path)
+    api = _load("runtime_sdk_api_telemetry_failure", "runtime/sdk/api.py")
+    telemetry = api._session._load_telemetry_module()
+
+    class FailingTelemetry:
+        make_telemetry = staticmethod(telemetry.make_telemetry)
+
+        @staticmethod
+        def write_receipt(*_args, **_kwargs):
+            raise OSError("disk full")
+
+    monkeypatch.setattr(
+        api._session, "_load_telemetry_module", lambda: FailingTelemetry
+    )
+    sid = api.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
+
+    with pytest.raises(api.TelemetryPersistenceError) as caught:
+        api.send(sid, "我检查房间。", durability_mode="checkpoint")
+    assert caught.value.kind == "telemetry_persistence_failed"
+    assert caught.value.turn_committed is True
 
 
 def test_sdk_debug_resolves_chase_pending_choice_action_only(tmp_path):

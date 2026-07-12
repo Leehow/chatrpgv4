@@ -104,6 +104,124 @@ function summarizeEnvelope(envelope) {
   }
 }
 
+function jsonPointerToken(value) {
+  return String(value).replaceAll("~", "~0").replaceAll("/", "~1");
+}
+
+export function buildAllowedAssertionMap(envelope) {
+  const result = {};
+  const omitted = new Set([
+    "must_not_reveal",
+    "rationale",
+    "keeper_secrets",
+    "director_rationale",
+  ]);
+
+  function visit(value, pathParts) {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, [...pathParts, String(index)]));
+      return;
+    }
+    if (value && typeof value === "object") {
+      for (const key of Object.keys(value).sort()) {
+        if (!omitted.has(key)) visit(value[key], [...pathParts, key]);
+      }
+      return;
+    }
+    if (!["string", "number", "boolean"].includes(typeof value) && value !== null) {
+      return;
+    }
+    const pointer = `/${pathParts.map(jsonPointerToken).join("/")}`;
+    result[`envelope:${pointer}`] = { path: pointer, value };
+  }
+
+  if (envelope && typeof envelope === "object" && !Array.isArray(envelope)) {
+    visit(envelope, []);
+  }
+  return result;
+}
+
+function forbiddenRefsFromEnvelope(envelope) {
+  const rows = envelope && Array.isArray(envelope.must_not_reveal)
+    ? envelope.must_not_reveal : [];
+  const refs = [];
+  for (const row of rows) {
+    const ref = row && typeof row === "object" && typeof row.id === "string"
+      ? row.id.trim() : "";
+    if (ref && !refs.includes(ref)) refs.push(ref);
+  }
+  return refs.sort();
+}
+
+export function validateNarrationSubmission(params, allowedAssertionMap, forbiddenRefs) {
+  if (!params || typeof params !== "object") {
+    throw new Error("narration submission must be an object");
+  }
+  const finalText = typeof params.final_text === "string"
+    ? params.final_text.trim() : "";
+  if (!finalText) throw new Error("narration submission requires final_text");
+  if (!Array.isArray(params.asserted_fact_refs)) {
+    throw new Error("asserted_fact_refs must be an array");
+  }
+  const asserted = [];
+  for (const raw of params.asserted_fact_refs) {
+    if (typeof raw !== "string" || !raw.trim() || raw !== raw.trim()) {
+      throw new Error("asserted_fact_refs must contain exact non-empty strings");
+    }
+    if (!Object.hasOwn(allowedAssertionMap, raw)) {
+      throw new Error(`asserted_fact_refs contains an unknown allowed assertion ref: ${raw}`);
+    }
+    if (asserted.includes(raw)) {
+      throw new Error("asserted_fact_refs contains a duplicate allowed assertion ref");
+    }
+    asserted.push(raw);
+  }
+  if (!Array.isArray(params.semantic_audit)) {
+    throw new Error("semantic audit must be an array");
+  }
+  const forbidden = Array.isArray(forbiddenRefs) ? [...forbiddenRefs] : [];
+  const expected = new Set(
+    asserted.flatMap((assertedRef) => forbidden.map(
+      (forbiddenRef) => JSON.stringify([assertedRef, forbiddenRef]),
+    )),
+  );
+  const observed = new Set();
+  const semanticAudit = [];
+  for (const raw of params.semantic_audit) {
+    if (
+      !raw || typeof raw !== "object" || Array.isArray(raw) ||
+      Object.keys(raw).sort().join(",") !==
+        "asserted_ref,decision,forbidden_ref,reason"
+    ) {
+      throw new Error("semantic audit record shape is invalid");
+    }
+    const reason = typeof raw.reason === "string" ? raw.reason.trim() : "";
+    const pair = JSON.stringify([raw.asserted_ref, raw.forbidden_ref]);
+    if (!expected.has(pair)) throw new Error("semantic audit contains an extra pair");
+    if (observed.has(pair)) throw new Error("semantic audit contains a duplicate pair");
+    if (raw.decision !== "different_fact" || !reason) {
+      throw new Error("semantic audit decision is unsafe or lacks a reason");
+    }
+    observed.add(pair);
+    semanticAudit.push({
+      asserted_ref: raw.asserted_ref,
+      forbidden_ref: raw.forbidden_ref,
+      decision: raw.decision,
+      reason,
+    });
+  }
+  if (observed.size !== expected.size) {
+    throw new Error("semantic audit is missing an asserted × forbidden pair");
+  }
+  return {
+    ok: true,
+    final_text: finalText,
+    secret_audit_complete: true,
+    asserted_fact_refs: asserted,
+    semantic_audit: semanticAudit,
+  };
+}
+
 function formatClueSummaries(envelope) {
   const reveals = envelope && envelope.approved_reveals;
   if (!reveals || typeof reveals !== "object") return "(none)";
@@ -262,6 +380,7 @@ function formatRecent(recent) {
 function buildPromptText(request) {
   const playLanguage = request.play_language || "zh-Hans";
   const envelope = request.narration_envelope || {};
+  const allowedAssertionMap = buildAllowedAssertionMap(envelope);
   const sections = [
     `Play language for final_text: ${playLanguage}`,
     "",
@@ -288,6 +407,9 @@ function buildPromptText(request) {
     "",
     "## Narration envelope (player-safe; do not invent beyond this)",
     summarizeEnvelope(envelope),
+    "",
+    "## Allowed assertion refs (closed set; use only exact keys below)",
+    JSON.stringify(allowedAssertionMap, null, 2),
     "",
     "## Recent narrations (vary wording; do not repeat)",
     formatRecent(request.recent_narrations),
@@ -346,6 +468,8 @@ function buildNarrationTool(holder) {
       "final_text must be in-fiction tabletop prose only.",
       "Do not invent dice rolls, skill values, or rule math.",
       "Do not reveal must_not_reveal contents.",
+      "Use only exact keys from the current Allowed assertion refs map.",
+      "semantic_audit must exactly cover asserted refs × forbidden refs.",
       "Do not menu-dump choice cues.",
       "After coc_keeper_narration returns, stop.",
     ],
@@ -375,10 +499,15 @@ function buildNarrationTool(holder) {
     async execute(_toolCallId, params) {
       const capture = holder.capture;
       capture.usedTool = true;
-      const finalText =
-        typeof params.final_text === "string" ? params.final_text.trim() : "";
-      if (!finalText) {
-        capture.error = "coc_keeper_narration missing non-empty final_text";
+      let result;
+      try {
+        result = validateNarrationSubmission(
+          params,
+          holder.contract.allowedAssertionMap,
+          holder.contract.forbiddenRefs,
+        );
+      } catch (error) {
+        capture.error = error && error.message ? error.message : String(error);
         return {
           content: [
             {
@@ -390,14 +519,6 @@ function buildNarrationTool(holder) {
           terminate: true,
         };
       }
-      const result = {
-        ok: true,
-        final_text: finalText,
-        secret_audit_complete: true,
-        asserted_fact_refs: Array.isArray(params.asserted_fact_refs)
-          ? params.asserted_fact_refs : [],
-        semantic_audit: Array.isArray(params.semantic_audit) ? params.semantic_audit : [],
-      };
       if (typeof params.notes === "string" && params.notes.trim()) {
         result.notes = params.notes.trim();
       }
@@ -437,6 +558,10 @@ export async function runNarration(request, serverState = null) {
   };
   const holder = serverState || { capture };
   holder.capture = capture;
+  holder.contract = {
+    allowedAssertionMap: buildAllowedAssertionMap(request.narration_envelope),
+    forbiddenRefs: forbiddenRefsFromEnvelope(request.narration_envelope),
+  };
   const tool = serverState?.tool || buildNarrationTool(holder);
   const cwd = __dirname;
   const agentDir = getAgentDir();

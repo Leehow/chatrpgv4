@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import math
@@ -20,6 +21,16 @@ class UnknownSessionError(Exception):
 
     def __init__(self, session_id: str | None = None) -> None:
         self.session_id = session_id
+        super().__init__(self.kind)
+
+
+class TelemetryPersistenceError(RuntimeError):
+    """A turn committed, but its required telemetry receipt did not persist."""
+
+    kind = "telemetry_persistence_failed"
+    turn_committed = True
+
+    def __init__(self) -> None:
         super().__init__(self.kind)
 
 
@@ -574,7 +585,10 @@ def _ensure_worker_pool(registry: SessionRegistry):
                 "runtime_session_worker_pool",
                 _repo_root() / "runtime" / "adapters" / "worker_pool.py",
             )
-            runner = _repo_root() / "runtime" / "adapters" / "pi" / "run_turn.mjs"
+            runner = (
+                _repo_root()
+                / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
+            )
             registry._worker_pool = pool_mod.JsonlWorkerPool(
                 lambda _key: ["node", str(runner), "--server"],
                 cwd=runner.parent,
@@ -583,7 +597,10 @@ def _ensure_worker_pool(registry: SessionRegistry):
 
 
 def _narrator_worker_key(record: Mapping[str, Any]) -> dict[str, str]:
-    runner = _repo_root() / "runtime" / "adapters" / "pi" / "run_turn.mjs"
+    runner = (
+        _repo_root()
+        / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
+    )
     return {
         "session_id": str(record["session_id"]),
         "campaign_id": str(record["campaign_id"]),
@@ -600,6 +617,17 @@ def _load_events_module():
 def _load_telemetry_module():
     path = _engine_dir() / "telemetry.py"
     return _load_module("runtime_session_telemetry", path)
+
+
+def _load_secret_audit_module():
+    path = (
+        _repo_root()
+        / "plugins"
+        / "coc-keeper"
+        / "scripts"
+        / "coc_secret_audit.py"
+    )
+    return _load_module("runtime_session_secret_audit", path)
 
 
 def _replace_turn_narration(
@@ -641,6 +669,80 @@ def _safe_narration_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
             return [clean(item) for item in value]
         return copy.deepcopy(value)
     return clean(envelope)
+
+
+def _allowed_narrator_assertion_refs(envelope: Any) -> set[str]:
+    """Derive a closed fact-ref set from structure, never generated prose."""
+
+    omitted = {
+        "must_not_reveal", "rationale", "keeper_secrets", "director_rationale",
+    }
+    refs: set[str] = set()
+
+    def pointer_token(value: str) -> str:
+        return value.replace("~", "~0").replace("/", "~1")
+
+    def visit(value: Any, parts: list[str]) -> None:
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                visit(item, [*parts, str(index)])
+            return
+        if isinstance(value, dict):
+            for key in sorted(value):
+                if isinstance(key, str) and key not in omitted:
+                    visit(value[key], [*parts, key])
+            return
+        if value is None or type(value) in {str, int, float, bool}:
+            pointer = "/" + "/".join(pointer_token(part) for part in parts)
+            refs.add(f"envelope:{pointer}")
+
+    if isinstance(envelope, dict):
+        visit(envelope, [])
+    return refs
+
+
+def _validated_narrator_secret_audit(
+    envelope: Any,
+    narration: Any,
+) -> dict[str, Any] | None:
+    """Return canonical exact-coverage evidence, else force template fallback."""
+
+    if (
+        not isinstance(envelope, dict)
+        or not isinstance(narration, dict)
+        or narration.get("response_mode") != "tool"
+        or narration.get("secret_audit_complete") is not True
+    ):
+        return None
+    asserted = narration.get("asserted_fact_refs")
+    semantic = narration.get("semantic_audit")
+    if (
+        not isinstance(asserted, list)
+        or not isinstance(semantic, list)
+        or any(
+            not isinstance(ref, str) or not ref or ref != ref.strip()
+            for ref in asserted
+        )
+        or len(set(asserted)) != len(asserted)
+        or not set(asserted) <= _allowed_narrator_assertion_refs(envelope)
+    ):
+        return None
+    raw_forbidden = envelope.get("must_not_reveal", [])
+    if not isinstance(raw_forbidden, list):
+        return None
+    forbidden: list[str] = []
+    for row in raw_forbidden:
+        ref = row.get("id") if isinstance(row, dict) else None
+        if not isinstance(ref, str) or not ref or ref != ref.strip() or ref in forbidden:
+            return None
+        forbidden.append(ref)
+    try:
+        receipt = _load_secret_audit_module().audit_secret_claims(
+            forbidden, asserted, semantic
+        )
+    except Exception:
+        return None
+    return receipt if isinstance(receipt, dict) and receipt.get("passed") is True else None
 
 
 def _validated_session_record(session_id: str, record: dict[str, Any]) -> dict[str, Any]:
@@ -727,9 +829,15 @@ def send(
     rng_seed: int | str | None = None,
     subsystem_request: dict[str, Any] | None = None,
     pending_choice_response: dict[str, Any] | None = None,
+    durability_mode: str = "normal",
 ) -> list[dict[str, Any]]:
     total_started = time.perf_counter()
     turn_kwargs: dict[str, Any] = {}
+    if durability_mode not in {"normal", "checkpoint"}:
+        raise ValueError("durability_mode must be normal or checkpoint")
+    if durability_mode == "checkpoint":
+        turn_kwargs["recording_mode"] = "sync"
+        turn_kwargs["recording_flush"] = "manual"
     if player_intent is not None:
         normalized = _validate_player_intent(player_intent)
         turn_kwargs["intent_class"] = normalized["primary_intent"]
@@ -783,14 +891,19 @@ def send(
     events, raw_result = dispatched
     narrator_ms = 0.0
     fallback = False
+    narrator_outcomes: list[dict[str, Any]] = []
     if not (
         isinstance(pipeline.get("narrator"), dict)
         and pipeline["narrator"].get("kind") == "pi"
     ):
-        _record_turn_telemetry(
-            record, raw_result, total_started, narrator_ms=0.0, fallback=False,
-            input_tokens=None, output_tokens=None,
-        )
+        try:
+            _record_turn_telemetry(
+                record, raw_result, total_started, narrator_ms=0.0, fallback=False,
+                input_tokens=None, output_tokens=None,
+                narrator=_summarize_narrator_outcomes([]),
+            )
+        except Exception as exc:
+            raise TelemetryPersistenceError() from exc
         return events
     usage_input: int | None = None
     usage_output: int | None = None
@@ -803,10 +916,11 @@ def send(
         envelope = raw_turn.get("narration_envelope")
         if not isinstance(envelope, dict):
             continue
+        safe_envelope = _safe_narration_envelope(envelope)
         narrator_started = time.perf_counter()
         try:
             narration = _load_pi_adapter().pi_narrate({
-                "narration_envelope": _safe_narration_envelope(envelope),
+                "narration_envelope": safe_envelope,
                 "last_player_text": player_input,
                 "play_language": "zh-Hans",
                 "recent_narrations": [],
@@ -814,6 +928,11 @@ def send(
         except Exception:  # narration rendering fails open to deterministic events
             narrator_ms += (time.perf_counter() - narrator_started) * 1000.0
             fallback = True
+            narrator_outcomes.append({
+                "model_identity": None,
+                "response_mode": None,
+                "deterministic_fallback": True,
+            })
             continue
         narrator_ms += (time.perf_counter() - narrator_started) * 1000.0
         usage = narration.get("usage") if isinstance(narration, dict) else None
@@ -824,11 +943,29 @@ def send(
                 usage_input = (usage_input or 0) + raw_input
             if isinstance(raw_output, int) and not isinstance(raw_output, bool):
                 usage_output = (usage_output or 0) + raw_output
+        secret_audit = _validated_narrator_secret_audit(
+            safe_envelope, narration
+        )
+        deterministic_fallback = secret_audit is None
+        narrator_outcomes.append({
+            "model_identity": copy.deepcopy(narration.get("model_identity"))
+            if isinstance(narration, dict) else None,
+            "response_mode": narration.get("response_mode")
+            if isinstance(narration, dict) else None,
+            "deterministic_fallback": deterministic_fallback,
+        })
+        if deterministic_fallback:
+            fallback = True
+            continue
         events = _replace_turn_narration(events, raw_turn, narration)
-    _record_turn_telemetry(
-        record, raw_result, total_started, narrator_ms=narrator_ms, fallback=fallback,
-        input_tokens=usage_input, output_tokens=usage_output,
-    )
+    try:
+        _record_turn_telemetry(
+            record, raw_result, total_started, narrator_ms=narrator_ms, fallback=fallback,
+            input_tokens=usage_input, output_tokens=usage_output,
+            narrator=_summarize_narrator_outcomes(narrator_outcomes),
+        )
+    except Exception as exc:
+        raise TelemetryPersistenceError() from exc
     return events
 
 
@@ -841,6 +978,7 @@ def _record_turn_telemetry(
     fallback: bool,
     input_tokens: int | None,
     output_tokens: int | None,
+    narrator: dict[str, Any],
 ) -> None:
     """Persist only timing/attestation metadata, never prompts or player text."""
     phase = raw_result.get("runtime_phase_ms") if isinstance(raw_result, dict) else {}
@@ -873,6 +1011,7 @@ def _record_turn_telemetry(
         total_ms=max(total_ms, sum(parts)), input_tokens=input_tokens,
         output_tokens=output_tokens,
         fallback=bool(fallback), runner=runner,
+        narrator=narrator,
     )
     decisions = [
         turn.get("decision_id") for turn in (raw_result.get("turns") or [])
@@ -881,6 +1020,7 @@ def _record_turn_telemetry(
     _load_telemetry_module().write_receipt(
         record["campaign_dir"], session_id=record["session_id"],
         investigator_id=record["investigator_id"], telemetry=telemetry,
+        runtime_receipt_sha256=str(raw_result.get("runtime_receipt_sha256") or ""),
         decision_ids=decisions,
     )
 
@@ -894,6 +1034,135 @@ def get_telemetry_receipts(session_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def _summarize_narrator_outcomes(
+    outcomes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Collapse adapter outcomes without retaining prose, prompts, or envelopes."""
+    if not outcomes:
+        return {
+            "call_count": 0,
+            "model_identity": None,
+            "response_mode": None,
+            "consistent": True,
+            "deterministic_fallback": False,
+        }
+    first_identity = copy.deepcopy(outcomes[0].get("model_identity"))
+    first_mode = outcomes[0].get("response_mode")
+    deterministic_fallback = any(
+        outcome.get("deterministic_fallback") is True for outcome in outcomes
+    )
+    consistent = (
+        isinstance(first_identity, dict)
+        and set(first_identity) == {"provider", "id"}
+        and all(isinstance(first_identity.get(key), str) and first_identity[key]
+                for key in ("provider", "id"))
+        and first_mode in {"tool", "prose_fallback"}
+        and not deterministic_fallback
+        and all(
+            outcome.get("model_identity") == first_identity
+            and outcome.get("response_mode") == first_mode
+            and outcome.get("deterministic_fallback") is False
+            for outcome in outcomes
+        )
+    )
+    return {
+        "call_count": len(outcomes),
+        "model_identity": first_identity if isinstance(first_identity, dict) else None,
+        "response_mode": first_mode if first_mode in {"tool", "prose_fallback"} else None,
+        "consistent": consistent,
+        "deterministic_fallback": deterministic_fallback,
+    }
+
+
+def get_last_turn_attestation(session_id: str) -> dict[str, Any]:
+    """Return a privacy-safe digest and narrator outcome for the durable turn."""
+    record = get_session(session_id)
+    try:
+        receipts = _load_telemetry_module().read_receipts_strict(record["campaign_dir"])
+    except ValueError as exc:
+        raise RuntimeError("last turn telemetry receipt is unavailable") from exc
+    matching_receipts = [
+        receipt for receipt in receipts if receipt.get("session_id") == session_id
+    ]
+    if not matching_receipts:
+        raise RuntimeError("last turn telemetry receipt is unavailable")
+    receipt = matching_receipts[-1]
+    try:
+        runtime_rows = _load_telemetry_module().read_jsonl_objects_strict(
+            record["campaign_dir"], "live-turn-runtime.jsonl"
+        )
+    except ValueError as exc:
+        raise RuntimeError("last turn runtime receipt is unavailable") from exc
+    expected_runtime_digest = receipt.get("runtime_receipt_sha256")
+    matching_runtime_rows = []
+    for candidate in runtime_rows:
+        encoded_candidate = json.dumps(
+            candidate, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+        if hashlib.sha256(encoded_candidate).hexdigest() == expected_runtime_digest:
+            matching_runtime_rows.append(candidate)
+    if len(matching_runtime_rows) != 1:
+        raise RuntimeError("last turn runtime receipt digest is missing or ambiguous")
+    runtime_row = matching_runtime_rows[0]
+    if (
+        not isinstance(runtime_row, dict)
+        or runtime_row.get("schema_version") != 1
+        or runtime_row.get("event_type") != "live_turn_runtime"
+        or runtime_row.get("investigator_id") != record["investigator_id"]
+        or runtime_row.get("decision_ids") != receipt.get("decision_ids")
+        or receipt.get("investigator_id") != record["investigator_id"]
+    ):
+        raise RuntimeError("last turn receipts do not agree")
+    encoded = json.dumps(
+        runtime_row,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    runtime_receipt_sha256 = hashlib.sha256(encoded).hexdigest()
+    if receipt.get("runtime_receipt_sha256") != runtime_receipt_sha256:
+        raise RuntimeError("last turn telemetry/runtime digest binding mismatch")
+    telemetry = receipt.get("telemetry")
+    if not isinstance(telemetry, dict):
+        raise RuntimeError("last turn telemetry receipt is unavailable")
+    narrator = telemetry.get("narrator")
+    if not isinstance(narrator, dict):
+        raise RuntimeError("last turn narrator attestation is unavailable")
+    usage = {
+        "input_tokens": telemetry.get("input_tokens"),
+        "output_tokens": telemetry.get("output_tokens"),
+    }
+    for field, value in usage.items():
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+        ):
+            raise RuntimeError("last turn narrator usage is unavailable")
+    latency = telemetry.get("narrator_llm_ms")
+    if (
+        isinstance(latency, bool)
+        or not isinstance(latency, (int, float))
+        or latency < 0
+        or latency != latency
+        or latency in (float("inf"), float("-inf"))
+    ):
+        raise RuntimeError("last turn narrator latency is unavailable")
+    return {
+        "schema_version": 1,
+        "session_id": session_id,
+        "investigator_id": record["investigator_id"],
+        "decision_ids": list(receipt["decision_ids"]),
+        "telemetry_receipt_id": receipt["receipt_id"],
+        "runtime_receipt_sha256": runtime_receipt_sha256,
+        "recording_mode": runtime_row.get("recording_mode"),
+        "recording_flush": runtime_row.get("recording_flush"),
+        "usage": usage,
+        "narrator_llm_ms": float(latency),
+        "narrator": copy.deepcopy(narrator),
+    }
+
+
 def get_state(session_id: str) -> dict[str, Any]:
     record = get_session(session_id)
     state = _load_public_state().build_public_state(
@@ -901,6 +1170,18 @@ def get_state(session_id: str) -> dict[str, Any]:
     )
     state["brain"] = record["brain_at_create"]
     return state
+
+
+def snapshot_workspace_sessions(workspace: Path | str) -> Path:
+    """Persist the sanitized recoverable sessions owned by one workspace."""
+    root = _load_paths().workspace_root(workspace)
+    return _REGISTRY.snapshot(root)
+
+
+def restore_workspace_sessions(workspace: Path | str) -> list[str]:
+    """Restore a sanitized workspace snapshot into this process registry."""
+    root = _load_paths().workspace_root(workspace)
+    return _REGISTRY.restore(root)
 
 
 def close_session(session_id: str) -> None:

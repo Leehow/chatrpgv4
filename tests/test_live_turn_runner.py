@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import random
+import stat
 import time
 from pathlib import Path
 
@@ -2335,6 +2336,21 @@ def test_typed_subsystem_and_pending_rows_attest_sync_manual_recording(tmp_path)
     assert all(row["recording_mode"] == "sync" for row in rows)
     assert all(row["recording_flush"] == "manual" for row in rows)
     assert rows[-1]["decision_ids"] == ["receipt-chase"]
+
+
+def test_sync_jsonl_append_fsyncs_regular_file_before_return(tmp_path, monkeypatch):
+    target = tmp_path / "logs" / "live-turn-runtime.jsonl"
+    synced_modes = []
+    real_fsync = os.fsync
+
+    def observe_fsync(fd):
+        synced_modes.append(os.fstat(fd).st_mode)
+        return real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", observe_fsync)
+    live_runner._append_jsonl_sync(target, {"event_type": "live_turn_runtime"})
+
+    assert any(stat.S_ISREG(mode) for mode in synced_modes)
 
 
 def test_live_typed_chase_journey_persists_hazard_barrier_conflict_and_end(tmp_path):

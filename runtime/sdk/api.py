@@ -26,6 +26,7 @@ def _load_paths_module():
 
 _session = _load_session_module()
 UnknownSessionError = _session.UnknownSessionError
+TelemetryPersistenceError = _session.TelemetryPersistenceError
 
 
 def create_session(
@@ -56,6 +57,7 @@ def send(
     rng_seed: int | str | None = None,
     subsystem_request: dict[str, Any] | None = None,
     pending_choice_response: dict[str, Any] | None = None,
+    durability_mode: str = "normal",
 ) -> list[dict[str, Any]]:
     """Run one player turn or an exact typed subsystem continuation.
 
@@ -68,6 +70,7 @@ def send(
         session_id, player_input, player_intent=player_intent,
         rng_seed=rng_seed, subsystem_request=subsystem_request,
         pending_choice_response=pending_choice_response,
+        durability_mode=durability_mode,
     )
 
 
@@ -87,3 +90,23 @@ def get_telemetry_receipts(session_id: str) -> list[dict[str, Any]]:
     """Reload privacy-safe timing receipts recorded for this active session."""
     _load_paths_module().validate_id(session_id, "session_id")
     return _session.get_telemetry_receipts(session_id)
+
+
+def get_last_turn_attestation(session_id: str) -> dict[str, Any]:
+    """Return the durable player-safe receipt digest for the latest turn."""
+    _load_paths_module().validate_id(session_id, "session_id")
+    return _session.get_last_turn_attestation(session_id)
+
+
+def snapshot_workspace_sessions(workspace: Path | str) -> Path:
+    """Persist sanitized recoverable session metadata for one workspace."""
+    paths = _load_paths_module()
+    root = paths.workspace_root(workspace)
+    return _session.snapshot_workspace_sessions(root)
+
+
+def restore_workspace_sessions(workspace: Path | str) -> list[str]:
+    """Restore sanitized session metadata from one workspace generation."""
+    paths = _load_paths_module()
+    root = paths.workspace_root(workspace)
+    return _session.restore_workspace_sessions(root)

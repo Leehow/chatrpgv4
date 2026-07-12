@@ -119,6 +119,46 @@ def test_rng_seed_validator_rejects_boolean_collection_and_non_exact_scalars(see
         session._validate_rng_seed(seed)
 
 
+def test_checkpoint_durability_mode_forwards_sync_manual_without_changing_default(
+    tmp_path, monkeypatch
+):
+    session = _load_session()
+    forwarded: list[dict] = []
+
+    record = {
+        "session_id": "sess-durable",
+        "workspace": tmp_path,
+        "campaign_id": "case",
+        "investigator_id": "ada",
+        "character_relpath": ".coc/investigators/ada/character.json",
+        "character_path": tmp_path / ".coc/investigators/ada/character.json",
+        "campaign_dir": tmp_path / ".coc/campaigns/case",
+        "state_paths": {},
+        "resolved_config": {"schema_version": 1, "brain": "debug"},
+        "brain_at_create": "debug",
+    }
+
+    class Debug:
+        @staticmethod
+        def debug_send_turn(*_args, **kwargs):
+            forwarded.append(dict(kwargs))
+            return [], {"turns": [], "runtime_phase_ms": {}}
+
+    monkeypatch.setattr(session, "get_session", lambda _sid: record)
+    monkeypatch.setattr(session, "_load_debug_adapter", lambda: Debug)
+    monkeypatch.setattr(session, "_record_turn_telemetry", lambda *_a, **_k: None)
+
+    session.send("sess-durable", "normal")
+    session.send("sess-durable", "durable", durability_mode="checkpoint")
+
+    assert "recording_mode" not in forwarded[0]
+    assert "recording_flush" not in forwarded[0]
+    assert forwarded[1]["recording_mode"] == "sync"
+    assert forwarded[1]["recording_flush"] == "manual"
+    with pytest.raises(ValueError, match="durability_mode"):
+        session.send("sess-durable", "bad", durability_mode="eventual")
+
+
 def test_registry_expires_and_tombstones_session_without_revival(tmp_path):
     session = _load_session()
     clock = FakeClock()
@@ -278,6 +318,137 @@ def test_lazy_worker_pool_first_use_is_singleton_under_concurrency(monkeypatch):
 
     assert len(created) == 1
     assert all(pool is created[0] for pool in observed)
+
+
+def test_narrator_worker_pool_executes_the_trusted_canonical_server(monkeypatch):
+    session = _load_session()
+    registry = session.SessionRegistry(monotonic=FakeClock())
+    commands = []
+
+    class Pool:
+        def __init__(self, command_factory, **_kwargs):
+            commands.append(command_factory({}))
+
+    class WorkerPoolModule:
+        JsonlWorkerPool = Pool
+
+    original_load = session._load_module
+    monkeypatch.setattr(
+        session,
+        "_load_module",
+        lambda name, path: WorkerPoolModule
+        if path.name == "worker_pool.py"
+        else original_load(name, path),
+    )
+
+    session._ensure_worker_pool(registry)
+
+    assert commands == [[
+        "node",
+        str(
+            Path("runtime/adapters/narrator/run_narration.mjs").resolve()
+        ),
+        "--server",
+    ]]
+
+
+def test_session_accepts_only_canonical_exact_grounded_narrator_audit():
+    session = _load_session()
+    envelope = {
+        "scene_anchor": {
+            "scene_id": "study",
+            "sensory_anchors": ["雨点敲窗"],
+        },
+        "approved_reveals": {
+            "clues": [{
+                "clue_id": "clue-ledger",
+                "player_safe_summary": "账本边缘有新鲜水痕",
+            }],
+        },
+        "must_not_reveal": [{"id": "secret-owner", "category": "keeper"}],
+    }
+    anchor_ref = "envelope:/scene_anchor/sensory_anchors/0"
+    valid = {
+        "ok": True,
+        "final_text": "雨点敲着窗。",
+        "secret_audit_complete": True,
+        "asserted_fact_refs": [anchor_ref],
+        "semantic_audit": [{
+            "asserted_ref": anchor_ref,
+            "forbidden_ref": "secret-owner",
+            "decision": "different_fact",
+            "reason": "weather observation is not ownership",
+        }],
+        "response_mode": "tool",
+    }
+
+    receipt = session._validated_narrator_secret_audit(envelope, valid)
+
+    assert receipt is not None
+    assert receipt["passed"] is True
+    assert receipt["coverage"]["expected_pair_count"] == 1
+
+
+def test_session_rejects_narrator_audit_malformed_missing_extra_duplicate_uncertain_and_ungrounded():
+    session = _load_session()
+    envelope = {
+        "scene_anchor": {"scene_id": "study", "sensory_anchors": ["雨点敲窗"]},
+        "must_not_reveal": [{"id": "secret-owner", "category": "keeper"}],
+    }
+    anchor_ref = "envelope:/scene_anchor/sensory_anchors/0"
+    pair = {
+        "asserted_ref": anchor_ref,
+        "forbidden_ref": "secret-owner",
+        "decision": "different_fact",
+        "reason": "different structured facts",
+    }
+    base = {
+        "ok": True,
+        "final_text": "雨点敲着窗。",
+        "secret_audit_complete": True,
+        "asserted_fact_refs": [anchor_ref],
+        "semantic_audit": [pair],
+        "response_mode": "tool",
+    }
+    attacks = [
+        {**base, "response_mode": "prose_fallback"},
+        {**base, "secret_audit_complete": False},
+        {**base, "asserted_fact_refs": [anchor_ref, anchor_ref]},
+        {**base, "semantic_audit": []},
+        {**base, "semantic_audit": [pair, dict(pair)]},
+        {**base, "semantic_audit": [{**pair, "forbidden_ref": "secret-other"}]},
+        {**base, "semantic_audit": [{**pair, "decision": "uncertain"}]},
+        {**base, "semantic_audit": [{**pair, "extra": True}]},
+        {
+            **base,
+            "asserted_fact_refs": ["sensory:rain_proximity"],
+            "semantic_audit": [{
+                **pair,
+                "asserted_ref": "sensory:rain_proximity",
+            }],
+        },
+        {
+            **base,
+            "asserted_fact_refs": ["sensory:desk_dampness"],
+            "semantic_audit": [{
+                **pair,
+                "asserted_ref": "sensory:desk_dampness",
+            }],
+        },
+        {
+            **base,
+            "asserted_fact_refs": ["location:interior_study"],
+            "semantic_audit": [{
+                **pair,
+                "asserted_ref": "location:interior_study",
+            }],
+        },
+    ]
+
+    assert all(
+        session._validated_narrator_secret_audit(envelope, attack) is None
+        for attack in attacks
+    )
 
 
 def test_sdk_unknown_session_is_stable_documented_exception():

@@ -3,7 +3,7 @@
   "title": "COC Runtime Event",
   "type": "object",
   "required": ["type", "id", "ts", "visibility", "payload"],
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "type": {
       "type": "string",
@@ -13,23 +13,201 @@
         "roll",
         "state_patch",
         "choice",
+        "session_ending",
         "spoiler_gate",
         "system",
         "error"
       ]
     },
-    "id": {
-      "type": "string"
-    },
-    "ts": {
-      "type": "string"
-    },
+    "id": {"type": "string", "minLength": 1},
+    "ts": {"type": "string", "minLength": 1},
     "visibility": {
       "type": "string",
       "enum": ["player", "keeper", "system"]
     },
-    "payload": {
-      "type": "object"
+    "payload": {"type": "object"}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "type": {"const": "narration"},
+        "visibility": {"const": "player"},
+        "payload": {"$ref": "#/$defs/narrationPayload"}
+      }
+    },
+    {
+      "properties": {
+        "type": {"const": "speech"},
+        "visibility": {"const": "player"},
+        "payload": {"$ref": "#/$defs/speechPayload"}
+      }
+    },
+    {
+      "properties": {
+        "type": {"const": "roll"},
+        "visibility": {"const": "player"},
+        "payload": {"$ref": "#/$defs/rollPayload"}
+      }
+    },
+    {
+      "properties": {
+        "type": {"const": "state_patch"},
+        "visibility": {"const": "player"},
+        "payload": {"$ref": "#/$defs/statePatchPayload"}
+      }
+    },
+    {
+      "properties": {
+        "type": {"const": "choice"},
+        "visibility": {"const": "player"},
+        "payload": {"$ref": "#/$defs/choicePayload"}
+      }
+    },
+    {
+      "properties": {
+        "type": {"const": "session_ending"},
+        "visibility": {"const": "player"},
+        "payload": {"$ref": "#/$defs/sessionEndingPayload"}
+      }
+    },
+    {
+      "properties": {
+        "visibility": {"enum": ["keeper", "system"]},
+        "payload": {"type": "object"}
+      }
+    }
+  ],
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1},
+    "narrationPayload": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {"$ref": "#/$defs/nonEmptyString"},
+        "decision_id": {"$ref": "#/$defs/nonEmptyString"}
+      }
+    },
+    "speechPayload": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {"$ref": "#/$defs/nonEmptyString"},
+        "speaker_id": {"$ref": "#/$defs/nonEmptyString"},
+        "decision_id": {"$ref": "#/$defs/nonEmptyString"}
+      }
+    },
+    "rollPayload": {
+      "type": "object",
+      "required": ["roll"],
+      "additionalProperties": false,
+      "properties": {
+        "roll_id": {"$ref": "#/$defs/nonEmptyString"},
+        "decision_id": {"$ref": "#/$defs/nonEmptyString"},
+        "kind": {"$ref": "#/$defs/nonEmptyString"},
+        "skill": {"$ref": "#/$defs/nonEmptyString"},
+        "characteristic": {"$ref": "#/$defs/nonEmptyString"},
+        "difficulty": {"$ref": "#/$defs/nonEmptyString"},
+        "outcome": {"$ref": "#/$defs/nonEmptyString"},
+        "damage_kind": {"$ref": "#/$defs/nonEmptyString"},
+        "reward_kind": {"$ref": "#/$defs/nonEmptyString"},
+        "die": {"$ref": "#/$defs/nonEmptyString"},
+        "target": {"type": "integer"},
+        "effective_target": {"type": "integer"},
+        "bonus_penalty_dice": {"type": "integer"},
+        "roll": {"type": "integer"},
+        "san_loss": {"type": "integer"},
+        "san_before": {"type": "integer"},
+        "san_after": {"type": "integer"},
+        "hp_before": {"type": "integer"},
+        "hp_delta": {"type": "integer"},
+        "hp_after": {"type": "integer"},
+        "flat_modifier": {"type": "integer"},
+        "success": {"type": "boolean"},
+        "pushed": {"type": "boolean"},
+        "bout_triggered": {"type": "boolean"},
+        "die_rolls": {
+          "type": "array",
+          "items": {"type": "integer"}
+        }
+      }
+    },
+    "choicePayload": {
+      "type": "object",
+      "required": [
+        "choice_id", "kind", "command_id", "responder", "revision", "prompt",
+        "options"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "choice_id": {"$ref": "#/$defs/nonEmptyString"},
+        "kind": {"enum": ["push_confirm", "chase_action", "combat_defense"]},
+        "command_id": {"$ref": "#/$defs/nonEmptyString"},
+        "responder": {"const": "player"},
+        "revision": {"type": "integer", "minimum": 0},
+        "prompt": {"$ref": "#/$defs/nonEmptyString"},
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["action", "label"],
+            "additionalProperties": false,
+            "properties": {
+              "action": {"$ref": "#/$defs/nonEmptyString"},
+              "label": {"$ref": "#/$defs/nonEmptyString"}
+            }
+          }
+        },
+        "decision_id": {"$ref": "#/$defs/nonEmptyString"},
+        "attack_id": {"$ref": "#/$defs/nonEmptyString"},
+        "audience": {"const": "player"}
+      }
+    },
+    "statePatchPayload": {
+      "type": "object",
+      "required": ["final_state", "state_patch"],
+      "additionalProperties": false,
+      "properties": {
+        "final_state": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active_scene": {
+              "oneOf": [
+                {"$ref": "#/$defs/nonEmptyString"},
+                {"type": "null"}
+              ]
+            },
+            "tension": {
+              "oneOf": [
+                {"$ref": "#/$defs/nonEmptyString"},
+                {"type": "null"}
+              ]
+            },
+            "turn_number": {"type": "integer", "minimum": 0}
+          }
+        },
+        "state_patch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "applied": {"type": "boolean"},
+            "world_active_scene_updated": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "sessionEndingPayload": {
+      "type": "object",
+      "required": ["kind", "decision_id", "scene_id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"const": "session_ending"},
+        "decision_id": {"$ref": "#/$defs/nonEmptyString"},
+        "scene_id": {"$ref": "#/$defs/nonEmptyString"}
+      }
     }
   }
 }

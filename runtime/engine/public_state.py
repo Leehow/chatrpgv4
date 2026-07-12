@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,103 @@ def _load_paths():
     assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
+
+
+def _load_scene_graph():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "plugins" / "coc-keeper" / "scripts" / "coc_scene_graph.py"
+    )
+    spec = importlib.util.spec_from_file_location("runtime_public_scene_graph", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_scenario_validator():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "plugins" / "coc-keeper" / "scripts" / "coc_scenario_compile.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "runtime_public_scenario_validator", path
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _terminal_evidence(
+    campaign_dir: Path, world: dict[str, Any]
+) -> tuple[dict[str, Any], bool]:
+    """Project canonical structured ending facts without source/narration prose."""
+    path_mod = _load_paths()
+    scenario = path_mod.contained_path(campaign_dir, campaign_dir / "scenario")
+    story_path = path_mod.contained_path(scenario, scenario / "story-graph.json")
+    empty = {
+        "reached_terminal": False,
+        "active_scene_id": world.get("active_scene_id")
+        if isinstance(world.get("active_scene_id"), str) else None,
+        "graph_terminal": False,
+        "session_ending": False,
+    }
+    if not story_path.exists():
+        return empty, False
+    story: dict[str, Any] = {}
+    try:
+        validation = _load_scenario_validator().validate_scenario(scenario)
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        return empty, True
+    if not isinstance(validation, dict) or validation.get("errors"):
+        return empty, True
+    if story_path.is_file():
+        try:
+            loaded = json.loads(story_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                story = loaded
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return empty, True
+    if not story:
+        return empty, True
+
+    logs = path_mod.contained_path(campaign_dir, campaign_dir / "logs")
+    events_path = path_mod.contained_path(logs, logs / "events.jsonl")
+    events: list[dict[str, Any]] = []
+    if events_path.is_file():
+        try:
+            for line in events_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    return empty, True
+                event_type = row.get("event_type") or row.get("type")
+                if event_type == "session_ending":
+                    payload = row.get("payload")
+                    scene_id = world.get("active_scene_id")
+                    if (
+                        not isinstance(payload, dict)
+                        or not isinstance(payload.get("scenario_id"), str)
+                        or not payload["scenario_id"]
+                        or not isinstance(payload.get("scene_id"), str)
+                        or payload.get("scene_id") != scene_id
+                        or row.get("scene_id") not in {None, scene_id}
+                        or not isinstance(row.get("decision_id"), str)
+                        or not row["decision_id"]
+                    ):
+                        return empty, True
+                    events.append({"event_type": "session_ending"})
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return empty, True
+    evidence = _load_scene_graph().terminal_evidence(story, world, events)
+    return {
+        "reached_terminal": evidence["reached_terminal"],
+        "active_scene_id": evidence["active_scene_id"],
+        "graph_terminal": evidence["graph_terminal"],
+        "session_ending": evidence["session_ending"],
+    }, False
 
 
 def _canonical_player_pending_choice(campaign_dir: Path) -> tuple[bool, dict[str, Any] | None]:
@@ -136,6 +234,12 @@ def build_public_state(
 
     cfg = _load_config_module().load_runtime_config(gateway.workspace)
 
+    terminal_evidence, invalid_terminal_evidence = _terminal_evidence(
+        campaign_dir, world
+    )
+    if invalid_terminal_evidence:
+        gateway.record_invalid_fields("terminal")
+
     return {
         "schema_version": 1,
         "campaign_id": gateway.campaign_id,
@@ -154,5 +258,6 @@ def build_public_state(
             else "debug"
         ),
         "pending_choice": pending,
+        "terminal_evidence": terminal_evidence,
         "state_health": gateway.health(),
     }
