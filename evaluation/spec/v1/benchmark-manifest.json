@@ -46,6 +46,7 @@
           "tests/test_eval_contract.py",
           "tests/test_playtest_report.py",
           "tests/test_playtest_audit.py",
+          "tests/test_playtest_completion_audit.py",
           "tests/test_plugin_metadata.py",
           "-q",
           "-p",
