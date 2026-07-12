@@ -251,6 +251,28 @@ def _current_git_head() -> str:
     return head
 
 
+def _invalidation_allows_current_head(
+    manifest: dict[str, Any], *, metadata_head: str, current: str
+) -> bool:
+    state = manifest.get("invalidation_state")
+    segments = state.get("segments") if isinstance(state, dict) else None
+    checkpoint_name = None
+    turn = manifest.get("turn_number")
+    if isinstance(turn, int) and turn >= 0:
+        checkpoint_name = f"turn-{turn:06d}"
+    return isinstance(segments, list) and any(
+        isinstance(segment, dict)
+        and segment.get("kind") == "invalidated_segment"
+        and segment.get("old_commit") == metadata_head
+        and segment.get("new_commit") == current
+        and (
+            checkpoint_name is None
+            or segment.get("replay_start_checkpoint") == checkpoint_name
+        )
+        for segment in segments
+    )
+
+
 def _validate_git_head_binding(
     metadata: dict[str, Any], manifest: dict[str, Any]
 ) -> None:
@@ -264,7 +286,12 @@ def _validate_git_head_binding(
         not isinstance(metadata_head, str)
         or _GIT_HEAD.fullmatch(metadata_head) is None
         or manifest_head != metadata_head
-        or current != metadata_head
+    ):
+        raise DriverError("resume_validation_failed")
+    if current == metadata_head:
+        return
+    if not _invalidation_allows_current_head(
+        manifest, metadata_head=metadata_head, current=current
     ):
         raise DriverError("resume_validation_failed")
 
@@ -789,7 +816,10 @@ def _turn_response_from_row(
 
 
 def _rebuild_request_cache(
-    rows: list[dict[str, Any]], metadata: dict[str, Any]
+    rows: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    *,
+    allow_code_revision: bool = False,
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
     cache: dict[str, dict[str, Any]] = {}
     responses: list[dict[str, Any]] = []
@@ -816,6 +846,14 @@ def _rebuild_request_cache(
             expected_seed = (
                 f"{metadata['rng_seed_base']}:{row['turn_number']:06d}"
             )
+            driver_matches = (
+                provenance.get("driver_identity") == metadata["driver_identity"]
+                and provenance.get("driver_sha256") == metadata["driver_sha256"]
+            )
+            if allow_code_revision:
+                driver_matches = (
+                    provenance.get("driver_identity") == metadata["driver_identity"]
+                )
             if (
                 request_id in cache
                 or provenance.get("request_id") != request_id
@@ -838,9 +876,7 @@ def _rebuild_request_cache(
                 or provenance.get("director_plan_refs") != attestation["decision_ids"]
                 or provenance.get("usage") != attestation["usage"]
                 or provenance.get("narrator_llm_ms") != attestation["narrator_llm_ms"]
-                or provenance.get("driver_identity")
-                != metadata["driver_identity"]
-                or provenance.get("driver_sha256") != metadata["driver_sha256"]
+                or not driver_matches
                 or provenance.get("git_head") != metadata["git_head"]
             ):
                 raise DriverError("resume_validation_failed")
@@ -941,7 +977,14 @@ def _preflight_resume(
         metadata, rows, manifest, selected_relative, manifest_sha256
     )
     _validate_git_head_binding(metadata, manifest)
-    cache, responses = _rebuild_request_cache(rows, metadata)
+    allow_code_revision = _invalidation_allows_current_head(
+        manifest,
+        metadata_head=str(metadata.get("git_head") or ""),
+        current=_current_git_head(),
+    )
+    cache, responses = _rebuild_request_cache(
+        rows, metadata, allow_code_revision=allow_code_revision
+    )
     _validate_metadata_turn(metadata, rows, responses)
     if mode == "checkpoint_ahead":
         prior = run_dir / metadata["latest_checkpoint"]

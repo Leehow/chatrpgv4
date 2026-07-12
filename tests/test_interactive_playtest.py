@@ -1179,6 +1179,35 @@ def test_git_head_binding_requires_metadata_manifest_and_current_head_to_match()
         except driver.DriverError as exc:
             assert exc.code == "resume_validation_failed"
 
+    old = "a" * 40 if current != "a" * 40 else "b" * 40
+    try:
+        driver._validate_git_head_binding(
+            {"git_head": old},
+            {"git_head": old, "turn_number": 19},
+        )
+        assert False, "current HEAD drift without invalidation must fail"
+    except driver.DriverError as exc:
+        assert exc.code == "resume_validation_failed"
+
+    driver._validate_git_head_binding(
+        {"git_head": old},
+        {
+            "git_head": old,
+            "turn_number": 19,
+            "invalidation_state": {
+                "invalidated": True,
+                "segments": [
+                    {
+                        "kind": "invalidated_segment",
+                        "old_commit": old,
+                        "new_commit": current,
+                        "replay_start_checkpoint": "turn-000019",
+                    }
+                ],
+            },
+        },
+    )
+
 
 def test_start_metadata_failure_leaves_diagnostic_incomplete_run_marker(
     tmp_path: Path,
