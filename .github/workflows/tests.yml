@@ -48,7 +48,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install evaluation test dependencies
-        run: python -m pip install pytest pypdf
+        run: python -m pip install pytest pypdf 'jsonschema>=4.23,<5'
       - name: Run focused evaluation contract tests
         id: focused-eval-tests
         continue-on-error: true
@@ -77,6 +77,23 @@ jobs:
           python3 plugins/coc-keeper/scripts/coc_eval.py
           run --suite smoke --root .
           --output "${RUNNER_TEMP}/coc-eval-smoke"
+      - name: Run canonical PR suite through coc_eval.py
+        if: steps.focused-eval-tests.outcome == 'success'
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1
+          python3 plugins/coc-keeper/scripts/coc_eval.py
+          run --suite pr --root .
+          --output "${RUNNER_TEMP}/coc-eval-pr"
+      - name: Upload canonical evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coc-eval-phase1-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/coc-eval-smoke
+            ${{ runner.temp }}/coc-eval-pr
+          if-no-files-found: warn
+          retention-days: 7
 
   node-adapters:
     name: Node adapter contracts
