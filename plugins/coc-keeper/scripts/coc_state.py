@@ -895,8 +895,67 @@ def _initialize_campaign_runtime_files(
         _touch_if_missing(campaign_dir / relative_path)
 
 
+def seed_investigator_state_if_missing(
+    root: Path,
+    campaign_id: str,
+    investigator_id: str,
+    *,
+    sheet: dict[str, Any] | None = None,
+) -> Path:
+    """Ensure ``save/investigator-state/<id>.json`` exists for a party member.
+
+    Missing campaign state is seeded from the reusable character sheet. An
+    existing file is left untouched so HP/SAN/conditions survive re-links.
+    """
+    campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    if not campaign_dir.is_dir():
+        raise FileNotFoundError(f"unknown campaign: {campaign_id}")
+    inv_path = _investigator_state_path(campaign_dir, investigator_id)
+    if inv_path.is_file():
+        return inv_path
+
+    if sheet is None:
+        character_path = coc_root(root) / "investigators" / investigator_id / "character.json"
+        if not character_path.is_file():
+            raise FileNotFoundError(
+                f"missing character sheet for investigator: {investigator_id}"
+            )
+        loaded = json.loads(character_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ValueError(f"character sheet must be an object: {character_path}")
+        sheet = loaded
+
+    derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
+    characteristics = (
+        sheet.get("characteristics")
+        if isinstance(sheet.get("characteristics"), dict)
+        else {}
+    )
+    state = {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "current_hp": int(derived.get("HP") or 10),
+        "current_san": int(
+            derived.get("SAN") or characteristics.get("POW") or 50
+        ),
+        "current_mp": int(
+            derived.get("MP")
+            or max(1, int(characteristics.get("POW") or 50) // 5)
+        ),
+        "current_luck": int(characteristics.get("LUCK") or 50),
+        "conditions": [],
+        "skill_checks_earned": [],
+    }
+    inv_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(inv_path, state)
+    return inv_path
+
+
 def link_party(root: Path, campaign_id: str, investigator_ids: list[str]) -> Path:
     campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    for investigator_id in investigator_ids:
+        seed_investigator_state_if_missing(root, campaign_id, investigator_id)
     party_path = campaign_dir / "party.json"
     write_json_atomic(
         party_path,

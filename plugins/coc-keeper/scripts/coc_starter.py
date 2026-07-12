@@ -319,27 +319,38 @@ def _seed_investigator_state(
     investigator_id: str,
     sheet: dict[str, Any],
 ) -> Path:
-    derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
-    characteristics = (
-        sheet.get("characteristics") if isinstance(sheet.get("characteristics"), dict) else {}
-    )
-    state = {
-        "schema_version": 1,
-        "campaign_id": campaign_id,
-        "investigator_id": investigator_id,
-        "current_hp": int(derived.get("HP") or 10),
-        "current_san": int(derived.get("SAN") or characteristics.get("POW") or 50),
-        "current_mp": int(derived.get("MP") or max(1, int(characteristics.get("POW") or 50) // 5)),
-        "current_luck": int(characteristics.get("LUCK") or 50),
-        "conditions": [],
-        "skill_checks_earned": [],
-    }
-    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    coc_fileio.write_json_atomic(
-        path, state, indent=2, ensure_ascii=False, trailing_newline=True
-    )
-    return path
+    """Seed campaign investigator-state from a character sheet if missing."""
+    coc_root = Path(campaign_dir).resolve().parents[1]
+    try:
+        return coc_state.seed_investigator_state_if_missing(
+            coc_root,
+            campaign_id,
+            investigator_id,
+            sheet=sheet,
+        )
+    except FileNotFoundError:
+        # Bare campaign trees in unit tests may not sit under a full .coc root.
+        derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
+        characteristics = (
+            sheet.get("characteristics") if isinstance(sheet.get("characteristics"), dict) else {}
+        )
+        state = {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "investigator_id": investigator_id,
+            "current_hp": int(derived.get("HP") or 10),
+            "current_san": int(derived.get("SAN") or characteristics.get("POW") or 50),
+            "current_mp": int(derived.get("MP") or max(1, int(characteristics.get("POW") or 50) // 5)),
+            "current_luck": int(characteristics.get("LUCK") or 50),
+            "conditions": [],
+            "skill_checks_earned": [],
+        }
+        path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        coc_fileio.write_json_atomic(
+            path, state, indent=2, ensure_ascii=False, trailing_newline=True
+        )
+        return path
 
 
 def quick_start(

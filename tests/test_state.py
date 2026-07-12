@@ -21,7 +21,13 @@ def test_create_campaign_workspace_and_party(tmp_path):
     investigator_path = coc_state.create_investigator(
         tmp_path,
         "ada-king",
-        {"schema_version": 1, "id": "ada-king", "name": "Ada King", "characteristics": {}},
+        {
+            "schema_version": 1,
+            "id": "ada-king",
+            "name": "Ada King",
+            "characteristics": {"POW": 60, "LUCK": 55},
+            "derived": {"HP": 11, "SAN": 60, "MP": 12},
+        },
     )
     campaign_path = coc_state.create_campaign(tmp_path, "haunting-test", "The Haunting Test")
     party_path = coc_state.link_party(tmp_path, "haunting-test", ["ada-king"])
@@ -35,6 +41,56 @@ def test_create_campaign_workspace_and_party(tmp_path):
     assert json.loads(party_path.read_text())["investigator_ids"] == ["ada-king"]
     assert (tmp_path / ".coc" / "campaigns" / "haunting-test" / "memory").exists()
     assert (tmp_path / ".coc" / "campaigns" / "haunting-test" / "logs").exists()
+    inv_state_path = (
+        tmp_path / ".coc" / "campaigns" / "haunting-test" / "save"
+        / "investigator-state" / "ada-king.json"
+    )
+    assert inv_state_path.is_file()
+    inv_state = json.loads(inv_state_path.read_text(encoding="utf-8"))
+    assert inv_state["investigator_id"] == "ada-king"
+    assert inv_state["campaign_id"] == "haunting-test"
+    assert inv_state["current_hp"] == 11
+    assert inv_state["current_san"] == 60
+    assert inv_state["current_mp"] == 12
+
+
+def test_link_party_does_not_overwrite_existing_investigator_state(tmp_path):
+    coc_state.create_investigator(
+        tmp_path,
+        "ada-king",
+        {
+            "schema_version": 1,
+            "id": "ada-king",
+            "name": "Ada King",
+            "characteristics": {"POW": 60, "LUCK": 55},
+            "derived": {"HP": 11, "SAN": 60, "MP": 12},
+        },
+    )
+    coc_state.create_campaign(tmp_path, "haunting-test", "The Haunting Test")
+    state_path = (
+        tmp_path / ".coc" / "campaigns" / "haunting-test" / "save"
+        / "investigator-state" / "ada-king.json"
+    )
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "campaign_id": "haunting-test",
+            "investigator_id": "ada-king",
+            "current_hp": 3,
+            "current_san": 12,
+            "current_mp": 2,
+            "conditions": ["injured"],
+            "skill_checks_earned": ["Spot Hidden"],
+        }),
+        encoding="utf-8",
+    )
+    coc_state.link_party(tmp_path, "haunting-test", ["ada-king"])
+    kept = json.loads(state_path.read_text(encoding="utf-8"))
+    assert kept["current_hp"] == 3
+    assert kept["current_san"] == 12
+    assert kept["conditions"] == ["injured"]
+    assert kept["skill_checks_earned"] == ["Spot Hidden"]
 
 
 def test_workspace_indexes_campaigns_and_reusable_investigators(tmp_path):
