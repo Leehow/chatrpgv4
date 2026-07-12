@@ -20,7 +20,7 @@ from typing import Any, Iterable
 
 SCHEMA_VERSION = 2
 GENESIS_SHA256 = "0" * 64
-MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}\Z")
+MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,255}\Z")
 RUNTIME_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 ACTION_ROW_KEYS = {
     "turn_number",
@@ -467,9 +467,16 @@ def _validate_runtime_evidence_fds(
     expected_receipt_sha256: str,
     session_id: str,
     investigator_id: str,
+    expected_model_identity: dict[str, str],
 ) -> dict[str, Any]:
     runtime_rows = _strict_jsonl_rows_fd(live_runtime_fd, "live runtime receipt log")
-    runtime_row = runtime_rows[-1]
+    matching_runtime_rows = [
+        row for row in runtime_rows
+        if _sha256_bytes(_canonical_json(row)) == expected_receipt_sha256
+    ]
+    if len(matching_runtime_rows) != 1:
+        raise ValueError("live runtime receipt digest is missing or ambiguous")
+    runtime_row = matching_runtime_rows[0]
     required_runtime = {
         "schema_version",
         "event_type",
@@ -491,7 +498,7 @@ def _validate_runtime_evidence_fds(
         runtime_row.get("decision_ids"), "live runtime receipt"
     )
     actual_receipt = _sha256_bytes(_canonical_json(runtime_row))
-    if actual_receipt != expected_receipt_sha256:
+    if actual_receipt != expected_receipt_sha256:  # defensive after exact selection
         raise ValueError("live runtime receipt digest mismatch")
 
     telemetry_rows = _strict_jsonl_rows_fd(telemetry_fd, "runtime telemetry log")
@@ -501,6 +508,7 @@ def _validate_runtime_evidence_fds(
         "session_id",
         "investigator_id",
         "decision_ids",
+        "runtime_receipt_sha256",
         "telemetry",
     }
     seen_receipt_ids: set[str] = set()
@@ -517,6 +525,8 @@ def _validate_runtime_evidence_fds(
             or not isinstance(row.get("investigator_id"), str)
             or not isinstance(row.get("telemetry"), dict)
             or not isinstance(row.get("decision_ids"), list)
+            or not isinstance(row.get("runtime_receipt_sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", row.get("runtime_receipt_sha256", "")) is None
             or not all(
                 isinstance(item, str)
                 and item
@@ -541,8 +551,42 @@ def _validate_runtime_evidence_fds(
     if (
         latest.get("investigator_id") != investigator_id
         or latest_decision_ids != decision_ids
+        or latest.get("runtime_receipt_sha256") != actual_receipt
     ):
         raise ValueError("latest runtime telemetry decision binding mismatch")
+    telemetry = latest.get("telemetry")
+    narrator = telemetry.get("narrator") if isinstance(telemetry, dict) else None
+    if not isinstance(narrator, dict) or set(narrator) != {
+        "call_count", "model_identity", "response_mode", "consistent",
+        "deterministic_fallback",
+    }:
+        raise ValueError("runtime telemetry narrator attestation is missing")
+    call_count = narrator.get("call_count")
+    model_identity = _validated_model_identity(narrator.get("model_identity"))
+    if expected_model_identity:
+        trusted = (
+            not isinstance(call_count, bool)
+            and isinstance(call_count, int)
+            and call_count > 0
+            and model_identity == expected_model_identity
+            and narrator.get("response_mode") in {"tool", "prose_fallback"}
+            and narrator.get("consistent") is True
+            and narrator.get("deterministic_fallback") is False
+            and telemetry.get("fallback") is False
+        )
+    else:
+        trusted = (
+            call_count == 0
+            and model_identity == {}
+            and narrator.get("response_mode") is None
+            and narrator.get("consistent") is True
+            and narrator.get("deterministic_fallback") is False
+            and telemetry.get("fallback") is False
+        )
+    if not trusted:
+        raise ValueError(
+            "runtime telemetry narrator model, consistency, or fallback mismatch"
+        )
     return runtime_row
 
 
@@ -1021,6 +1065,8 @@ class CheckpointStore:
         workspace: Path | str,
         campaign_id: str,
         investigator_id: str,
+        *,
+        run_dir_fd: int | None = None,
     ) -> None:
         self._validate_identifier(campaign_id, "campaign_id")
         self._validate_identifier(investigator_id, "investigator_id")
@@ -1034,19 +1080,34 @@ class CheckpointStore:
             self._workspace_identity = (workspace_info.st_dev, workspace_info.st_ino)
         finally:
             os.close(workspace_fd)
+        held_identity: tuple[int, int] | None = None
+        if run_dir_fd is not None:
+            try:
+                held = os.fstat(run_dir_fd)
+            except OSError as exc:
+                raise ValueError("held run directory descriptor is invalid") from exc
+            if not stat.S_ISDIR(held.st_mode):
+                raise ValueError("held run directory descriptor is not a directory")
+            held_identity = (held.st_dev, held.st_ino)
         try:
             before = os.lstat(self.run_dir)
         except FileNotFoundError:
             before = None
         if before is not None and stat.S_ISLNK(before.st_mode):
             raise ValueError("run directory symlink is not allowed")
-        self.run_dir.mkdir(parents=True, exist_ok=True)
+        if held_identity is None:
+            self.run_dir.mkdir(parents=True, exist_ok=True)
+        elif before is None:
+            raise ValueError("held run directory path was replaced")
         created = os.lstat(self.run_dir)
         if stat.S_ISLNK(created.st_mode):
             raise ValueError("run directory symlink is not allowed")
         if not stat.S_ISDIR(created.st_mode):
             raise ValueError("run directory is not a directory")
-        self._run_dir_identity = (created.st_dev, created.st_ino)
+        current_identity = (created.st_dev, created.st_ino)
+        if held_identity is not None and current_identity != held_identity:
+            raise ValueError("held run directory path was replaced")
+        self._run_dir_identity = held_identity or current_identity
         self.action_ledger = self.run_dir / "actions.jsonl"
         run_fd = self._open_run_dir()
         try:
@@ -1578,6 +1639,9 @@ class CheckpointStore:
                 ),
                 session_id=session_id,
                 investigator_id=self.investigator_id,
+                expected_model_identity=_validated_model_identity(
+                    provenance.get("model_identity")
+                ),
             )
         finally:
             if telemetry_fd >= 0:
@@ -2458,6 +2522,9 @@ class CheckpointStore:
                     ),
                     session_id=manifest["session_id"],
                     investigator_id=self.investigator_id,
+                    expected_model_identity=_validated_model_identity(
+                        terminal_provenance.get("model_identity")
+                    ),
                 )
             return entries
         except Exception:

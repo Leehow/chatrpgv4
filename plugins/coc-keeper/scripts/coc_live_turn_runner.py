@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import random
+import stat
 import time
 from pathlib import Path
 from typing import Any
@@ -95,10 +97,37 @@ def _write_json(path: Path, payload: Any) -> None:
     )
 
 
-def _append_jsonl_sync(path: Path, record: dict[str, Any]) -> None:
+def _append_jsonl_sync(path: Path, record: dict[str, Any]) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    payload = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+    directory_fd = os.open(path.parent, directory_flags)
+    descriptor = -1
+    try:
+        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path.name, flags, 0o600, dir_fd=directory_fd)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("JSONL target is not a regular file")
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("short JSONL append")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+        os.fsync(directory_fd)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(directory_fd)
+    return hashlib.sha256(
+        json.dumps(
+            record, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _pending_record_count(campaign_dir: Path) -> int:
@@ -1220,7 +1249,7 @@ def _run_pending_choice_response(
             "persistence_ms": max(0.0, persistence_ms),
         },
     }
-    _append_jsonl_sync(campaign / "logs" / "live-turn-runtime.jsonl", {
+    runtime_row = {
         "schema_version": 1,
         "event_type": "live_turn_runtime",
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1235,7 +1264,10 @@ def _run_pending_choice_response(
         "recording_flush": flush_policy,
         "pending_choice": pending_choice,
         "final_state": result["final_state"],
-    })
+    }
+    result["runtime_receipt_sha256"] = _append_jsonl_sync(
+        campaign / "logs" / "live-turn-runtime.jsonl", runtime_row
+    )
     return result
 
 
@@ -1595,7 +1627,7 @@ def _run_live_turn_impl(
         },
     }
 
-    _append_jsonl_sync(campaign / "logs" / "live-turn-runtime.jsonl", {
+    runtime_row = {
         "schema_version": 1,
         "event_type": "live_turn_runtime",
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1618,7 +1650,10 @@ def _run_live_turn_impl(
         "pending_choice": result["pending_choice"],
         "narration_audit": result["narration_audit"],
         "final_state": result["final_state"],
-    })
+    }
+    result["runtime_receipt_sha256"] = _append_jsonl_sync(
+        campaign / "logs" / "live-turn-runtime.jsonl", runtime_row
+    )
     return result
 
 

@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -56,6 +57,8 @@ def _telemetry_row(
     investigator_id: str = "inv-a",
     decision_ids: list[str] | None = None,
     receipt_id: str = "telemetry_test_1",
+    narrator: object | None = None,
+    runtime_receipt_sha256: str | None = None,
 ) -> dict:
     return {
         "schema_version": 1,
@@ -63,7 +66,21 @@ def _telemetry_row(
         "session_id": session_id,
         "investigator_id": investigator_id,
         "decision_ids": list(["decision-1"] if decision_ids is None else decision_ids),
-        "telemetry": {},
+        "runtime_receipt_sha256": (
+            runtime_receipt_sha256
+            if runtime_receipt_sha256 is not None
+            else _runtime_receipt_sha256()
+        ),
+        "telemetry": {
+            "narrator": narrator if narrator is not None else {
+                "call_count": 1,
+                "model_identity": {"provider": "openai", "id": "gpt-test"},
+                "response_mode": "prose_fallback",
+                "consistent": True,
+                "deterministic_fallback": False,
+            },
+            "fallback": False,
+        },
     }
 
 
@@ -536,6 +553,54 @@ def test_checkpoint_cross_binds_runtime_decisions_to_latest_session_telemetry(
         store.write_checkpoint("sess_123", 1, "turn_complete")
 
 
+@pytest.mark.parametrize(
+    "narrator",
+    [
+        {
+            "call_count": 1,
+            "model_identity": {"provider": "other", "id": "gpt-test"},
+            "response_mode": "tool",
+            "consistent": True,
+            "deterministic_fallback": False,
+        },
+        {
+            "call_count": 0,
+            "model_identity": None,
+            "response_mode": None,
+            "consistent": True,
+            "deterministic_fallback": False,
+        },
+        {
+            "call_count": 2,
+            "model_identity": {"provider": "openai", "id": "gpt-test"},
+            "response_mode": "prose_fallback",
+            "consistent": False,
+            "deterministic_fallback": False,
+        },
+        {
+            "call_count": 1,
+            "model_identity": None,
+            "response_mode": None,
+            "consistent": False,
+            "deterministic_fallback": True,
+        },
+    ],
+)
+def test_checkpoint_rejects_untrusted_narrator_attestation(
+    tmp_path: Path, narrator: dict
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    _write_jsonl(paths["runtime_telemetry"], [_telemetry_row(narrator=narrator)])
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    _append_one(store)
+
+    with pytest.raises(ValueError, match="narrator|model|telemetry|fallback|consistent"):
+        store.write_checkpoint("sess_123", 1, "turn_complete")
+
+
 def test_checkpoint_ignores_an_unrelated_historical_telemetry_row_without_decisions(
     tmp_path: Path,
 ):
@@ -560,6 +625,32 @@ def test_checkpoint_ignores_an_unrelated_historical_telemetry_row_without_decisi
     checkpoint_dir = store.write_checkpoint("sess_123", 1, "turn_complete")
 
     assert checkpoint_dir.is_dir()
+
+
+def test_checkpoint_binds_exact_runtime_digest_before_unrelated_global_tail(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    expected = _runtime_row(decision_ids=["decision-1"])
+    unrelated = _runtime_row(decision_ids=["decision-2"])
+    _write_jsonl(paths["live_runtime"], [expected, unrelated])
+    _write_jsonl(paths["runtime_telemetry"], [
+        _telemetry_row(runtime_receipt_sha256=_runtime_receipt_sha256(expected)),
+        _telemetry_row(
+            session_id="sess_other", decision_ids=["decision-2"],
+            receipt_id="telemetry_other",
+            runtime_receipt_sha256=_runtime_receipt_sha256(unrelated),
+        ),
+    ])
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+    provenance = _provenance()
+    provenance["runtime_receipt_sha256"] = _runtime_receipt_sha256(expected)
+    _append_with_provenance(store, provenance)
+
+    assert store.write_checkpoint("sess_123", 1, "turn_complete").is_dir()
 
 
 def test_checkpoint_rejects_leftover_async_pending_batches(tmp_path: Path):
@@ -1193,6 +1284,33 @@ def test_preexisting_run_directory_symlink_is_rejected(tmp_path: Path):
     assert sorted(path.name for path in outside.iterdir()) == ["sentinel.txt"]
 
 
+def test_checkpoint_store_binds_constructor_to_held_run_directory_inode(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace-held-run"
+    _seed_workspace(workspace)
+    run_dir = tmp_path / "run-held"
+    run_dir.mkdir()
+    held_fd = os.open(run_dir, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    moved = tmp_path / "moved-held"
+    run_dir.rename(moved)
+    run_dir.mkdir()
+    try:
+        with pytest.raises(ValueError, match="held|replaced"):
+            checkpoint.CheckpointStore(
+                run_dir,
+                workspace,
+                "masks-run-a",
+                "inv-a",
+                run_dir_fd=held_fd,
+            )
+    finally:
+        os.close(held_fd)
+
+    assert not (run_dir / "actions.jsonl").exists()
+    assert not (moved / "actions.jsonl").exists()
+
+
 def test_actions_symlink_is_rejected_before_and_after_initialization(tmp_path: Path):
     workspace = tmp_path / "workspace"
     _seed_workspace(workspace)
@@ -1710,6 +1828,7 @@ def test_checkpoint_turn_must_equal_current_integer_turn_before_publication(
         {"provider": "openai", "id": "gpt-test", "token": "not-a-real-token"},
         {"provider": "", "id": "gpt-test"},
         {"provider": "open ai", "id": "gpt-test"},
+        {"provider": "https://user:pass@host", "id": "gpt-test"},
         {"provider": "openai", "id": ""},
         {"provider": "openai", "id": "gpt-test\nforged"},
         ["openai", "gpt-test"],
@@ -1743,7 +1862,14 @@ def test_checkpoint_normalizes_absent_or_empty_model_identity(
     tmp_path: Path, identity_mode: str
 ):
     workspace = tmp_path / "workspace"
-    _seed_workspace(workspace)
+    paths = _seed_workspace(workspace)
+    _write_jsonl(paths["runtime_telemetry"], [_telemetry_row(narrator={
+        "call_count": 0,
+        "model_identity": None,
+        "response_mode": None,
+        "consistent": True,
+        "deterministic_fallback": False,
+    })])
     store = checkpoint.CheckpointStore(
         tmp_path / "run", workspace, "masks-run-a", "inv-a"
     )
