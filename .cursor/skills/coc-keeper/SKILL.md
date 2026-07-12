@@ -48,8 +48,10 @@ Runtime scripts and rules JSON also stay under `plugins/coc-keeper/`
 
 For official testing, report generation, report verification, baseline
 compare, matrix planning, calibration, or holdouts, follow the root
-`AGENTS.md` **Canonical Evaluation Contract** and the canonical skill
-`plugins/coc-keeper/skills/coc-eval/SKILL.md`. Invoke the shared CLI only:
+`AGENTS.md` **Canonical Evaluation Contract** and
+`plugins/coc-keeper/skills/coc-playtest/SKILL.md` (official evaluation
+section). Invoke the shared CLI only — do not create a parallel `coc-eval`
+skill under `.cursor/skills/` or `plugins/coc-keeper/skills/`:
 
 ```bash
 python3 plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root .

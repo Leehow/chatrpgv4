@@ -31,7 +31,8 @@ python3 plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|rel
 
 Additional official commands on the same CLI: `report`, `verify`, `compare`,
 `baseline`, `matrix`, `calibrate`, and `holdouts`. Details live in
-`plugins/coc-keeper/skills/coc-eval/SKILL.md`.
+`plugins/coc-keeper/skills/coc-playtest/SKILL.md` (official evaluation
+section). Do not add a parallel `coc-eval` skill tree.
 
 Use `smoke` for fast local contract checks and `pr` for ordinary change
 validation. Do not replace the named suite with an agent-specific collection of

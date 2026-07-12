@@ -28,7 +28,8 @@
   completion audit and suite aggregation consume `evaluation/spec/v1`
   case/persona/seed requirements; holdout examples are `example_unbound`
   (`NOT_RUN`); official CLI docs cover run/report/verify/compare/baseline/
-  matrix/calibrate/holdouts.
+  matrix/calibrate/holdouts in `coc-playtest` + root `AGENTS.md` (no separate
+  `coc-eval` skill — Phase 1 gate forbids that parallel skill path).
 
 ## Evaluation contract honesty
 

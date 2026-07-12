@@ -192,8 +192,8 @@ python3 plugins/coc-keeper/scripts/coc_eval.py holdouts --bundle <holdout-dir>
 Status vocabulary: `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`, `NON_COMPARABLE`.
 Missing evidence never becomes `PASS`. Deterministic fixture / registry self-tests
 are contract evidence; external-model and human lanes stay `NOT_RUN` without
-secrets or attested artifacts. See `plugins/coc-keeper/skills/coc-eval/SKILL.md`
-and root `AGENTS.md`.
+secrets or attested artifacts. See `plugins/coc-keeper/skills/coc-playtest/SKILL.md`
+(official evaluation section) and root `AGENTS.md`.
 
 运行 playtest profile：
 

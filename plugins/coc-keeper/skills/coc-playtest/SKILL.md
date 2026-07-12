@@ -19,12 +19,31 @@ Also available: `report`, `verify`, `compare`, `baseline`, `matrix`,
 `calibrate`, and `holdouts`. Status vocabulary is `PASS`, `FAIL`,
 `INELIGIBLE`, `NOT_RUN`, and `NON_COMPARABLE`. Missing evidence never becomes
 `PASS`. Deterministic fixture evidence proves contract self-tests; it is not
-external-model gameplay evidence. See `../coc-eval/SKILL.md`.
+external-model gameplay evidence. Full command reference is in root
+`AGENTS.md` and this skill's official-evaluation section — do not add a
+parallel `coc-eval` skill tree (single-track law / Phase 1 gate).
 
 Completion audit and suite aggregation now also surface versioned
 `evaluation/spec/v1` case/persona/seed gaps. Historical profiles
 (`haunting_module`, `chase_drill`, `multi_profile_pressure`) remain visible
 but cannot alone satisfy release-required eval-contract cells.
+
+## Official evaluation commands
+
+```bash
+python3 ../../scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root <repo-root>
+python3 ../../scripts/coc_eval.py report <run-dir>
+python3 ../../scripts/coc_eval.py verify <run-dir>
+python3 ../../scripts/coc_eval.py compare --baseline <a> --candidate <b>
+python3 ../../scripts/coc_eval.py baseline --source <run-manifest> --output <baseline.json>
+python3 ../../scripts/coc_eval.py matrix --suite nightly --root <repo-root> --plan-only
+python3 ../../scripts/coc_eval.py calibrate --reviews <reviews.json>
+python3 ../../scripts/coc_eval.py holdouts --bundle <holdout-dir>
+```
+
+Deliver generated battle/evaluation reports bound to
+`artifacts/report-completeness.json` hashes. Never rewrite factual content by
+hand or reconstruct missing dice from prose.
 
 ## Isolation
 

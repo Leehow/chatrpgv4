@@ -358,7 +358,6 @@ def test_all_v1_skills_have_valid_frontmatter():
         "coc-keeper-play",
         "coc-meta",
         "coc-playtest",
-        "coc-eval",
         "coc-combat",
         "coc-chase",
         "coc-sanity",
