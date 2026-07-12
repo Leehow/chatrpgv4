@@ -140,11 +140,24 @@ def test_holdout_manifest_contains_ids_and_hashes_only():
         assert item["holdout_id"]
         assert item["suite"] in {"nightly", "release"}
         assert item["artifact_kind"]
-        assert isinstance(item["sha256"], str) and len(item["sha256"]) == 64
+        # Example slots use binding_status instead of placeholder fake hashes.
+        if item.get("binding_status") in {"example_unbound", "not_bound", "NOT_RUN"}:
+            assert "sha256" not in item or (
+                isinstance(item.get("sha256"), str) and len(item["sha256"]) == 64
+            )
+        else:
+            assert isinstance(item["sha256"], str) and len(item["sha256"]) == 64
         # No content payloads in-repo.
         assert "question" not in item
         assert "answer" not in item
         assert "expected" not in item
+
+
+def test_repo_holdout_manifest_examples_are_not_run(tmp_path: Path):
+    mod = _load()
+    result = mod.validate_holdout_bundle(HOLDOUT_MANIFEST_PATH, tmp_path / "missing")
+    assert result["status"] == "NOT_RUN"
+    assert any(item["code"] == "holdout_binding_unbound" for item in result["findings"])
 
 
 def test_validate_calibration_rejects_baseline_candidate_labels():
@@ -271,22 +284,51 @@ def test_compute_agreement_multi_reviewer_pairwise_and_aggregate():
 
 def test_validate_holdout_bundle_missing_is_not_run(tmp_path: Path):
     mod = _load()
-    result = mod.validate_holdout_bundle(
-        HOLDOUT_MANIFEST_PATH, tmp_path / "missing-bundle"
-    )
+    digest = _hash_hex("bound-holdout")
+    manifest = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "holdouts": [
+            {
+                "holdout_id": "holdout-bound-01",
+                "suite": "release",
+                "artifact_kind": "blind_pair_bundle",
+                "relative_path": "holdout-bound-01/bundle.json",
+                "sha256": digest,
+            }
+        ],
+    }
+    manifest_path = tmp_path / "holdout-manifest.json"
+    _write_json(manifest_path, manifest)
+    result = mod.validate_holdout_bundle(manifest_path, tmp_path / "missing-bundle")
     assert result["status"] == "NOT_RUN"
     assert any(item["code"] == "holdout_bundle_missing" for item in result["findings"])
 
 
 def test_validate_holdout_bundle_hash_mismatch_fails(tmp_path: Path):
     mod = _load()
-    manifest = json.loads(HOLDOUT_MANIFEST_PATH.read_text(encoding="utf-8"))
+    body = '{"holdout_id":"holdout-agency-zh-01","payload":"structured-only"}\n'
+    digest = _sha256_text(body)
+    manifest = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "holdouts": [
+            {
+                "holdout_id": "holdout-agency-zh-01",
+                "suite": "release",
+                "artifact_kind": "blind_pair_bundle",
+                "relative_path": "holdout-agency-zh-01/bundle.json",
+                "sha256": digest,
+            }
+        ],
+    }
+    manifest_path = tmp_path / "holdout-manifest.json"
+    _write_json(manifest_path, manifest)
     bundle = tmp_path / "bundle"
-    for item in manifest["holdouts"]:
-        path = bundle / item["relative_path"]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text('{"tampered": true}\n', encoding="utf-8")
-    result = mod.validate_holdout_bundle(HOLDOUT_MANIFEST_PATH, bundle)
+    path = bundle / "holdout-agency-zh-01" / "bundle.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"tampered": true}\n', encoding="utf-8")
+    result = mod.validate_holdout_bundle(manifest_path, bundle)
     assert result["status"] == "FAIL"
     assert any(item["code"] == "holdout_hash_mismatch" for item in result["findings"])
 

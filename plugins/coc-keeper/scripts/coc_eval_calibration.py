@@ -399,6 +399,14 @@ def compute_agreement(reviews: Any) -> dict[str, Any]:
     return result
 
 
+UNBOUND_HOLDOUT_STATUSES = frozenset({"example_unbound", "not_bound", "NOT_RUN"})
+
+
+def _holdout_is_unbound(item: dict[str, Any]) -> bool:
+    status = item.get("binding_status")
+    return isinstance(status, str) and status in UNBOUND_HOLDOUT_STATUSES
+
+
 def _validate_manifest_structure(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     if manifest.get("schema_version") != 1 or manifest.get("eval_spec") != EVAL_SPEC:
@@ -434,6 +442,7 @@ def _validate_manifest_structure(manifest: dict[str, Any]) -> list[dict[str, Any
         holdout_id = item.get("holdout_id")
         digest = item.get("sha256")
         rel = item.get("relative_path")
+        unbound = _holdout_is_unbound(item)
         if not isinstance(holdout_id, str) or not holdout_id:
             findings.append(
                 _finding(
@@ -443,7 +452,8 @@ def _validate_manifest_structure(manifest: dict[str, Any]) -> list[dict[str, Any
                 )
             )
             continue
-        if holdout_id in seen_ids and seen_ids[holdout_id] != digest:
+        identity_key = str(digest) if digest is not None else f"unbound:{holdout_id}"
+        if holdout_id in seen_ids and seen_ids[holdout_id] != identity_key:
             findings.append(
                 _finding(
                     code="holdout_manifest_inconsistent",
@@ -452,8 +462,20 @@ def _validate_manifest_structure(manifest: dict[str, Any]) -> list[dict[str, Any
                     holdout_id=holdout_id,
                 )
             )
-        seen_ids[holdout_id] = str(digest)
-        if not _is_sha256(digest):
+        seen_ids[holdout_id] = identity_key
+        if unbound:
+            if digest is not None and not _is_sha256(digest):
+                findings.append(
+                    _finding(
+                        code="holdout_hash_invalid",
+                        severity="schema",
+                        message=(
+                            f"holdouts[{index}].sha256 must be sha256 hex when present"
+                        ),
+                        holdout_id=holdout_id,
+                    )
+                )
+        elif not _is_sha256(digest):
             findings.append(
                 _finding(
                     code="holdout_hash_invalid",
@@ -539,12 +561,37 @@ def validate_holdout_bundle(
 
     structure_findings = _validate_manifest_structure(manifest_payload)
     if structure_findings:
-        # Tampered / self-inconsistent manifest is FAIL, never NOT_RUN.
         return {
             "schema_version": 1,
             "eval_spec": EVAL_SPEC,
             "status": "FAIL",
             "findings": structure_findings,
+        }
+
+    holdouts = [item for item in manifest_payload["holdouts"] if isinstance(item, dict)]
+    unbound_items = [item for item in holdouts if _holdout_is_unbound(item)]
+    bound_items = [item for item in holdouts if not _holdout_is_unbound(item)]
+
+    if unbound_items and not bound_items:
+        return {
+            "schema_version": 1,
+            "eval_spec": EVAL_SPEC,
+            "status": "NOT_RUN",
+            "findings": [
+                _finding(
+                    code="holdout_binding_unbound",
+                    severity="missing_evidence",
+                    message=(
+                        "holdout manifest entries are example_unbound / not_bound; "
+                        "no attested sha256 binding is available"
+                    ),
+                    holdout_ids=[str(item.get("holdout_id")) for item in unbound_items],
+                )
+            ],
+            "unbound_holdout_ids": [
+                str(item.get("holdout_id")) for item in unbound_items
+            ],
+            "matched_count": 0,
         }
 
     bundle = Path(bundle_dir)
@@ -563,7 +610,7 @@ def validate_holdout_bundle(
         }
 
     matched = 0
-    for item in manifest_payload["holdouts"]:
+    for item in bound_items:
         holdout_id = item["holdout_id"]
         rel = Path(item["relative_path"])
         expected = str(item["sha256"]).lower()
@@ -593,11 +640,24 @@ def validate_holdout_bundle(
         else:
             matched += 1
 
+    if unbound_items:
+        findings.append(
+            _finding(
+                code="holdout_binding_unbound",
+                severity="missing_evidence",
+                message="one or more holdout entries remain example_unbound / not_bound",
+                holdout_ids=[str(item.get("holdout_id")) for item in unbound_items],
+            )
+        )
+
     if findings:
+        only_unbound = all(
+            item.get("code") == "holdout_binding_unbound" for item in findings
+        )
         return {
             "schema_version": 1,
             "eval_spec": EVAL_SPEC,
-            "status": "FAIL",
+            "status": "NOT_RUN" if only_unbound else "FAIL",
             "findings": findings,
             "matched_count": matched,
         }
@@ -608,6 +668,7 @@ def validate_holdout_bundle(
         "findings": [],
         "matched_count": matched,
     }
+
 
 
 def run_calibrate_cli(
