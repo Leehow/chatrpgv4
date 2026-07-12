@@ -5,6 +5,7 @@
   "report_schema_version": 2,
   "implemented_capabilities": [
     "canonical_cli",
+    "case_registry",
     "report_contract",
     "roll_completeness",
     "baseline_identity_compare"
@@ -14,6 +15,7 @@
       "description": "Fast host-neutral contract and plugin routing checks.",
       "required_capabilities": [
         "canonical_cli",
+        "case_registry",
         "report_contract",
         "roll_completeness"
       ],
@@ -36,6 +38,7 @@
       "description": "Deterministic merge protection for evaluation and report regressions.",
       "required_capabilities": [
         "canonical_cli",
+        "case_registry",
         "report_contract",
         "roll_completeness",
         "baseline_identity_compare"
@@ -62,6 +65,7 @@
       "description": "Distributional AI-player, language, and long-memory regression suite.",
       "required_capabilities": [
         "canonical_cli",
+        "case_registry",
         "report_contract",
         "roll_completeness",
         "baseline_identity_compare",
@@ -74,6 +78,7 @@
       "description": "Release-candidate acceptance with external-model and human-calibrated evidence.",
       "required_capabilities": [
         "canonical_cli",
+        "case_registry",
         "report_contract",
         "roll_completeness",
         "baseline_identity_compare",
@@ -88,6 +93,7 @@
       "description": "Targeted investigation. Never sufficient by itself for release readiness.",
       "required_capabilities": [
         "canonical_cli",
+        "case_registry",
         "report_contract",
         "roll_completeness"
       ],
