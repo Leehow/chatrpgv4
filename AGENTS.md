@@ -49,10 +49,11 @@ The exact status vocabulary is `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`, and
 
 Structured roll logs are authoritative. Every required `public` or
 `consequence_public` roll must appear exactly once in the report's
-`rules-and-dice` section with source-traceable numerical detail. A missing
-required public roll, duplicate marker, untraced marker, malformed roll log, or
-missing roll source log is a hard failure. If no public rolls occurred, the
-report must explicitly record a public roll count of zero.
+`rules-and-dice` section with source-traceable numerical detail. A report with a
+missing required public roll is a hard failure; the same applies to a duplicate
+marker, untraced marker, malformed roll log, or missing roll source log. If no
+public rolls occurred, the report must explicitly record a public roll count of
+zero.
 
 Never reconstruct missing dice from memory or report prose. Never remove a
 failed completeness finding when delivering a report.
