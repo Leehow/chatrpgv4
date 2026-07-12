@@ -522,6 +522,19 @@ def test_sdk_last_turn_attestation_uses_observed_glm_and_durable_receipt(
         "consistent": True,
         "deterministic_fallback": False,
     }
+    assert isinstance(attestation.get("secret_audits"), list)
+    assert len(attestation["secret_audits"]) == 1
+    assert attestation["secret_audits"][0]["passed"] is True
+    audit_path = camp / "logs" / "narrator-secret-audits.jsonl"
+    assert audit_path.is_file()
+    audit_rows = [
+        json.loads(line)
+        for line in audit_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(audit_rows) == 1
+    assert audit_rows[0]["runtime_receipt_sha256"] == attestation["runtime_receipt_sha256"]
+    assert audit_rows[0]["secret_audits"] == attestation["secret_audits"]
     raw = (camp / "logs" / "runtime-telemetry.jsonl").read_text(encoding="utf-8")
     assert "zhipu-coding" in raw and "glm-5.2" in raw
     assert "我检查门锁" not in raw

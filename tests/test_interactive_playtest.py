@@ -263,6 +263,26 @@ def test_subprocess_start_two_turns_hash_chain_initial_checkpoint_and_close_work
         "masks-run-a-20260712:000001",
         "masks-run-a-20260712:000002",
     ]
+    invocation_rows = [
+        json.loads(line)
+        for line in (run_dir / "runner-invocations.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line
+    ]
+    assert {row["transcript_turn"] for row in invocation_rows} == {1, 2}
+    assert all(row["role"] == "narrator" for row in invocation_rows)
+    assert all(isinstance(row.get("secret_audit"), dict) for row in invocation_rows)
+    assert all(row["secret_audit"]["passed"] is True for row in invocation_rows)
+    for row in rows:
+        audits = row["provenance"]["attestation"]["secret_audits"]
+        assert isinstance(audits, list) and audits
+        assert all(item["passed"] is True for item in audits)
+        matching = [
+            item for item in invocation_rows
+            if item["transcript_turn"] == row["turn_number"]
+        ]
+        assert len(matching) == len(audits)
     metadata = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     current_git_head = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
@@ -908,6 +928,10 @@ def test_pending_choice_uses_canonical_sdk_continuation_and_durable_transaction(
             }]
 
         def get_last_turn_attestation(self, _session_id):
+            audit = _load(
+                "interactive_secret_audit_fixture",
+                REPO / "plugins" / "coc-keeper" / "scripts" / "coc_secret_audit.py",
+            ).audit_secret_claims([], [], [])
             return {
                 "schema_version": 1,
                 "session_id": "sess-safe",
@@ -928,6 +952,7 @@ def test_pending_choice_uses_canonical_sdk_continuation_and_durable_transaction(
                     "consistent": True,
                     "deterministic_fallback": False,
                 },
+                "secret_audits": [audit],
             }
 
         def snapshot_workspace_sessions(self, _workspace):
@@ -1284,10 +1309,27 @@ def test_model_attestation_blockers_and_same_model_prose_fallback():
             "consistent": True,
             "deterministic_fallback": False,
         },
+        "secret_audits": [],
     }
     assert driver.validate_attestation(base)["narrator"]["response_mode"] == (
         "prose_fallback"
     )
+
+    tool_audit = _load(
+        "interactive_attestation_secret_audit",
+        REPO / "plugins" / "coc-keeper" / "scripts" / "coc_secret_audit.py",
+    ).audit_secret_claims([], [], [])
+    tool_ok = {
+        **base,
+        "narrator": {**base["narrator"], "response_mode": "tool"},
+        "secret_audits": [tool_audit],
+    }
+    assert driver.validate_attestation(tool_ok)["secret_audits"] == [tool_audit]
+    try:
+        driver.validate_attestation({**tool_ok, "secret_audits": []})
+        assert False, "tool mode requires secret_audits"
+    except driver.DriverError as exc:
+        assert exc.code == "model_attestation_failed"
 
     attacks = []
     for narrator in (

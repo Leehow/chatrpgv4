@@ -1,6 +1,6 @@
 # Masks Whitebox Playtest — Status
 
-Updated: 2026-07-12 (Phase 3 closed — disk reconciled; no long-run restart)
+Updated: 2026-07-12 (secret_audit persistence fixed forward; Run B backfill not recoverable)
 
 ## Model attestation policy (hard)
 
@@ -23,10 +23,10 @@ Updated: 2026-07-12 (Phase 3 closed — disk reconciled; no long-run restart)
 | 7 | Blocking fixes + regression | **Pass** — flag/move/resume/chapter-switch/registry pin; focused tests green |
 | 8 | Three-axis scores | **Pass** — final scores below (structured evidence only) |
 | 9 | Tests | Focused evidence/route/chapter/metadata green after registry pin |
-| 10 | Evidence naming | **Pass** — Run A → `diagnostic-play-report.md` only. Run B → `verification-sample.md` (**not** `battle-report.md`) because recomputed receipt is ineligible |
+| 10 | Evidence naming | **Pass** — Run A → `diagnostic-play-report.md` only. Run B stays `verification-sample.md` (**not** `battle-report.md`): historical secret_audit inputs not on disk |
 | 11 | No copyrighted prose in git | **Pass** |
 
-**Run B battle-report eligibility:** **Ineligible** — recomputed interactive evidence receipt fails on `narrator_secret_audit_invalid` (interactive driver did not persist narrator `secret_audit` receipts into `runner-invocations.jsonl`). Accepted-turn KP attestation itself is clean (`zhipu-coding/glm-5.2`, `deterministic_fallback=false` on all accepted actions). No segment replay required for hash/fallback breakage; the gap is evidence-export infrastructure, not a dead process / broken action chain.
+**Run B battle-report eligibility:** **Still ineligible** (`formal_battle_report_eligible=false`). Forward fix is in-tree: session now writes `logs/narrator-secret-audits.jsonl`, attestation exposes `secret_audits`, and `coc_interactive_playtest` appends narrator `secret_audit` into `runner-invocations.jsonl` like live-match. **Backfill of Run B failed:** telemetry/live-turn logs only prove `deterministic_fallback=false` / `response_mode=tool`; they do **not** retain `asserted_fact_refs` / `semantic_audit` / audit receipts (`artifacts/secret-audit-recovery.json`). No receipt synthesis; **no 80-turn replay**. Run B report remains `verification-sample.md`.
 
 ## Run A (frozen diagnostic)
 
@@ -44,7 +44,8 @@ Updated: 2026-07-12 (Phase 3 closed — disk reconciled; no long-run restart)
 - Tips: Peru `primary-run/checkpoints/turn-000038` @ `peru-resolution`; America `america-continuation/checkpoints/turn-000042` @ `america-resolution`
 - Harness: `total_turns=80`, `chapter=america-complete`, `blocker=null`
 - Report: `artifacts/verification-sample.md` + `artifacts/freeze-receipt.json` + `artifacts/evidence-summary.json`
-- Formal eligible: **false** (`narrator_secret_audit_invalid`)
+- Formal eligible: **false** (`narrator_secret_audit_invalid`; secret_audit not recoverable for backfill)
+- Recovery probe: `artifacts/secret-audit-recovery.json`
 
 ## Handoff probes
 
@@ -83,8 +84,9 @@ Local `.coc/` (not for git):
 
 ## Remaining follow-up (not a long-run restart)
 
-1. Persist narrator `secret_audit` into interactive `runner-invocations.jsonl` (or equivalent) so a future blind run can be formally `battle-report.md` eligible without synthesizing receipts.
-2. Optional: repair tip `state_health` sanity schema warning observed on Run B public state.
+1. ~~Persist narrator `secret_audit` into interactive `runner-invocations.jsonl`~~ **Done** (session `narrator-secret-audits.jsonl` + interactive ledger append). Future blind runs can be formally `battle-report.md` eligible without synthesizing receipts.
+2. Run B historical gap remains: promoting the existing 80-turn play to `battle-report.md` would require either recovered audit inputs (unavailable) or a full narrator re-audit/replay (avoided).
+3. Optional: repair tip `state_health` sanity schema warning observed on Run B public state.
 
 ## Artifact index
 

@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import copy
+import fcntl
 import hashlib
 import importlib.util
 import json
 import math
+import os
 import re
 import threading
 import time
@@ -907,6 +909,7 @@ def send(
         return events
     usage_input: int | None = None
     usage_output: int | None = None
+    secret_audits: list[dict[str, Any]] = []
     worker_pool = _ensure_worker_pool(_REGISTRY)
     worker_key = _narrator_worker_key(record)
     _REGISTRY.register_worker_scope(session_id, worker_key)
@@ -957,16 +960,100 @@ def send(
         if deterministic_fallback:
             fallback = True
             continue
+        secret_audits.append(copy.deepcopy(secret_audit))
         events = _replace_turn_narration(events, raw_turn, narration)
     try:
         _record_turn_telemetry(
             record, raw_result, total_started, narrator_ms=narrator_ms, fallback=fallback,
             input_tokens=usage_input, output_tokens=usage_output,
             narrator=_summarize_narrator_outcomes(narrator_outcomes),
+            secret_audits=secret_audits,
         )
     except Exception as exc:
         raise TelemetryPersistenceError() from exc
     return events
+
+
+def _write_secret_audit_receipt(
+    campaign_dir: Path | str,
+    *,
+    session_id: str,
+    investigator_id: str,
+    runtime_receipt_sha256: str,
+    decision_ids: list[str],
+    secret_audits: list[dict[str, Any]],
+) -> None:
+    """Persist narrator secret-audit receipts bound to the turn runtime digest."""
+    telemetry = _load_telemetry_module()
+    receipt = {
+        "schema_version": 1,
+        "session_id": session_id,
+        "investigator_id": investigator_id,
+        "decision_ids": list(decision_ids),
+        "runtime_receipt_sha256": runtime_receipt_sha256,
+        "secret_audits": copy.deepcopy(secret_audits),
+    }
+    encoded = (
+        json.dumps(receipt, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        + "\n"
+    ).encode("utf-8")
+    logs_fd = telemetry._open_logs_dir(campaign_dir, create=True)
+    fd = -1
+    try:
+        fd = telemetry._open_log_file(
+            logs_fd,
+            "narrator-secret-audits.jsonl",
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+        )
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            telemetry._write_all(fd, encoded)
+            os.fsync(fd)
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.fsync(logs_fd)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        os.close(logs_fd)
+
+
+def _read_secret_audits_for_runtime(
+    campaign_dir: Path | str,
+    runtime_receipt_sha256: str,
+) -> list[dict[str, Any]]:
+    """Load secret-audit receipts for one runtime turn digest; missing means []."""
+    telemetry = _load_telemetry_module()
+    try:
+        payload = telemetry._read_log_bytes(
+            campaign_dir, "narrator-secret-audits.jsonl", missing_ok=True
+        )
+    except ValueError:
+        return []
+    if not payload:
+        return []
+    matches: list[list[dict[str, Any]]] = []
+    for encoded in payload.split(b"\n"):
+        if not encoded:
+            continue
+        try:
+            row = json.loads(encoded.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if (
+            not isinstance(row, dict)
+            or row.get("schema_version") != 1
+            or row.get("runtime_receipt_sha256") != runtime_receipt_sha256
+            or not isinstance(row.get("secret_audits"), list)
+        ):
+            continue
+        audits = [item for item in row["secret_audits"] if isinstance(item, dict)]
+        if len(audits) != len(row["secret_audits"]):
+            continue
+        matches.append(copy.deepcopy(audits))
+    if len(matches) != 1:
+        return []
+    return matches[0]
 
 
 def _record_turn_telemetry(
@@ -979,6 +1066,7 @@ def _record_turn_telemetry(
     input_tokens: int | None,
     output_tokens: int | None,
     narrator: dict[str, Any],
+    secret_audits: list[dict[str, Any]] | None = None,
 ) -> None:
     """Persist only timing/attestation metadata, never prompts or player text."""
     phase = raw_result.get("runtime_phase_ms") if isinstance(raw_result, dict) else {}
@@ -1017,12 +1105,27 @@ def _record_turn_telemetry(
         turn.get("decision_id") for turn in (raw_result.get("turns") or [])
         if isinstance(turn, dict) and isinstance(turn.get("decision_id"), str)
     ]
+    runtime_digest = str(raw_result.get("runtime_receipt_sha256") or "")
     _load_telemetry_module().write_receipt(
         record["campaign_dir"], session_id=record["session_id"],
         investigator_id=record["investigator_id"], telemetry=telemetry,
-        runtime_receipt_sha256=str(raw_result.get("runtime_receipt_sha256") or ""),
+        runtime_receipt_sha256=runtime_digest,
         decision_ids=decisions,
     )
+    audits = [
+        copy.deepcopy(item)
+        for item in (secret_audits or [])
+        if isinstance(item, dict)
+    ]
+    if runtime_digest and re.fullmatch(r"[0-9a-f]{64}", runtime_digest):
+        _write_secret_audit_receipt(
+            record["campaign_dir"],
+            session_id=record["session_id"],
+            investigator_id=record["investigator_id"],
+            runtime_receipt_sha256=runtime_digest,
+            decision_ids=decisions,
+            secret_audits=audits,
+        )
 
 
 def get_telemetry_receipts(session_id: str) -> list[dict[str, Any]]:
@@ -1148,6 +1251,9 @@ def get_last_turn_attestation(session_id: str) -> dict[str, Any]:
         or latency in (float("inf"), float("-inf"))
     ):
         raise RuntimeError("last turn narrator latency is unavailable")
+    secret_audits = _read_secret_audits_for_runtime(
+        record["campaign_dir"], runtime_receipt_sha256
+    )
     return {
         "schema_version": 1,
         "session_id": session_id,
@@ -1160,6 +1266,7 @@ def get_last_turn_attestation(session_id: str) -> dict[str, Any]:
         "usage": usage,
         "narrator_llm_ms": float(latency),
         "narrator": copy.deepcopy(narrator),
+        "secret_audits": secret_audits,
     }
 
 

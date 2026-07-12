@@ -91,6 +91,7 @@ _ATTESTATION_FIELDS = {
     "usage",
     "narrator_llm_ms",
     "narrator",
+    "secret_audits",
 }
 _USAGE_FIELDS = {"input_tokens", "output_tokens"}
 _NARRATOR_FIELDS = {
@@ -187,6 +188,20 @@ def _load_checkpoint_module() -> ModuleType:
     return _load_module(
         "interactive_playtest_checkpoint",
         Path(__file__).resolve().with_name("coc_playtest_checkpoint.py"),
+    )
+
+
+def _load_secret_audit_module() -> ModuleType:
+    return _load_module(
+        "interactive_playtest_secret_audit",
+        Path(__file__).resolve().with_name("coc_secret_audit.py"),
+    )
+
+
+def _load_playtest_evidence_module() -> ModuleType:
+    return _load_module(
+        "interactive_playtest_evidence",
+        Path(__file__).resolve().with_name("coc_playtest_evidence.py"),
     )
 
 
@@ -1974,6 +1989,12 @@ def _process_gameplay_request(
             state_after,
             provenance,
         )
+        if attestation["narrator"]["response_mode"] == "tool":
+            _append_narrator_invocation_rows(
+                Path(args.run_dir).absolute(),
+                turn_number=next_turn,
+                attestation=attestation,
+            )
         api.snapshot_workspace_sessions(workspace)
         checkpoint_dir = store.write_checkpoint(
             session_id, next_turn, "turn_complete"
@@ -2032,13 +2053,73 @@ def _process_gameplay_request(
     return response, updated_metadata, state_after
 
 
+def _append_narrator_invocation_rows(
+    run_dir: Path,
+    *,
+    turn_number: int,
+    attestation: dict[str, Any],
+) -> None:
+    """Persist narrator invocation ledger rows with secret_audit receipts."""
+    evidence = _load_playtest_evidence_module()
+    registry_path = (
+        Path(__file__).resolve().parents[1]
+        / "references"
+        / "trusted-playtest-runners.json"
+    )
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))["runners"][
+            "narrator"
+        ]
+        narrator_path = (_REPO_ROOT / registry["path"]).resolve()
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        raise DriverError("turn_persistence_failed") from None
+    observed = evidence.observe_runner(run_dir, "narrator", narrator_path)
+    secret_audits = attestation.get("secret_audits")
+    if not isinstance(secret_audits, list) or not secret_audits:
+        raise DriverError("model_attestation_failed")
+    rows: list[dict[str, Any]] = []
+    for attempt, receipt in enumerate(secret_audits, start=1):
+        rows.append(
+            {
+                "schema_version": 1,
+                "role": "narrator",
+                "attempt": attempt,
+                "transcript_turn": turn_number,
+                "runner_kind": observed.get("kind"),
+                "runner_identity": observed.get("identity"),
+                "runner_path": observed.get("path"),
+                "runner_sha256": observed.get("sha256"),
+                "model_identity": copy.deepcopy(
+                    attestation["narrator"]["model_identity"]
+                ),
+                "outcome": "external_success",
+                "response_mode": attestation["narrator"]["response_mode"],
+                "fallback_kind": None,
+                "secret_audit": copy.deepcopy(receipt),
+                "decision_ids": list(attestation["decision_ids"]),
+                "attestation_runtime_receipt_sha256": attestation[
+                    "runtime_receipt_sha256"
+                ],
+            }
+        )
+    path = Path(run_dir).absolute() / "runner-invocations.jsonl"
+    encoded = "".join(
+        json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows
+    )
+    try:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError:
+        raise DriverError("turn_persistence_failed") from None
+
+
 def validate_attestation(attestation: Any) -> dict[str, Any]:
     """Return a safe copy only for the required GLM narrator attestation."""
 
     try:
         if not isinstance(attestation, dict):
-            raise ValueError
-        if set(attestation) != _ATTESTATION_FIELDS:
             raise ValueError
         narrator = attestation["narrator"]
         if not isinstance(narrator, dict) or set(narrator) != _NARRATOR_FIELDS:
@@ -2102,6 +2183,28 @@ def validate_attestation(attestation: Any) -> dict[str, Any]:
             or latency in (float("inf"), float("-inf"))
         ):
             raise ValueError
+        secret_audits_raw = attestation.get("secret_audits")
+        legacy_attestation = "secret_audits" not in attestation
+        if legacy_attestation:
+            if set(attestation) != (_ATTESTATION_FIELDS - {"secret_audits"}):
+                raise ValueError
+            secret_audits: list[Any] = []
+        else:
+            if set(attestation) != _ATTESTATION_FIELDS:
+                raise ValueError
+            if not isinstance(secret_audits_raw, list):
+                raise ValueError
+            secret_audits = secret_audits_raw
+            if narrator.get("response_mode") == "tool":
+                if len(secret_audits) != call_count:
+                    raise ValueError
+                audit_mod = _load_secret_audit_module()
+                for receipt in secret_audits:
+                    validation = audit_mod.validate_audit_receipt(receipt)
+                    if not validation.get("valid") or not validation.get("passed"):
+                        raise ValueError
+            elif secret_audits:
+                raise ValueError
         return {
             "schema_version": 1,
             "session_id": attestation["session_id"],
@@ -2123,6 +2226,7 @@ def validate_attestation(attestation: Any) -> dict[str, Any]:
                 "consistent": True,
                 "deterministic_fallback": False,
             },
+            "secret_audits": copy.deepcopy(secret_audits),
         }
     except (TypeError, ValueError):
         raise DriverError("model_attestation_failed") from None
