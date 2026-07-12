@@ -922,12 +922,13 @@ def send(
         safe_envelope = _safe_narration_envelope(envelope)
         narrator_started = time.perf_counter()
         try:
-            narration = _load_pi_adapter().pi_narrate({
-                "narration_envelope": safe_envelope,
-                "last_player_text": player_input,
-                "play_language": "zh-Hans",
-                "recent_narrations": [],
-            }, worker_pool=worker_pool, worker_key=worker_key)
+            narrated = _narrate_with_coverage_retry(
+                safe_envelope,
+                player_text=player_input,
+                pi_narrate=_load_pi_adapter().pi_narrate,
+                worker_pool=worker_pool,
+                worker_key=worker_key,
+            )
         except Exception:  # narration rendering fails open to deterministic events
             narrator_ms += (time.perf_counter() - narrator_started) * 1000.0
             fallback = True
@@ -938,6 +939,8 @@ def send(
             })
             continue
         narrator_ms += (time.perf_counter() - narrator_started) * 1000.0
+        narration = narrated["narration"]
+        deterministic_fallback = narrated["deterministic_fallback"]
         usage = narration.get("usage") if isinstance(narration, dict) else None
         if isinstance(usage, dict):
             raw_input = usage.get("input_tokens")
@@ -946,10 +949,6 @@ def send(
                 usage_input = (usage_input or 0) + raw_input
             if isinstance(raw_output, int) and not isinstance(raw_output, bool):
                 usage_output = (usage_output or 0) + raw_output
-        secret_audit = _validated_narrator_secret_audit(
-            safe_envelope, narration
-        )
-        deterministic_fallback = secret_audit is None
         narrator_outcomes.append({
             "model_identity": copy.deepcopy(narration.get("model_identity"))
             if isinstance(narration, dict) else None,
@@ -960,7 +959,7 @@ def send(
         if deterministic_fallback:
             fallback = True
             continue
-        secret_audits.append(copy.deepcopy(secret_audit))
+        secret_audits.append(copy.deepcopy(narrated["secret_audit"]))
         events = _replace_turn_narration(events, raw_turn, narration)
     try:
         _record_turn_telemetry(
@@ -1135,6 +1134,67 @@ def get_telemetry_receipts(session_id: str) -> list[dict[str, Any]]:
         receipt for receipt in _load_telemetry_module().read_receipts(record["campaign_dir"])
         if receipt.get("session_id") == session_id
     ]
+
+
+# Bounded retries for an intermittent narrator coverage-fail. The GLM tool call
+# is non-deterministic: the same player-safe envelope can fail the secret-audit
+# coverage check on one invocation and pass on the next. A single coverage-fail
+# must not force a deterministic fallback (which makes ``validate_attestation``
+# reject the whole turn as inconsistent). Retry the *same* envelope a small,
+# bounded number of times before degrading. This never relaxes the audit: every
+# attempt still passes through ``_validated_narrator_secret_audit``, so a
+# narration that would leak a secret can never pass — it only gives an
+# intermittently-failing-but-correct narration another chance.
+_NARRATOR_COVERAGE_RETRY_MAX = 2
+
+
+def _narrate_with_coverage_retry(
+    envelope: dict[str, Any],
+    *,
+    player_text: str,
+    pi_narrate: Any,
+    worker_pool: Any = None,
+    worker_key: Any = None,
+) -> dict[str, Any]:
+    """Call ``pi_narrate`` for one envelope, retrying on coverage-fail.
+
+    Returns a dict with: ``narration`` (the last narration returned, even when
+    the audit failed), ``secret_audit`` (the validated receipt, or None when the
+    budget was exhausted), ``deterministic_fallback`` (True when no audit), and
+    ``attempts`` (number of ``pi_narrate`` invocations made).
+
+    A hard exception from ``pi_narrate`` is not retried here (the caller's
+    ``except`` path owns the fails-open fallback) — this helper only retries the
+    case where the model returned a result but the secret-audit coverage check
+    rejected it.
+    """
+    request = {
+        "narration_envelope": envelope,
+        "last_player_text": player_text,
+        "play_language": "zh-Hans",
+        "recent_narrations": [],
+    }
+    narration: Any = None
+    attempts = 0
+    for _ in range(_NARRATOR_COVERAGE_RETRY_MAX + 1):
+        attempts += 1
+        narration = pi_narrate(
+            request, worker_pool=worker_pool, worker_key=worker_key
+        )
+        secret_audit = _validated_narrator_secret_audit(envelope, narration)
+        if secret_audit is not None:
+            return {
+                "narration": narration,
+                "secret_audit": secret_audit,
+                "deterministic_fallback": False,
+                "attempts": attempts,
+            }
+    return {
+        "narration": narration,
+        "secret_audit": None,
+        "deterministic_fallback": True,
+        "attempts": attempts,
+    }
 
 
 def _summarize_narrator_outcomes(

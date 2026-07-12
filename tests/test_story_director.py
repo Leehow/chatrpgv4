@@ -1140,6 +1140,57 @@ def test_build_director_context_reads_last_roll_critical(tmp_path):
     assert ctx["rule_signals"]["last_roll_fumble"] is False
 
 
+def _write_fumble_roll(camp, decision_id):
+    """Append a player-side fumble roll attributed to ``decision_id``."""
+    (camp / "logs").mkdir(parents=True, exist_ok=True)
+    (camp / "logs" / "rolls.jsonl").write_text(
+        json.dumps({
+            "type": "roll",
+            "payload": {"outcome": "fumble", "decision_id": decision_id},
+        }) + "\n"
+    )
+
+
+def test_last_roll_fumble_does_not_stick_past_next_turn(tmp_path):
+    """A fumble only forces PRESSURE on the immediately following turn.
+
+    Regression: previously ``_read_last_roll_outcome`` returned the outcome of
+    the last roll in the file regardless of how many turns had passed since.
+    A fumble at turn 5 with no further rolls kept ``last_roll_fumble`` True at
+    turn 12, which short-circuited ``_move_transition_override`` (and every
+    other normal action) into PRESSURE forever.
+    """
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    _write_fumble_roll(camp, "turn-005")
+    # pacing-state turn_number = 12 → the turn-005 fumble is stale.
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["turn_number"] = 12
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="move", rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["last_roll_fumble"] is False
+    # And the move override is no longer suppressed by a stale fumble.
+    assert coc_story_director.apply_rule_signal_overrides(ctx) is None
+
+
+def test_last_roll_fumble_sticks_on_immediately_following_turn(tmp_path):
+    """The in-turn semantics still hold: fumble at turn N forces PRESSURE at N+1."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    _write_fumble_roll(camp, "turn-005")
+    pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
+    pacing["turn_number"] = 6  # the very next turn after the turn-005 fumble
+    (camp / "save" / "pacing-state.json").write_text(json.dumps(pacing))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="...", player_intent_class="investigate", rng=random.Random(42),
+    )
+    assert ctx["rule_signals"]["last_roll_fumble"] is True
+    overrides = coc_story_director.apply_rule_signal_overrides(ctx)
+    assert overrides is not None and overrides["scene_action"] == "PRESSURE"
+
+
 def test_select_action_reveal_for_active_investigation(tmp_path):
     camp, char_path = _make_minimal_campaign(tmp_path)
     ctx = coc_story_director.build_director_context(

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from pathlib import Path
 from typing import Any
 
@@ -136,11 +137,46 @@ def _roll_payload_is_player_side(payload: dict[str, Any]) -> bool:
     return True
 
 
+_LAST_ROLL_DECISION_RE = re.compile(r"turn-(\d+)", re.IGNORECASE)
+
+
+def _parse_decision_turn(value: Any) -> int | None:
+    """Extract the integer turn number from a ``turn-NNN`` decision id."""
+    if not isinstance(value, str):
+        return None
+    match = _LAST_ROLL_DECISION_RE.search(value)
+    if match is None:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
 def _read_last_roll_outcome(campaign_dir: Path) -> str | None:
-    """Read the last player-side roll outcome. Returns None if no rolls."""
+    """Read the last player-side roll outcome, turn-aware.
+
+    A fumble/critical is meant to drive the *immediately following* turn
+    (``apply_rule_signal_overrides`` forces PRESSURE on a fumble). The signal
+    must not stick: once the next turn has resolved, the outcome is stale.
+
+    We therefore return the last player-side roll's outcome only when that roll
+    belongs to the current or previous decision (``turn-NNN``). Specifically,
+    with the roll's turn ``R`` and the current ``pacing-state.turn_number`` ``C``,
+    the outcome is returned while ``C - R <= 1`` and ``C - R >= 0``; once a
+    second turn passes (``C - R >= 2``) the signal clears.
+
+    Backward compatibility: if the roll has no parseable ``decision_id`` *or*
+    ``pacing-state`` has no ``turn_number`` (older fixtures / partial state),
+    we fall back to the legacy "last roll wins" behavior so the fumble/critical
+    semantics still work in single-turn tests that don't attribute turns.
+    """
     rolls_path = campaign_dir / "logs" / "rolls.jsonl"
     if not rolls_path.exists():
         return None
+    pacing = _read_json(campaign_dir / "save" / "pacing-state.json", {})
+    current_turn = pacing.get("turn_number") if isinstance(pacing, dict) else None
+    current_turn = current_turn if isinstance(current_turn, int) else None
     for line in reversed(rolls_path.read_text(encoding="utf-8").splitlines()):
         if line.strip():
             try:
@@ -149,7 +185,18 @@ def _read_last_roll_outcome(campaign_dir: Path) -> str | None:
             except (json.JSONDecodeError, AttributeError):
                 continue
             if isinstance(payload, dict) and _roll_payload_is_player_side(payload):
-                return payload.get("outcome")
+                outcome = payload.get("outcome")
+                roll_turn = _parse_decision_turn(payload.get("decision_id"))
+                # No turn attribution on the roll or on pacing-state: legacy
+                # "last roll wins" behavior (keeps existing single-turn tests).
+                if roll_turn is None or current_turn is None:
+                    return outcome
+                # Turn-aware staleness: only the current or immediately prior
+                # turn's outcome can still drive this turn's rule signals.
+                delta = current_turn - roll_turn
+                if 0 <= delta <= 1:
+                    return outcome
+                return None
     return None
 
 

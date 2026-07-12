@@ -1,6 +1,6 @@
 # Masks Whitebox Playtest — Status
 
-Updated: 2026-07-12 (secret_audit persistence fixed forward; Run B backfill not recoverable)
+Updated: 2026-07-12 (Run B2 eligible battle-report landed; historical Run B remains verification-sample)
 
 ## Model attestation policy (hard)
 
@@ -15,18 +15,18 @@ Updated: 2026-07-12 (secret_audit persistence fixed forward; Run B backfill not 
 | # | Criterion | Status |
 |---|-----------|--------|
 | 1 | Packages/gates | **Pass** — Peru/America validate_scenario `errors=[]`, critical holds empty/0 (prep artifacts under `.coc/playtests/masks-prep-20260712/`) |
-| 2 | GLM canary | **Pass** — `masks-peru-america-run-a-20260712/canary-result.json` (`ok=true`, `zhipu-coding/glm-5.2`, `deterministic_fallback=false`) |
+| 2 | GLM canary | **Pass** — Run A canary + Run B2 `canary-result.json` (`ok=true`, `zhipu-coding/glm-5.2`, `deterministic_fallback=false`, `secret_audit` persisted) |
 | 3 | Run A Peru+America | **Pass** — aggregate **99** turns; Peru tip `primary-run/checkpoints/turn-000038` @ `peru-resolution` → chapter switch → America tip `america-continuation/checkpoints/turn-000061` @ `america-resolution` |
-| 4 | Run B blind | **Pass** — isolated `masks-peru-america-run-b-20260712`; Peru 38 + America 42 = **80** turns; `harness-state.chapter=america-complete`; tip @ `america-resolution`; 0 accepted-turn attestation failures |
+| 4 | Run B blind | **Pass** — historical `masks-peru-america-run-b-20260712` (80 turns, verification-sample) **and** fresh `masks-peru-america-run-b2-20260712` (80 turns, eligible battle-report) |
 | 5 | Route compare | **Pass** — structured ledgers + artifact-mediated semantic result; A-only edge `lima-museum->puno-hub` classified `optional` (B used `lima-museum->travel-to-puno->puno-hub`) |
 | 6 | England/Egypt probes | **Pass** — 6 GLM turns each; entries `england-arrival` / `egypt-arrival`; 0 attestation failures |
-| 7 | Blocking fixes + regression | **Pass** — flag/move/resume/chapter-switch/registry pin; focused tests green |
-| 8 | Three-axis scores | **Pass** — final scores below (structured evidence only) |
+| 7 | Blocking fixes + regression | **Pass** — flag/move/resume/chapter-switch/registry pin; secret_audit persistence (`fa46c3d`); focused tests green |
+| 8 | Three-axis scores | **Pass** — final scores below (structured evidence only; scored on Phase 3 closure set) |
 | 9 | Tests | Focused evidence/route/chapter/metadata green after registry pin |
-| 10 | Evidence naming | **Pass** — Run A → `diagnostic-play-report.md` only. Run B stays `verification-sample.md` (**not** `battle-report.md`): historical secret_audit inputs not on disk |
+| 10 | Evidence naming | **Pass** — Run A → `diagnostic-play-report.md` only. Historical Run B → `verification-sample.md`. **Run B2 → `battle-report.md`** (`formal_battle_report_eligible=true`) |
 | 11 | No copyrighted prose in git | **Pass** |
 
-**Run B battle-report eligibility:** **Still ineligible** (`formal_battle_report_eligible=false`). Forward fix is in-tree: session now writes `logs/narrator-secret-audits.jsonl`, attestation exposes `secret_audits`, and `coc_interactive_playtest` appends narrator `secret_audit` into `runner-invocations.jsonl` like live-match. **Backfill of Run B failed:** telemetry/live-turn logs only prove `deterministic_fallback=false` / `response_mode=tool`; they do **not** retain `asserted_fact_refs` / `semantic_audit` / audit receipts (`artifacts/secret-audit-recovery.json`). No receipt synthesis; **no 80-turn replay**. Run B report remains `verification-sample.md`.
+**Run B2 battle-report eligibility:** **Eligible** (`formal_battle_report_eligible=true`). Peru 38/38 + America 42/42 narrator `secret_audit` receipts persisted in `runner-invocations.jsonl`, KP `zhipu-coding/glm-5.2` only, no deterministic fallback on accepted turns. Historical Run B remains ineligible verification-sample (secret_audit inputs not recoverable).
 
 ## Run A (frozen diagnostic)
 
@@ -37,7 +37,7 @@ Updated: 2026-07-12 (secret_audit persistence fixed forward; Run B backfill not 
 - KP on all accepted turns: `zhipu-coding/glm-5.2`, `deterministic_fallback=false`
 - Chapter switch: verified (`chapter-switch-result.json`)
 
-## Run B (blind, isolated)
+## Run B (historical blind; verification-sample only)
 
 - Path: `.coc/playtests/masks-peru-america-run-b-20260712/`
 - Seed: `masks-run-b-20260712`; campaign/investigator remapped; no GPT player
@@ -46,6 +46,18 @@ Updated: 2026-07-12 (secret_audit persistence fixed forward; Run B backfill not 
 - Report: `artifacts/verification-sample.md` + `artifacts/freeze-receipt.json` + `artifacts/evidence-summary.json`
 - Formal eligible: **false** (`narrator_secret_audit_invalid`; secret_audit not recoverable for backfill)
 - Recovery probe: `artifacts/secret-audit-recovery.json`
+
+## Run B2 (fresh blind; eligible battle-report)
+
+- Path: `.coc/playtests/masks-peru-america-run-b2-20260712/`
+- Seed: `masks-run-b2-20260712`; campaign `masks-run-b2` / investigator `masks-run-b2-inv`; isolated sandbox; no GPT player
+- Driver: `coc-interactive-playtest@1` sha256 `293b60de5e96c263712c4498a3153629105f7c67bb1f3a150db30b1f1b5d338c` (post-`fa46c3d`)
+- Canary: `canary-result.json` (`ok=true`, `secret_audit_passed=true`)
+- Tips: Peru `primary-run/checkpoints/turn-000038` @ `peru-resolution`; America `america-continuation/checkpoints/turn-000042` @ `america-resolution`
+- Harness: `total_turns=80`, `chapter=america-complete`, `blocker=null`
+- Attestation: Peru 38 + America 42 all `zhipu-coding/glm-5.2`, `deterministic_fallback=false`, secret_audit passed 38/38 + 42/42
+- Report: `artifacts/battle-report.md` + `artifacts/freeze-receipt.json` + `artifacts/evidence-summary.json`
+- Formal eligible: **true**
 
 ## Handoff probes
 
@@ -64,8 +76,8 @@ Updated: 2026-07-12 (secret_audit persistence fixed forward; Run B backfill not 
 
 | Axis | Score | Notes |
 |------|------:|-------|
-| Rules / structured integrity | **76** | Clean GLM attestation + chapter-switch hashes; −8 formal evidence-export gap; −6 tip `state_health` sanity schema issue on Run B |
-| Director / orchestration | **82** | Both runs reach `america-resolution`; nearly identical scene coverage; known social REVEAL stall recovered via `flag_commits` on Run A |
+| Rules / structured integrity | **76** | Clean GLM attestation + chapter-switch hashes; historical Run B formal evidence-export gap closed by B2; −6 tip `state_health` sanity schema issue on historical Run B |
+| Director / orchestration | **82** | Runs reach `america-resolution`; nearly identical scene coverage; known social REVEAL stall recovered via `flag_commits` on Run A |
 | Prose / GLM immersion | **82** | Stable `glm-5.2` on accepted turns; attestation retries never accepted as fallback |
 
 **Overall mean: 80.0**
@@ -75,18 +87,21 @@ Updated: 2026-07-12 (secret_audit persistence fixed forward; Run B backfill not 
 Committed / in-tree:
 
 - `coc_chapter_switch`: clearer unknown-module error (expects `.coc/module-library` on campaign workspace)
-- `trusted-playtest-runners.json`: pin `interactive_driver` sha256 to current `coc_interactive_playtest.py` (was stale → `trusted_runner_registry_mismatch`)
+- `trusted-playtest-runners.json`: pin `interactive_driver` sha256 to current `coc_interactive_playtest.py`
+- `fa46c3d`: persist narrator `secret_audit` into interactive `runner-invocations.jsonl` (+ session `narrator-secret-audits.jsonl`)
 
 Local `.coc/` (not for git):
 
 - Resume / America overlays / flag_commits used during the live runs
 - Phase 3 closure materialization: segment `evidence.json`, route ledgers, three-axis, verification-sample
+- Run B2 sandbox + eligible `battle-report.md`
 
 ## Remaining follow-up (not a long-run restart)
 
-1. ~~Persist narrator `secret_audit` into interactive `runner-invocations.jsonl`~~ **Done** (session `narrator-secret-audits.jsonl` + interactive ledger append). Future blind runs can be formally `battle-report.md` eligible without synthesizing receipts.
-2. Run B historical gap remains: promoting the existing 80-turn play to `battle-report.md` would require either recovered audit inputs (unavailable) or a full narrator re-audit/replay (avoided).
-3. Optional: repair tip `state_health` sanity schema warning observed on Run B public state.
+1. ~~Persist narrator `secret_audit` into interactive `runner-invocations.jsonl`~~ **Done**
+2. ~~Fresh blind run with fixed driver → eligible `battle-report.md`~~ **Done** (`masks-peru-america-run-b2-20260712`)
+3. Historical Run B gap remains intentionally frozen as verification-sample (no receipt synthesis / no 80-turn replay)
+4. Optional: repair tip `state_health` sanity schema warning observed on historical Run B public state
 
 ## Artifact index
 
@@ -96,6 +111,9 @@ Local `.coc/` (not for git):
 | Run A freeze receipt | `.coc/playtests/masks-peru-america-run-a-20260712/artifacts/freeze-receipt.json` |
 | Run B verification sample | `.coc/playtests/masks-peru-america-run-b-20260712/artifacts/verification-sample.md` |
 | Run B freeze receipt | `.coc/playtests/masks-peru-america-run-b-20260712/artifacts/freeze-receipt.json` |
+| **Run B2 battle report** | `.coc/playtests/masks-peru-america-run-b2-20260712/artifacts/battle-report.md` |
+| Run B2 freeze receipt | `.coc/playtests/masks-peru-america-run-b2-20260712/artifacts/freeze-receipt.json` |
+| Run B2 evidence summary | `.coc/playtests/masks-peru-america-run-b2-20260712/artifacts/evidence-summary.json` |
 | Three-axis | `.../artifacts/three-axis-eval.md` (+ `.json`) on Run A and Run B |
 | Route compare | `.coc/playtests/masks-route-compare-20260712/artifacts/route-comparison.md` |
 | Handoff probes | `.coc/playtests/masks-handoff-probes-20260712/handoff-probe-report.md` |

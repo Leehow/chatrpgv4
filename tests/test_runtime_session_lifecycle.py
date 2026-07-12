@@ -451,6 +451,96 @@ def test_session_rejects_narrator_audit_malformed_missing_extra_duplicate_uncert
     )
 
 
+_VALID_RETRY_ENVELOPE = {
+    "scene_anchor": {"scene_id": "study", "sensory_anchors": ["雨点敲窗"]},
+    "approved_reveals": {"clues": [{
+        "clue_id": "clue-ledger", "player_safe_summary": "账本边缘有新鲜水痕",
+    }]},
+    "must_not_reveal": [{"id": "secret-owner", "category": "keeper"}],
+}
+_VALID_RETRY_NARRATION = {
+    "ok": True,
+    "final_text": "雨点敲着窗。",
+    "secret_audit_complete": True,
+    "asserted_fact_refs": ["envelope:/scene_anchor/sensory_anchors/0"],
+    "semantic_audit": [{
+        "asserted_ref": "envelope:/scene_anchor/sensory_anchors/0",
+        "forbidden_ref": "secret-owner",
+        "decision": "different_fact",
+        "reason": "weather observation is not ownership",
+    }],
+    "response_mode": "tool",
+    "model_identity": {"provider": "zhipu-coding", "id": "glm-5.2"},
+}
+
+
+def _coverage_failing_narration():
+    """A tool-mode narration whose secret_audit_complete is False (coverage-fail).
+
+    Mirrors the intermittent GLM behaviour where the tool is invoked but the
+    audit fields are incomplete, so ``_validated_narrator_secret_audit``
+    returns None without the narration being a hard exception.
+    """
+    failing = json.loads(json.dumps(_VALID_RETRY_NARRATION))
+    failing["secret_audit_complete"] = False
+    failing["asserted_fact_refs"] = []
+    failing["semantic_audit"] = []
+    return failing
+
+
+def test_narrate_with_coverage_retry_recovers_from_intermittent_coverage_fail():
+    """A coverage-fail then pass on retry yields a valid audit (not a fatal abort).
+
+    Regression: an intermittent GLM coverage-fail previously forced
+    ``deterministic_fallback=True`` for the turn on the *first* attempt, which
+    made ``validate_attestation`` reject the whole turn (consistent=False). The
+    narrator path must retry the same envelope a bounded number of times before
+    degrading, since the LLM is non-deterministic and the same envelope can
+    pass on a second invocation.
+    """
+    session = _load_session()
+    attempts = [_coverage_failing_narration(), _VALID_RETRY_NARRATION]
+
+    def fake_pi_narrate(_request, **_kwargs):
+        return attempts.pop(0)
+
+    result = session._narrate_with_coverage_retry(
+        _VALID_RETRY_ENVELOPE,
+        player_text="...",
+        pi_narrate=fake_pi_narrate,
+    )
+    # The valid narration won out: a secret_audit receipt is returned.
+    assert result["secret_audit"] is not None
+    assert result["secret_audit"]["passed"] is True
+    assert result["deterministic_fallback"] is False
+    assert result["narration"]["final_text"] == "雨点敲着窗。"
+    # Both attempts were consumed.
+    assert attempts == []
+
+
+def test_narrate_with_coverage_retry_degrades_after_exhausting_retries():
+    """Persistent coverage-fail still degrades to deterministic fallback.
+
+    Safety/behaviour contract unchanged: when the model cannot produce a valid
+    audit within the retry budget, the turn falls back (no secret_audit) rather
+    than silently passing an unaudited narration.
+    """
+    session = _load_session()
+
+    def fake_pi_narrate(_request, **_kwargs):
+        return _coverage_failing_narration()
+
+    result = session._narrate_with_coverage_retry(
+        _VALID_RETRY_ENVELOPE,
+        player_text="...",
+        pi_narrate=fake_pi_narrate,
+    )
+    assert result["secret_audit"] is None
+    assert result["deterministic_fallback"] is True
+    # 1 initial attempt + 2 retries = 3 calls total, then it stops.
+    assert result["attempts"] == 3
+
+
 def test_sdk_unknown_session_is_stable_documented_exception():
     session = _load_session()
     registry = session.SessionRegistry(monotonic=FakeClock())
