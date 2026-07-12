@@ -84,7 +84,8 @@ Documented here so Batch D verification does not paper them over:
 
 | Test / job | Symptom | Evidence it predates this branch |
 |---|---|---|
-| CI job `product-smoke` / “Quick start save and reload smoke” | Fails on `main` as well as this branch | Branch base is `main`; job exists unchanged in `.github/workflows/tests.yml` and is out of Batch D allowed-file scope. Re-confirm during Task 10 full-suite triage with failure id + traceback. |
+| CI job `product-smoke` / “Quick start save and reload smoke” | Fails on `main` as well as this branch | Job exists unchanged in `.github/workflows/tests.yml` and is out of Batch D allowed-file scope. |
+| `tests/test_runtime_sdk_debug.py::test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only` | `AssertionError: assert (6 == 2)` on `len(pool.keys)` (expects 2 identical narrator pool keys) | Reproduced on `main` worktree at `e75bb6c` with the same assertion and traceback. This branch does not modify `runtime/` or that test file (`git diff main...HEAD` has no runtime paths). |
 
 ## Resolved hardening items
 
