@@ -360,6 +360,125 @@ def rank_move_targets(
     }
 
 
+def resolve_move_flag_commits(
+    from_scene_id: str | None,
+    story_graph: dict[str, Any] | None,
+    world: dict[str, Any],
+    target_entities: list[str] | None,
+) -> dict[str, Any] | None:
+    """Commit ``flag_set`` gates when structured move targets a locked destination.
+
+    Player move intent is the diegetic commitment for departure / progress flags
+    that solely gate unlock edges. Uses only structured ``target_entities`` ∩
+    (``scene_id`` ∪ ``location_tags``) — never free-text scans.
+
+    Returns ``{flag_ids, to_scene, matched_target}`` when a unique destination
+    match exists among still-locked edge targets from the active scene (or
+    global ``unlock`` edges) whose ``when.kind`` is ``flag_set``. Otherwise None.
+    """
+    if not from_scene_id or not isinstance(target_entities, list):
+        return None
+    entities = _norm_location_tag_set(target_entities)
+    if not entities:
+        return None
+    world = ensure_world_scene_fields(world, story_graph)
+    unlocked = {str(s) for s in world.get("unlocked_scene_ids") or []}
+    exhausted = {str(s) for s in world.get("exhausted_scene_ids") or []}
+    edges_by_scene = derive_scene_edges(story_graph)
+    scored: list[tuple[int, str, list[str], list[str]]] = []
+    seen_targets: set[str] = set()
+
+    def _consider(edge: dict[str, Any], *, require_source_local: bool, source_id: str) -> None:
+        kind = edge.get("kind")
+        if kind not in ("unlock", "travel", "cut"):
+            return
+        if require_source_local and str(source_id) != str(from_scene_id):
+            return
+        when = edge.get("when") if isinstance(edge.get("when"), dict) else {}
+        if when.get("kind") != "flag_set":
+            return
+        flag_id = str(when.get("flag_id") or "").strip()
+        target = str(edge.get("to") or "").strip()
+        if not flag_id or not target or target in seen_targets:
+            return
+        if target in unlocked or target in exhausted:
+            return
+        scene = _scene_by_id(story_graph, target)
+        surface = scene_move_match_surface(scene)
+        matched = sorted(entities & surface)
+        if not matched:
+            return
+        seen_targets.add(target)
+        scored.append((len(matched), target, matched, [flag_id]))
+
+    for source_id, edges in edges_by_scene.items():
+        for edge in edges:
+            kind = edge.get("kind")
+            # unlock edges evaluate globally; travel/cut stay source-local.
+            require_local = kind in ("travel", "cut")
+            _consider(edge, require_source_local=require_local, source_id=str(source_id))
+
+    if not scored:
+        return None
+    best = max(item[0] for item in scored)
+    winners = [item for item in scored if item[0] == best]
+    if len(winners) != 1:
+        return None
+    _score, to_scene, matched_entities, flag_ids = winners[0]
+    return {
+        "flag_ids": flag_ids,
+        "to_scene": to_scene,
+        "matched_target": {
+            "scene_id": to_scene,
+            "matched_entities": matched_entities,
+            "score": _score,
+        },
+    }
+
+
+def resolve_scene_flag_commits(
+    scene: dict[str, Any] | None,
+    *,
+    intent_class: str | None,
+    target_entities: list[str] | None,
+) -> list[str]:
+    """Return authored ``flag_commits`` matched by structured intent evidence.
+
+    Each commit entry: ``flag_id``, ``intent_classes`` (string[]), ``target_tags``
+    (string[]). Match requires intent_class ∈ intent_classes and a non-empty
+    intersection of target_entities with target_tags (case-normalized).
+    """
+    if not isinstance(scene, dict):
+        return []
+    intent = str(intent_class or "").strip().lower()
+    if not intent:
+        return []
+    entities = _norm_location_tag_set(target_entities)
+    if not entities:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for entry in scene.get("flag_commits") or []:
+        if not isinstance(entry, dict):
+            continue
+        flag_id = str(entry.get("flag_id") or "").strip()
+        if not flag_id or flag_id in seen:
+            continue
+        classes = {
+            str(c).strip().lower()
+            for c in (entry.get("intent_classes") or [])
+            if str(c).strip()
+        }
+        if intent not in classes:
+            continue
+        tags = _norm_location_tag_set(entry.get("target_tags"))
+        if not tags or not (entities & tags):
+            continue
+        seen.add(flag_id)
+        out.append(flag_id)
+    return out
+
+
 def pick_transition_target(
     from_scene_id: str | None,
     story_graph: dict[str, Any] | None,
@@ -515,6 +634,8 @@ __all__ = [
     "transition_candidates",
     "scene_move_match_surface",
     "rank_move_targets",
+    "resolve_move_flag_commits",
+    "resolve_scene_flag_commits",
     "pick_transition_target",
     "record_scene_enter",
     "is_terminal_scene",

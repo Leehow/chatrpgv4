@@ -933,35 +933,59 @@ def _move_transition_override(ctx: dict[str, Any]) -> dict[str, Any] | None:
     candidate's ``location_tags`` / ``scene_id``, that scene becomes
     ``transition_to`` and ``matched_target`` evidence is attached. Zero
     matches or ties keep the existing deterministic candidate order.
+
+    When no unlocked candidates exist but the move uniquely matches a still-
+    locked destination gated solely by ``flag_set``, emit CUT plus
+    ``flags_set`` so apply can commit the departure flag, unlock, then travel.
     """
     if str(ctx.get("player_intent_class") or "") != "move":
         return None
     scene = ctx.get("active_scene") or {}
     story_graph = ctx.get("story_graph")
+    world = ctx.get("world_state") or {}
+    rich = ctx.get("player_intent_rich") or {}
+    target_entities = rich.get("target_entities") if isinstance(rich, dict) else None
+    targets = target_entities if isinstance(target_entities, list) else None
     candidates = coc_scene_graph.transition_candidates(
         ctx.get("active_scene_id") or scene.get("scene_id"),
         story_graph,
-        ctx.get("world_state") or {},
+        world,
     )
-    if not candidates:
+    if candidates:
+        chosen, matched = coc_scene_graph.rank_move_targets(
+            candidates, story_graph, targets
+        )
+        result: dict[str, Any] = {
+            "scene_action": "CUT",
+            "handoff": "narration",
+            "rationale": "structured move intent with unlocked reachable scene; commit transition",
+            "transition_to": chosen or candidates[0],
+        }
+        if matched is not None:
+            result["matched_target"] = matched
+            result["rationale"] = (
+                "structured move intent matched unlocked scene via location_tags; commit transition"
+            )
+        return result
+
+    gated = coc_scene_graph.resolve_move_flag_commits(
+        ctx.get("active_scene_id") or scene.get("scene_id"),
+        story_graph,
+        world,
+        targets,
+    )
+    if gated is None:
         return None
-    rich = ctx.get("player_intent_rich") or {}
-    target_entities = rich.get("target_entities") if isinstance(rich, dict) else None
-    chosen, matched = coc_scene_graph.rank_move_targets(
-        candidates, story_graph, target_entities if isinstance(target_entities, list) else None
-    )
-    result: dict[str, Any] = {
+    return {
         "scene_action": "CUT",
         "handoff": "narration",
-        "rationale": "structured move intent with unlocked reachable scene; commit transition",
-        "transition_to": chosen or candidates[0],
+        "rationale": (
+            "structured move intent commits flag-gated unlock then transition"
+        ),
+        "transition_to": gated["to_scene"],
+        "flags_set": list(gated["flag_ids"]),
+        "matched_target": gated["matched_target"],
     }
-    if matched is not None:
-        result["matched_target"] = matched
-        result["rationale"] = (
-            "structured move intent matched unlocked scene via location_tags; commit transition"
-        )
-    return result
 
 
 def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
@@ -1596,17 +1620,19 @@ def _move_target_unmatched(ctx: dict[str, Any]) -> bool:
     if not isinstance(target_entities, list) or not any(str(t or "").strip() for t in target_entities):
         return False
     scene = ctx.get("active_scene") or {}
-    candidates = coc_scene_graph.transition_candidates(
-        ctx.get("active_scene_id") or scene.get("scene_id"),
-        ctx.get("story_graph"),
-        ctx.get("world_state") or {},
+    story_graph = ctx.get("story_graph")
+    world = ctx.get("world_state") or {}
+    from_id = ctx.get("active_scene_id") or scene.get("scene_id")
+    candidates = coc_scene_graph.transition_candidates(from_id, story_graph, world)
+    if candidates:
+        _chosen, matched = coc_scene_graph.rank_move_targets(
+            candidates, story_graph, target_entities
+        )
+        return matched is None
+    gated = coc_scene_graph.resolve_move_flag_commits(
+        from_id, story_graph, world, target_entities
     )
-    if not candidates:
-        return True
-    _chosen, matched = coc_scene_graph.rank_move_targets(
-        candidates, ctx.get("story_graph"), target_entities
-    )
-    return matched is None
+    return gated is None
 
 
 def _redirection_reason_code(
@@ -3281,6 +3307,12 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
             ctx.get("story_graph"),
             ctx.get("world_state") or {},
         )
+        if overrides and isinstance(overrides.get("flags_set"), list):
+            plan["flags_set"] = [
+                str(flag_id).strip()
+                for flag_id in overrides["flags_set"]
+                if str(flag_id).strip()
+            ]
         if candidates:
             override_target = None
             if overrides and isinstance(overrides.get("transition_to"), str):
@@ -3292,6 +3324,34 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
             plan["transition_candidates"] = candidates
             if overrides and isinstance(overrides.get("matched_target"), dict):
                 plan["matched_target"] = overrides["matched_target"]
+        elif overrides and isinstance(overrides.get("transition_to"), str):
+            # Flag-gated move: destination unlocks during apply after flags_set.
+            plan["transition_to"] = overrides["transition_to"]
+            plan["transition_candidates"] = [overrides["transition_to"]]
+            if overrides and isinstance(overrides.get("matched_target"), dict):
+                plan["matched_target"] = overrides["matched_target"]
+
+    # Authored scene flag_commits (structured intent ∩ target_tags).
+    scene_flags = coc_scene_graph.resolve_scene_flag_commits(
+        scene,
+        intent_class=str(ctx.get("player_intent_class") or ""),
+        target_entities=(
+            rich.get("target_entities")
+            if isinstance(rich.get("target_entities"), list)
+            else None
+        ),
+    )
+    if scene_flags:
+        existing = [
+            str(flag_id).strip()
+            for flag_id in (plan.get("flags_set") or [])
+            if str(flag_id).strip()
+        ]
+        merged = existing[:]
+        for flag_id in scene_flags:
+            if flag_id not in merged:
+                merged.append(flag_id)
+        plan["flags_set"] = merged
 
     # SENNA-style explicit redirection: only when structured off-track signals fire.
     redirection = build_redirection_block(ctx, npc_moves=npc_moves)

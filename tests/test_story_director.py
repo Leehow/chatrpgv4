@@ -3341,3 +3341,78 @@ def test_normal_investigate_turn_has_no_redirection(tmp_path):
     )
     plan = coc_story_director.generate_director_plan(ctx, decision_id="redir-normal")
     assert "redirection" not in plan or plan.get("redirection") is None
+
+
+def test_move_intent_commits_flag_gated_destination(tmp_path):
+    """P1 regression: locked travel-to-puno unlocks via move flag commit."""
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story = {
+        "scenes": [
+            {
+                "scene_id": "lima-museum",
+                "scene_type": "investigation",
+                "dramatic_question": "leave lima?",
+                "location_tags": ["museum"],
+                "entry_conditions": [],
+                "exit_conditions": [{"kind": "always"}],
+                "available_clues": ["clue-museum"],
+                "npc_ids": [],
+                "pressure_moves": [],
+                "tone": ["dusty"],
+                "allowed_improvisation": [],
+                "scene_edges": [
+                    {
+                        "to": "travel-to-puno",
+                        "kind": "unlock",
+                        "when": {"kind": "flag_set", "flag_id": "expedition_departs_lima"},
+                    }
+                ],
+            },
+            {
+                "scene_id": "travel-to-puno",
+                "scene_type": "exploration",
+                "dramatic_question": "prepare?",
+                "location_tags": ["train", "travel-to-puno"],
+                "entry_conditions": [],
+                "exit_conditions": [{"kind": "always"}],
+                "available_clues": [],
+                "npc_ids": [],
+                "pressure_moves": [],
+                "tone": ["journey"],
+                "allowed_improvisation": [],
+                "scene_edges": [],
+            },
+        ]
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(story))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world.update({
+        "active_scene_id": "lima-museum",
+        "unlocked_scene_ids": ["lima-museum"],
+        "visited_scene_ids": ["lima-museum"],
+        "exhausted_scene_ids": [],
+        "discovered_clue_ids": ["clue-museum"],
+    })
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp,
+        character_path=char_path,
+        investigator_id="inv1",
+        player_intent="登上前往普诺的列车。",
+        player_intent_class="move",
+        player_intent_rich={
+            "primary_intent": "move",
+            "target_entities": ["travel-to-puno"],
+            "secondary_intents": [],
+            "risk_posture": "cautious",
+            "explicit_roll_request": False,
+            "action_atoms": [{"verb": "move", "target": "travel-to-puno"}],
+            "npc_interactions": [],
+        },
+        rng=random.Random(42),
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "flag-cut-1")
+    assert plan["scene_action"] == "CUT"
+    assert plan.get("transition_to") == "travel-to-puno"
+    assert plan.get("flags_set") == ["expedition_departs_lima"]

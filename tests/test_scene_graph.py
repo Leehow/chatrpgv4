@@ -738,3 +738,60 @@ def test_rank_move_targets_tie_keeps_candidate_order():
     )
     assert chosen == "hall-of-records"
     assert evidence is None
+
+
+def test_resolve_move_flag_commits_matches_locked_destination():
+    sg = {
+        "scenes": [
+            {
+                "scene_id": "lima-museum",
+                "location_tags": ["museum"],
+                "scene_edges": [
+                    {
+                        "to": "travel-to-puno",
+                        "kind": "unlock",
+                        "when": {"kind": "flag_set", "flag_id": "expedition_departs_lima"},
+                    }
+                ],
+            },
+            {
+                "scene_id": "travel-to-puno",
+                "location_tags": ["train", "travel", "火车"],
+                "scene_edges": [],
+            },
+        ]
+    }
+    world = {
+        "active_scene_id": "lima-museum",
+        "unlocked_scene_ids": ["lima-museum"],
+        "visited_scene_ids": ["lima-museum"],
+        "exhausted_scene_ids": [],
+        "discovered_clue_ids": [],
+    }
+    gated = coc_scene_graph.resolve_move_flag_commits(
+        "lima-museum", sg, world, ["travel-to-puno"]
+    )
+    assert gated is not None
+    assert gated["to_scene"] == "travel-to-puno"
+    assert gated["flag_ids"] == ["expedition_departs_lima"]
+
+
+def test_resolve_scene_flag_commits_intersects_target_tags():
+    scene = {
+        "scene_id": "andean-pyramid-interior",
+        "flag_commits": [
+            {
+                "flag_id": "ward_repaired",
+                "intent_classes": ["investigate"],
+                "target_tags": ["cracked ward", "golden ward fragment"],
+            }
+        ],
+    }
+    assert coc_scene_graph.resolve_scene_flag_commits(
+        scene,
+        intent_class="investigate",
+        target_entities=["golden ward fragment", "cracked ward"],
+    ) == ["ward_repaired"]
+    assert coc_scene_graph.resolve_scene_flag_commits(
+        scene, intent_class="move", target_entities=["cracked ward"]
+    ) == []

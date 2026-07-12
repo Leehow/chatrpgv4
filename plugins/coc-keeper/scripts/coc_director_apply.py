@@ -249,6 +249,59 @@ def _truthy_flag_ids(flags_doc: dict[str, Any] | None) -> set[str]:
     return {str(k) for k, v in raw.items() if v}
 
 
+def _commit_plan_flags(
+    save: Path,
+    plan: dict[str, Any],
+    *,
+    decision_id: str,
+    investigator_id: str,
+    ts: str,
+    events: list[dict[str, Any]],
+    logs: Path,
+) -> list[str]:
+    """Persist ``plan.flags_set`` into save/flags.json and emit flag_set events.
+
+    Without this path, authored ``flag_set`` unlock/exit conditions can never
+    become true under the deterministic planner (flags map stayed empty).
+    """
+    raw_flags = plan.get("flags_set")
+    if not isinstance(raw_flags, list):
+        return []
+    flag_ids = [str(flag_id).strip() for flag_id in raw_flags if str(flag_id).strip()]
+    if not flag_ids:
+        return []
+    flags_path = save / "flags.json"
+    flags_doc = _read_json(flags_path, {
+        "schema_version": 1,
+        "campaign_id": None,
+        "scenario_id": None,
+        "clues_found": {},
+        "decisions": [],
+        "spoiler_reveals": [],
+        "flags": {},
+    })
+    if not isinstance(flags_doc.get("flags"), dict):
+        flags_doc["flags"] = {}
+    committed: list[str] = []
+    for flag_id in flag_ids:
+        if flags_doc["flags"].get(flag_id):
+            continue
+        flags_doc["flags"][flag_id] = True
+        committed.append(flag_id)
+        ev = {
+            "event_type": "flag_set",
+            "decision_id": decision_id,
+            "flag_id": flag_id,
+            "investigator_id": investigator_id,
+            "ts": ts,
+        }
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
+    if committed:
+        _write_json(flags_path, flags_doc)
+    return committed
+
+
 def _maybe_emit_session_ending(
     campaign_dir: Path,
     plan: dict[str, Any],
@@ -373,10 +426,10 @@ def _apply_scene_on_enter(
 ) -> None:
     """Fire a scene's on_enter hooks when it is entered.
 
-    Currently handles ``on_enter.clock_ticks`` — ticking threat clocks and
-    emitting clock_full when a clock fills.  SAN triggers are emitted by the
-    director as rules_requests (see _build_rules_requests), not here, because
-    the director owns the request layer and this layer owns persistence.
+    Currently handles ``on_enter.clock_ticks`` and ``on_enter.sets_flags``.
+    SAN triggers are emitted by the director as rules_requests (see
+    _build_rules_requests), not here, because the director owns the request
+    layer and this layer owns persistence.
     """
     on_enter = scene.get("on_enter") or {}
     clock_ticks = on_enter.get("clock_ticks") or []
@@ -390,6 +443,18 @@ def _apply_scene_on_enter(
     }
     events.append(enter_ev)
     _append_jsonl(logs / "events.jsonl", enter_ev)
+
+    sets_flags = on_enter.get("sets_flags") or []
+    if isinstance(sets_flags, list) and sets_flags:
+        _commit_plan_flags(
+            save,
+            {"flags_set": sets_flags},
+            decision_id=decision_id,
+            investigator_id=investigator_id,
+            ts=ts,
+            events=events,
+            logs=logs,
+        )
 
     for tick_index, tick_spec in enumerate(clock_ticks):
         if not isinstance(tick_spec, dict):
@@ -1950,6 +2015,17 @@ def _apply_plan_impl(
     # 1. clue reveal / fail-forward resolution
     world_path = save / "world-state.json"
     world = _read_json(world_path, {"discovered_clue_ids": []})
+    # 1a. structured flag commits must land before unlock evaluation so
+    # flag_set-gated travel destinations become legal CUT targets this turn.
+    _commit_plan_flags(
+        save,
+        plan,
+        decision_id=decision_id,
+        investigator_id=investigator_id,
+        ts=ts,
+        events=events,
+        logs=logs,
+    )
     for ev in _apply_typed_push_consequences(
         campaign_dir,
         investigator_id,

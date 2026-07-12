@@ -2738,3 +2738,78 @@ def test_apply_bonus_failure_keeps_core_clue_and_adds_pressure(tmp_path):
     assert any(e.get("event_type") == "clue_bonus_cost" for e in events)
     pacing = json.loads((camp / "save" / "pacing-state.json").read_text())
     assert pacing["tension_level"] in {"medium", "high", "climax"} or pacing.get("turn_number", 0) >= 1
+
+
+def test_apply_plan_flags_set_unlocks_and_cuts(tmp_path):
+    """P1 regression: move-committed flag_set must unlock then CUT same turn."""
+    camp = _campaign(tmp_path)
+    sg = {
+        "scenes": [
+            {
+                "scene_id": "lima-museum",
+                "is_start": True,
+                "dramatic_question": "leave?",
+                "available_clues": ["clue-a"],
+                "exit_conditions": [{"kind": "always"}],
+                "scene_edges": [
+                    {
+                        "to": "travel-to-puno",
+                        "kind": "unlock",
+                        "when": {"kind": "flag_set", "flag_id": "expedition_departs_lima"},
+                    },
+                    {
+                        "to": "travel-to-puno",
+                        "kind": "travel",
+                        "when": {"kind": "flag_set", "flag_id": "expedition_departs_lima"},
+                    },
+                ],
+            },
+            {
+                "scene_id": "travel-to-puno",
+                "dramatic_question": "prepare?",
+                "available_clues": [],
+                "exit_conditions": [{"kind": "always"}],
+                "scene_edges": [],
+                "on_enter": {"sets_flags": ["arrived_puno"]},
+            },
+        ]
+    }
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world.update({
+        "active_scene_id": "lima-museum",
+        "unlocked_scene_ids": ["lima-museum"],
+        "visited_scene_ids": ["lima-museum"],
+        "exhausted_scene_ids": [],
+        "discovered_clue_ids": ["clue-a"],
+    })
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    (camp / "save" / "flags.json").write_text(json.dumps({
+        "schema_version": 1, "campaign_id": "test",
+        "clues_found": {}, "decisions": [], "spoiler_reveals": [], "flags": {},
+    }))
+
+    events = coc_director_apply.apply_plan(
+        camp,
+        {
+            "decision_id": "d-flag-cut",
+            "scene_action": "CUT",
+            "transition_to": "travel-to-puno",
+            "flags_set": ["expedition_departs_lima"],
+            "clue_policy": {"reveal": []},
+            "pressure_moves": [],
+            "memory_writes": [],
+            "rule_signals": {},
+        },
+        investigator_id="inv1",
+    )
+    types = [e.get("event_type") for e in events]
+    assert "flag_set" in types
+    assert "scene_unlocked" in types
+    assert "scene_transition" in types
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["active_scene_id"] == "travel-to-puno"
+    assert "travel-to-puno" in world2["unlocked_scene_ids"]
+    flags = json.loads((camp / "save" / "flags.json").read_text())
+    assert flags["flags"]["expedition_departs_lima"] is True
+    assert flags["flags"]["arrived_puno"] is True
