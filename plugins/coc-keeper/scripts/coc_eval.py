@@ -21,6 +21,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import coc_eval_cases as cases
 import coc_eval_compare as compare
 import coc_eval_contract as contract
+import coc_eval_matrix as matrix
 
 
 EXIT_BY_STATUS = {
@@ -369,6 +370,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     baseline.add_argument("--from", dest="source", type=Path, required=True)
     baseline.add_argument("--output", type=Path, required=True)
+
+    matrix_parser = subparsers.add_parser(
+        "matrix",
+        help="plan or execute the AI-player persona matrix for nightly|release",
+    )
+    matrix_parser.add_argument(
+        "--suite",
+        required=True,
+        choices=("nightly", "release"),
+    )
+    matrix_parser.add_argument("--root", type=Path, default=Path.cwd())
+    matrix_parser.add_argument("--output", type=Path)
+    matrix_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="write matrix-plan.json without executing READY cells",
+    )
     return parser
 
 
@@ -403,6 +421,13 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "baseline":
             payload = contract.write_baseline_manifest(
                 args.source, args.output
+            )
+        elif args.command == "matrix":
+            payload = matrix.run_matrix_cli(
+                root=args.root,
+                suite=args.suite,
+                output=args.output,
+                plan_only=bool(args.plan_only),
             )
         else:
             raise ValueError(f"unsupported command: {args.command}")

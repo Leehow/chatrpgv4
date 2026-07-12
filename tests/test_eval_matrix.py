@@ -109,7 +109,10 @@ def test_build_matrix_plan_expands_personas_seeds_cases_deterministically():
     matrix = _load()
     plan_a = matrix.build_matrix_plan(root=REPO, suite="nightly")
     plan_b = matrix.build_matrix_plan(root=REPO, suite="nightly")
-    assert plan_a == plan_b
+    # Wall-clock generated_at may differ; cell expansion must be identical.
+    assert {key: value for key, value in plan_a.items() if key != "generated_at"} == {
+        key: value for key, value in plan_b.items() if key != "generated_at"
+    }
     assert plan_a["suite"] == "nightly"
     assert plan_a["schema_version"] == 1
     cells = plan_a["cells"]
@@ -120,7 +123,6 @@ def test_build_matrix_plan_expands_personas_seeds_cases_deterministically():
     assert persona_ids
     assert seeds
     assert case_ids
-    expected = len(persona_ids) * len(seeds) * len(case_ids)
     # Plan may filter to configured subsets, but expansion must be the cartesian product
     # of the suite's configured persona/seed/case lists.
     configured = plan_a["configuration"]

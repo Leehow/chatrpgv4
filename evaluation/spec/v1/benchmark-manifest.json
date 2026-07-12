@@ -10,6 +10,89 @@
     "roll_completeness",
     "baseline_identity_compare"
   ],
+  "matrix": {
+    "schema_version": 1,
+    "eval_spec": "eval-spec-v1",
+    "suites": {
+      "nightly": {
+        "description": "Persona × seed × case planning for distributional AI-player lanes. Evidence-grade execution remains fail-closed until runners, credentials, and fixtures are attested.",
+        "persona_ids": [
+          "careful_investigator",
+          "reckless_investigator",
+          "skeptical_rules_lawyer",
+          "genre_savvy_player",
+          "social_first_player",
+          "combat_first_player",
+          "speedrunner",
+          "stuck_player",
+          "adversarial_boundary_tester",
+          "memory_challenger",
+          "colloquial_ambiguous_player",
+          "meta_question_player"
+        ],
+        "seeds": [101, 102, 103],
+        "cases": [
+          {
+            "case_id": "nightly-live-match-attested",
+            "runner": "live_match",
+            "runner_path": "plugins/coc-keeper/scripts/coc_live_match.py",
+            "scenario_fixture": "evaluation/spec/v1/fixtures/matrix/nightly-scenario.json",
+            "initial_state_fixture": "evaluation/spec/v1/fixtures/matrix/nightly-initial-state.json",
+            "player_model": {"provider": "external", "id": "UNATTESTED_PLAYER"},
+            "kp_model": {"provider": "external", "id": "UNATTESTED_KP"},
+            "prompt_hashes": {
+              "player": "0000000000000000000000000000000000000000000000000000000000000000",
+              "kp": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "require_credentials": [
+              "COC_EVAL_PLAYER_API_KEY",
+              "COC_EVAL_KP_API_KEY"
+            ],
+            "judge": {"enabled": true, "rubric_id": "agency-and-fun"}
+          }
+        ]
+      },
+      "release": {
+        "description": "Release matrix planning with stricter attestation. Cells remain NOT_RUN without credentials and fixtures.",
+        "persona_ids": [
+          "careful_investigator",
+          "reckless_investigator",
+          "skeptical_rules_lawyer",
+          "genre_savvy_player",
+          "social_first_player",
+          "combat_first_player",
+          "speedrunner",
+          "stuck_player",
+          "adversarial_boundary_tester",
+          "memory_challenger",
+          "colloquial_ambiguous_player",
+          "meta_question_player"
+        ],
+        "seeds": [201, 202, 203, 204],
+        "cases": [
+          {
+            "case_id": "release-interactive-playtest-attested",
+            "runner": "interactive_playtest",
+            "runner_path": "plugins/coc-keeper/scripts/coc_interactive_playtest.py",
+            "scenario_fixture": "evaluation/spec/v1/fixtures/matrix/release-scenario.json",
+            "initial_state_fixture": "evaluation/spec/v1/fixtures/matrix/release-initial-state.json",
+            "player_model": {"provider": "external", "id": "UNATTESTED_PLAYER"},
+            "kp_model": {"provider": "external", "id": "UNATTESTED_KP"},
+            "prompt_hashes": {
+              "player": "1111111111111111111111111111111111111111111111111111111111111111",
+              "kp": "1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            "require_credentials": [
+              "COC_EVAL_PLAYER_API_KEY",
+              "COC_EVAL_KP_API_KEY",
+              "COC_EVAL_EXTERNAL_ATTESTATION"
+            ],
+            "judge": {"enabled": true, "rubric_id": "zh-prose"}
+          }
+        ]
+      }
+    }
+  },
   "suites": {
     "smoke": {
       "description": "Fast host-neutral contract and plugin routing checks.",
