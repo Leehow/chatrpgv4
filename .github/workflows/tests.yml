@@ -39,6 +39,28 @@ jobs:
           tests/test_release_consistency.py
           -q -p no:cacheprovider
 
+  evaluation-contract:
+    name: Evaluation contract phase 1
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install evaluation test dependencies
+        run: python -m pip install pytest pypdf
+      - name: Run focused evaluation contract tests
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest
+          tests/test_eval_contract.py
+          -q -p no:cacheprovider
+      - name: Run canonical smoke suite through coc_eval.py
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1
+          python3 plugins/coc-keeper/scripts/coc_eval.py
+          run --suite smoke --root .
+          --output "${RUNNER_TEMP}/coc-eval-smoke"
+
   node-adapters:
     name: Node adapter contracts
     runs-on: ubuntu-latest
