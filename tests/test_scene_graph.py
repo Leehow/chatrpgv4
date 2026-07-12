@@ -795,3 +795,14 @@ def test_resolve_scene_flag_commits_intersects_target_tags():
     assert coc_scene_graph.resolve_scene_flag_commits(
         scene, intent_class="move", target_entities=["cracked ward"]
     ) == []
+
+
+def test_location_tag_separator_folding_intersects():
+    assert "andeanruins" in coc_scene_graph._norm_location_tag_variants("andean ruins")
+    assert "andeanruins" in coc_scene_graph._norm_location_tag_variants("andean-ruins")
+    surface = coc_scene_graph.scene_move_match_surface({
+        "scene_id": "andean-ruins-approach",
+        "location_tags": ["ruins", "andean ruins"],
+    })
+    entities = coc_scene_graph._norm_location_tag_set(["andean-ruins-approach", "andean ruins"])
+    assert entities & surface

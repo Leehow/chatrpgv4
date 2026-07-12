@@ -287,11 +287,31 @@ def transition_candidates(
 
 
 def _norm_location_tag(value: Any) -> str | None:
-    """Case-normalize a location tag / entity for set comparison."""
+    """Case-normalize a location tag / entity for set comparison.
+
+    Also collapses internal whitespace/hyphen/underscore runs so structured
+    IDs like ``andean-ruins-approach`` can intersect harness targets such as
+    ``andean ruins`` when both share the same token spine after separator
+    folding is insufficient — callers should still author overlapping tags.
+    Here we only lowercase + strip; separator folding is applied in
+    ``_norm_location_tag_variants`` for intersection.
+    """
     if value is None:
         return None
     text = str(value).strip().lower()
     return text or None
+
+
+def _norm_location_tag_variants(value: Any) -> set[str]:
+    """Return match keys for one tag/entity, including separator-folded form."""
+    base = _norm_location_tag(value)
+    if base is None:
+        return set()
+    folded = "".join(ch for ch in base if ch.isalnum())
+    out = {base}
+    if folded:
+        out.add(folded)
+    return out
 
 
 def _norm_location_tag_set(values: Any) -> set[str]:
@@ -299,9 +319,7 @@ def _norm_location_tag_set(values: Any) -> set[str]:
         return set()
     out: set[str] = set()
     for item in values:
-        tag = _norm_location_tag(item)
-        if tag is not None:
-            out.add(tag)
+        out |= _norm_location_tag_variants(item)
     return out
 
 
