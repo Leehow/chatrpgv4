@@ -476,6 +476,281 @@ def _required_profiles(active_runs: list[dict[str, Any]]) -> dict[str, str | Non
     return profiles
 
 
+EVAL_SPEC_REL = Path("evaluation/spec/v1")
+BENCHMARK_MANIFEST_REL = EVAL_SPEC_REL / "benchmark-manifest.json"
+CASE_REGISTRY_REL = EVAL_SPEC_REL / "case-registry.json"
+UNBOUND_HOLDOUT_STATUSES = frozenset({"example_unbound", "not_bound", "NOT_RUN"})
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _load_eval_json(root: Path, relative: Path) -> dict[str, Any]:
+    path = Path(root) / relative
+    payload = _read_json(path, {})
+    if not isinstance(payload, dict):
+        raise ValueError(f"expected JSON object at {path}")
+    return payload
+
+
+def build_eval_contract_requirements(
+    root: Path | str,
+    suite: str = "release",
+) -> dict[str, Any]:
+    """Derive required case/persona/seed cells from evaluation/spec/v1."""
+    root_path = Path(root)
+    manifest = _load_eval_json(root_path, BENCHMARK_MANIFEST_REL)
+    registry = _load_eval_json(root_path, CASE_REGISTRY_REL)
+    suite_def = (manifest.get("suites") or {}).get(suite)
+    if not isinstance(suite_def, dict):
+        raise ValueError(f"unknown suite in benchmark manifest: {suite}")
+
+    cases = registry.get("cases") if isinstance(registry.get("cases"), list) else []
+    direct_case_ids = [
+        str(case["case_id"])
+        for case in cases
+        if isinstance(case, dict)
+        and isinstance(case.get("case_id"), str)
+        and suite in (case.get("suites") or [])
+    ]
+    if direct_case_ids:
+        case_ids = sorted(set(direct_case_ids))
+    else:
+        # Nightly/release may not yet register suite-tagged cases. The
+        # deterministic foundation remains the hard smoke/pr registry cells;
+        # historical playtest profiles never substitute for these cells.
+        case_ids = sorted(
+            {
+                str(case["case_id"])
+                for case in cases
+                if isinstance(case, dict)
+                and isinstance(case.get("case_id"), str)
+                and case.get("gate") == "hard"
+                and set(case.get("suites") or []) & {"smoke", "pr"}
+            }
+        )
+
+    matrix_suite = ((manifest.get("matrix") or {}).get("suites") or {}).get(suite) or {}
+    persona_ids = [
+        str(item)
+        for item in (matrix_suite.get("persona_ids") or [])
+        if isinstance(item, str) and item
+    ]
+    seeds = [
+        int(item)
+        for item in (matrix_suite.get("seeds") or [])
+        if isinstance(item, int) or (isinstance(item, str) and str(item).isdigit())
+    ]
+    matrix_case_ids = [
+        str(case.get("case_id"))
+        for case in (matrix_suite.get("cases") or [])
+        if isinstance(case, dict) and isinstance(case.get("case_id"), str)
+    ]
+
+    return {
+        "schema_version": 1,
+        "eval_spec": str(manifest.get("eval_spec") or "eval-spec-v1"),
+        "benchmark_version": manifest.get("benchmark_version"),
+        "suite": suite,
+        "required_capabilities": list(suite_def.get("required_capabilities") or []),
+        "implemented_capabilities": list(manifest.get("implemented_capabilities") or []),
+        "case_ids": case_ids,
+        "persona_ids": persona_ids,
+        "seeds": seeds,
+        "matrix_case_ids": matrix_case_ids,
+        "historical_audit_profiles": list(REQUIRED_AUDIT_PROFILES),
+        "historical_profiles_satisfy_release": False,
+    }
+
+
+def assess_eval_contract_coverage(
+    root: Path | str,
+    *,
+    suite: str = "release",
+    case_results: dict[str, Any] | None = None,
+    matrix_results: dict[str, Any] | None = None,
+    historical_profiles: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compare versioned required cells against provided structured evidence."""
+    requirements = build_eval_contract_requirements(root, suite=suite)
+    required_cases = set(requirements["case_ids"])
+    required_personas = set(requirements["persona_ids"])
+    required_seeds = set(requirements["seeds"])
+
+    satisfied_cases: set[str] = set()
+    if isinstance(case_results, dict):
+        for case in case_results.get("cases") or []:
+            if not isinstance(case, dict):
+                continue
+            case_id = case.get("case_id")
+            if not isinstance(case_id, str) or case_id not in required_cases:
+                continue
+            hashes = case.get("artifact_hashes") or {}
+            if case.get("status") == "PASS" and isinstance(hashes, dict) and hashes:
+                satisfied_cases.add(case_id)
+
+    observed_personas: set[str] = set()
+    observed_seeds: set[int] = set()
+    satisfied_personas: set[str] = set()
+    satisfied_seeds: set[int] = set()
+    if isinstance(matrix_results, dict):
+        for cell in matrix_results.get("cells") or []:
+            if not isinstance(cell, dict):
+                continue
+            persona_id = cell.get("persona_id")
+            seed = cell.get("seed")
+            if isinstance(persona_id, str):
+                observed_personas.add(persona_id)
+            if isinstance(seed, int):
+                observed_seeds.add(seed)
+            elif isinstance(seed, str) and seed.isdigit():
+                observed_seeds.add(int(seed))
+            eligible = cell.get("evidence_eligible")
+            status = cell.get("status")
+            if eligible is True and status == "PASS":
+                if isinstance(persona_id, str) and persona_id in required_personas:
+                    satisfied_personas.add(persona_id)
+                if isinstance(seed, int) and seed in required_seeds:
+                    satisfied_seeds.add(seed)
+
+    historical_visible = bool(historical_profiles)
+    # Historical three-profile runs remain visible but never clear eval cells.
+    if historical_profiles:
+        historical_visible = True
+
+    gap_cases = sorted(required_cases - satisfied_cases)
+    gap_personas = sorted(required_personas - satisfied_personas)
+    gap_seeds = sorted(required_seeds - satisfied_seeds)
+
+    missing_caps = sorted(
+        set(requirements["required_capabilities"])
+        - set(requirements["implemented_capabilities"])
+    )
+    if gap_cases or gap_personas or gap_seeds or missing_caps:
+        status = "NOT_RUN"
+    else:
+        status = "PASS"
+
+    return {
+        "schema_version": 1,
+        "eval_spec": requirements["eval_spec"],
+        "suite": suite,
+        "status": status,
+        "requirements": requirements,
+        "satisfied_case_ids": sorted(satisfied_cases),
+        "satisfied_persona_ids": sorted(satisfied_personas),
+        "satisfied_seeds": sorted(satisfied_seeds),
+        "observed_persona_ids": sorted(observed_personas),
+        "observed_seeds": sorted(observed_seeds),
+        "gaps": {
+            "case_ids": gap_cases,
+            "persona_ids": gap_personas,
+            "seeds": gap_seeds,
+            "missing_capabilities": missing_caps,
+        },
+        "historical_profiles_visible": historical_visible,
+        "historical_profiles_satisfy_release": False,
+        "historical_profiles": dict(historical_profiles or {}),
+    }
+
+
+def bind_report_delivery_receipt(
+    run_dir: Path | str,
+    *,
+    battle_report_path: Path | str,
+    evaluation_report_path: Path | str,
+    completeness_path: Path | str,
+    expected_battle_report_sha256: str | None = None,
+    expected_evaluation_report_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Bind delivered report hashes to a completeness receipt (no prose rewrite)."""
+    del run_dir  # Reserved for future run-dir relative checks; paths are explicit.
+    findings: list[dict[str, Any]] = []
+    battle_path = Path(battle_report_path)
+    evaluation_path = Path(evaluation_report_path)
+    receipt_path = Path(completeness_path)
+
+    for label, path in (
+        ("battle_report", battle_path),
+        ("evaluation_report", evaluation_path),
+        ("report_completeness", receipt_path),
+    ):
+        if not path.is_file():
+            findings.append(
+                _finding(
+                    f"{label}_missing",
+                    "report_gap",
+                    f"missing {label}: {path}",
+                    "Deliver generated artifacts with a verified completeness receipt.",
+                )
+            )
+
+    if findings:
+        return {
+            "schema_version": 1,
+            "status": "FAIL",
+            "findings": findings,
+        }
+
+    battle_hash = _file_sha256(battle_path)
+    evaluation_hash = _file_sha256(evaluation_path)
+    receipt_hash = _file_sha256(receipt_path)
+    receipt = _read_json(receipt_path, {})
+    if not isinstance(receipt, dict) or receipt.get("passed") is not True:
+        findings.append(
+            _finding(
+                "report_completeness_failed",
+                "report_gap",
+                f"completeness receipt not passed: {receipt_path}",
+                "Regenerate reports from structured sources; do not rewrite facts by hand.",
+            )
+        )
+
+    if (
+        expected_battle_report_sha256 is not None
+        and expected_battle_report_sha256 != battle_hash
+    ):
+        findings.append(
+            _finding(
+                "battle_report_hash_mismatch",
+                "report_gap",
+                (
+                    f"battle report sha256 changed from {expected_battle_report_sha256} "
+                    f"to {battle_hash}"
+                ),
+                "Deliver the generated battle report bound to its completeness receipt; "
+                "do not apply handwritten factual rewrites.",
+            )
+        )
+    if (
+        expected_evaluation_report_sha256 is not None
+        and expected_evaluation_report_sha256 != evaluation_hash
+    ):
+        findings.append(
+            _finding(
+                "evaluation_report_hash_mismatch",
+                "report_gap",
+                (
+                    f"evaluation report sha256 changed from "
+                    f"{expected_evaluation_report_sha256} to {evaluation_hash}"
+                ),
+                "Deliver the generated evaluation report bound to its completeness receipt.",
+            )
+        )
+
+    return {
+        "schema_version": 1,
+        "status": "FAIL" if findings else "PASS",
+        "battle_report_sha256": battle_hash,
+        "evaluation_report_sha256": evaluation_hash,
+        "report_completeness_sha256": receipt_hash,
+        "findings": findings,
+    }
+
+
 def _rules_json_validation_findings(root: Path) -> list[dict[str, Any]]:
     plugin_root = root / "plugins" / "coc-keeper"
     if not plugin_root.exists():
@@ -5157,6 +5432,25 @@ def _write_markdown(path: Path, audit: dict[str, Any]) -> None:
             lines.append(f"  - Recommendation: {finding['recommendation']}")
     else:
         lines.append("- No findings.")
+    eval_contract = audit.get("eval_contract_coverage")
+    if isinstance(eval_contract, dict):
+        gaps = eval_contract.get("gaps") if isinstance(eval_contract.get("gaps"), dict) else {}
+        lines.extend([
+            "",
+            "## Eval Contract Coverage",
+            f"- Status: {eval_contract.get('status', 'NOT_RUN')}",
+            f"- Historical profiles satisfy release: {eval_contract.get('historical_profiles_satisfy_release', False)}",
+            f"- Case gaps: {', '.join(str(item) for item in gaps.get('case_ids', [])) or 'none'}",
+            f"- Persona gaps: {', '.join(str(item) for item in gaps.get('persona_ids', [])) or 'none'}",
+            f"- Seed gaps: {', '.join(str(item) for item in gaps.get('seeds', [])) or 'none'}",
+            (
+                "- Missing capabilities: "
+                + (
+                    ", ".join(str(item) for item in gaps.get("missing_capabilities", []))
+                    or "none"
+                )
+            ),
+        ])
     lines.extend([
         "",
         "## Next Action",
@@ -5219,6 +5513,37 @@ def generate_completion_audit(root: Path, automation_path: Path | None = None) -
             else "No artifact-level completion blockers found; retain goal active unless the full thread-level completion audit is also satisfied."
         ),
     }
+    # Eval-contract coverage is additive: historical profile PASS remains
+    # distinct from versioned release/nightly readiness.
+    eval_root = root
+    if (root / BENCHMARK_MANIFEST_REL).is_file():
+        try:
+            matrix_results = None
+            matrix_path = _playtests_dir(root) / "matrix-results.json"
+            if matrix_path.is_file():
+                loaded = _read_json(matrix_path, None)
+                if isinstance(loaded, dict):
+                    matrix_results = loaded
+            eval_contract = assess_eval_contract_coverage(
+                eval_root,
+                suite="release",
+                matrix_results=matrix_results,
+                historical_profiles=audit["required_profiles"],
+            )
+            audit["eval_contract_coverage"] = eval_contract
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            audit["eval_contract_coverage"] = {
+                "schema_version": 1,
+                "status": "NOT_RUN",
+                "gaps": {
+                    "case_ids": [],
+                    "persona_ids": [],
+                    "seeds": [],
+                    "missing_capabilities": [],
+                },
+                "reason": f"eval contract assessment unavailable: {exc}",
+                "historical_profiles_satisfy_release": False,
+            }
     json_path = base / "completion-audit.json"
     markdown_path = base / "completion-audit.md"
     _write_json(json_path, audit)

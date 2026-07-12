@@ -1050,6 +1050,39 @@ def _write_report(path: Path, index: dict[str, Any]) -> None:
     else:
         lines.append("- Blockers: none")
 
+    eval_contract = index.get("eval_contract_coverage")
+    if isinstance(eval_contract, dict):
+        gaps = eval_contract.get("gaps") if isinstance(eval_contract.get("gaps"), dict) else {}
+        lines.extend([
+            "",
+            "## Eval Contract Coverage",
+            f"- Status: {eval_contract.get('status', 'NOT_RUN')}",
+            (
+                "- Required cases: "
+                + (
+                    ", ".join(str(item) for item in eval_contract.get("required_case_ids", []))
+                    or "none"
+                )
+            ),
+            (
+                "- Required personas: "
+                + (
+                    ", ".join(str(item) for item in eval_contract.get("required_persona_ids", []))
+                    or "none"
+                )
+            ),
+            (
+                "- Required seeds: "
+                + (
+                    ", ".join(str(item) for item in eval_contract.get("required_seeds", []))
+                    or "none"
+                )
+            ),
+            f"- Case gaps: {', '.join(str(item) for item in gaps.get('case_ids', [])) or 'none'}",
+            f"- Persona gaps: {', '.join(str(item) for item in gaps.get('persona_ids', [])) or 'none'}",
+            f"- Seed gaps: {', '.join(str(item) for item in gaps.get('seeds', [])) or 'none'}",
+        ])
+
     lines.extend(["", "## Repair Targets"])
     active_run_ids = set(decision["evaluated_runs"])
     for run in index["runs"]:
@@ -1105,6 +1138,18 @@ def generate_suite_report(root: Path, evaluator: CoverageEvaluator | None = None
         "non_passing_runs": _non_passing_runs(active_runs),
     }
     index["loop_decision"] = _loop_decision(index)
+    # Additive eval-contract summary: never satisfied by historical profiles alone.
+    if (Path(root) / "evaluation" / "spec" / "v1" / "benchmark-manifest.json").is_file():
+        try:
+            index["eval_contract_coverage"] = summarize_eval_contract_coverage(
+                root, suite_name="release"
+            )
+        except (OSError, ValueError, TypeError, KeyError, ImportError):
+            index["eval_contract_coverage"] = {
+                "schema_version": 1,
+                "suite": "release",
+                "status": "NOT_RUN",
+            }
     index_path = base / "index.json"
     loop_decision_path = base / "loop-decision.json"
     report_path = base / "suite-report.md"
@@ -1112,6 +1157,50 @@ def generate_suite_report(root: Path, evaluator: CoverageEvaluator | None = None
     _write_json(loop_decision_path, index["loop_decision"])
     _write_report(report_path, index)
     return report_path
+
+
+def summarize_eval_contract_coverage(
+    root: Path | str,
+    *,
+    suite_name: str = "release",
+    case_results: dict[str, Any] | None = None,
+    matrix_results: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Suite-facing summary of versioned case/persona/seed coverage requirements."""
+    import coc_completion_audit as completion_audit
+
+    assessment = completion_audit.assess_eval_contract_coverage(
+        root,
+        suite=suite_name,
+        case_results=case_results,
+        matrix_results=matrix_results,
+    )
+    requirements = assessment.get("requirements") or {}
+    gaps = assessment.get("gaps") or {}
+    implemented = set(requirements.get("implemented_capabilities") or [])
+    required = set(requirements.get("required_capabilities") or [])
+    external_ready = not (required - implemented) and assessment.get("status") == "PASS"
+    return {
+        "schema_version": 1,
+        "eval_spec": assessment.get("eval_spec"),
+        "suite": suite_name,
+        "status": assessment.get("status", "NOT_RUN"),
+        "required_case_ids": list(requirements.get("case_ids") or []),
+        "required_persona_ids": list(requirements.get("persona_ids") or []),
+        "required_seeds": list(requirements.get("seeds") or []),
+        "matrix_case_ids": list(requirements.get("matrix_case_ids") or []),
+        "gaps": {
+            "case_ids": list(gaps.get("case_ids") or []),
+            "persona_ids": list(gaps.get("persona_ids") or []),
+            "seeds": list(gaps.get("seeds") or []),
+            "missing_capabilities": list(gaps.get("missing_capabilities") or []),
+        },
+        "evidence_eligibility": {
+            "deterministic_fixture": True,
+            "external_model_gameplay": bool(external_ready),
+        },
+        "historical_profiles_satisfy_release": False,
+    }
 
 
 def main() -> int:
