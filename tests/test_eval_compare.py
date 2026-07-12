@@ -8,6 +8,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_compare.py"
+CLI_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval.py"
 
 
 def _load():
@@ -16,6 +17,16 @@ def _load():
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules["coc_eval_compare_test"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_cli():
+    assert CLI_PATH.is_file(), f"missing CLI module: {CLI_PATH}"
+    spec = importlib.util.spec_from_file_location("coc_eval_cli_compare_test", CLI_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["coc_eval_cli_compare_test"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -226,3 +237,135 @@ def test_missing_metric_artifact_is_non_comparable(tmp_path: Path):
 
     assert result["status"] == "NON_COMPARABLE"
     assert "candidate_metric_results_missing_or_malformed" in result["identity_mismatches"]
+
+
+def test_cli_compare_runs_dimension_comparison_when_metrics_present(
+    tmp_path: Path, capsys
+):
+    cli = _load_cli()
+    baseline = _run(tmp_path, "baseline")
+    candidate = _run(
+        tmp_path,
+        "candidate",
+        metrics=_metrics(hard_findings=[{"finding_id": "secret_leak", "count": 1}]),
+    )
+
+    code = cli.main(
+        [
+            "compare",
+            "--baseline",
+            str(baseline),
+            "--candidate",
+            str(candidate),
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 1
+    assert payload["status"] == "FAIL"
+    assert any(item["dimension"] == "hard_gate" for item in payload["regressions"])
+    assert any(item["finding_id"] == "secret_leak" for item in payload["regressions"])
+
+
+def test_cli_compare_writes_baseline_comparison_artifacts(tmp_path: Path, capsys):
+    cli = _load_cli()
+    baseline = _run(tmp_path, "baseline")
+    candidate = _run(
+        tmp_path,
+        "candidate",
+        metrics=_metrics(
+            rates={
+                "completion_rate": 0.83,
+                "stuck_turn_rate": 0.10,
+                "fallback_rate": 0.05,
+            }
+        ),
+    )
+
+    code = cli.main(
+        [
+            "compare",
+            "--baseline",
+            str(baseline),
+            "--candidate",
+            str(candidate),
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    comparison_json = candidate / "artifacts" / "baseline-comparison.json"
+    comparison_md = candidate / "artifacts" / "baseline-comparison.md"
+
+    assert code == 1
+    assert payload["status"] == "FAIL"
+    assert comparison_json.is_file()
+    assert comparison_md.is_file()
+    written = json.loads(comparison_json.read_text(encoding="utf-8"))
+    assert written["status"] == "FAIL"
+    regression = next(
+        item for item in written["regressions"] if item["dimension"] == "completion_rate"
+    )
+    assert regression["finding_id"] == "rate:completion_rate"
+    assert "baseline" in regression
+    assert "candidate" in regression
+    assert regression["release_blocking"] is True
+    assert isinstance(regression.get("evidence_paths"), list)
+    assert regression["evidence_paths"]
+    md = comparison_md.read_text(encoding="utf-8")
+    assert "completion_rate" in md
+    assert "rate:completion_rate" in md
+
+
+def test_cli_compare_without_metrics_keeps_identity_hard_gate_result(
+    tmp_path: Path, capsys
+):
+    cli = _load_cli()
+    baseline = _run(tmp_path, "baseline")
+    candidate = _run(tmp_path, "candidate")
+    (baseline / "artifacts" / "metric-results.json").unlink()
+    (candidate / "artifacts" / "metric-results.json").unlink()
+
+    code = cli.main(
+        [
+            "compare",
+            "--baseline",
+            str(baseline),
+            "--candidate",
+            str(candidate),
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["status"] == "PASS"
+    assert payload["identity_mismatches"] == []
+    assert "differentials" not in payload or payload.get("comparison_mode") == "identity_hard_gate"
+    comparison_json = candidate / "artifacts" / "baseline-comparison.json"
+    assert comparison_json.is_file()
+    written = json.loads(comparison_json.read_text(encoding="utf-8"))
+    assert written["status"] == "PASS"
+
+
+def test_cli_compare_identity_mismatch_remains_non_comparable(tmp_path: Path, capsys):
+    cli = _load_cli()
+    baseline = _run(tmp_path, "baseline")
+    candidate = _run(
+        tmp_path,
+        "candidate",
+        identity=_identity(benchmark_version="2026.08.0"),
+    )
+
+    code = cli.main(
+        [
+            "compare",
+            "--baseline",
+            str(baseline),
+            "--candidate",
+            str(candidate),
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert payload["status"] == "NON_COMPARABLE"
+    assert "benchmark_version" in payload["identity_mismatches"]
+    assert (candidate / "artifacts" / "baseline-comparison.json").is_file()
