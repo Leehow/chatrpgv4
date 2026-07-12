@@ -319,7 +319,12 @@ def switch_chapter(
         coc_root, {"canonical_module_id": target_id}
     )
     if entry is None:
-        raise FileNotFoundError(f"unknown module: {target_id}")
+        library = coc_module_registry.library_root(coc_root)
+        raise FileNotFoundError(
+            f"unknown module: {target_id} "
+            f"(no registry entry under {library}; "
+            "ensure .coc/module-library is present on the campaign workspace)"
+        )
     target_identity = coc_module_registry.normalize_module_identity(
         dict(entry.get("identity") or {})
     )

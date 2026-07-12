@@ -28,7 +28,7 @@
       "kind": "python_cli",
       "identity": "coc-interactive-playtest@1",
       "path": "plugins/coc-keeper/scripts/coc_interactive_playtest.py",
-      "sha256": "3f08aa8ef054c7e46bc86cb9c3985b5ef01fe5c7f8502d868fc7f54651dfc41d"
+      "sha256": "10caf84996196a8765e85e0afd4390099007b5b65b9fca18666eb4766c26d75c"
     }
   }
 }
