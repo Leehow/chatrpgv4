@@ -18,6 +18,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import coc_eval_cases as cases
 import coc_eval_contract as contract
 
 
@@ -112,62 +113,59 @@ def _base_run_manifest(
         "started_at": started_at,
         "completed_at": None,
         "status": "NOT_RUN",
+        "case_ids": [],
+        "case_results_path": None,
         "commands": [],
         "artifact_hashes": {},
     }
 
 
-def run_suite(
+def _run_registered_cases(
     *,
     root: Path,
+    out: Path,
+    manifest: dict[str, Any],
     suite: str,
-    output: Path | None,
-    host_id: str,
-) -> dict[str, Any]:
-    root = root.resolve()
-    manifest = contract.load_benchmark_manifest(root)
-    suite_definition = contract.resolve_suite(manifest, suite)
-    out = (output or _default_output(root, suite)).resolve()
-    out.mkdir(parents=True, exist_ok=True)
-    started_at = _utc_now()
-    run_id = out.name
-    run_manifest = _base_run_manifest(
-        manifest=manifest,
-        suite=suite,
-        host_id=host_id,
-        run_id=run_id,
-        root=root,
-        started_at=started_at,
-    )
-    manifest_path = out / "run-manifest.json"
-    _write_json(manifest_path, run_manifest)
-
-    missing = _missing_capabilities(manifest, suite_definition)
-    if missing:
-        run_manifest.update(
-            {
-                "completed_at": _utc_now(),
-                "status": "NOT_RUN",
-                "missing_capabilities": missing,
-                "reason": "suite requires capabilities not implemented by this benchmark version",
-            }
+) -> tuple[str, list[dict[str, Any]], Path]:
+    registry = cases.load_case_registry(root)
+    selected = cases.resolve_suite_cases(manifest, registry, suite)
+    if not selected:
+        raise ValueError(f"suite has no registered cases: {suite}")
+    implemented = {
+        str(value) for value in manifest.get("implemented_capabilities", [])
+    }
+    env = {"PYTHONDONTWRITEBYTECODE": "1"}
+    results = [
+        cases.run_case(
+            case,
+            root=root,
+            output=out,
+            implemented_capabilities=implemented,
+            env=env,
         )
-        _write_json(manifest_path, run_manifest)
-        return run_manifest
+        for case in selected
+    ]
+    status = cases.aggregate_suite_status(results)
+    payload = {
+        "schema_version": 1,
+        "eval_spec": manifest["eval_spec"],
+        "benchmark_version": manifest["benchmark_version"],
+        "registry_version": registry["registry_version"],
+        "suite": suite,
+        "status": status,
+        "cases": results,
+    }
+    path = out / "case-results.json"
+    _write_json(path, payload)
+    return status, results, path
 
-    commands = suite_definition.get("commands") or []
-    if not commands:
-        run_manifest.update(
-            {
-                "completed_at": _utc_now(),
-                "status": "NOT_RUN",
-                "missing_capabilities": [],
-                "reason": "suite has no executable phase-one cases",
-            }
-        )
-        _write_json(manifest_path, run_manifest)
-        return run_manifest
 
+def _run_legacy_commands(
+    *,
+    root: Path,
+    out: Path,
+    commands: list[list[str]],
+) -> tuple[str, list[dict[str, Any]]]:
     command_results: list[dict[str, Any]] = []
     all_passed = True
     env = dict(os.environ)
@@ -209,8 +207,99 @@ def run_suite(
         if returncode != 0:
             all_passed = False
             break
-
     status = "PASS" if all_passed and len(command_results) == len(commands) else "FAIL"
+    return status, command_results
+
+
+def run_suite(
+    *,
+    root: Path,
+    suite: str,
+    output: Path | None,
+    host_id: str,
+) -> dict[str, Any]:
+    root = root.resolve()
+    manifest = contract.load_benchmark_manifest(root)
+    suite_definition = contract.resolve_suite(manifest, suite)
+    out = (output or _default_output(root, suite)).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    started_at = _utc_now()
+    run_id = out.name
+    run_manifest = _base_run_manifest(
+        manifest=manifest,
+        suite=suite,
+        host_id=host_id,
+        run_id=run_id,
+        root=root,
+        started_at=started_at,
+    )
+    manifest_path = out / "run-manifest.json"
+    _write_json(manifest_path, run_manifest)
+
+    missing = _missing_capabilities(manifest, suite_definition)
+    if missing:
+        run_manifest.update(
+            {
+                "completed_at": _utc_now(),
+                "status": "NOT_RUN",
+                "missing_capabilities": missing,
+                "reason": "suite requires capabilities not implemented by this benchmark version",
+            }
+        )
+        _write_json(manifest_path, run_manifest)
+        return run_manifest
+
+    registry_path = root / cases.CASE_REGISTRY_PATH
+    if registry_path.is_file():
+        status, case_results, case_results_path = _run_registered_cases(
+            root=root,
+            out=out,
+            manifest=manifest,
+            suite=suite,
+        )
+        artifact_hashes: dict[str, str] = {
+            case_results_path.name: _sha256(case_results_path)
+        }
+        for result in case_results:
+            artifact_hashes.update(
+                {
+                    str(path): str(digest)
+                    for path, digest in (result.get("artifact_hashes") or {}).items()
+                }
+            )
+        run_manifest.update(
+            {
+                "completed_at": _utc_now(),
+                "status": status,
+                "missing_capabilities": [],
+                "case_ids": [str(result["case_id"]) for result in case_results],
+                "case_results_path": case_results_path.name,
+                "case_results": case_results,
+                "commands": [],
+                "artifact_hashes": artifact_hashes,
+            }
+        )
+        _write_json(manifest_path, run_manifest)
+        return run_manifest
+
+    commands = suite_definition.get("commands") or []
+    if not commands:
+        run_manifest.update(
+            {
+                "completed_at": _utc_now(),
+                "status": "NOT_RUN",
+                "missing_capabilities": [],
+                "reason": "suite has no registered or legacy executable cases",
+            }
+        )
+        _write_json(manifest_path, run_manifest)
+        return run_manifest
+
+    status, command_results = _run_legacy_commands(
+        root=root,
+        out=out,
+        commands=commands,
+    )
     artifact_hashes = {
         result["stdout_path"]: result["stdout_sha256"]
         for result in command_results
@@ -304,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = contract.write_baseline_manifest(
                 args.source, args.output
             )
-        else:  # argparse prevents this, retain a fail-closed guard
+        else:
             raise ValueError(f"unsupported command: {args.command}")
     except (ValueError, FileNotFoundError, RuntimeError) as exc:
         sys.stderr.write(f"{exc}\n")
