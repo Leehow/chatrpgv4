@@ -206,6 +206,43 @@
         "-q", "-p", "no:cacheprovider"
       ],
       "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "long-memory-fixture-self-test",
+      "description": "Deterministic continuity-lane validator self-test for 25/50-turn fixtures (not external-model gameplay evidence).",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli", "case_registry"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_eval_longrun.py::test_validate_continuity_missing_run_is_not_run",
+        "tests/test_eval_longrun.py::test_validate_continuity_turn_count_mismatch_fails",
+        "tests/test_eval_longrun.py::test_validate_continuity_non_monotonic_accepted_turns_fails",
+        "tests/test_eval_longrun.py::test_validate_continuity_checkpoint_hash_mismatch_fails",
+        "tests/test_eval_longrun.py::test_validate_continuity_missing_recall_anchor_fails",
+        "tests/test_eval_longrun.py::test_validate_continuity_external_without_attestation_is_ineligible",
+        "tests/test_eval_longrun.py::test_validate_continuity_complete_fixture_passes_and_labels_fixture",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
+    },
+    {
+      "case_id": "chapter-transition-fixture-self-test",
+      "description": "Deterministic Masks Peru→America chapter-transition validator self-test (contract identifiers only; fixture evidence).",
+      "kind": "pytest_node",
+      "suites": ["pr"],
+      "gate": "hard",
+      "required_capabilities": ["canonical_cli", "case_registry"],
+      "command": [
+        "python3", "-m", "pytest",
+        "tests/test_eval_longrun.py::test_validate_chapter_transition_missing_evidence_is_not_run",
+        "tests/test_eval_longrun.py::test_validate_chapter_transition_missing_sidecar_fails",
+        "tests/test_eval_longrun.py::test_validate_chapter_transition_requires_invalidated_segment_when_bridged",
+        "tests/test_eval_longrun.py::test_validate_chapter_transition_complete_fixture_passes",
+        "-q", "-p", "no:cacheprovider"
+      ],
+      "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
     }
   ]
 }
