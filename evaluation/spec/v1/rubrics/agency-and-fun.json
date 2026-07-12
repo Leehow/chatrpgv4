@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "eval_spec": "eval-spec-v1",
+  "rubric_id": "agency-and-fun",
+  "rubric_version": "1",
+  "description": "Blind paired scoring of player agency and fair expectation dynamics.",
+  "dimensions": [
+    {
+      "dimension_id": "player_agency",
+      "min_score": 1,
+      "max_score": 5,
+      "description": "Player actions produce acknowledged causal consequences."
+    },
+    {
+      "dimension_id": "fair_uncertainty",
+      "min_score": 1,
+      "max_score": 5,
+      "description": "Expectations are confirmed, complicated, or reframed with fair evidence."
+    },
+    {
+      "dimension_id": "meaningful_choice",
+      "min_score": 1,
+      "max_score": 5,
+      "description": "Presented choices change reachable information or outcomes."
+    }
+  ],
+  "finding_codes": [
+    "ACTION_ACK",
+    "CAUSAL_RESULT",
+    "INFORMATION_GAIN",
+    "MEANINGFUL_CHOICE",
+    "COMPETENCE_REWARD",
+    "DEEPENING",
+    "COMPLICATION",
+    "REFRAMING",
+    "PAYOFF",
+    "TENSION_CHANGE",
+    "DEAD_TURN",
+    "EMPTY_CONFIRMATION",
+    "AUTO_COMPLIANCE",
+    "HARD_DENIAL",
+    "FAKE_CHOICE",
+    "UNFORESHADOWED_RETCON",
+    "REPEATED_AFFORDANCE",
+    "KP_TAKES_OVER",
+    "STUCK_LOOP"
+  ]
+}

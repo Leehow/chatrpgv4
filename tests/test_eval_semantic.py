@@ -165,7 +165,7 @@ def test_blind_pair_request_hides_baseline_candidate_and_keeper_secrets():
         {
             "turn_id": "t1",
             "side": "baseline",
-            "text": "baseline narration",
+            "text": "alpha narration",
             "keeper_secret": "never-expose",
             "expected_route": "secret-route",
         }
@@ -174,7 +174,7 @@ def test_blind_pair_request_hides_baseline_candidate_and_keeper_secrets():
         {
             "turn_id": "t1",
             "side": "candidate",
-            "text": "candidate narration",
+            "text": "omega narration",
             "forbidden_outcome": "never-expose",
         }
     ]

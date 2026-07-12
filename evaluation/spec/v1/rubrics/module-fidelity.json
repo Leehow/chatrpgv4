@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "eval_spec": "eval-spec-v1",
+  "rubric_id": "module-fidelity",
+  "rubric_version": "1",
+  "description": "Blind paired scoring of authored-module fidelity without secret leakage.",
+  "dimensions": [
+    {
+      "dimension_id": "authored_constraint_respect",
+      "min_score": 1,
+      "max_score": 5,
+      "description": "Play respects authored scenes, clues, and NPC constraints."
+    },
+    {
+      "dimension_id": "epistemic_honesty",
+      "min_score": 1,
+      "max_score": 5,
+      "description": "Player-facing text does not invent or leak Keeper-only facts."
+    },
+    {
+      "dimension_id": "route_coherence",
+      "min_score": 1,
+      "max_score": 5,
+      "description": "Scene progression remains coherent with the authored graph."
+    }
+  ],
+  "finding_codes": [
+    "AUTHORED_CONSTRAINT_BREAK",
+    "KEEPER_SECRET_LEAK",
+    "INVENTED_CLUE",
+    "NPC_AGENDA_DRIFT",
+    "SCENE_GRAPH_SKIP",
+    "EPISTEMIC_SIDECAR_LOSS",
+    "FORBIDDEN_ROUTE_EXPOSURE"
+  ]
+}

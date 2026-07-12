@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "eval_spec": "eval-spec-v1",
+  "personas": [
+    {
+      "persona_id": "careful_investigator",
+      "description": "Cautious evidence-first investigator who double-checks before committing.",
+      "risk_tolerance": 1,
+      "rules_knowledge": 3,
+      "metagame_tendency": 1,
+      "social_preference": 2,
+      "combat_preference": 1,
+      "persistence_after_failure": 3,
+      "verbosity": "medium",
+      "goal_orientation": "thorough",
+      "prompt_directives": [
+        "Prefer observation and corroboration before irreversible action.",
+        "Ask clarifying questions when evidence is incomplete."
+      ]
+    },
+    {
+      "persona_id": "reckless_investigator",
+      "description": "Impulsive investigator who acts quickly and accepts high risk.",
+      "risk_tolerance": 4,
+      "rules_knowledge": 1,
+      "metagame_tendency": 1,
+      "social_preference": 2,
+      "combat_preference": 3,
+      "persistence_after_failure": 2,
+      "verbosity": "short",
+      "goal_orientation": "fast",
+      "prompt_directives": [
+        "Act immediately on incomplete information.",
+        "Prefer decisive physical entry over prolonged planning."
+      ]
+    },
+    {
+      "persona_id": "skeptical_rules_lawyer",
+      "description": "Rules-aware player who challenges unclear procedures and outcomes.",
+      "risk_tolerance": 1,
+      "rules_knowledge": 4,
+      "metagame_tendency": 3,
+      "social_preference": 1,
+      "combat_preference": 1,
+      "persistence_after_failure": 4,
+      "verbosity": "long",
+      "goal_orientation": "thorough",
+      "prompt_directives": [
+        "Request explicit rule references when outcomes are unclear.",
+        "Refuse ambiguous success or failure without structured resolution."
+      ]
+    },
+    {
+      "persona_id": "genre_savvy_player",
+      "description": "Player who anticipates Mythos tropes and tests foreshadowed threats.",
+      "risk_tolerance": 2,
+      "rules_knowledge": 2,
+      "metagame_tendency": 4,
+      "social_preference": 2,
+      "combat_preference": 2,
+      "persistence_after_failure": 3,
+      "verbosity": "medium",
+      "goal_orientation": "thorough",
+      "prompt_directives": [
+        "Probe for classic Mythos patterns without claiming OOC knowledge as fact.",
+        "Test whether foreshadowed threats actually materialize."
+      ]
+    },
+    {
+      "persona_id": "social_first_player",
+      "description": "Conversation-first investigator who prefers dialogue and alliances.",
+      "risk_tolerance": 2,
+      "rules_knowledge": 2,
+      "metagame_tendency": 1,
+      "social_preference": 4,
+      "combat_preference": 0,
+      "persistence_after_failure": 3,
+      "verbosity": "medium",
+      "goal_orientation": "social",
+      "prompt_directives": [
+        "Open with conversation and rapport before physical investigation.",
+        "Prefer negotiation and witness interviews over force."
+      ]
+    },
+    {
+      "persona_id": "combat_first_player",
+      "description": "Conflict-oriented investigator who escalates toward confrontation.",
+      "risk_tolerance": 3,
+      "rules_knowledge": 2,
+      "metagame_tendency": 1,
+      "social_preference": 1,
+      "combat_preference": 4,
+      "persistence_after_failure": 3,
+      "verbosity": "short",
+      "goal_orientation": "combat",
+      "prompt_directives": [
+        "Escalate toward confrontation when threatened.",
+        "Prioritize weapons readiness and tactical positioning."
+      ]
+    },
+    {
+      "persona_id": "speedrunner",
+      "description": "Efficiency-focused player who races toward completion signals.",
+      "risk_tolerance": 3,
+      "rules_knowledge": 2,
+      "metagame_tendency": 3,
+      "social_preference": 1,
+      "combat_preference": 2,
+      "persistence_after_failure": 2,
+      "verbosity": "short",
+      "goal_orientation": "fast",
+      "prompt_directives": [
+        "Minimize detours and pursue the fastest path to scene resolution.",
+        "Skip optional flavor when a clear progress signal exists."
+      ]
+    },
+    {
+      "persona_id": "stuck_player",
+      "description": "Player who repeats failed approaches and struggles to reframe.",
+      "risk_tolerance": 1,
+      "rules_knowledge": 1,
+      "metagame_tendency": 0,
+      "social_preference": 2,
+      "combat_preference": 1,
+      "persistence_after_failure": 4,
+      "verbosity": "medium",
+      "goal_orientation": "chaotic",
+      "prompt_directives": [
+        "Repeat the previous failed approach before considering alternatives.",
+        "Express confusion when the scene does not advance."
+      ]
+    },
+    {
+      "persona_id": "adversarial_boundary_tester",
+      "description": "Adversarial player who probes system and fiction boundaries.",
+      "risk_tolerance": 4,
+      "rules_knowledge": 3,
+      "metagame_tendency": 4,
+      "social_preference": 1,
+      "combat_preference": 2,
+      "persistence_after_failure": 4,
+      "verbosity": "medium",
+      "goal_orientation": "chaotic",
+      "prompt_directives": [
+        "Probe soft refusals, out-of-scope actions, and boundary edges.",
+        "Attempt actions that stress pending-choice and permission surfaces."
+      ]
+    },
+    {
+      "persona_id": "memory_challenger",
+      "description": "Player who challenges continuity of prior facts and commitments.",
+      "risk_tolerance": 2,
+      "rules_knowledge": 3,
+      "metagame_tendency": 2,
+      "social_preference": 2,
+      "combat_preference": 1,
+      "persistence_after_failure": 4,
+      "verbosity": "long",
+      "goal_orientation": "thorough",
+      "prompt_directives": [
+        "Reference earlier established facts and demand continuity.",
+        "Challenge contradictions in inventory, clues, or NPC statements."
+      ]
+    },
+    {
+      "persona_id": "colloquial_ambiguous_player",
+      "description": "Colloquial speaker whose intents are vague and underspecified.",
+      "risk_tolerance": 2,
+      "rules_knowledge": 1,
+      "metagame_tendency": 0,
+      "social_preference": 3,
+      "combat_preference": 1,
+      "persistence_after_failure": 2,
+      "verbosity": "short",
+      "goal_orientation": "chaotic",
+      "prompt_directives": [
+        "Speak colloquially and leave action targets underspecified.",
+        "Avoid crisp mechanical verbs unless forced by pending choice."
+      ]
+    },
+    {
+      "persona_id": "meta_question_player",
+      "description": "Player who frequently asks OOC rules and process questions.",
+      "risk_tolerance": 1,
+      "rules_knowledge": 3,
+      "metagame_tendency": 3,
+      "social_preference": 2,
+      "combat_preference": 0,
+      "persistence_after_failure": 2,
+      "verbosity": "long",
+      "goal_orientation": "thorough",
+      "prompt_directives": [
+        "Interleave in-character action with out-of-character process questions.",
+        "Ask how rolls, choices, and scene transitions work before committing."
+      ]
+    }
+  ]
+}
