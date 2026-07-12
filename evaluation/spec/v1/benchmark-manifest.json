@@ -1,0 +1,1 @@
+{"version":"1","suites":{"smoke":["runtime-invariants"],"pr":["runtime-invariants","rules-micro","report-contract"],"nightly":["haunting-golden","agency-redirection","zh-prose"],"release":["long-memory-50","masks-peru-america"]},"artifacts":["run-manifest.json","transcript.jsonl","rolls.jsonl","state-diffs.jsonl","metrics.json","judge-results.jsonl"]}
