@@ -1,0 +1,1 @@
+{"schema_version":1,"rubrics":{"agency":{"labels":["ACTION_ACK","MEANINGFUL_CHOICE","DEAD_TURN","FAKE_CHOICE","HARD_DENIAL"]},"narrative":{"labels":["CAUSAL_RESULT","REVEAL","PRESSURE","PAYOFF"]},"zh_prose":{"labels":["AI_SUMMARY","TRANSLATIONESE_PASSIVE","OVEREXPLAIN","NPC_VOICE_COLLISION","REPETITION"]}}}
