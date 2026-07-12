@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "eval_spec": "eval-spec-v1",
+  "hard_zero_tolerance": [
+    "crash",
+    "secret_leak",
+    "illegal_state_transition",
+    "stale_choice_acceptance",
+    "duplicate_command_application",
+    "deterministic_rule_failure",
+    "missing_required_public_roll",
+    "duplicate_rendered_roll",
+    "untraced_rendered_roll",
+    "malformed_evidence_jsonl"
+  ],
+  "rate_thresholds": {
+    "completion_rate_max_decrease_points": 5,
+    "stuck_turn_rate_max_increase_points": 5,
+    "fallback_rate_max_increase_points": 5,
+    "p95_latency_max_relative_increase": 0.2,
+    "p95_latency_max_absolute_increase_seconds": 1.0,
+    "tokens_per_turn_max_relative_increase": 0.15
+  },
+  "subjective_non_inferiority": {
+    "scale_min": 1,
+    "scale_max": 5,
+    "confidence_level": 0.95,
+    "lower_bound_minimum": -0.25
+  }
+}
