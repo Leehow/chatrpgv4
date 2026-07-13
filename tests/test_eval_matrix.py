@@ -19,6 +19,21 @@ LIVE_CELL_PATH = (
 )
 CLI_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval.py"
 MANIFEST_PATH = REPO / "evaluation" / "spec" / "v1" / "benchmark-manifest.json"
+RUN_MANIFEST_IDENTITY_KEYS = (
+    "cell_id",
+    "persona_id",
+    "seed",
+    "case_id",
+    "runner",
+    "max_turns",
+    "player_model",
+    "kp_model",
+    "persona_profile_sha256",
+    "prompt_hashes",
+    "runner_hashes",
+    "scenario_sha256",
+    "initial_state_sha256",
+)
 
 
 def _load():
@@ -157,8 +172,15 @@ def _canonical_prompt_contract() -> dict:
 def _canonical_live_cell_input() -> dict:
     return {
         "cell_id": "careful__seed-3__nightly",
+        "persona_id": "careful_investigator",
         "seed": 3,
+        "case_id": "nightly",
+        "runner": "live_match",
         "max_turns": 1,
+        "persona_profile_sha256": "a" * 64,
+        "runner_hashes": {"runner": "b" * 64},
+        "scenario_sha256": "c" * 64,
+        "initial_state_sha256": "d" * 64,
         "scenario": {"scene_id": "neutral-entry"},
         "initial_state": {
             "campaign_id": "eval-neutral",
@@ -190,7 +212,9 @@ def _fake_attested_match(runner, run_dir: Path) -> dict:
     }
 
 
-def _fake_runner_script(path: Path) -> Path:
+def _fake_runner_script(
+    path: Path, *, manifest_overrides: dict | None = None
+) -> Path:
     script = """#!/usr/bin/env python3
 import hashlib, json, sys
 from pathlib import Path
@@ -222,21 +246,32 @@ player_view.write_text(
     + "\\n",
     encoding="utf-8",
 )
-(out / "run-manifest.json").write_text(
-    json.dumps(
-        {
+manifest = {
             "schema_version": 1,
             "eval_spec": "eval-spec-v1",
             "status": "PASS",
             "cell_id": payload.get("cell_id"),
             "evidence_eligible": True,
-            "runner": "fake",
             "player_model": payload.get("player_model"),
             "kp_model": payload.get("kp_model"),
+            "persona_id": payload.get("persona_id"),
+            "seed": payload.get("seed"),
+            "case_id": payload.get("case_id"),
+            "runner": payload.get("runner"),
+            "max_turns": payload.get("max_turns"),
+            "persona_profile_sha256": payload.get("persona_profile_sha256"),
+            "prompt_hashes": payload.get("prompt_hashes"),
+            "runner_hashes": payload.get("runner_hashes"),
+            "scenario_sha256": payload.get("scenario_sha256"),
+            "initial_state_sha256": payload.get("initial_state_sha256"),
             "artifact_hashes": {
                 "player-view.jsonl": hashlib.sha256(player_view.read_bytes()).hexdigest(),
             },
-        },
+}
+manifest.update(json.loads(__MANIFEST_OVERRIDES__))
+(out / "run-manifest.json").write_text(
+    json.dumps(
+        manifest,
         indent=2,
         sort_keys=True,
     )
@@ -244,7 +279,10 @@ player_view.write_text(
     encoding="utf-8",
 )
 print(json.dumps({"status": "PASS", "cell_id": payload.get("cell_id")}))
-"""
+""".replace(
+        "__MANIFEST_OVERRIDES__",
+        repr(json.dumps(manifest_overrides or {}, ensure_ascii=False)),
+    )
     _write(path, script)
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
     return path
@@ -259,6 +297,7 @@ def _write_baseline_matrix(
     baseline_plan = json.loads(json.dumps(plan))
     cell = baseline_plan["cells"][0]
     cell.update(identity_overrides or {})
+    identity = {key: cell.get(key) for key in RUN_MANIFEST_IDENTITY_KEYS}
     _write_json(output / "matrix-plan.json", baseline_plan)
     cell_dir = output / "cells" / cell["cell_id"]
     player_view = _write(
@@ -279,9 +318,9 @@ def _write_baseline_matrix(
     manifest = _write_json(
         cell_dir / "run-manifest.json",
         {
+            **identity,
             "schema_version": 1,
             "eval_spec": "eval-spec-v1",
-            "cell_id": cell["cell_id"],
             "status": "PASS",
             "evidence_eligible": True,
             "artifact_hashes": {"player-view.jsonl": _sha256(player_view)},
@@ -297,7 +336,7 @@ def _write_baseline_matrix(
             "suite": baseline_plan["suite"],
             "cells": [
                 {
-                    "cell_id": cell["cell_id"],
+                    **identity,
                     "status": "PASS",
                     "not_run_reasons": [],
                     "runner_result": {"status": "PASS", "returncode": 0},
@@ -407,6 +446,7 @@ def test_baseline_plan_contract_and_public_artifact_are_hash_bound(tmp_path: Pat
         "results_plan_hash",
         "results_manifest_hash",
         "results_cell_hard_finding",
+        "results_cell_seed",
     ),
 )
 def test_judged_matrix_rejects_tampered_baseline_run_contract(
@@ -432,8 +472,10 @@ def test_judged_matrix_rejects_tampered_baseline_run_contract(
             payload["artifact_hashes"]["matrix-plan.json"] = "0" * 64
         elif tamper == "results_manifest_hash":
             payload["cells"][0]["artifact_hashes"]["run-manifest.json"] = "0" * 64
-        else:
+        elif tamper == "results_cell_hard_finding":
             payload["cells"][0]["hard_findings"] = ["missing_public_roll"]
+        else:
+            payload["cells"][0]["seed"] += 1
     _write_json(path, payload)
     monkeypatch.setattr(
         matrix.judge,
@@ -450,6 +492,238 @@ def test_judged_matrix_rejects_tampered_baseline_run_contract(
 
     assert results["cells"][0]["status"] == "NON_COMPARABLE"
     assert results["cells"][0]["identity_mismatches"]
+
+
+@pytest.mark.parametrize(
+    ("tamper", "expected_status"),
+    (
+        ("player_model", "NON_COMPARABLE"),
+        ("seed", "NON_COMPARABLE"),
+        ("prompt_hashes", "NON_COMPARABLE"),
+        ("manifest_only_finding", "NOT_RUN"),
+    ),
+)
+def test_judged_matrix_reconciles_hash_bound_baseline_manifest_semantics(
+    tmp_path: Path,
+    monkeypatch,
+    tamper: str,
+    expected_status: str,
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id=f"manifest-{tamper}")
+    baseline = _write_baseline_matrix(tmp_path / "baseline", plan)
+    cell_id = plan["cells"][0]["cell_id"]
+    manifest_path = baseline / "cells" / cell_id / "run-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if tamper == "player_model":
+        manifest["player_model"] = {"provider": "fixture", "id": "other-player"}
+    elif tamper == "seed":
+        manifest["seed"] = manifest["seed"] + 1
+    elif tamper == "prompt_hashes":
+        manifest["prompt_hashes"] = {**manifest["prompt_hashes"], "player": "0" * 64}
+    else:
+        manifest["evidence_findings"] = ["missing_public_roll"]
+    _write_json(manifest_path, manifest)
+    results_path = baseline / "matrix-results.json"
+    baseline_results = json.loads(results_path.read_text(encoding="utf-8"))
+    baseline_results["cells"][0]["artifact_hashes"]["run-manifest.json"] = _sha256(
+        manifest_path
+    )
+    _write_json(results_path, baseline_results)
+    monkeypatch.setattr(
+        matrix.judge,
+        "invoke_sol_judge",
+        lambda *args, **kwargs: pytest.fail("invalid baseline must not reach Sol"),
+    )
+
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "candidate",
+        baseline_dir=baseline,
+    )
+
+    assert results["cells"][0]["status"] == expected_status
+    assert not (
+        tmp_path / "candidate" / "cells" / cell_id / "judge-result.json"
+    ).exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("hard_findings", None),
+        ("hard_findings", ""),
+        ("hard_findings", {}),
+        ("evidence_findings", None),
+        ("evidence_findings", ""),
+        ("evidence_findings", {}),
+    ),
+)
+def test_run_manifest_rejects_present_malformed_finding_fields(
+    tmp_path: Path, field: str, value: object
+):
+    matrix = _load()
+    cell_dir = tmp_path / "cell"
+    _write_json(
+        cell_dir / "run-manifest.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "cell_id": "cell-1",
+            "status": "PASS",
+            field: value,
+        },
+    )
+
+    with pytest.raises(ValueError, match=field):
+        matrix._validated_run_manifest(cell_dir, "cell-1")
+
+
+def test_run_manifest_defaults_missing_finding_fields_to_empty(tmp_path: Path):
+    matrix = _load()
+    cell_dir = tmp_path / "cell"
+    _write_json(
+        cell_dir / "run-manifest.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "cell_id": "cell-1",
+            "status": "PASS",
+        },
+    )
+
+    manifest = matrix._validated_run_manifest(cell_dir, "cell-1")
+
+    assert manifest["hard_findings"] == []
+    assert manifest["evidence_findings"] == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("hard_findings", None),
+        ("hard_findings", ""),
+        ("hard_findings", {}),
+        ("evidence_findings", None),
+        ("evidence_findings", ""),
+        ("evidence_findings", {}),
+    ),
+)
+def test_judged_matrix_blocks_malformed_manifest_findings_before_sol(
+    tmp_path: Path, monkeypatch, field: str, value: object
+):
+    matrix = _load()
+    runner = _fake_runner_script(
+        tmp_path / f"malformed-{field}.py",
+        manifest_overrides={field: value},
+    )
+    scenario = _write_json(tmp_path / "scenario.json", {"scene_id": "s1"})
+    state = _write_json(tmp_path / "state.json", {"public": True})
+    plan = matrix.build_matrix_plan(
+        root=REPO,
+        suite="nightly",
+        configuration={
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "persona_ids": ["careful_investigator"],
+            "seeds": [3],
+            "cases": [
+                {
+                    "case_id": f"malformed-{field}",
+                    "runner": "fake",
+                    "runner_path": str(runner),
+                    "scenario_fixture": str(scenario),
+                    "initial_state_fixture": str(state),
+                    "player_model": {"provider": "fixture", "id": "player-1"},
+                    "kp_model": {"provider": "fixture", "id": "kp-1"},
+                    "prompt_sources": {"player": str(runner), "kp": str(runner)},
+                    "judge": {"enabled": True, "rubric_id": "agency-and-fun"},
+                }
+            ],
+        },
+        credential_env={},
+    )
+    baseline = _write_baseline_matrix(tmp_path / "baseline", plan)
+    monkeypatch.setattr(
+        matrix.judge,
+        "invoke_sol_judge",
+        lambda *args, **kwargs: pytest.fail("malformed manifest must not reach Sol"),
+    )
+
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "candidate",
+        baseline_dir=baseline,
+    )
+
+    assert results["cells"][0]["status"] == "INELIGIBLE"
+    assert results["cells"][0]["hard_findings"] == ["invalid_run_manifest"]
+
+
+def test_execute_matrix_rejects_forged_pass_plan_without_running_cell(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id="forged-pass")
+    plan["cells"][0]["status"] = "PASS"
+    output = tmp_path / "candidate"
+    monkeypatch.setattr(
+        matrix,
+        "_invoke_fake_or_script_runner",
+        lambda **kwargs: pytest.fail("forged PASS cell must not execute"),
+    )
+
+    with pytest.raises(ValueError, match="status"):
+        matrix.execute_matrix_plan(plan, root=REPO, output=output)
+
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    (
+        "schema_version",
+        "eval_spec",
+        "suite",
+        "missing_cell_key",
+        "extra_cell_key",
+        "empty_prompt_hashes",
+        "unrelated_prompt_hashes",
+        "empty_runner_hashes",
+        "unrelated_runner_hashes",
+    ),
+)
+def test_execute_matrix_validates_full_plan_and_cell_contract_before_writes(
+    tmp_path: Path, tamper: str
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id=f"plan-{tamper}")
+    if tamper == "schema_version":
+        plan["schema_version"] = 2
+    elif tamper == "eval_spec":
+        plan["eval_spec"] = "other-spec"
+    elif tamper == "suite":
+        plan["suite"] = "smoke"
+    elif tamper == "missing_cell_key":
+        plan["cells"][0].pop("runner_hashes")
+    elif tamper == "extra_cell_key":
+        plan["cells"][0]["unexpected"] = True
+    elif tamper == "empty_prompt_hashes":
+        plan["cells"][0]["prompt_hashes"] = {}
+    elif tamper == "unrelated_prompt_hashes":
+        plan["cells"][0]["prompt_hashes"] = {"other": "a" * 64}
+    elif tamper == "empty_runner_hashes":
+        plan["cells"][0]["runner_hashes"] = {}
+    else:
+        plan["cells"][0]["runner_hashes"] = {"other": "a" * 64}
+    output = tmp_path / "candidate"
+
+    with pytest.raises(ValueError, match="plan|cell"):
+        matrix.execute_matrix_plan(plan, root=REPO, output=output)
+
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("attack", ("root", "cells", "cell", "cell_bad_contract"))
@@ -1065,6 +1339,7 @@ def test_live_cell_rejects_unsafe_fixed_artifact_target(
 def test_live_cell_allows_reuse_of_regular_runner_owned_paths(tmp_path, monkeypatch):
     runner = _load_live_cell()
     cell_dir = tmp_path / "cell"
+    cell_input = _canonical_live_cell_input()
     monkeypatch.setattr(
         runner.live_match,
         "run_live_match",
@@ -1073,10 +1348,12 @@ def test_live_cell_allows_reuse_of_regular_runner_owned_paths(tmp_path, monkeypa
         ),
     )
 
-    first = runner.run_live_cell(_canonical_live_cell_input(), cell_dir, env={})
-    second = runner.run_live_cell(_canonical_live_cell_input(), cell_dir, env={})
+    first = runner.run_live_cell(cell_input, cell_dir, env={})
+    second = runner.run_live_cell(cell_input, cell_dir, env={})
 
     assert first["status"] == second["status"] == "PASS"
+    for key in RUN_MANIFEST_IDENTITY_KEYS:
+        assert first[key] == cell_input[key]
     assert (cell_dir / "workspace").is_dir()
     assert (cell_dir / "playtest").is_dir()
 
@@ -1116,6 +1393,51 @@ def test_missing_prerequisites_mark_cell_not_run_with_reasons(tmp_path: Path):
     assert "missing_scenario_fixture" in reasons
     assert "missing_initial_state_fixture" in reasons
     assert "missing_credentials:COC_EVAL_PLAYER_API_KEY" in reasons
+
+
+def test_execute_matrix_preserves_allowed_not_run_cell_without_invoking_runner(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    plan = matrix.build_matrix_plan(
+        root=REPO,
+        suite="nightly",
+        configuration={
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "persona_ids": ["careful_investigator"],
+            "seeds": [11],
+            "cases": [
+                {
+                    "case_id": "not-run",
+                    "runner": "fake",
+                    "runner_path": str(tmp_path / "missing-runner.py"),
+                    "scenario_fixture": str(tmp_path / "missing-scenario.json"),
+                    "initial_state_fixture": str(tmp_path / "missing-state.json"),
+                    "player_model": {"provider": "fixture", "id": "player-1"},
+                    "kp_model": {"provider": "fixture", "id": "kp-1"},
+                    "prompt_hashes": {"player": "a" * 64, "kp": "b" * 64},
+                }
+            ],
+        },
+        credential_env={},
+    )
+    monkeypatch.setattr(
+        matrix,
+        "_invoke_fake_or_script_runner",
+        lambda **kwargs: pytest.fail("NOT_RUN cell must not execute"),
+    )
+
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "out",
+    )
+
+    assert results["cells"][0]["status"] == "NOT_RUN"
+    assert results["cells"][0]["not_run_reasons"] == plan["cells"][0][
+        "not_run_reasons"
+    ]
 
 
 @pytest.mark.parametrize("unsafe_id", ["../nightly", "/tmp/nightly", "nested/case"])
@@ -1173,6 +1495,7 @@ def test_matrix_plan_rejects_unsafe_persona_id():
 def test_execute_matrix_rejects_cell_directory_escape(tmp_path: Path, attack: str):
     matrix = _load()
     out = tmp_path / "matrix-out"
+    plan = _fake_judged_plan(matrix, tmp_path, case_id=f"escape-{attack}")
     if attack == "traversal":
         cell_id = "../escaped-cell"
         escaped = out / "escaped-cell"
@@ -1182,21 +1505,7 @@ def test_execute_matrix_rejects_cell_directory_escape(tmp_path: Path, attack: st
     else:
         cell_id = "nested/cell"
         escaped = out / "cells" / "nested" / "cell"
-    plan = {
-        "schema_version": 1,
-        "eval_spec": "eval-spec-v1",
-        "suite": "nightly",
-        "cells": [
-            {
-                "cell_id": cell_id,
-                "persona_id": "careful_investigator",
-                "case_id": "nightly",
-                "seed": 3,
-                "status": "NOT_RUN",
-                "not_run_reasons": ["fixture"],
-            }
-        ],
-    }
+    plan["cells"][0]["cell_id"] = cell_id
     with pytest.raises(ValueError, match="cell_id must be a safe identifier"):
         matrix.execute_matrix_plan(plan, root=REPO, output=out)
     assert not (escaped / "run-manifest.json").exists()
@@ -1462,12 +1771,24 @@ out.mkdir(parents=True, exist_ok=True)
     encoding="utf-8",
 )
 (out / "run-manifest.json").write_text(
-    json.dumps({
-        "schema_version": 1,
-        "eval_spec": "eval-spec-v1",
-        "status": "PASS",
-        "cell_id": payload["cell_id"],
-        "evidence_eligible": True,
+        json.dumps({
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "status": "PASS",
+            "cell_id": payload["cell_id"],
+            "persona_id": payload["persona_id"],
+            "seed": payload["seed"],
+            "case_id": payload["case_id"],
+            "runner": payload["runner"],
+            "max_turns": payload["max_turns"],
+            "player_model": payload["player_model"],
+            "kp_model": payload["kp_model"],
+            "persona_profile_sha256": payload["persona_profile_sha256"],
+            "prompt_hashes": payload["prompt_hashes"],
+            "runner_hashes": payload["runner_hashes"],
+            "scenario_sha256": payload["scenario_sha256"],
+            "initial_state_sha256": payload["initial_state_sha256"],
+            "evidence_eligible": True,
         "evidence_findings": ["missing_public_roll"],
     }) + "\\n",
     encoding="utf-8",

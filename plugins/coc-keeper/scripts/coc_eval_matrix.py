@@ -45,6 +45,59 @@ _JUDGE_IDENTITY_KEYS = (
     "scenario_sha256",
     "initial_state_sha256",
 )
+_RUN_MANIFEST_IDENTITY_KEYS = (
+    "cell_id",
+    "persona_id",
+    "seed",
+    "case_id",
+    "runner",
+    "max_turns",
+    "player_model",
+    "kp_model",
+    "persona_profile_sha256",
+    "prompt_hashes",
+    "runner_hashes",
+    "scenario_sha256",
+    "initial_state_sha256",
+)
+_MATRIX_PLAN_KEYS = frozenset(
+    {
+        "schema_version",
+        "eval_spec",
+        "suite",
+        "generated_at",
+        "configuration",
+        "cell_count",
+        "cells",
+        "ready_count",
+        "not_run_count",
+    }
+)
+_MATRIX_CELL_KEYS = frozenset(
+    {
+        "cell_id",
+        "persona_id",
+        "seed",
+        "case_id",
+        "runner",
+        "runner_path",
+        "scenario_fixture",
+        "initial_state_fixture",
+        "max_turns",
+        "player_model",
+        "kp_model",
+        "judge_model",
+        "persona_profile_sha256",
+        "prompt_hashes",
+        "prompt_sources",
+        "runner_hashes",
+        "scenario_sha256",
+        "initial_state_sha256",
+        "judge",
+        "status",
+        "not_run_reasons",
+    }
+)
 
 
 def _utc_now() -> str:
@@ -130,6 +183,134 @@ def _safe_identifier(value: Any, *, label: str) -> str:
     if not isinstance(value, str) or not _SAFE_IDENTIFIER.fullmatch(value):
         raise ValueError(f"{label} must be a safe identifier")
     return value
+
+
+def _is_sha256(value: Any) -> bool:
+    return isinstance(value, str) and bool(re.fullmatch(r"[0-9a-f]{64}", value))
+
+
+def _validate_model_contract(value: Any, *, label: str, required: bool) -> None:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    if not value and not required:
+        return
+    if set(value) != {"provider", "id"} or not all(
+        isinstance(value.get(key), str) and value[key] for key in ("provider", "id")
+    ):
+        raise ValueError(f"{label} identity contract mismatch")
+
+
+def _validate_hash_map(
+    value: Any,
+    *,
+    label: str,
+    required_keys: frozenset[str] = frozenset(),
+) -> None:
+    if not isinstance(value, dict) or not all(
+        isinstance(key, str) and key and _is_sha256(item)
+        for key, item in value.items()
+    ) or not required_keys <= set(value):
+        raise ValueError(f"matrix plan {label} hash contract mismatch")
+
+
+def _validate_matrix_plan(plan: Any) -> dict[str, Any]:
+    if not isinstance(plan, dict) or set(plan) != _MATRIX_PLAN_KEYS:
+        raise ValueError("matrix plan schema mismatch")
+    if plan.get("schema_version") != 1 or plan.get("eval_spec") != EVAL_SPEC:
+        raise ValueError("matrix plan header mismatch")
+    if plan.get("suite") not in MATRIX_SUITES:
+        raise ValueError("matrix plan suite mismatch")
+    if not isinstance(plan.get("generated_at"), str) or not plan["generated_at"]:
+        raise ValueError("matrix plan generated_at required")
+    configuration = plan.get("configuration")
+    if not isinstance(configuration, dict) or set(configuration) != {
+        "persona_ids",
+        "seeds",
+        "cases",
+        "description",
+    }:
+        raise ValueError("matrix plan configuration mismatch")
+    cells = plan.get("cells")
+    if not isinstance(cells, list):
+        raise ValueError("matrix plan cells must be a list")
+
+    seen: set[str] = set()
+    ready_count = 0
+    not_run_count = 0
+    for index, cell in enumerate(cells):
+        if not isinstance(cell, dict) or set(cell) != _MATRIX_CELL_KEYS:
+            raise ValueError(f"matrix plan cell[{index}] contract mismatch")
+        cell_id = _safe_identifier(cell.get("cell_id"), label="cell_id")
+        persona_id = _safe_identifier(cell.get("persona_id"), label="persona_id")
+        case_id = _safe_identifier(cell.get("case_id"), label="case_id")
+        seed = cell.get("seed")
+        if type(seed) is not int:
+            raise ValueError(f"matrix plan cell[{index}].seed must be int")
+        if cell_id != _cell_id(persona_id, seed, case_id) or cell_id in seen:
+            raise ValueError(f"matrix plan cell[{index}].cell_id mismatch")
+        seen.add(cell_id)
+        status = cell.get("status")
+        if status not in {"READY", "NOT_RUN"}:
+            raise ValueError(f"matrix plan cell[{index}].status must be READY|NOT_RUN")
+        reasons = cell.get("not_run_reasons")
+        if not isinstance(reasons, list) or not all(
+            isinstance(reason, str) and reason for reason in reasons
+        ):
+            raise ValueError(f"matrix plan cell[{index}].not_run_reasons malformed")
+        if (status == "READY" and reasons) or (status == "NOT_RUN" and not reasons):
+            raise ValueError(f"matrix plan cell[{index}] status/reasons mismatch")
+        required = status == "READY"
+        for key in ("runner", "runner_path", "scenario_fixture", "initial_state_fixture"):
+            value = cell.get(key)
+            if required and (not isinstance(value, str) or not value):
+                raise ValueError(f"matrix plan cell[{index}].{key} required")
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"matrix plan cell[{index}].{key} malformed")
+        max_turns = cell.get("max_turns")
+        if type(max_turns) is not int or max_turns <= 0:
+            raise ValueError(f"matrix plan cell[{index}].max_turns must be positive int")
+        _validate_model_contract(
+            cell.get("player_model"), label="player_model", required=required
+        )
+        _validate_model_contract(
+            cell.get("kp_model"), label="kp_model", required=required
+        )
+        _validate_model_contract(
+            cell.get("judge_model"), label="judge_model", required=False
+        )
+        if not _is_sha256(cell.get("persona_profile_sha256")):
+            raise ValueError(f"matrix plan cell[{index}] persona hash mismatch")
+        _validate_hash_map(
+            cell.get("prompt_hashes"),
+            label="prompt_hashes",
+            required_keys=frozenset({"player", "kp"}) if required else frozenset(),
+        )
+        _validate_hash_map(
+            cell.get("runner_hashes"),
+            label="runner_hashes",
+            required_keys=frozenset({"runner"}) if required else frozenset(),
+        )
+        if not isinstance(cell.get("prompt_sources"), dict) or not isinstance(
+            cell.get("judge"), dict
+        ):
+            raise ValueError(f"matrix plan cell[{index}] structured field mismatch")
+        for key in ("scenario_sha256", "initial_state_sha256"):
+            value = cell.get(key)
+            if required and not _is_sha256(value):
+                raise ValueError(f"matrix plan cell[{index}].{key} required")
+            if value is not None and not _is_sha256(value):
+                raise ValueError(f"matrix plan cell[{index}].{key} malformed")
+        ready_count += int(status == "READY")
+        not_run_count += int(status == "NOT_RUN")
+
+    for key, expected in (
+        ("cell_count", len(cells)),
+        ("ready_count", ready_count),
+        ("not_run_count", not_run_count),
+    ):
+        if type(plan.get(key)) is not int or plan[key] != expected:
+            raise ValueError(f"matrix plan {key} mismatch")
+    return plan
 
 
 def _model_identity(value: Any, *, label: str) -> dict[str, str] | None:
@@ -668,7 +849,9 @@ def _baseline_cells(
 
 
 def _baseline_result_cells(
-    root: Path | None, candidate_plan: dict[str, Any]
+    root: Path | None,
+    candidate_plan: dict[str, Any],
+    baseline_cells: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
     if root is None:
         return {}, []
@@ -703,13 +886,7 @@ def _baseline_result_cells(
     result_rows = payload.get("cells")
     if not isinstance(result_rows, list):
         return {}, ["cells"]
-    expected_ids = {
-        item.get("cell_id")
-        for item in candidate_plan.get("cells") or []
-        if isinstance(item, dict)
-        and isinstance(item.get("cell_id"), str)
-        and _SAFE_IDENTIFIER.fullmatch(item["cell_id"])
-    }
+    expected_ids = set(baseline_cells)
     cells: dict[str, dict[str, Any]] = {}
     for item in result_rows:
         if not isinstance(item, dict):
@@ -734,11 +911,23 @@ def _baseline_result_cells(
         if cell_dir is None or not isinstance(expected_manifest_hash, str):
             return {}, ["cell_manifest_binding"]
         manifest_path = cell_dir / "run-manifest.json"
+        baseline_cell = baseline_cells[cell_id]
         try:
-            manifest = _validated_run_manifest(cell_dir, cell_id)
+            manifest = _validated_run_manifest(
+                cell_dir,
+                cell_id,
+                expected_identity=baseline_cell,
+            )
         except (OSError, UnicodeError, ValueError):
             return {}, ["cell_manifest_binding"]
         if expected_manifest_hash != _sha256_file(manifest_path):
+            return {}, ["cell_manifest_binding"]
+        if any(
+            key not in item
+            or item.get(key) != baseline_cell.get(key)
+            or item.get(key) != manifest.get(key)
+            for key in _RUN_MANIFEST_IDENTITY_KEYS
+        ):
             return {}, ["cell_manifest_binding"]
         for field in ("not_run_reasons", "hard_findings"):
             values = item.get(field, [])
@@ -799,6 +988,7 @@ def _attested_public_cell_turns(
     cell_dir: Path,
     *,
     expected_cell_id: str,
+    expected_identity: dict[str, Any] | None = None,
     result_cell: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     manifest_path = cell_dir / "run-manifest.json"
@@ -810,7 +1000,12 @@ def _attested_public_cell_turns(
         or not player_view_path.is_file()
     ):
         raise ValueError("attested public evidence missing")
-    manifest = _validated_run_manifest(cell_dir, expected_cell_id)
+    manifest = _validated_run_manifest(
+        cell_dir,
+        expected_cell_id,
+        expected_identity=expected_identity,
+        require_clean=True,
+    )
     if (
         manifest.get("status") != "PASS"
         or manifest.get("evidence_eligible") is not True
@@ -861,7 +1056,13 @@ def _append_reason(result: dict[str, Any], reason: str) -> None:
         reasons.append(reason)
 
 
-def _validated_run_manifest(cell_dir: Path, cell_id: str) -> dict[str, Any]:
+def _validated_run_manifest(
+    cell_dir: Path,
+    cell_id: str,
+    *,
+    expected_identity: dict[str, Any] | None = None,
+    require_clean: bool = False,
+) -> dict[str, Any]:
     path = cell_dir / "run-manifest.json"
     if path.is_symlink() or not path.is_file():
         raise ValueError("run manifest missing or unsafe")
@@ -875,11 +1076,19 @@ def _validated_run_manifest(cell_dir: Path, cell_id: str) -> dict[str, Any]:
     ):
         raise ValueError("run manifest contract mismatch")
     for field in ("hard_findings", "evidence_findings"):
-        values = payload.get(field) or []
+        values = payload[field] if field in payload else []
         if not isinstance(values, list) or not all(
             isinstance(value, str) and value for value in values
         ):
             raise ValueError(f"run manifest {field} malformed")
+        payload[field] = list(values)
+    if expected_identity is not None and any(
+        key not in payload or payload.get(key) != expected_identity.get(key)
+        for key in _RUN_MANIFEST_IDENTITY_KEYS
+    ):
+        raise ValueError("run manifest identity mismatch")
+    if require_clean and (payload["hard_findings"] or payload["evidence_findings"]):
+        raise ValueError("run manifest contains hard or evidence findings")
     return payload
 
 
@@ -894,8 +1103,7 @@ def execute_matrix_plan(
     judge_timeout_s: float = 120.0,
 ) -> dict[str, Any]:
     """Execute READY cells only; write plan/results/evidence atomically."""
-    if not isinstance(plan, dict) or plan.get("schema_version") != 1:
-        raise ValueError("invalid matrix plan")
+    plan = _validate_matrix_plan(plan)
     root_path = Path(root).resolve()
     out, baseline_path = _validated_matrix_paths(output, baseline_dir)
     _preflight_baseline_cell_paths(baseline_path)
@@ -907,7 +1115,7 @@ def execute_matrix_plan(
         plan,
     )
     baseline_results_by_id, baseline_result_mismatches = _baseline_result_cells(
-        baseline_root, plan
+        baseline_root, plan, baseline_by_id
     )
     out.mkdir(parents=True, exist_ok=True)
 
@@ -924,10 +1132,7 @@ def execute_matrix_plan(
         cell_dir = _contained_cell_dir(out, cell_id)
         cell_dir.mkdir(parents=True, exist_ok=True)
         result = {
-            "cell_id": cell_id,
-            "persona_id": cell.get("persona_id"),
-            "seed": cell.get("seed"),
-            "case_id": cell.get("case_id"),
+            **{key: cell.get(key) for key in _RUN_MANIFEST_IDENTITY_KEYS},
             "status": cell.get("status"),
             "not_run_reasons": list(cell.get("not_run_reasons") or []),
             "artifact_hashes": {},
@@ -937,9 +1142,12 @@ def execute_matrix_plan(
             _write_json_atomic(
                 manifest_path,
                 {
+                    **{
+                        key: cell.get(key)
+                        for key in _RUN_MANIFEST_IDENTITY_KEYS
+                    },
                     "schema_version": 1,
                     "eval_spec": EVAL_SPEC,
-                    "cell_id": cell_id,
                     "status": "NOT_RUN",
                     "evidence_eligible": False,
                     "not_run_reasons": result["not_run_reasons"],
@@ -975,6 +1183,7 @@ def execute_matrix_plan(
             "persona_id": cell.get("persona_id"),
             "seed": cell.get("seed"),
             "case_id": cell.get("case_id"),
+            "runner": cell.get("runner"),
             "player_model": cell.get("player_model"),
             "kp_model": cell.get("kp_model"),
             "judge_model": cell.get("judge_model"),
@@ -986,6 +1195,9 @@ def execute_matrix_plan(
             "prompt_hashes": cell.get("prompt_hashes"),
             "prompt_sources": cell.get("prompt_sources"),
             "persona_profile_sha256": cell.get("persona_profile_sha256"),
+            "runner_hashes": cell.get("runner_hashes"),
+            "scenario_sha256": cell.get("scenario_sha256"),
+            "initial_state_sha256": cell.get("initial_state_sha256"),
         }
         input_path = cell_dir / "cell-input.json"
         _write_json_atomic(input_path, cell_input)
@@ -1025,7 +1237,11 @@ def execute_matrix_plan(
         ]
         if judge_enabled:
             try:
-                manifest = _validated_run_manifest(cell_dir, cell_id)
+                manifest = _validated_run_manifest(
+                    cell_dir,
+                    cell_id,
+                    expected_identity=cell,
+                )
             except (OSError, UnicodeError, ValueError):
                 evidence_findings.append("invalid_run_manifest")
             else:
@@ -1095,11 +1311,13 @@ def execute_matrix_plan(
                             baseline_turns = _attested_public_cell_turns(
                                 baseline_cell_dir,
                                 expected_cell_id=cell_id,
+                                expected_identity=baseline_cell,
                                 result_cell=baseline_result_cell,
                             )
                             candidate_turns = _attested_public_cell_turns(
                                 cell_dir,
                                 expected_cell_id=cell_id,
+                                expected_identity=cell,
                             )
                         except (OSError, UnicodeError, ValueError):
                             baseline_turns = []
@@ -1173,17 +1391,14 @@ def execute_matrix_plan(
             _write_json_atomic(
                 manifest_path,
                 {
+                    **{
+                        key: cell.get(key)
+                        for key in _RUN_MANIFEST_IDENTITY_KEYS
+                    },
                     "schema_version": 1,
                     "eval_spec": EVAL_SPEC,
-                    "cell_id": cell_id,
                     "status": result["status"],
                     "evidence_eligible": False,
-                    "player_model": cell.get("player_model"),
-                    "kp_model": cell.get("kp_model"),
-                    "persona_profile_sha256": cell.get("persona_profile_sha256"),
-                    "prompt_hashes": cell.get("prompt_hashes"),
-                    "runner_hashes": cell.get("runner_hashes"),
-                    "initial_state_sha256": cell.get("initial_state_sha256"),
                 },
             )
         result["artifact_hashes"]["run-manifest.json"] = _sha256_file(manifest_path)
