@@ -2345,6 +2345,67 @@ def test_matrix_runner_capture_is_bounded_under_high_volume_output(tmp_path: Pat
     assert result["stdout"].endswith(json.dumps(payload))
 
 
+def test_matrix_runner_pipe_drain_retries_interrupted_select_and_read(monkeypatch):
+    matrix = _load()
+    proc = matrix.subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import os; os.write(1, b'{\"status\": \"PASS\"}\\n'); "
+            "os.write(2, b'runner-warning\\n')",
+        ],
+        stdout=matrix.subprocess.PIPE,
+        stderr=matrix.subprocess.PIPE,
+        text=False,
+        bufsize=0,
+        start_new_session=True,
+    )
+    selector_factory = matrix.selectors.DefaultSelector
+
+    class InterruptOnceSelector:
+        def __init__(self):
+            self.inner = selector_factory()
+            self.interrupted = False
+
+        def select(self, timeout=None):
+            if not self.interrupted:
+                self.interrupted = True
+                raise InterruptedError("signal interrupted selector")
+            return self.inner.select(timeout)
+
+        def __getattr__(self, name):
+            return getattr(self.inner, name)
+
+    original_read = os.read
+    read_interrupted = False
+
+    def interrupt_read_once(fd, size):
+        nonlocal read_interrupted
+        if not read_interrupted:
+            read_interrupted = True
+            raise InterruptedError("signal interrupted read")
+        return original_read(fd, size)
+
+    monkeypatch.setattr(matrix.selectors, "DefaultSelector", InterruptOnceSelector)
+    monkeypatch.setattr(matrix.os, "read", interrupt_read_once)
+    try:
+        stdout, stderr, timed_out, tree_terminated, output_drained = (
+            matrix._drain_runner_pipes(proc, 2.0)
+        )
+    finally:
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe is not None and not pipe.closed:
+                pipe.close()
+        proc.wait(timeout=1.0)
+
+    assert timed_out is False
+    assert tree_terminated is True
+    assert output_drained is True
+    assert read_interrupted is True
+    assert stdout.complete_final_line() == b'{"status": "PASS"}'
+    assert stderr.evidence_text() == "runner-warning\n"
+
+
 def test_matrix_runner_timeout_kills_descendants_and_stays_not_run(tmp_path: Path):
     matrix = _load()
     sentinel = tmp_path / "orphan-sentinel.txt"

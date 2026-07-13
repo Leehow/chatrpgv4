@@ -307,12 +307,15 @@ def _drain_case_pipes(
             if not selector.get_map():
                 time.sleep(min(0.01, remaining))
                 continue
-            events = selector.select(min(0.05, remaining))
+            try:
+                events = selector.select(min(0.05, remaining))
+            except InterruptedError:
+                continue
             for key, _ in events:
                 pipe = key.fileobj
                 try:
                     chunk = os.read(pipe.fileno(), 64 * 1024)
-                except BlockingIOError:
+                except (BlockingIOError, InterruptedError):
                     continue
                 if chunk:
                     key.data.write(chunk)

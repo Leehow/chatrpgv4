@@ -396,10 +396,38 @@ def test_run_case_streams_pipes_to_artifacts_without_communicate(
             return self.returncode
 
     process = Process()
+    selector_factory = cases.selectors.DefaultSelector
+
+    class InterruptOnceSelector:
+        def __init__(self):
+            self.inner = selector_factory()
+            self.interrupted = False
+
+        def select(self, timeout=None):
+            if not self.interrupted:
+                self.interrupted = True
+                raise InterruptedError("signal interrupted selector")
+            return self.inner.select(timeout)
+
+        def __getattr__(self, name):
+            return getattr(self.inner, name)
+
+    original_read = os.read
+    read_interrupted = False
+
+    def interrupt_read_once(fd, size):
+        nonlocal read_interrupted
+        if not read_interrupted:
+            read_interrupted = True
+            raise InterruptedError("signal interrupted read")
+        return original_read(fd, size)
+
     monkeypatch.setattr(cases.subprocess, "Popen", lambda *args, **kwargs: process)
     monkeypatch.setattr(
         cases, "_supports_process_tree_supervisor", lambda: True, raising=False
     )
+    monkeypatch.setattr(cases.selectors, "DefaultSelector", InterruptOnceSelector)
+    monkeypatch.setattr(cases.os, "read", interrupt_read_once)
 
     result = cases.run_case(
         _case(
@@ -414,6 +442,7 @@ def test_run_case_streams_pipes_to_artifacts_without_communicate(
     )
 
     assert result["status"] == "PASS"
+    assert read_interrupted is True
     assert (tmp_path / "out" / result["stdout_path"]).read_text() == "streamed-out\n"
     assert (tmp_path / "out" / result["stderr_path"]).read_text() == "streamed-err\n"
 
