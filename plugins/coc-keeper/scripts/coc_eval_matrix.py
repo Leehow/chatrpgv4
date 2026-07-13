@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_eval_contract as contract
+import coc_eval_judge as judge
 import coc_eval_semantic as semantic
 
 
@@ -28,6 +30,21 @@ EVAL_SPEC = "eval-spec-v1"
 MATRIX_SUITES = frozenset({"nightly", "release"})
 ModelPreflight = Callable[[str, str], bool]
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$")
+_JUDGE_IDENTITY_KEYS = (
+    "persona_id",
+    "seed",
+    "case_id",
+    "runner",
+    "max_turns",
+    "player_model",
+    "kp_model",
+    "judge_model",
+    "persona_profile_sha256",
+    "prompt_hashes",
+    "runner_hashes",
+    "scenario_sha256",
+    "initial_state_sha256",
+)
 
 
 def _utc_now() -> str:
@@ -39,6 +56,23 @@ def _read_json(path: Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"unreadable JSON: {path}: {exc}") from exc
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if path.is_symlink() or not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"malformed structured artifact {path.name}:{number}") from exc
+        if not isinstance(row, dict):
+            raise ValueError(f"malformed structured artifact {path.name}:{number}")
+        rows.append(row)
+    return rows
 
 
 def _write_text_atomic(path: Path, text: str) -> Path:
@@ -284,6 +318,13 @@ def _initial_state_sha256(root: Path, case: dict[str, Any]) -> str | None:
     return _sha256_file(path)
 
 
+def _scenario_sha256(root: Path, case: dict[str, Any]) -> str | None:
+    path = _resolve_path(root, case.get("scenario_fixture"))
+    if path is None or not path.is_file():
+        return None
+    return _sha256_file(path)
+
+
 def _prompt_hashes(
     root: Path, case: dict[str, Any], reasons: list[str]
 ) -> dict[str, str]:
@@ -396,6 +437,7 @@ def build_matrix_plan(
                         else {}
                     ),
                     "runner_hashes": _runner_hashes(root_path, case),
+                    "scenario_sha256": _scenario_sha256(root_path, case),
                     "initial_state_sha256": _initial_state_sha256(root_path, case),
                     "judge": case.get("judge") if isinstance(case.get("judge"), dict) else {},
                     "status": "NOT_RUN" if reasons else "READY",
@@ -547,11 +589,156 @@ def _contained_cell_dir(output: Path, cell_id: str) -> Path:
     return resolved
 
 
+def _baseline_cells(
+    baseline_dir: Path | None,
+    candidate_plan: dict[str, Any],
+) -> tuple[Path | None, dict[str, dict[str, Any]], list[str]]:
+    if baseline_dir is None:
+        return None, {}, []
+    root = baseline_dir.resolve()
+    plan_path = root / "matrix-plan.json"
+    if plan_path.is_symlink() or not plan_path.is_file():
+        return root, {}, []
+    try:
+        plan = _read_json(plan_path)
+    except ValueError:
+        return root, {}, ["baseline_plan_malformed"]
+    if not isinstance(plan, dict):
+        return root, {}, ["baseline_plan_malformed"]
+    contract_mismatches = [
+        key
+        for key in ("schema_version", "eval_spec", "suite")
+        if plan.get(key) != candidate_plan.get(key)
+    ]
+    if contract_mismatches:
+        return root, {}, contract_mismatches
+    cells: dict[str, dict[str, Any]] = {}
+    for item in plan.get("cells") or []:
+        if not isinstance(item, dict):
+            continue
+        cell_id = item.get("cell_id")
+        if isinstance(cell_id, str) and _SAFE_IDENTIFIER.fullmatch(cell_id):
+            cells[cell_id] = item
+    return root, cells, []
+
+
+def _baseline_result_cells(root: Path | None) -> dict[str, dict[str, Any]]:
+    if root is None:
+        return {}
+    path = root / "matrix-results.json"
+    if path.is_symlink() or not path.is_file():
+        return {}
+    try:
+        payload = _read_json(path)
+    except ValueError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    cells: dict[str, dict[str, Any]] = {}
+    for item in payload.get("cells") or []:
+        if not isinstance(item, dict):
+            continue
+        cell_id = item.get("cell_id")
+        if isinstance(cell_id, str) and _SAFE_IDENTIFIER.fullmatch(cell_id):
+            cells[cell_id] = item
+    return cells
+
+
+def _baseline_cell_dir(root: Path, cell_id: str) -> Path | None:
+    cells_root = (root / "cells").resolve()
+    candidate = cells_root / _safe_identifier(cell_id, label="cell_id")
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(cells_root)
+    except ValueError:
+        return None
+    if candidate.is_symlink() or not resolved.is_dir():
+        return None
+    return resolved
+
+
+def _public_cell_turns(cell_dir: Path) -> list[dict[str, Any]]:
+    rows = _read_jsonl(cell_dir / "player-view.jsonl")
+    return semantic.extract_public_turns(rows) if rows else []
+
+
+def _attested_public_cell_turns(
+    cell_dir: Path,
+    *,
+    expected_cell_id: str,
+    result_cell: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    manifest_path = cell_dir / "run-manifest.json"
+    player_view_path = cell_dir / "player-view.jsonl"
+    if (
+        manifest_path.is_symlink()
+        or player_view_path.is_symlink()
+        or not manifest_path.is_file()
+        or not player_view_path.is_file()
+    ):
+        raise ValueError("attested public evidence missing")
+    manifest = _read_json(manifest_path)
+    if not isinstance(manifest, dict):
+        raise ValueError("attested public manifest malformed")
+    if (
+        manifest.get("status") != "PASS"
+        or manifest.get("evidence_eligible") is not True
+        or manifest.get("cell_id") != expected_cell_id
+    ):
+        raise ValueError("attested public evidence is not eligible")
+    artifact_hashes = manifest.get("artifact_hashes")
+    if not isinstance(artifact_hashes, dict) or artifact_hashes.get(
+        "player-view.jsonl"
+    ) != _sha256_file(player_view_path):
+        raise ValueError("attested public evidence hash mismatch")
+    if result_cell is not None:
+        result_hashes = result_cell.get("artifact_hashes")
+        capture_status = (
+            result_cell.get("status") == "NOT_RUN"
+            and result_cell.get("not_run_reasons") == ["missing_baseline_evidence"]
+            and not result_cell.get("hard_findings")
+            and isinstance(result_cell.get("runner_result"), dict)
+            and result_cell["runner_result"].get("status") == "PASS"
+        )
+        if (
+            result_cell.get("status") != "PASS" and not capture_status
+        ) or (
+            not isinstance(result_hashes, dict)
+            or result_hashes.get("run-manifest.json")
+            != _sha256_file(manifest_path)
+        ):
+            raise ValueError("baseline result manifest hash mismatch")
+    turns = _public_cell_turns(cell_dir)
+    if not turns:
+        raise ValueError("attested public evidence is empty")
+    return turns
+
+
+def _judge_identity_mismatches(
+    baseline_cell: dict[str, Any], candidate_cell: dict[str, Any]
+) -> list[str]:
+    return [
+        key
+        for key in _JUDGE_IDENTITY_KEYS
+        if baseline_cell.get(key) != candidate_cell.get(key)
+    ]
+
+
+def _append_reason(result: dict[str, Any], reason: str) -> None:
+    reasons = result.setdefault("not_run_reasons", [])
+    if reason not in reasons:
+        reasons.append(reason)
+
+
 def execute_matrix_plan(
     plan: dict[str, Any],
     *,
     root: Path | str,
     output: Path | str,
+    baseline_dir: Path | str | None = None,
+    judge_base_url: str = judge.DEFAULT_BASE_URL,
+    judge_api_key: str | None = None,
+    judge_timeout_s: float = 120.0,
 ) -> dict[str, Any]:
     """Execute READY cells only; write plan/results/evidence atomically."""
     if not isinstance(plan, dict) or plan.get("schema_version") != 1:
@@ -562,6 +749,11 @@ def execute_matrix_plan(
     personas_payload = semantic.load_personas(root_path)
     personas = {item["persona_id"]: item for item in personas_payload["personas"]}
     rubrics = semantic.load_rubrics(root_path)
+    baseline_root, baseline_by_id, baseline_plan_mismatches = _baseline_cells(
+        Path(baseline_dir) if baseline_dir is not None else None,
+        plan,
+    )
+    baseline_results_by_id = _baseline_result_cells(baseline_root)
 
     plan_path = out / "matrix-plan.json"
     _write_json_atomic(plan_path, plan)
@@ -660,36 +852,133 @@ def execute_matrix_plan(
             "status": status,
             "returncode": runner_result.get("returncode"),
         }
+        structured_hard: list[str] = []
+        for field in ("hard_findings", "evidence_findings"):
+            values = runner_result.get(field) or []
+            if isinstance(values, list):
+                structured_hard.extend(
+                    str(value) for value in values if isinstance(value, str) and value
+                )
+        if status in {"FAIL", "INELIGIBLE"} and not structured_hard:
+            structured_hard.append(f"runner_status:{status.lower()}")
+        if structured_hard:
+            result["hard_findings"] = sorted(set(structured_hard))
+            if result["status"] == "PASS":
+                result["status"] = "FAIL"
 
         judge_cfg = cell.get("judge") or {}
-        if isinstance(judge_cfg, dict) and judge_cfg.get("enabled"):
+        if (
+            isinstance(judge_cfg, dict)
+            and judge_cfg.get("enabled")
+            and result["status"] == "PASS"
+        ):
             rubric_id = str(judge_cfg.get("rubric_id") or "agency-and-fun")
             rubric = rubrics[rubric_id]
-            request, mapping = semantic.build_blind_pair_request(
-                pair_id=f"judge:{cell_id}",
-                rubric_id=rubric["rubric_id"],
-                rubric_version=rubric["rubric_version"],
-                public_context={
-                    "case_id": cell.get("case_id"),
-                    "persona_id": cell.get("persona_id"),
-                    "seed": cell.get("seed"),
-                },
-                turn_ids=["t1"],
-                baseline_turns=[{"turn_id": "t1", "text": "fixture-a"}],
-                candidate_turns=[{"turn_id": "t1", "text": "fixture-b"}],
-                seed=int(cell["seed"]),
-            )
-            judge_request_path = cell_dir / "judge-request.json"
-            _write_json_atomic(judge_request_path, request)
-            # Private mapping is evidence for operators, never inside the judge request.
-            mapping_path = cell_dir / "judge-label-mapping.json"
-            _write_json_atomic(mapping_path, mapping)
-            result["artifact_hashes"]["judge-request.json"] = _sha256_file(
-                judge_request_path
-            )
-            result["artifact_hashes"]["judge-label-mapping.json"] = _sha256_file(
-                mapping_path
-            )
+            declared_judge = cell.get("judge_model")
+            if declared_judge and declared_judge != judge.SOL_EVALUATOR:
+                result["status"] = "NOT_RUN"
+                _append_reason(result, "unsupported_judge_identity")
+            elif baseline_root is None:
+                result["status"] = "NOT_RUN"
+                _append_reason(result, "missing_baseline_evidence")
+            elif baseline_plan_mismatches:
+                result["status"] = "NON_COMPARABLE"
+                result["identity_mismatches"] = [
+                    f"baseline_plan:{key}" for key in baseline_plan_mismatches
+                ]
+            else:
+                baseline_cell = baseline_by_id.get(cell_id)
+                baseline_result_cell = baseline_results_by_id.get(cell_id)
+                baseline_cell_dir = _baseline_cell_dir(baseline_root, cell_id)
+                if (
+                    baseline_cell is None
+                    or baseline_result_cell is None
+                    or baseline_cell_dir is None
+                ):
+                    result["status"] = "NOT_RUN"
+                    _append_reason(result, "missing_baseline_evidence")
+                else:
+                    mismatches = _judge_identity_mismatches(baseline_cell, cell)
+                    if mismatches:
+                        result["status"] = "NON_COMPARABLE"
+                        result["identity_mismatches"] = mismatches
+                    else:
+                        try:
+                            baseline_turns = _attested_public_cell_turns(
+                                baseline_cell_dir,
+                                expected_cell_id=cell_id,
+                                result_cell=baseline_result_cell,
+                            )
+                            candidate_turns = _attested_public_cell_turns(
+                                cell_dir,
+                                expected_cell_id=cell_id,
+                            )
+                        except (OSError, UnicodeError, ValueError):
+                            baseline_turns = []
+                            candidate_turns = []
+                        if not baseline_turns:
+                            result["status"] = "NOT_RUN"
+                            _append_reason(result, "missing_baseline_evidence")
+                        elif not candidate_turns:
+                            result["status"] = "NOT_RUN"
+                            _append_reason(result, "missing_candidate_public_evidence")
+                        else:
+                            turn_ids = list(
+                                dict.fromkeys(
+                                    str(turn["turn_id"])
+                                    for turn in (*baseline_turns, *candidate_turns)
+                                )
+                            )
+                            request, mapping = semantic.build_blind_pair_request(
+                                pair_id=f"judge:{cell_id}",
+                                rubric_id=rubric["rubric_id"],
+                                rubric_version=rubric["rubric_version"],
+                                public_context={
+                                    "case_id": cell.get("case_id"),
+                                    "persona_id": cell.get("persona_id"),
+                                    "seed": cell.get("seed"),
+                                },
+                                turn_ids=turn_ids,
+                                baseline_turns=baseline_turns,
+                                candidate_turns=candidate_turns,
+                                seed=secrets.randbits(256),
+                            )
+                            judge_request_path = cell_dir / "judge-request.json"
+                            _write_json_atomic(judge_request_path, request)
+                            # Operator-only mapping; never included in the request.
+                            mapping_path = cell_dir / "judge-label-mapping.json"
+                            _write_json_atomic(mapping_path, mapping)
+                            result["artifact_hashes"][
+                                "judge-request.json"
+                            ] = _sha256_file(judge_request_path)
+                            result["artifact_hashes"][
+                                "judge-label-mapping.json"
+                            ] = _sha256_file(mapping_path)
+                            try:
+                                judge_result = judge.invoke_sol_judge(
+                                    request,
+                                    rubric,
+                                    base_url=judge_base_url,
+                                    api_key=(
+                                        judge_api_key
+                                        if judge_api_key is not None
+                                        else judge.resolve_api_key()
+                                    ),
+                                    timeout_s=judge_timeout_s,
+                                )
+                                semantic.validate_judge_result(
+                                    request, judge_result, rubric=rubric
+                                )
+                            except (RuntimeError, ValueError):
+                                result["status"] = "NOT_RUN"
+                                _append_reason(result, "judge_unavailable_or_invalid")
+                            else:
+                                judge_result_path = cell_dir / "judge-result.json"
+                                _write_json_atomic(judge_result_path, judge_result)
+                                result["artifact_hashes"][
+                                    "judge-result.json"
+                                ] = _sha256_file(judge_result_path)
+                                result["judge_result"] = judge_result
 
         manifest_path = cell_dir / "run-manifest.json"
         if not manifest_path.is_file():
@@ -716,7 +1005,10 @@ def execute_matrix_plan(
     hard_findings = [
         reason
         for cell in cell_results
-        for reason in (cell.get("not_run_reasons") or [])
+        for reason in (
+            *(cell.get("not_run_reasons") or []),
+            *(cell.get("hard_findings") or []),
+        )
     ]
     aggregate = {
         "schema_version": 1,
@@ -725,7 +1017,14 @@ def execute_matrix_plan(
         "cell_count": len(cell_results),
         "status_counts": {
             status: sum(1 for cell in cell_results if cell.get("status") == status)
-            for status in ("PASS", "FAIL", "NOT_RUN", "INELIGIBLE", "READY")
+            for status in (
+                "PASS",
+                "FAIL",
+                "NOT_RUN",
+                "INELIGIBLE",
+                "NON_COMPARABLE",
+                "READY",
+            )
         },
         "hard_findings": sorted(set(hard_findings)),
         "hard_findings_override_judge": bool(hard_findings),

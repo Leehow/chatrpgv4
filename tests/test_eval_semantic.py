@@ -9,6 +9,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_semantic.py"
+JUDGE_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_judge.py"
 PERSONAS_PATH = REPO / "evaluation" / "spec" / "v1" / "personas" / "personas.json"
 RUBRICS_DIR = REPO / "evaluation" / "spec" / "v1" / "rubrics"
 
@@ -84,6 +85,16 @@ def _load():
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules["coc_eval_semantic_test"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_judge():
+    assert JUDGE_PATH.is_file(), f"missing implementation module: {JUDGE_PATH}"
+    spec = importlib.util.spec_from_file_location("coc_eval_judge_test", JUDGE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["coc_eval_judge_test"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -209,6 +220,7 @@ def test_blind_pair_request_hides_baseline_candidate_and_keeper_secrets():
     assert request["turn_ids"] == ["t1"]
     assert request["rubric_id"] == rubric["rubric_id"]
     assert request["rubric_version"] == rubric["rubric_version"]
+    assert "seed" not in request
     assert request["request_sha256"] == _canonical_sha256(
         {key: value for key, value in request.items() if key != "request_sha256"}
     )
@@ -227,6 +239,35 @@ def test_blind_pair_request_hides_baseline_candidate_and_keeper_secrets():
     )
     assert again == request
     assert again_mapping == mapping
+
+
+def test_extract_public_turns_allowlists_player_view_fields():
+    semantic = _load()
+    turns = semantic.extract_public_turns(
+        [
+            {
+                "turn_number": 1,
+                "view": "player",
+                "player_text": "我查看门锁。",
+                "narration": "锁孔边缘有新鲜划痕。",
+                "keeper_secret": "hidden",
+                "forbidden_outcome": "hidden",
+            }
+        ]
+    )
+
+    assert turns == [
+        {
+            "turn_id": "t1",
+            "text": "我查看门锁。",
+            "narration": "锁孔边缘有新鲜划痕。",
+        }
+    ]
+
+    with __import__("pytest").raises(ValueError, match="player-view"):
+        semantic.extract_public_turns(
+            [{"turn_number": 1, "view": "keeper", "text": "private"}]
+        )
 
 
 def _valid_judge_result(request: dict, rubric: dict) -> dict:
@@ -308,6 +349,93 @@ def test_validate_judge_result_rejects_bad_winner_score_label_turn_and_hash():
     bad_hash["request_sha256"] = "0" * 64
     with __import__("pytest").raises(ValueError, match="request_sha256"):
         semantic.validate_judge_result(request, bad_hash, rubric=rubric)
+
+    missing_evidence = _valid_judge_result(request, rubric)
+    missing_evidence["findings"] = [{"label": rubric["finding_codes"][0]}]
+    with __import__("pytest").raises(ValueError, match="side|evidence"):
+        semantic.validate_judge_result(request, missing_evidence, rubric=rubric)
+
+
+def test_sol_judge_uses_chat_completions_and_exact_identity(monkeypatch):
+    semantic = _load()
+    judge = _load_judge()
+    rubric = semantic.load_rubrics(REPO)["agency-and-fun"]
+    request, _ = semantic.build_blind_pair_request(
+        pair_id="pair-1",
+        rubric_id="agency-and-fun",
+        rubric_version=rubric["rubric_version"],
+        public_context={"case_id": "neutral"},
+        turn_ids=["t1"],
+        baseline_turns=[{"turn_id": "t1", "text": "A"}],
+        candidate_turns=[{"turn_id": "t1", "text": "B"}],
+        seed=3,
+    )
+    dimension = rubric["dimensions"][0]["dimension_id"]
+    valid_result = {
+        "request_sha256": request["request_sha256"],
+        "winner": "tie",
+        "dimension_scores": {dimension: 3},
+        "findings": [],
+        "reasons": ["The cited public turn supports a tie."],
+    }
+    response = {"choices": [{"message": {"content": json.dumps(valid_result)}}]}
+    calls = []
+    monkeypatch.setattr(
+        judge,
+        "_post_json",
+        lambda url, headers, payload, timeout: calls.append((url, payload))
+        or response,
+    )
+
+    result = judge.invoke_sol_judge(
+        request,
+        rubric,
+        base_url="http://127.0.0.1:18888/v1",
+        api_key="local",
+        timeout_s=3,
+    )
+
+    assert calls[0][0].endswith("/chat/completions")
+    assert calls[0][1]["model"] == "gpt-5.6-sol"
+    assert result["evaluator"] == {
+        "provider": "coding-relay",
+        "id": "gpt-5.6-sol",
+    }
+
+
+def test_judge_payload_contains_no_private_mapping_or_keeper_fields():
+    semantic = _load()
+    judge = _load_judge()
+    rubric = semantic.load_rubrics(REPO)["agency-and-fun"]
+    request, _ = semantic.build_blind_pair_request(
+        pair_id="pair-private",
+        rubric_id="agency-and-fun",
+        rubric_version=rubric["rubric_version"],
+        public_context={"case_id": "neutral", "keeper_secret": "drop-me"},
+        turn_ids=["t1"],
+        baseline_turns=[{"turn_id": "t1", "text": "A"}],
+        candidate_turns=[{"turn_id": "t1", "text": "B"}],
+        seed=4,
+    )
+
+    payload = judge.build_chat_payload(request, rubric)
+
+    encoded = json.dumps(payload, ensure_ascii=False).lower()
+    for forbidden in (
+        "baseline",
+        "candidate",
+        "keeper_secret",
+        "forbidden_outcome",
+    ):
+        assert forbidden not in encoded
+
+    request["judge_label_mapping"] = {"A": "baseline", "B": "candidate"}
+    with __import__("pytest").raises(ValueError, match="schema"):
+        judge.build_chat_payload(request, rubric)
+    request.pop("judge_label_mapping")
+    request["public_context"]["case_id"] = "tampered"
+    with __import__("pytest").raises(ValueError, match="request_sha256"):
+        judge.build_chat_payload(request, rubric)
 
 
 def test_aggregate_judge_results_exposes_rates_and_hard_findings():

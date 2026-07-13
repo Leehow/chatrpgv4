@@ -191,7 +191,7 @@ def _fake_attested_match(runner, run_dir: Path) -> dict:
 
 def _fake_runner_script(path: Path) -> Path:
     script = """#!/usr/bin/env python3
-import json, sys
+import hashlib, json, sys
 from pathlib import Path
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 out = Path(sys.argv[2])
@@ -205,14 +205,35 @@ out.mkdir(parents=True, exist_ok=True)
     json.dumps(payload.get("kp_request") or {}, indent=2, sort_keys=True) + "\\n",
     encoding="utf-8",
 )
+player_view = out / "player-view.jsonl"
+player_view.write_text(
+    json.dumps(
+        {
+            "schema_version": 1,
+            "view": "player",
+            "turn_number": 1,
+            "player_text": "我检查门锁。",
+            "narration": "新版公开叙事。",
+            "keeper_secret": "must-not-reach-judge",
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    + "\\n",
+    encoding="utf-8",
+)
 (out / "run-manifest.json").write_text(
     json.dumps(
         {
             "status": "PASS",
             "cell_id": payload.get("cell_id"),
+            "evidence_eligible": True,
             "runner": "fake",
             "player_model": payload.get("player_model"),
             "kp_model": payload.get("kp_model"),
+            "artifact_hashes": {
+                "player-view.jsonl": hashlib.sha256(player_view.read_bytes()).hexdigest(),
+            },
         },
         indent=2,
         sort_keys=True,
@@ -225,6 +246,109 @@ print(json.dumps({"status": "PASS", "cell_id": payload.get("cell_id")}))
     _write(path, script)
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
     return path
+
+
+def _write_baseline_matrix(
+    output: Path,
+    plan: dict,
+    *,
+    identity_overrides: dict | None = None,
+) -> Path:
+    baseline_plan = json.loads(json.dumps(plan))
+    cell = baseline_plan["cells"][0]
+    cell.update(identity_overrides or {})
+    _write_json(output / "matrix-plan.json", baseline_plan)
+    cell_dir = output / "cells" / cell["cell_id"]
+    player_view = _write(
+        cell_dir / "player-view.jsonl",
+        json.dumps(
+            {
+                "schema_version": 1,
+                "view": "player",
+                "turn_number": 1,
+                "player_text": "我检查门锁。",
+                "narration": "旧版公开叙事。",
+                "keeper_secret": "must-not-reach-judge",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    manifest = _write_json(
+        cell_dir / "run-manifest.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "cell_id": cell["cell_id"],
+            "status": "PASS",
+            "evidence_eligible": True,
+            "artifact_hashes": {"player-view.jsonl": _sha256(player_view)},
+        },
+    )
+    _write_json(
+        output / "matrix-results.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "cells": [
+                {
+                    "cell_id": cell["cell_id"],
+                    "status": "PASS",
+                    "artifact_hashes": {"run-manifest.json": _sha256(manifest)},
+                }
+            ],
+        },
+    )
+    return output
+
+
+def test_baseline_plan_contract_and_public_artifact_are_hash_bound(tmp_path: Path):
+    matrix = _load()
+    plan = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "suite": "nightly",
+        "cells": [
+            {
+                "cell_id": "careful__seed-3__nightly",
+                "persona_id": "careful_investigator",
+                "seed": 3,
+                "case_id": "nightly",
+            }
+        ],
+    }
+    baseline = _write_baseline_matrix(tmp_path / "baseline", plan)
+    root, cells, mismatches = matrix._baseline_cells(baseline, plan)
+    assert root == baseline.resolve()
+    assert set(cells) == {"careful__seed-3__nightly"}
+    assert mismatches == []
+    result_cell = json.loads(
+        (baseline / "matrix-results.json").read_text(encoding="utf-8")
+    )["cells"][0]
+    cell_dir = baseline / "cells" / "careful__seed-3__nightly"
+    turns = matrix._attested_public_cell_turns(
+        cell_dir,
+        expected_cell_id="careful__seed-3__nightly",
+        result_cell=result_cell,
+    )
+    assert turns[0]["narration"] == "旧版公开叙事。"
+
+    baseline_plan = json.loads(
+        (baseline / "matrix-plan.json").read_text(encoding="utf-8")
+    )
+    baseline_plan["suite"] = "release"
+    _write_json(baseline / "matrix-plan.json", baseline_plan)
+    _root, _cells, mismatches = matrix._baseline_cells(baseline, plan)
+    assert mismatches == ["suite"]
+
+    _write(cell_dir / "player-view.jsonl", '{"view":"player","text":"tampered"}\n')
+    with pytest.raises(ValueError, match="hash"):
+        matrix._attested_public_cell_turns(
+            cell_dir,
+            expected_cell_id="careful__seed-3__nightly",
+            result_cell=result_cell,
+        )
 
 
 def test_manifest_declares_matrix_config_without_claiming_capability():
@@ -276,6 +400,7 @@ def test_build_matrix_plan_expands_personas_seeds_cases_deterministically():
         assert isinstance(cell["prompt_hashes"], dict) and cell["prompt_hashes"]
         assert isinstance(cell["runner_hashes"], dict)
         assert "initial_state_sha256" in cell
+        assert len(cell["scenario_sha256"]) == 64
         assert cell["status"] in {"READY", "NOT_RUN"}
         if cell["status"] == "NOT_RUN":
             assert cell["not_run_reasons"]
@@ -888,7 +1013,9 @@ def test_execute_matrix_rejects_cell_directory_escape(tmp_path: Path, attack: st
     assert not (escaped / "run-manifest.json").exists()
 
 
-def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(tmp_path: Path):
+def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(
+    tmp_path: Path, monkeypatch
+):
     matrix = _load()
     runner = _fake_runner_script(tmp_path / "fake_runner.py")
     scenario = _write_json(tmp_path / "scenario.json", {"scene_id": "s1"})
@@ -919,8 +1046,32 @@ def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(tmp_path: Path):
         credential_env={},
     )
     assert plan["cells"][0]["status"] == "READY"
+    baseline = _write_baseline_matrix(tmp_path / "baseline", plan)
+    observed = {}
+
+    def fake_judge(request, rubric, **kwargs):
+        observed["request"] = request
+        observed["kwargs"] = kwargs
+        return {
+            "evaluator": {"provider": "coding-relay", "id": "gpt-5.6-sol"},
+            "request_sha256": request["request_sha256"],
+            "winner": "B",
+            "dimension_scores": {
+                rubric["dimensions"][0]["dimension_id"]: 4,
+            },
+            "findings": [],
+            "reasons": ["The public turns support side B."],
+        }
+
+    monkeypatch.setattr(matrix.secrets, "randbits", lambda bits: 987654321)
+    monkeypatch.setattr(matrix.judge, "invoke_sol_judge", fake_judge)
     out = tmp_path / "matrix-out"
-    results = matrix.execute_matrix_plan(plan, root=REPO, output=out)
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=out,
+        baseline_dir=baseline,
+    )
     assert results["schema_version"] == 1
     assert results["cells"][0]["status"] == "PASS"
     assert (out / "matrix-plan.json").is_file()
@@ -929,6 +1080,20 @@ def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(tmp_path: Path):
     cell_dir = out / "cells" / results["cells"][0]["cell_id"]
     assert (cell_dir / "run-manifest.json").is_file()
     assert (cell_dir / "judge-request.json").is_file()
+    assert (cell_dir / "judge-result.json").is_file()
+    public_payload = json.dumps(observed["request"], ensure_ascii=False)
+    assert "旧版公开叙事" in public_payload
+    assert "新版公开叙事" in public_payload
+    assert "fixture-a" not in public_payload
+    assert "fixture-b" not in public_payload
+    assert "keeper_secret" not in public_payload
+    assert "must-not-reach-judge" not in public_payload
+    assert "seed" not in observed["request"]
+    assert observed["request"]["public_context"]["seed"] == 3
+    assert results["cells"][0]["judge_result"]["evaluator"] == {
+        "provider": "coding-relay",
+        "id": "gpt-5.6-sol",
+    }
     cell_input = json.loads((cell_dir / "cell-input.json").read_text(encoding="utf-8"))
     assert cell_input["prompt_sources"] == {
         "player": str(runner),
@@ -936,6 +1101,237 @@ def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(tmp_path: Path):
     }
     plan_hash = results["artifact_hashes"]["matrix-plan.json"]
     assert plan_hash == _sha256(out / "matrix-plan.json")
+
+
+def test_judged_matrix_marks_missing_baseline_not_run(tmp_path: Path, monkeypatch):
+    matrix = _load()
+    runner = _fake_runner_script(tmp_path / "fake_runner.py")
+    scenario = _write_json(tmp_path / "scenario.json", {"scene_id": "s1"})
+    state = _write_json(tmp_path / "state.json", {"public": True})
+    config = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "persona_ids": ["careful_investigator"],
+        "seeds": [3],
+        "cases": [
+            {
+                "case_id": "missing-baseline",
+                "runner": "fake",
+                "runner_path": str(runner),
+                "scenario_fixture": str(scenario),
+                "initial_state_fixture": str(state),
+                "player_model": {"provider": "fixture", "id": "player-1"},
+                "kp_model": {"provider": "fixture", "id": "kp-1"},
+                "prompt_sources": {"player": str(runner), "kp": str(runner)},
+                "judge": {"enabled": True, "rubric_id": "agency-and-fun"},
+            }
+        ],
+    }
+    plan = matrix.build_matrix_plan(
+        root=REPO,
+        suite="nightly",
+        configuration=config,
+        credential_env={},
+    )
+    monkeypatch.setattr(
+        matrix.judge,
+        "invoke_sol_judge",
+        lambda *args, **kwargs: pytest.fail("judge must not run without baseline"),
+    )
+
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "out",
+    )
+
+    cell = results["cells"][0]
+    assert cell["status"] == "NOT_RUN"
+    assert cell["not_run_reasons"] == ["missing_baseline_evidence"]
+    assert results["aggregate"]["hard_findings_override_judge"] is True
+
+    def fake_judge(request, rubric, **kwargs):
+        return {
+            "evaluator": {"provider": "coding-relay", "id": "gpt-5.6-sol"},
+            "request_sha256": request["request_sha256"],
+            "winner": "tie",
+            "dimension_scores": {
+                rubric["dimensions"][0]["dimension_id"]: 3,
+            },
+            "findings": [],
+            "reasons": ["The public turns support a tie."],
+        }
+
+    monkeypatch.setattr(matrix.judge, "invoke_sol_judge", fake_judge)
+    judged = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "judged",
+        baseline_dir=tmp_path / "out",
+    )
+    assert judged["cells"][0]["status"] == "PASS"
+    assert (tmp_path / "judged" / "cells" / cell["cell_id"] / "judge-result.json").is_file()
+
+
+def test_public_turn_loader_never_falls_back_to_unfiltered_transcript(tmp_path: Path):
+    matrix = _load()
+    cell_dir = tmp_path / "cell"
+    _write(
+        cell_dir / "transcript.jsonl",
+        json.dumps(
+            {
+                "turn": 1,
+                "role": "keeper_internal",
+                "text": "private keeper prose",
+            }
+        )
+        + "\n",
+    )
+
+    assert matrix._public_cell_turns(cell_dir) == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("player_model", {"provider": "fixture", "id": "other-player"}),
+        ("max_turns", 99),
+        ("scenario_sha256", "0" * 64),
+    ],
+)
+def test_judged_matrix_rejects_mismatched_baseline_identity(
+    tmp_path: Path, monkeypatch, field: str, value: object
+):
+    matrix = _load()
+    runner = _fake_runner_script(tmp_path / "fake_runner.py")
+    scenario = _write_json(tmp_path / "scenario.json", {"scene_id": "s1"})
+    state = _write_json(tmp_path / "state.json", {"public": True})
+    config = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "persona_ids": ["careful_investigator"],
+        "seeds": [3],
+        "cases": [
+            {
+                "case_id": "identity-mismatch",
+                "runner": "fake",
+                "runner_path": str(runner),
+                "scenario_fixture": str(scenario),
+                "initial_state_fixture": str(state),
+                "player_model": {"provider": "fixture", "id": "player-1"},
+                "kp_model": {"provider": "fixture", "id": "kp-1"},
+                "prompt_sources": {"player": str(runner), "kp": str(runner)},
+                "judge": {"enabled": True, "rubric_id": "agency-and-fun"},
+            }
+        ],
+    }
+    plan = matrix.build_matrix_plan(
+        root=REPO,
+        suite="nightly",
+        configuration=config,
+        credential_env={},
+    )
+    baseline = _write_baseline_matrix(
+        tmp_path / "baseline",
+        plan,
+        identity_overrides={field: value},
+    )
+    monkeypatch.setattr(
+        matrix.judge,
+        "invoke_sol_judge",
+        lambda *args, **kwargs: pytest.fail("judge must not run on identity mismatch"),
+    )
+
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "out",
+        baseline_dir=baseline,
+    )
+
+    cell = results["cells"][0]
+    assert cell["status"] == "NON_COMPARABLE"
+    assert cell["identity_mismatches"] == [field]
+    assert not (tmp_path / "out" / "cells" / cell["cell_id"] / "judge-result.json").exists()
+
+
+def test_hard_runner_findings_prevent_favorable_judge_override(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    runner = _write(
+        tmp_path / "ineligible_runner.py",
+        """#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+out = Path(sys.argv[2])
+out.mkdir(parents=True, exist_ok=True)
+(out / "player-view.jsonl").write_text(
+    json.dumps({"turn_number": 1, "player_text": "行动", "narration": "结果"}) + "\\n",
+    encoding="utf-8",
+)
+(out / "run-manifest.json").write_text(
+    json.dumps({
+        "status": "PASS",
+        "cell_id": payload["cell_id"],
+        "evidence_findings": ["missing_public_roll"],
+    }) + "\\n",
+    encoding="utf-8",
+)
+print(json.dumps({
+    "status": "PASS",
+    "cell_id": payload["cell_id"],
+    "evidence_findings": ["missing_public_roll"],
+}))
+""",
+    )
+    runner.chmod(runner.stat().st_mode | stat.S_IXUSR)
+    scenario = _write_json(tmp_path / "scenario.json", {"scene_id": "s1"})
+    state = _write_json(tmp_path / "state.json", {"public": True})
+    config = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "persona_ids": ["careful_investigator"],
+        "seeds": [3],
+        "cases": [
+            {
+                "case_id": "hard-finding",
+                "runner": "fake",
+                "runner_path": str(runner),
+                "scenario_fixture": str(scenario),
+                "initial_state_fixture": str(state),
+                "player_model": {"provider": "fixture", "id": "player-1"},
+                "kp_model": {"provider": "fixture", "id": "kp-1"},
+                "prompt_sources": {"player": str(runner), "kp": str(runner)},
+                "judge": {"enabled": True, "rubric_id": "agency-and-fun"},
+            }
+        ],
+    }
+    plan = matrix.build_matrix_plan(
+        root=REPO,
+        suite="nightly",
+        configuration=config,
+        credential_env={},
+    )
+    baseline = _write_baseline_matrix(tmp_path / "baseline", plan)
+    monkeypatch.setattr(
+        matrix.judge,
+        "invoke_sol_judge",
+        lambda *args, **kwargs: pytest.fail("hard findings must prevent judging"),
+    )
+
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "out",
+        baseline_dir=baseline,
+    )
+
+    assert results["cells"][0]["status"] == "FAIL"
+    assert results["cells"][0]["hard_findings"] == ["missing_public_roll"]
+    assert results["aggregate"]["hard_findings"] == ["missing_public_roll"]
+    assert results["aggregate"]["hard_findings_override_judge"] is True
 
 
 def test_player_request_excludes_keeper_only_fields(tmp_path: Path):

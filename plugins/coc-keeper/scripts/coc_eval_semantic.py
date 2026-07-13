@@ -218,6 +218,53 @@ def _public_turn(turn: dict[str, Any]) -> dict[str, Any]:
     return public
 
 
+def extract_public_turns(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalize structured player-visible rows through a strict field allowlist."""
+    if not isinstance(rows, list):
+        raise ValueError("public transcript rows must be a list")
+    turns: list[dict[str, Any]] = []
+    used_ids: dict[str, int] = {}
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"public transcript row[{index}] must be an object")
+        if row.get("view") != "player":
+            raise ValueError(
+                f"public transcript row[{index}] must be a player-view row"
+            )
+        raw_id = row.get("turn_id")
+        if raw_id is None:
+            raw_id = row.get("turn_number", row.get("turn", index + 1))
+        base_id = str(raw_id).strip()
+        if not base_id:
+            raise ValueError(f"public transcript row[{index}] missing turn identity")
+        if not base_id.startswith("t"):
+            base_id = f"t{base_id}"
+        occurrence = used_ids.get(base_id, 0) + 1
+        used_ids[base_id] = occurrence
+        turn_id = base_id if occurrence == 1 else f"{base_id}-{occurrence}"
+
+        public: dict[str, Any] = {"turn_id": turn_id}
+        text = row.get("text")
+        if text is None:
+            text = row.get("player_text")
+        if text is not None:
+            if not isinstance(text, str):
+                raise ValueError(f"public transcript row[{index}].text must be a string")
+            public["text"] = text
+        for key in ("narration", "role", "speaker"):
+            value = row.get(key)
+            if value is not None:
+                if not isinstance(value, str):
+                    raise ValueError(
+                        f"public transcript row[{index}].{key} must be a string"
+                    )
+                public[key] = value
+        if not public.get("text") and not public.get("narration"):
+            continue
+        turns.append(_public_turn(public))
+    return turns
+
+
 def build_blind_pair_request(
     *,
     pair_id: str,
@@ -271,7 +318,6 @@ def build_blind_pair_request(
         "rubric_id": rubric_id,
         "rubric_version": rubric_version,
         "sides": sides,
-        "seed": seed,
     }
     request = dict(request_body)
     request["request_sha256"] = canonical_sha256(request_body)
@@ -324,6 +370,9 @@ def validate_judge_result(
             raise ValueError(f"score out of range for {dimension_id}")
 
     allowed_turns = {str(item) for item in request.get("turn_ids") or []}
+    request_sides = request.get("sides")
+    if not isinstance(request_sides, dict):
+        raise ValueError("request.sides required")
     allowed_labels = set(rubric["finding_codes"])
     findings = result.get("findings")
     if findings is None:
@@ -337,14 +386,42 @@ def validate_judge_result(
         if label not in allowed_labels:
             raise ValueError(f"unknown finding label: {label}")
         turn_id = finding.get("turn_id")
-        if turn_id is not None and turn_id not in allowed_turns:
+        if not isinstance(turn_id, str) or turn_id not in allowed_turns:
             raise ValueError(f"unknown evidence turn_id: {turn_id}")
         side = finding.get("side")
-        if side is not None and side not in {"A", "B"}:
+        if side not in {"A", "B"}:
             raise ValueError(f"findings[{index}].side must be A or B")
         reason = finding.get("reason")
-        if reason is not None and (not isinstance(reason, str) or not reason.strip()):
-            raise ValueError(f"findings[{index}].reason must be non-empty when present")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(f"findings[{index}].reason evidence required")
+        evidence_span = finding.get("evidence_span")
+        if not isinstance(evidence_span, dict):
+            raise ValueError(f"findings[{index}].evidence_span required")
+        start = evidence_span.get("start")
+        end = evidence_span.get("end")
+        if (
+            type(start) is not int
+            or type(end) is not int
+            or start < 0
+            or end <= start
+        ):
+            raise ValueError(f"findings[{index}].evidence_span invalid")
+        side_turns = request_sides.get(str(side))
+        matching_turn = next(
+            (
+                item
+                for item in side_turns or []
+                if isinstance(item, dict) and item.get("turn_id") == turn_id
+            ),
+            None,
+        )
+        if matching_turn is None:
+            raise ValueError(f"findings[{index}] evidence turn absent from side")
+        evidence_text = "\n".join(
+            str(matching_turn.get(key) or "") for key in ("text", "narration")
+        ).strip()
+        if end > len(evidence_text):
+            raise ValueError(f"findings[{index}].evidence_span out of bounds")
 
     reasons = result.get("reasons")
     if not isinstance(reasons, list) or not reasons:
