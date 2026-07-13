@@ -417,10 +417,15 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
                         "schema_version": 1,
                         "segment_invocation_id": invocation_id,
                         "segment_turn": segment_turn,
+                        "continuity_turn": binding["turn_number"],
                         "decision_id": binding["decision_id"],
                         "role": role,
                         "attempt": segment_turn,
-                        "transcript_turn": binding["turn_number"],
+                        "transcript_turn": (
+                            segment_turn * 2 - 1
+                            if role == "player"
+                            else segment_turn * 2
+                        ),
                         "runner_kind": runner["kind"],
                         "runner_identity": runner["identity"],
                         "runner_path": str(REPO / runner["path"]),
@@ -1402,7 +1407,7 @@ def test_validate_continuity_requires_exact_role_turn_ledger_coverage(
     target = next(
         row
         for row in rows
-        if row["role"] == "player" and row["transcript_turn"] == 2
+        if row["role"] == "player" and row["continuity_turn"] == 2
     )
     if mutation == "missing":
         rows.remove(target)
@@ -1414,6 +1419,7 @@ def test_validate_continuity_requires_exact_role_turn_ledger_coverage(
             {
                 "attempt": 999,
                 "segment_turn": 999,
+                "continuity_turn": 999,
                 "transcript_turn": 999,
                 "decision_id": "decision-extra",
             }
@@ -1455,9 +1461,9 @@ def test_validate_continuity_rejects_bool_or_float_ledger_turn_binding(
     target = next(
         row
         for row in rows
-        if row["role"] == "player" and row["transcript_turn"] == 1
+        if row["role"] == "player" and row["continuity_turn"] == 1
     )
-    target["transcript_turn"] = invalid_turn
+    target["continuity_turn"] = invalid_turn
     target["segment_turn"] = invalid_turn
     ledger.write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
@@ -1952,10 +1958,15 @@ def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
                     "schema_version": 1,
                     "segment_invocation_id": invocation_id,
                     "segment_turn": segment_turn,
+                    "continuity_turn": binding["turn_number"],
                     "decision_id": binding["decision_id"],
                     "role": role,
                     "attempt": segment_turn,
-                    "transcript_turn": binding["turn_number"],
+                    "transcript_turn": (
+                        segment_turn * 2 - 1
+                        if role == "player"
+                        else segment_turn * 2
+                    ),
                     "runner_kind": "external_model_bridge",
                     "runner_identity": trusted["identity"],
                     "runner_path": str(runner),

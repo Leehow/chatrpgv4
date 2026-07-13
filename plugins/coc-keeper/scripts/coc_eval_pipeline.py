@@ -249,6 +249,18 @@ def _continuity_lane(root: Path, lane_id: str) -> dict[str, Any]:
     raise ValueError(f"continuity lane missing: {lane_id}")
 
 
+def _continuity_execution_budget(
+    root: Path, lane_id: str, override: float | None
+) -> float:
+    if override is not None:
+        return _positive_number(override, label="continuity_timeout")
+    lane = _continuity_lane(root, lane_id)
+    return _positive_number(
+        lane.get("timeout_seconds"),
+        label=f"{lane_id}.timeout_seconds",
+    )
+
+
 def _safe_execution_directory(
     value: Path | str,
     *,
@@ -314,11 +326,20 @@ def run_continuity(
             exit_code = 0
         except BaseException as exc:
             try:
+                message = " ".join(str(exc).split())[:500]
                 _write_json_atomic(
                     sidecar,
                     {
                         "ok": False,
-                        "error_type": type(exc).__name__,
+                        "error_type": (
+                            "ValueError"
+                            if isinstance(exc, ValueError)
+                            else type(exc).__name__
+                        ),
+                        "error_code": str(
+                            getattr(exc, "code", "continuity_contract_error")
+                        ),
+                        "error_message": message,
                     },
                 )
             except BaseException:
@@ -368,7 +389,22 @@ def run_continuity(
                 else "RuntimeError"
             )
             if error_type == "ValueError":
-                raise ValueError(f"continuity lane failed: {lane_id}")
+                error_code = str(
+                    payload.get("error_code") or "continuity_contract_error"
+                )
+                error_message = str(payload.get("error_message") or "")
+                return {
+                    "schema_version": 1,
+                    "eval_spec": EVAL_SPEC,
+                    "lane_id": lane_id,
+                    "status": "FAIL",
+                    "findings": ["lane_contract_error"],
+                    "failure": {
+                        "error_type": error_type,
+                        "error_code": error_code,
+                        "message": error_message,
+                    },
+                }
             raise RuntimeError(f"continuity lane failed: {lane_id}")
         return dict(payload["result"])
     finally:
@@ -1168,11 +1204,14 @@ def run_extended_suite(
     baseline: Path | str | None = None,
     matrix_limit: int | None = None,
     timeout: float = 120.0,
+    continuity_timeout: float | None = None,
 ) -> dict[str, Any]:
     """Run nightly's registered, matrix, and continuity lanes under one run."""
     if suite != "nightly":
         raise ValueError(f"extended suite is not implemented for: {suite}")
     _positive_number(timeout, label="timeout")
+    if continuity_timeout is not None:
+        _positive_number(continuity_timeout, label="continuity_timeout")
     if matrix_limit is not None and (
         isinstance(matrix_limit, bool)
         or not isinstance(matrix_limit, int)
@@ -1219,6 +1258,12 @@ def run_extended_suite(
             matrix_diagnostic["matrix_limit"] = matrix_limit
             lanes["matrix"]["diagnostic"] = matrix_diagnostic
         lane_artifacts["matrix"] = _persist_lane(out, "matrix", lanes["matrix"])
+        continuity_budgets = {
+            lane_id: _continuity_execution_budget(
+                repo, lane_id, continuity_timeout
+            )
+            for lane_id in CONTINUITY_LANES
+        }
         for lane_id in CONTINUITY_LANES:
             lane_output = _safe_lane_root(out, lane_id, create=True)
             lanes[lane_id] = _call_lane(
@@ -1227,8 +1272,11 @@ def run_extended_suite(
                 root=repo,
                 output=lane_output,
                 workspace=workspace_roots[lane_id],
-                timeout=timeout,
+                timeout=continuity_budgets[lane_id],
             )
+            lanes[lane_id]["execution_budget_seconds"] = continuity_budgets[
+                lane_id
+            ]
             lane_artifacts[lane_id] = _persist_lane(out, lane_id, lanes[lane_id])
         continuity_results = {
             lane_id: lanes[lane_id] for lane_id in CONTINUITY_LANES
@@ -1264,10 +1312,20 @@ def run_extended_suite(
     artifact_hashes[summary_path.relative_to(out).as_posix()] = _sha256_file(
         summary_path
     )
+    execution_budgets = {
+        "matrix_seconds": float(timeout),
+        **{
+            f"{lane_id}_seconds": _continuity_execution_budget(
+                repo, lane_id, continuity_timeout
+            )
+            for lane_id in CONTINUITY_LANES
+        },
+    }
     return {
         **summary,
         "aggregation_inputs": aggregation_inputs,
         "lanes": lanes,
         "lane_artifacts": lane_artifacts,
         "artifact_hashes": artifact_hashes,
+        "execution_budgets": execution_budgets,
     }

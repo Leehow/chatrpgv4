@@ -62,6 +62,23 @@ python3 ../../scripts/coc_eval.py report <candidate-dir>
 python3 ../../scripts/coc_eval.py verify <candidate-dir>
 ```
 
+The first run is an intentional baseline capture. Because no comparison source
+exists yet, its matrix cells and aggregate nightly status remain `NOT_RUN` with
+`missing_baseline_evidence`; that result is not a failed model call and must not
+be presented as a passing nightly. Only the second run, supplied with
+`--baseline <baseline-dir>`, can produce a compared nightly `PASS`.
+
+`--timeout` controls each matrix runner and semantic-judge call. Continuity uses
+versioned total lane budgets from `evaluation/spec/v1/cases/long-memory.json`
+(900 seconds for `continuity-25`, 1800 seconds for `continuity-50`). Use
+`--continuity-timeout <seconds>` only when an operator deliberately needs to
+override both continuity lane budgets without changing matrix/judge timeouts.
+
+Each real matrix cell and continuity segment compiles and verifies its canonical
+report before the lane receipt is sealed. On a nightly suite directory,
+`report` and `verify` traverse those declared child reports; they do not treat
+the suite root as if it were a single playtest directory.
+
 ### Release external inputs
 
 Release stays `NOT_RUN` until chapter evidence, a bound holdout bundle, and

@@ -723,14 +723,17 @@ def _invocation_ledger_contract_ok(
             continue
         runner = trusted[role]
         transcript_turn = row.get("transcript_turn")
+        continuity_turn = row.get("continuity_turn")
         segment_turn = row.get("segment_turn")
         decision_id = row.get("decision_id")
-        turn_fields_valid = _positive_int(transcript_turn) and _positive_int(
-            segment_turn
+        turn_fields_valid = (
+            _positive_int(transcript_turn)
+            and _positive_int(continuity_turn)
+            and _positive_int(segment_turn)
         )
         if turn_fields_valid:
             coverage_by_role[role][
-                (transcript_turn, decision_id, segment_turn)
+                (continuity_turn, decision_id, segment_turn)
             ] += 1
         else:
             reasons.append(f"turn_field_type:{role}")

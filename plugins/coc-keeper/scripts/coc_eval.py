@@ -198,16 +198,251 @@ def _aggregate_contract_findings(
     return findings
 
 
+def _safe_suite_child_directory(
+    directory: Path,
+    relative: Path,
+    *,
+    label: str,
+) -> tuple[Path | None, dict[str, Any] | None]:
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        return None, {"code": "suite_report_path_unsafe", "report_id": label}
+    candidate = directory / relative
+    current = candidate
+    while current != directory:
+        if current.is_symlink():
+            return None, {
+                "code": "suite_report_path_unsafe",
+                "report_id": label,
+            }
+        current = current.parent
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(directory)
+    except ValueError:
+        return None, {"code": "suite_report_path_unsafe", "report_id": label}
+    if not resolved.is_dir():
+        return None, {"code": "suite_report_run_missing", "report_id": label}
+    return resolved, None
+
+
+def _read_object(path: Path) -> dict[str, Any] | None:
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _nightly_report_runs(
+    directory: Path, manifest: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    lanes = manifest.get("lanes")
+    if not isinstance(lanes, dict):
+        return [], [{"code": "suite_report_lanes_missing"}]
+    reports: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+
+    matrix_lane = lanes.get("matrix")
+    if isinstance(matrix_lane, dict):
+        cells = matrix_lane.get("cells")
+        if not isinstance(cells, list):
+            if matrix_lane.get("status") in {"PASS", "INELIGIBLE"}:
+                findings.append({"code": "matrix_report_cells_missing"})
+        else:
+            for cell in cells:
+                if not isinstance(cell, dict):
+                    findings.append({"code": "matrix_report_cell_malformed"})
+                    continue
+                cell_id = cell.get("cell_id")
+                if (
+                    not isinstance(cell_id, str)
+                    or not cell_id
+                    or Path(cell_id).name != cell_id
+                ):
+                    findings.append({"code": "matrix_report_cell_malformed"})
+                    continue
+                report_id = f"matrix:{cell_id}"
+                cell_relative = Path("lanes") / "matrix" / "cells" / cell_id
+                cell_dir, finding = _safe_suite_child_directory(
+                    directory, cell_relative, label=report_id
+                )
+                if finding is not None:
+                    findings.append(finding)
+                    continue
+                assert cell_dir is not None
+                cell_manifest = _read_object(cell_dir / "run-manifest.json")
+                if cell_manifest is None:
+                    findings.append(
+                        {"code": "matrix_report_manifest_missing", "report_id": report_id}
+                    )
+                    continue
+                canonical = cell_manifest.get("canonical_run_dir")
+                runner_result = cell.get("runner_result")
+                executed = isinstance(runner_result, dict) and runner_result.get(
+                    "status"
+                ) in {"PASS", "INELIGIBLE"}
+                if not isinstance(canonical, str) or not canonical:
+                    if executed:
+                        findings.append(
+                            {
+                                "code": "canonical_report_run_not_declared",
+                                "report_id": report_id,
+                            }
+                        )
+                    continue
+                run_relative = cell_relative / canonical
+                run_dir, finding = _safe_suite_child_directory(
+                    directory, run_relative, label=report_id
+                )
+                if finding is not None:
+                    findings.append(finding)
+                    continue
+                reports.append(
+                    {
+                        "report_id": report_id,
+                        "kind": "matrix_cell",
+                        "run_dir": run_dir,
+                    }
+                )
+
+    for lane_id in ("continuity-25", "continuity-50"):
+        lane = lanes.get(lane_id)
+        if not isinstance(lane, dict):
+            continue
+        segments = lane.get("segments")
+        if not isinstance(segments, list):
+            if lane.get("status") in {"PASS", "INELIGIBLE"}:
+                findings.append(
+                    {"code": "continuity_report_segments_missing", "lane_id": lane_id}
+                )
+            continue
+        for index, segment in enumerate(segments, 1):
+            report_id = f"{lane_id}:segment-{index}"
+            receipt = segment.get("receipt") if isinstance(segment, dict) else None
+            artifact = receipt.get("artifact") if isinstance(receipt, dict) else None
+            if not isinstance(artifact, str) or not artifact:
+                findings.append(
+                    {"code": "continuity_report_receipt_missing", "report_id": report_id}
+                )
+                continue
+            receipt_relative = Path(artifact)
+            if receipt_relative.name != "continuity-segment.json":
+                findings.append(
+                    {"code": "continuity_report_receipt_unsafe", "report_id": report_id}
+                )
+                continue
+            run_relative = Path("lanes") / lane_id / receipt_relative.parent
+            run_dir, finding = _safe_suite_child_directory(
+                directory, run_relative, label=report_id
+            )
+            if finding is not None:
+                findings.append(finding)
+                continue
+            reports.append(
+                {
+                    "report_id": report_id,
+                    "kind": "continuity_segment",
+                    "run_dir": run_dir,
+                }
+            )
+
+    unique: dict[Path, dict[str, Any]] = {}
+    for report in reports:
+        unique.setdefault(Path(report["run_dir"]), report)
+    return list(unique.values()), findings
+
+
+def _verify_suite_report_contract(
+    directory: Path, manifest: dict[str, Any]
+) -> dict[str, Any]:
+    report_runs, findings = _nightly_report_runs(directory, manifest)
+    reports: list[dict[str, Any]] = []
+    for item in report_runs:
+        run_dir = Path(item["run_dir"])
+        result = contract.verify_report_contract(run_dir)
+        entry = {
+            "report_id": item["report_id"],
+            "kind": item["kind"],
+            "run_dir": run_dir.relative_to(directory).as_posix(),
+            **dict(result),
+        }
+        for key in (
+            "report_path",
+            "evaluation_report_path",
+            "report_completeness_path",
+        ):
+            value = entry.get(key)
+            if value in (None, ""):
+                continue
+            path = Path(str(value)).resolve()
+            try:
+                entry[key] = path.relative_to(directory).as_posix()
+            except ValueError:
+                findings.append(
+                    {
+                        "code": "suite_report_artifact_escaped",
+                        "report_id": item["report_id"],
+                        "field": key,
+                    }
+                )
+                entry[key] = None
+        reports.append(entry)
+
+    statuses = [str(report.get("status") or "FAIL") for report in reports]
+    if findings or "FAIL" in statuses:
+        status = "FAIL"
+    elif "INELIGIBLE" in statuses:
+        status = "INELIGIBLE"
+    elif reports and all(value == "PASS" for value in statuses):
+        status = "PASS"
+    else:
+        status = "NOT_RUN"
+    verification = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "suite": "nightly",
+        "status": status,
+        "mode": "verify",
+        "report_count": len(reports),
+        "reports": reports,
+        "findings": findings,
+    }
+    return {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "report_scope": "suite",
+        "status": status,
+        "suite_report_verification": verification,
+    }
+
+
+def report_run_contract(run_dir: Path | str) -> dict[str, Any]:
+    """Compile one playtest report or verify declared nightly child reports."""
+    directory = Path(run_dir).resolve()
+    manifest_path = directory / "run-manifest.json"
+    manifest = _read_object(manifest_path)
+    if manifest_path.is_file() and manifest is None:
+        raise ValueError("run manifest unreadable")
+    if isinstance(manifest, dict) and manifest.get("suite") == "nightly":
+        # Nightly child reports are compiled before lane hashes are sealed.  A
+        # post-run report command verifies those children without regenerating
+        # narrative artifacts behind the signed lane receipts.
+        return _verify_suite_report_contract(directory, manifest)
+    return dict(contract.compile_report_contract(directory, generate_base_report=True))
+
+
 def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
     """Verify the report contract plus any aggregate nightly lane receipts."""
     directory = Path(run_dir).resolve()
-    payload = dict(contract.verify_report_contract(directory))
     manifest_path = directory / "run-manifest.json"
     if not manifest_path.is_file():
-        return payload
+        return dict(contract.verify_report_contract(directory))
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        payload = dict(contract.verify_report_contract(directory))
         payload["status"] = "FAIL"
         payload["lane_artifact_verification"] = {
             "schema_version": 1,
@@ -217,6 +452,7 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
         }
         return payload
     if not isinstance(manifest, dict):
+        payload = dict(contract.verify_report_contract(directory))
         payload["status"] = "FAIL"
         payload["lane_artifact_verification"] = {
             "schema_version": 1,
@@ -225,6 +461,11 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
             "findings": [{"code": "run_manifest_malformed"}],
         }
         return payload
+    payload = (
+        _verify_suite_report_contract(directory, manifest)
+        if manifest.get("suite") == "nightly"
+        else dict(contract.verify_report_contract(directory))
+    )
     lane_artifacts = (
         manifest.get("lane_artifacts") if isinstance(manifest, dict) else None
     )
@@ -484,6 +725,7 @@ def run_suite(
     baseline: Path | None = None,
     matrix_limit: int | None = None,
     timeout: float = 120.0,
+    continuity_timeout: float | None = None,
     chapter_run: Path | None = None,
     holdout_bundle: Path | None = None,
     calibration_reviews: Path | None = None,
@@ -582,6 +824,7 @@ def run_suite(
                 baseline=baseline,
                 matrix_limit=matrix_limit,
                 timeout=timeout,
+                continuity_timeout=continuity_timeout,
             )
             status = str(extended["status"])
             artifact_hashes.update(
@@ -608,6 +851,7 @@ def run_suite(
                     "aggregation_inputs": extended["aggregation_inputs"],
                     "not_run_reasons": extended["not_run_reasons"],
                     "diagnostic": extended["diagnostic"],
+                    "execution_budgets": extended["execution_budgets"],
                 }
             )
         run_manifest.update(
@@ -671,6 +915,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--baseline", type=Path)
     run.add_argument("--matrix-limit", type=_positive_int)
     run.add_argument("--timeout", type=_positive_float, default=120.0)
+    run.add_argument(
+        "--continuity-timeout",
+        type=_positive_float,
+        help=(
+            "nightly only: override each continuity lane's versioned total "
+            "execution budget"
+        ),
+    )
     run.add_argument(
         "--chapter-run",
         type=Path,
@@ -786,14 +1038,13 @@ def main(argv: list[str] | None = None) -> int:
                 baseline=args.baseline,
                 matrix_limit=args.matrix_limit,
                 timeout=args.timeout,
+                continuity_timeout=args.continuity_timeout,
                 chapter_run=getattr(args, "chapter_run", None),
                 holdout_bundle=getattr(args, "holdout_bundle", None),
                 calibration_reviews=getattr(args, "calibration_reviews", None),
             )
         elif args.command == "report":
-            payload = contract.compile_report_contract(
-                args.run_dir, generate_base_report=True
-            )
+            payload = report_run_contract(args.run_dir)
         elif args.command == "verify":
             payload = verify_run_contract(args.run_dir)
         elif args.command == "compare":

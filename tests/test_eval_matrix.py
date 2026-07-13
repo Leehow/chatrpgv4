@@ -108,7 +108,7 @@ def _write_attested_live_artifacts(
             "schema_version": 1,
             "role": "player",
             "attempt": attempt,
-            "transcript_turn": turn,
+            "transcript_turn": attempt * 2 - 1,
             "runner_kind": "external_model_bridge",
             "runner_identity": "coc-runtime-player-adapter@0.79.9",
             "runner_path": str(player_path),
@@ -122,7 +122,7 @@ def _write_attested_live_artifacts(
             "schema_version": 1,
             "role": "narrator",
             "attempt": attempt,
-            "transcript_turn": turn,
+            "transcript_turn": attempt * 2,
             "runner_kind": "external_model_bridge",
             "runner_identity": "coc-runtime-narrator-adapter@0.79.9",
             "runner_path": str(narrator_path),
@@ -140,32 +140,69 @@ def _write_attested_live_artifacts(
         ledger,
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
     )
-    evidence = {
-        "eligible_as_gameplay_evidence": True,
-        "evidence_reasons": [],
-        "artifacts": {
-            "invocation_ledger": {
-                "path": "runner-invocations.jsonl",
-                "sha256": _sha256(ledger),
-            }
+    transcript_rows = []
+    for attempt, _turn in enumerate(turns, 1):
+        transcript_rows.extend(
+            [
+                {
+                    "turn": attempt * 2 - 1,
+                    "role": "player_simulator",
+                    "text": "fixture player turn",
+                },
+                {
+                    "turn": attempt * 2,
+                    "role": "keeper_under_test",
+                    "text": "fixture keeper turn",
+                },
+            ]
+        )
+    _write(
+        run_dir / "transcript.jsonl",
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+            for row in transcript_rows
+        ),
+    )
+    log_dir = run_dir / "sandbox/.coc/campaigns/eval-neutral/logs"
+    event_paths = []
+    for name in ("events.jsonl", "live-turn-runtime.jsonl", "rolls.jsonl"):
+        path = _write(log_dir / name, "")
+        event_paths.append(path.relative_to(run_dir).as_posix())
+    report = run_dir / "artifacts/battle-report.md"
+    if not report.is_file():
+        root_report = run_dir / "battle-report.md"
+        _write(
+            report,
+            root_report.read_text(encoding="utf-8")
+            if root_report.is_file()
+            else "# Battle Report\n\nFixture actual-play report.\n",
+        )
+    _write_json(
+        run_dir / "playtest.json",
+        {
+            "schema_version": 1,
+            "run_id": run_dir.name,
+            "campaign_id": "eval-neutral",
+            "play_language": "en",
         },
-    }
+    )
+    evidence = runner.live_match.playtest_evidence.build_evidence_receipt(
+        run_dir,
+        {
+            "started_at": "2026-07-13T00:00:00Z",
+            "ended_at": "2026-07-13T00:01:00Z",
+            "user_claimed_live": True,
+            "transcript_path": "transcript.jsonl",
+            "invocation_ledger_path": "runner-invocations.jsonl",
+            "event_log_paths": event_paths,
+        },
+    )
+    runner.live_match.playtest_evidence.write_evidence_receipt(run_dir, evidence)
     if include_runners:
-        evidence["runners"] = {
-            "player": {
-                "kind": "external_model_bridge",
-                "identity": "coc-runtime-player-adapter@0.79.9",
-                "sha256": _sha256(player_path),
-                "model_identities": [player_model],
-            },
-            "narrator": {
-                "kind": "external_model_bridge",
-                "identity": "coc-runtime-narrator-adapter@0.79.9",
-                "sha256": _sha256(narrator_path),
-                "model_identities": [kp_model],
-            },
-        }
-    return evidence
+        return evidence
+    without_runners = json.loads(json.dumps(evidence))
+    without_runners.pop("runners", None)
+    return without_runners
 
 
 def _canonical_prompt_contract() -> dict:
@@ -984,6 +1021,8 @@ def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeyp
 
     assert result["status"] == "PASS"
     assert result["evidence_eligible"] is True
+    assert result["report_contract"]["status"] == "PASS"
+    assert result["report_contract"]["report_completeness"]["passed"] is True
     assert set(result["artifact_hashes"]) == {
         "battle-report.md",
         "evidence.json",
@@ -991,6 +1030,12 @@ def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeyp
         "player-view.jsonl",
         "keeper-view.jsonl",
         "runner-invocations.jsonl",
+        "playtest/artifacts/battle-report.md",
+        "playtest/artifacts/evaluation-report.md",
+        "playtest/artifacts/report-completeness.json",
+        "playtest/evidence.json",
+        "playtest/transcript.jsonl",
+        "playtest/runner-invocations.jsonl",
     }
     assert all(len(value) == 64 for value in result["artifact_hashes"].values())
     assert observed["args"][1:] == ("eval-neutral", "inv1")
@@ -1016,6 +1061,40 @@ def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeyp
         "battle-report.md",
     ):
         assert (cell_dir / name).is_file(), name
+
+
+def test_live_cell_report_completeness_failure_is_a_hard_finding(
+    tmp_path, monkeypatch
+):
+    runner = _load_live_cell()
+    monkeypatch.setattr(
+        runner.live_match,
+        "run_live_match",
+        lambda *args, **kwargs: _fake_attested_match(
+            runner, Path(kwargs["run_dir"])
+        ),
+    )
+    compile_report = runner.report_contract.compile_report_contract
+
+    def fail_completeness(*args, **kwargs):
+        payload = compile_report(*args, **kwargs)
+        payload["status"] = "FAIL"
+        payload["report_completeness"]["passed"] = False
+        return payload
+
+    monkeypatch.setattr(
+        runner.report_contract,
+        "compile_report_contract",
+        fail_completeness,
+    )
+
+    result = runner.run_live_cell(
+        _canonical_live_cell_input(), tmp_path / "cell", env={}
+    )
+
+    assert result["status"] == "FAIL"
+    assert result["hard_findings"] == ["report_contract_failed"]
+    assert result["report_contract"]["report_completeness"]["passed"] is False
 
 
 def test_live_segment_returns_exact_canonical_turns_and_attestation(
@@ -1065,7 +1144,7 @@ def test_live_segment_returns_exact_canonical_turns_and_attestation(
         return {
             "run_dir": str(run_dir),
             "turns": [
-                {"turn_number": turn, "decision_id": f"decision-{turn}"}
+                {"turn": turn, "decision_id": f"decision-{turn}"}
                 for turn in (1, 2)
             ],
             "player_turns": [{"player_text": "fixture"}] * 2,
@@ -1136,12 +1215,13 @@ def test_live_segment_returns_exact_canonical_turns_and_attestation(
         if line.strip()
     ]
     assert Counter((row["role"], row["transcript_turn"]) for row in ledger_rows) == Counter(
-        (role, turn) for turn in (1, 2) for role in ("player", "narrator")
+        (("player", 1), ("narrator", 2), ("player", 3), ("narrator", 4))
     )
     assert all(
         row["segment_invocation_id"] == result["runner_invocation_id"]
-        and row["segment_turn"] == row["transcript_turn"]
-        and row["decision_id"] == f'decision-{row["transcript_turn"]}'
+        and row["continuity_turn"] in (1, 2)
+        and row["segment_turn"] == row["continuity_turn"]
+        and row["decision_id"] == f'decision-{row["continuity_turn"]}'
         for row in ledger_rows
     )
     assert result["turn_bindings"] == [
@@ -1149,6 +1229,10 @@ def test_live_segment_returns_exact_canonical_turns_and_attestation(
         for turn in (1, 2)
     ]
     assert result["evidence_class"] == "external"
+    assert result["report_contract"]["status"] == "PASS"
+    assert result["artifacts"]["report_completeness"]["sha256"] == _sha256(
+        tmp_path / "segment-1" / "artifacts/report-completeness.json"
+    )
     assert result["artifacts"]["invocation_ledger"]["sha256"] == _sha256(
         tmp_path / "segment-1" / "runner-invocations.jsonl"
     )
@@ -1492,9 +1576,11 @@ def test_live_cell_runner_uses_canonical_nested_report_path(tmp_path, monkeypatc
     result = runner.run_live_cell(cell_input, tmp_path / "cell", env={})
 
     assert result["status"] == "PASS"
-    assert (tmp_path / "cell" / "battle-report.md").read_text(
+    rendered = (tmp_path / "cell" / "battle-report.md").read_text(
         encoding="utf-8"
-    ) == "# nested fixture\n"
+    )
+    assert "# nested fixture" in rendered
+    assert "<!-- report-schema-version: 2 -->" in rendered
 
 
 def test_live_cell_rejects_compatibility_eligible_flag(tmp_path, monkeypatch):
@@ -1504,6 +1590,7 @@ def test_live_cell_rejects_compatibility_eligible_flag(tmp_path, monkeypatch):
         run_dir = Path(kwargs["run_dir"])
         run_dir.mkdir(parents=True)
         (run_dir / "battle-report.md").write_text("# fixture\n", encoding="utf-8")
+        _write_attested_live_artifacts(runner, run_dir)
         return {
             "run_dir": str(run_dir),
             "turns": [{"turn_number": 1, "narration": "门轴轻响。"}],

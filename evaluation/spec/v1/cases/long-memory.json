@@ -9,6 +9,7 @@
       "description": "Deterministic 25-turn continuity lane with mid-run restart at turn 13.",
       "turn_count": 25,
       "restart_at_turn": 13,
+      "timeout_seconds": 900,
       "evidence_file": "continuity-evidence.json",
       "requirements": {
         "turn_count": 25,
@@ -49,6 +50,7 @@
       "description": "Deterministic 50-turn continuity lane with mid-run restart at turn 27.",
       "turn_count": 50,
       "restart_at_turn": 27,
+      "timeout_seconds": 1800,
       "evidence_file": "continuity-evidence.json",
       "requirements": {
         "turn_count": 50,

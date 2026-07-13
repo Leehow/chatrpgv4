@@ -539,6 +539,86 @@ def test_canonical_verify_recomputes_lane_receipts(
     )
 
 
+def test_nightly_report_and_verify_route_to_declared_child_playtest(
+    tmp_path: Path, monkeypatch
+):
+    cli = _load_cli()
+    out = tmp_path / "nightly"
+    cell_dir = out / "lanes" / "matrix" / "cells" / "cell-1"
+    playtest = cell_dir / "playtest"
+    artifacts = playtest / "artifacts"
+    artifacts.mkdir(parents=True)
+    report_path = artifacts / "battle-report.md"
+    evaluation_path = artifacts / "evaluation-report.md"
+    completeness_path = artifacts / "report-completeness.json"
+    for path in (report_path, evaluation_path, completeness_path):
+        path.write_text("fixture\n", encoding="utf-8")
+    _write_json(
+        cell_dir / "run-manifest.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "cell_id": "cell-1",
+            "status": "PASS",
+            "canonical_run_dir": "playtest",
+        },
+    )
+    _write_json(
+        out / "run-manifest.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "suite": "nightly",
+            "status": "NOT_RUN",
+            "lanes": {
+                "matrix": {
+                    "status": "NOT_RUN",
+                    "cells": [
+                        {
+                            "cell_id": "cell-1",
+                            "status": "NOT_RUN",
+                            "runner_result": {"status": "PASS"},
+                        }
+                    ],
+                }
+            },
+        },
+    )
+    calls: list[tuple[str, Path]] = []
+
+    def report_result(mode: str, run_dir: Path) -> dict:
+        calls.append((mode, Path(run_dir)))
+        return {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "status": "PASS",
+            "report_path": str(report_path),
+            "evaluation_report_path": str(evaluation_path),
+            "report_completeness_path": str(completeness_path),
+            "report_completeness": {"passed": True},
+        }
+
+    monkeypatch.setattr(
+        cli.contract,
+        "compile_report_contract",
+        lambda run_dir, **_kwargs: report_result("compile", run_dir),
+    )
+    monkeypatch.setattr(
+        cli.contract,
+        "verify_report_contract",
+        lambda run_dir: report_result("verify", run_dir),
+    )
+
+    compiled = cli.report_run_contract(out)
+    verified = cli.verify_run_contract(out)
+
+    assert compiled["status"] == "PASS"
+    assert compiled["suite_report_verification"]["report_count"] == 1
+    assert verified["suite_report_verification"]["status"] == "PASS"
+    assert calls == [("verify", playtest), ("verify", playtest)]
+    assert all(path != out for _mode, path in calls)
+
+
 def test_canonical_verify_binds_registered_case_artifacts_outside_lane_root(
     tmp_path: Path, monkeypatch
 ):
@@ -1145,6 +1225,88 @@ def test_matrix_route_applies_timeout_to_runner_and_judge(
     assert observed["judge_timeout_s"] == 3.5
 
 
+def test_nightly_uses_versioned_continuity_budgets_and_records_them(
+    tmp_path: Path, monkeypatch
+):
+    cli = _load_cli()
+    pipeline = sys.modules["coc_eval_pipeline"]
+    observed: dict[str, float] = {}
+    monkeypatch.setattr(
+        cli,
+        "_run_registered_cases",
+        lambda **kwargs: _fake_registered_cases(kwargs["out"]),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "run_matrix",
+        lambda **kwargs: {"status": "PASS", "cells": [{"status": "PASS"}]},
+    )
+
+    def fake_continuity(lane_id, **kwargs):
+        observed[lane_id] = kwargs["timeout"]
+        return {"status": "PASS", "lane_id": lane_id}
+
+    monkeypatch.setattr(pipeline, "run_continuity", fake_continuity)
+    monkeypatch.setattr(pipeline, "run_completion_audit", _pass_completion_audit)
+
+    result = cli.run_suite(
+        root=REPO,
+        suite="nightly",
+        output=tmp_path / "nightly",
+        host_id="local",
+        baseline=tmp_path / "baseline",
+        timeout=3.5,
+    )
+
+    assert observed == {"continuity-25": 900.0, "continuity-50": 1800.0}
+    assert result["execution_budgets"] == {
+        "matrix_seconds": 3.5,
+        "continuity-25_seconds": 900.0,
+        "continuity-50_seconds": 1800.0,
+    }
+    assert result["lanes"]["continuity-25"]["execution_budget_seconds"] == 900.0
+
+
+def test_nightly_continuity_budget_override_is_independent_from_matrix_timeout(
+    tmp_path: Path, monkeypatch
+):
+    cli = _load_cli()
+    pipeline = sys.modules["coc_eval_pipeline"]
+    observed: dict[str, float] = {}
+    monkeypatch.setattr(
+        cli,
+        "_run_registered_cases",
+        lambda **kwargs: _fake_registered_cases(kwargs["out"]),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "run_matrix",
+        lambda **kwargs: {"status": "PASS", "cells": [{"status": "PASS"}]},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "run_continuity",
+        lambda lane_id, **kwargs: (
+            observed.__setitem__(lane_id, kwargs["timeout"])
+            or {"status": "PASS", "lane_id": lane_id}
+        ),
+    )
+    monkeypatch.setattr(pipeline, "run_completion_audit", _pass_completion_audit)
+
+    result = cli.run_suite(
+        root=REPO,
+        suite="nightly",
+        output=tmp_path / "nightly",
+        host_id="local",
+        baseline=tmp_path / "baseline",
+        timeout=7,
+        continuity_timeout=42,
+    )
+
+    assert observed == {"continuity-25": 42.0, "continuity-50": 42.0}
+    assert result["execution_budgets"]["matrix_seconds"] == 7.0
+
+
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="requires POSIX process groups")
 def test_continuity_timeout_kills_descendants_and_returns_not_run(
     tmp_path: Path, monkeypatch
@@ -1185,6 +1347,36 @@ def test_continuity_timeout_kills_descendants_and_returns_not_run(
     assert result["timeout_phase"] == "continuity_lane"
     time.sleep(1.0)
     assert not sentinel.exists()
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires POSIX process groups")
+def test_continuity_contract_failure_preserves_safe_child_diagnostics(
+    tmp_path: Path, monkeypatch
+):
+    pipeline = _load_pipeline()
+
+    def broken_lane(**kwargs):
+        error = ValueError("exact turn range mismatch")
+        error.code = "turn_range_mismatch"
+        raise error
+
+    monkeypatch.setattr(pipeline.longrun, "run_continuity_lane", broken_lane)
+
+    result = pipeline.run_continuity(
+        "continuity-25",
+        root=REPO,
+        output=tmp_path / "lane",
+        workspace=tmp_path / "workspace",
+        timeout=1,
+    )
+
+    assert result["status"] == "FAIL"
+    assert result["findings"] == ["lane_contract_error"]
+    assert result["failure"] == {
+        "error_type": "ValueError",
+        "error_code": "turn_range_mismatch",
+        "message": "exact turn range mismatch",
+    }
 
 
 def test_run_continuity_rejects_symlinked_workspace_before_fork(

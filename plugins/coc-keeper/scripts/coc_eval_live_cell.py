@@ -34,6 +34,26 @@ def _load_live_match():
 
 live_match = _load_live_match()
 
+
+def _load_report_contract():
+    import importlib.util
+
+    path = SCRIPT_DIR / "coc_eval_contract.py"
+    spec = importlib.util.spec_from_file_location("coc_eval_cell_report_contract", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+report_contract = _load_report_contract()
+
+
+class ContinuityContractError(ValueError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SCENARIO_KEYS = frozenset(
     {
@@ -183,6 +203,61 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _contained_artifact_path(root: Path, value: Any, label: str) -> Path | None:
+    if value in (None, ""):
+        return None
+    candidate = Path(str(value))
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    candidate = candidate.resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"{label} escaped the canonical playtest directory") from exc
+    return candidate
+
+
+def _normalized_report_contract(
+    payload: dict[str, Any], run_dir: Path
+) -> dict[str, Any]:
+    normalized = json.loads(json.dumps(payload))
+    for key in (
+        "report_path",
+        "evaluation_report_path",
+        "report_completeness_path",
+    ):
+        path = _contained_artifact_path(run_dir, payload.get(key), key)
+        normalized[key] = (
+            path.relative_to(run_dir.resolve()).as_posix() if path is not None else None
+        )
+    return normalized
+
+
+def _report_artifact_descriptor(
+    run_dir: Path, payload: dict[str, Any], key: str
+) -> dict[str, str] | None:
+    path = _contained_artifact_path(run_dir, payload.get(key), key)
+    if path is None or not path.is_file():
+        return None
+    return {
+        "artifact": path.relative_to(run_dir.resolve()).as_posix(),
+        "sha256": _sha256_file(path),
+    }
+
+
+def _compile_existing_report_contract(run_dir: Path) -> dict[str, Any]:
+    """Compile the canonical live report without regenerating its narrative body."""
+    battle_report = run_dir / "artifacts" / "battle-report.md"
+    if battle_report.is_file():
+        live_match.playtest_report.generate_evaluation_report(run_dir)
+    return _object(
+        report_contract.compile_report_contract(
+            run_dir, generate_base_report=False
+        ),
+        "live report contract",
+    )
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -524,6 +599,20 @@ def _identity(value: Any, label: str) -> dict[str, str]:
     return {"provider": provider, "id": model_id}
 
 
+def _canonical_turn_number(turn: dict[str, Any]) -> int | None:
+    """Return the logical game turn without conflating transcript row ids."""
+    primary = turn.get("turn_number")
+    projected = turn.get("turn")
+    if primary is not None and projected is not None and primary != projected:
+        raise ContinuityContractError(
+            "turn_alias_mismatch", "canonical live match turn aliases disagree"
+        )
+    value = primary if primary is not None else projected
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
+
+
 def _validated_prompt_sources(
     cell: dict[str, Any],
 ) -> tuple[dict[str, Path], dict[str, str]]:
@@ -578,9 +667,10 @@ def _normalized_transcript(
             )
         if index < len(turns) and isinstance(turns[index], dict):
             turn = turns[index]
+            logical_turn = _canonical_turn_number(turn)
             normalized.append(
                 {
-                    "turn": int(turn.get("turn_number") or number),
+                    "turn": logical_turn or number,
                     "role": "keeper_under_test",
                     "text": str(
                         turn.get("narration")
@@ -601,7 +691,7 @@ def _view_rows(result: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[
     for index in range(max(len(players), len(turns))):
         player = players[index] if index < len(players) and isinstance(players[index], dict) else {}
         turn = turns[index] if index < len(turns) and isinstance(turns[index], dict) else {}
-        number = int(turn.get("turn_number") or index + 1)
+        number = _canonical_turn_number(turn) or index + 1
         player_rows.append(
             {
                 "schema_version": 1,
@@ -709,7 +799,7 @@ def _attestation_findings(
             )
             observed = Counter(
                 (
-                    row.get("transcript_turn"),
+                    row.get("continuity_turn"),
                     row.get("decision_id"),
                     row.get("segment_turn"),
                 )
@@ -981,11 +1071,10 @@ def run_live_segment(
             persona_prompt_directives=list(_CONTINUITY_PERSONA_DIRECTIVES),
         )
     result = _object(result, "live_match segment result")
-    accepted_turns = [
-        turn.get("turn_number")
-        for turn in result.get("turns") or []
-        if isinstance(turn, dict)
+    result_turns = [
+        turn for turn in result.get("turns") or [] if isinstance(turn, dict)
     ]
+    accepted_turns = [_canonical_turn_number(turn) for turn in result_turns]
     expected_turns = list(range(start_turn, start_turn + turn_count))
     if (
         not all(
@@ -994,22 +1083,29 @@ def run_live_segment(
         )
         or accepted_turns != expected_turns
     ):
-        raise ValueError(
+        raise ContinuityContractError(
+            "turn_range_mismatch",
             "canonical live match did not produce the exact requested turn range: "
             f"expected={expected_turns} observed={accepted_turns}"
         )
     turn_bindings: list[dict[str, Any]] = []
     decision_ids: set[str] = set()
-    for turn in result.get("turns") or []:
-        decision_id = turn.get("decision_id") if isinstance(turn, dict) else None
+    for turn, turn_number in zip(result_turns, accepted_turns, strict=True):
+        decision_id = turn.get("decision_id")
         if not isinstance(decision_id, str) or not decision_id.strip():
-            raise ValueError("canonical live match turn lacks a decision_id binding")
+            raise ContinuityContractError(
+                "decision_binding_missing",
+                "canonical live match turn lacks a decision_id binding",
+            )
         if decision_id in decision_ids:
-            raise ValueError("canonical live match decision_id bindings must be unique")
+            raise ContinuityContractError(
+                "decision_binding_duplicate",
+                "canonical live match decision_id bindings must be unique",
+            )
         decision_ids.add(decision_id)
         turn_bindings.append(
             {
-                "turn_number": turn["turn_number"],
+                "turn_number": turn_number,
                 "decision_id": decision_id,
             }
         )
@@ -1042,15 +1138,20 @@ def run_live_segment(
     )
     invocation_path = destination / "runner-invocations.jsonl"
     invocation_rows = _read_jsonl(invocation_path)
-    bindings_by_turn = {
-        binding["turn_number"]: (index, binding["decision_id"])
-        for index, binding in enumerate(turn_bindings, 1)
-    }
+    role_positions = {"player": 0, "narrator": 0}
     for row in invocation_rows:
         row["segment_invocation_id"] = runner_invocation_id
-        binding = bindings_by_turn.get(row.get("transcript_turn"))
-        if binding is not None:
-            row["segment_turn"], row["decision_id"] = binding
+        role = row.get("role")
+        if role not in role_positions:
+            continue
+        position = role_positions[role]
+        role_positions[role] = position + 1
+        if position >= len(turn_bindings):
+            continue
+        binding = turn_bindings[position]
+        row["segment_turn"] = position + 1
+        row["continuity_turn"] = binding["turn_number"]
+        row["decision_id"] = binding["decision_id"]
     _write_jsonl_atomic(invocation_path, invocation_rows)
     artifacts = evidence.get("artifacts")
     if isinstance(artifacts, dict) and isinstance(
@@ -1067,6 +1168,15 @@ def run_live_segment(
             destination, evidence
         )
     _write_json_atomic(destination / "evidence.json", evidence)
+    raw_report_contract = _compile_existing_report_contract(destination)
+    normalized_report_contract = _normalized_report_contract(
+        raw_report_contract, destination
+    )
+    if raw_report_contract.get("status") == "FAIL":
+        raise ContinuityContractError(
+            "report_contract_failed",
+            "canonical continuity playtest report failed completeness verification",
+        )
     findings = _attestation_findings(
         evidence,
         roles["player"],
@@ -1077,6 +1187,8 @@ def run_live_segment(
         narrator_runner,
         turn_bindings,
     )
+    if raw_report_contract.get("status") == "INELIGIBLE":
+        findings.append("report_contract_ineligible")
     attested = (
         evidence.get("eligible_as_gameplay_evidence") is True and not findings
     )
@@ -1121,6 +1233,7 @@ def run_live_segment(
             "attested": attested,
         },
         "attestation_findings": findings,
+        "report_contract": normalized_report_contract,
         "evidence_class": "external",
         "secret_audit_passed": attested,
         "artifacts": {
@@ -1129,6 +1242,15 @@ def run_live_segment(
             "checkpoint_final": final_descriptor,
             "checkpoint_resume": resume_descriptor,
             "run_metadata": metadata_descriptor,
+            "battle_report": _report_artifact_descriptor(
+                destination, raw_report_contract, "report_path"
+            ),
+            "evaluation_report": _report_artifact_descriptor(
+                destination, raw_report_contract, "evaluation_report_path"
+            ),
+            "report_completeness": _report_artifact_descriptor(
+                destination, raw_report_contract, "report_completeness_path"
+            ),
         },
     }
     _write_json_atomic(destination / "continuity-segment.json", segment)
@@ -1202,6 +1324,10 @@ def run_live_cell(
             persona_prompt_directives=persona_prompt_directives,
         )
     result = _object(result, "live_match result")
+    raw_report_contract = _compile_existing_report_contract(playtest_dir)
+    normalized_report_contract = _normalized_report_contract(
+        raw_report_contract, playtest_dir
+    )
 
     transcript_rows = _normalized_transcript(result, playtest_dir / "transcript.jsonl")
     invocation_rows = _read_jsonl(playtest_dir / "runner-invocations.jsonl")
@@ -1211,7 +1337,9 @@ def run_live_cell(
     _write_jsonl_atomic(destination / "player-view.jsonl", player_view)
     _write_jsonl_atomic(destination / "keeper-view.jsonl", keeper_view)
 
-    raw_battle_path = result.get("battle_report_path")
+    raw_battle_path = raw_report_contract.get("report_path") or result.get(
+        "battle_report_path"
+    )
     if raw_battle_path:
         battle_source = Path(str(raw_battle_path))
         if not battle_source.is_absolute():
@@ -1242,9 +1370,18 @@ def run_live_cell(
         player_runner,
         narrator_runner,
     )
+    hard_findings: list[str] = []
+    if raw_report_contract.get("status") == "FAIL":
+        hard_findings.append("report_contract_failed")
+    elif raw_report_contract.get("status") == "INELIGIBLE":
+        findings.append("report_contract_ineligible")
     if findings:
         evidence_eligible = False
-    status = "PASS" if evidence_eligible else "INELIGIBLE"
+    status = (
+        "FAIL"
+        if hard_findings
+        else "PASS" if evidence_eligible else "INELIGIBLE"
+    )
     artifact_names = [
         "battle-report.md",
         "evidence.json",
@@ -1253,12 +1390,25 @@ def run_live_cell(
         "keeper-view.jsonl",
         "runner-invocations.jsonl",
     ]
+    artifact_names.extend(
+        relative
+        for relative in (
+            "playtest/artifacts/battle-report.md",
+            "playtest/artifacts/evaluation-report.md",
+            "playtest/artifacts/report-completeness.json",
+            "playtest/evidence.json",
+            "playtest/transcript.jsonl",
+            "playtest/runner-invocations.jsonl",
+        )
+        if (destination / relative).is_file()
+    )
     manifest = {
         "schema_version": 1,
         "eval_spec": "eval-spec-v1",
         "cell_id": cell_id,
         "status": status,
         "evidence_eligible": evidence_eligible,
+        "hard_findings": hard_findings,
         "evidence_findings": findings,
         "evidence_reasons": list(evidence.get("evidence_reasons") or []),
         "player_model": player_model,
@@ -1274,6 +1424,7 @@ def run_live_cell(
         "seed": seed,
         "max_turns": max_turns,
         "canonical_run_dir": "playtest",
+        "report_contract": normalized_report_contract,
         "artifacts": artifact_names,
         "artifact_hashes": {
             name: _sha256_file(destination / name) for name in artifact_names
