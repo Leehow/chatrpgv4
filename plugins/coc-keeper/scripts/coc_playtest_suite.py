@@ -1165,6 +1165,7 @@ def summarize_eval_contract_coverage(
     suite_name: str = "release",
     case_results: dict[str, Any] | None = None,
     matrix_results: dict[str, Any] | None = None,
+    continuity_results: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Suite-facing summary of versioned case/persona/seed coverage requirements."""
     import coc_completion_audit as completion_audit
@@ -1174,6 +1175,7 @@ def summarize_eval_contract_coverage(
         suite=suite_name,
         case_results=case_results,
         matrix_results=matrix_results,
+        continuity_results=continuity_results,
     )
     requirements = assessment.get("requirements") or {}
     gaps = assessment.get("gaps") or {}
@@ -1189,10 +1191,21 @@ def summarize_eval_contract_coverage(
         "required_persona_ids": list(requirements.get("persona_ids") or []),
         "required_seeds": list(requirements.get("seeds") or []),
         "matrix_case_ids": list(requirements.get("matrix_case_ids") or []),
+        "required_continuity_lane_ids": list(
+            requirements.get("continuity_lane_ids") or []
+        ),
+        "satisfied_matrix_cell_ids": list(
+            assessment.get("satisfied_matrix_cell_ids") or []
+        ),
+        "satisfied_continuity_lane_ids": list(
+            assessment.get("satisfied_continuity_lane_ids") or []
+        ),
         "gaps": {
             "case_ids": list(gaps.get("case_ids") or []),
             "persona_ids": list(gaps.get("persona_ids") or []),
             "seeds": list(gaps.get("seeds") or []),
+            "matrix_cells": list(gaps.get("matrix_cells") or []),
+            "continuity_lane_ids": list(gaps.get("continuity_lane_ids") or []),
             "missing_capabilities": list(gaps.get("missing_capabilities") or []),
         },
         "evidence_eligibility": {

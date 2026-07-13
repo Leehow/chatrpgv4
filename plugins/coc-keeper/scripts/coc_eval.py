@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -23,6 +24,7 @@ import coc_eval_calibration as calibration
 import coc_eval_compare as compare
 import coc_eval_contract as contract
 import coc_eval_matrix as matrix
+import coc_eval_pipeline as pipeline
 
 
 EXIT_BY_STATUS = {
@@ -80,6 +82,104 @@ def _default_output(root: Path, suite: str) -> Path:
     return root / ".coc" / "evaluations" / f"{suite}-{stamp}-{os.getpid()}"
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def _positive_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive number") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive number")
+    return parsed
+
+
+def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
+    """Verify the report contract plus any aggregate nightly lane receipts."""
+    directory = Path(run_dir).resolve()
+    payload = dict(contract.verify_report_contract(directory))
+    manifest_path = directory / "run-manifest.json"
+    if not manifest_path.is_file():
+        return payload
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload["status"] = "FAIL"
+        payload["lane_artifact_verification"] = {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "status": "FAIL",
+            "findings": [{"code": "run_manifest_unreadable"}],
+        }
+        return payload
+    lane_artifacts = (
+        manifest.get("lane_artifacts") if isinstance(manifest, dict) else None
+    )
+    lanes = manifest.get("lanes") if isinstance(manifest, dict) else None
+    manifest_suite = manifest.get("suite") if isinstance(manifest, dict) else None
+    if manifest_suite == "nightly" and not (
+        isinstance(lanes, dict) and lanes
+    ):
+        payload["status"] = "FAIL"
+        payload["lane_artifact_verification"] = {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "status": "FAIL",
+            "findings": [{"code": "lane_contract_missing"}],
+        }
+        return payload
+    if manifest_suite == "nightly" and not (
+        isinstance(lane_artifacts, dict) and lane_artifacts
+    ):
+        payload["status"] = "FAIL"
+        payload["lane_artifact_verification"] = {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "status": "FAIL",
+            "findings": [{"code": "lane_receipts_missing"}],
+        }
+        return payload
+    if isinstance(lanes, dict) and lanes and not isinstance(lane_artifacts, dict):
+        payload["status"] = "FAIL"
+        payload["lane_artifact_verification"] = {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "status": "FAIL",
+            "findings": [{"code": "lane_receipts_missing"}],
+        }
+        return payload
+    if lane_artifacts is None:
+        return payload
+    lane_verification = pipeline.verify_lane_artifacts(
+        directory, lane_artifacts
+    )
+    if isinstance(lanes, dict) and isinstance(lane_artifacts, dict):
+        expected_lanes = set(lanes)
+        received_lanes = set(lane_artifacts)
+        for lane_id in sorted(expected_lanes - received_lanes):
+            lane_verification["findings"].append(
+                {"code": "lane_receipt_missing", "lane_id": lane_id}
+            )
+        for lane_id in sorted(received_lanes - expected_lanes):
+            lane_verification["findings"].append(
+                {"code": "lane_receipt_unbound", "lane_id": lane_id}
+            )
+        if lane_verification["findings"]:
+            lane_verification["status"] = "FAIL"
+    payload["lane_artifact_verification"] = lane_verification
+    if lane_verification.get("status") != "PASS":
+        payload["status"] = "FAIL"
+    return payload
+
+
 def _missing_capabilities(
     manifest: dict[str, Any], suite_definition: dict[str, Any]
 ) -> list[str]:
@@ -129,6 +229,7 @@ def _run_registered_cases(
     out: Path,
     manifest: dict[str, Any],
     suite: str,
+    timeout: float | None,
 ) -> tuple[str, list[dict[str, Any]], Path]:
     registry = cases.load_case_registry(root)
     selected = cases.resolve_suite_cases(manifest, registry, suite)
@@ -145,6 +246,7 @@ def _run_registered_cases(
             output=out,
             implemented_capabilities=implemented,
             env=env,
+            timeout=timeout,
         )
         for case in selected
     ]
@@ -220,6 +322,9 @@ def run_suite(
     suite: str,
     output: Path | None,
     host_id: str,
+    baseline: Path | None = None,
+    matrix_limit: int | None = None,
+    timeout: float = 120.0,
 ) -> dict[str, Any]:
     root = root.resolve()
     manifest = contract.load_benchmark_manifest(root)
@@ -259,6 +364,7 @@ def run_suite(
             out=out,
             manifest=manifest,
             suite=suite,
+            timeout=timeout,
         )
         artifact_hashes: dict[str, str] = {
             case_results_path.name: _sha256(case_results_path)
@@ -270,17 +376,46 @@ def run_suite(
                     for path, digest in (result.get("artifact_hashes") or {}).items()
                 }
             )
+        extended: dict[str, Any] | None = None
+        if suite == "nightly":
+            case_payload = json.loads(case_results_path.read_text(encoding="utf-8"))
+            extended = pipeline.run_extended_suite(
+                root=root,
+                suite=suite,
+                output=out,
+                case_results=case_payload,
+                baseline=baseline,
+                matrix_limit=matrix_limit,
+                timeout=timeout,
+            )
+            status = str(extended["status"])
+            artifact_hashes.update(
+                {
+                    str(path): str(digest)
+                    for path, digest in extended["artifact_hashes"].items()
+                }
+            )
+        update = {
+            "completed_at": _utc_now(),
+            "status": status,
+            "missing_capabilities": [],
+            "case_ids": [str(result["case_id"]) for result in case_results],
+            "case_results_path": case_results_path.name,
+            "case_results": case_results,
+            "commands": [],
+            "artifact_hashes": artifact_hashes,
+        }
+        if extended is not None:
+            update.update(
+                {
+                    "lanes": extended["lanes"],
+                    "lane_artifacts": extended["lane_artifacts"],
+                    "not_run_reasons": extended["not_run_reasons"],
+                    "diagnostic": extended["diagnostic"],
+                }
+            )
         run_manifest.update(
-            {
-                "completed_at": _utc_now(),
-                "status": status,
-                "missing_capabilities": [],
-                "case_ids": [str(result["case_id"]) for result in case_results],
-                "case_results_path": case_results_path.name,
-                "case_results": case_results,
-                "commands": [],
-                "artifact_hashes": artifact_hashes,
-            }
+            update
         )
         _write_json(manifest_path, run_manifest)
         return run_manifest
@@ -337,6 +472,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--suite", required=True)
     run.add_argument("--root", type=Path, default=Path.cwd())
     run.add_argument("--output", type=Path)
+    run.add_argument("--baseline", type=Path)
+    run.add_argument("--matrix-limit", type=_positive_int)
+    run.add_argument("--timeout", type=_positive_float, default=120.0)
     run.add_argument(
         "--host-id",
         default=os.environ.get("COC_EVAL_HOST_ID", "local"),
@@ -434,13 +572,16 @@ def main(argv: list[str] | None = None) -> int:
                 suite=args.suite,
                 output=args.output,
                 host_id=args.host_id,
+                baseline=args.baseline,
+                matrix_limit=args.matrix_limit,
+                timeout=args.timeout,
             )
         elif args.command == "report":
             payload = contract.compile_report_contract(
                 args.run_dir, generate_base_report=True
             )
         elif args.command == "verify":
-            payload = contract.verify_report_contract(args.run_dir)
+            payload = verify_run_contract(args.run_dir)
         elif args.command == "compare":
             payload = compare.compare_cli_runs(
                 args.baseline,

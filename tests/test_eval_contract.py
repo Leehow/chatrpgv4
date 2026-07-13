@@ -139,13 +139,16 @@ def test_benchmark_manifest_exposes_only_named_suites():
         contract.resolve_suite(manifest, "whatever-this-agent-invented")
 
 
-def test_phase_one_release_suite_fails_closed_for_unimplemented_capabilities():
+def test_release_suite_promotes_nightly_software_but_keeps_task_six_gates():
     contract = contract_module()
     manifest = contract.load_benchmark_manifest(REPO)
     release = contract.resolve_suite(manifest, "release")
 
-    assert "ai_player_matrix" in release["required_capabilities"]
-    assert "ai_player_matrix" not in manifest["implemented_capabilities"]
+    implemented = set(manifest["implemented_capabilities"])
+    assert {"ai_player_matrix", "semantic_judge", "long_memory"} <= implemented
+    assert {"chapter_transition", "human_calibration"} <= (
+        set(release["required_capabilities"]) - implemented
+    )
 
 
 def test_public_percentile_roll_renders_value_target_difficulty_and_outcome(tmp_path):
@@ -404,7 +407,11 @@ def test_release_suite_is_not_run_until_required_capabilities_exist(
 
     assert code == 2
     assert payload["status"] == "NOT_RUN"
-    assert "ai_player_matrix" in payload["missing_capabilities"]
+    assert set(payload["missing_capabilities"]) == {
+        "chapter_transition",
+        "human_calibration",
+    }
+    assert "lanes" not in payload
 
 
 def test_verify_cli_reports_ineligible_without_false_pass(tmp_path, capsys):

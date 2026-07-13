@@ -396,11 +396,11 @@ def test_validate_holdout_tampered_manifest_is_fail(tmp_path: Path):
     assert any(item["code"] == "holdout_manifest_inconsistent" for item in result["findings"])
 
 
-def test_human_calibration_not_claimed_in_implemented_capabilities():
+def test_human_inputs_stay_external_after_nightly_software_promotion():
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     implemented = set(manifest["implemented_capabilities"])
+    assert {"ai_player_matrix", "semantic_judge", "long_memory"} <= implemented
     assert "human_calibration" not in implemented
-    assert "long_memory" not in implemented
     assert "chapter_transition" not in implemented
     assert "human_calibration" in manifest["suites"]["release"]["required_capabilities"]
     assert "long_memory" in manifest["suites"]["nightly"]["required_capabilities"]

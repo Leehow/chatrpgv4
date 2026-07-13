@@ -8,6 +8,7 @@ import re
 import shutil
 import stat
 import sys
+import time
 import uuid
 from collections import Counter
 from pathlib import Path
@@ -825,7 +826,7 @@ def test_matrix_rejects_overlapping_baseline_and_output_before_mutation(
         assert not (output / "matrix-plan.json").exists()
 
 
-def test_manifest_declares_matrix_config_without_claiming_capability():
+def test_manifest_declares_reachable_matrix_and_semantic_capabilities():
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     matrix = manifest["matrix"]
     assert matrix["schema_version"] == 1
@@ -837,8 +838,10 @@ def test_manifest_declares_matrix_config_without_claiming_capability():
     assert isinstance(nightly["cases"], list) and nightly["cases"]
     assert isinstance(release["persona_ids"], list) and release["persona_ids"]
     assert isinstance(release["seeds"], list) and release["seeds"]
-    assert "ai_player_matrix" not in manifest["implemented_capabilities"]
-    assert "ai_player_matrix" in manifest["suites"]["nightly"]["required_capabilities"]
+    implemented = set(manifest["implemented_capabilities"])
+    required = set(manifest["suites"]["nightly"]["required_capabilities"])
+    assert {"ai_player_matrix", "semantic_judge", "long_memory"} <= implemented
+    assert {"ai_player_matrix", "semantic_judge", "long_memory"} <= required
 
 
 def test_build_matrix_plan_expands_personas_seeds_cases_deterministically():
@@ -1879,6 +1882,33 @@ def test_execute_matrix_preserves_allowed_not_run_cell_without_invoking_runner(
     ]
 
 
+def test_execute_matrix_preserves_runner_not_run_without_elevation(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id="runner-not-run")
+    monkeypatch.setattr(
+        matrix,
+        "_invoke_fake_or_script_runner",
+        lambda **kwargs: {
+            "status": "NOT_RUN",
+            "returncode": None,
+            "not_run_reasons": ["runner_unavailable"],
+        },
+    )
+
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "out",
+    )
+
+    cell = results["cells"][0]
+    assert cell["status"] == "NOT_RUN"
+    assert cell["not_run_reasons"] == ["runner_unavailable"]
+    assert "hard_findings" not in cell
+
+
 @pytest.mark.parametrize("unsafe_id", ["../nightly", "/tmp/nightly", "nested/case"])
 def test_matrix_plan_rejects_unsafe_case_id(tmp_path: Path, unsafe_id: str):
     matrix = _load()
@@ -2109,6 +2139,104 @@ def test_judged_matrix_marks_missing_baseline_not_run(tmp_path: Path, monkeypatc
     )
     assert judged["cells"][0]["status"] == "PASS"
     assert (tmp_path / "judged" / "cells" / cell["cell_id"] / "judge-result.json").is_file()
+
+
+def test_matrix_runner_timeout_kills_descendants_and_stays_not_run(tmp_path: Path):
+    matrix = _load()
+    sentinel = tmp_path / "orphan-sentinel.txt"
+    runner = _write(
+        tmp_path / "hanging-runner.py",
+        "\n".join(
+            [
+                "import subprocess, sys, time",
+                f"sentinel = {str(sentinel)!r}",
+                "subprocess.Popen([sys.executable, '-c', "
+                "f\"import pathlib,signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "time.sleep(0.8); pathlib.Path({sentinel!r}).write_text('orphan')\"])",
+                "time.sleep(30)",
+            ]
+        )
+        + "\n",
+    )
+    scenario = _write_json(tmp_path / "scenario.json", {"scene_id": "s1"})
+    state = _write_json(tmp_path / "state.json", {"public": True})
+    plan = matrix.build_matrix_plan(
+        root=REPO,
+        suite="nightly",
+        configuration={
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "persona_ids": ["careful_investigator"],
+            "seeds": [3],
+            "cases": [
+                {
+                    "case_id": "runner-timeout",
+                    "runner": "fake",
+                    "runner_path": str(runner),
+                    "scenario_fixture": str(scenario),
+                    "initial_state_fixture": str(state),
+                    "player_model": {"provider": "fixture", "id": "player-1"},
+                    "kp_model": {"provider": "fixture", "id": "kp-1"},
+                    "prompt_sources": {"player": str(runner), "kp": str(runner)},
+                }
+            ],
+        },
+        credential_env={},
+    )
+    assert plan["cells"][0]["status"] == "READY"
+
+    started = time.monotonic()
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "out",
+        runner_timeout_s=0.1,
+    )
+    elapsed = time.monotonic() - started
+
+    cell = results["cells"][0]
+    assert elapsed < 2
+    assert cell["status"] == "NOT_RUN"
+    assert cell["not_run_reasons"] == ["execution_timeout"]
+    assert cell["timeout_phase"] == "matrix_runner"
+    manifest = json.loads(
+        (
+            tmp_path / "out" / "cells" / cell["cell_id"] / "run-manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert manifest["status"] == "NOT_RUN"
+    assert manifest["not_run_reasons"] == ["execution_timeout"]
+    time.sleep(1.0)
+    assert not sentinel.exists()
+
+
+def test_semantic_judge_timeout_is_distinct_not_run_evidence(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id="judge-timeout")
+    baseline = _write_baseline_matrix(tmp_path / "baseline", plan)
+
+    def timed_out(*args, **kwargs):
+        try:
+            raise TimeoutError("controlled timeout")
+        except TimeoutError as exc:
+            raise RuntimeError("judge request failed") from exc
+
+    monkeypatch.setattr(matrix.judge, "invoke_sol_judge", timed_out)
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "candidate",
+        baseline_dir=baseline,
+        judge_timeout_s=0.1,
+    )
+
+    cell = results["cells"][0]
+    assert cell["status"] == "NOT_RUN"
+    assert "execution_timeout" in cell["not_run_reasons"]
+    assert "judge_unavailable_or_invalid" not in cell["not_run_reasons"]
+    assert cell["timeout_phase"] == "semantic_judge"
 
 
 def test_public_turn_loader_never_falls_back_to_unfiltered_transcript(tmp_path: Path):
@@ -2367,22 +2495,26 @@ def test_matrix_cli_plan_only_writes_evidence(tmp_path: Path, capsys):
     assert payload["cell_count"] == len(payload["cells"])
 
 
-def test_nightly_suite_remains_not_run_without_ai_player_matrix_capability(
-    tmp_path: Path, capsys
-):
+def test_nightly_suite_exposes_the_aggregate_pipeline_without_live_execution():
     cli = _load_cli()
-    code = cli.main(
+    pipeline = sys.modules.get("coc_eval_pipeline")
+    assert pipeline is not None
+    assert callable(pipeline.run_extended_suite)
+    args = cli.build_parser().parse_args(
         [
             "run",
             "--suite",
             "nightly",
             "--root",
             str(REPO),
-            "--output",
-            str(tmp_path / "nightly"),
+            "--baseline",
+            "/tmp/nightly-baseline",
+            "--matrix-limit",
+            "1",
+            "--timeout",
+            "30",
         ]
     )
-    payload = json.loads(capsys.readouterr().out)
-    assert code == 2
-    assert payload["status"] == "NOT_RUN"
-    assert "ai_player_matrix" in payload["missing_capabilities"]
+    assert args.baseline == Path("/tmp/nightly-baseline")
+    assert args.matrix_limit == 1
+    assert args.timeout == 30.0

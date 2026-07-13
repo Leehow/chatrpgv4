@@ -8,7 +8,10 @@
     "case_registry",
     "report_contract",
     "roll_completeness",
-    "baseline_identity_compare"
+    "baseline_identity_compare",
+    "ai_player_matrix",
+    "semantic_judge",
+    "long_memory"
   ],
   "matrix": {
     "schema_version": 1,
@@ -137,6 +140,7 @@
         "roll_completeness",
         "baseline_identity_compare",
         "ai_player_matrix",
+        "semantic_judge",
         "long_memory"
       ],
       "commands": []
@@ -150,6 +154,7 @@
         "roll_completeness",
         "baseline_identity_compare",
         "ai_player_matrix",
+        "semantic_judge",
         "long_memory",
         "chapter_transition",
         "human_calibration"

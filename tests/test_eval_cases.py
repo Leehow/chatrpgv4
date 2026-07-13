@@ -102,6 +102,24 @@ def test_repository_case_registry_is_versioned_unique_and_resolvable():
     assert all("pr" in case["suites"] for case in pr)
 
 
+def test_nightly_inherits_the_hard_deterministic_registry_foundation():
+    cases = cases_module()
+    contract = contract_module()
+    registry = cases.load_case_registry(REPO)
+    manifest = contract.load_benchmark_manifest(REPO)
+
+    nightly = cases.resolve_suite_cases(manifest, registry, "nightly")
+    expected = {
+        case["case_id"]
+        for case in registry["cases"]
+        if case["gate"] == "hard" and set(case["suites"]) & {"smoke", "pr"}
+    }
+
+    assert nightly
+    assert {case["case_id"] for case in nightly} == expected
+    assert all(case["gate"] == "hard" for case in nightly)
+
+
 def test_registry_rejects_duplicate_case_ids(tmp_path: Path):
     cases = cases_module()
     (tmp_path / "tests").mkdir()
@@ -199,6 +217,28 @@ def test_run_case_is_not_run_when_capability_is_missing(tmp_path: Path):
     assert result["status"] == "NOT_RUN"
     assert result["not_run_reasons"] == ["missing_capability:external_model"]
     assert result["returncode"] is None
+
+
+def test_run_case_timeout_is_hash_bound_not_run_evidence(tmp_path: Path):
+    cases = cases_module()
+    result = cases.run_case(
+        _case(
+            kind="python_command",
+            command=[sys.executable, "-c", "import time; time.sleep(1)"],
+            required_capabilities=[],
+        ),
+        root=tmp_path,
+        output=tmp_path / "out",
+        implemented_capabilities=set(),
+        env={"PYTHONDONTWRITEBYTECODE": "1"},
+        timeout=0.01,
+    )
+
+    assert result["status"] == "NOT_RUN"
+    assert result["returncode"] is None
+    assert result["not_run_reasons"] == ["execution_timeout"]
+    assert result["artifact_hashes"][result["stdout_path"]]
+    assert result["artifact_hashes"][result["stderr_path"]]
 
 
 def test_suite_status_fails_closed_for_required_hard_case():

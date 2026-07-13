@@ -7,6 +7,7 @@ import json
 import re
 import sys
 import tomllib
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -479,7 +480,20 @@ def _required_profiles(active_runs: list[dict[str, Any]]) -> dict[str, str | Non
 EVAL_SPEC_REL = Path("evaluation/spec/v1")
 BENCHMARK_MANIFEST_REL = EVAL_SPEC_REL / "benchmark-manifest.json"
 CASE_REGISTRY_REL = EVAL_SPEC_REL / "case-registry.json"
+LONG_MEMORY_CASE_REL = EVAL_SPEC_REL / "cases" / "long-memory.json"
 UNBOUND_HOLDOUT_STATUSES = frozenset({"example_unbound", "not_bound", "NOT_RUN"})
+EVAL_STATUS_RANK = {
+    "FAIL": 5,
+    "INELIGIBLE": 4,
+    "NON_COMPARABLE": 3,
+    "NOT_RUN": 2,
+    "PASS": 1,
+}
+EXPECTED_EVAL_MODELS = {
+    "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+    "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    "judge": {"provider": "coding-relay", "id": "gpt-5.6-sol"},
+}
 
 
 def _file_sha256(path: Path) -> str:
@@ -549,6 +563,16 @@ def build_eval_contract_requirements(
         for case in (matrix_suite.get("cases") or [])
         if isinstance(case, dict) and isinstance(case.get("case_id"), str)
     ]
+    continuity_lane_ids: list[str] = []
+    if suite in {"nightly", "release"}:
+        long_memory = _load_eval_json(root_path, LONG_MEMORY_CASE_REL)
+        continuity_lane_ids = [
+            str(lane.get("lane_id"))
+            for lane in (long_memory.get("lanes") or [])
+            if isinstance(lane, dict)
+            and isinstance(lane.get("lane_id"), str)
+            and lane["lane_id"]
+        ]
 
     return {
         "schema_version": 1,
@@ -561,6 +585,7 @@ def build_eval_contract_requirements(
         "persona_ids": persona_ids,
         "seeds": seeds,
         "matrix_case_ids": matrix_case_ids,
+        "continuity_lane_ids": continuity_lane_ids,
         "historical_audit_profiles": list(REQUIRED_AUDIT_PROFILES),
         "historical_profiles_satisfy_release": False,
     }
@@ -572,6 +597,7 @@ def assess_eval_contract_coverage(
     suite: str = "release",
     case_results: dict[str, Any] | None = None,
     matrix_results: dict[str, Any] | None = None,
+    continuity_results: dict[str, Any] | None = None,
     historical_profiles: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compare versioned required cells against provided structured evidence."""
@@ -579,23 +605,78 @@ def assess_eval_contract_coverage(
     required_cases = set(requirements["case_ids"])
     required_personas = set(requirements["persona_ids"])
     required_seeds = set(requirements["seeds"])
+    required_matrix_cases = set(requirements["matrix_case_ids"])
+    required_matrix_cells = {
+        f"{persona}__seed-{seed}__{case_id}"
+        for persona in required_personas
+        for seed in required_seeds
+        for case_id in required_matrix_cases
+    }
+    required_continuity = set(requirements["continuity_lane_ids"])
 
-    satisfied_cases: set[str] = set()
+    def _sha256(value: Any) -> bool:
+        return isinstance(value, str) and len(value) == 64 and all(
+            character in "0123456789abcdef" for character in value.lower()
+        )
+
+    def _hashes_include(value: Any, required: set[str]) -> bool:
+        return bool(
+            isinstance(value, dict)
+            and required <= set(value)
+            and all(_sha256(value[name]) for name in required)
+        )
+
+    case_envelope_grade = bool(
+        isinstance(case_results, dict)
+        and case_results.get("schema_version") == 1
+        and case_results.get("eval_spec") == requirements["eval_spec"]
+        and case_results.get("suite") == suite
+        and case_results.get("status") == "PASS"
+    )
+    observed_cases: list[str] = []
+    eligible_cases: list[str] = []
     if isinstance(case_results, dict):
         for case in case_results.get("cases") or []:
             if not isinstance(case, dict):
                 continue
             case_id = case.get("case_id")
-            if not isinstance(case_id, str) or case_id not in required_cases:
-                continue
-            hashes = case.get("artifact_hashes") or {}
-            if case.get("status") == "PASS" and isinstance(hashes, dict) and hashes:
-                satisfied_cases.add(case_id)
+            hashes = case.get("artifact_hashes")
+            if isinstance(case_id, str) and case_id in required_cases:
+                observed_cases.append(case_id)
+            if (
+                case_envelope_grade
+                and isinstance(case_id, str)
+                and case_id in required_cases
+                and case.get("status") == "PASS"
+                and isinstance(hashes, dict)
+                and bool(hashes)
+                and all(_sha256(value) for value in hashes.values())
+            ):
+                eligible_cases.append(case_id)
+    observed_case_counts = Counter(observed_cases)
+    eligible_case_counts = Counter(eligible_cases)
+    satisfied_cases = {
+        case_id
+        for case_id in required_cases
+        if observed_case_counts[case_id] == 1
+        and eligible_case_counts[case_id] == 1
+    }
 
+    matrix_envelope_grade = bool(
+        isinstance(matrix_results, dict)
+        and matrix_results.get("schema_version") == 1
+        and matrix_results.get("eval_spec") == requirements["eval_spec"]
+        and matrix_results.get("suite") == suite
+        and matrix_results.get("status") == "PASS"
+        and _hashes_include(
+            matrix_results.get("artifact_hashes"),
+            {"matrix-plan.json", "aggregate-summary.json"},
+        )
+    )
     observed_personas: set[str] = set()
     observed_seeds: set[int] = set()
-    satisfied_personas: set[str] = set()
-    satisfied_seeds: set[int] = set()
+    observed_matrix_cells: set[str] = set()
+    eligible_matrix_cells: list[str] = []
     if isinstance(matrix_results, dict):
         for cell in matrix_results.get("cells") or []:
             if not isinstance(cell, dict):
@@ -608,13 +689,97 @@ def assess_eval_contract_coverage(
                 observed_seeds.add(seed)
             elif isinstance(seed, str) and seed.isdigit():
                 observed_seeds.add(int(seed))
-            eligible = cell.get("evidence_eligible")
             status = cell.get("status")
-            if eligible is True and status == "PASS":
-                if isinstance(persona_id, str) and persona_id in required_personas:
-                    satisfied_personas.add(persona_id)
-                if isinstance(seed, int) and seed in required_seeds:
-                    satisfied_seeds.add(seed)
+            case_id = cell.get("case_id")
+            cell_id = cell.get("cell_id")
+            if isinstance(cell_id, str):
+                observed_matrix_cells.add(cell_id)
+            grade = bool(
+                matrix_envelope_grade
+                and isinstance(cell_id, str)
+                and cell_id
+                == f"{persona_id}__seed-{seed}__{case_id}"
+                and cell_id in required_matrix_cells
+                and status == "PASS"
+                and cell.get("player_model") == EXPECTED_EVAL_MODELS["player"]
+                and cell.get("kp_model") == EXPECTED_EVAL_MODELS["kp"]
+                and cell.get("judge_model") == EXPECTED_EVAL_MODELS["judge"]
+                and isinstance(cell.get("runner_result"), dict)
+                and cell["runner_result"].get("status") == "PASS"
+                and isinstance(cell.get("judge_result"), dict)
+                and cell["judge_result"].get("evaluator")
+                == EXPECTED_EVAL_MODELS["judge"]
+                and _hashes_include(
+                    cell.get("artifact_hashes"),
+                    {
+                        "run-manifest.json",
+                        "player-request.json",
+                        "kp-request.json",
+                        "judge-result.json",
+                    },
+                )
+                and not cell.get("hard_findings")
+                and not cell.get("not_run_reasons")
+                and not cell.get("identity_mismatches")
+            )
+            if grade:
+                eligible_matrix_cells.append(cell_id)
+
+    eligible_counts = Counter(eligible_matrix_cells)
+    satisfied_matrix_cells = {
+        cell_id
+        for cell_id in required_matrix_cells
+        if eligible_counts[cell_id] == 1
+    }
+    satisfied_personas = {
+        persona
+        for persona in required_personas
+        if all(
+            f"{persona}__seed-{seed}__{case_id}" in satisfied_matrix_cells
+            for seed in required_seeds
+            for case_id in required_matrix_cases
+        )
+    }
+    satisfied_seeds = {
+        seed
+        for seed in required_seeds
+        if all(
+            f"{persona}__seed-{seed}__{case_id}" in satisfied_matrix_cells
+            for persona in required_personas
+            for case_id in required_matrix_cases
+        )
+    }
+
+    observed_continuity: set[str] = set()
+    satisfied_continuity: set[str] = set()
+    if isinstance(continuity_results, dict):
+        for key, result in continuity_results.items():
+            if not isinstance(result, dict):
+                continue
+            lane_id = result.get("lane_id")
+            if not isinstance(lane_id, str) or not lane_id:
+                lane_id = str(key)
+            observed_continuity.add(lane_id)
+            validation = result.get("validation")
+            attestation = result.get("attestation")
+            grade = bool(
+                lane_id in required_continuity
+                and result.get("schema_version") == 1
+                and result.get("eval_spec") == requirements["eval_spec"]
+                and result.get("status") == "PASS"
+                and result.get("evidence_class") == "external"
+                and result.get("eligible") is True
+                and isinstance(validation, dict)
+                and validation.get("status") == "PASS"
+                and validation.get("evidence_class") == "external"
+                and validation.get("gameplay_evidence") is True
+                and isinstance(attestation, dict)
+                and attestation.get("attested") is True
+                and attestation.get("player_model") == EXPECTED_EVAL_MODELS["player"]
+                and attestation.get("kp_model") == EXPECTED_EVAL_MODELS["kp"]
+            )
+            if grade:
+                satisfied_continuity.add(lane_id)
 
     historical_visible = bool(historical_profiles)
     # Historical three-profile runs remain visible but never clear eval cells.
@@ -624,15 +789,41 @@ def assess_eval_contract_coverage(
     gap_cases = sorted(required_cases - satisfied_cases)
     gap_personas = sorted(required_personas - satisfied_personas)
     gap_seeds = sorted(required_seeds - satisfied_seeds)
+    gap_matrix_cells = sorted(required_matrix_cells - satisfied_matrix_cells)
+    gap_continuity = sorted(required_continuity - satisfied_continuity)
 
     missing_caps = sorted(
         set(requirements["required_capabilities"])
         - set(requirements["implemented_capabilities"])
     )
-    if gap_cases or gap_personas or gap_seeds or missing_caps:
-        status = "NOT_RUN"
+    evidence_statuses = [
+        str(payload.get("status"))
+        for payload in (case_results, matrix_results)
+        if isinstance(payload, dict) and payload.get("status") in EVAL_STATUS_RANK
+    ]
+    if isinstance(continuity_results, dict):
+        evidence_statuses.extend(
+            str(result.get("status"))
+            for result in continuity_results.values()
+            if isinstance(result, dict) and result.get("status") in EVAL_STATUS_RANK
+        )
+    gaps_present = bool(
+        gap_cases
+        or gap_personas
+        or gap_seeds
+        or gap_matrix_cells
+        or gap_continuity
+        or missing_caps
+    )
+    strongest = (
+        max(evidence_statuses, key=EVAL_STATUS_RANK.__getitem__)
+        if evidence_statuses
+        else "NOT_RUN"
+    )
+    if gaps_present:
+        status = strongest if EVAL_STATUS_RANK[strongest] > EVAL_STATUS_RANK["NOT_RUN"] else "NOT_RUN"
     else:
-        status = "PASS"
+        status = strongest
 
     return {
         "schema_version": 1,
@@ -643,12 +834,18 @@ def assess_eval_contract_coverage(
         "satisfied_case_ids": sorted(satisfied_cases),
         "satisfied_persona_ids": sorted(satisfied_personas),
         "satisfied_seeds": sorted(satisfied_seeds),
+        "satisfied_matrix_cell_ids": sorted(satisfied_matrix_cells),
+        "satisfied_continuity_lane_ids": sorted(satisfied_continuity),
         "observed_persona_ids": sorted(observed_personas),
         "observed_seeds": sorted(observed_seeds),
+        "observed_matrix_cell_ids": sorted(observed_matrix_cells),
+        "observed_continuity_lane_ids": sorted(observed_continuity),
         "gaps": {
             "case_ids": gap_cases,
             "persona_ids": gap_personas,
             "seeds": gap_seeds,
+            "matrix_cells": gap_matrix_cells,
+            "continuity_lane_ids": gap_continuity,
             "missing_capabilities": missing_caps,
         },
         "historical_profiles_visible": historical_visible,

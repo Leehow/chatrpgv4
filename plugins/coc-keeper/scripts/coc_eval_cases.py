@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -212,6 +213,13 @@ def resolve_suite_cases(
     if not isinstance(cases, list):
         raise ValueError("invalid case registry")
     selected = [dict(case) for case in cases if suite in case.get("suites", [])]
+    if suite in {"nightly", "release"} and not selected:
+        selected = [
+            dict(case)
+            for case in cases
+            if case.get("gate") == "hard"
+            and set(case.get("suites") or []) & {"smoke", "pr"}
+        ]
     if suite in {"smoke", "pr"} and not selected:
         raise ValueError(f"suite has no registered cases: {suite}")
     return selected
@@ -228,6 +236,7 @@ def run_case(
     output: Path | str,
     implemented_capabilities: set[str] | frozenset[str],
     env: dict[str, str] | None = None,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     repo = Path(root).resolve()
     out = Path(output).resolve()
@@ -270,6 +279,13 @@ def run_case(
     if env:
         process_env.update({str(key): str(value) for key, value in env.items()})
     started = time.perf_counter()
+    if timeout is not None and (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(float(timeout))
+        or float(timeout) <= 0
+    ):
+        raise ValueError("timeout must be positive")
     try:
         completed = subprocess.run(
             list(case.get("command") or []),
@@ -278,12 +294,23 @@ def run_case(
             text=True,
             capture_output=True,
             check=False,
+            timeout=timeout,
         )
         returncode: int | None = completed.returncode
         stdout = completed.stdout
         stderr = completed.stderr
         status = "PASS" if completed.returncode == 0 else "FAIL"
         reasons: list[str] = []
+    except subprocess.TimeoutExpired as exc:
+        returncode = None
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode("utf-8", errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        status = "NOT_RUN"
+        reasons = ["execution_timeout"]
     except OSError as exc:
         returncode = None
         stdout = ""

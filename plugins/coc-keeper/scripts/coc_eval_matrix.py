@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -724,28 +727,129 @@ def _invoke_fake_or_script_runner(
     runner_path: Path,
     cell_input: Path,
     cell_dir: Path,
+    timeout_s: float,
 ) -> dict[str, Any]:
-    proc = subprocess.run(
+    process_kwargs: dict[str, Any] = {}
+    if os.name == "posix":
+        process_kwargs["start_new_session"] = True
+    elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        process_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    proc = subprocess.Popen(
         [sys.executable, str(runner_path), str(cell_input), str(cell_dir)],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        check=False,
+        **process_kwargs,
     )
-    stdout = (proc.stdout or "").strip()
+    timed_out = False
+    try:
+        raw_stdout, raw_stderr = proc.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _terminate_process_tree(proc)
+        raw_stdout, raw_stderr = proc.communicate()
+    stdout = (raw_stdout or "").strip()
     payload: dict[str, Any]
-    if stdout:
+    if timed_out:
+        payload = {"status": "NOT_RUN", "timed_out": True}
+    elif stdout:
         try:
             payload = json.loads(stdout.splitlines()[-1])
         except json.JSONDecodeError:
             payload = {"status": "FAIL", "parse_error": True}
     else:
         payload = {"status": "FAIL", "empty_stdout": True}
-    if proc.returncode != 0 and payload.get("status") == "PASS":
+    if not timed_out and proc.returncode != 0 and payload.get("status") == "PASS":
         payload["status"] = "FAIL"
     payload["returncode"] = proc.returncode
-    payload["stdout"] = proc.stdout or ""
-    payload["stderr"] = proc.stderr or ""
+    payload["stdout"] = raw_stdout or ""
+    payload["stderr"] = raw_stderr or ""
     return payload
+
+
+def _terminate_process_tree(proc: subprocess.Popen[str]) -> None:
+    """Terminate a runner-owned process group and reap its leader."""
+    if os.name == "posix":
+        group_id = proc.pid
+        try:
+            os.killpg(group_id, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        leader_reaped = False
+        grace_deadline = time.monotonic() + 0.5
+        while time.monotonic() < grace_deadline:
+            if not leader_reaped:
+                try:
+                    proc.wait(timeout=0.02)
+                    leader_reaped = True
+                except subprocess.TimeoutExpired:
+                    pass
+            else:
+                time.sleep(0.02)
+        # The leader may have exited while a descendant ignored SIGTERM.
+        # Always target the original group after the grace period.
+        try:
+            os.killpg(group_id, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        if not leader_reaped:
+            proc.wait()
+        return
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True,
+                check=False,
+                timeout=1,
+            )
+        except (OSError, subprocess.SubprocessError):
+            proc.terminate()
+    else:
+        proc.terminate()
+    try:
+        proc.wait(timeout=0.5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    proc.kill()
+    try:
+        proc.wait(timeout=0.5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
+def _positive_timeout(value: Any, *, label: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) <= 0
+    ):
+        raise ValueError(f"{label} must be positive")
+    return float(value)
+
+
+def _is_timeout_exception(exc: BaseException) -> bool:
+    pending: list[BaseException] = [exc]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, (TimeoutError, subprocess.TimeoutExpired)):
+            return True
+        reason = getattr(current, "reason", None)
+        if isinstance(reason, BaseException):
+            pending.append(reason)
+        for linked in (current.__cause__, current.__context__):
+            if isinstance(linked, BaseException):
+                pending.append(linked)
+    return False
 
 
 def _contained_cell_dir(output: Path, cell_id: str) -> Path:
@@ -1101,8 +1205,15 @@ def execute_matrix_plan(
     judge_base_url: str = judge.DEFAULT_BASE_URL,
     judge_api_key: str | None = None,
     judge_timeout_s: float = 120.0,
+    runner_timeout_s: float = 120.0,
 ) -> dict[str, Any]:
     """Execute READY cells only; write plan/results/evidence atomically."""
+    judge_timeout_s = _positive_timeout(
+        judge_timeout_s, label="judge_timeout_s"
+    )
+    runner_timeout_s = _positive_timeout(
+        runner_timeout_s, label="runner_timeout_s"
+    )
     plan = _validate_matrix_plan(plan)
     root_path = Path(root).resolve()
     out, baseline_path = _validated_matrix_paths(output, baseline_dir)
@@ -1206,6 +1317,7 @@ def execute_matrix_plan(
             runner_path=runner_path,
             cell_input=input_path,
             cell_dir=cell_dir,
+            timeout_s=runner_timeout_s,
         )
         # Ensure view-separation evidence exists even if the adapter forgot to echo.
         player_request_path = cell_dir / "player-request.json"
@@ -1214,6 +1326,90 @@ def execute_matrix_plan(
             _write_json_atomic(player_request_path, player_request)
         if not kp_request_path.is_file():
             _write_json_atomic(kp_request_path, kp_request)
+
+        if runner_result.get("timed_out") is True:
+            result.update(
+                {
+                    "status": "NOT_RUN",
+                    "not_run_reasons": ["execution_timeout"],
+                    "runner_result": {
+                        "status": "NOT_RUN",
+                        "returncode": runner_result.get("returncode"),
+                        "timed_out": True,
+                    },
+                    "timeout_phase": "matrix_runner",
+                    "timeout_seconds": runner_timeout_s,
+                }
+            )
+            manifest_path = cell_dir / "run-manifest.json"
+            _write_json_atomic(
+                manifest_path,
+                {
+                    **{
+                        key: cell.get(key)
+                        for key in _RUN_MANIFEST_IDENTITY_KEYS
+                    },
+                    "schema_version": 1,
+                    "eval_spec": EVAL_SPEC,
+                    "status": "NOT_RUN",
+                    "evidence_eligible": False,
+                    "not_run_reasons": ["execution_timeout"],
+                    "timeout_phase": "matrix_runner",
+                    "timeout_seconds": runner_timeout_s,
+                },
+            )
+            result["artifact_hashes"].update(
+                {
+                    "run-manifest.json": _sha256_file(manifest_path),
+                    "player-request.json": _sha256_file(player_request_path),
+                    "kp-request.json": _sha256_file(kp_request_path),
+                }
+            )
+            cell_results.append(result)
+            continue
+
+        if str(runner_result.get("status") or "FAIL") == "NOT_RUN":
+            runner_reasons = [
+                reason
+                for reason in runner_result.get("not_run_reasons") or []
+                if isinstance(reason, str) and reason
+            ]
+            if not runner_reasons:
+                runner_reasons = ["runner_not_run"]
+            result.update(
+                {
+                    "status": "NOT_RUN",
+                    "not_run_reasons": runner_reasons,
+                    "runner_result": {
+                        "status": "NOT_RUN",
+                        "returncode": runner_result.get("returncode"),
+                    },
+                }
+            )
+            manifest_path = cell_dir / "run-manifest.json"
+            _write_json_atomic(
+                manifest_path,
+                {
+                    **{
+                        key: cell.get(key)
+                        for key in _RUN_MANIFEST_IDENTITY_KEYS
+                    },
+                    "schema_version": 1,
+                    "eval_spec": EVAL_SPEC,
+                    "status": "NOT_RUN",
+                    "evidence_eligible": False,
+                    "not_run_reasons": runner_reasons,
+                },
+            )
+            result["artifact_hashes"].update(
+                {
+                    "run-manifest.json": _sha256_file(manifest_path),
+                    "player-request.json": _sha256_file(player_request_path),
+                    "kp-request.json": _sha256_file(kp_request_path),
+                }
+            )
+            cell_results.append(result)
+            continue
 
         status = str(runner_result.get("status") or "FAIL")
         if status not in {"PASS", "FAIL", "NOT_RUN", "INELIGIBLE"}:
@@ -1375,9 +1571,16 @@ def execute_matrix_plan(
                                 semantic.validate_judge_result(
                                     request, judge_result, rubric=rubric
                                 )
-                            except (RuntimeError, ValueError):
+                            except (RuntimeError, ValueError) as exc:
                                 result["status"] = "NOT_RUN"
-                                _append_reason(result, "judge_unavailable_or_invalid")
+                                if _is_timeout_exception(exc):
+                                    _append_reason(result, "execution_timeout")
+                                    result["timeout_phase"] = "semantic_judge"
+                                    result["timeout_seconds"] = judge_timeout_s
+                                else:
+                                    _append_reason(
+                                        result, "judge_unavailable_or_invalid"
+                                    )
                             else:
                                 judge_result_path = cell_dir / "judge-result.json"
                                 _write_json_atomic(judge_result_path, judge_result)
@@ -1447,9 +1650,6 @@ def execute_matrix_plan(
         "matrix-plan.json": _sha256_file(plan_path),
         "aggregate-summary.json": _sha256_file(aggregate_path),
     }
-    _write_json_atomic(results_path, results)
-    # Re-hash after writing results so the payload embeds its own sibling hashes.
-    results["artifact_hashes"]["matrix-results.json"] = _sha256_file(results_path)
     _write_json_atomic(results_path, results)
     return results
 
