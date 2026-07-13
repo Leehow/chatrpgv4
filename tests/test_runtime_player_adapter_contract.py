@@ -568,3 +568,108 @@ def test_player_luna_request_surfaces_endpoint_404_without_model_fallback(tmp_pa
     assert "404" in response["error"]
     assert requests
     assert {request["model"] for request in requests} == {"gpt-5.6-luna"}
+
+
+def test_player_server_does_not_reuse_prior_turn_provider_error(tmp_path):
+    requests = []
+
+    class ErrorThenSuccessHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            requests.append(json.loads(self.rfile.read(length)))
+            if len(requests) == 1:
+                body = b'{"error":{"message":"historical test 404"}}'
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+            else:
+                chunks = [
+                    {
+                        "id": "chatcmpl-current-turn",
+                        "object": "chat.completion.chunk",
+                        "model": "gpt-5.6-luna",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {
+                                "role": "assistant",
+                                "content": "I inspect the later footprints.",
+                            },
+                            "finish_reason": None,
+                        }],
+                    },
+                    {
+                        "id": "chatcmpl-current-turn",
+                        "object": "chat.completion.chunk",
+                        "model": "gpt-5.6-luna",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop",
+                        }],
+                    },
+                ]
+                body = (
+                    "".join(
+                        f"data: {json.dumps(chunk)}\n\n" for chunk in chunks
+                    )
+                    + "data: [DONE]\n\n"
+                ).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format, *_args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ErrorThenSuccessHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        agent_dir = tmp_path / "agent"
+        _write_test_models(
+            agent_dir,
+            base_url=f"http://127.0.0.1:{server.server_port}/v1",
+        )
+        env = dict(os.environ)
+        env["PI_CODING_AGENT_DIR"] = str(agent_dir)
+        env.pop("COC_PLAYER_MODEL_PROVIDER", None)
+        env.pop("COC_PLAYER_MODEL_ID", None)
+        later_request = _sample_request()
+        later_request["narration"] = "Later footprints cross the hallway."
+        server_input = "\n".join([
+            json.dumps({"request_id": "turn-1", "payload": _sample_request()}),
+            json.dumps({"request_id": "turn-2", "payload": later_request}),
+        ]) + "\n"
+        completed = subprocess.run(
+            ["node", str(RUNNER_PATH), "--server"],
+            input=server_input,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+            env=env,
+            cwd=PLAYER_DIR,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert completed.returncode == 0, completed.stderr
+    responses = [json.loads(line) for line in completed.stdout.splitlines()]
+    assert len(responses) == 2
+    assert responses[0]["request_id"] == "turn-1"
+    assert responses[0]["ok"] is False
+    assert "404" in responses[0]["error"]
+    assert responses[1] == {
+        "request_id": "turn-2",
+        "ok": True,
+        "player_text": "I inspect the later footprints.",
+        "player_notes": (
+            "player_missing_tool_use: model returned prose without coc_player_action"
+        ),
+        "response_mode": "prose_fallback",
+        "model_identity": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+    }
+    assert {request["model"] for request in requests} == {"gpt-5.6-luna"}

@@ -283,23 +283,6 @@ function extractAssistantProse(messages) {
   return "";
 }
 
-function extractAssistantError(messages) {
-  if (!Array.isArray(messages)) return undefined;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (
-      msg &&
-      msg.role === "assistant" &&
-      msg.stopReason === "error" &&
-      typeof msg.errorMessage === "string" &&
-      msg.errorMessage.trim()
-    ) {
-      return msg.errorMessage.trim();
-    }
-  }
-  return undefined;
-}
-
 function selectedModelIdentity(session) {
   const model = session && session.model;
   if (
@@ -471,6 +454,7 @@ export async function runPlayerTurn(request, serverState = null) {
     result: null,
     error: null,
     assistantProse: "",
+    assistantError: null,
   };
   const holder = serverState || { capture, pendingChoice };
   holder.capture = capture;
@@ -520,31 +504,45 @@ export async function runPlayerTurn(request, serverState = null) {
 
   let modelIdentity;
   let modelError;
+  let unsubscribe;
 
   try {
-    session.subscribe((event) => {
+    unsubscribe = session.subscribe((event) => {
       if (event && event.type === "message_end" && event.message) {
         const msg = event.message;
-        if (msg.role === "assistant" && Array.isArray(msg.content)) {
-          const texts = msg.content
-            .filter((c) => c && c.type === "text" && typeof c.text === "string")
-            .map((c) => c.text.trim())
-            .filter(Boolean);
-          if (texts.length) {
-            capture.assistantProse = texts.join("\n").trim();
+        if (msg.role === "assistant") {
+          if (
+            msg.stopReason === "error" &&
+            typeof msg.errorMessage === "string" &&
+            msg.errorMessage.trim()
+          ) {
+            capture.assistantError = msg.errorMessage.trim();
+          }
+          if (Array.isArray(msg.content)) {
+            const texts = msg.content
+              .filter((c) => c && c.type === "text" && typeof c.text === "string")
+              .map((c) => c.text.trim())
+              .filter(Boolean);
+            if (texts.length) {
+              capture.assistantProse = texts.join("\n").trim();
+            }
           }
         }
       }
     });
 
+    const promptMessageStart = session.messages.length;
     await session.prompt(buildPromptText(request));
 
     if (!capture.assistantProse) {
-      capture.assistantProse = extractAssistantProse(session.messages);
+      capture.assistantProse = extractAssistantProse(
+        session.messages.slice(promptMessageStart),
+      );
     }
-    modelError = extractAssistantError(session.messages);
+    modelError = capture.assistantError || undefined;
     modelIdentity = selectedModelIdentity(session);
   } finally {
+    if (unsubscribe) unsubscribe();
     if (ownsSession && !serverState) session.dispose();
   }
 
