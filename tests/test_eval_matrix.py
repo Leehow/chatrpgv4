@@ -163,6 +163,7 @@ def _write_attested_live_artifacts(
             for row in transcript_rows
         ),
     )
+    _write_json(run_dir / "player-requests.json", [])
     log_dir = run_dir / "sandbox/.coc/campaigns/eval-neutral/logs"
     event_paths = []
     for name in ("events.jsonl", "live-turn-runtime.jsonl", "rolls.jsonl"):
@@ -1384,6 +1385,104 @@ def test_live_segment_rejects_shifted_canonical_turn_ids(tmp_path, monkeypatch):
             model_roles=model_roles,
             env={},
         )
+
+
+def test_live_segment_rehydrates_prior_transcript_after_restart(
+    tmp_path, monkeypatch
+):
+    runner = _load_live_cell()
+    fixture_root = (
+        REPO / "evaluation" / "spec" / "v1" / "fixtures" / "matrix"
+    )
+    workspace, campaign_id, investigator_id = runner.materialize_workspace(
+        json.loads((fixture_root / "nightly-scenario.json").read_text()),
+        json.loads((fixture_root / "nightly-initial-state.json").read_text()),
+        tmp_path / "workspace",
+    )
+    snapshot = runner._canonical_campaign_snapshot_sha256(workspace, campaign_id)
+    _write_json(
+        workspace / ".coc" / "eval-continuity-restart.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "session_id": "eval-continuity:test",
+            "expected_snapshot_sha256": snapshot,
+        },
+    )
+    segment_root = tmp_path / "segments"
+    prior_transcript = segment_root / "segment-1" / "transcript.jsonl"
+    prior_rows = [
+        {
+            "turn": 1,
+            "role": "player_simulator",
+            "text": "我检查105号门。",
+        },
+        {
+            "turn": 2,
+            "role": "keeper_under_test",
+            "text": "门缝内侧留着一道新鲜刮痕。",
+        },
+    ]
+    _write(
+        prior_transcript,
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in prior_rows),
+    )
+    observed = {}
+
+    def fake_match(*args, **kwargs):
+        observed.update(kwargs)
+        run_dir = Path(kwargs["run_dir"])
+        run_dir.mkdir(parents=True, exist_ok=True)
+        evidence = _write_attested_live_artifacts(
+            runner, run_dir, turns=(2,)
+        )
+        request = {
+            "transcript_tail": kwargs["initial_transcript_tail"],
+            "narration": kwargs["initial_narration"],
+        }
+        _write_json(run_dir / "player-requests.json", [request])
+        return {
+            "run_dir": str(run_dir),
+            "turns": [{"turn": 2, "decision_id": "decision-2"}],
+            "player_turns": [{"player_text": "fixture"}],
+            "player_requests": [request],
+            "evidence": evidence,
+            "metadata": {
+                "run_id": "segment-2",
+                "runner_kind": "external_model_bridge",
+            },
+        }
+
+    monkeypatch.setattr(runner.live_match, "run_live_match", fake_match)
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    result = runner.run_live_segment(
+        start_turn=2,
+        turn_count=1,
+        workspace=workspace,
+        output=segment_root / "segment-2",
+        model_roles=model_roles,
+        env={},
+    )
+
+    expected_tail = [
+        {"role": "player", "text": prior_rows[0]["text"]},
+        {"role": "keeper", "text": prior_rows[1]["text"]},
+    ]
+    assert observed["initial_transcript_tail"] == expected_tail
+    assert observed["initial_narration"] == prior_rows[1]["text"]
+    assert result["resume_context_applied"] is True
+    context_path = (
+        segment_root
+        / "segment-2"
+        / result["artifacts"]["resume_context"]["artifact"]
+    )
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    assert context["source_transcript_sha256"] == _sha256(prior_transcript)
+    assert context["transcript_tail"] == expected_tail
 
 
 def test_live_segment_rejects_checkpoint_drift_before_model_invocation(

@@ -18,7 +18,8 @@
           "at_turn": 13,
           "require_pre_checkpoint_sha256": true,
           "require_post_checkpoint_sha256": true,
-          "require_session_identity_continuity": true
+          "require_session_identity_continuity": true,
+          "require_model_context_rehydration": true
         },
         "accepted_turns": {
           "monotonic": true,
@@ -59,7 +60,8 @@
           "at_turn": 27,
           "require_pre_checkpoint_sha256": true,
           "require_post_checkpoint_sha256": true,
-          "require_session_identity_continuity": true
+          "require_session_identity_continuity": true,
+          "require_model_context_rehydration": true
         },
         "accepted_turns": {
           "monotonic": true,

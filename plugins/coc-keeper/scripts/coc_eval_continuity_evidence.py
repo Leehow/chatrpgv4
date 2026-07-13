@@ -926,6 +926,99 @@ def _continuity_recall_receipt_ok(
             )
 
 
+def _resume_tail_from_transcript(path: Path) -> tuple[list[dict[str, str]], int]:
+    role_map = {
+        "player_simulator": "player",
+        "keeper_under_test": "keeper",
+    }
+    normalized: list[dict[str, str]] = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"resume source transcript is malformed at line {number}") from exc
+        role = role_map.get(row.get("role")) if isinstance(row, dict) else None
+        text = row.get("text") if isinstance(row, dict) else None
+        if role is None or not isinstance(text, str) or not text.strip():
+            raise ValueError(f"resume source transcript has an invalid turn at line {number}")
+        normalized.append({"role": role, "text": text})
+    if not normalized or normalized[-1]["role"] != "keeper":
+        raise ValueError("resume source transcript must end with a keeper turn")
+    return normalized[-6:], len(normalized)
+
+
+def _external_resume_context_ok(
+    *,
+    source_transcript_path: Path | None,
+    resume_context_path: Path | None,
+    resumed_player_requests_path: Path | None,
+    resume_start_turn: int | None,
+    findings: list[dict[str, Any]],
+) -> None:
+    if (
+        source_transcript_path is None
+        or resume_context_path is None
+        or resumed_player_requests_path is None
+    ):
+        return
+    try:
+        expected_tail, source_count = _resume_tail_from_transcript(
+            source_transcript_path
+        )
+        context = _read_json(resume_context_path)
+        player_requests = _read_json(resumed_player_requests_path)
+    except ValueError as exc:
+        findings.append(
+            _finding(
+                code="resume_context_unreadable",
+                severity="contradictory_evidence",
+                message=str(exc),
+            )
+        )
+        return
+    expected_narration = expected_tail[-1]["text"]
+    context_valid = bool(
+        isinstance(context, dict)
+        and context.get("schema_version") == 1
+        and context.get("eval_spec") == EVAL_SPEC
+        and context.get("kind") == "continuity-resume-context"
+        and context.get("source_segment_id") == 1
+        and context.get("resume_start_turn") == resume_start_turn
+        and context.get("source_transcript_sha256")
+        == _sha256_file(source_transcript_path)
+        and context.get("source_transcript_message_count") == source_count
+        and context.get("transcript_tail") == expected_tail
+        and context.get("last_narration") == expected_narration
+    )
+    if not context_valid:
+        findings.append(
+            _finding(
+                code="resume_context_source_mismatch",
+                severity="contradictory_evidence",
+                message="resumed model context does not exactly rehydrate the first segment transcript tail",
+            )
+        )
+        return
+    first_request = (
+        player_requests[0]
+        if isinstance(player_requests, list) and player_requests
+        else None
+    )
+    if not isinstance(first_request, dict) or (
+        first_request.get("transcript_tail") != expected_tail
+        or first_request.get("narration") != expected_narration
+    ):
+        findings.append(
+            _finding(
+                code="resume_context_prompt_mismatch",
+                severity="contradictory_evidence",
+                message="the resumed segment first player request did not receive the bound context",
+            )
+        )
+
+
 def _continuity_external_segments_ok(
     run_dir: Path,
     evidence: dict[str, Any],
@@ -962,6 +1055,9 @@ def _continuity_external_segments_ok(
     checkpoint_files: list[dict[str, str]] = [{}, {}]
     observed_turns: list[int] = []
     observed_decision_ids: list[str] = []
+    transcript_paths: list[Path | None] = [None, None]
+    player_request_paths: list[Path | None] = [None, None]
+    resume_context_path: Path | None = None
     for index, segment in enumerate(segments, 1):
         if not isinstance(segment, dict):
             findings.append(
@@ -1085,6 +1181,45 @@ def _continuity_external_segments_ok(
             "runner_metadata",
             findings,
         )
+        transcript_paths[index - 1] = _bound_artifact_path(
+            run_dir,
+            segment.get("transcript"),
+            "transcript",
+            findings,
+        )
+        player_request_paths[index - 1] = _bound_artifact_path(
+            run_dir,
+            segment.get("player_requests"),
+            "player_requests",
+            findings,
+        )
+        if index == 1:
+            if (
+                segment.get("resume_context") is not None
+                or segment.get("resume_context_applied") is True
+            ):
+                findings.append(
+                    _finding(
+                        code="resume_context_segment_invalid",
+                        severity="contradictory_evidence",
+                        message="the first continuity segment must not claim resumed model context",
+                    )
+                )
+        else:
+            resume_context_path = _bound_artifact_path(
+                run_dir,
+                segment.get("resume_context"),
+                "resume_context",
+                findings,
+            )
+            if segment.get("resume_context_applied") is not True:
+                findings.append(
+                    _finding(
+                        code="resume_context_not_applied",
+                        severity="contradictory_evidence",
+                        message="the resumed continuity segment must apply its bound model context",
+                    )
+                )
         ledger_descriptor = segment.get("invocation_ledger")
         if isinstance(ledger_descriptor, dict) and _is_sha256(
             ledger_descriptor.get("sha256")
@@ -1230,12 +1365,44 @@ def _continuity_external_segments_ok(
                     receipt_artifacts.get("run_metadata")
                 )
                 != segment.get("runner_metadata")
+                or _rebase_receipt_descriptor(
+                    run_dir,
+                    receipt_path,
+                    receipt_artifacts.get("transcript")
+                )
+                != segment.get("transcript")
+                or _rebase_receipt_descriptor(
+                    run_dir,
+                    receipt_path,
+                    receipt_artifacts.get("player_requests")
+                )
+                != segment.get("player_requests")
+                or (
+                    index == 2
+                    and _rebase_receipt_descriptor(
+                        run_dir,
+                        receipt_path,
+                        receipt_artifacts.get("resume_context")
+                    )
+                    != segment.get("resume_context")
+                )
             ):
                 findings.append(
                     _finding(
                         code="segment_receipt_artifact_mismatch",
                         severity="contradictory_evidence",
                         message=f"external segment {index} artifact bindings differ from its receipt",
+                    )
+                )
+            if receipt.get("resume_context_applied") is not (
+                segment.get("resume_context_applied") is True
+            ):
+                findings.append(
+                    _finding(
+                        code="segment_receipt_resume_context_mismatch",
+                        severity="contradictory_evidence",
+                        message=f"external segment {index} resume-context claim differs from its receipt",
+                        segment_id=index,
                     )
                 )
             receipt_attestation = receipt.get("attestation")
@@ -1299,6 +1466,15 @@ def _continuity_external_segments_ok(
                 )
                 if file_hashes is not None:
                     checkpoint_files[index - 1] = file_hashes
+    _external_resume_context_ok(
+        source_transcript_path=transcript_paths[0],
+        resume_context_path=resume_context_path,
+        resumed_player_requests_path=player_request_paths[1],
+        resume_start_turn=(
+            expected_segment_turns[1][0] if expected_segment_turns[1] else None
+        ),
+        findings=findings,
+    )
     if len(invocation_ids) != len(set(invocation_ids)):
         findings.append(
             _finding(
@@ -1993,6 +2169,18 @@ def validate_continuity_run(
                         "restart evidence must distinguish restarted model workers "
                         "from the continued logical evaluation session"
                     ),
+                )
+            )
+        if (
+            evidence_class == "external"
+            and restart_req.get("require_model_context_rehydration")
+            and restart.get("model_context_rehydrated") is not True
+        ):
+            findings.append(
+                _finding(
+                    code="model_context_not_rehydrated",
+                    severity="contradictory_evidence",
+                    message="restart must rehydrate the prior public transcript into the new model worker",
                 )
             )
 

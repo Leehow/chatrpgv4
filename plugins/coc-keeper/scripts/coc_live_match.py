@@ -613,6 +613,8 @@ def _run_live_match_impl(
     evidence_provenance: dict[str, Any] | None = None,
     persona_id: str | None = None,
     persona_prompt_directives: list[str] | None = None,
+    initial_transcript_tail: list[dict[str, str]] | None = None,
+    initial_narration: str | None = None,
 ) -> dict[str, Any]:
     """Run a multi-turn match: external player brain ↔ KP ``run_live_turn``.
 
@@ -665,12 +667,34 @@ def _run_live_match_impl(
     }
     narrator_worker_key = {**player_worker_key, "role": "narrator"}
 
+    resume_tail: list[dict[str, str]] = []
+    for item in initial_transcript_tail or []:
+        if not isinstance(item, dict):
+            raise ValueError("initial_transcript_tail entries must be objects")
+        role = item.get("role")
+        text = item.get("text")
+        if (
+            role not in {"player", "keeper"}
+            or not isinstance(text, str)
+            or not text.strip()
+        ):
+            raise ValueError(
+                "initial_transcript_tail entries require player/keeper role and text"
+            )
+        resume_tail.append({"role": role, "text": text})
+    if initial_narration is not None and (
+        not isinstance(initial_narration, str) or not initial_narration.strip()
+    ):
+        raise ValueError("initial_narration must be a non-empty string")
+
     turns: list[dict[str, Any]] = []
     player_turns: list[dict[str, Any]] = []
     player_requests: list[dict[str, Any]] = []
     player_choices: list[dict[str, Any]] = []
-    transcript_tail: list[dict[str, Any]] = []
-    recent_narrations: list[str] = []
+    transcript_tail: list[dict[str, Any]] = list(resume_tail)
+    recent_narrations: list[str] = [
+        item["text"] for item in resume_tail if item["role"] == "keeper"
+    ][-2:]
     invocation_rows: list[dict[str, Any]] = []
     tension_curve: list[Any] = []
     scene_path: list[str] = []
@@ -752,11 +776,15 @@ def _run_live_match_impl(
                     break
 
             if automatic_subsystem_request is None:
-                narration = player_visible_narration(
-                    last_turn,
-                    camp,
-                    play_language=play_language,
-                    previous_affordance_ids=previous_affordance_ids,
+                narration = (
+                    initial_narration
+                    if not player_requests and initial_narration is not None
+                    else player_visible_narration(
+                        last_turn,
+                        camp,
+                        play_language=play_language,
+                        previous_affordance_ids=previous_affordance_ids,
+                    )
                 )
                 request = build_player_request(
                     ws,

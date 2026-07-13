@@ -357,6 +357,33 @@ def test_scripted_match_runs_three_plus_turns_end_to_end(tmp_path):
     assert any(t.get("player_notes") for t in result["player_turns"])
 
 
+def test_live_match_rehydrates_transcript_tail_into_first_player_request(tmp_path):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    runner = tmp_path / "scripted_player"
+    _write_scripted_player_runner(runner, ["我接着检查刚才的门缝。"])
+    prior_tail = [
+        {"role": "player", "text": "我检查105号门。"},
+        {"role": "keeper", "text": "门缝内侧留着一道新鲜刮痕。"},
+    ]
+
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=runner,
+        max_turns=1,
+        rng_seed=43,
+        live=False,
+        intent_class="investigate",
+        initial_transcript_tail=prior_tail,
+        initial_narration=prior_tail[-1]["text"],
+    )
+
+    first_request = result["player_requests"][0]
+    assert first_request["transcript_tail"] == prior_tail
+    assert first_request["narration"] == prior_tail[-1]["text"]
+
+
 def test_player_request_routes_distinct_personas_without_keeper_fields(tmp_path):
     workspace, campaign_id, _investigator_id = _build_workspace(
         tmp_path, with_secrets=True

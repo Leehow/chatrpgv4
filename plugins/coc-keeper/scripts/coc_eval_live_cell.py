@@ -101,6 +101,7 @@ _CONTINUITY_PERSONA_ID = "careful_investigator"
 _CONTINUITY_PERSONA_DIRECTIVES = [
     "Prefer observation before irreversible action.",
 ]
+_CONTINUITY_TRANSCRIPT_TAIL_LIMIT = 6
 _CONTINUITY_CAMPAIGN_MUTABLE_TREES = ("save", "memory", "logs")
 _CONTINUITY_CAMPAIGN_INPUT_TREES = ("source", "scenario", "index")
 _CONTINUITY_CAMPAIGN_FILES = ("campaign.json", "party.json")
@@ -992,6 +993,56 @@ def _continuity_guard(workspace: Path) -> dict[str, Any]:
     return _object(payload, "continuity restart guard")
 
 
+def _continuity_resume_context(
+    destination: Path, *, start_turn: int
+) -> tuple[dict[str, Any], Path]:
+    source = destination.parent / "segment-1" / "transcript.jsonl"
+    if (
+        destination.parent.is_symlink()
+        or source.parent.is_symlink()
+        or source.is_symlink()
+        or not source.is_file()
+    ):
+        raise ContinuityContractError(
+            "resume_transcript_missing",
+            "continuity resume requires the first segment transcript",
+        )
+    rows = _read_jsonl(source)
+    normalized: list[dict[str, str]] = []
+    role_map = {
+        "player_simulator": "player",
+        "keeper_under_test": "keeper",
+    }
+    for row in rows:
+        role = role_map.get(row.get("role"))
+        text = row.get("text")
+        if role is None or not isinstance(text, str) or not text.strip():
+            raise ContinuityContractError(
+                "resume_transcript_invalid",
+                "continuity resume transcript contains an invalid public turn",
+            )
+        normalized.append({"role": role, "text": text})
+    if not normalized or normalized[-1]["role"] != "keeper":
+        raise ContinuityContractError(
+            "resume_transcript_incomplete",
+            "continuity resume transcript must end with a keeper turn",
+        )
+    tail = normalized[-_CONTINUITY_TRANSCRIPT_TAIL_LIMIT:]
+    payload = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "kind": "continuity-resume-context",
+        "source_segment_id": 1,
+        "resume_start_turn": start_turn,
+        "source_transcript_sha256": _sha256_file(source),
+        "source_transcript_message_count": len(normalized),
+        "transcript_tail": tail,
+        "last_narration": tail[-1]["text"],
+    }
+    path = _write_json_atomic(destination / "continuity-resume-context.json", payload)
+    return payload, path
+
+
 def run_live_segment(
     *,
     start_turn: int,
@@ -1035,6 +1086,12 @@ def run_live_segment(
     destination = Path(output).resolve()
     if destination.is_symlink():
         raise ValueError("continuity segment output must not be a symlink")
+    resume_context: dict[str, Any] | None = None
+    resume_context_path: Path | None = None
+    if start_turn > 1:
+        resume_context, resume_context_path = _continuity_resume_context(
+            destination, start_turn=start_turn
+        )
     player_runner = REPO_ROOT / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
     narrator_runner = (
         REPO_ROOT / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
@@ -1052,6 +1109,12 @@ def run_live_segment(
         }
     )
     with _scoped_environment(role_env):
+        match_kwargs: dict[str, Any] = {}
+        if resume_context is not None:
+            match_kwargs = {
+                "initial_transcript_tail": resume_context["transcript_tail"],
+                "initial_narration": resume_context["last_narration"],
+            }
         result = live_match.run_live_match(
             workspace_path,
             campaign_id,
@@ -1069,8 +1132,25 @@ def run_live_segment(
             },
             persona_id=_CONTINUITY_PERSONA_ID,
             persona_prompt_directives=list(_CONTINUITY_PERSONA_DIRECTIVES),
+            **match_kwargs,
         )
     result = _object(result, "live_match segment result")
+    if resume_context is not None:
+        player_requests = result.get("player_requests")
+        first_request = (
+            player_requests[0]
+            if isinstance(player_requests, list) and player_requests
+            else None
+        )
+        if not isinstance(first_request, dict) or (
+            first_request.get("transcript_tail")
+            != resume_context["transcript_tail"]
+            or first_request.get("narration") != resume_context["last_narration"]
+        ):
+            raise ContinuityContractError(
+                "resume_context_not_applied",
+                "continuity resume context was not applied to the first player request",
+            )
     result_turns = [
         turn for turn in result.get("turns") or [] if isinstance(turn, dict)
     ]
@@ -1208,6 +1288,34 @@ def run_live_segment(
         "artifact": metadata_path.relative_to(destination).as_posix(),
         "sha256": _sha256_file(metadata_path),
     }
+    transcript_path = destination / "transcript.jsonl"
+    player_requests_path = destination / "player-requests.json"
+    if (
+        transcript_path.is_symlink()
+        or not transcript_path.is_file()
+        or player_requests_path.is_symlink()
+        or not player_requests_path.is_file()
+    ):
+        raise ContinuityContractError(
+            "resume_evidence_missing",
+            "continuity segment did not persist transcript and player-request evidence",
+        )
+    transcript_descriptor = {
+        "artifact": transcript_path.relative_to(destination).as_posix(),
+        "sha256": _sha256_file(transcript_path),
+    }
+    player_requests_descriptor = {
+        "artifact": player_requests_path.relative_to(destination).as_posix(),
+        "sha256": _sha256_file(player_requests_path),
+    }
+    resume_context_descriptor = (
+        {
+            "artifact": resume_context_path.relative_to(destination).as_posix(),
+            "sha256": _sha256_file(resume_context_path),
+        }
+        if resume_context_path is not None
+        else None
+    )
     resume_descriptor = final_descriptor if start_turn == 1 else entry_descriptor
     segment = {
         "schema_version": 1,
@@ -1236,12 +1344,16 @@ def run_live_segment(
         "report_contract": normalized_report_contract,
         "evidence_class": "external",
         "secret_audit_passed": attested,
+        "resume_context_applied": resume_context is not None,
         "artifacts": {
             "invocation_ledger": invocation_descriptor,
             "checkpoint_entry": entry_descriptor,
             "checkpoint_final": final_descriptor,
             "checkpoint_resume": resume_descriptor,
             "run_metadata": metadata_descriptor,
+            "transcript": transcript_descriptor,
+            "player_requests": player_requests_descriptor,
+            "resume_context": resume_context_descriptor,
             "battle_report": _report_artifact_descriptor(
                 destination, raw_report_contract, "report_path"
             ),

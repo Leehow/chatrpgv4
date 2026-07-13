@@ -544,6 +544,20 @@ def _lane_segment_record(
         "runner_metadata": _lane_descriptor_from_segment(
             lane_dir, segment_dir, artifacts.get("run_metadata")
         ),
+        "transcript": _lane_descriptor_from_segment(
+            lane_dir, segment_dir, artifacts.get("transcript")
+        ),
+        "player_requests": _lane_descriptor_from_segment(
+            lane_dir, segment_dir, artifacts.get("player_requests")
+        ),
+        "resume_context": (
+            _lane_descriptor_from_segment(
+                lane_dir, segment_dir, artifacts.get("resume_context")
+            )
+            if isinstance(artifacts.get("resume_context"), dict)
+            else None
+        ),
+        "resume_context_applied": segment.get("resume_context_applied") is True,
         "checkpoint_snapshot_sha256": segment.get("snapshot_sha256"),
     }
 
@@ -742,10 +756,15 @@ def run_continuity_lane(
                     "invocation_ledger",
                     "checkpoint_manifest",
                     "runner_metadata",
+                    "transcript",
+                    "player_requests",
                 )
             )
             for record in segment_records
         )
+        and isinstance(segment_records[1].get("resume_context"), dict)
+        and _is_sha256(segment_records[1]["resume_context"].get("sha256"))
+        and segment_records[1].get("resume_context_applied") is True
     )
     audit_findings = []
     for index, (segment, record) in enumerate(
@@ -804,6 +823,9 @@ def run_continuity_lane(
             "model_workers_restarted_between_segments": True,
             "logical_evaluation_session_continued": True,
             "model_conversation_session_continuity_claimed": False,
+            "model_context_rehydrated": (
+                segment_records[1].get("resume_context_applied") is True
+            ),
         },
         "recall_anchors": recall_anchors,
         "recall_anchor_receipt": _artifact_descriptor(lane_dir, recall_path),
@@ -818,6 +840,7 @@ def run_continuity_lane(
             "continued_identity": "logical_evaluation_session",
             "model_worker_sessions": "restarted_between_segments",
             "model_conversation_session_continuity": False,
+            "model_context_transfer": "checkpoint_rehydrated",
         },
         "segments": segment_records,
         "secret_audit": {

@@ -368,6 +368,9 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
         )
         segments = []
         ledger_hashes = []
+        first_transcript_descriptor = None
+        first_transcript_tail = None
+        first_transcript_count = None
         for index, accepted_turns in enumerate(ranges, 1):
             segment_dir = run_dir / "segments" / f"segment-{index}"
             invocation_id = uuid.uuid4().hex
@@ -470,6 +473,83 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
                 "artifact": metadata_path.name,
                 "sha256": metadata_descriptor["sha256"],
             }
+            transcript_rows = []
+            normalized_transcript = []
+            for turn in accepted_turns:
+                for role, normalized_role, text in (
+                    ("player_simulator", "player", f"player-{turn}"),
+                    ("keeper_under_test", "keeper", f"keeper-{turn}"),
+                ):
+                    transcript_rows.append(
+                        {"turn": turn, "role": role, "text": text}
+                    )
+                    normalized_transcript.append(
+                        {"role": normalized_role, "text": text}
+                    )
+            transcript_path = segment_dir / "transcript.jsonl"
+            transcript_path.write_text(
+                "".join(
+                    json.dumps(row, sort_keys=True) + "\n"
+                    for row in transcript_rows
+                ),
+                encoding="utf-8",
+            )
+            transcript_descriptor = _artifact(run_dir, transcript_path)
+            local_transcript_descriptor = {
+                "artifact": transcript_path.name,
+                "sha256": transcript_descriptor["sha256"],
+            }
+            resume_context = None
+            local_resume_context = None
+            initial_tail = []
+            initial_narration = "场景开始。"
+            if index == 1:
+                first_transcript_descriptor = transcript_descriptor
+                first_transcript_tail = normalized_transcript[-6:]
+                first_transcript_count = len(normalized_transcript)
+            else:
+                assert first_transcript_descriptor is not None
+                assert first_transcript_tail is not None
+                assert first_transcript_count is not None
+                initial_tail = first_transcript_tail
+                initial_narration = first_transcript_tail[-1]["text"]
+                resume_context_path = _write_json(
+                    segment_dir / "continuity-resume-context.json",
+                    {
+                        "schema_version": 1,
+                        "eval_spec": "eval-spec-v1",
+                        "kind": "continuity-resume-context",
+                        "source_segment_id": 1,
+                        "resume_start_turn": accepted_turns[0],
+                        "source_transcript_sha256": first_transcript_descriptor[
+                            "sha256"
+                        ],
+                        "source_transcript_message_count": first_transcript_count,
+                        "transcript_tail": first_transcript_tail,
+                        "last_narration": initial_narration,
+                    },
+                )
+                resume_context = _artifact(run_dir, resume_context_path)
+                local_resume_context = {
+                    "artifact": resume_context_path.name,
+                    "sha256": resume_context["sha256"],
+                }
+            player_requests_path = _write_json(
+                segment_dir / "player-requests.json",
+                [
+                    {
+                        "transcript_tail": initial_tail,
+                        "narration": initial_narration,
+                    }
+                ],
+            )
+            player_requests_descriptor = _artifact(
+                run_dir, player_requests_path
+            )
+            local_player_requests_descriptor = {
+                "artifact": player_requests_path.name,
+                "sha256": player_requests_descriptor["sha256"],
+            }
             segment_receipt = {
                 "schema_version": 1,
                 "eval_spec": "eval-spec-v1",
@@ -485,6 +565,7 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
                 "accepted_turns": accepted_turns,
                 "turn_bindings": turn_bindings,
                 "snapshot_sha256": checkpoint_snapshot,
+                "resume_context_applied": index == 2,
                 "attestation": {
                     **evidence["attestation"],
                     "runner": "coc_live_match",
@@ -493,6 +574,9 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
                     "invocation_ledger": local_ledger_descriptor,
                     "checkpoint_resume": local_checkpoint_descriptor,
                     "run_metadata": local_metadata_descriptor,
+                    "transcript": local_transcript_descriptor,
+                    "player_requests": local_player_requests_descriptor,
+                    "resume_context": local_resume_context,
                 },
             }
             receipt = segment_dir / "continuity-segment.json"
@@ -508,10 +592,15 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
                     "invocation_ledger": ledger_descriptor,
                     "checkpoint_manifest": checkpoint_descriptor,
                     "runner_metadata": metadata_descriptor,
+                    "transcript": transcript_descriptor,
+                    "player_requests": player_requests_descriptor,
+                    "resume_context": resume_context,
+                    "resume_context_applied": index == 2,
                     "checkpoint_snapshot_sha256": checkpoint_snapshot,
                 }
             )
         evidence["segments"] = segments
+        evidence["restart"]["model_context_rehydrated"] = True
     else:
         ledger_hashes = []
 
@@ -838,6 +927,7 @@ def test_long_memory_case_spec_defines_25_and_50_lanes():
     for lane in payload["lanes"]:
         req = lane["requirements"]
         assert req["accepted_turns"]["monotonic"] is True
+        assert req["restart"]["require_model_context_rehydration"] is True
         assert set(req["recall_anchors"]) == set(RECALL_ANCHORS)
         assert req["secret_leakage_audit"]["source"] == "structured_audit_references"
         assert req["secret_leakage_audit"]["forbid_prose_scanning"] is True
@@ -959,6 +1049,40 @@ def test_validate_continuity_external_attested_is_gameplay_evidence(tmp_path: Pa
     assert result["status"] == "PASS"
     assert result["evidence_class"] == "external"
     assert result["gameplay_evidence"] is True
+
+
+def test_validate_continuity_rejects_rehashed_resume_prompt_without_prior_context(
+    tmp_path: Path,
+):
+    mod = _load()
+    run_dir = tmp_path / "resume-context-dropped"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    segment = evidence["segments"][1]
+    requests_path = run_dir / segment["player_requests"]["artifact"]
+    _write_json(
+        requests_path,
+        [{"transcript_tail": [], "narration": "场景重新开始。"}],
+    )
+    requests_hash = _sha256_file(requests_path)
+    segment["player_requests"]["sha256"] = requests_hash
+    receipt_path = run_dir / segment["receipt"]["artifact"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["artifacts"]["player_requests"]["sha256"] = requests_hash
+    _write_json(receipt_path, receipt)
+    segment["receipt"]["sha256"] = _sha256_file(receipt_path)
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "resume_context_prompt_mismatch"
+        for item in result["findings"]
+    )
 
 
 def test_validate_continuity_external_requires_source_invocation_ids(tmp_path: Path):
@@ -2005,6 +2129,84 @@ def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
             "artifact": metadata.name,
             "sha256": _sha256_file(metadata),
         }
+        transcript_rows = []
+        for turn in accepted_turns:
+            transcript_rows.extend(
+                [
+                    {
+                        "turn": turn,
+                        "role": "player_simulator",
+                        "text": f"player-{turn}",
+                    },
+                    {
+                        "turn": turn,
+                        "role": "keeper_under_test",
+                        "text": f"keeper-{turn}",
+                    },
+                ]
+            )
+        transcript = output / "transcript.jsonl"
+        transcript.write_text(
+            "".join(json.dumps(row, sort_keys=True) + "\n" for row in transcript_rows),
+            encoding="utf-8",
+        )
+        local_transcript = {
+            "artifact": transcript.name,
+            "sha256": _sha256_file(transcript),
+        }
+        initial_tail = []
+        initial_narration = "场景开始。"
+        local_resume_context = None
+        if start_turn > 1:
+            first_transcript = output.parent / "segment-1" / "transcript.jsonl"
+            first_rows = [
+                json.loads(line)
+                for line in first_transcript.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            initial_tail = [
+                {
+                    "role": (
+                        "player"
+                        if row["role"] == "player_simulator"
+                        else "keeper"
+                    ),
+                    "text": row["text"],
+                }
+                for row in first_rows[-6:]
+            ]
+            initial_narration = initial_tail[-1]["text"]
+            resume_context = _write_json(
+                output / "continuity-resume-context.json",
+                {
+                    "schema_version": 1,
+                    "eval_spec": "eval-spec-v1",
+                    "kind": "continuity-resume-context",
+                    "source_segment_id": 1,
+                    "resume_start_turn": start_turn,
+                    "source_transcript_sha256": _sha256_file(first_transcript),
+                    "source_transcript_message_count": len(first_rows),
+                    "transcript_tail": initial_tail,
+                    "last_narration": initial_narration,
+                },
+            )
+            local_resume_context = {
+                "artifact": resume_context.name,
+                "sha256": _sha256_file(resume_context),
+            }
+        player_requests = _write_json(
+            output / "player-requests.json",
+            [
+                {
+                    "transcript_tail": initial_tail,
+                    "narration": initial_narration,
+                }
+            ],
+        )
+        local_player_requests = {
+            "artifact": player_requests.name,
+            "sha256": _sha256_file(player_requests),
+        }
         attestation = {
             "player_model": model_roles["player"],
             "kp_model": model_roles["kp"],
@@ -2027,11 +2229,15 @@ def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
             "accepted_turns": accepted_turns,
             "turn_bindings": turn_bindings,
             "snapshot_sha256": checkpoint_hash,
+            "resume_context_applied": start_turn > 1,
             "attestation": attestation,
             "artifacts": {
                 "invocation_ledger": local_ledger,
                 "checkpoint_resume": local_checkpoint,
                 "run_metadata": local_metadata,
+                "transcript": local_transcript,
+                "player_requests": local_player_requests,
+                "resume_context": local_resume_context,
             },
         }
         _write_json(output / "continuity-segment.json", receipt)
@@ -2066,6 +2272,7 @@ def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
         "continued_identity": "logical_evaluation_session",
         "model_worker_sessions": "restarted_between_segments",
         "model_conversation_session_continuity": False,
+        "model_context_transfer": "checkpoint_rehydrated",
     }
 
 

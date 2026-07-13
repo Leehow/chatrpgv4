@@ -223,6 +223,7 @@
         "tests/test_eval_longrun.py::test_validate_continuity_missing_recall_anchor_fails",
         "tests/test_eval_longrun.py::test_validate_continuity_external_without_attestation_is_ineligible",
         "tests/test_eval_longrun.py::test_validate_continuity_complete_fixture_passes_and_labels_fixture",
+        "tests/test_eval_longrun.py::test_validate_continuity_rejects_rehashed_resume_prompt_without_prior_context",
         "-q", "-p", "no:cacheprovider"
       ],
       "evidence_requirements": ["stdout", "stderr", "returncode", "artifact_hashes"]
