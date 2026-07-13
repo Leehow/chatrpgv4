@@ -26,6 +26,12 @@ import coc_completion_audit as completion_audit
 EVAL_SPEC = "eval-spec-v1"
 LONG_MEMORY_CASE = Path("evaluation/spec/v1/cases/long-memory.json")
 CONTINUITY_LANES = ("continuity-25", "continuity-50")
+CANONICAL_LANE_ORDER = (
+    "registered-cases",
+    "matrix",
+    *CONTINUITY_LANES,
+    "completion-audit",
+)
 MODEL_ROLES = {
     "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
     "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
@@ -648,8 +654,8 @@ def declared_registered_case_artifacts(
 
     bind(case_results_path, outer_hashes.get(case_results_path))
     case_rows = lane.get("cases")
-    if not isinstance(case_rows, list):
-        raise ValueError("registered case rows missing")
+    if not isinstance(case_rows, list) or not case_rows:
+        raise ValueError("registered case rows missing or empty")
     seen_case_ids: set[str] = set()
     expected_case_paths: set[str] = set()
     for case in case_rows:
@@ -666,6 +672,8 @@ def declared_registered_case_artifacts(
         status = case.get("status")
         if status not in REGISTERED_CASE_STATUSES:
             raise ValueError(f"registered case status invalid: {case_id}")
+        if case.get("gate") not in {"hard", "soft", "diagnostic"}:
+            raise ValueError(f"registered case gate invalid: {case_id}")
         stdout_path = case.get("stdout_path")
         stderr_path = case.get("stderr_path")
         hashes = case.get("artifact_hashes")
@@ -728,19 +736,113 @@ def run_completion_audit(
     return payload
 
 
+def _reason_list(value: Any, *, label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(
+        isinstance(reason, str) and reason for reason in value
+    ):
+        raise ValueError(f"{label} must be a list of nonempty strings")
+    return list(value)
+
+
 def _nested_not_run_reasons(lanes: dict[str, dict[str, Any]]) -> list[str]:
     reasons: list[str] = []
-    for lane_id, lane in lanes.items():
-        candidates = list(lane.get("not_run_reasons") or [])
-        for cell in lane.get("cells") or []:
+    lane_ids = [lane_id for lane_id in CANONICAL_LANE_ORDER if lane_id in lanes]
+    lane_ids.extend(sorted(set(lanes) - set(lane_ids)))
+    for lane_id in lane_ids:
+        lane = lanes[lane_id]
+        if not isinstance(lane, dict):
+            raise ValueError(f"lane result must be an object: {lane_id}")
+        candidates = _reason_list(
+            lane.get("not_run_reasons"), label=f"{lane_id}.not_run_reasons"
+        )
+        raw_cells = lane.get("cells")
+        if raw_cells is not None and not isinstance(raw_cells, list):
+            raise ValueError(f"{lane_id}.cells must be a list")
+        for index, cell in enumerate(raw_cells or []):
             if isinstance(cell, dict):
-                candidates.extend(cell.get("not_run_reasons") or [])
+                candidates.extend(
+                    _reason_list(
+                        cell.get("not_run_reasons"),
+                        label=f"{lane_id}.cells[{index}].not_run_reasons",
+                    )
+                )
         for reason in candidates:
-            if isinstance(reason, str) and reason:
-                namespaced = f"{lane_id}:{reason}"
-                if namespaced not in reasons:
-                    reasons.append(namespaced)
+            namespaced = f"{lane_id}:{reason}"
+            if namespaced not in reasons:
+                reasons.append(namespaced)
     return reasons
+
+
+def build_aggregate_summary(
+    *,
+    suite: str,
+    lanes: dict[str, dict[str, Any]],
+    aggregation_inputs: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the sole canonical nightly aggregate from bound lane payloads."""
+    if suite != "nightly":
+        raise ValueError("aggregate suite must be nightly")
+    if not isinstance(lanes, dict) or not lanes:
+        raise ValueError("aggregate lanes must be a nonempty object")
+    if (
+        not isinstance(aggregation_inputs, dict)
+        or set(aggregation_inputs) != {"baseline_supplied", "matrix_limit"}
+        or not isinstance(aggregation_inputs.get("baseline_supplied"), bool)
+    ):
+        raise ValueError("aggregation_inputs malformed")
+    matrix_limit = aggregation_inputs.get("matrix_limit")
+    if matrix_limit is not None and (
+        isinstance(matrix_limit, bool)
+        or not isinstance(matrix_limit, int)
+        or matrix_limit <= 0
+    ):
+        raise ValueError("aggregation_inputs.matrix_limit malformed")
+    matrix_lane = lanes.get("matrix")
+    if matrix_lane is not None:
+        if not isinstance(matrix_lane, dict):
+            raise ValueError("matrix lane must be an object")
+        diagnostic = matrix_lane.get("diagnostic")
+        if diagnostic is None:
+            diagnostic = {}
+        if not isinstance(diagnostic, dict):
+            raise ValueError("matrix lane diagnostic malformed")
+        lane_limit = diagnostic.get("matrix_limit")
+        if (matrix_limit is None and "matrix_limit" in diagnostic) or (
+            matrix_limit is not None and lane_limit != matrix_limit
+        ):
+            raise ValueError("matrix lane diagnostic contradicts matrix_limit")
+
+    status = aggregate_lane_status(lanes)
+    nested_reasons = _nested_not_run_reasons(lanes)
+    missing_baseline = not aggregation_inputs["baseline_supplied"] or any(
+        reason == "matrix:missing_baseline_evidence" for reason in nested_reasons
+    )
+    not_run_reasons: list[str] = []
+    if len(lanes) > 1 and missing_baseline:
+        not_run_reasons.append("baseline_evidence_missing")
+    if len(lanes) > 1 and matrix_limit is not None:
+        not_run_reasons.append("diagnostic_matrix_limit")
+    not_run_reasons.extend(
+        reason for reason in nested_reasons if reason not in not_run_reasons
+    )
+    if status == "PASS" and not_run_reasons:
+        status = "NOT_RUN"
+    diagnostic = {"matrix_limit": matrix_limit} if matrix_limit is not None else {}
+    return {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "suite": suite,
+        "status": status,
+        "lane_statuses": {
+            lane_id: lanes[lane_id]["status"]
+            for lane_id in CANONICAL_LANE_ORDER
+            if lane_id in lanes
+        },
+        "not_run_reasons": not_run_reasons,
+        "diagnostic": diagnostic,
+    }
 
 
 def verify_lane_artifacts(
@@ -970,6 +1072,10 @@ def run_extended_suite(
             matrix_limit=matrix_limit,
             timeout=timeout,
         )
+        if matrix_limit is not None:
+            matrix_diagnostic = dict(lanes["matrix"].get("diagnostic") or {})
+            matrix_diagnostic["matrix_limit"] = matrix_limit
+            lanes["matrix"]["diagnostic"] = matrix_diagnostic
         lane_artifacts["matrix"] = _persist_lane(out, "matrix", lanes["matrix"])
         for lane_id in CONTINUITY_LANES:
             lane_output = _safe_lane_root(out, lane_id, create=True)
@@ -998,37 +1104,15 @@ def run_extended_suite(
             out, "completion-audit", lanes["completion-audit"]
         )
 
-    status = aggregate_lane_status(lanes)
-    nested_reasons = _nested_not_run_reasons(lanes)
-    missing_baseline = baseline is None or any(
-        reason == "matrix:missing_baseline_evidence"
-        for reason in nested_reasons
-    )
-    not_run_reasons: list[str] = []
-    if len(lanes) > 1 and missing_baseline:
-        not_run_reasons.append("baseline_evidence_missing")
-    if len(lanes) > 1 and matrix_limit is not None:
-        not_run_reasons.append("diagnostic_matrix_limit")
-    not_run_reasons.extend(
-        reason for reason in nested_reasons if reason not in not_run_reasons
-    )
-    if status == "PASS" and not_run_reasons:
-        status = "NOT_RUN"
-
-    diagnostic = (
-        {"matrix_limit": matrix_limit} if matrix_limit is not None else {}
-    )
-    summary = {
-        "schema_version": 1,
-        "eval_spec": EVAL_SPEC,
-        "suite": suite,
-        "status": status,
-        "lane_statuses": {
-            lane_id: lane["status"] for lane_id, lane in lanes.items()
-        },
-        "not_run_reasons": not_run_reasons,
-        "diagnostic": diagnostic,
+    aggregation_inputs = {
+        "baseline_supplied": baseline is not None,
+        "matrix_limit": matrix_limit,
     }
+    summary = build_aggregate_summary(
+        suite=suite,
+        lanes=lanes,
+        aggregation_inputs=aggregation_inputs,
+    )
     summary_path = _write_json_atomic(out / "aggregate-summary.json", summary)
     artifact_hashes = {
         path: digest
@@ -1040,6 +1124,7 @@ def run_extended_suite(
     )
     return {
         **summary,
+        "aggregation_inputs": aggregation_inputs,
         "lanes": lanes,
         "lane_artifacts": lane_artifacts,
         "artifact_hashes": artifact_hashes,

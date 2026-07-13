@@ -112,6 +112,92 @@ def _positive_float(value: str) -> float:
     return parsed
 
 
+def _canonical_json_text(payload: Any) -> str:
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def _registered_case_projection_findings(
+    manifest: dict[str, Any], lanes: dict[str, Any]
+) -> tuple[str | None, list[dict[str, Any]]]:
+    findings: list[dict[str, Any]] = []
+    lane = lanes.get("registered-cases")
+    if not isinstance(lane, dict):
+        return None, findings
+    rows = lane.get("cases")
+    if not isinstance(rows, list) or not rows:
+        findings.append({"code": "registered_case_rows_malformed"})
+        return None, findings
+    case_ids: list[str] = []
+    rows_valid = True
+    for row in rows:
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("case_id"), str)
+            or cases.CASE_ID_RE.fullmatch(row["case_id"]) is None
+            or row.get("gate") not in cases.VALID_GATES
+            or row.get("status") not in pipeline.REGISTERED_CASE_STATUSES
+        ):
+            rows_valid = False
+            break
+        case_ids.append(row["case_id"])
+    if not rows_valid or len(case_ids) != len(set(case_ids)):
+        findings.append({"code": "registered_case_rows_malformed"})
+        return None, findings
+    if manifest.get("case_results") != rows:
+        findings.append({"code": "registered_case_results_mismatch"})
+    if manifest.get("case_ids") != case_ids:
+        findings.append({"code": "registered_case_ids_mismatch"})
+    if lane.get("suite") != manifest.get("suite"):
+        findings.append({"code": "registered_case_suite_mismatch"})
+    canonical_status = cases.aggregate_suite_status(rows)
+    if lane.get("status") != canonical_status:
+        findings.append({"code": "registered_case_status_mismatch"})
+    return canonical_status, findings
+
+
+def _aggregate_contract_findings(
+    directory: Path,
+    manifest: dict[str, Any],
+    lanes: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if manifest.get("suite") != "nightly":
+        return [{"code": "aggregate_contract_suite_mismatch"}]
+    try:
+        expected = pipeline.build_aggregate_summary(
+            suite="nightly",
+            lanes=lanes,
+            aggregation_inputs=manifest.get("aggregation_inputs"),
+        )
+    except ValueError:
+        return [{"code": "aggregate_inputs_malformed"}]
+    findings: list[dict[str, Any]] = []
+    for field in ("status", "not_run_reasons", "diagnostic"):
+        if manifest.get(field) != expected[field]:
+            findings.append(
+                {"code": "aggregate_manifest_mismatch", "field": field}
+            )
+    summary_path = directory / "aggregate-summary.json"
+    if summary_path.is_symlink() or not summary_path.is_file():
+        findings.append({"code": "aggregate_summary_missing"})
+        return findings
+    expected_text = _canonical_json_text(expected)
+    try:
+        actual_text = summary_path.read_text(encoding="utf-8")
+        actual_digest = _sha256(summary_path)
+    except (OSError, UnicodeError):
+        findings.append({"code": "aggregate_summary_unreadable"})
+        return findings
+    if actual_text != expected_text:
+        findings.append({"code": "aggregate_summary_payload_mismatch"})
+    artifact_hashes = manifest.get("artifact_hashes")
+    if (
+        not isinstance(artifact_hashes, dict)
+        or artifact_hashes.get("aggregate-summary.json") != actual_digest
+    ):
+        findings.append({"code": "aggregate_summary_hash_mismatch"})
+    return findings
+
+
 def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
     """Verify the report contract plus any aggregate nightly lane receipts."""
     directory = Path(run_dir).resolve()
@@ -128,6 +214,15 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
             "eval_spec": "eval-spec-v1",
             "status": "FAIL",
             "findings": [{"code": "run_manifest_unreadable"}],
+        }
+        return payload
+    if not isinstance(manifest, dict):
+        payload["status"] = "FAIL"
+        payload["lane_artifact_verification"] = {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "status": "FAIL",
+            "findings": [{"code": "run_manifest_malformed"}],
         }
         return payload
     lane_artifacts = (
@@ -170,6 +265,24 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
         return payload
     required_owned_artifacts: dict[str, dict[str, str]] = {}
     contract_findings: list[dict[str, Any]] = []
+    canonical_registered_status: str | None = None
+    if isinstance(lanes, dict):
+        canonical_registered_status, projection_findings = (
+            _registered_case_projection_findings(manifest, lanes)
+        )
+        contract_findings.extend(projection_findings)
+    has_aggregate_contract = bool(
+        isinstance(lanes, dict)
+        or isinstance(lane_artifacts, dict)
+        or (
+            isinstance(manifest.get("artifact_hashes"), dict)
+            and "aggregate-summary.json" in manifest["artifact_hashes"]
+        )
+    )
+    if has_aggregate_contract and isinstance(lanes, dict):
+        contract_findings.extend(
+            _aggregate_contract_findings(directory, manifest, lanes)
+        )
     if (
         manifest_suite == "nightly"
         and isinstance(lanes, dict)
@@ -182,8 +295,7 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
             contract_findings.append({"code": "registered_cases_receipt_missing"})
         expected_topology = (
             NIGHTLY_SHORT_CIRCUIT_LANE_IDS
-            if isinstance(registered_lane, dict)
-            and registered_lane.get("status") == "FAIL"
+            if canonical_registered_status == "FAIL"
             else NIGHTLY_FULL_LANE_IDS
         )
         lane_ids = set(lanes)
@@ -465,6 +577,7 @@ def run_suite(
                 {
                     "lanes": extended["lanes"],
                     "lane_artifacts": extended["lane_artifacts"],
+                    "aggregation_inputs": extended["aggregation_inputs"],
                     "not_run_reasons": extended["not_run_reasons"],
                     "diagnostic": extended["diagnostic"],
                 }

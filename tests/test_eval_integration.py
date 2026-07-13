@@ -143,6 +143,53 @@ def _pass_completion_audit(**kwargs):
     }
 
 
+def _run_bound_fake_nightly(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    matrix_limit: int | None = None,
+):
+    cli = _load_cli()
+    pipeline = sys.modules["coc_eval_pipeline"]
+    monkeypatch.setattr(
+        cli,
+        "_run_registered_cases",
+        lambda **kwargs: _fake_registered_cases(kwargs["out"]),
+    )
+
+    def fake_matrix(**kwargs):
+        payload = {"status": "PASS", "cells": [{"status": "PASS"}]}
+        if matrix_limit is not None:
+            payload["diagnostic"] = {"matrix_limit": matrix_limit}
+        return payload
+
+    monkeypatch.setattr(pipeline, "run_matrix", fake_matrix)
+    monkeypatch.setattr(
+        pipeline,
+        "run_continuity",
+        lambda lane_id, **kwargs: {"status": "PASS", "lane_id": lane_id},
+    )
+    monkeypatch.setattr(pipeline, "run_completion_audit", _pass_completion_audit)
+    out = tmp_path / "nightly"
+    result = cli.run_suite(
+        root=REPO,
+        suite="nightly",
+        output=out,
+        host_id="local",
+        baseline=tmp_path / "baseline",
+        matrix_limit=matrix_limit,
+    )
+    return cli, out, result
+
+
+def _rewrite_manifest(out: Path, mutate):
+    path = out / "run-manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    mutate(manifest)
+    _write_json(path, manifest)
+    return manifest
+
+
 def test_nightly_runs_registered_cases_matrix_continuity_and_judge(
     tmp_path: Path, monkeypatch
 ):
@@ -608,6 +655,7 @@ def test_registered_case_artifact_contract_allows_explicit_unexecuted_not_run(
             "cases": [
                 {
                     "case_id": "not-run-case",
+                    "gate": "hard",
                     "status": "NOT_RUN",
                     "stdout_path": None,
                     "stderr_path": None,
@@ -783,6 +831,167 @@ def test_canonical_verify_requires_exact_nightly_lane_topology(
     assert payload["status"] == "FAIL"
     assert any(
         finding["code"] == "nightly_lane_topology_mismatch"
+        for finding in payload["lane_artifact_verification"]["findings"]
+    )
+
+
+def test_nightly_records_canonical_aggregation_inputs(tmp_path: Path, monkeypatch):
+    _, _, result = _run_bound_fake_nightly(
+        tmp_path, monkeypatch, matrix_limit=1
+    )
+
+    assert result.get("aggregation_inputs") == {
+        "baseline_supplied": True,
+        "matrix_limit": 1,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    (
+        ("status", "FAIL"),
+        ("not_run_reasons", ["forged_reason"]),
+        ("diagnostic", {"matrix_limit": 99}),
+    ),
+)
+def test_canonical_verify_recomputes_manifest_aggregate_projection(
+    tmp_path: Path, monkeypatch, field: str, replacement
+):
+    cli, out, _ = _run_bound_fake_nightly(tmp_path, monkeypatch)
+    _rewrite_manifest(out, lambda manifest: manifest.__setitem__(field, replacement))
+
+    payload = cli.verify_run_contract(out)
+
+    assert payload["lane_artifact_verification"]["status"] == "FAIL"
+    assert {
+        "code": "aggregate_manifest_mismatch",
+        "field": field,
+    } in payload["lane_artifact_verification"]["findings"]
+
+
+@pytest.mark.parametrize("mutation", ("missing", "coherent_rehash", "missing_hash"))
+def test_canonical_verify_binds_aggregate_summary_artifact(
+    tmp_path: Path, monkeypatch, mutation: str
+):
+    cli, out, _ = _run_bound_fake_nightly(tmp_path, monkeypatch)
+    summary = out / "aggregate-summary.json"
+    if mutation == "missing":
+        summary.unlink()
+    elif mutation == "coherent_rehash":
+        _write_json(summary, {"status": "FAIL", "forged": True})
+        digest = hashlib.sha256(summary.read_bytes()).hexdigest()
+        _rewrite_manifest(
+            out,
+            lambda manifest: manifest["artifact_hashes"].__setitem__(
+                "aggregate-summary.json", digest
+            ),
+        )
+    else:
+        _rewrite_manifest(
+            out,
+            lambda manifest: manifest["artifact_hashes"].pop(
+                "aggregate-summary.json"
+            ),
+        )
+
+    payload = cli.verify_run_contract(out)
+
+    assert payload["lane_artifact_verification"]["status"] == "FAIL"
+    assert any(
+        finding["code"].startswith("aggregate_summary_")
+        for finding in payload["lane_artifact_verification"]["findings"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "finding_code"),
+    (
+        ("case_results", [], "registered_case_results_mismatch"),
+        ("case_ids", ["forged-case"], "registered_case_ids_mismatch"),
+    ),
+)
+def test_canonical_verify_binds_manifest_registered_case_projection(
+    tmp_path: Path,
+    monkeypatch,
+    field: str,
+    replacement,
+    finding_code: str,
+):
+    cli, out, _ = _run_bound_fake_nightly(tmp_path, monkeypatch)
+    _rewrite_manifest(out, lambda manifest: manifest.__setitem__(field, replacement))
+
+    payload = cli.verify_run_contract(out)
+
+    assert payload["lane_artifact_verification"]["status"] == "FAIL"
+    assert {"code": finding_code} in payload["lane_artifact_verification"][
+        "findings"
+    ]
+
+
+def test_canonical_verify_recomputes_registered_lane_status(
+    tmp_path: Path, monkeypatch
+):
+    cli, out, _ = _run_bound_fake_nightly(tmp_path, monkeypatch)
+    manifest_path = out / "run-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    registered = manifest["lanes"]["registered-cases"]
+    registered["cases"][0]["status"] = "FAIL"
+    manifest["case_results"] = registered["cases"]
+    primary = out / "lanes/registered-cases/lane-result.json"
+    case_results = out / "case-results.json"
+    _write_json(primary, registered)
+    _write_json(case_results, registered)
+    primary_digest = hashlib.sha256(primary.read_bytes()).hexdigest()
+    case_digest = hashlib.sha256(case_results.read_bytes()).hexdigest()
+    receipt = manifest["lane_artifacts"]["registered-cases"]
+    receipt["sha256"] = primary_digest
+    receipt["artifacts"]["lanes/registered-cases/lane-result.json"] = (
+        primary_digest
+    )
+    receipt["artifacts"]["case-results.json"] = case_digest
+    manifest["artifact_hashes"]["lanes/registered-cases/lane-result.json"] = (
+        primary_digest
+    )
+    manifest["artifact_hashes"]["case-results.json"] = case_digest
+    _write_json(manifest_path, manifest)
+
+    payload = cli.verify_run_contract(out)
+
+    assert payload["lane_artifact_verification"]["status"] == "FAIL"
+    assert {"code": "registered_case_status_mismatch"} in payload[
+        "lane_artifact_verification"
+    ]["findings"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing_inputs", "matrix_limit_mismatch", "suite_downgrade"),
+)
+def test_canonical_verify_rejects_aggregate_input_contradictions(
+    tmp_path: Path, monkeypatch, mutation: str
+):
+    cli, out, _ = _run_bound_fake_nightly(
+        tmp_path, monkeypatch, matrix_limit=1
+    )
+
+    def mutate(manifest):
+        if mutation == "missing_inputs":
+            manifest.pop("aggregation_inputs", None)
+        elif mutation == "matrix_limit_mismatch":
+            manifest["aggregation_inputs"] = {
+                "baseline_supplied": True,
+                "matrix_limit": 2,
+            }
+        else:
+            manifest["suite"] = "diagnostic"
+
+    _rewrite_manifest(out, mutate)
+    payload = cli.verify_run_contract(out)
+
+    assert payload["lane_artifact_verification"]["status"] == "FAIL"
+    assert any(
+        finding["code"]
+        in {"aggregate_inputs_malformed", "aggregate_contract_suite_mismatch"}
         for finding in payload["lane_artifact_verification"]["findings"]
     )
 
