@@ -589,6 +589,46 @@ def _contained_cell_dir(output: Path, cell_id: str) -> Path:
     return resolved
 
 
+def _paths_overlap(first: Path, second: Path) -> bool:
+    return first == second or first in second.parents or second in first.parents
+
+
+def _validated_matrix_paths(
+    output: Path | str, baseline_dir: Path | str | None
+) -> tuple[Path, Path | None]:
+    raw_output = Path(output).absolute()
+    if raw_output.is_symlink():
+        raise ValueError("matrix output must not be a symlink")
+    resolved_output = raw_output.resolve()
+    if baseline_dir is None:
+        return resolved_output, None
+    raw_baseline = Path(baseline_dir).absolute()
+    if raw_baseline.is_symlink():
+        raise ValueError("baseline root must not be a symlink")
+    raw_cells = raw_baseline / "cells"
+    if raw_cells.is_symlink():
+        raise ValueError("baseline cells must not be a symlink")
+    resolved_baseline = raw_baseline.resolve()
+    if _paths_overlap(resolved_output, resolved_baseline):
+        raise ValueError("baseline and output paths overlap")
+    return resolved_output, resolved_baseline
+
+
+def _preflight_baseline_cell_paths(baseline: Path | None) -> None:
+    if baseline is None:
+        return
+    cells = baseline / "cells"
+    if cells.is_symlink():
+        raise ValueError("baseline cells must not be a symlink")
+    if not cells.exists():
+        return
+    if not cells.is_dir():
+        raise ValueError("baseline cells must be a directory")
+    for entry in cells.iterdir():
+        if entry.is_symlink():
+            raise ValueError("baseline cell must not be a symlink")
+
+
 def _baseline_cells(
     baseline_dir: Path | None,
     candidate_plan: dict[str, Any],
@@ -613,40 +653,133 @@ def _baseline_cells(
     if contract_mismatches:
         return root, {}, contract_mismatches
     cells: dict[str, dict[str, Any]] = {}
+    cells_path = root / "cells"
+    if cells_path.is_symlink():
+        raise ValueError("baseline cells must not be a symlink")
     for item in plan.get("cells") or []:
         if not isinstance(item, dict):
             continue
         cell_id = item.get("cell_id")
         if isinstance(cell_id, str) and _SAFE_IDENTIFIER.fullmatch(cell_id):
+            if (cells_path / cell_id).is_symlink():
+                raise ValueError("baseline cell must not be a symlink")
             cells[cell_id] = item
     return root, cells, []
 
 
-def _baseline_result_cells(root: Path | None) -> dict[str, dict[str, Any]]:
+def _baseline_result_cells(
+    root: Path | None, candidate_plan: dict[str, Any]
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
     if root is None:
-        return {}
+        return {}, []
     path = root / "matrix-results.json"
     if path.is_symlink() or not path.is_file():
-        return {}
+        return {}, []
     try:
         payload = _read_json(path)
     except ValueError:
-        return {}
+        return {}, ["baseline_results_malformed"]
     if not isinstance(payload, dict):
-        return {}
+        return {}, ["baseline_results_malformed"]
+    mismatches = [
+        key
+        for key, expected in (
+            ("schema_version", 1),
+            ("eval_spec", EVAL_SPEC),
+            ("suite", candidate_plan.get("suite")),
+        )
+        if payload.get(key) != expected
+    ]
+    artifact_hashes = payload.get("artifact_hashes")
+    plan_path = root / "matrix-plan.json"
+    if (
+        not isinstance(artifact_hashes, dict)
+        or not plan_path.is_file()
+        or artifact_hashes.get("matrix-plan.json") != _sha256_file(plan_path)
+    ):
+        mismatches.append("matrix-plan.json")
+    if mismatches:
+        return {}, mismatches
+    result_rows = payload.get("cells")
+    if not isinstance(result_rows, list):
+        return {}, ["cells"]
+    expected_ids = {
+        item.get("cell_id")
+        for item in candidate_plan.get("cells") or []
+        if isinstance(item, dict)
+        and isinstance(item.get("cell_id"), str)
+        and _SAFE_IDENTIFIER.fullmatch(item["cell_id"])
+    }
     cells: dict[str, dict[str, Any]] = {}
-    for item in payload.get("cells") or []:
+    for item in result_rows:
         if not isinstance(item, dict):
-            continue
+            return {}, ["cell_manifest_binding"]
         cell_id = item.get("cell_id")
-        if isinstance(cell_id, str) and _SAFE_IDENTIFIER.fullmatch(cell_id):
-            cells[cell_id] = item
-    return cells
+        if (
+            not isinstance(cell_id, str)
+            or not _SAFE_IDENTIFIER.fullmatch(cell_id)
+            or cell_id in cells
+            or cell_id not in expected_ids
+            or item.get("status")
+            not in {"PASS", "FAIL", "NOT_RUN", "INELIGIBLE", "NON_COMPARABLE"}
+        ):
+            return {}, ["cell_manifest_binding"]
+        result_hashes = item.get("artifact_hashes")
+        expected_manifest_hash = (
+            result_hashes.get("run-manifest.json")
+            if isinstance(result_hashes, dict)
+            else None
+        )
+        cell_dir = _baseline_cell_dir(root, cell_id)
+        if cell_dir is None or not isinstance(expected_manifest_hash, str):
+            return {}, ["cell_manifest_binding"]
+        manifest_path = cell_dir / "run-manifest.json"
+        try:
+            manifest = _validated_run_manifest(cell_dir, cell_id)
+        except (OSError, UnicodeError, ValueError):
+            return {}, ["cell_manifest_binding"]
+        if expected_manifest_hash != _sha256_file(manifest_path):
+            return {}, ["cell_manifest_binding"]
+        for field in ("not_run_reasons", "hard_findings"):
+            values = item.get(field, [])
+            if not isinstance(values, list) or not all(
+                isinstance(value, str) and value for value in values
+            ):
+                return {}, ["cell_manifest_binding"]
+        capture_status = (
+            item.get("status") == "NOT_RUN"
+            and item.get("not_run_reasons") == ["missing_baseline_evidence"]
+            and not item.get("hard_findings")
+            and isinstance(item.get("runner_result"), dict)
+            and item["runner_result"].get("status") == "PASS"
+            and manifest.get("status") == "PASS"
+            and manifest.get("evidence_eligible") is True
+        )
+        pass_status = (
+            item.get("status") == "PASS"
+            and not item.get("not_run_reasons")
+            and not item.get("hard_findings")
+            and isinstance(item.get("runner_result"), dict)
+            and item["runner_result"].get("status") == "PASS"
+        )
+        if item.get("status") != manifest.get("status") and not capture_status:
+            return {}, ["cell_manifest_binding"]
+        if item.get("status") == "PASS" and not pass_status:
+            return {}, ["cell_manifest_binding"]
+        cells[cell_id] = item
+    if set(cells) != expected_ids:
+        return {}, ["cell_manifest_binding"]
+    return cells, []
 
 
 def _baseline_cell_dir(root: Path, cell_id: str) -> Path | None:
-    cells_root = (root / "cells").resolve()
-    candidate = cells_root / _safe_identifier(cell_id, label="cell_id")
+    raw_cells = root / "cells"
+    if raw_cells.is_symlink():
+        raise ValueError("baseline cells must not be a symlink")
+    cells_root = raw_cells.resolve()
+    candidate = raw_cells / _safe_identifier(cell_id, label="cell_id")
+    if candidate.is_symlink():
+        raise ValueError("baseline cell must not be a symlink")
     resolved = candidate.resolve()
     try:
         resolved.relative_to(cells_root)
@@ -677,9 +810,7 @@ def _attested_public_cell_turns(
         or not player_view_path.is_file()
     ):
         raise ValueError("attested public evidence missing")
-    manifest = _read_json(manifest_path)
-    if not isinstance(manifest, dict):
-        raise ValueError("attested public manifest malformed")
+    manifest = _validated_run_manifest(cell_dir, expected_cell_id)
     if (
         manifest.get("status") != "PASS"
         or manifest.get("evidence_eligible") is not True
@@ -730,6 +861,28 @@ def _append_reason(result: dict[str, Any], reason: str) -> None:
         reasons.append(reason)
 
 
+def _validated_run_manifest(cell_dir: Path, cell_id: str) -> dict[str, Any]:
+    path = cell_dir / "run-manifest.json"
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("run manifest missing or unsafe")
+    payload = _read_json(path)
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != 1
+        or payload.get("eval_spec") != EVAL_SPEC
+        or payload.get("cell_id") != cell_id
+        or payload.get("status") not in {"PASS", "FAIL", "NOT_RUN", "INELIGIBLE"}
+    ):
+        raise ValueError("run manifest contract mismatch")
+    for field in ("hard_findings", "evidence_findings"):
+        values = payload.get(field) or []
+        if not isinstance(values, list) or not all(
+            isinstance(value, str) and value for value in values
+        ):
+            raise ValueError(f"run manifest {field} malformed")
+    return payload
+
+
 def execute_matrix_plan(
     plan: dict[str, Any],
     *,
@@ -744,16 +897,19 @@ def execute_matrix_plan(
     if not isinstance(plan, dict) or plan.get("schema_version") != 1:
         raise ValueError("invalid matrix plan")
     root_path = Path(root).resolve()
-    out = Path(output).resolve()
-    out.mkdir(parents=True, exist_ok=True)
+    out, baseline_path = _validated_matrix_paths(output, baseline_dir)
+    _preflight_baseline_cell_paths(baseline_path)
     personas_payload = semantic.load_personas(root_path)
     personas = {item["persona_id"]: item for item in personas_payload["personas"]}
     rubrics = semantic.load_rubrics(root_path)
     baseline_root, baseline_by_id, baseline_plan_mismatches = _baseline_cells(
-        Path(baseline_dir) if baseline_dir is not None else None,
+        baseline_path,
         plan,
     )
-    baseline_results_by_id = _baseline_result_cells(baseline_root)
+    baseline_results_by_id, baseline_result_mismatches = _baseline_result_cells(
+        baseline_root, plan
+    )
+    out.mkdir(parents=True, exist_ok=True)
 
     plan_path = out / "matrix-plan.json"
     _write_json_atomic(plan_path, plan)
@@ -781,8 +937,11 @@ def execute_matrix_plan(
             _write_json_atomic(
                 manifest_path,
                 {
+                    "schema_version": 1,
+                    "eval_spec": EVAL_SPEC,
                     "cell_id": cell_id,
                     "status": "NOT_RUN",
+                    "evidence_eligible": False,
                     "not_run_reasons": result["not_run_reasons"],
                 },
             )
@@ -852,24 +1011,51 @@ def execute_matrix_plan(
             "status": status,
             "returncode": runner_result.get("returncode"),
         }
-        structured_hard: list[str] = []
-        for field in ("hard_findings", "evidence_findings"):
-            values = runner_result.get(field) or []
-            if isinstance(values, list):
-                structured_hard.extend(
-                    str(value) for value in values if isinstance(value, str) and value
-                )
-        if status in {"FAIL", "INELIGIBLE"} and not structured_hard:
-            structured_hard.append(f"runner_status:{status.lower()}")
-        if structured_hard:
-            result["hard_findings"] = sorted(set(structured_hard))
-            if result["status"] == "PASS":
-                result["status"] = "FAIL"
-
         judge_cfg = cell.get("judge") or {}
+        judge_enabled = isinstance(judge_cfg, dict) and bool(judge_cfg.get("enabled"))
+        deterministic_findings = [
+            value
+            for value in runner_result.get("hard_findings") or []
+            if isinstance(value, str) and value
+        ]
+        evidence_findings = [
+            value
+            for value in runner_result.get("evidence_findings") or []
+            if isinstance(value, str) and value
+        ]
+        if judge_enabled:
+            try:
+                manifest = _validated_run_manifest(cell_dir, cell_id)
+            except (OSError, UnicodeError, ValueError):
+                evidence_findings.append("invalid_run_manifest")
+            else:
+                deterministic_findings.extend(manifest.get("hard_findings") or [])
+                evidence_findings.extend(manifest.get("evidence_findings") or [])
+                if manifest.get("evidence_eligible") is not True:
+                    evidence_findings.append("evidence_ineligible")
+                manifest_status = str(manifest["status"])
+                if manifest_status == "FAIL" and not deterministic_findings:
+                    deterministic_findings.append("runner_status:fail")
+                elif manifest_status in {"NOT_RUN", "INELIGIBLE"}:
+                    evidence_findings.append(
+                        f"runner_status:{manifest_status.lower()}"
+                    )
+
+        if status == "FAIL" and not deterministic_findings:
+            deterministic_findings.append("runner_status:fail")
+        elif status in {"NOT_RUN", "INELIGIBLE"}:
+            evidence_findings.append(f"runner_status:{status.lower()}")
+
+        combined_findings = sorted(set(deterministic_findings + evidence_findings))
+        if combined_findings:
+            result["hard_findings"] = combined_findings
+        if deterministic_findings:
+            result["status"] = "FAIL"
+        elif evidence_findings:
+            result["status"] = "INELIGIBLE"
+
         if (
-            isinstance(judge_cfg, dict)
-            and judge_cfg.get("enabled")
+            judge_enabled
             and result["status"] == "PASS"
         ):
             rubric_id = str(judge_cfg.get("rubric_id") or "agency-and-fun")
@@ -881,10 +1067,12 @@ def execute_matrix_plan(
             elif baseline_root is None:
                 result["status"] = "NOT_RUN"
                 _append_reason(result, "missing_baseline_evidence")
-            elif baseline_plan_mismatches:
+            elif baseline_plan_mismatches or baseline_result_mismatches:
                 result["status"] = "NON_COMPARABLE"
                 result["identity_mismatches"] = [
                     f"baseline_plan:{key}" for key in baseline_plan_mismatches
+                ] + [
+                    f"baseline_results:{key}" for key in baseline_result_mismatches
                 ]
             else:
                 baseline_cell = baseline_by_id.get(cell_id)
@@ -985,8 +1173,11 @@ def execute_matrix_plan(
             _write_json_atomic(
                 manifest_path,
                 {
+                    "schema_version": 1,
+                    "eval_spec": EVAL_SPEC,
                     "cell_id": cell_id,
-                    "status": status,
+                    "status": result["status"],
+                    "evidence_eligible": False,
                     "player_model": cell.get("player_model"),
                     "kp_model": cell.get("kp_model"),
                     "persona_profile_sha256": cell.get("persona_profile_sha256"),
@@ -1005,10 +1196,7 @@ def execute_matrix_plan(
     hard_findings = [
         reason
         for cell in cell_results
-        for reason in (
-            *(cell.get("not_run_reasons") or []),
-            *(cell.get("hard_findings") or []),
-        )
+        for reason in cell.get("hard_findings") or []
     ]
     aggregate = {
         "schema_version": 1,
@@ -1023,7 +1211,6 @@ def execute_matrix_plan(
                 "NOT_RUN",
                 "INELIGIBLE",
                 "NON_COMPARABLE",
-                "READY",
             )
         },
         "hard_findings": sorted(set(hard_findings)),

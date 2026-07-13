@@ -175,25 +175,44 @@ def test_blind_pair_request_hides_baseline_candidate_and_keeper_secrets():
     baseline_turns = [
         {
             "turn_id": "t1",
-            "side": "baseline",
             "text": "alpha narration",
-            "keeper_secret": "never-expose",
-            "expected_route": "secret-route",
         }
     ]
     candidate_turns = [
         {
             "turn_id": "t1",
-            "side": "candidate",
             "text": "omega narration",
-            "forbidden_outcome": "never-expose",
         }
     ]
     public_context = {
         "case_id": "fixture-case",
         "language": "zh-Hans",
-        "keeper_secret": "must-be-stripped",
     }
+
+    with __import__("pytest").raises(ValueError, match="public_context"):
+        semantic.build_blind_pair_request(
+            pair_id="pair-private-context",
+            rubric_id=rubric["rubric_id"],
+            rubric_version=rubric["rubric_version"],
+            public_context={"case_id": "fixture-case", "keeper_secret": "hidden"},
+            turn_ids=["t1"],
+            baseline_turns=baseline_turns,
+            candidate_turns=candidate_turns,
+            seed=7,
+        )
+    with __import__("pytest").raises(ValueError, match="turn"):
+        semantic.build_blind_pair_request(
+            pair_id="pair-private-turn",
+            rubric_id=rubric["rubric_id"],
+            rubric_version=rubric["rubric_version"],
+            public_context=public_context,
+            turn_ids=["t1"],
+            baseline_turns=[
+                {"turn_id": "t1", "text": "alpha", "keeper_secret": "hidden"}
+            ],
+            candidate_turns=candidate_turns,
+            seed=7,
+        )
 
     request, mapping = semantic.build_blind_pair_request(
         pair_id="pair-1",
@@ -250,8 +269,6 @@ def test_extract_public_turns_allowlists_player_view_fields():
                 "view": "player",
                 "player_text": "我查看门锁。",
                 "narration": "锁孔边缘有新鲜划痕。",
-                "keeper_secret": "hidden",
-                "forbidden_outcome": "hidden",
             }
         ]
     )
@@ -268,16 +285,28 @@ def test_extract_public_turns_allowlists_player_view_fields():
         semantic.extract_public_turns(
             [{"turn_number": 1, "view": "keeper", "text": "private"}]
         )
+    with __import__("pytest").raises(ValueError, match="field"):
+        semantic.extract_public_turns(
+            [
+                {
+                    "turn_number": 1,
+                    "view": "player",
+                    "text": "public",
+                    "keeper_secret": "hidden",
+                }
+            ]
+        )
 
 
 def _valid_judge_result(request: dict, rubric: dict) -> dict:
-    dimension_id = rubric["dimensions"][0]["dimension_id"]
     finding = rubric["finding_codes"][0]
     return {
         "evaluator": {"provider": "fixture", "id": "judge-1"},
         "request_sha256": request["request_sha256"],
         "winner": "A",
-        "dimension_scores": {dimension_id: 4},
+        "dimension_scores": {
+            item["dimension_id"]: 4 for item in rubric["dimensions"]
+        },
         "findings": [
             {
                 "label": finding,
@@ -331,7 +360,7 @@ def test_validate_judge_result_rejects_bad_winner_score_label_turn_and_hash():
         semantic.validate_judge_result(request, bad_winner, rubric=rubric)
 
     bad_score = _valid_judge_result(request, rubric)
-    bad_score["dimension_scores"] = {dimension_id: 9}
+    bad_score["dimension_scores"][dimension_id] = 9
     with __import__("pytest").raises(ValueError, match="score"):
         semantic.validate_judge_result(request, bad_score, rubric=rubric)
 
@@ -355,6 +384,36 @@ def test_validate_judge_result_rejects_bad_winner_score_label_turn_and_hash():
     with __import__("pytest").raises(ValueError, match="side|evidence"):
         semantic.validate_judge_result(request, missing_evidence, rubric=rubric)
 
+    missing_dimension = _valid_judge_result(request, rubric)
+    missing_dimension["dimension_scores"].pop(dimension_id)
+    with __import__("pytest").raises(ValueError, match="dimension_scores"):
+        semantic.validate_judge_result(request, missing_dimension, rubric=rubric)
+
+    extra_top_level = _valid_judge_result(request, rubric)
+    extra_top_level["private_mapping"] = {"A": "baseline"}
+    with __import__("pytest").raises(ValueError, match="schema"):
+        semantic.validate_judge_result(request, extra_top_level, rubric=rubric)
+
+    extra_evaluator = _valid_judge_result(request, rubric)
+    extra_evaluator["evaluator"]["revision"] = "unknown"
+    with __import__("pytest").raises(ValueError, match="evaluator"):
+        semantic.validate_judge_result(request, extra_evaluator, rubric=rubric)
+
+    extra_finding = _valid_judge_result(request, rubric)
+    extra_finding["findings"][0]["private_note"] = "hidden"
+    with __import__("pytest").raises(ValueError, match="finding"):
+        semantic.validate_judge_result(request, extra_finding, rubric=rubric)
+
+    extra_span = _valid_judge_result(request, rubric)
+    extra_span["findings"][0]["evidence_span"]["unit"] = "codepoint"
+    with __import__("pytest").raises(ValueError, match="evidence_span"):
+        semantic.validate_judge_result(request, extra_span, rubric=rubric)
+
+    null_findings = _valid_judge_result(request, rubric)
+    null_findings["findings"] = None
+    with __import__("pytest").raises(ValueError, match="findings"):
+        semantic.validate_judge_result(request, null_findings, rubric=rubric)
+
 
 def test_sol_judge_uses_chat_completions_and_exact_identity(monkeypatch):
     semantic = _load()
@@ -370,11 +429,12 @@ def test_sol_judge_uses_chat_completions_and_exact_identity(monkeypatch):
         candidate_turns=[{"turn_id": "t1", "text": "B"}],
         seed=3,
     )
-    dimension = rubric["dimensions"][0]["dimension_id"]
     valid_result = {
         "request_sha256": request["request_sha256"],
         "winner": "tie",
-        "dimension_scores": {dimension: 3},
+        "dimension_scores": {
+            item["dimension_id"]: 3 for item in rubric["dimensions"]
+        },
         "findings": [],
         "reasons": ["The cited public turn supports a tie."],
     }
@@ -411,7 +471,7 @@ def test_judge_payload_contains_no_private_mapping_or_keeper_fields():
         pair_id="pair-private",
         rubric_id="agency-and-fun",
         rubric_version=rubric["rubric_version"],
-        public_context={"case_id": "neutral", "keeper_secret": "drop-me"},
+        public_context={"case_id": "neutral"},
         turn_ids=["t1"],
         baseline_turns=[{"turn_id": "t1", "text": "A"}],
         candidate_turns=[{"turn_id": "t1", "text": "B"}],
@@ -428,6 +488,18 @@ def test_judge_payload_contains_no_private_mapping_or_keeper_fields():
         "forbidden_outcome",
     ):
         assert forbidden not in encoded
+
+    with __import__("pytest").raises(ValueError, match="public_context"):
+        semantic.build_blind_pair_request(
+            pair_id="pair-private-context",
+            rubric_id="agency-and-fun",
+            rubric_version=rubric["rubric_version"],
+            public_context={"case_id": "neutral", "nested": {"secret": "drop"}},
+            turn_ids=["t1"],
+            baseline_turns=[{"turn_id": "t1", "text": "A"}],
+            candidate_turns=[{"turn_id": "t1", "text": "B"}],
+            seed=4,
+        )
 
     request["judge_label_mapping"] = {"A": "baseline", "B": "candidate"}
     with __import__("pytest").raises(ValueError, match="schema"):

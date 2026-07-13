@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import stat
 import sys
 from pathlib import Path
@@ -214,7 +215,6 @@ player_view.write_text(
             "turn_number": 1,
             "player_text": "我检查门锁。",
             "narration": "新版公开叙事。",
-            "keeper_secret": "must-not-reach-judge",
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -225,6 +225,8 @@ player_view.write_text(
 (out / "run-manifest.json").write_text(
     json.dumps(
         {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
             "status": "PASS",
             "cell_id": payload.get("cell_id"),
             "evidence_eligible": True,
@@ -268,7 +270,6 @@ def _write_baseline_matrix(
                 "turn_number": 1,
                 "player_text": "我检查门锁。",
                 "narration": "旧版公开叙事。",
-                "keeper_secret": "must-not-reach-judge",
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -286,21 +287,57 @@ def _write_baseline_matrix(
             "artifact_hashes": {"player-view.jsonl": _sha256(player_view)},
         },
     )
+    plan_path = output / "matrix-plan.json"
+    results_path = output / "matrix-results.json"
     _write_json(
-        output / "matrix-results.json",
+        results_path,
         {
             "schema_version": 1,
             "eval_spec": "eval-spec-v1",
+            "suite": baseline_plan["suite"],
             "cells": [
                 {
                     "cell_id": cell["cell_id"],
                     "status": "PASS",
+                    "not_run_reasons": [],
+                    "runner_result": {"status": "PASS", "returncode": 0},
                     "artifact_hashes": {"run-manifest.json": _sha256(manifest)},
                 }
             ],
+            "artifact_hashes": {"matrix-plan.json": _sha256(plan_path)},
         },
     )
     return output
+
+
+def _fake_judged_plan(matrix, tmp_path: Path, *, case_id: str = "judged-case") -> dict:
+    runner = _fake_runner_script(tmp_path / f"{case_id}-runner.py")
+    scenario = _write_json(tmp_path / f"{case_id}-scenario.json", {"scene_id": "s1"})
+    state = _write_json(tmp_path / f"{case_id}-state.json", {"public": True})
+    return matrix.build_matrix_plan(
+        root=REPO,
+        suite="nightly",
+        configuration={
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "persona_ids": ["careful_investigator"],
+            "seeds": [3],
+            "cases": [
+                {
+                    "case_id": case_id,
+                    "runner": "fake",
+                    "runner_path": str(runner),
+                    "scenario_fixture": str(scenario),
+                    "initial_state_fixture": str(state),
+                    "player_model": {"provider": "fixture", "id": "player-1"},
+                    "kp_model": {"provider": "fixture", "id": "kp-1"},
+                    "prompt_sources": {"player": str(runner), "kp": str(runner)},
+                    "judge": {"enabled": True, "rubric_id": "agency-and-fun"},
+                }
+            ],
+        },
+        credential_env={},
+    )
 
 
 def test_baseline_plan_contract_and_public_artifact_are_hash_bound(tmp_path: Path):
@@ -334,6 +371,15 @@ def test_baseline_plan_contract_and_public_artifact_are_hash_bound(tmp_path: Pat
     )
     assert turns[0]["narration"] == "旧版公开叙事。"
 
+    tampered_result_cell = json.loads(json.dumps(result_cell))
+    tampered_result_cell["artifact_hashes"]["run-manifest.json"] = "0" * 64
+    with pytest.raises(ValueError, match="manifest hash"):
+        matrix._attested_public_cell_turns(
+            cell_dir,
+            expected_cell_id="careful__seed-3__nightly",
+            result_cell=tampered_result_cell,
+        )
+
     baseline_plan = json.loads(
         (baseline / "matrix-plan.json").read_text(encoding="utf-8")
     )
@@ -349,6 +395,149 @@ def test_baseline_plan_contract_and_public_artifact_are_hash_bound(tmp_path: Pat
             expected_cell_id="careful__seed-3__nightly",
             result_cell=result_cell,
         )
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    (
+        "plan_suite",
+        "results_schema_version",
+        "results_eval_spec",
+        "results_suite",
+        "results_plan_hash",
+        "results_manifest_hash",
+        "results_cell_hard_finding",
+    ),
+)
+def test_judged_matrix_rejects_tampered_baseline_run_contract(
+    tmp_path: Path, monkeypatch, tamper: str
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id=f"tamper-{tamper}")
+    baseline = _write_baseline_matrix(tmp_path / "baseline", plan)
+    if tamper == "plan_suite":
+        path = baseline / "matrix-plan.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["suite"] = "release"
+    else:
+        path = baseline / "matrix-results.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if tamper == "results_schema_version":
+            payload["schema_version"] = 2
+        elif tamper == "results_eval_spec":
+            payload["eval_spec"] = "other-spec"
+        elif tamper == "results_suite":
+            payload["suite"] = "release"
+        elif tamper == "results_plan_hash":
+            payload["artifact_hashes"]["matrix-plan.json"] = "0" * 64
+        elif tamper == "results_manifest_hash":
+            payload["cells"][0]["artifact_hashes"]["run-manifest.json"] = "0" * 64
+        else:
+            payload["cells"][0]["hard_findings"] = ["missing_public_roll"]
+    _write_json(path, payload)
+    monkeypatch.setattr(
+        matrix.judge,
+        "invoke_sol_judge",
+        lambda *args, **kwargs: pytest.fail("tampered baseline must not be judged"),
+    )
+
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "candidate",
+        baseline_dir=baseline,
+    )
+
+    assert results["cells"][0]["status"] == "NON_COMPARABLE"
+    assert results["cells"][0]["identity_mismatches"]
+
+
+@pytest.mark.parametrize("attack", ("root", "cells", "cell", "cell_bad_contract"))
+def test_matrix_rejects_symlinked_baseline_paths_before_candidate_writes(
+    tmp_path: Path, attack: str
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id=f"symlink-{attack}")
+    baseline = _write_baseline_matrix(tmp_path / "baseline", plan)
+    baseline_arg = baseline
+    if attack == "root":
+        baseline_arg = tmp_path / "baseline-link"
+        baseline_arg.symlink_to(baseline, target_is_directory=True)
+    elif attack == "cells":
+        outside = tmp_path / "outside-cells"
+        shutil.copytree(baseline / "cells", outside)
+        shutil.rmtree(baseline / "cells")
+        (baseline / "cells").symlink_to(outside, target_is_directory=True)
+    else:
+        cell_id = plan["cells"][0]["cell_id"]
+        cell_dir = baseline / "cells" / cell_id
+        outside = tmp_path / "outside-cell"
+        shutil.copytree(cell_dir, outside)
+        shutil.rmtree(cell_dir)
+        cell_dir.symlink_to(outside, target_is_directory=True)
+        if attack == "cell_bad_contract":
+            baseline_plan_path = baseline / "matrix-plan.json"
+            baseline_plan = json.loads(
+                baseline_plan_path.read_text(encoding="utf-8")
+            )
+            baseline_plan["suite"] = "release"
+            _write_json(baseline_plan_path, baseline_plan)
+    sentinel = baseline / "sentinel.txt"
+    sentinel.write_text("baseline unchanged\n", encoding="utf-8")
+    output = tmp_path / "candidate"
+
+    with pytest.raises(ValueError, match="baseline.*symlink"):
+        matrix.execute_matrix_plan(
+            plan,
+            root=REPO,
+            output=output,
+            baseline_dir=baseline_arg,
+        )
+
+    assert not output.exists()
+    assert sentinel.read_text(encoding="utf-8") == "baseline unchanged\n"
+
+
+@pytest.mark.parametrize("relationship", ("same", "output_child", "output_parent"))
+def test_matrix_rejects_overlapping_baseline_and_output_before_mutation(
+    tmp_path: Path, relationship: str
+):
+    matrix = _load()
+    root = tmp_path / "overlap-root"
+    plan = _fake_judged_plan(matrix, tmp_path, case_id=f"overlap-{relationship}")
+    baseline = _write_baseline_matrix(root / "baseline", plan)
+    if relationship == "same":
+        output = baseline
+    elif relationship == "output_child":
+        output = baseline / "candidate"
+    else:
+        output = root
+    sentinel = baseline / "sentinel.txt"
+    sentinel.write_text("baseline unchanged\n", encoding="utf-8")
+    before = {
+        str(path.relative_to(baseline)): path.read_bytes()
+        for path in baseline.rglob("*")
+        if path.is_file()
+    }
+
+    with pytest.raises(ValueError, match="overlap"):
+        matrix.execute_matrix_plan(
+            plan,
+            root=REPO,
+            output=output,
+            baseline_dir=baseline,
+        )
+
+    after = {
+        str(path.relative_to(baseline)): path.read_bytes()
+        for path in baseline.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
+    if relationship == "output_child":
+        assert not output.exists()
+    if relationship == "output_parent":
+        assert not (output / "matrix-plan.json").exists()
 
 
 def test_manifest_declares_matrix_config_without_claiming_capability():
@@ -1057,7 +1246,7 @@ def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(
             "request_sha256": request["request_sha256"],
             "winner": "B",
             "dimension_scores": {
-                rubric["dimensions"][0]["dimension_id"]: 4,
+                item["dimension_id"]: 4 for item in rubric["dimensions"]
             },
             "findings": [],
             "reasons": ["The public turns support side B."],
@@ -1087,7 +1276,6 @@ def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(
     assert "fixture-a" not in public_payload
     assert "fixture-b" not in public_payload
     assert "keeper_secret" not in public_payload
-    assert "must-not-reach-judge" not in public_payload
     assert "seed" not in observed["request"]
     assert observed["request"]["public_context"]["seed"] == 3
     assert results["cells"][0]["judge_result"]["evaluator"] == {
@@ -1148,7 +1336,9 @@ def test_judged_matrix_marks_missing_baseline_not_run(tmp_path: Path, monkeypatc
     cell = results["cells"][0]
     assert cell["status"] == "NOT_RUN"
     assert cell["not_run_reasons"] == ["missing_baseline_evidence"]
-    assert results["aggregate"]["hard_findings_override_judge"] is True
+    assert results["aggregate"]["hard_findings"] == []
+    assert results["aggregate"]["hard_findings_override_judge"] is False
+    assert "READY" not in results["aggregate"]["status_counts"]
 
     def fake_judge(request, rubric, **kwargs):
         return {
@@ -1156,7 +1346,7 @@ def test_judged_matrix_marks_missing_baseline_not_run(tmp_path: Path, monkeypatc
             "request_sha256": request["request_sha256"],
             "winner": "tie",
             "dimension_scores": {
-                rubric["dimensions"][0]["dimension_id"]: 3,
+                item["dimension_id"]: 3 for item in rubric["dimensions"]
             },
             "findings": [],
             "reasons": ["The public turns support a tie."],
@@ -1268,13 +1458,16 @@ payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 out = Path(sys.argv[2])
 out.mkdir(parents=True, exist_ok=True)
 (out / "player-view.jsonl").write_text(
-    json.dumps({"turn_number": 1, "player_text": "行动", "narration": "结果"}) + "\\n",
+    json.dumps({"view": "player", "turn_number": 1, "player_text": "行动", "narration": "结果"}) + "\\n",
     encoding="utf-8",
 )
 (out / "run-manifest.json").write_text(
     json.dumps({
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
         "status": "PASS",
         "cell_id": payload["cell_id"],
+        "evidence_eligible": True,
         "evidence_findings": ["missing_public_roll"],
     }) + "\\n",
     encoding="utf-8",
@@ -1282,7 +1475,6 @@ out.mkdir(parents=True, exist_ok=True)
 print(json.dumps({
     "status": "PASS",
     "cell_id": payload["cell_id"],
-    "evidence_findings": ["missing_public_roll"],
 }))
 """,
     )
@@ -1328,7 +1520,7 @@ print(json.dumps({
         baseline_dir=baseline,
     )
 
-    assert results["cells"][0]["status"] == "FAIL"
+    assert results["cells"][0]["status"] == "INELIGIBLE"
     assert results["cells"][0]["hard_findings"] == ["missing_public_roll"]
     assert results["aggregate"]["hard_findings"] == ["missing_public_roll"]
     assert results["aggregate"]["hard_findings_override_judge"] is True

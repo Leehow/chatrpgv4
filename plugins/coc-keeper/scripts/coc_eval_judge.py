@@ -90,6 +90,7 @@ def build_chat_payload(
     turn_ids = request.get("turn_ids")
     if not isinstance(public_context, dict):
         raise ValueError("blinded request schema requires public_context")
+    semantic.validate_public_context(public_context)
     if not isinstance(turn_ids, list) or not turn_ids or not all(
         isinstance(item, str) and item for item in turn_ids
     ):
@@ -100,6 +101,8 @@ def build_chat_payload(
         for row in rows:
             if not isinstance(row, dict) or not set(row) <= semantic.PUBLIC_TURN_KEYS:
                 raise ValueError("blinded request turn schema mismatch")
+            if not all(isinstance(value, str) for value in row.values()):
+                raise ValueError("blinded request turn values must be strings")
             if row.get("turn_id") not in turn_ids:
                 raise ValueError("blinded request turn_id mismatch")
     request_body = {

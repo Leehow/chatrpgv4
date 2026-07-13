@@ -43,21 +43,40 @@ GOAL_ORIENTATIONS = frozenset({"fast", "thorough", "social", "combat", "chaotic"
 VERBOSITIES = frozenset({"short", "medium", "long"})
 WINNERS = frozenset({"A", "B", "tie", "uncertain"})
 
-FORBIDDEN_PUBLIC_KEYS = frozenset(
+PUBLIC_TURN_KEYS = frozenset({"turn_id", "text", "narration", "role", "speaker"})
+PLAYER_VIEW_ROW_KEYS = frozenset(
     {
-        "keeper_secret",
-        "keeper_secrets",
-        "expected_route",
-        "expected_routes",
-        "forbidden_outcome",
-        "forbidden_outcomes",
-        "baseline",
-        "candidate",
-        "side",
+        "schema_version",
+        "view",
+        "turn_id",
+        "turn_number",
+        "turn",
+        "player_text",
+        "text",
+        "narration",
+        "role",
+        "speaker",
     }
 )
-
-PUBLIC_TURN_KEYS = frozenset({"turn_id", "text", "narration", "role", "speaker"})
+PUBLIC_CONTEXT_TYPES = {
+    "case_id": str,
+    "persona_id": str,
+    "seed": int,
+    "language": str,
+}
+JUDGE_RESULT_KEYS = frozenset(
+    {
+        "evaluator",
+        "request_sha256",
+        "winner",
+        "dimension_scores",
+        "findings",
+        "reasons",
+    }
+)
+EVALUATOR_KEYS = frozenset({"provider", "id"})
+FINDING_KEYS = frozenset({"label", "turn_id", "side", "evidence_span", "reason"})
+EVIDENCE_SPAN_KEYS = frozenset({"start", "end"})
 
 
 def _read_json(path: Path) -> Any:
@@ -189,33 +208,37 @@ def load_rubrics(root: Path | str = REPO_ROOT) -> dict[str, dict[str, Any]]:
     return rubrics
 
 
-def _strip_forbidden(value: Any) -> Any:
-    if isinstance(value, dict):
-        cleaned: dict[str, Any] = {}
-        for key, item in value.items():
-            if key in FORBIDDEN_PUBLIC_KEYS:
-                continue
-            if str(key).lower() in {"baseline", "candidate"}:
-                continue
-            cleaned[key] = _strip_forbidden(item)
-        return cleaned
-    if isinstance(value, list):
-        return [_strip_forbidden(item) for item in value]
-    return value
-
-
 def _public_turn(turn: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(turn, dict):
         raise ValueError("turn must be an object")
+    if not set(turn) <= PUBLIC_TURN_KEYS:
+        raise ValueError("turn contains unsupported fields")
     turn_id = turn.get("turn_id")
     if not isinstance(turn_id, str) or not turn_id:
         raise ValueError("turn_id required")
     public = {"turn_id": turn_id}
     for key in ("text", "narration", "role", "speaker"):
         if key in turn and turn[key] is not None:
+            if not isinstance(turn[key], str):
+                raise ValueError(f"turn.{key} must be a string")
             public[key] = turn[key]
-    # Preserve only allowlisted keys; never copy forbidden fields.
     return public
+
+
+def validate_public_context(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or not set(value) <= set(PUBLIC_CONTEXT_TYPES):
+        raise ValueError("public_context contains unsupported fields")
+    cleaned: dict[str, Any] = {}
+    for key, item in value.items():
+        expected = PUBLIC_CONTEXT_TYPES[key]
+        if expected is int:
+            valid = type(item) is int
+        else:
+            valid = isinstance(item, expected) and bool(item)
+        if not valid:
+            raise ValueError(f"public_context.{key} has invalid type")
+        cleaned[key] = item
+    return cleaned
 
 
 def extract_public_turns(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -227,6 +250,18 @@ def extract_public_turns(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             raise ValueError(f"public transcript row[{index}] must be an object")
+        if not set(row) <= PLAYER_VIEW_ROW_KEYS:
+            raise ValueError(f"public transcript row[{index}] contains unsupported field")
+        for key, value in row.items():
+            if key in {"schema_version", "turn_number", "turn"}:
+                if type(value) is not int:
+                    raise ValueError(
+                        f"public transcript row[{index}].{key} must be an int"
+                    )
+            elif not isinstance(value, str):
+                raise ValueError(
+                    f"public transcript row[{index}].{key} must be a string"
+                )
         if row.get("view") != "player":
             raise ValueError(
                 f"public transcript row[{index}] must be a player-view row"
@@ -299,7 +334,7 @@ def build_blind_pair_request(
 
     public_baseline = [_public_turn(turn) for turn in baseline_turns]
     public_candidate = [_public_turn(turn) for turn in candidate_turns]
-    cleaned_context = _strip_forbidden(public_context)
+    cleaned_context = validate_public_context(public_context)
 
     rng = random.Random(seed)
     assign_baseline_to_a = rng.random() < 0.5
@@ -334,9 +369,11 @@ def validate_judge_result(
     if not isinstance(request, dict) or not isinstance(result, dict):
         raise ValueError("request and result must be objects")
     rubric = _validate_rubric(rubric)
+    if set(result) != JUDGE_RESULT_KEYS:
+        raise ValueError("judge result schema mismatch")
 
     evaluator = result.get("evaluator")
-    if not isinstance(evaluator, dict):
+    if not isinstance(evaluator, dict) or set(evaluator) != EVALUATOR_KEYS:
         raise ValueError("evaluator identity required")
     if not isinstance(evaluator.get("provider"), str) or not evaluator.get("provider"):
         raise ValueError("evaluator.provider required")
@@ -360,6 +397,8 @@ def validate_judge_result(
     scores = result.get("dimension_scores")
     if not isinstance(scores, dict):
         raise ValueError("dimension_scores required")
+    if set(scores) != set(dimensions):
+        raise ValueError("dimension_scores must cover every rubric dimension exactly")
     for dimension_id, score in scores.items():
         if dimension_id not in dimensions:
             raise ValueError(f"unknown dimension score: {dimension_id}")
@@ -375,13 +414,15 @@ def validate_judge_result(
         raise ValueError("request.sides required")
     allowed_labels = set(rubric["finding_codes"])
     findings = result.get("findings")
-    if findings is None:
-        findings = []
     if not isinstance(findings, list):
         raise ValueError("findings must be a list")
     for index, finding in enumerate(findings):
         if not isinstance(finding, dict):
             raise ValueError(f"findings[{index}] must be an object")
+        if set(finding) != FINDING_KEYS:
+            raise ValueError(
+                f"finding[{index}] schema mismatch: exact side/evidence fields required"
+            )
         label = finding.get("label")
         if label not in allowed_labels:
             raise ValueError(f"unknown finding label: {label}")
@@ -395,7 +436,7 @@ def validate_judge_result(
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError(f"findings[{index}].reason evidence required")
         evidence_span = finding.get("evidence_span")
-        if not isinstance(evidence_span, dict):
+        if not isinstance(evidence_span, dict) or set(evidence_span) != EVIDENCE_SPAN_KEYS:
             raise ValueError(f"findings[{index}].evidence_span required")
         start = evidence_span.get("start")
         end = evidence_span.get("end")
