@@ -438,10 +438,13 @@ def test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only(tmp_path,
             return {
                 "ok": True,
                 "final_text": "雨声压住了门后的脚步。",
+                "secret_audit_complete": True,
+                "asserted_fact_refs": [],
+                "semantic_audit": [],
                 "model_identity": {
                     "provider": "zhipu-coding", "id": "glm-5.2",
                 },
-                "response_mode": "prose_fallback",
+                "response_mode": "tool",
             }
         def close_scope(self, key):
             self.closed.append(dict(key))
@@ -453,13 +456,13 @@ def test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only(tmp_path,
     sid = session.create_session(tmp_path, campaign_id="live", investigator_id="inv1")
     events = session.send(sid, "我等着听门后。")
     session.send(sid, "我再听一轮。")
-    assert calls and events[-1]["payload"]["text"].startswith("门后的动静")
+    assert calls and events[-1]["payload"]["text"].startswith("雨声压住")
     assert len(pool.keys) == 2 and pool.keys[0] == pool.keys[1]
     telemetry = session.get_telemetry_receipts(sid)[-1]["telemetry"]
     assert telemetry["runner"]["worker"] == "jsonl_pool"
-    assert telemetry["fallback"] is True
-    assert telemetry["narrator"]["deterministic_fallback"] is True
-    assert telemetry["narrator"]["consistent"] is False
+    assert telemetry["fallback"] is False
+    assert telemetry["narrator"]["deterministic_fallback"] is False
+    assert telemetry["narrator"]["consistent"] is True
     session.close_session(sid)
     assert pool.closed == [pool.keys[0]]
 
