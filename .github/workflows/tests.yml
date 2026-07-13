@@ -94,6 +94,9 @@ jobs:
           python3 plugins/coc-keeper/scripts/coc_eval.py
           run --suite pr --root .
           --output "${RUNNER_TEMP}/coc-eval-pr"
+      # Model-backed nightly (glm-5.2 / gpt-5.6-luna / gpt-5.6-sol) requires
+      # local relay/Zhipu credentials and is NOT executed on ordinary
+      # GitHub-hosted runners. Here we only assert honest NOT_RUN without secrets.
       - name: Record external/human lanes as NOT_RUN without secrets
         if: steps.focused-eval-tests.outcome == 'success'
         shell: bash

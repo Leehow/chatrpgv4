@@ -24,28 +24,41 @@
 - CI has independently diagnosable `python`, `plugin-metadata`,
   `evaluation-contract`, `node-adapters`, and `product-smoke` jobs. The Python
   matrix covers 3.11, 3.12, and 3.13 and installs both `pytest` and `pypdf`.
-- Evaluation contract phases 2–4 Batch D landed on `design/eval-contract-v1`:
-  completion audit and suite aggregation consume `evaluation/spec/v1`
-  case/persona/seed requirements; holdout examples are `example_unbound`
-  (`NOT_RUN`); official CLI docs cover run/report/verify/compare/baseline/
-  matrix/calibrate/holdouts in `coc-playtest` + root `AGENTS.md` (no separate
-  `coc-eval` skill — Phase 1 gate forbids that parallel skill path).
+- Evaluation contract on `design/eval-contract-v1` is executable through
+  `coc_eval.py`: completion audit and suite aggregation consume
+  `evaluation/spec/v1` case/persona/seed requirements; holdout examples are
+  `example_unbound` (`NOT_RUN`); official CLI docs cover
+  run/report/verify/compare/baseline/matrix/calibrate/holdouts plus capture-
+  then-compare nightly and release external inputs in `coc-playtest` + root
+  `AGENTS.md` + `README.md` (no separate `coc-eval` skill — Phase 1 gate
+  forbids that parallel skill path).
 
 ## Evaluation contract honesty
 
-Implemented capabilities (honest five):
+Implemented capabilities (all ten):
 
 - `canonical_cli`
 - `case_registry`
 - `report_contract`
 - `roll_completeness`
 - `baseline_identity_compare`
+- `ai_player_matrix`
+- `semantic_judge`
+- `long_memory`
+- `chapter_transition`
+- `human_calibration`
 
-Suite posture without external/human/holdout evidence:
+Suite posture:
 
-- `smoke` / `pr`: executable and expected `PASS`
-- `nightly` / `release`: required unimplemented capabilities remain `NOT_RUN`
-  (never claim release readiness from a smaller suite)
+- `smoke` / `pr`: deterministic and expected `PASS` on ordinary CI
+- `nightly`: model-backed (KP `glm-5.2`, player `gpt-5.6-luna`, judge
+  `gpt-5.6-sol`); capture with `run --suite nightly --output <baseline>`, then
+  compare with `run --suite nightly --baseline <baseline> --output <candidate>`,
+  then `report` / `verify`. Ordinary GitHub-hosted runners record honest
+  `NOT_RUN` without credentials — they do not fake model-backed execution
+- `release`: requires `--chapter-run`, `--holdout-bundle`, and
+  `--calibration-reviews`; without them status is honest `NOT_RUN` (never claim
+  release readiness from a smaller suite)
 
 Evidence classes:
 
@@ -85,7 +98,17 @@ Documented here so Batch D verification does not paper them over:
 | Test / job | Symptom | Evidence it predates this branch |
 |---|---|---|
 | CI job `product-smoke` / “Quick start save and reload smoke” | Fails on `main` as well as this branch | Job exists unchanged in `.github/workflows/tests.yml` and is out of Batch D allowed-file scope. |
-| `tests/test_runtime_sdk_debug.py::test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only` | `AssertionError: assert (6 == 2)` on `len(pool.keys)` (expects 2 identical narrator pool keys) | Reproduced on `main` worktree at `e75bb6c` with the same assertion and traceback. This branch does not modify `runtime/` or that test file (`git diff main...HEAD` has no runtime paths). |
+
+## Runtime narrator retry lifecycle fix (eval-contract-v1)
+
+`tests/test_runtime_sdk_debug.py::test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only`
+previously asserted two pool requests while the incomplete fixture omitted
+`secret_audit_complete` / `asserted_fact_refs` / `semantic_audit` and used
+`response_mode=prose_fallback`, so coverage retry issued three identical-key
+attempts per logical turn (six total). Fix: align the fixture to the approved
+coverage-retry contract (`secret_audit_complete=True`, empty asserted/semantic
+lists, `response_mode=tool`) so each turn records one successful pool request
+on a stable worker key. Commit: `fix(runtime): align narrator retry lifecycle evidence`.
 
 ## Resolved hardening items
 

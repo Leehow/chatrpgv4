@@ -41,6 +41,40 @@ python3 ../../scripts/coc_eval.py calibrate --reviews <reviews.json>
 python3 ../../scripts/coc_eval.py holdouts --bundle <holdout-dir>
 ```
 
+### Model-backed nightly (capture then compare)
+
+Required identities (no silent fallback):
+
+- KP / narrator: `zhipu-coding` / `glm-5.2`
+- AI player: `coding-relay` / `gpt-5.6-luna`
+- Semantic judge: `coding-relay` / `gpt-5.6-sol`
+
+Ordinary GitHub-hosted CI does not run credentialed nightly. Capture a baseline,
+then compare a candidate against it with `--baseline`:
+
+```bash
+python3 ../../scripts/coc_eval.py run \
+  --suite nightly --root <repo-root> --output <baseline-dir>
+python3 ../../scripts/coc_eval.py run \
+  --suite nightly --root <repo-root> \
+  --baseline <baseline-dir> --output <candidate-dir>
+python3 ../../scripts/coc_eval.py report <candidate-dir>
+python3 ../../scripts/coc_eval.py verify <candidate-dir>
+```
+
+### Release external inputs
+
+Release stays `NOT_RUN` until chapter evidence, a bound holdout bundle, and
+genuine human calibration reviews are supplied:
+
+```bash
+python3 ../../scripts/coc_eval.py run --suite release --root <repo-root> \
+  --chapter-run <run-dir> \
+  --holdout-bundle <bundle-dir> \
+  --calibration-reviews <reviews.json> \
+  --output <release-dir>
+```
+
 Deliver generated battle/evaluation reports bound to
 `artifacts/report-completeness.json` hashes. Never rewrite factual content by
 hand or reconstruct missing dice from prose.

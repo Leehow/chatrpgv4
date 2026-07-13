@@ -189,6 +189,35 @@ python3 plugins/coc-keeper/scripts/coc_eval.py calibrate --reviews <reviews.json
 python3 plugins/coc-keeper/scripts/coc_eval.py holdouts --bundle <holdout-dir>
 ```
 
+Model-backed lanes (local / explicitly configured runners with credentials — not
+ordinary GitHub-hosted CI):
+
+- KP / narrator: `zhipu-coding` / `glm-5.2`
+- AI player: `coding-relay` / `gpt-5.6-luna`
+- Semantic judge: `coding-relay` / `gpt-5.6-sol`
+
+Capture-then-compare nightly (exact commands):
+
+```bash
+python3 plugins/coc-keeper/scripts/coc_eval.py run \
+  --suite nightly --root . --output <baseline-dir>
+python3 plugins/coc-keeper/scripts/coc_eval.py run \
+  --suite nightly --root . --baseline <baseline-dir> --output <candidate-dir>
+python3 plugins/coc-keeper/scripts/coc_eval.py report <candidate-dir>
+python3 plugins/coc-keeper/scripts/coc_eval.py verify <candidate-dir>
+```
+
+Release with external inputs (chapter evidence, bound holdouts, genuine human
+calibration). Without them the suite stays honest `NOT_RUN`:
+
+```bash
+python3 plugins/coc-keeper/scripts/coc_eval.py run --suite release --root . \
+  --chapter-run <run-dir> \
+  --holdout-bundle <bundle-dir> \
+  --calibration-reviews <reviews.json> \
+  --output <release-dir>
+```
+
 Status vocabulary: `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`, `NON_COMPARABLE`.
 Missing evidence never becomes `PASS`. Deterministic fixture / registry self-tests
 are contract evidence; external-model and human lanes stay `NOT_RUN` without

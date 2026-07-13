@@ -178,3 +178,13 @@ def test_live_playtest_notes_are_historical_evidence_only():
 
 def test_rulebook_extracts_are_not_tracked():
     assert tracked_extract_paths() == []
+
+
+def test_official_docs_name_real_model_roles_and_nightly_baseline_flow():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    playtest_skill = (
+        PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    combined = readme + playtest_skill
+    for value in ("glm-5.2", "gpt-5.6-luna", "gpt-5.6-sol", "--baseline"):
+        assert value in combined, f"official docs missing {value!r}"
