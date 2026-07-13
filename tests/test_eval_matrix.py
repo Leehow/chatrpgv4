@@ -1055,11 +1055,65 @@ def test_live_segment_returns_exact_canonical_turns_and_attestation(
         "attested": True,
     }
     assert result["runner_invocation_id"] == "segment-1"
+    assert result["runner_invocation_source"]["kind"] == "live_match_metadata"
+    assert result["runner_invocation_source"]["json_pointer"] == "/metadata/run_id"
+    metadata_descriptor = result["runner_invocation_source"]["artifact"]
+    metadata_artifact = tmp_path / "segment-1" / metadata_descriptor["artifact"]
+    assert metadata_descriptor["sha256"] == _sha256(metadata_artifact)
     assert result["evidence_class"] == "external"
+    assert result["artifacts"]["invocation_ledger"]["sha256"] == _sha256(
+        tmp_path / "segment-1" / "runner-invocations.jsonl"
+    )
+    for name in ("checkpoint_entry", "checkpoint_final", "checkpoint_resume"):
+        descriptor = result["artifacts"][name]
+        artifact = tmp_path / "segment-1" / descriptor["artifact"]
+        assert artifact.is_file()
+        assert descriptor["sha256"] == _sha256(artifact)
+    entry_manifest = json.loads(
+        (tmp_path / "segment-1" / "checkpoint-entry-manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert entry_manifest["kind"] == "continuity-consumed-inputs"
+    assert {item["role"] for item in entry_manifest["roots"]} >= {
+        "mutable_campaign_state",
+        "campaign_input",
+    }
+    assert any(
+        item["path"] == ".coc/runtime.json" and item["present"] is True
+        for item in entry_manifest["files"]
+    )
     assert observed["args"][0] == workspace
     assert observed["kwargs"]["max_turns"] == 2
     assert observed["player_model"] == model_roles["player"]
     assert observed["kp_model"] == model_roles["kp"]
+
+    def fake_match_without_run_id(*args, **kwargs):
+        run_dir = Path(kwargs["run_dir"])
+        run_dir.mkdir(parents=True)
+        return {
+            "run_dir": str(run_dir),
+            "turns": [{"turn_number": 1}],
+            "evidence": _write_attested_live_artifacts(runner, run_dir),
+            "metadata": {"runner_kind": "external_model_bridge"},
+        }
+
+    monkeypatch.setattr(
+        runner.live_match, "run_live_match", fake_match_without_run_id
+    )
+    missing_id = runner.run_live_segment(
+        start_turn=1,
+        turn_count=1,
+        workspace=workspace,
+        output=tmp_path / "segment-without-run-id",
+        model_roles=model_roles,
+        env={},
+    )
+    assert missing_id["runner_invocation_id"] is None
+    assert missing_id["attestation"]["attested"] is False
+    assert "runner_invocation_id_missing:metadata.run_id" in missing_id[
+        "attestation_findings"
+    ]
 
 
 def test_live_segment_rejects_shifted_canonical_turn_ids(tmp_path, monkeypatch):
@@ -1137,6 +1191,100 @@ def test_live_segment_rejects_checkpoint_drift_before_model_invocation(
         "run_live_match",
         lambda *args, **kwargs: pytest.fail(
             "model runner must not start after checkpoint drift"
+        ),
+    )
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    with pytest.raises(ValueError, match="checkpoint hash mismatch"):
+        runner.run_live_segment(
+            start_turn=2,
+            turn_count=1,
+            workspace=workspace,
+            output=tmp_path / "segment-2",
+            model_roles=model_roles,
+            env={},
+        )
+
+
+@pytest.mark.parametrize(
+    "drift_target",
+    [
+        "campaign_log",
+        "investigator_character",
+        "runtime_config",
+        "scenario_input",
+    ],
+)
+def test_live_segment_checkpoint_covers_all_resume_consumed_inputs(
+    tmp_path, monkeypatch, drift_target
+):
+    runner = _load_live_cell()
+    fixture_root = (
+        REPO / "evaluation" / "spec" / "v1" / "fixtures" / "matrix"
+    )
+    workspace, campaign_id, investigator_id = runner.materialize_workspace(
+        json.loads(
+            (fixture_root / "nightly-scenario.json").read_text(encoding="utf-8")
+        ),
+        json.loads(
+            (fixture_root / "nightly-initial-state.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+        tmp_path / "workspace",
+    )
+    log_path = (
+        workspace / ".coc" / "campaigns" / campaign_id / "logs" / "events.jsonl"
+    )
+    log_path.touch()
+    baseline = runner._canonical_campaign_snapshot_sha256(workspace, campaign_id)
+    _write_json(
+        workspace / ".coc" / "eval-continuity-restart.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "session_id": "eval-continuity:test",
+            "expected_snapshot_sha256": baseline,
+        },
+    )
+    if drift_target == "campaign_log":
+        log_path.write_text('{"event_type":"drift"}\n', encoding="utf-8")
+    elif drift_target == "investigator_character":
+        character_path = (
+            workspace
+            / ".coc"
+            / "investigators"
+            / investigator_id
+            / "character.json"
+        )
+        character = json.loads(character_path.read_text(encoding="utf-8"))
+        character["name"] = "drifted"
+        _write_json(character_path, character)
+    elif drift_target == "runtime_config":
+        runtime_path = workspace / ".coc" / "runtime.json"
+        runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        runtime["brain"] = "changed-before-resume"
+        _write_json(runtime_path, runtime)
+    else:
+        scenario_path = (
+            workspace
+            / ".coc"
+            / "campaigns"
+            / campaign_id
+            / "scenario"
+            / "module-meta.json"
+        )
+        scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+        scenario["win_condition"] = "changed-before-resume"
+        _write_json(scenario_path, scenario)
+    monkeypatch.setattr(
+        runner.live_match,
+        "run_live_match",
+        lambda *args, **kwargs: pytest.fail(
+            "model runner must not start after uncovered mutable-state drift"
         ),
     )
     model_roles = {

@@ -44,6 +44,17 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _sha256_json(payload: object) -> str:
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _write_json(path: Path, payload: object) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -51,6 +62,393 @@ def _write_json(path: Path, payload: object) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _artifact(run_dir: Path, path: Path) -> dict[str, str]:
+    return {
+        "artifact": path.relative_to(run_dir).as_posix(),
+        "sha256": _sha256_file(path),
+    }
+
+
+def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
+    """Materialize all hash-bound receipts used by a complete test run."""
+    if evidence.get("evidence_class") == "external":
+        source_specs = {
+            "inventory": (
+                ".coc/investigators/inv1/inventory-history.jsonl",
+                "jsonl",
+                "/0/items/0",
+                json.dumps({"items": ["item-eval-brass-token"]}, sort_keys=True)
+                + "\n",
+                "item-eval-brass-token",
+            ),
+            "injury": (
+                ".coc/campaigns/eval-neutral/save/investigator-state/inv1.json",
+                "json",
+                "/conditions/0",
+                json.dumps(
+                    {"conditions": ["injury-eval-archival-cut"], "current_san": 50},
+                    sort_keys=True,
+                )
+                + "\n",
+                "injury-eval-archival-cut",
+            ),
+            "san": (
+                ".coc/campaigns/eval-neutral/save/investigator-state/inv1.json",
+                "json",
+                "/current_san",
+                json.dumps(
+                    {"conditions": ["injury-eval-archival-cut"], "current_san": 50},
+                    sort_keys=True,
+                )
+                + "\n",
+                50,
+            ),
+            "relationship": (
+                ".coc/campaigns/eval-neutral/save/npc-state.json",
+                "json",
+                "/psych/npc-eval-archivist/trust",
+                json.dumps(
+                    {"psych": {"npc-eval-archivist": {"trust": 1}}},
+                    sort_keys=True,
+                )
+                + "\n",
+                1,
+            ),
+            "clue": (
+                ".coc/campaigns/eval-neutral/save/world-state.json",
+                "json",
+                "/discovered_clue_ids/0",
+                json.dumps(
+                    {"discovered_clue_ids": ["clue-latch-scratches"]},
+                    sort_keys=True,
+                )
+                + "\n",
+                "clue-latch-scratches",
+            ),
+            "unresolved_thread": (
+                ".coc/investigators/inv1/history.jsonl",
+                "jsonl",
+                "/0/unresolved_threads/0",
+                json.dumps(
+                    {"unresolved_threads": ["thread-eval-archive-access"]},
+                    sort_keys=True,
+                )
+                + "\n",
+                "thread-eval-archive-access",
+            ),
+        }
+        source_file_receipts: dict[str, tuple[str, int]] = {}
+        for name, anchor in evidence["recall_anchors"].items():
+            source_path, source_format, pointer, source_text, value = source_specs[name]
+            value_hash = _sha256_json(value)
+            identity = {
+                "source_path": source_path,
+                "json_pointer": pointer,
+                "value_sha256": value_hash,
+            }
+            source_file_receipts[source_path] = (
+                hashlib.sha256(source_text.encode("utf-8")).hexdigest(),
+                len(source_text.encode("utf-8")),
+            )
+            source_artifacts = {}
+            for phase in ("before", "after"):
+                suffix = ".jsonl" if source_format == "jsonl" else ".json"
+                source_artifact = (
+                    run_dir
+                    / "artifacts"
+                    / "recall-sources"
+                    / f"{phase}-restart"
+                    / f"{name}{suffix}"
+                )
+                source_artifact.parent.mkdir(parents=True, exist_ok=True)
+                source_artifact.write_text(source_text, encoding="utf-8")
+                source_artifacts[phase] = _artifact(run_dir, source_artifact)
+            anchor.update(
+                {
+                    "anchor_id": f"state:{_sha256_json(identity)}",
+                    "source_path": source_path,
+                    "source_format": source_format,
+                    "json_pointer": pointer,
+                    "before_value_sha256": value_hash,
+                    "after_value_sha256": value_hash,
+                    "before_source_artifact": source_artifacts["before"],
+                    "after_source_artifact": source_artifacts["after"],
+                    "observation_kind": "structured_state",
+                }
+            )
+        campaign_root = ".coc/campaigns/eval-neutral"
+        roots = [
+            {
+                "path": f"{campaign_root}/{name}",
+                "role": role,
+                "present": present,
+            }
+            for role, values in (
+                (
+                    "mutable_campaign_state",
+                    (("save", True), ("memory", False), ("logs", True)),
+                ),
+                (
+                    "campaign_input",
+                    (("source", False), ("scenario", True), ("index", False)),
+                ),
+            )
+            for name, present in values
+        ]
+        files = [
+            {
+                "path": f"{campaign_root}/campaign.json",
+                "role": "campaign_config",
+                "present": True,
+                "sha256": _sha256_text("campaign"),
+                "size": len("campaign"),
+            },
+            {
+                "path": f"{campaign_root}/party.json",
+                "role": "campaign_config",
+                "present": False,
+            },
+            {
+                "path": ".coc/runtime.json",
+                "role": "runtime_config",
+                "present": True,
+                "sha256": _sha256_text("runtime"),
+                "size": len("runtime"),
+            },
+        ]
+        for filename in (
+            "creation.json",
+            "character.json",
+            "history.jsonl",
+            "development.jsonl",
+            "inventory-history.jsonl",
+        ):
+            source_path = f".coc/investigators/inv1/{filename}"
+            present = filename in {
+                "creation.json",
+                "character.json",
+                "history.jsonl",
+                "inventory-history.jsonl",
+            }
+            record = {
+                "path": source_path,
+                "role": "investigator_state",
+                "present": present,
+            }
+            if present:
+                file_hash, size = source_file_receipts.get(
+                    source_path, (_sha256_text(filename), len(filename))
+                )
+                record.update({"sha256": file_hash, "size": size})
+            files.append(record)
+        for source_path, (file_hash, size) in source_file_receipts.items():
+            if source_path.startswith(f"{campaign_root}/"):
+                files.append(
+                    {
+                        "path": source_path,
+                        "role": "mutable_campaign_state",
+                        "present": True,
+                        "sha256": file_hash,
+                        "size": size,
+                    }
+                )
+        checkpoint_manifest = {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "kind": "continuity-consumed-inputs",
+            "campaign_id": "eval-neutral",
+            "investigator_id": "inv1",
+            "roots": sorted(roots, key=lambda item: item["path"]),
+            "files": sorted(files, key=lambda item: item["path"]),
+            "excluded_path_classes": ["lock"],
+        }
+        checkpoint_snapshot = _sha256_json(checkpoint_manifest)
+        evidence["restart"]["pre_checkpoint_sha256"] = checkpoint_snapshot
+        evidence["restart"]["post_checkpoint_sha256"] = checkpoint_snapshot
+        restart_at = evidence["restart"]["at_turn"]
+        ranges = (
+            list(range(1, restart_at + 1)),
+            list(range(restart_at + 1, evidence["turn_count"] + 1)),
+        )
+        segments = []
+        ledger_hashes = []
+        for index, accepted_turns in enumerate(ranges, 1):
+            segment_dir = run_dir / "segments" / f"segment-{index}"
+            invocation_id = f"runner-invocation-{index}"
+            ledger = segment_dir / "runner-invocations.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            player_runner = (
+                REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
+            )
+            narrator_runner = (
+                REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
+            )
+            secret_receipt = {
+                "schema_version": 1,
+                "status": "passed",
+                "passed": True,
+                "evidence_eligible": True,
+                "forbidden_refs": [],
+                "asserted_fact_refs": [],
+                "direct_matches": [],
+                "semantic_matches": [],
+                "uncertain_matches": [],
+                "malformed_evidence": [],
+                "semantic_evidence": [],
+                "semantic_evidence_contract": {
+                    "schema_version": 1,
+                    "coverage_rule": "asserted_x_forbidden_exact",
+                    "verification_owner": "coc_secret_audit",
+                },
+                "coverage": {
+                    "asserted_refs": [],
+                    "forbidden_refs": [],
+                    "expected_pairs": [],
+                    "expected_pair_count": 0,
+                    "observed_pair_count": 0,
+                },
+                "coverage_digest": "8956d77bceba9eabb4de317a9e05461d2a171f7a9a599138639db15175159e3c",
+            }
+            rows = []
+            for attempt, turn in enumerate(accepted_turns, 1):
+                for role, runner, model in (
+                    ("player", player_runner, evidence["attestation"]["player_model"]),
+                    ("narrator", narrator_runner, evidence["attestation"]["kp_model"]),
+                ):
+                    row = {
+                        "schema_version": 1,
+                        "segment_invocation_id": invocation_id,
+                        "role": role,
+                        "attempt": attempt,
+                        "transcript_turn": turn,
+                        "runner_kind": "external_model_bridge",
+                        "runner_identity": f"fixture-{role}-adapter",
+                        "runner_path": str(runner),
+                        "runner_sha256": _sha256_file(runner),
+                        "model_identity": model,
+                        "outcome": "external_success",
+                        "response_mode": "tool",
+                        "fallback_kind": None,
+                    }
+                    if role == "narrator":
+                        row["secret_audit"] = secret_receipt
+                    rows.append(row)
+            ledger.write_text(
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+            ledger_descriptor = _artifact(run_dir, ledger)
+            local_ledger_descriptor = {
+                "artifact": ledger.name,
+                "sha256": ledger_descriptor["sha256"],
+            }
+            ledger_hashes.append(ledger_descriptor["sha256"])
+            checkpoint = segment_dir / "checkpoint-resume-manifest.json"
+            _write_json(checkpoint, checkpoint_manifest)
+            checkpoint_descriptor = _artifact(run_dir, checkpoint)
+            local_checkpoint_descriptor = {
+                "artifact": checkpoint.name,
+                "sha256": checkpoint_descriptor["sha256"],
+            }
+            metadata_path = _write_json(
+                segment_dir / "continuity-run-metadata.json",
+                {
+                    "schema_version": 1,
+                    "eval_spec": "eval-spec-v1",
+                    "source": "live_match.result.metadata",
+                    "metadata": {"run_id": invocation_id},
+                },
+            )
+            metadata_descriptor = _artifact(run_dir, metadata_path)
+            local_metadata_descriptor = {
+                "artifact": metadata_path.name,
+                "sha256": metadata_descriptor["sha256"],
+            }
+            segment_receipt = {
+                "schema_version": 1,
+                "eval_spec": "eval-spec-v1",
+                "evidence_class": "external",
+                "logical_session_id": evidence["session_id"],
+                "runner_invocation_id": invocation_id,
+                "runner_invocation_source": {
+                    "kind": "live_match_metadata",
+                    "artifact": local_metadata_descriptor,
+                    "json_pointer": "/metadata/run_id",
+                },
+                "accepted_turns": accepted_turns,
+                "snapshot_sha256": checkpoint_snapshot,
+                "attestation": evidence["attestation"],
+                "artifacts": {
+                    "invocation_ledger": local_ledger_descriptor,
+                    "checkpoint_resume": local_checkpoint_descriptor,
+                    "run_metadata": local_metadata_descriptor,
+                },
+            }
+            receipt = segment_dir / "continuity-segment.json"
+            _write_json(receipt, segment_receipt)
+            segments.append(
+                {
+                    "segment_id": index,
+                    "logical_session_id": evidence["session_id"],
+                    "runner_invocation_id": invocation_id,
+                    "accepted_turns": accepted_turns,
+                    "receipt": _artifact(run_dir, receipt),
+                    "invocation_ledger": ledger_descriptor,
+                    "checkpoint_manifest": checkpoint_descriptor,
+                    "runner_metadata": metadata_descriptor,
+                    "checkpoint_snapshot_sha256": checkpoint_snapshot,
+                }
+            )
+        evidence["segments"] = segments
+    else:
+        ledger_hashes = []
+
+    recall_receipt = run_dir / "artifacts" / "recall-anchors.json"
+    _write_json(
+        recall_receipt,
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "anchors": evidence["recall_anchors"],
+        },
+    )
+    evidence["recall_anchor_receipt"] = _artifact(run_dir, recall_receipt)
+
+    audit_findings = []
+    for index, ledger_hash in enumerate(ledger_hashes or [None], 1):
+        finding = {
+            "finding_id": f"secret-audit-segment-{index}",
+            "status": "PASS",
+            "prose_scanned": False,
+        }
+        if ledger_hash is not None:
+            finding["invocation_ledger_sha256"] = ledger_hash
+        audit_findings.append(finding)
+    audit_path = run_dir / "artifacts" / "secret-audit.json"
+    _write_json(
+        audit_path,
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "status": "PASS",
+            "findings": audit_findings,
+        },
+    )
+    audit_descriptor = _artifact(run_dir, audit_path)
+    evidence["secret_audit"] = {
+        "status": "PASS",
+        "references": [
+            {
+                **audit_descriptor,
+                "finding_id": finding["finding_id"],
+            }
+            for finding in audit_findings
+        ],
+    }
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+    return evidence
 
 
 def _requirements_for(lane_id: str) -> dict:
@@ -108,6 +506,9 @@ def _complete_continuity_evidence(
             "session_id_before": "session-continuity-1",
             "session_id_after": "session-continuity-1",
             "resumed": True,
+            "model_workers_restarted_between_segments": True,
+            "logical_evaluation_session_continued": True,
+            "model_conversation_session_continuity_claimed": False,
         },
         "recall_anchors": anchors,
         "secret_audit": {
@@ -124,8 +525,8 @@ def _complete_continuity_evidence(
         evidence["attestation"] = attestation
     elif evidence_class == "external":
         evidence["attestation"] = {
-            "player_model": {"provider": "external", "id": "player-model-1"},
-            "kp_model": {"provider": "external", "id": "kp-model-1"},
+            "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+            "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
             "runner": "live_match",
             "attested": True,
         }
@@ -318,7 +719,7 @@ def test_validate_continuity_complete_fixture_passes_and_labels_fixture(tmp_path
     mod = _load()
     run_dir = tmp_path / "ok"
     evidence = _complete_continuity_evidence(evidence_class="fixture")
-    _write_json(run_dir / "continuity-evidence.json", evidence)
+    _write_continuity_run(run_dir, evidence)
     result = mod.validate_continuity_run(run_dir, _requirements_for("continuity-25"))
     assert result["status"] == "PASS"
     assert result["evidence_class"] == "fixture"
@@ -330,11 +731,224 @@ def test_validate_continuity_external_attested_is_gameplay_evidence(tmp_path: Pa
     mod = _load()
     run_dir = tmp_path / "ext-ok"
     evidence = _complete_continuity_evidence(evidence_class="external")
-    _write_json(run_dir / "continuity-evidence.json", evidence)
+    _write_continuity_run(run_dir, evidence)
     result = mod.validate_continuity_run(run_dir, _requirements_for("continuity-25"))
     assert result["status"] == "PASS"
     assert result["evidence_class"] == "external"
     assert result["gameplay_evidence"] is True
+
+
+def test_validate_continuity_external_requires_source_invocation_ids(tmp_path: Path):
+    mod = _load()
+    run_dir = tmp_path / "missing-invocation"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    evidence["segments"][0].pop("runner_invocation_id")
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "external_runner_invocation_id_missing"
+        for item in result["findings"]
+    )
+
+
+def test_validate_continuity_external_rejects_duplicate_invocation_ids(tmp_path: Path):
+    mod = _load()
+    run_dir = tmp_path / "duplicate-invocation"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    evidence["segments"][1]["runner_invocation_id"] = evidence["segments"][0][
+        "runner_invocation_id"
+    ]
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "external_runner_invocation_id_duplicate"
+        for item in result["findings"]
+    )
+
+
+def test_validate_continuity_rejects_tampered_bound_artifacts(tmp_path: Path):
+    mod = _load()
+    cases = {
+        "receipt": (
+            "segments/segment-1/continuity-segment.json",
+            "segment_receipt_hash_mismatch",
+        ),
+        "ledger": (
+            "segments/segment-1/runner-invocations.jsonl",
+            "invocation_ledger_hash_mismatch",
+        ),
+        "checkpoint": (
+            "segments/segment-1/checkpoint-resume-manifest.json",
+            "checkpoint_manifest_hash_mismatch",
+        ),
+        "recall": (
+            "artifacts/recall-anchors.json",
+            "recall_anchor_receipt_hash_mismatch",
+        ),
+        "audit": (
+            "artifacts/secret-audit.json",
+            "secret_audit_artifact_hash_mismatch",
+        ),
+    }
+    for case, (relative, expected_code) in cases.items():
+        run_dir = tmp_path / case
+        _write_continuity_run(
+            run_dir, _complete_continuity_evidence(evidence_class="external")
+        )
+        target = run_dir / relative
+        target.write_bytes(target.read_bytes() + b"\n")
+
+        result = mod.validate_continuity_run(
+            run_dir, _requirements_for("continuity-25")
+        )
+
+        assert result["status"] == "FAIL", case
+        assert any(
+            item["code"] == expected_code for item in result["findings"]
+        ), (case, result["findings"])
+
+
+def test_validate_continuity_rejects_rehashed_incomplete_checkpoint_manifest(
+    tmp_path: Path,
+):
+    mod = _load()
+    run_dir = tmp_path / "incomplete-checkpoint"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    snapshot_hash = _sha256_json({})
+    for segment in evidence["segments"]:
+        checkpoint = run_dir / segment["checkpoint_manifest"]["artifact"]
+        _write_json(checkpoint, {})
+        checkpoint_file_hash = _sha256_file(checkpoint)
+        segment["checkpoint_manifest"]["sha256"] = checkpoint_file_hash
+        segment["checkpoint_snapshot_sha256"] = snapshot_hash
+        receipt_path = run_dir / segment["receipt"]["artifact"]
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["snapshot_sha256"] = snapshot_hash
+        receipt["artifacts"]["checkpoint_resume"][
+            "sha256"
+        ] = checkpoint_file_hash
+        _write_json(receipt_path, receipt)
+        segment["receipt"]["sha256"] = _sha256_file(receipt_path)
+    evidence["restart"]["pre_checkpoint_sha256"] = snapshot_hash
+    evidence["restart"]["post_checkpoint_sha256"] = snapshot_hash
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "checkpoint_manifest_contract_invalid"
+        for item in result["findings"]
+    )
+
+
+def test_validate_continuity_rejects_rehashed_incomplete_invocation_ledger(
+    tmp_path: Path,
+):
+    mod = _load()
+    run_dir = tmp_path / "incomplete-ledger"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    segment = evidence["segments"][0]
+    ledger = run_dir / segment["invocation_ledger"]["artifact"]
+    ledger.write_text('{"role":"player"}\n', encoding="utf-8")
+    ledger_hash = _sha256_file(ledger)
+    segment["invocation_ledger"]["sha256"] = ledger_hash
+    receipt_path = run_dir / segment["receipt"]["artifact"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["artifacts"]["invocation_ledger"]["sha256"] = ledger_hash
+    _write_json(receipt_path, receipt)
+    segment["receipt"]["sha256"] = _sha256_file(receipt_path)
+    audit_path = run_dir / evidence["secret_audit"]["references"][0]["artifact"]
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit["findings"][0]["invocation_ledger_sha256"] = ledger_hash
+    _write_json(audit_path, audit)
+    audit_hash = _sha256_file(audit_path)
+    for reference in evidence["secret_audit"]["references"]:
+        reference["sha256"] = audit_hash
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "invocation_ledger_contract_invalid"
+        for item in result["findings"]
+    )
+
+
+def test_validate_continuity_rejects_unbound_external_anchor_sources(tmp_path: Path):
+    mod = _load()
+    run_dir = tmp_path / "unbound-anchor-sources"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    evidence["recall_anchors"]["clue"].pop("before_source_artifact")
+    receipt_path = run_dir / evidence["recall_anchor_receipt"]["artifact"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["anchors"]["clue"].pop("before_source_artifact")
+    _write_json(receipt_path, receipt)
+    evidence["recall_anchor_receipt"]["sha256"] = _sha256_file(receipt_path)
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "external_recall_anchor_source_unbound"
+        for item in result["findings"]
+    )
+
+
+def test_validate_continuity_rejects_rehashed_shifted_turn_ranges(tmp_path: Path):
+    mod = _load()
+    run_dir = tmp_path / "shifted-turn-ranges"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    shifted_ranges = (list(range(2, 15)), list(range(15, 27)))
+    evidence["accepted_turns"] = list(range(2, 27))
+    for segment, shifted in zip(evidence["segments"], shifted_ranges, strict=True):
+        segment["accepted_turns"] = shifted
+        receipt_path = run_dir / segment["receipt"]["artifact"]
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["accepted_turns"] = shifted
+        _write_json(receipt_path, receipt)
+        segment["receipt"]["sha256"] = _sha256_file(receipt_path)
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "accepted_turn_range_mismatch"
+        for item in result["findings"]
+    )
 
 
 def test_continuity_runner_restarts_at_required_turn_and_preserves_hash(
@@ -420,19 +1034,8 @@ def test_continuity_runner_reads_recall_anchors_from_structured_campaign_state(
     tmp_path: Path, monkeypatch
 ):
     longrun = _load()
-    observed_anchor_sets = []
 
     def fake_segment(*, start_turn, turn_count, workspace, output, model_roles):
-        campaign_dirs = list((workspace / ".coc" / "campaigns").iterdir())
-        assert len(campaign_dirs) == 1
-        anchors = json.loads(
-            (
-                campaign_dirs[0]
-                / "save"
-                / "evaluation-continuity-anchors.json"
-            ).read_text(encoding="utf-8")
-        )["anchors"]
-        observed_anchor_sets.append(anchors)
         return {
             "accepted_turns": list(range(start_turn, start_turn + turn_count)),
             "snapshot_sha256": "b" * 64,
@@ -456,14 +1059,27 @@ def test_continuity_runner_reads_recall_anchors_from_structured_campaign_state(
         model_roles=model_roles,
     )
 
-    assert len(observed_anchor_sets) == 2
-    assert observed_anchor_sets[0] == observed_anchor_sets[1]
-    assert {
-        name: item["anchor_id"] for name, item in observed_anchor_sets[0].items()
-    } == {
-        name: item["anchor_id"]
-        for name, item in evidence["recall_anchors"].items()
+    assert not list(
+        (tmp_path / "workspace").rglob("evaluation-continuity-anchors.json")
+    )
+    expected_sources = {
+        "inventory": ".coc/investigators/inv1/inventory-history.jsonl",
+        "injury": ".coc/campaigns/eval-neutral/save/investigator-state/inv1.json",
+        "san": ".coc/campaigns/eval-neutral/save/investigator-state/inv1.json",
+        "relationship": ".coc/campaigns/eval-neutral/save/npc-state.json",
+        "clue": ".coc/campaigns/eval-neutral/save/world-state.json",
+        "unresolved_thread": ".coc/investigators/inv1/history.jsonl",
     }
+    assert set(evidence["recall_anchors"]) == set(expected_sources)
+    for name, anchor in evidence["recall_anchors"].items():
+        assert anchor["source_path"] == expected_sources[name]
+        assert anchor["json_pointer"].startswith("/")
+        assert anchor["anchor_id"].startswith("state:")
+        assert len(anchor["anchor_id"].removeprefix("state:")) == 64
+        assert anchor["before_value_sha256"] == anchor["after_value_sha256"]
+        assert len(anchor["before_value_sha256"]) == 64
+        assert anchor["observation_kind"] == "structured_state"
+        assert "model_observed" not in anchor
 
 
 def test_continuity_runner_writes_checkpoint_guard_before_resume(
@@ -502,6 +1118,148 @@ def test_continuity_runner_writes_checkpoint_guard_before_resume(
     )
 
     assert observed_session_ids == [evidence["session_id"], evidence["session_id"]]
+
+
+def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
+    tmp_path: Path, monkeypatch
+):
+    longrun = _load()
+
+    def external_segment(
+        *, start_turn, turn_count, workspace, output, model_roles
+    ):
+        output.mkdir(parents=True)
+        session_id = json.loads(
+            (workspace / ".coc" / "eval-continuity-restart.json").read_text(
+                encoding="utf-8"
+            )
+        )["session_id"]
+        invocation_id = f"external-run-{start_turn}"
+        live_cell = longrun._load_live_cell()
+        checkpoint_manifest = live_cell._continuity_snapshot_manifest(
+            workspace, "eval-neutral", "inv1"
+        )
+        checkpoint_hash = _sha256_json(checkpoint_manifest)
+        accepted_turns = list(range(start_turn, start_turn + turn_count))
+        ledger = output / "runner-invocations.jsonl"
+        player_runner = (
+            REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
+        )
+        narrator_runner = (
+            REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
+        )
+        secret_receipt = live_cell.live_match.secret_audit.audit_secret_claims(
+            [], [], []
+        )
+        rows = []
+        for attempt, turn in enumerate(accepted_turns, 1):
+            for role, runner, model in (
+                ("player", player_runner, model_roles["player"]),
+                ("narrator", narrator_runner, model_roles["kp"]),
+            ):
+                row = {
+                    "schema_version": 1,
+                    "segment_invocation_id": invocation_id,
+                    "role": role,
+                    "attempt": attempt,
+                    "transcript_turn": turn,
+                    "runner_kind": "external_model_bridge",
+                    "runner_identity": f"fixture-{role}-adapter",
+                    "runner_path": str(runner),
+                    "runner_sha256": _sha256_file(runner),
+                    "model_identity": model,
+                    "outcome": "external_success",
+                    "response_mode": "tool",
+                    "fallback_kind": None,
+                }
+                if role == "narrator":
+                    row["secret_audit"] = secret_receipt
+                rows.append(row)
+        ledger.write_text(
+            "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+            encoding="utf-8",
+        )
+        checkpoint = _write_json(
+            output / "checkpoint-resume-manifest.json", checkpoint_manifest
+        )
+        local_ledger = {"artifact": ledger.name, "sha256": _sha256_file(ledger)}
+        local_checkpoint = {
+            "artifact": checkpoint.name,
+            "sha256": _sha256_file(checkpoint),
+        }
+        metadata = _write_json(
+            output / "continuity-run-metadata.json",
+            {
+                "schema_version": 1,
+                "eval_spec": "eval-spec-v1",
+                "source": "live_match.result.metadata",
+                "metadata": {"run_id": invocation_id},
+            },
+        )
+        local_metadata = {
+            "artifact": metadata.name,
+            "sha256": _sha256_file(metadata),
+        }
+        attestation = {
+            "player_model": model_roles["player"],
+            "kp_model": model_roles["kp"],
+            "runner": "coc_live_match",
+            "attested": True,
+        }
+        receipt = {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "evidence_class": "external",
+            "logical_session_id": session_id,
+            "runner_invocation_id": invocation_id,
+            "runner_invocation_source": {
+                "kind": "live_match_metadata",
+                "artifact": local_metadata,
+                "json_pointer": "/metadata/run_id",
+            },
+            "accepted_turns": accepted_turns,
+            "snapshot_sha256": checkpoint_hash,
+            "attestation": attestation,
+            "artifacts": {
+                "invocation_ledger": local_ledger,
+                "checkpoint_resume": local_checkpoint,
+                "run_metadata": local_metadata,
+            },
+        }
+        _write_json(output / "continuity-segment.json", receipt)
+        return {
+            **receipt,
+            "secret_audit_passed": True,
+        }
+
+    monkeypatch.setattr(longrun, "_run_segment", external_segment)
+    lane = json.loads(LONG_MEMORY_PATH.read_text(encoding="utf-8"))["lanes"][0]
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    result = longrun.run_continuity_lane(
+        lane=lane,
+        workspace=tmp_path / "workspace",
+        output=tmp_path / "lane",
+        model_roles=model_roles,
+    )
+
+    assert result["status"] == "PASS"
+    assert result["validation"]["gameplay_evidence"] is True
+    assert [item["runner_invocation_id"] for item in result["segments"]] == [
+        "external-run-1",
+        "external-run-14",
+    ]
+    assert result["segments"][0]["receipt"]["artifact"] == (
+        "segments/segment-1/continuity-segment.json"
+    )
+    assert result["session_scope"] == {
+        "continued_identity": "logical_evaluation_session",
+        "model_worker_sessions": "restarted_between_segments",
+        "model_conversation_session_continuity": False,
+    }
 
 
 def test_run_segment_delegates_to_canonical_live_cell_adapter(tmp_path, monkeypatch):

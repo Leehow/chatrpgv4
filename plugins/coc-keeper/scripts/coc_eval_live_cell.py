@@ -79,6 +79,16 @@ _CONTINUITY_PERSONA_ID = "careful_investigator"
 _CONTINUITY_PERSONA_DIRECTIVES = [
     "Prefer observation before irreversible action.",
 ]
+_CONTINUITY_CAMPAIGN_MUTABLE_TREES = ("save", "memory", "logs")
+_CONTINUITY_CAMPAIGN_INPUT_TREES = ("source", "scenario", "index")
+_CONTINUITY_CAMPAIGN_FILES = ("campaign.json", "party.json")
+_CONTINUITY_INVESTIGATOR_FILES = (
+    "creation.json",
+    "character.json",
+    "history.jsonl",
+    "development.jsonl",
+    "inventory-history.jsonl",
+)
 
 
 def _object(value: Any, label: str) -> dict[str, Any]:
@@ -563,29 +573,122 @@ def _single_directory(path: Path, label: str) -> Path:
     return children[0]
 
 
+def _canonical_json_bytes(payload: Any) -> bytes:
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _continuity_snapshot_manifest(
+    workspace: Path, campaign_id: str, investigator_id: str
+) -> dict[str, Any]:
+    campaign_root = workspace / ".coc" / "campaigns" / campaign_id
+    investigator_root = workspace / ".coc" / "investigators" / investigator_id
+    root_specs = [
+        (
+            workspace / ".coc" / "campaigns" / campaign_id / tree,
+            "mutable_campaign_state",
+        )
+        for tree in _CONTINUITY_CAMPAIGN_MUTABLE_TREES
+    ] + [
+        (
+            workspace / ".coc" / "campaigns" / campaign_id / tree,
+            "campaign_input",
+        )
+        for tree in _CONTINUITY_CAMPAIGN_INPUT_TREES
+    ]
+    files: list[dict[str, Any]] = []
+    roots: list[dict[str, Any]] = []
+
+    def add_file(path: Path, role: str, *, required: bool = False) -> None:
+        relative = path.relative_to(workspace).as_posix()
+        if path.is_symlink():
+            raise ValueError(f"continuity checkpoint file is unsafe: {relative}")
+        present = path.is_file()
+        if path.exists() and not present:
+            raise ValueError(f"continuity checkpoint path is not a file: {relative}")
+        if required and not present:
+            raise ValueError(f"continuity checkpoint input is missing: {relative}")
+        record: dict[str, Any] = {
+            "path": relative,
+            "role": role,
+            "present": present,
+        }
+        if present:
+            payload = path.read_bytes()
+            record.update(
+                {
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "size": len(payload),
+                }
+            )
+        files.append(record)
+
+    for root, role in root_specs:
+        label = root.relative_to(workspace).as_posix()
+        if root.is_symlink():
+            raise ValueError(f"continuity checkpoint root is unsafe: {label}")
+        roots.append({"path": label, "role": role, "present": root.is_dir()})
+        if not root.exists():
+            continue
+        if not root.is_dir():
+            raise ValueError(f"continuity checkpoint root is not a directory: {label}")
+        for path in root.rglob("*"):
+            if path.is_symlink():
+                raise ValueError("continuity checkpoint contains a symlink")
+            if not path.is_file():
+                continue
+            relative = path.relative_to(root)
+            if any(part == "locks" for part in relative.parts) or path.name.endswith(
+                ".lock"
+            ):
+                continue
+            add_file(path, role)
+    for filename in _CONTINUITY_CAMPAIGN_FILES:
+        add_file(
+            campaign_root / filename,
+            "campaign_config",
+            required=filename == "campaign.json",
+        )
+    add_file(
+        workspace / ".coc" / "runtime.json",
+        "runtime_config",
+        required=True,
+    )
+    if investigator_root.is_symlink() or not investigator_root.is_dir():
+        raise ValueError("continuity investigator state directory is missing or unsafe")
+    for filename in _CONTINUITY_INVESTIGATOR_FILES:
+        add_file(investigator_root / filename, "investigator_state")
+    if not any(
+        item["path"].endswith("/save") and item["present"] is True
+        for item in roots
+    ):
+        raise ValueError("canonical campaign save directory is missing")
+    return {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "kind": "continuity-consumed-inputs",
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "roots": sorted(roots, key=lambda item: item["path"]),
+        "files": sorted(files, key=lambda item: item["path"]),
+        "excluded_path_classes": ["lock"],
+    }
+
+
 def _canonical_campaign_snapshot_sha256(
     workspace: Path, campaign_id: str
 ) -> str:
-    save_root = workspace / ".coc" / "campaigns" / campaign_id / "save"
-    if save_root.is_symlink() or not save_root.is_dir():
-        raise ValueError("canonical campaign save directory is missing or unsafe")
-    files: list[Path] = []
-    for path in save_root.rglob("*"):
-        if path.is_symlink():
-            raise ValueError("canonical campaign snapshot contains a symlink")
-        if path.is_file():
-            files.append(path)
-    if not files:
-        raise ValueError("canonical campaign snapshot has no mutable state files")
-    digest = hashlib.sha256()
-    for path in sorted(files, key=lambda item: item.relative_to(save_root).as_posix()):
-        relative = path.relative_to(save_root).as_posix().encode("utf-8")
-        payload = path.read_bytes()
-        digest.update(len(relative).to_bytes(8, "big"))
-        digest.update(relative)
-        digest.update(len(payload).to_bytes(8, "big"))
-        digest.update(payload)
-    return digest.hexdigest()
+    investigator_dir = _single_directory(
+        workspace / ".coc" / "investigators", "investigators"
+    )
+    manifest = _continuity_snapshot_manifest(
+        workspace, campaign_id, investigator_dir.name
+    )
+    return hashlib.sha256(_canonical_json_bytes(manifest)).hexdigest()
 
 
 def _continuity_guard(workspace: Path) -> dict[str, Any]:
@@ -626,9 +729,10 @@ def run_live_segment(
     )
     campaign_id = _safe_id(campaign_dir.name, "campaign_id")
     investigator_id = _safe_id(investigator_dir.name, "investigator_id")
-    entry_snapshot = _canonical_campaign_snapshot_sha256(
-        workspace_path, campaign_id
+    entry_manifest = _continuity_snapshot_manifest(
+        workspace_path, campaign_id, investigator_id
     )
+    entry_snapshot = hashlib.sha256(_canonical_json_bytes(entry_manifest)).hexdigest()
     guard = _continuity_guard(workspace_path)
     if start_turn > 1:
         expected_snapshot = guard.get("expected_snapshot_sha256")
@@ -686,12 +790,51 @@ def run_live_segment(
             "canonical live match did not produce the exact requested turn range: "
             f"expected={expected_turns} observed={accepted_turns}"
         )
-    final_snapshot = _canonical_campaign_snapshot_sha256(
-        workspace_path, campaign_id
+    final_manifest = _continuity_snapshot_manifest(
+        workspace_path, campaign_id, investigator_id
+    )
+    final_snapshot = hashlib.sha256(_canonical_json_bytes(final_manifest)).hexdigest()
+    entry_manifest_path = _write_json_atomic(
+        destination / "checkpoint-entry-manifest.json", entry_manifest
+    )
+    final_manifest_path = _write_json_atomic(
+        destination / "checkpoint-final-manifest.json", final_manifest
     )
     evidence = _object(result.get("evidence") or {}, "live_match segment evidence")
+    metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+    runner_invocation_id = metadata.get("run_id")
+    if not isinstance(runner_invocation_id, str) or not runner_invocation_id.strip():
+        runner_invocation_id = None
+    metadata_path = _write_json_atomic(
+        destination / "continuity-run-metadata.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "source": "live_match.result.metadata",
+            "metadata": metadata,
+        },
+    )
     invocation_path = destination / "runner-invocations.jsonl"
     invocation_rows = _read_jsonl(invocation_path)
+    if runner_invocation_id is not None:
+        for row in invocation_rows:
+            row["segment_invocation_id"] = runner_invocation_id
+        _write_jsonl_atomic(invocation_path, invocation_rows)
+        artifacts = evidence.get("artifacts")
+        if isinstance(artifacts, dict) and isinstance(
+            artifacts.get("invocation_ledger"), dict
+        ):
+            artifacts["invocation_ledger"]["sha256"] = _sha256_file(invocation_path)
+        evidence["continuity_invocation"] = {
+            "runner_invocation_id": runner_invocation_id,
+            "source_artifact": "continuity-run-metadata.json",
+            "source_json_pointer": "/metadata/run_id",
+        }
+        if (destination / "evidence.json").is_file():
+            evidence = live_match.playtest_evidence.validate_evidence_receipt(
+                destination, evidence
+            )
+        _write_json_atomic(destination / "evidence.json", evidence)
     findings = _attestation_findings(
         evidence,
         roles["player"],
@@ -701,14 +844,37 @@ def run_live_segment(
         player_runner,
         narrator_runner,
     )
+    if runner_invocation_id is None:
+        findings.append("runner_invocation_id_missing:metadata.run_id")
     attested = (
         evidence.get("eligible_as_gameplay_evidence") is True and not findings
     )
-    metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+    invocation_descriptor = {
+        "artifact": invocation_path.relative_to(destination).as_posix(),
+        "sha256": _sha256_file(invocation_path) if invocation_path.is_file() else None,
+    }
+    entry_descriptor = {
+        "artifact": entry_manifest_path.relative_to(destination).as_posix(),
+        "sha256": _sha256_file(entry_manifest_path),
+    }
+    final_descriptor = {
+        "artifact": final_manifest_path.relative_to(destination).as_posix(),
+        "sha256": _sha256_file(final_manifest_path),
+    }
+    metadata_descriptor = {
+        "artifact": metadata_path.relative_to(destination).as_posix(),
+        "sha256": _sha256_file(metadata_path),
+    }
+    resume_descriptor = final_descriptor if start_turn == 1 else entry_descriptor
     segment = {
         "schema_version": 1,
         "eval_spec": "eval-spec-v1",
-        "runner_invocation_id": str(metadata.get("run_id") or destination.name),
+        "runner_invocation_id": runner_invocation_id,
+        "runner_invocation_source": {
+            "kind": "live_match_metadata",
+            "artifact": metadata_descriptor,
+            "json_pointer": "/metadata/run_id",
+        },
         "logical_session_id": guard.get("session_id"),
         "accepted_turns": accepted_turns,
         "snapshot_sha256": entry_snapshot if start_turn > 1 else final_snapshot,
@@ -724,8 +890,11 @@ def run_live_segment(
         "evidence_class": "external",
         "secret_audit_passed": attested,
         "artifacts": {
-            "invocation_ledger": "runner-invocations.jsonl",
-            "evidence": "evidence.json",
+            "invocation_ledger": invocation_descriptor,
+            "checkpoint_entry": entry_descriptor,
+            "checkpoint_final": final_descriptor,
+            "checkpoint_resume": resume_descriptor,
+            "run_metadata": metadata_descriptor,
         },
     }
     _write_json_atomic(destination / "continuity-segment.json", segment)
