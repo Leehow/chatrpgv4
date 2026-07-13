@@ -2227,6 +2227,62 @@ def test_validate_chapter_transition_complete_fixture_passes(tmp_path: Path):
     assert result["gameplay_evidence"] is False
 
 
+def _load_pipeline():
+    path = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_pipeline.py"
+    scripts = str(path.parent)
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    spec = importlib.util.spec_from_file_location(
+        "coc_eval_pipeline_longrun_test", path
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["coc_eval_pipeline_longrun_test"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_release_chapter_contradictory_evidence_fails_through_gates(tmp_path: Path):
+    pipeline = _load_pipeline()
+    run_dir = tmp_path / "chapter-bad"
+    evidence = _complete_chapter_evidence(omit_sidecar="reveal-contracts.json")
+    _write_json(run_dir / "chapter-transition-evidence.json", evidence)
+    result = pipeline.run_release_external_gates(
+        root=REPO,
+        output=tmp_path / "out",
+        chapter_run=run_dir,
+        holdout_bundle=None,
+        calibration_reviews=None,
+        judge_requests=[],
+    )
+    assert result["lanes"]["chapter_transition"]["status"] == "FAIL"
+    assert result["status"] == "FAIL"
+    assert "chapter_run" not in set(result.get("missing") or [])
+
+
+def test_release_chapter_valid_fixture_passes_lane_without_gameplay_claim(
+    tmp_path: Path,
+):
+    pipeline = _load_pipeline()
+    run_dir = tmp_path / "chapter-ok"
+    evidence = _complete_chapter_evidence()
+    _write_json(run_dir / "chapter-transition-evidence.json", evidence)
+    result = pipeline.run_release_external_gates(
+        root=REPO,
+        output=tmp_path / "out",
+        chapter_run=run_dir,
+        holdout_bundle=None,
+        calibration_reviews=None,
+        judge_requests=[],
+    )
+    lane = result["lanes"]["chapter_transition"]
+    assert lane["status"] == "PASS"
+    assert lane.get("evidence_class") == "fixture"
+    assert lane.get("gameplay_evidence") is False
+    assert result["status"] == "NOT_RUN"
+    assert set(result["missing"]) == {"holdout_bundle", "human_calibration"}
+
+
 def test_case_registry_registers_longrun_fixture_self_tests():
     registry = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
     by_id = {case["case_id"]: case for case in registry["cases"]}

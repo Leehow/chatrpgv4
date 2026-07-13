@@ -1317,13 +1317,48 @@ def test_matrix_limit_is_diagnostic_and_prevents_official_pass(
     assert result["diagnostic"]["matrix_limit"] == 1
 
 
-def test_release_remains_not_run_for_task_six_capabilities(tmp_path: Path):
+def test_release_missing_external_inputs_writes_review_bundle_and_not_run(tmp_path: Path):
+    pipeline = _load_pipeline()
+    blind_request = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "pair_id": "pair-1",
+        "labels": ["A", "B"],
+        "sides": {"A": [{"turn_id": "t1", "text": "A"}], "B": [{"turn_id": "t1", "text": "B"}]},
+        "turn_ids": ["t1"],
+        "rubric_id": "agency-and-fun",
+        "rubric_version": 1,
+        "request_sha256": "a" * 64,
+    }
+    result = pipeline.run_release_external_gates(
+        root=REPO,
+        output=tmp_path,
+        chapter_run=None,
+        holdout_bundle=None,
+        calibration_reviews=None,
+        judge_requests=[blind_request],
+    )
+    assert result["status"] == "NOT_RUN"
+    assert set(result["missing"]) == {"chapter_run", "holdout_bundle", "human_calibration"}
+    bundle = json.loads((tmp_path / "artifacts/human-review-bundle.json").read_text())
+    assert bundle["reviews"] == []
+    assert bundle["evidence_kind"] == "human_review_requested"
+    assert bundle["schema_version"] == 1
+    assert bundle["eval_spec"] == "eval-spec-v1"
+    assert bundle["required_reviewer_count"] == 2
+    assert len(bundle["blind_requests"]) == 1
+    request = bundle["blind_requests"][0]
+    assert "baseline" not in request
+    assert "candidate" not in request
+    assert "baseline_label" not in request
+    assert "candidate_label" not in request
+
+
+def test_release_remains_not_run_for_external_evidence_until_supplied(tmp_path: Path):
     cli = _load_cli()
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     implemented = set(manifest["implemented_capabilities"])
-    required = set(manifest["suites"]["release"]["required_capabilities"])
-    missing = sorted(required - implemented)
-    assert {"chapter_transition", "human_calibration"} <= set(missing)
+    assert {"chapter_transition", "human_calibration"} <= implemented
     result = cli.run_suite(
         root=REPO,
         suite="release",
@@ -1331,8 +1366,247 @@ def test_release_remains_not_run_for_task_six_capabilities(tmp_path: Path):
         host_id="local",
     )
     assert result["status"] == "NOT_RUN"
-    assert result.get("missing_capabilities") == missing
-    assert "reason" in result
+    assert result.get("missing_capabilities") in (None, [])
+    assert set(result["missing"]) == {
+        "chapter_run",
+        "holdout_bundle",
+        "human_calibration",
+    }
+    bundle_path = tmp_path / "release" / "artifacts" / "human-review-bundle.json"
+    assert bundle_path.is_file()
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    assert bundle["reviews"] == []
+    assert bundle["evidence_kind"] == "human_review_requested"
+
+
+def test_release_contradictory_external_evidence_fails(tmp_path: Path):
+    pipeline = _load_pipeline()
+    chapter_run = tmp_path / "bad-chapter"
+    chapter_run.mkdir()
+    _write_json(
+        chapter_run / "chapter-transition-evidence.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "evidence_class": "fixture",
+            "eligible": True,
+            "source_module_id": "wrong-module",
+            "chapter_switch_event": {
+                "event_id": "evt-1",
+                "event_type": "chapter_switch",
+            },
+            "pre_active_scenario_id": "wrong-pre",
+            "post_active_scenario_id": "wrong-post",
+            "preserved_epistemic_sidecars": [],
+            "investigator_state_continuity": {"preserved": False},
+            "campaign_state_continuity": {"preserved": False},
+            "item_continuity": {"preserved": False},
+            "discovered_clues": [],
+            "relationships": [],
+            "secret_audit": {"status": "PASS", "references": []},
+        },
+    )
+    body = '{"ok":false}\n'
+    digest = _sha256_text('{"ok":true}\n')
+    holdout_manifest = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "manifest_version": "release-fail",
+        "holdouts": [
+            {
+                "holdout_id": "holdout-fail-01",
+                "suite": "release",
+                "artifact_kind": "blind_pair_bundle",
+                "relative_path": "holdout-fail-01/bundle.json",
+                "sha256": digest,
+            }
+        ],
+    }
+    holdout_bundle = tmp_path / "holdouts"
+    artifact = holdout_bundle / "holdout-fail-01" / "bundle.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(body, encoding="utf-8")
+    reviews = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "rubric_id": "agency-and-fun",
+        "rubric_version": "1",
+        "reviews": [
+            {
+                "item_id": "item-1",
+                "reviewer_id": "r1",
+                "rubric_id": "agency-and-fun",
+                "rubric_version": "1",
+                "decision": "A",
+                "evidence_spans": [{"turn_id": "t1", "span_id": "s1"}],
+                "reviewed_at": "2026-07-13T00:00:00Z",
+                "request_sha256": "b" * 64,
+                "artifact_sha256": "c" * 64,
+                "baseline": "leaked",
+            }
+        ],
+    }
+    reviews_path = tmp_path / "bad-reviews.json"
+    _write_json(reviews_path, reviews)
+    manifest_path = tmp_path / "holdout-manifest.json"
+    _write_json(manifest_path, holdout_manifest)
+
+    result = pipeline.run_release_external_gates(
+        root=REPO,
+        output=tmp_path / "out",
+        chapter_run=chapter_run,
+        holdout_bundle=holdout_bundle,
+        holdout_manifest=manifest_path,
+        calibration_reviews=reviews_path,
+        judge_requests=[],
+    )
+    assert result["status"] == "FAIL"
+    assert result.get("missing") in (None, [])
+    lanes = result["lanes"]
+    assert lanes["chapter_transition"]["status"] == "FAIL"
+    assert lanes["holdout"]["status"] == "FAIL"
+    assert lanes["human_calibration"]["status"] == "FAIL"
+
+
+def test_release_valid_fixture_evidence_passes_without_gameplay_claim(tmp_path: Path):
+    pipeline = _load_pipeline()
+    chapter_path = REPO / "evaluation" / "spec" / "v1" / "cases" / "chapter-transition.json"
+    requirements = json.loads(chapter_path.read_text(encoding="utf-8"))["lanes"][0][
+        "requirements"
+    ]
+    chapter_run = tmp_path / "chapter-ok"
+    chapter_run.mkdir()
+    evidence = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "lane_id": "masks-peru-to-america",
+        "evidence_class": "fixture",
+        "eligible": True,
+        "source_module_id": requirements["source_module_id"],
+        "chapter_switch_event": {
+            "event_id": "evt-chapter-switch-1",
+            "event_type": "chapter_switch",
+            "from_scenario_id": requirements["pre_active_scenario_id"],
+            "to_scenario_id": requirements["post_active_scenario_id"],
+        },
+        "pre_active_scenario_id": requirements["pre_active_scenario_id"],
+        "post_active_scenario_id": requirements["post_active_scenario_id"],
+        "preserved_epistemic_sidecars": list(
+            requirements["preserved_epistemic_sidecars"]
+        ),
+        "investigator_state_continuity": {
+            "investigator_id": "inv-1",
+            "state_sha256_before": _sha256_text("inv-before"),
+            "state_sha256_after": _sha256_text("inv-after"),
+            "preserved": True,
+        },
+        "campaign_state_continuity": {
+            "campaign_id": "camp-1",
+            "state_sha256_before": _sha256_text("camp-before"),
+            "state_sha256_after": _sha256_text("camp-after"),
+            "preserved": True,
+        },
+        "discovered_clues": [{"clue_id": "clue-1", "retained": True}],
+        "relationships": [{"npc_id": "npc-1", "retained": True}],
+        "item_continuity": {
+            "items": [{"item_id": "item-1", "retained": True}],
+            "preserved": True,
+        },
+        "code_revision_bridges_checkpoints": False,
+        "secret_audit": {
+            "status": "PASS",
+            "references": [
+                {
+                    "artifact": "artifacts/secret-audit.json",
+                    "finding_id": "secret-audit-none",
+                }
+            ],
+        },
+    }
+    _write_json(chapter_run / "chapter-transition-evidence.json", evidence)
+    assert evidence["evidence_class"] == "fixture"
+
+    body = '{"ok":true}\n'
+    digest = _sha256_text(body)
+    holdout_manifest = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "manifest_version": "release-pass",
+        "holdouts": [
+            {
+                "holdout_id": "holdout-pass-01",
+                "suite": "release",
+                "artifact_kind": "blind_pair_bundle",
+                "relative_path": "holdout-pass-01/bundle.json",
+                "sha256": digest,
+            }
+        ],
+    }
+    holdout_bundle = tmp_path / "holdouts"
+    artifact = holdout_bundle / "holdout-pass-01" / "bundle.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(body, encoding="utf-8")
+    manifest_path = tmp_path / "holdout-manifest.json"
+    _write_json(manifest_path, holdout_manifest)
+
+    reviews = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "rubric_id": "agency-and-fun",
+        "rubric_version": "1",
+        "reviews": [
+            {
+                "item_id": "item-1",
+                "reviewer_id": "r1",
+                "rubric_id": "agency-and-fun",
+                "rubric_version": "1",
+                "decision": "A",
+                "evidence_spans": [{"turn_id": "t1", "span_id": "s1"}],
+                "reviewed_at": "2026-07-13T00:00:00Z",
+                "request_sha256": "d" * 64,
+                "artifact_sha256": "e" * 64,
+            },
+            {
+                "item_id": "item-1",
+                "reviewer_id": "r2",
+                "rubric_id": "agency-and-fun",
+                "rubric_version": "1",
+                "decision": "A",
+                "evidence_spans": [{"turn_id": "t1", "span_id": "s1"}],
+                "reviewed_at": "2026-07-13T00:00:01Z",
+                "request_sha256": "d" * 64,
+                "artifact_sha256": "e" * 64,
+            },
+        ],
+    }
+    reviews_path = tmp_path / "reviews.json"
+    _write_json(reviews_path, reviews)
+
+    result = pipeline.run_release_external_gates(
+        root=REPO,
+        output=tmp_path / "out",
+        chapter_run=chapter_run,
+        holdout_bundle=holdout_bundle,
+        holdout_manifest=manifest_path,
+        calibration_reviews=reviews_path,
+        judge_requests=[],
+    )
+    assert result["status"] == "PASS"
+    assert result.get("missing") in (None, [])
+    chapter_lane = result["lanes"]["chapter_transition"]
+    assert chapter_lane["status"] == "PASS"
+    assert chapter_lane.get("evidence_class") == "fixture"
+    assert chapter_lane.get("gameplay_evidence") is False
+    assert result["lanes"]["holdout"]["status"] == "PASS"
+    assert result["lanes"]["human_calibration"]["status"] == "PASS"
+    assert result["lanes"]["human_calibration"].get("evidence_kind") != "human_completed"
+    bundle = json.loads(
+        (tmp_path / "out" / "artifacts" / "human-review-bundle.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert bundle["reviews"] == []
+    assert bundle["evidence_kind"] == "human_review_requested"
 
 
 def test_completion_audit_lists_eval_contract_gaps_not_only_historical_profiles():

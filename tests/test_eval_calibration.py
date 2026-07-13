@@ -11,6 +11,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_calibration.py"
 CLI_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval.py"
+PIPELINE_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_pipeline.py"
 SCHEMA_PATH = REPO / "evaluation" / "spec" / "v1" / "calibration-schema.json"
 HOLDOUT_MANIFEST_PATH = REPO / "evaluation" / "spec" / "v1" / "holdout-manifest.json"
 MANIFEST_PATH = REPO / "evaluation" / "spec" / "v1" / "benchmark-manifest.json"
@@ -38,6 +39,21 @@ def _load_cli():
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules["coc_eval_cli_calibration_test"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_pipeline():
+    assert PIPELINE_PATH.is_file(), f"missing pipeline module: {PIPELINE_PATH}"
+    scripts = str(PIPELINE_PATH.parent)
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    spec = importlib.util.spec_from_file_location(
+        "coc_eval_pipeline_calibration_test", PIPELINE_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["coc_eval_pipeline_calibration_test"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -396,14 +412,87 @@ def test_validate_holdout_tampered_manifest_is_fail(tmp_path: Path):
     assert any(item["code"] == "holdout_manifest_inconsistent" for item in result["findings"])
 
 
-def test_human_inputs_stay_external_after_nightly_software_promotion():
+def test_human_inputs_stay_external_after_release_software_promotion():
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     implemented = set(manifest["implemented_capabilities"])
     assert {"ai_player_matrix", "semantic_judge", "long_memory"} <= implemented
-    assert "human_calibration" not in implemented
-    assert "chapter_transition" not in implemented
+    assert {"chapter_transition", "human_calibration"} <= implemented
     assert "human_calibration" in manifest["suites"]["release"]["required_capabilities"]
     assert "long_memory" in manifest["suites"]["nightly"]["required_capabilities"]
+    instructions = (
+        REPO
+        / "evaluation"
+        / "spec"
+        / "v1"
+        / "fixtures"
+        / "review"
+        / "review-instructions.md"
+    )
+    template = (
+        REPO
+        / "evaluation"
+        / "spec"
+        / "v1"
+        / "fixtures"
+        / "review"
+        / "review-template.json"
+    )
+    assert instructions.is_file()
+    text = instructions.read_text(encoding="utf-8")
+    assert "calibrate --reviews" in text
+    assert "model-generated" in text.lower() or "Model-generated" in text
+    assert "invalid" in text.lower()
+    assert template.is_file()
+    payload = json.loads(template.read_text(encoding="utf-8"))
+    assert payload["evidence_kind"] == "human_review_requested"
+    assert payload["reviews"] == []
+    assert payload["required_reviewer_count"] == 2
+
+
+def test_release_calibration_contradictory_reviews_fail_through_gates(tmp_path: Path):
+    pipeline = _load_pipeline()
+    reviews = _valid_reviews_doc(
+        [_valid_review(item_id="bad", reviewer_id="r1", extra={"baseline": "leaked"})]
+    )
+    reviews_path = tmp_path / "leaked.json"
+    _write_json(reviews_path, reviews)
+    result = pipeline.run_release_external_gates(
+        root=REPO,
+        output=tmp_path / "out",
+        chapter_run=None,
+        holdout_bundle=None,
+        calibration_reviews=reviews_path,
+        judge_requests=[],
+    )
+    # Missing chapter/holdout still NOT_RUN unless contradictory review evidence fails first.
+    assert result["lanes"]["human_calibration"]["status"] == "FAIL"
+    assert result["status"] == "FAIL"
+    assert "human_calibration" not in set(result.get("missing") or [])
+
+
+def test_release_calibration_valid_reviews_pass_lane_only(tmp_path: Path):
+    pipeline = _load_pipeline()
+    reviews = _valid_reviews_doc(
+        [
+            _valid_review(item_id="ok", reviewer_id="r1", decision="A"),
+            _valid_review(item_id="ok", reviewer_id="r2", decision="A"),
+        ]
+    )
+    reviews_path = tmp_path / "ok.json"
+    _write_json(reviews_path, reviews)
+    result = pipeline.run_release_external_gates(
+        root=REPO,
+        output=tmp_path / "out",
+        chapter_run=None,
+        holdout_bundle=None,
+        calibration_reviews=reviews_path,
+        judge_requests=[],
+    )
+    assert result["lanes"]["human_calibration"]["status"] == "PASS"
+    assert result["status"] == "NOT_RUN"
+    assert set(result["missing"]) == {"chapter_run", "holdout_bundle"}
+    # Software-validated fixture reviews never become claimed human evidence.
+    assert result["lanes"]["human_calibration"].get("evidence_kind") != "human_completed"
 
 
 def test_calibrate_and_holdouts_cli_wiring(tmp_path: Path):
