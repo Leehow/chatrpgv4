@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import selectors
 import signal
 import subprocess
 import tempfile
@@ -278,43 +279,71 @@ def _terminate_process_tree(proc: subprocess.Popen[str]) -> bool:
     return confirmed
 
 
-def _stream_text(value: str | bytes | None) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value
+def _drain_case_pipes(
+    proc: subprocess.Popen[bytes],
+    timeout: float | None,
+    stdout_sink: Any,
+    stderr_sink: Any,
+) -> tuple[bool, bool, bool]:
+    """Stream complete case output to files with constant process memory."""
+    selector = selectors.DefaultSelector()
+    for pipe, sink in ((proc.stdout, stdout_sink), (proc.stderr, stderr_sink)):
+        if pipe is None:
+            continue
+        os.set_blocking(pipe.fileno(), False)
+        selector.register(pipe, selectors.EVENT_READ, sink)
 
-
-def _bounded_timeout_drain(
-    proc: subprocess.Popen[str],
-    initial: subprocess.TimeoutExpired,
-) -> tuple[str, str, bool]:
-    """Drain timeout output without ever waiting indefinitely on inherited pipes."""
-    try:
-        stdout, stderr = proc.communicate(timeout=0.5)
-        return _stream_text(stdout), _stream_text(stderr), True
-    except subprocess.TimeoutExpired as exc:
-        stdout = _stream_text(
-            exc.stdout if exc.stdout is not None else initial.stdout
-        )
-        stderr = _stream_text(
-            exc.stderr if exc.stderr is not None else initial.stderr
-        )
-    except (OSError, ValueError):
-        stdout = _stream_text(initial.stdout)
-        stderr = _stream_text(initial.stderr)
-    for pipe in (proc.stdout, proc.stderr):
-        if pipe is not None:
-            try:
+    def drain_until(deadline: float | None, *, require_process_exit: bool) -> bool:
+        while True:
+            if not selector.get_map():
+                if not require_process_exit or proc.poll() is not None:
+                    return True
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+            else:
+                remaining = 0.05
+            if not selector.get_map():
+                time.sleep(min(0.01, remaining))
+                continue
+            events = selector.select(min(0.05, remaining))
+            for key, _ in events:
+                pipe = key.fileobj
+                try:
+                    chunk = os.read(pipe.fileno(), 64 * 1024)
+                except BlockingIOError:
+                    continue
+                if chunk:
+                    key.data.write(chunk)
+                    continue
+                selector.unregister(pipe)
                 pipe.close()
-            except OSError:
-                pass
+
+    deadline = None if timeout is None else time.monotonic() + timeout
+    timed_out = not drain_until(deadline, require_process_exit=True)
+    tree_terminated = True
+    output_drained = True
+    if timed_out:
+        tree_terminated = _terminate_process_tree(proc)
+        output_drained = drain_until(
+            time.monotonic() + 0.5, require_process_exit=False
+        )
+    for key in list(selector.get_map().values()):
+        try:
+            selector.unregister(key.fileobj)
+        except (KeyError, ValueError):
+            pass
+        try:
+            key.fileobj.close()
+        except OSError:
+            pass
+    selector.close()
     try:
         proc.wait(timeout=0.1)
     except (OSError, subprocess.TimeoutExpired):
         pass
-    return stdout, stderr, False
+    return timed_out, tree_terminated, output_drained
 
 
 def run_case(
@@ -392,41 +421,65 @@ def run_case(
         process_kwargs["start_new_session"] = True
     elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
         process_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    stdout_temporary: Path | None = None
+    stderr_temporary: Path | None = None
     try:
-        process = subprocess.Popen(
-            list(case.get("command") or []),
-            cwd=repo,
-            env=process_env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            **process_kwargs,
-        )
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            tree_terminated = _terminate_process_tree(process)
-            stdout, stderr, output_drained = _bounded_timeout_drain(process, exc)
-            returncode: int | None = None
-            status = "NOT_RUN"
-            reasons = ["execution_timeout"]
-            if not tree_terminated:
-                reasons.append("process_tree_termination_unconfirmed")
-            if not output_drained:
-                reasons.append("process_output_drain_timeout")
-        else:
-            returncode = process.returncode
-            status = "PASS" if returncode == 0 else "FAIL"
-            reasons = []
-    except OSError as exc:
-        returncode = None
-        stdout = ""
-        stderr = f"execution_error:{type(exc).__name__}:{exc}\n"
-        status = "NOT_RUN"
-        reasons = [f"execution_error:{type(exc).__name__}"]
+        with tempfile.NamedTemporaryFile(
+            "w+b", dir=case_dir, prefix=".stdout.", suffix=".tmp", delete=False
+        ) as stdout_sink, tempfile.NamedTemporaryFile(
+            "w+b", dir=case_dir, prefix=".stderr.", suffix=".tmp", delete=False
+        ) as stderr_sink:
+            stdout_temporary = Path(stdout_sink.name)
+            stderr_temporary = Path(stderr_sink.name)
+            try:
+                process = subprocess.Popen(
+                    list(case.get("command") or []),
+                    cwd=repo,
+                    env=process_env,
+                    text=False,
+                    bufsize=0,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    **process_kwargs,
+                )
+            except OSError as exc:
+                returncode = None
+                stderr_sink.write(
+                    f"execution_error:{type(exc).__name__}:{exc}\n".encode(
+                        "utf-8", errors="replace"
+                    )
+                )
+                status = "NOT_RUN"
+                reasons = [f"execution_error:{type(exc).__name__}"]
+            else:
+                timed_out, tree_terminated, output_drained = _drain_case_pipes(
+                    process, timeout, stdout_sink, stderr_sink
+                )
+                if timed_out:
+                    returncode = None
+                    status = "NOT_RUN"
+                    reasons = ["execution_timeout"]
+                    if not tree_terminated:
+                        reasons.append("process_tree_termination_unconfirmed")
+                    if not output_drained:
+                        reasons.append("process_output_drain_timeout")
+                else:
+                    returncode = process.returncode
+                    status = "PASS" if returncode == 0 else "FAIL"
+                    reasons = []
+            for sink in (stdout_sink, stderr_sink):
+                sink.flush()
+                os.fsync(sink.fileno())
+        os.replace(stdout_temporary, stdout_path)
+        stdout_temporary = None
+        os.replace(stderr_temporary, stderr_path)
+        stderr_temporary = None
+    finally:
+        if stdout_temporary is not None:
+            stdout_temporary.unlink(missing_ok=True)
+        if stderr_temporary is not None:
+            stderr_temporary.unlink(missing_ok=True)
     duration = round(time.perf_counter() - started, 6)
-    _write_text_atomic(stdout_path, stdout)
-    _write_text_atomic(stderr_path, stderr)
     stdout_relative = _relative_output(out, stdout_path)
     stderr_relative = _relative_output(out, stderr_path)
     result = {

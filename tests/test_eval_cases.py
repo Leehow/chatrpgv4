@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -325,52 +326,24 @@ def test_run_case_timeout_cleanup_and_pipe_drain_are_bounded(
 ):
     cases = cases_module()
 
-    class Pipe:
-        def __init__(self):
-            self.closed = False
-
-        def close(self):
-            self.closed = True
-
     class Process:
         pid = 4242
         returncode = 0
-
-        def __init__(self):
-            self.stdout = Pipe()
-            self.stderr = Pipe()
-            self.communicate_calls = 0
-
-        def communicate(self, timeout=None):
-            self.communicate_calls += 1
-            if self.communicate_calls == 1:
-                raise cases.subprocess.TimeoutExpired(
-                    ["fixture"], timeout, output="partial-out", stderr="partial-err"
-                )
-            raise cases.subprocess.TimeoutExpired(
-                ["fixture"], timeout, output="partial-out", stderr="partial-err"
-            )
-
-        def poll(self):
-            return 0
-
-        def wait(self, timeout=None):
-            return 0
-
-        def terminate(self):
-            raise AssertionError("tree owner must handle termination")
-
-        def kill(self):
-            raise AssertionError("tree owner must handle termination")
 
     process = Process()
     monkeypatch.setattr(cases.subprocess, "Popen", lambda *args, **kwargs: process)
     monkeypatch.setattr(
         cases, "_supports_process_tree_supervisor", lambda: True, raising=False
     )
-    monkeypatch.setattr(
-        cases, "_terminate_process_tree", lambda candidate: False
-    )
+
+    def timeout_drain(candidate, timeout, stdout_sink, stderr_sink):
+        assert candidate is process
+        assert timeout == 0.1
+        stdout_sink.write(b"partial-out")
+        stderr_sink.write(b"partial-err")
+        return True, False, False
+
+    monkeypatch.setattr(cases, "_drain_case_pipes", timeout_drain)
 
     result = cases.run_case(
         _case(
@@ -390,10 +363,59 @@ def test_run_case_timeout_cleanup_and_pipe_drain_are_bounded(
         "process_tree_termination_unconfirmed",
         "process_output_drain_timeout",
     ]
-    assert process.stdout.closed
-    assert process.stderr.closed
     assert (tmp_path / "out" / result["stdout_path"]).read_text() == "partial-out"
     assert (tmp_path / "out" / result["stderr_path"]).read_text() == "partial-err"
+
+
+def test_run_case_streams_pipes_to_artifacts_without_communicate(
+    tmp_path: Path, monkeypatch
+):
+    cases = cases_module()
+    stdout_read, stdout_write = os.pipe()
+    stderr_read, stderr_write = os.pipe()
+    os.write(stdout_write, b"streamed-out\n")
+    os.write(stderr_write, b"streamed-err\n")
+    os.close(stdout_write)
+    os.close(stderr_write)
+
+    class Process:
+        pid = 4545
+        returncode = 0
+
+        def __init__(self):
+            self.stdout = os.fdopen(stdout_read, "rb", buffering=0)
+            self.stderr = os.fdopen(stderr_read, "rb", buffering=0)
+
+        def communicate(self, timeout=None):
+            raise AssertionError("registered case output must not use communicate")
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    process = Process()
+    monkeypatch.setattr(cases.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        cases, "_supports_process_tree_supervisor", lambda: True, raising=False
+    )
+
+    result = cases.run_case(
+        _case(
+            kind="python_command",
+            command=["fixture"],
+            required_capabilities=[],
+        ),
+        root=tmp_path,
+        output=tmp_path / "out",
+        implemented_capabilities=set(),
+        timeout=1.0,
+    )
+
+    assert result["status"] == "PASS"
+    assert (tmp_path / "out" / result["stdout_path"]).read_text() == "streamed-out\n"
+    assert (tmp_path / "out" / result["stderr_path"]).read_text() == "streamed-err\n"
 
 
 def test_suite_status_fails_closed_for_required_hard_case():
