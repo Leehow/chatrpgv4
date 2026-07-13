@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,7 @@ REPO_ROOT = SCRIPT_DIR.parents[2]
 EVAL_SPEC = "eval-spec-v1"
 MATRIX_SUITES = frozenset({"nightly", "release"})
 ModelPreflight = Callable[[str, str], bool]
+_SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$")
 
 
 def _utc_now() -> str:
@@ -88,6 +90,12 @@ def _resolve_path(root: Path, value: str | Path | None) -> Path | None:
     if not path.is_absolute():
         path = root / path
     return path
+
+
+def _safe_identifier(value: Any, *, label: str) -> str:
+    if not isinstance(value, str) or not _SAFE_IDENTIFIER.fullmatch(value):
+        raise ValueError(f"{label} must be a safe identifier")
+    return value
 
 
 def _model_identity(value: Any, *, label: str) -> dict[str, str] | None:
@@ -200,7 +208,11 @@ def load_matrix_suite_config(
 
 
 def _cell_id(persona_id: str, seed: int, case_id: str) -> str:
-    return f"{persona_id}__seed-{seed}__{case_id}"
+    persona = _safe_identifier(persona_id, label="persona_id")
+    case = _safe_identifier(case_id, label="case_id")
+    return _safe_identifier(
+        f"{persona}__seed-{seed}__{case}", label="cell_id"
+    )
 
 
 def _collect_not_run_reasons(
@@ -320,6 +332,7 @@ def build_matrix_plan(
     cells: list[dict[str, Any]] = []
 
     for persona_id in suite_config["persona_ids"]:
+        persona_id = _safe_identifier(persona_id, label="persona_id")
         if persona_id not in personas:
             raise ValueError(f"unknown persona_id in matrix config: {persona_id}")
         persona = personas[persona_id]
@@ -333,6 +346,7 @@ def build_matrix_plan(
                 case_id = case.get("case_id")
                 if not isinstance(case_id, str) or not case_id:
                     raise ValueError("matrix case_id required")
+                case_id = _safe_identifier(case_id, label="case_id")
                 player_model = _model_identity(
                     case.get("player_model"), label="player_model"
                 )
@@ -511,6 +525,28 @@ def _invoke_fake_or_script_runner(
     return payload
 
 
+def _contained_cell_dir(output: Path, cell_id: str) -> Path:
+    safe_cell_id = _safe_identifier(cell_id, label="cell_id")
+    cells_path = output / "cells"
+    if cells_path.is_symlink():
+        raise ValueError("matrix cells directory must not be a symlink")
+    cells_path.mkdir(parents=True, exist_ok=True)
+    cells_root = cells_path.resolve()
+    try:
+        cells_root.relative_to(output.resolve())
+    except ValueError as exc:
+        raise ValueError("matrix cells directory escaped output") from exc
+    candidate = cells_root / safe_cell_id
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(cells_root)
+    except ValueError as exc:
+        raise ValueError("cell directory escaped matrix cells output") from exc
+    if candidate.is_symlink():
+        raise ValueError("matrix cell directory must not be a symlink")
+    return resolved
+
+
 def execute_matrix_plan(
     plan: dict[str, Any],
     *,
@@ -534,8 +570,10 @@ def execute_matrix_plan(
     for cell in plan.get("cells") or []:
         if not isinstance(cell, dict):
             raise ValueError("plan cell must be an object")
-        cell_id = str(cell["cell_id"])
-        cell_dir = out / "cells" / cell_id
+        cell_id = _safe_identifier(cell.get("cell_id"), label="cell_id")
+        _safe_identifier(cell.get("persona_id"), label="persona_id")
+        _safe_identifier(cell.get("case_id"), label="case_id")
+        cell_dir = _contained_cell_dir(out, cell_id)
         cell_dir.mkdir(parents=True, exist_ok=True)
         result = {
             "cell_id": cell_id,
@@ -595,6 +633,7 @@ def execute_matrix_plan(
             "player_request": player_request,
             "kp_request": kp_request,
             "prompt_hashes": cell.get("prompt_hashes"),
+            "prompt_sources": cell.get("prompt_sources"),
             "persona_profile_sha256": cell.get("persona_profile_sha256"),
         }
         input_path = cell_dir / "cell-input.json"

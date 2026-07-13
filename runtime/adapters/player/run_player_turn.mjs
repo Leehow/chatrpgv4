@@ -227,7 +227,7 @@ function formatPendingChoice(pending) {
   return String(pending);
 }
 
-function buildPromptText(request) {
+export function buildPromptText(request) {
   const playLanguage =
     (request.public_state && request.public_state.play_language) || "zh-Hans";
   const pendingText = formatPendingChoice(
@@ -236,8 +236,19 @@ function buildPromptText(request) {
       : request.public_state && request.public_state.pending_choice,
   );
 
-  const sections = [
-    `Play language for player_text: ${playLanguage}`,
+  const sections = [`Play language for player_text: ${playLanguage}`];
+
+  if (request.persona_id !== undefined) {
+    sections.push(
+      "",
+      "## Evaluation persona directives",
+      `persona_id: ${request.persona_id}`,
+      "Use these only as play-style constraints, never as facts about the scene:",
+      ...request.persona_prompt_directives.map((directive) => `- ${directive}`),
+    );
+  }
+
+  sections.push(
     "",
     "## Narration (verbatim)",
     String(request.narration ?? ""),
@@ -250,7 +261,7 @@ function buildPromptText(request) {
     "",
     "## Recent transcript",
     formatTranscript(request.transcript_tail),
-  ];
+  );
 
   if (pendingText) {
     sections.push(
@@ -439,6 +450,37 @@ export async function runPlayerTurn(request, serverState = null) {
   for (const key of required) {
     if (!(key in request)) {
       throw new Error(`request missing ${key}`);
+    }
+  }
+  const allowed = new Set([
+    ...required,
+    "persona_id",
+    "persona_prompt_directives",
+  ]);
+  const unsupported = Object.keys(request).filter((key) => !allowed.has(key));
+  if (unsupported.length) {
+    throw new Error(`request has unsupported fields: ${unsupported.sort().join(", ")}`);
+  }
+  const hasPersonaId = request.persona_id !== undefined;
+  const hasDirectives = request.persona_prompt_directives !== undefined;
+  if (hasPersonaId !== hasDirectives) {
+    throw new Error("persona_id and persona_prompt_directives must appear together");
+  }
+  if (hasPersonaId) {
+    if (
+      typeof request.persona_id !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(request.persona_id)
+    ) {
+      throw new Error("persona_id must be a safe identifier");
+    }
+    if (
+      !Array.isArray(request.persona_prompt_directives) ||
+      request.persona_prompt_directives.length === 0 ||
+      request.persona_prompt_directives.some(
+        (directive) => typeof directive !== "string" || !directive.trim(),
+      )
+    ) {
+      throw new Error("persona_prompt_directives must be a non-empty string list");
     }
   }
 

@@ -357,6 +357,43 @@ def test_scripted_match_runs_three_plus_turns_end_to_end(tmp_path):
     assert any(t.get("player_notes") for t in result["player_turns"])
 
 
+def test_player_request_routes_distinct_personas_without_keeper_fields(tmp_path):
+    workspace, campaign_id, _investigator_id = _build_workspace(
+        tmp_path, with_secrets=True
+    )
+    common = {
+        "narration": "雨水沿着门框滴落。",
+        "character_card": {"id": "inv1"},
+        "transcript_tail": [],
+    }
+    careful = match.build_player_request(
+        workspace,
+        campaign_id,
+        persona_id="careful_investigator",
+        persona_prompt_directives=[
+            "Prefer observation and corroboration before irreversible action."
+        ],
+        **common,
+    )
+    reckless = match.build_player_request(
+        workspace,
+        campaign_id,
+        persona_id="reckless_investigator",
+        persona_prompt_directives=["Act immediately on incomplete information."],
+        **common,
+    )
+
+    assert careful["persona_id"] == "careful_investigator"
+    assert reckless["persona_id"] == "reckless_investigator"
+    assert careful["persona_prompt_directives"] != reckless[
+        "persona_prompt_directives"
+    ]
+    assert careful != reckless
+    encoded = json.dumps([careful, reckless], ensure_ascii=False)
+    assert all(secret not in encoded for secret in SECRET_PROSE_FRAGMENTS)
+    assert "keeper_secret" not in encoded
+
+
 def test_metadata_honesty_live_false_is_not_gameplay_evidence(tmp_path):
     workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
     runner = tmp_path / "scripted_player"

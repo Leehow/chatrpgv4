@@ -8,6 +8,8 @@ import stat
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_matrix.py"
@@ -64,6 +66,91 @@ def _write(path: Path, text: str) -> Path:
 
 def _write_json(path: Path, payload: object) -> Path:
     return _write(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _write_attested_live_artifacts(
+    runner, run_dir: Path, *, include_runners: bool = True
+) -> dict:
+    player_model = {"provider": "coding-relay", "id": "gpt-5.6-luna"}
+    kp_model = {"provider": "zhipu-coding", "id": "glm-5.2"}
+    player_path = REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
+    narrator_path = REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
+    audit = runner.live_match.secret_audit.audit_secret_claims([], [], [])
+    rows = [
+        {
+            "schema_version": 1,
+            "role": "player",
+            "attempt": 1,
+            "transcript_turn": 1,
+            "runner_kind": "external_model_bridge",
+            "runner_identity": "coc-runtime-player-adapter@0.79.9",
+            "runner_path": str(player_path),
+            "runner_sha256": _sha256(player_path),
+            "model_identity": player_model,
+            "outcome": "external_success",
+            "response_mode": "tool",
+            "fallback_kind": None,
+        },
+        {
+            "schema_version": 1,
+            "role": "narrator",
+            "attempt": 1,
+            "transcript_turn": 1,
+            "runner_kind": "external_model_bridge",
+            "runner_identity": "coc-runtime-narrator-adapter@0.79.9",
+            "runner_path": str(narrator_path),
+            "runner_sha256": _sha256(narrator_path),
+            "model_identity": kp_model,
+            "outcome": "external_success",
+            "response_mode": "tool",
+            "fallback_kind": None,
+            "secret_audit": audit,
+        },
+    ]
+    ledger = run_dir / "runner-invocations.jsonl"
+    _write(
+        ledger,
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    )
+    evidence = {
+        "eligible_as_gameplay_evidence": True,
+        "evidence_reasons": [],
+        "artifacts": {
+            "invocation_ledger": {
+                "path": "runner-invocations.jsonl",
+                "sha256": _sha256(ledger),
+            }
+        },
+    }
+    if include_runners:
+        evidence["runners"] = {
+            "player": {
+                "kind": "external_model_bridge",
+                "identity": "coc-runtime-player-adapter@0.79.9",
+                "sha256": _sha256(player_path),
+                "model_identities": [player_model],
+            },
+            "narrator": {
+                "kind": "external_model_bridge",
+                "identity": "coc-runtime-narrator-adapter@0.79.9",
+                "sha256": _sha256(narrator_path),
+                "model_identities": [kp_model],
+            },
+        }
+    return evidence
+
+
+def _canonical_prompt_contract() -> dict:
+    sources = {
+        "player": "runtime/adapters/player/run_player_turn.mjs",
+        "kp": "runtime/adapters/narrator/run_narration.mjs",
+    }
+    return {
+        "prompt_sources": sources,
+        "prompt_hashes": {
+            role: _sha256(REPO / source) for role, source in sources.items()
+        },
+    }
 
 
 def _fake_runner_script(path: Path) -> Path:
@@ -175,6 +262,10 @@ def test_checked_in_matrix_case_is_ready_from_pi_credentials_not_env_keys():
     assert cell["kp_model"] == {"provider": "zhipu-coding", "id": "glm-5.2"}
     assert set(cell["prompt_hashes"]) == {"player", "kp"}
     assert all(len(value) == 64 for value in cell["prompt_hashes"].values())
+    assert cell["prompt_sources"] == {
+        "player": "runtime/adapters/player/run_player_turn.mjs",
+        "kp": "runtime/adapters/narrator/run_narration.mjs",
+    }
 
 
 def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeypatch):
@@ -191,7 +282,7 @@ def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeyp
             "run_dir": str(run_dir),
             "turns": [{"turn_number": 1, "narration": "门轴轻响。"}],
             "player_turns": [{"player_text": "我检查门锁。"}],
-            "evidence": {"eligible": True},
+            "evidence": _write_attested_live_artifacts(runner, run_dir),
             "metadata": {"runner_kind": "external_model_bridge"},
         }
 
@@ -214,6 +305,13 @@ def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeyp
         "initial_state": neutral_initial_state,
         "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
         "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+        "player_request": {
+            "persona_id": "careful_investigator",
+            "persona_prompt_directives": [
+                "Prefer observation before irreversible action."
+            ],
+        },
+        **_canonical_prompt_contract(),
     }
     cell_dir = tmp_path / "cell"
     result = runner.run_live_cell(cell_input, cell_dir, env={})
@@ -233,6 +331,10 @@ def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeyp
     assert observed["kwargs"]["max_turns"] == 1
     assert observed["kwargs"]["rng_seed"] == 3
     assert observed["kwargs"]["live"] is True
+    assert observed["kwargs"]["persona_id"] == "careful_investigator"
+    assert observed["kwargs"]["persona_prompt_directives"] == [
+        "Prefer observation before irreversible action."
+    ]
     assert observed["kwargs"]["player_runner"] == (
         REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
     )
@@ -261,9 +363,9 @@ def test_live_cell_runner_uses_canonical_nested_report_path(tmp_path, monkeypatc
         return {
             "run_dir": str(run_dir),
             "battle_report_path": str(report),
-            "turns": [],
-            "player_turns": [],
-            "evidence": {"eligible": True},
+            "turns": [{"turn_number": 1, "narration": "门轴轻响。"}],
+            "player_turns": [{"player_text": "我检查门锁。"}],
+            "evidence": _write_attested_live_artifacts(runner, run_dir),
             "metadata": {"runner_kind": "external_model_bridge"},
         }
 
@@ -284,6 +386,13 @@ def test_live_cell_runner_uses_canonical_nested_report_path(tmp_path, monkeypatc
         },
         "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
         "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+        "player_request": {
+            "persona_id": "careful_investigator",
+            "persona_prompt_directives": [
+                "Prefer observation before irreversible action."
+            ],
+        },
+        **_canonical_prompt_contract(),
     }
 
     result = runner.run_live_cell(cell_input, tmp_path / "cell", env={})
@@ -292,6 +401,249 @@ def test_live_cell_runner_uses_canonical_nested_report_path(tmp_path, monkeypatc
     assert (tmp_path / "cell" / "battle-report.md").read_text(
         encoding="utf-8"
     ) == "# nested fixture\n"
+
+
+def test_live_cell_rejects_compatibility_eligible_flag(tmp_path, monkeypatch):
+    runner = _load_live_cell()
+
+    def fake_canonical_match(*args, **kwargs):
+        run_dir = Path(kwargs["run_dir"])
+        run_dir.mkdir(parents=True)
+        (run_dir / "battle-report.md").write_text("# fixture\n", encoding="utf-8")
+        return {
+            "run_dir": str(run_dir),
+            "turns": [{"turn_number": 1, "narration": "门轴轻响。"}],
+            "player_turns": [{"player_text": "我检查门锁。"}],
+            "evidence": {"eligible": True},
+            "metadata": {"runner_kind": "external_model_bridge"},
+        }
+
+    monkeypatch.setattr(runner.live_match, "run_live_match", fake_canonical_match)
+    result = runner.run_live_cell(
+        {
+            "cell_id": "careful__seed-3__nightly",
+            "seed": 3,
+            "max_turns": 1,
+            "scenario": {"scene_id": "neutral-entry"},
+            "initial_state": {
+                "campaign_id": "eval-neutral",
+                "investigator_id": "inv1",
+                "character": {"schema_version": 1, "id": "inv1"},
+                "public_state": {"active_scene_id": "neutral-entry"},
+            },
+            "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+            "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+            "player_request": {
+                "persona_id": "careful_investigator",
+                "persona_prompt_directives": [
+                    "Prefer observation before irreversible action."
+                ],
+            },
+            **_canonical_prompt_contract(),
+        },
+        tmp_path / "cell",
+        env={},
+    )
+    assert result["status"] == "INELIGIBLE"
+    assert "canonical_evidence_eligibility_missing" in result["evidence_findings"]
+
+
+def test_live_cell_rejects_missing_runner_descriptors(tmp_path, monkeypatch):
+    runner = _load_live_cell()
+
+    def fake_canonical_match(*args, **kwargs):
+        run_dir = Path(kwargs["run_dir"])
+        run_dir.mkdir(parents=True)
+        (run_dir / "battle-report.md").write_text("# fixture\n", encoding="utf-8")
+        return {
+            "run_dir": str(run_dir),
+            "turns": [{"turn_number": 1, "narration": "门轴轻响。"}],
+            "player_turns": [{"player_text": "我检查门锁。"}],
+            "evidence": _write_attested_live_artifacts(
+                runner, run_dir, include_runners=False
+            ),
+            "metadata": {"runner_kind": "external_model_bridge"},
+        }
+
+    monkeypatch.setattr(runner.live_match, "run_live_match", fake_canonical_match)
+    result = runner.run_live_cell(
+        {
+            "cell_id": "careful__seed-3__nightly",
+            "seed": 3,
+            "max_turns": 1,
+            "scenario": {"scene_id": "neutral-entry"},
+            "initial_state": {
+                "campaign_id": "eval-neutral",
+                "investigator_id": "inv1",
+                "character": {"schema_version": 1, "id": "inv1"},
+                "public_state": {"active_scene_id": "neutral-entry"},
+            },
+            "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+            "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+            "player_request": {
+                "persona_id": "careful_investigator",
+                "persona_prompt_directives": [
+                    "Prefer observation before irreversible action."
+                ],
+            },
+            **_canonical_prompt_contract(),
+        },
+        tmp_path / "cell",
+        env={},
+    )
+    assert result["status"] == "INELIGIBLE"
+    assert "missing_runner_attestation:player" in result["evidence_findings"]
+    assert "missing_runner_attestation:narrator" in result["evidence_findings"]
+
+
+@pytest.mark.parametrize(
+    "corruption", ["missing_ledger", "player_model", "runner_hash", "narrator_audit"]
+)
+def test_live_cell_rejects_missing_or_contradictory_attestation(
+    tmp_path, monkeypatch, corruption
+):
+    runner = _load_live_cell()
+
+    def fake_canonical_match(*args, **kwargs):
+        run_dir = Path(kwargs["run_dir"])
+        run_dir.mkdir(parents=True)
+        (run_dir / "battle-report.md").write_text("# fixture\n", encoding="utf-8")
+        evidence = _write_attested_live_artifacts(runner, run_dir)
+        ledger = run_dir / "runner-invocations.jsonl"
+        rows = [json.loads(line) for line in ledger.read_text().splitlines() if line]
+        if corruption == "missing_ledger":
+            ledger.unlink()
+        elif corruption == "player_model":
+            rows[0]["model_identity"] = {"provider": "wrong", "id": "wrong"}
+        elif corruption == "runner_hash":
+            evidence["runners"]["player"]["sha256"] = "0" * 64
+        else:
+            rows[1]["secret_audit"] = {"passed": True}
+        if corruption in {"player_model", "narrator_audit"}:
+            _write(
+                ledger,
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+            )
+            evidence["artifacts"]["invocation_ledger"]["sha256"] = _sha256(ledger)
+        return {
+            "run_dir": str(run_dir),
+            "turns": [{"turn_number": 1, "narration": "门轴轻响。"}],
+            "player_turns": [{"player_text": "我检查门锁。"}],
+            "evidence": evidence,
+            "metadata": {"runner_kind": "external_model_bridge"},
+        }
+
+    monkeypatch.setattr(runner.live_match, "run_live_match", fake_canonical_match)
+    result = runner.run_live_cell(
+        {
+            "cell_id": "careful__seed-3__nightly",
+            "seed": 3,
+            "max_turns": 1,
+            "scenario": {"scene_id": "neutral-entry"},
+            "initial_state": {
+                "campaign_id": "eval-neutral",
+                "investigator_id": "inv1",
+                "character": {"schema_version": 1, "id": "inv1"},
+                "public_state": {"active_scene_id": "neutral-entry"},
+            },
+            "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+            "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+            "player_request": {
+                "persona_id": "careful_investigator",
+                "persona_prompt_directives": [
+                    "Prefer observation before irreversible action."
+                ],
+            },
+            **_canonical_prompt_contract(),
+        },
+        tmp_path / "cell",
+        env={},
+    )
+    assert result["status"] == "INELIGIBLE"
+    assert result["evidence_findings"]
+
+
+def test_live_cell_rejects_prompt_source_change_between_plan_and_execution(
+    tmp_path, monkeypatch
+):
+    runner = _load_live_cell()
+    repo = tmp_path / "repo"
+    sources = {
+        "player": "runtime/adapters/player/run_player_turn.mjs",
+        "kp": "runtime/adapters/narrator/run_narration.mjs",
+    }
+    for role, relative in sources.items():
+        _write(repo / relative, f"// {role} prompt v1\n")
+    planned = {role: _sha256(repo / relative) for role, relative in sources.items()}
+    _write(repo / sources["player"], "// player prompt changed after planning\n")
+    monkeypatch.setattr(runner, "REPO_ROOT", repo)
+    monkeypatch.setattr(
+        runner.live_match,
+        "run_live_match",
+        lambda *args, **kwargs: pytest.fail("live match must not run after hash drift"),
+    )
+    cell_input = {
+        "cell_id": "careful__seed-3__nightly",
+        "seed": 3,
+        "max_turns": 1,
+        "scenario": {"scene_id": "neutral-entry"},
+        "initial_state": {
+            "campaign_id": "eval-neutral",
+            "investigator_id": "inv1",
+            "character": {"schema_version": 1, "id": "inv1"},
+            "public_state": {"active_scene_id": "neutral-entry"},
+        },
+        "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+        "prompt_sources": sources,
+        "prompt_hashes": planned,
+    }
+    with pytest.raises(ValueError, match="prompt hash mismatch: player"):
+        runner.run_live_cell(cell_input, tmp_path / "cell", env={})
+
+
+@pytest.mark.parametrize("source_kind", ["missing", "outside"])
+def test_live_cell_rejects_missing_or_outside_prompt_source(
+    tmp_path, monkeypatch, source_kind
+):
+    runner = _load_live_cell()
+    repo = tmp_path / "repo"
+    player = _write(
+        repo / "runtime/adapters/player/run_player_turn.mjs", "// player\n"
+    )
+    narrator = _write(
+        repo / "runtime/adapters/narrator/run_narration.mjs", "// narrator\n"
+    )
+    sources = {
+        "player": (
+            "runtime/adapters/player/missing.mjs"
+            if source_kind == "missing"
+            else str(_write(tmp_path / "outside.mjs", "// outside\n"))
+        ),
+        "kp": "runtime/adapters/narrator/run_narration.mjs",
+    }
+    monkeypatch.setattr(runner, "REPO_ROOT", repo)
+    cell_input = {
+        "cell_id": "careful__seed-3__nightly",
+        "seed": 3,
+        "max_turns": 1,
+        "scenario": {"scene_id": "neutral-entry"},
+        "initial_state": {
+            "campaign_id": "eval-neutral",
+            "investigator_id": "inv1",
+            "character": {"schema_version": 1, "id": "inv1"},
+            "public_state": {"active_scene_id": "neutral-entry"},
+        },
+        "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+        "prompt_sources": sources,
+        "prompt_hashes": {"player": _sha256(player), "kp": _sha256(narrator)},
+    }
+    message = "missing prompt source: player" if source_kind == "missing" else (
+        "prompt source escaped repository: player"
+    )
+    with pytest.raises(ValueError, match=message):
+        runner.run_live_cell(cell_input, tmp_path / "cell", env={})
 
 
 def test_missing_prerequisites_mark_cell_not_run_with_reasons(tmp_path: Path):
@@ -331,6 +683,90 @@ def test_missing_prerequisites_mark_cell_not_run_with_reasons(tmp_path: Path):
     assert "missing_credentials:COC_EVAL_PLAYER_API_KEY" in reasons
 
 
+@pytest.mark.parametrize("unsafe_id", ["../nightly", "/tmp/nightly", "nested/case"])
+def test_matrix_plan_rejects_unsafe_case_id(tmp_path: Path, unsafe_id: str):
+    matrix = _load()
+    runner = _fake_runner_script(tmp_path / "fake_runner.py")
+    scenario = _write_json(tmp_path / "scenario.json", {"scene_id": "s1"})
+    state = _write_json(tmp_path / "state.json", {"public": True})
+    config = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "persona_ids": ["careful_investigator"],
+        "seeds": [3],
+        "cases": [
+            {
+                "case_id": unsafe_id,
+                "runner": "fake",
+                "runner_path": str(runner),
+                "scenario_fixture": str(scenario),
+                "initial_state_fixture": str(state),
+                "player_model": {"provider": "fixture", "id": "player-1"},
+                "kp_model": {"provider": "fixture", "id": "kp-1"},
+                "prompt_hashes": {"player": "a" * 64, "kp": "b" * 64},
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="case_id must be a safe identifier"):
+        matrix.build_matrix_plan(
+            root=REPO,
+            suite="nightly",
+            configuration=config,
+            credential_env={},
+        )
+
+
+def test_matrix_plan_rejects_unsafe_persona_id():
+    matrix = _load()
+    config = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "persona_ids": ["../careful_investigator"],
+        "seeds": [3],
+        "cases": [{"case_id": "nightly"}],
+    }
+    with pytest.raises(ValueError, match="persona_id must be a safe identifier"):
+        matrix.build_matrix_plan(
+            root=REPO,
+            suite="nightly",
+            configuration=config,
+            credential_env={},
+        )
+
+
+@pytest.mark.parametrize("attack", ["traversal", "absolute", "separator"])
+def test_execute_matrix_rejects_cell_directory_escape(tmp_path: Path, attack: str):
+    matrix = _load()
+    out = tmp_path / "matrix-out"
+    if attack == "traversal":
+        cell_id = "../escaped-cell"
+        escaped = out / "escaped-cell"
+    elif attack == "absolute":
+        escaped = tmp_path / "absolute-cell"
+        cell_id = str(escaped)
+    else:
+        cell_id = "nested/cell"
+        escaped = out / "cells" / "nested" / "cell"
+    plan = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "suite": "nightly",
+        "cells": [
+            {
+                "cell_id": cell_id,
+                "persona_id": "careful_investigator",
+                "case_id": "nightly",
+                "seed": 3,
+                "status": "NOT_RUN",
+                "not_run_reasons": ["fixture"],
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="cell_id must be a safe identifier"):
+        matrix.execute_matrix_plan(plan, root=REPO, output=out)
+    assert not (escaped / "run-manifest.json").exists()
+
+
 def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(tmp_path: Path):
     matrix = _load()
     runner = _fake_runner_script(tmp_path / "fake_runner.py")
@@ -350,7 +786,7 @@ def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(tmp_path: Path):
                 "initial_state_fixture": str(state),
                 "player_model": {"provider": "fixture", "id": "player-1"},
                 "kp_model": {"provider": "fixture", "id": "kp-1"},
-                "prompt_hashes": {"player": "c" * 64, "kp": "d" * 64},
+                "prompt_sources": {"player": str(runner), "kp": str(runner)},
                 "judge": {"enabled": True, "rubric_id": "agency-and-fun"},
             }
         ],
@@ -372,6 +808,11 @@ def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(tmp_path: Path):
     cell_dir = out / "cells" / results["cells"][0]["cell_id"]
     assert (cell_dir / "run-manifest.json").is_file()
     assert (cell_dir / "judge-request.json").is_file()
+    cell_input = json.loads((cell_dir / "cell-input.json").read_text(encoding="utf-8"))
+    assert cell_input["prompt_sources"] == {
+        "player": str(runner),
+        "kp": str(runner),
+    }
     plan_hash = results["artifact_hashes"]["matrix-plan.json"]
     assert plan_hash == _sha256(out / "matrix-plan.json")
 

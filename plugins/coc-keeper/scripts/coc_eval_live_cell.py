@@ -341,6 +341,38 @@ def _identity(value: Any, label: str) -> dict[str, str]:
     return {"provider": provider, "id": model_id}
 
 
+def _validated_prompt_sources(
+    cell: dict[str, Any],
+) -> tuple[dict[str, Path], dict[str, str]]:
+    sources = _object(cell.get("prompt_sources"), "prompt_sources")
+    expected_hashes = _object(cell.get("prompt_hashes"), "prompt_hashes")
+    if set(sources) != {"player", "kp"} or set(expected_hashes) != {"player", "kp"}:
+        raise ValueError("prompt_sources and prompt_hashes require exactly player and kp")
+    root = REPO_ROOT.resolve()
+    resolved_sources: dict[str, Path] = {}
+    observed_hashes: dict[str, str] = {}
+    for role in ("player", "kp"):
+        raw = sources[role]
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError(f"missing prompt source: {role}")
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        resolved = candidate.resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"prompt source escaped repository: {role}") from exc
+        if not resolved.is_file():
+            raise ValueError(f"missing prompt source: {role}")
+        observed = _sha256_file(resolved)
+        if expected_hashes.get(role) != observed:
+            raise ValueError(f"prompt hash mismatch: {role}")
+        resolved_sources[role] = resolved
+        observed_hashes[role] = observed
+    return resolved_sources, observed_hashes
+
+
 def _normalized_transcript(
     result: dict[str, Any], source: Path
 ) -> list[dict[str, Any]]:
@@ -418,28 +450,69 @@ def _attestation_findings(
     player_model: dict[str, str],
     kp_model: dict[str, str],
     invocation_rows: list[dict[str, Any]],
+    invocation_path: Path,
+    player_runner: Path,
+    narrator_runner: Path,
 ) -> list[str]:
     findings: list[str] = []
+    if evidence.get("eligible_as_gameplay_evidence") is not True:
+        findings.append("canonical_evidence_eligibility_missing")
+
+    ledger_artifact = (evidence.get("artifacts") or {}).get("invocation_ledger")
+    if not invocation_path.is_file():
+        findings.append("invocation_ledger_missing")
+    elif not isinstance(ledger_artifact, dict):
+        findings.append("invocation_ledger_attestation_missing")
+    elif (
+        ledger_artifact.get("path") != "runner-invocations.jsonl"
+        or ledger_artifact.get("sha256") != _sha256_file(invocation_path)
+    ):
+        findings.append("invocation_ledger_attestation_mismatch")
+
     runners = evidence.get("runners")
-    if isinstance(runners, dict):
-        for role, declared in (("player", player_model), ("narrator", kp_model)):
-            descriptor = runners.get(role)
-            if not isinstance(descriptor, dict):
-                findings.append(f"missing_runner_attestation:{role}")
-                continue
-            if descriptor.get("kind") != "external_model_bridge":
-                findings.append(f"runner_attestation_mismatch:{role}")
-            observed = descriptor.get("model_identities")
-            if not isinstance(observed, list) or declared not in observed:
-                findings.append(f"model_identity_mismatch:{role}")
-    for row in invocation_rows:
-        if row.get("role") != "narrator":
+    if not isinstance(runners, dict):
+        runners = {}
+    for role, declared, runner_path in (
+        ("player", player_model, player_runner),
+        ("narrator", kp_model, narrator_runner),
+    ):
+        expected_hash = _sha256_file(runner_path)
+        descriptor = runners.get(role)
+        if not isinstance(descriptor, dict):
+            findings.append(f"missing_runner_attestation:{role}")
             continue
-        if row.get("fallback_kind") == "secret_audit":
-            findings.append("narrator_secret_audit_failed")
-        if row.get("outcome") == "external_success":
+        if (
+            descriptor.get("kind") != "external_model_bridge"
+            or not isinstance(descriptor.get("identity"), str)
+            or not descriptor["identity"].strip()
+            or descriptor.get("sha256") != expected_hash
+        ):
+            findings.append(f"runner_attestation_mismatch:{role}")
+        if descriptor.get("model_identities") != [declared]:
+            findings.append(f"model_identity_mismatch:{role}")
+
+        role_rows = [row for row in invocation_rows if row.get("role") == role]
+        if not role_rows:
+            findings.append(f"invocation_ledger_role_missing:{role}")
+            continue
+        for row in role_rows:
+            if (
+                row.get("runner_kind") != "external_model_bridge"
+                or row.get("runner_identity") != descriptor.get("identity")
+                or row.get("runner_sha256") != expected_hash
+                or Path(str(row.get("runner_path") or "")).resolve()
+                != runner_path.resolve()
+            ):
+                findings.append(f"invocation_runner_mismatch:{role}")
+            if row.get("outcome") != "external_success":
+                findings.append(f"invocation_outcome_mismatch:{role}")
+            if row.get("model_identity") != declared:
+                findings.append(f"invocation_model_identity_mismatch:{role}")
+            if role != "narrator":
+                continue
             receipt = row.get("secret_audit")
-            if not isinstance(receipt, dict) or receipt.get("passed") is not True:
+            validation = live_match.secret_audit.validate_audit_receipt(receipt)
+            if not validation.get("valid") or not validation.get("passed"):
                 findings.append("narrator_secret_audit_missing")
     return sorted(set(findings))
 
@@ -454,6 +527,20 @@ def run_live_cell(
     cell_id = _safe_id(cell.get("cell_id"), "cell_id")
     player_model = _identity(cell.get("player_model"), "player_model")
     kp_model = _identity(cell.get("kp_model"), "kp_model")
+    prompt_sources, prompt_hashes = _validated_prompt_sources(cell)
+    player_request = _object(cell.get("player_request"), "player_request")
+    persona_id = _safe_id(player_request.get("persona_id"), "persona_id")
+    persona_prompt_directives = player_request.get("persona_prompt_directives")
+    if (
+        not isinstance(persona_prompt_directives, list)
+        or not persona_prompt_directives
+        or any(
+            not isinstance(item, str) or not item.strip()
+            for item in persona_prompt_directives
+        )
+    ):
+        raise ValueError("persona_prompt_directives must be a non-empty string list")
+    persona_prompt_directives = list(persona_prompt_directives)
     seed = cell.get("seed")
     max_turns = cell.get("max_turns")
     if isinstance(seed, bool) or not isinstance(seed, int):
@@ -469,6 +556,8 @@ def run_live_cell(
         destination / "workspace",
     )
     playtest_dir = destination / "playtest"
+    player_runner = prompt_sources["player"]
+    narrator_runner = prompt_sources["kp"]
     role_env = dict(env)
     role_env.update(
         {
@@ -483,21 +572,15 @@ def run_live_cell(
             workspace,
             campaign_id,
             investigator_id,
-            player_runner=REPO_ROOT
-            / "runtime"
-            / "adapters"
-            / "player"
-            / "run_player_turn.mjs",
-            narrator_runner=REPO_ROOT
-            / "runtime"
-            / "adapters"
-            / "narrator"
-            / "run_narration.mjs",
+            player_runner=player_runner,
+            narrator_runner=narrator_runner,
             max_turns=max_turns,
             rng_seed=seed,
             live=True,
             run_dir=playtest_dir,
             evidence_provenance={"eval_spec": "eval-spec-v1", "cell_id": cell_id},
+            persona_id=persona_id,
+            persona_prompt_directives=persona_prompt_directives,
         )
     result = _object(result, "live_match result")
 
@@ -531,10 +614,14 @@ def run_live_cell(
     evidence = _object(result.get("evidence") or {}, "live_match evidence")
     _write_json_atomic(destination / "evidence.json", evidence)
     evidence_eligible = evidence.get("eligible_as_gameplay_evidence") is True
-    if "eligible_as_gameplay_evidence" not in evidence:
-        evidence_eligible = evidence.get("eligible") is True
     findings = _attestation_findings(
-        evidence, player_model, kp_model, invocation_rows
+        evidence,
+        player_model,
+        kp_model,
+        invocation_rows,
+        playtest_dir / "runner-invocations.jsonl",
+        player_runner,
+        narrator_runner,
     )
     if findings:
         evidence_eligible = False
@@ -557,7 +644,8 @@ def run_live_cell(
         "evidence_reasons": list(evidence.get("evidence_reasons") or []),
         "player_model": player_model,
         "kp_model": kp_model,
-        "prompt_hashes": dict(cell.get("prompt_hashes") or {}),
+        "persona_id": persona_id,
+        "prompt_hashes": prompt_hashes,
         "seed": seed,
         "max_turns": max_turns,
         "canonical_run_dir": "playtest",

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,8 @@ PLAYER_REQUEST_KEYS = (
     "transcript_tail",
     "pending_choice",
 )
+PLAYER_OPTIONAL_REQUEST_KEYS = ("persona_id", "persona_prompt_directives")
+_SAFE_PERSONA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 # Mirrored from plugins/coc-keeper/scripts/coc_intent_router.py
 # ``_PRIMARY_INTENT_ENUM`` (source of truth). Runtime must not import plugin
@@ -227,7 +230,8 @@ def player_send_turn(
     """Run one investigator turn through the player-brain bridge.
 
     ``request`` must include only player-safe fields:
-    public_state, narration, character_card, transcript_tail, pending_choice.
+    public_state, narration, character_card, transcript_tail, pending_choice,
+    plus the optional structured persona pair.
     Never include director plans, keeper secrets, clue-graph, story-graph, or
     npc-agendas in the request — callers are responsible for spoiler isolation.
     """
@@ -236,6 +240,27 @@ def player_send_turn(
     for key in PLAYER_REQUEST_KEYS:
         if key not in request:
             raise ValueError(f"player_send_turn request missing {key!r}")
+    unsupported = set(request) - set(PLAYER_REQUEST_KEYS) - set(
+        PLAYER_OPTIONAL_REQUEST_KEYS
+    )
+    if unsupported:
+        raise ValueError(
+            "player_send_turn unsupported request fields: "
+            + ", ".join(sorted(str(key) for key in unsupported))
+        )
+    persona_id = request.get("persona_id")
+    directives = request.get("persona_prompt_directives")
+    if (persona_id is None) != (directives is None):
+        raise ValueError("persona_id and persona_prompt_directives must appear together")
+    if persona_id is not None:
+        if not isinstance(persona_id, str) or not _SAFE_PERSONA_ID.fullmatch(persona_id):
+            raise ValueError("persona_id must be a safe identifier")
+        if (
+            not isinstance(directives, list)
+            or not directives
+            or any(not isinstance(item, str) or not item.strip() for item in directives)
+        ):
+            raise ValueError("persona_prompt_directives must be a non-empty string list")
     pending = request.get("pending_choice")
     if isinstance(pending, dict) and pending.get("responder") == "keeper":
         raise ValueError("Keeper pending choices must never be sent to the player adapter")

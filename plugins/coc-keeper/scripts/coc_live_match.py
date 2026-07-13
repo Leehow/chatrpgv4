@@ -140,17 +140,36 @@ def build_player_request(
     narration: str,
     character_card: dict[str, Any],
     transcript_tail: list[dict[str, Any]],
+    persona_id: str | None = None,
+    persona_prompt_directives: list[str] | None = None,
 ) -> dict[str, Any]:
     """Assemble a player-brain request from player-safe inputs only."""
     public_state = public_state_mod.build_public_state(workspace, campaign_id)
     pending = public_state.get("pending_choice")
-    return {
+    request = {
         "public_state": public_state,
         "narration": str(narration or ""),
         "character_card": dict(character_card),
         "transcript_tail": list(transcript_tail),
         "pending_choice": pending,
     }
+    if (persona_id is None) != (persona_prompt_directives is None):
+        raise ValueError("persona_id and persona_prompt_directives must appear together")
+    if persona_id is not None:
+        if not isinstance(persona_id, str) or not persona_id.strip():
+            raise ValueError("persona_id must be a non-empty string")
+        if (
+            not isinstance(persona_prompt_directives, list)
+            or not persona_prompt_directives
+            or any(
+                not isinstance(item, str) or not item.strip()
+                for item in persona_prompt_directives
+            )
+        ):
+            raise ValueError("persona_prompt_directives must be a non-empty string list")
+        request["persona_id"] = persona_id
+        request["persona_prompt_directives"] = list(persona_prompt_directives)
+    return request
 
 
 def investigator_playability(
@@ -592,6 +611,8 @@ def _run_live_match_impl(
     transcript_tail_limit: int = 6,
     narrator_runner: Path | str | None = None,
     evidence_provenance: dict[str, Any] | None = None,
+    persona_id: str | None = None,
+    persona_prompt_directives: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run a multi-turn match: external player brain ↔ KP ``run_live_turn``.
 
@@ -743,6 +764,8 @@ def _run_live_match_impl(
                     narration=narration,
                     character_card=character_card,
                     transcript_tail=transcript_tail[-transcript_tail_limit:],
+                    persona_id=persona_id,
+                    persona_prompt_directives=persona_prompt_directives,
                 )
                 current_player_request = request
                 player_requests.append(json.loads(json.dumps(request, ensure_ascii=False)))

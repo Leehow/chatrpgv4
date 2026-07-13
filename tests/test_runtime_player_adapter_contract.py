@@ -146,6 +146,33 @@ process.stdout.write(JSON.stringify({
     )
 
 
+def _render_player_prompt(request: dict) -> str:
+    script = """
+const [_serverFlag, moduleUrl, payload] = process.argv.slice(1);
+const { buildPromptText } = await import(moduleUrl);
+process.stdout.write(buildPromptText(JSON.parse(payload)));
+"""
+    completed = subprocess.run(
+        [
+            "node",
+            "--input-type=module",
+            "--eval",
+            script,
+            "--",
+            "--server",
+            RUNNER_PATH.as_uri(),
+            json.dumps(request, ensure_ascii=False),
+        ],
+        text=True,
+        input="",
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return completed.stdout
+
+
 def test_parse_runner_response_requires_ok_and_player_text():
     adapter = _load_adapter()
     parsed = adapter.parse_runner_response(
@@ -278,6 +305,47 @@ def test_player_send_turn_round_trip_with_fake_runner(tmp_path):
     result = adapter.player_send_turn(_sample_request(), runner_path=runner)
     assert result["player_text"] == "我仔细检查门廊上的脚印。"
     assert result["player_notes"] == "脚印可能通向侧门。"
+
+
+def test_player_adapter_rejects_keeper_fields_in_request(tmp_path):
+    adapter = _load_adapter()
+    runner = tmp_path / "fake_player_runner"
+    _write_echo_runner(runner)
+    request = _sample_request()
+    request["keeper_secret"] = "must-not-cross-player-boundary"
+    with pytest.raises(ValueError, match="unsupported request fields"):
+        adapter.player_send_turn(request, runner_path=runner)
+
+
+def test_personas_produce_distinct_dedicated_prompt_sections():
+    careful = _sample_request()
+    careful.update(
+        {
+            "persona_id": "careful_investigator",
+            "persona_prompt_directives": [
+                "Prefer observation and corroboration before irreversible action."
+            ],
+        }
+    )
+    reckless = _sample_request()
+    reckless.update(
+        {
+            "persona_id": "reckless_investigator",
+            "persona_prompt_directives": [
+                "Act immediately on incomplete information."
+            ],
+        }
+    )
+
+    careful_prompt = _render_player_prompt(careful)
+    reckless_prompt = _render_player_prompt(reckless)
+
+    assert careful_prompt != reckless_prompt
+    assert "## Evaluation persona directives" in careful_prompt
+    assert "persona_id: careful_investigator" in careful_prompt
+    assert careful["persona_prompt_directives"][0] in careful_prompt
+    assert "persona_id: reckless_investigator" in reckless_prompt
+    assert reckless["persona_prompt_directives"][0] in reckless_prompt
 
 
 def test_player_send_turn_rejects_response_mismatching_requested_choice(tmp_path):
