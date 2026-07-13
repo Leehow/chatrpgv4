@@ -8,6 +8,7 @@ import math
 import os
 import re
 import secrets
+import selectors
 import signal
 import subprocess
 import sys
@@ -15,6 +16,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from functools import lru_cache
+from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
@@ -723,6 +725,134 @@ def build_kp_request_payload(
     }
 
 
+class _TailStreamCapture:
+    """Bounded byte tail plus enough boundary state for strict final-line parse."""
+
+    def __init__(self, limit: int):
+        self.limit = limit
+        self.capacity = limit + 1
+        self.total = 0
+        self.buffer = bytearray()
+        self.newlines: deque[int] = deque()
+
+    def feed(self, chunk: bytes) -> None:
+        if not chunk:
+            return
+        offset = self.total
+        start = 0
+        while True:
+            index = chunk.find(b"\n", start)
+            if index < 0:
+                break
+            self.newlines.append(offset + index)
+            start = index + 1
+        self.total += len(chunk)
+        self.buffer.extend(chunk)
+        if len(self.buffer) > self.capacity:
+            del self.buffer[: len(self.buffer) - self.capacity]
+        buffer_start = self.total - len(self.buffer)
+        while self.newlines and self.newlines[0] < buffer_start - 1:
+            self.newlines.popleft()
+
+    @property
+    def truncated(self) -> bool:
+        return self.total > self.limit
+
+    def evidence_text(self) -> str:
+        return bytes(self.buffer[-self.limit :]).decode("utf-8", errors="ignore")
+
+    def complete_final_line(self) -> bytes | None:
+        if not self.buffer:
+            return None
+        raw = bytes(self.buffer)
+        buffer_start = self.total - len(raw)
+        end = self.total
+        while end > buffer_start and raw[end - buffer_start - 1] in b"\r\n":
+            end -= 1
+        if end <= buffer_start:
+            return None
+        boundary = -1
+        for position in reversed(self.newlines):
+            if position < end:
+                boundary = position
+                break
+        if boundary >= 0:
+            start = boundary + 1
+        elif buffer_start == 0:
+            start = 0
+        else:
+            return None
+        if start < buffer_start or end - start > self.limit:
+            return None
+        return raw[start - buffer_start : end - buffer_start]
+
+
+def _drain_runner_pipes(
+    proc: subprocess.Popen[bytes], timeout_s: float
+) -> tuple[_TailStreamCapture, _TailStreamCapture, bool, bool, bool]:
+    """Drain both pipes incrementally under one absolute deadline."""
+    captures = (
+        _TailStreamCapture(_TIMEOUT_STREAM_LIMIT_BYTES),
+        _TailStreamCapture(_TIMEOUT_STREAM_LIMIT_BYTES),
+    )
+    selector = selectors.DefaultSelector()
+    for pipe, capture in zip((proc.stdout, proc.stderr), captures):
+        if pipe is None:
+            continue
+        os.set_blocking(pipe.fileno(), False)
+        selector.register(pipe, selectors.EVENT_READ, capture)
+
+    def drain_until(deadline: float, *, require_process_exit: bool) -> bool:
+        while True:
+            if not selector.get_map():
+                if not require_process_exit or proc.poll() is not None:
+                    return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            if not selector.get_map():
+                time.sleep(min(0.01, remaining))
+                continue
+            events = selector.select(min(0.05, remaining))
+            for key, _ in events:
+                pipe = key.fileobj
+                try:
+                    chunk = os.read(pipe.fileno(), 64 * 1024)
+                except BlockingIOError:
+                    continue
+                if chunk:
+                    key.data.feed(chunk)
+                    continue
+                selector.unregister(pipe)
+                pipe.close()
+
+    timed_out = not drain_until(
+        time.monotonic() + timeout_s, require_process_exit=True
+    )
+    tree_terminated = True
+    output_drained = True
+    if timed_out:
+        tree_terminated = _terminate_process_tree(proc)
+        output_drained = drain_until(
+            time.monotonic() + 0.5, require_process_exit=False
+        )
+    for key in list(selector.get_map().values()):
+        try:
+            selector.unregister(key.fileobj)
+        except (KeyError, ValueError):
+            pass
+        try:
+            key.fileobj.close()
+        except OSError:
+            pass
+    selector.close()
+    try:
+        proc.wait(timeout=0.1)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return captures[0], captures[1], timed_out, tree_terminated, output_drained
+
+
 def _invoke_fake_or_script_runner(
     *,
     runner_path: Path,
@@ -747,17 +877,19 @@ def _invoke_fake_or_script_runner(
         [sys.executable, str(runner_path), str(cell_input), str(cell_dir)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        text=False,
+        bufsize=0,
         **process_kwargs,
     )
-    timed_out = False
-    try:
-        raw_stdout, raw_stderr = proc.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired as exc:
-        timed_out = True
-        tree_terminated = _terminate_process_tree(proc)
-        raw_stdout, raw_stderr, output_drained = _bounded_timeout_drain(proc, exc)
-    stdout = (raw_stdout or "").strip()
+    (
+        stdout_capture,
+        stderr_capture,
+        timed_out,
+        tree_terminated,
+        output_drained,
+    ) = _drain_runner_pipes(proc, timeout_s)
+    raw_stdout = stdout_capture.evidence_text()
+    raw_stderr = stderr_capture.evidence_text()
     payload: dict[str, Any]
     if timed_out:
         reasons = ["execution_timeout"]
@@ -770,18 +902,32 @@ def _invoke_fake_or_script_runner(
             "timed_out": True,
             "not_run_reasons": reasons,
         }
-    elif stdout:
-        try:
-            payload = json.loads(stdout.splitlines()[-1])
-        except json.JSONDecodeError:
-            payload = {"status": "FAIL", "parse_error": True}
     else:
-        payload = {"status": "FAIL", "empty_stdout": True}
+        final_line = stdout_capture.complete_final_line()
+        if final_line is None:
+            payload = {
+                "status": "FAIL",
+                "empty_stdout": stdout_capture.total == 0,
+                "final_stdout_line_incomplete": stdout_capture.total > 0,
+            }
+        else:
+            try:
+                parsed = json.loads(final_line.decode("utf-8", errors="strict"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                payload = {"status": "FAIL", "parse_error": True}
+            else:
+                payload = (
+                    parsed
+                    if isinstance(parsed, dict)
+                    else {"status": "FAIL", "parse_error": True}
+                )
     if not timed_out and proc.returncode != 0 and payload.get("status") == "PASS":
         payload["status"] = "FAIL"
     payload["returncode"] = proc.returncode
-    payload["stdout"] = raw_stdout or ""
-    payload["stderr"] = raw_stderr or ""
+    payload["stdout"] = raw_stdout
+    payload["stderr"] = raw_stderr
+    payload["stdout_truncated"] = stdout_capture.truncated
+    payload["stderr_truncated"] = stderr_capture.truncated
     return payload
 
 
@@ -841,44 +987,13 @@ def _stream_text(value: str | bytes | None) -> str:
     return value
 
 
-def _bounded_timeout_drain(
-    proc: subprocess.Popen[str],
-    initial: subprocess.TimeoutExpired,
-) -> tuple[str, str, bool]:
-    """Drain timeout output without waiting indefinitely on inherited pipes."""
-    try:
-        stdout, stderr = proc.communicate(timeout=0.5)
-        return _stream_text(stdout), _stream_text(stderr), True
-    except subprocess.TimeoutExpired as exc:
-        stdout = _stream_text(
-            exc.stdout if exc.stdout is not None else initial.stdout
-        )
-        stderr = _stream_text(
-            exc.stderr if exc.stderr is not None else initial.stderr
-        )
-    except (OSError, ValueError):
-        stdout = _stream_text(initial.stdout)
-        stderr = _stream_text(initial.stderr)
-    for pipe in (proc.stdout, proc.stderr):
-        if pipe is not None:
-            try:
-                pipe.close()
-            except OSError:
-                pass
-    try:
-        proc.wait(timeout=0.1)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    return stdout, stderr, False
-
-
 def _bounded_stream_evidence(value: Any) -> tuple[str, bool]:
     text = _stream_text(value if isinstance(value, (str, bytes)) else None)
     encoded = text.encode("utf-8")
     if len(encoded) <= _TIMEOUT_STREAM_LIMIT_BYTES:
         return text, False
     return (
-        encoded[:_TIMEOUT_STREAM_LIMIT_BYTES].decode("utf-8", errors="ignore"),
+        encoded[-_TIMEOUT_STREAM_LIMIT_BYTES:].decode("utf-8", errors="ignore"),
         True,
     )
 
@@ -887,8 +1002,10 @@ def _persist_timeout_streams(
     cell_dir: Path, runner_result: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Persist bounded runner streams as cell-local, hash-bound evidence."""
-    stdout, stdout_truncated = _bounded_stream_evidence(runner_result.get("stdout"))
-    stderr, stderr_truncated = _bounded_stream_evidence(runner_result.get("stderr"))
+    stdout, stdout_bounded = _bounded_stream_evidence(runner_result.get("stdout"))
+    stderr, stderr_bounded = _bounded_stream_evidence(runner_result.get("stderr"))
+    stdout_truncated = bool(runner_result.get("stdout_truncated")) or stdout_bounded
+    stderr_truncated = bool(runner_result.get("stderr_truncated")) or stderr_bounded
     stdout_path = _write_text_atomic(cell_dir / "runner-timeout-stdout.log", stdout)
     stderr_path = _write_text_atomic(cell_dir / "runner-timeout-stderr.log", stderr)
     artifact_hashes = {

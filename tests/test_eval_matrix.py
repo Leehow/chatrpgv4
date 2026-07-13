@@ -2199,37 +2199,26 @@ def test_matrix_runner_timeout_cleanup_and_pipe_drain_are_bounded(
 ):
     matrix = _load()
 
-    class Pipe:
-        def __init__(self):
-            self.closed = False
-
-        def close(self):
-            self.closed = True
-
     class Process:
         pid = 4343
         returncode = 0
-
-        def __init__(self):
-            self.stdout = Pipe()
-            self.stderr = Pipe()
-            self.communicate_calls = 0
-
-        def communicate(self, timeout=None):
-            self.communicate_calls += 1
-            raise matrix.subprocess.TimeoutExpired(
-                ["fixture"], timeout, output="partial-out", stderr="partial-err"
-            )
-
-        def wait(self, timeout=None):
-            return 0
+        stdout = None
+        stderr = None
 
     process = Process()
+    stdout = matrix._TailStreamCapture(matrix._TIMEOUT_STREAM_LIMIT_BYTES)
+    stderr = matrix._TailStreamCapture(matrix._TIMEOUT_STREAM_LIMIT_BYTES)
+    stdout.feed(b"partial-out")
+    stderr.feed(b"partial-err")
     monkeypatch.setattr(matrix.subprocess, "Popen", lambda *args, **kwargs: process)
     monkeypatch.setattr(
         matrix, "_supports_process_tree_supervisor", lambda: True, raising=False
     )
-    monkeypatch.setattr(matrix, "_terminate_process_tree", lambda candidate: False)
+    monkeypatch.setattr(
+        matrix,
+        "_drain_runner_pipes",
+        lambda candidate, timeout: (stdout, stderr, True, False, False),
+    )
 
     result = matrix._invoke_fake_or_script_runner(
         runner_path=tmp_path / "runner.py",
@@ -2247,8 +2236,6 @@ def test_matrix_runner_timeout_cleanup_and_pipe_drain_are_bounded(
     ]
     assert result["stdout"] == "partial-out"
     assert result["stderr"] == "partial-err"
-    assert process.stdout.closed
-    assert process.stderr.closed
 
 
 def test_matrix_runner_timeout_reasons_propagate_to_cell_manifest(
@@ -2271,6 +2258,8 @@ def test_matrix_runner_timeout_reasons_propagate_to_cell_manifest(
             "returncode": None,
             "stdout": "partial-out",
             "stderr": "partial-err",
+            "stdout_truncated": True,
+            "stderr_truncated": False,
         },
     )
 
@@ -2291,6 +2280,8 @@ def test_matrix_runner_timeout_reasons_propagate_to_cell_manifest(
     assert stderr_path.read_text(encoding="utf-8") == "partial-err"
     assert cell["runner_result"]["stdout_path"] == stdout_path.name
     assert cell["runner_result"]["stderr_path"] == stderr_path.name
+    assert cell["runner_result"]["stdout_truncated"] is True
+    assert cell["runner_result"]["stderr_truncated"] is False
     assert "stdout" not in cell["runner_result"]
     assert "stderr" not in cell["runner_result"]
     assert cell["artifact_hashes"][stdout_path.name] == _sha256(stdout_path)
@@ -2309,11 +2300,49 @@ def test_timeout_stream_bound_is_exact_for_split_utf8_codepoint():
     matrix = _load()
     limit = matrix._TIMEOUT_STREAM_LIMIT_BYTES
 
-    bounded, truncated = matrix._bounded_stream_evidence("x" * (limit - 1) + "€")
+    bounded, truncated = matrix._bounded_stream_evidence("€" + "x" * limit)
 
     assert truncated is True
-    assert bounded == "x" * (limit - 1)
+    assert bounded == "x" * limit
     assert len(bounded.encode("utf-8")) <= limit
+
+
+def test_matrix_runner_capture_is_bounded_under_high_volume_output(tmp_path: Path):
+    matrix = _load()
+    payload = {"status": "PASS", "hard_findings": [], "evidence_findings": []}
+    runner = _write(
+        tmp_path / "noisy-runner.py",
+        "\n".join(
+            [
+                "import json, os",
+                "chunk_out = b'x' * 32768",
+                "chunk_err = b'y' * 32768",
+                "for _ in range(128):",
+                "    os.write(1, chunk_out)",
+                "    os.write(2, chunk_err)",
+                f"os.write(1, b'\\n' + json.dumps({payload!r}).encode('utf-8'))",
+            ]
+        )
+        + "\n",
+    )
+    cell_input = _write_json(tmp_path / "cell-input.json", {"cell_id": "noisy"})
+    cell_dir = tmp_path / "cell"
+    cell_dir.mkdir()
+
+    result = matrix._invoke_fake_or_script_runner(
+        runner_path=runner,
+        cell_input=cell_input,
+        cell_dir=cell_dir,
+        timeout_s=10.0,
+    )
+
+    limit = matrix._TIMEOUT_STREAM_LIMIT_BYTES
+    assert result["status"] == "PASS"
+    assert result["stdout_truncated"] is True
+    assert result["stderr_truncated"] is True
+    assert len(result["stdout"].encode("utf-8")) <= limit
+    assert len(result["stderr"].encode("utf-8")) <= limit
+    assert result["stdout"].endswith(json.dumps(payload))
 
 
 def test_matrix_runner_timeout_kills_descendants_and_stays_not_run(tmp_path: Path):
