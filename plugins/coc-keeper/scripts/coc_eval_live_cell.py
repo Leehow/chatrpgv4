@@ -74,6 +74,11 @@ _RUNNER_OWNED_ARTIFACTS = (
     "battle-report.md",
     "evidence.json",
 )
+_CONTINUITY_GUARD = Path(".coc") / "eval-continuity-restart.json"
+_CONTINUITY_PERSONA_ID = "careful_investigator"
+_CONTINUITY_PERSONA_DIRECTIVES = [
+    "Prefer observation before irreversible action.",
+]
 
 
 def _object(value: Any, label: str) -> dict[str, Any]:
@@ -547,6 +552,184 @@ def _attestation_findings(
             if not validation.get("valid") or not validation.get("passed"):
                 findings.append("narrator_secret_audit_missing")
     return sorted(set(findings))
+
+
+def _single_directory(path: Path, label: str) -> Path:
+    if not path.is_dir():
+        raise ValueError(f"{label} directory is missing")
+    children = [child for child in path.iterdir() if child.is_dir()]
+    if len(children) != 1 or children[0].is_symlink():
+        raise ValueError(f"{label} must contain exactly one regular directory")
+    return children[0]
+
+
+def _canonical_campaign_snapshot_sha256(
+    workspace: Path, campaign_id: str
+) -> str:
+    save_root = workspace / ".coc" / "campaigns" / campaign_id / "save"
+    if save_root.is_symlink() or not save_root.is_dir():
+        raise ValueError("canonical campaign save directory is missing or unsafe")
+    files: list[Path] = []
+    for path in save_root.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("canonical campaign snapshot contains a symlink")
+        if path.is_file():
+            files.append(path)
+    if not files:
+        raise ValueError("canonical campaign snapshot has no mutable state files")
+    digest = hashlib.sha256()
+    for path in sorted(files, key=lambda item: item.relative_to(save_root).as_posix()):
+        relative = path.relative_to(save_root).as_posix().encode("utf-8")
+        payload = path.read_bytes()
+        digest.update(len(relative).to_bytes(8, "big"))
+        digest.update(relative)
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(payload)
+    return digest.hexdigest()
+
+
+def _continuity_guard(workspace: Path) -> dict[str, Any]:
+    path = workspace / _CONTINUITY_GUARD
+    if not path.is_file() or path.is_symlink():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("continuity restart guard is malformed") from exc
+    return _object(payload, "continuity restart guard")
+
+
+def run_live_segment(
+    *,
+    start_turn: int,
+    turn_count: int,
+    workspace: Path | str,
+    output: Path | str,
+    model_roles: dict[str, dict[str, str]],
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Run one exact canonical turn range without rematerializing campaign state."""
+    if isinstance(start_turn, bool) or not isinstance(start_turn, int) or start_turn < 1:
+        raise ValueError("start_turn must be a positive integer")
+    if isinstance(turn_count, bool) or not isinstance(turn_count, int) or turn_count < 1:
+        raise ValueError("turn_count must be a positive integer")
+    roles = {
+        role: _identity(model_roles.get(role), f"model_roles.{role}")
+        for role in ("player", "kp")
+    }
+    workspace_path = Path(workspace).resolve()
+    campaign_dir = _single_directory(
+        workspace_path / ".coc" / "campaigns", "campaigns"
+    )
+    investigator_dir = _single_directory(
+        workspace_path / ".coc" / "investigators", "investigators"
+    )
+    campaign_id = _safe_id(campaign_dir.name, "campaign_id")
+    investigator_id = _safe_id(investigator_dir.name, "investigator_id")
+    entry_snapshot = _canonical_campaign_snapshot_sha256(
+        workspace_path, campaign_id
+    )
+    guard = _continuity_guard(workspace_path)
+    if start_turn > 1:
+        expected_snapshot = guard.get("expected_snapshot_sha256")
+        if not isinstance(expected_snapshot, str) or not expected_snapshot:
+            raise ValueError("continuity restart guard has no expected checkpoint hash")
+        if entry_snapshot != expected_snapshot:
+            raise ValueError("continuity restart checkpoint hash mismatch")
+
+    destination = Path(output).resolve()
+    if destination.is_symlink():
+        raise ValueError("continuity segment output must not be a symlink")
+    player_runner = REPO_ROOT / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
+    narrator_runner = (
+        REPO_ROOT / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
+    )
+    for role, path in (("player", player_runner), ("kp", narrator_runner)):
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"canonical continuity {role} runner is missing or unsafe")
+    role_env = dict(env or {})
+    role_env.update(
+        {
+            "COC_PLAYER_MODEL_PROVIDER": roles["player"]["provider"],
+            "COC_PLAYER_MODEL_ID": roles["player"]["id"],
+            "COC_NARRATOR_MODEL_PROVIDER": roles["kp"]["provider"],
+            "COC_NARRATOR_MODEL_ID": roles["kp"]["id"],
+        }
+    )
+    with _scoped_environment(role_env):
+        result = live_match.run_live_match(
+            workspace_path,
+            campaign_id,
+            investigator_id,
+            player_runner=player_runner,
+            narrator_runner=narrator_runner,
+            max_turns=turn_count,
+            rng_seed=f"continuity:{campaign_id}:{start_turn}:{turn_count}",
+            live=True,
+            run_dir=destination,
+            evidence_provenance={
+                "eval_spec": "eval-spec-v1",
+                "continuity_start_turn": start_turn,
+            },
+            persona_id=_CONTINUITY_PERSONA_ID,
+            persona_prompt_directives=list(_CONTINUITY_PERSONA_DIRECTIVES),
+        )
+    result = _object(result, "live_match segment result")
+    accepted_turns = [
+        turn.get("turn_number")
+        for turn in result.get("turns") or []
+        if isinstance(turn, dict)
+    ]
+    expected_turns = list(range(start_turn, start_turn + turn_count))
+    if accepted_turns != expected_turns:
+        raise ValueError(
+            "canonical live match did not produce the exact requested turn range: "
+            f"expected={expected_turns} observed={accepted_turns}"
+        )
+    final_snapshot = _canonical_campaign_snapshot_sha256(
+        workspace_path, campaign_id
+    )
+    evidence = _object(result.get("evidence") or {}, "live_match segment evidence")
+    invocation_path = destination / "runner-invocations.jsonl"
+    invocation_rows = _read_jsonl(invocation_path)
+    findings = _attestation_findings(
+        evidence,
+        roles["player"],
+        roles["kp"],
+        invocation_rows,
+        invocation_path,
+        player_runner,
+        narrator_runner,
+    )
+    attested = (
+        evidence.get("eligible_as_gameplay_evidence") is True and not findings
+    )
+    metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+    segment = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "runner_invocation_id": str(metadata.get("run_id") or destination.name),
+        "logical_session_id": guard.get("session_id"),
+        "accepted_turns": accepted_turns,
+        "snapshot_sha256": entry_snapshot if start_turn > 1 else final_snapshot,
+        "entry_snapshot_sha256": entry_snapshot,
+        "final_snapshot_sha256": final_snapshot,
+        "attestation": {
+            "player_model": roles["player"],
+            "kp_model": roles["kp"],
+            "runner": "coc_live_match",
+            "attested": attested,
+        },
+        "attestation_findings": findings,
+        "evidence_class": "external",
+        "secret_audit_passed": attested,
+        "artifacts": {
+            "invocation_ledger": "runner-invocations.jsonl",
+            "evidence": "evidence.json",
+        },
+    }
+    _write_json_atomic(destination / "continuity-segment.json", segment)
+    return segment
 
 
 def run_live_cell(

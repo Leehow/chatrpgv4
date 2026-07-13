@@ -976,6 +976,185 @@ def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeyp
         assert (cell_dir / name).is_file(), name
 
 
+def test_live_segment_returns_exact_canonical_turns_and_attestation(
+    tmp_path, monkeypatch
+):
+    runner = _load_live_cell()
+    scenario = json.loads(
+        (
+            REPO
+            / "evaluation"
+            / "spec"
+            / "v1"
+            / "fixtures"
+            / "matrix"
+            / "nightly-scenario.json"
+        ).read_text(encoding="utf-8")
+    )
+    initial = json.loads(
+        (
+            REPO
+            / "evaluation"
+            / "spec"
+            / "v1"
+            / "fixtures"
+            / "matrix"
+            / "nightly-initial-state.json"
+        ).read_text(encoding="utf-8")
+    )
+    workspace, _campaign_id, _investigator_id = runner.materialize_workspace(
+        scenario, initial, tmp_path / "workspace"
+    )
+    observed = {}
+
+    def fake_canonical_match(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        observed["player_model"] = {
+            "provider": os.environ["COC_PLAYER_MODEL_PROVIDER"],
+            "id": os.environ["COC_PLAYER_MODEL_ID"],
+        }
+        observed["kp_model"] = {
+            "provider": os.environ["COC_NARRATOR_MODEL_PROVIDER"],
+            "id": os.environ["COC_NARRATOR_MODEL_ID"],
+        }
+        run_dir = Path(kwargs["run_dir"])
+        run_dir.mkdir(parents=True)
+        return {
+            "run_dir": str(run_dir),
+            "turns": [{"turn_number": turn} for turn in (1, 2)],
+            "player_turns": [{"player_text": "fixture"}] * 2,
+            "evidence": _write_attested_live_artifacts(runner, run_dir),
+            "metadata": {
+                "run_id": "segment-1",
+                "runner_kind": "external_model_bridge",
+            },
+        }
+
+    monkeypatch.setattr(runner.live_match, "run_live_match", fake_canonical_match)
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    result = runner.run_live_segment(
+        start_turn=1,
+        turn_count=2,
+        workspace=workspace,
+        output=tmp_path / "segment-1",
+        model_roles=model_roles,
+        env={},
+    )
+
+    assert result["accepted_turns"] == [1, 2]
+    assert len(result["snapshot_sha256"]) == 64
+    assert result["attestation"] == {
+        "player_model": model_roles["player"],
+        "kp_model": model_roles["kp"],
+        "runner": "coc_live_match",
+        "attested": True,
+    }
+    assert result["runner_invocation_id"] == "segment-1"
+    assert result["evidence_class"] == "external"
+    assert observed["args"][0] == workspace
+    assert observed["kwargs"]["max_turns"] == 2
+    assert observed["player_model"] == model_roles["player"]
+    assert observed["kp_model"] == model_roles["kp"]
+
+
+def test_live_segment_rejects_shifted_canonical_turn_ids(tmp_path, monkeypatch):
+    runner = _load_live_cell()
+    fixture_root = (
+        REPO / "evaluation" / "spec" / "v1" / "fixtures" / "matrix"
+    )
+    workspace, _campaign_id, _investigator_id = runner.materialize_workspace(
+        json.loads(
+            (fixture_root / "nightly-scenario.json").read_text(encoding="utf-8")
+        ),
+        json.loads(
+            (fixture_root / "nightly-initial-state.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+        tmp_path / "workspace",
+    )
+
+    def fake_shifted_match(*args, **kwargs):
+        run_dir = Path(kwargs["run_dir"])
+        run_dir.mkdir(parents=True)
+        return {
+            "turns": [{"turn_number": turn} for turn in (2, 3)],
+            "evidence": _write_attested_live_artifacts(runner, run_dir),
+            "metadata": {"run_id": "shifted-segment"},
+        }
+
+    monkeypatch.setattr(runner.live_match, "run_live_match", fake_shifted_match)
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    with pytest.raises(ValueError, match="exact requested turn range"):
+        runner.run_live_segment(
+            start_turn=1,
+            turn_count=2,
+            workspace=workspace,
+            output=tmp_path / "shifted-segment",
+            model_roles=model_roles,
+            env={},
+        )
+
+
+def test_live_segment_rejects_checkpoint_drift_before_model_invocation(
+    tmp_path, monkeypatch
+):
+    runner = _load_live_cell()
+    fixture_root = (
+        REPO / "evaluation" / "spec" / "v1" / "fixtures" / "matrix"
+    )
+    workspace, _campaign_id, _investigator_id = runner.materialize_workspace(
+        json.loads(
+            (fixture_root / "nightly-scenario.json").read_text(encoding="utf-8")
+        ),
+        json.loads(
+            (fixture_root / "nightly-initial-state.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+        tmp_path / "workspace",
+    )
+    _write_json(
+        workspace / ".coc" / "eval-continuity-restart.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "session_id": "eval-continuity:test",
+            "expected_snapshot_sha256": "0" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        runner.live_match,
+        "run_live_match",
+        lambda *args, **kwargs: pytest.fail(
+            "model runner must not start after checkpoint drift"
+        ),
+    )
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    with pytest.raises(ValueError, match="checkpoint hash mismatch"):
+        runner.run_live_segment(
+            start_turn=2,
+            turn_count=1,
+            workspace=workspace,
+            output=tmp_path / "segment-2",
+            model_roles=model_roles,
+            env={},
+        )
+
+
 def test_live_cell_runner_uses_canonical_nested_report_path(tmp_path, monkeypatch):
     runner = _load_live_cell()
 

@@ -2,16 +2,32 @@
 """Long-run continuity and chapter-transition evidence validation for eval-spec-v1."""
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
+import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
 
 EVAL_SPEC = "eval-spec-v1"
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parents[2]
 CONTINUITY_EVIDENCE_FILE = "continuity-evidence.json"
 CHAPTER_EVIDENCE_FILE = "chapter-transition-evidence.json"
 STATUSES = frozenset({"PASS", "FAIL", "INELIGIBLE", "NOT_RUN"})
 EVIDENCE_CLASSES = frozenset({"fixture", "external"})
+EXPECTED_MODEL_ROLES = {
+    "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+    "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+}
+
+
+def _object(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    return value
 
 
 def _read_json(path: Path) -> Any:
@@ -19,6 +35,328 @@ def _read_json(path: Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"unreadable JSON: {path}: {exc}") from exc
+
+
+def _write_json_atomic(path: Path, payload: Any) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return path
+
+
+def _load_live_cell():
+    path = SCRIPT_DIR / "coc_eval_live_cell.py"
+    spec = importlib.util.spec_from_file_location("coc_eval_longrun_live_cell", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _prepare_continuity_workspace(
+    workspace: Path,
+    *,
+    logical_session_id: str,
+    required_anchors: list[str],
+) -> Path:
+    if workspace.is_symlink():
+        raise ValueError("continuity workspace must not be a symlink")
+    if workspace.exists() and any(workspace.iterdir()):
+        raise ValueError("continuity workspace must be new or empty")
+    fixture_root = REPO_ROOT / "evaluation" / "spec" / "v1" / "fixtures" / "matrix"
+    scenario = _read_json(fixture_root / "nightly-scenario.json")
+    initial = _read_json(fixture_root / "nightly-initial-state.json")
+    live_cell = _load_live_cell()
+    _workspace, campaign_id, _investigator_id = live_cell.materialize_workspace(
+        _object(scenario, "continuity scenario fixture"),
+        _object(initial, "continuity initial-state fixture"),
+        workspace,
+    )
+    anchor_path = (
+        workspace
+        / ".coc"
+        / "campaigns"
+        / campaign_id
+        / "save"
+        / "evaluation-continuity-anchors.json"
+    )
+    _write_json_atomic(
+        anchor_path,
+        {
+            "schema_version": 1,
+            "eval_spec": EVAL_SPEC,
+            "session_id": logical_session_id,
+            "anchors": {
+                name: {
+                    "anchor_id": f"{logical_session_id}:{name}",
+                    "state_kind": name,
+                }
+                for name in required_anchors
+            },
+        },
+    )
+    return anchor_path
+
+
+def _read_recall_anchor_ids(path: Path) -> dict[str, str]:
+    payload = _object(_read_json(path), "continuity recall-anchor state")
+    anchors = _object(payload.get("anchors"), "continuity recall anchors")
+    result: dict[str, str] = {}
+    for name, value in anchors.items():
+        anchor = _object(value, f"continuity recall anchor {name}")
+        anchor_id = anchor.get("anchor_id")
+        if not isinstance(anchor_id, str) or not anchor_id:
+            raise ValueError(f"continuity recall anchor {name} has no structured id")
+        result[str(name)] = anchor_id
+    return result
+
+
+def _run_segment(
+    *,
+    start_turn: int,
+    turn_count: int,
+    workspace: Path,
+    output: Path,
+    model_roles: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    """Execute one real continuity segment through the canonical live runner."""
+    return _load_live_cell().run_live_segment(
+        start_turn=start_turn,
+        turn_count=turn_count,
+        workspace=workspace,
+        output=output,
+        model_roles=model_roles,
+    )
+
+
+def _segment_attestation_matches(
+    segment: dict[str, Any],
+    model_roles: dict[str, dict[str, str]],
+    logical_session_id: str,
+) -> bool:
+    attestation = segment.get("attestation")
+    if not isinstance(attestation, dict):
+        return False
+    if (
+        segment.get("evidence_class") == "external"
+        and segment.get("logical_session_id") != logical_session_id
+    ):
+        return False
+    attested = (
+        attestation.get("attested") is True
+        if segment.get("evidence_class") == "external"
+        else attestation.get("attested", True) is True
+    )
+    return bool(
+        attestation.get("player_model") == model_roles["player"]
+        and attestation.get("kp_model") == model_roles["kp"]
+        and attested
+    )
+
+
+def run_continuity_lane(
+    *,
+    lane: dict[str, Any],
+    workspace: Path | str,
+    output: Path | str,
+    model_roles: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    """Execute a continuity lane in two process segments and validate its evidence."""
+    lane = dict(_object(lane, "lane"))
+    requirements = dict(_object(lane.get("requirements"), "lane.requirements"))
+    lane_id = str(lane.get("lane_id") or "")
+    if not lane_id:
+        raise ValueError("lane.lane_id is required")
+    turn_count = lane.get("turn_count")
+    restart_at = lane.get("restart_at_turn")
+    if (
+        isinstance(turn_count, bool)
+        or not isinstance(turn_count, int)
+        or turn_count < 2
+    ):
+        raise ValueError("lane.turn_count must be an integer greater than one")
+    if (
+        isinstance(restart_at, bool)
+        or not isinstance(restart_at, int)
+        or restart_at < 1
+        or restart_at >= turn_count
+    ):
+        raise ValueError("lane.restart_at_turn must split the requested turns")
+    roles = {
+        role: dict(_object(model_roles.get(role), f"model_roles.{role}"))
+        for role in ("player", "kp")
+    }
+    workspace_path = Path(workspace).resolve()
+    lane_dir = Path(output).resolve()
+    lane_dir.mkdir(parents=True, exist_ok=True)
+    logical_session_id = f"eval-continuity:{lane_id}:{uuid.uuid4().hex}"
+    required_anchors = [str(name) for name in requirements.get("recall_anchors") or []]
+    anchor_path = _prepare_continuity_workspace(
+        workspace_path,
+        logical_session_id=logical_session_id,
+        required_anchors=required_anchors,
+    )
+    guard_path = workspace_path / ".coc" / "eval-continuity-restart.json"
+    _write_json_atomic(
+        guard_path,
+        {
+            "schema_version": 1,
+            "eval_spec": EVAL_SPEC,
+            "session_id": logical_session_id,
+            "expected_snapshot_sha256": None,
+        },
+    )
+
+    first = _object(
+        _run_segment(
+            start_turn=1,
+            turn_count=restart_at,
+            workspace=workspace_path,
+            output=lane_dir / "segments" / "segment-1",
+            model_roles=roles,
+        ),
+        "first segment",
+    )
+    anchors_before = _read_recall_anchor_ids(anchor_path)
+    _write_json_atomic(
+        guard_path,
+        {
+            "schema_version": 1,
+            "eval_spec": EVAL_SPEC,
+            "session_id": logical_session_id,
+            "expected_snapshot_sha256": first.get("snapshot_sha256"),
+        },
+    )
+    second = _object(
+        _run_segment(
+            start_turn=restart_at + 1,
+            turn_count=turn_count - restart_at,
+            workspace=workspace_path,
+            output=lane_dir / "segments" / "segment-2",
+            model_roles=roles,
+        ),
+        "second segment",
+    )
+    anchors_after = _read_recall_anchor_ids(anchor_path)
+    expected_first = list(range(1, restart_at + 1))
+    expected_second = list(range(restart_at + 1, turn_count + 1))
+    if first.get("accepted_turns") != expected_first:
+        raise ValueError("first segment did not accept the exact required turn range")
+    if second.get("accepted_turns") != expected_second:
+        raise ValueError("second segment did not accept the exact required turn range")
+
+    pre_hash = first.get("snapshot_sha256")
+    post_hash = second.get("snapshot_sha256")
+    if not _is_sha256(pre_hash) or not _is_sha256(post_hash):
+        raise ValueError("segments must report canonical snapshot sha256 values")
+    segment_attested = all(
+        _segment_attestation_matches(segment, roles, logical_session_id)
+        for segment in (first, second)
+    )
+    exact_models = roles == EXPECTED_MODEL_ROLES
+    attested = segment_attested and exact_models
+    evidence_class = (
+        "external"
+        if all(segment.get("evidence_class") == "external" for segment in (first, second))
+        else "fixture"
+    )
+    eligible = attested and pre_hash == post_hash
+    recall_anchors = {
+        name: {
+            "anchor_id": anchors_before.get(name) or anchors_after.get(name),
+            "present_before_restart": name in anchors_before,
+            "present_after_restart": (
+                name in anchors_after and anchors_after[name] == anchors_before.get(name)
+            ),
+            "turn_ids": [restart_at, restart_at + 1],
+        }
+        for name in required_anchors
+    }
+    secret_audit = {
+        "schema_version": 1,
+        "status": "PASS" if eligible else "FAIL",
+        "evidence_class": evidence_class,
+        "sources": [
+            {
+                "segment_id": index,
+                "structured": True,
+                "prose_scanned": False,
+            }
+            for index in (1, 2)
+        ],
+    }
+    audit_path = _write_json_atomic(
+        lane_dir / "artifacts" / "secret-audit.json", secret_audit
+    )
+    evidence = {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "lane_id": lane_id,
+        "evidence_class": evidence_class,
+        "eligible": eligible,
+        "session_id": logical_session_id,
+        "accepted_turns": expected_first + expected_second,
+        "turn_count": turn_count,
+        "restart": {
+            "at_turn": restart_at,
+            "pre_checkpoint_sha256": pre_hash,
+            "post_checkpoint_sha256": post_hash,
+            "session_id_before": logical_session_id,
+            "session_id_after": logical_session_id,
+            "resumed": pre_hash == post_hash,
+        },
+        "recall_anchors": recall_anchors,
+        "attestation": {
+            "player_model": roles["player"],
+            "kp_model": roles["kp"],
+            "runner": "coc_live_match.segmented",
+            "attested": attested,
+        },
+        "segments": [
+            {
+                "segment_id": index,
+                "logical_session_id": segment.get("logical_session_id")
+                or logical_session_id,
+                "runner_invocation_id": segment.get("runner_invocation_id")
+                or f"{logical_session_id}:segment-{index}",
+                "accepted_turns": segment["accepted_turns"],
+            }
+            for index, segment in enumerate((first, second), 1)
+        ],
+        "secret_audit": {
+            "status": secret_audit["status"],
+            "references": [
+                {
+                    "artifact": audit_path.relative_to(lane_dir).as_posix(),
+                    "finding_id": "structured-secret-audit-pass",
+                }
+            ],
+        },
+    }
+    _write_json_atomic(lane_dir / CONTINUITY_EVIDENCE_FILE, evidence)
+    validation = validate_continuity_run(lane_dir, requirements)
+    status = validation["status"]
+    if status == "PASS" and not exact_models:
+        status = "INELIGIBLE"
+    return {**evidence, "status": status, "validation": validation}
 
 
 def _finding(

@@ -337,6 +337,298 @@ def test_validate_continuity_external_attested_is_gameplay_evidence(tmp_path: Pa
     assert result["gameplay_evidence"] is True
 
 
+def test_continuity_runner_restarts_at_required_turn_and_preserves_hash(
+    tmp_path: Path, monkeypatch
+):
+    longrun = _load()
+
+    def fake_segment(*, start_turn, turn_count, workspace, output, model_roles):
+        return {
+            "accepted_turns": list(range(start_turn, start_turn + turn_count)),
+            "snapshot_sha256": "a" * 64,
+            "attestation": {
+                "player_model": model_roles["player"],
+                "kp_model": model_roles["kp"],
+            },
+        }
+
+    monkeypatch.setattr(longrun, "_run_segment", fake_segment)
+    lane = json.loads(LONG_MEMORY_PATH.read_text(encoding="utf-8"))["lanes"][0]
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    evidence = longrun.run_continuity_lane(
+        lane=lane,
+        workspace=tmp_path / "workspace",
+        output=tmp_path / "lane",
+        model_roles=model_roles,
+    )
+
+    assert evidence["accepted_turns"] == list(range(1, 26))
+    assert evidence["restart"]["at_turn"] == 13
+    assert (
+        evidence["restart"]["pre_checkpoint_sha256"]
+        == evidence["restart"]["post_checkpoint_sha256"]
+    )
+    assert evidence["attestation"]["attested"] is True
+    assert evidence["status"] == "PASS"
+    assert json.loads(
+        (tmp_path / "lane" / "continuity-evidence.json").read_text(
+            encoding="utf-8"
+        )
+    )["accepted_turns"] == list(range(1, 26))
+
+
+def test_continuity_runner_uses_50_turn_restart_boundary(tmp_path: Path, monkeypatch):
+    longrun = _load()
+    calls = []
+
+    def fake_segment(*, start_turn, turn_count, workspace, output, model_roles):
+        calls.append((start_turn, turn_count))
+        return {
+            "accepted_turns": list(range(start_turn, start_turn + turn_count)),
+            "snapshot_sha256": "9" * 64,
+            "attestation": {
+                "player_model": model_roles["player"],
+                "kp_model": model_roles["kp"],
+            },
+        }
+
+    monkeypatch.setattr(longrun, "_run_segment", fake_segment)
+    lane = json.loads(LONG_MEMORY_PATH.read_text(encoding="utf-8"))["lanes"][1]
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    evidence = longrun.run_continuity_lane(
+        lane=lane,
+        workspace=tmp_path / "workspace",
+        output=tmp_path / "lane",
+        model_roles=model_roles,
+    )
+
+    assert calls == [(1, 27), (28, 23)]
+    assert evidence["accepted_turns"] == list(range(1, 51))
+    assert evidence["restart"]["at_turn"] == 27
+    assert evidence["status"] == "PASS"
+
+
+def test_continuity_runner_reads_recall_anchors_from_structured_campaign_state(
+    tmp_path: Path, monkeypatch
+):
+    longrun = _load()
+    observed_anchor_sets = []
+
+    def fake_segment(*, start_turn, turn_count, workspace, output, model_roles):
+        campaign_dirs = list((workspace / ".coc" / "campaigns").iterdir())
+        assert len(campaign_dirs) == 1
+        anchors = json.loads(
+            (
+                campaign_dirs[0]
+                / "save"
+                / "evaluation-continuity-anchors.json"
+            ).read_text(encoding="utf-8")
+        )["anchors"]
+        observed_anchor_sets.append(anchors)
+        return {
+            "accepted_turns": list(range(start_turn, start_turn + turn_count)),
+            "snapshot_sha256": "b" * 64,
+            "attestation": {
+                "player_model": model_roles["player"],
+                "kp_model": model_roles["kp"],
+            },
+        }
+
+    monkeypatch.setattr(longrun, "_run_segment", fake_segment)
+    lane = json.loads(LONG_MEMORY_PATH.read_text(encoding="utf-8"))["lanes"][0]
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    evidence = longrun.run_continuity_lane(
+        lane=lane,
+        workspace=tmp_path / "workspace",
+        output=tmp_path / "lane",
+        model_roles=model_roles,
+    )
+
+    assert len(observed_anchor_sets) == 2
+    assert observed_anchor_sets[0] == observed_anchor_sets[1]
+    assert {
+        name: item["anchor_id"] for name, item in observed_anchor_sets[0].items()
+    } == {
+        name: item["anchor_id"]
+        for name, item in evidence["recall_anchors"].items()
+    }
+
+
+def test_continuity_runner_writes_checkpoint_guard_before_resume(
+    tmp_path: Path, monkeypatch
+):
+    longrun = _load()
+    observed_session_ids = []
+
+    def fake_segment(*, start_turn, turn_count, workspace, output, model_roles):
+        guard_path = workspace / ".coc" / "eval-continuity-restart.json"
+        guard = json.loads(guard_path.read_text(encoding="utf-8"))
+        observed_session_ids.append(guard["session_id"])
+        if start_turn > 1:
+            assert guard["expected_snapshot_sha256"] == "c" * 64
+        return {
+            "accepted_turns": list(range(start_turn, start_turn + turn_count)),
+            "snapshot_sha256": "c" * 64,
+            "attestation": {
+                "player_model": model_roles["player"],
+                "kp_model": model_roles["kp"],
+            },
+        }
+
+    monkeypatch.setattr(longrun, "_run_segment", fake_segment)
+    lane = json.loads(LONG_MEMORY_PATH.read_text(encoding="utf-8"))["lanes"][0]
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    evidence = longrun.run_continuity_lane(
+        lane=lane,
+        workspace=tmp_path / "workspace",
+        output=tmp_path / "lane",
+        model_roles=model_roles,
+    )
+
+    assert observed_session_ids == [evidence["session_id"], evidence["session_id"]]
+
+
+def test_run_segment_delegates_to_canonical_live_cell_adapter(tmp_path, monkeypatch):
+    longrun = _load()
+    observed = {}
+    expected = {
+        "accepted_turns": [14, 15],
+        "snapshot_sha256": "d" * 64,
+        "attestation": {
+            "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+            "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+        },
+    }
+
+    class FakeLiveCell:
+        @staticmethod
+        def run_live_segment(**kwargs):
+            observed.update(kwargs)
+            return expected
+
+    monkeypatch.setattr(longrun, "_load_live_cell", lambda: FakeLiveCell)
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    result = longrun._run_segment(
+        start_turn=14,
+        turn_count=2,
+        workspace=tmp_path / "workspace",
+        output=tmp_path / "segment-2",
+        model_roles=model_roles,
+    )
+
+    assert result is expected
+    assert observed == {
+        "start_turn": 14,
+        "turn_count": 2,
+        "workspace": tmp_path / "workspace",
+        "output": tmp_path / "segment-2",
+        "model_roles": model_roles,
+    }
+
+
+def test_continuity_runner_does_not_default_external_attestation_to_true(
+    tmp_path: Path, monkeypatch
+):
+    longrun = _load()
+
+    def unattested_external_segment(
+        *, start_turn, turn_count, workspace, output, model_roles
+    ):
+        return {
+            "accepted_turns": list(range(start_turn, start_turn + turn_count)),
+            "snapshot_sha256": "e" * 64,
+            "evidence_class": "external",
+            "attestation": {
+                "player_model": model_roles["player"],
+                "kp_model": model_roles["kp"],
+            },
+        }
+
+    monkeypatch.setattr(longrun, "_run_segment", unattested_external_segment)
+    lane = json.loads(LONG_MEMORY_PATH.read_text(encoding="utf-8"))["lanes"][0]
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    result = longrun.run_continuity_lane(
+        lane=lane,
+        workspace=tmp_path / "workspace",
+        output=tmp_path / "lane",
+        model_roles=model_roles,
+    )
+
+    assert result["status"] == "INELIGIBLE"
+    assert result["attestation"]["attested"] is False
+
+
+def test_continuity_runner_rejects_external_segment_session_drift(
+    tmp_path: Path, monkeypatch
+):
+    longrun = _load()
+
+    def drifting_session_segment(
+        *, start_turn, turn_count, workspace, output, model_roles
+    ):
+        session_id = json.loads(
+            (workspace / ".coc" / "eval-continuity-restart.json").read_text(
+                encoding="utf-8"
+            )
+        )["session_id"]
+        return {
+            "accepted_turns": list(range(start_turn, start_turn + turn_count)),
+            "snapshot_sha256": "f" * 64,
+            "evidence_class": "external",
+            "logical_session_id": (
+                session_id if start_turn == 1 else f"{session_id}:drifted"
+            ),
+            "runner_invocation_id": f"segment-{start_turn}",
+            "secret_audit_passed": True,
+            "attestation": {
+                "player_model": model_roles["player"],
+                "kp_model": model_roles["kp"],
+                "attested": True,
+            },
+        }
+
+    monkeypatch.setattr(longrun, "_run_segment", drifting_session_segment)
+    lane = json.loads(LONG_MEMORY_PATH.read_text(encoding="utf-8"))["lanes"][0]
+    model_roles = {
+        "player": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    result = longrun.run_continuity_lane(
+        lane=lane,
+        workspace=tmp_path / "workspace",
+        output=tmp_path / "lane",
+        model_roles=model_roles,
+    )
+
+    assert result["status"] == "INELIGIBLE"
+    assert result["attestation"]["attested"] is False
+
+
 def test_validate_chapter_transition_missing_evidence_is_not_run(tmp_path: Path):
     mod = _load()
     result = mod.validate_chapter_transition(tmp_path / "missing", _chapter_requirements())
