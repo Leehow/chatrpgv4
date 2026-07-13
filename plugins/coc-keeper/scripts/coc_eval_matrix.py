@@ -9,8 +9,9 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -24,6 +25,7 @@ import coc_eval_semantic as semantic
 REPO_ROOT = SCRIPT_DIR.parents[2]
 EVAL_SPEC = "eval-spec-v1"
 MATRIX_SUITES = frozenset({"nightly", "release"})
+ModelPreflight = Callable[[str, str], bool]
 
 
 def _utc_now() -> str:
@@ -102,6 +104,50 @@ def _model_identity(value: Any, *, label: str) -> dict[str, str] | None:
     return {"provider": provider, "id": model_id}
 
 
+@lru_cache(maxsize=32)
+def _pi_model_preflight(root: Path, provider: str, model_id: str) -> bool:
+    """Check Pi's configured model registry without reading credentials into Python."""
+    package = (
+        root
+        / "runtime"
+        / "adapters"
+        / "player"
+        / "node_modules"
+        / "@earendil-works"
+        / "pi-coding-agent"
+        / "package.json"
+    )
+    if not package.is_file():
+        return False
+    source = r"""
+const provider = process.argv[1];
+const modelId = process.argv[2];
+const { AuthStorage, ModelRegistry, getAgentDir } = await import("@earendil-works/pi-coding-agent");
+const agentDir = getAgentDir();
+const auth = AuthStorage.create(`${agentDir}/auth.json`);
+const registry = ModelRegistry.create(auth, `${agentDir}/models.json`);
+let model = registry.find(provider, modelId);
+if (!model && provider === "coding-relay") {
+  model = registry.getAll().find(
+    (candidate) => candidate.provider === provider && registry.hasConfiguredAuth(candidate),
+  );
+}
+if (!model || !registry.hasConfiguredAuth(model)) process.exit(1);
+"""
+    try:
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", source, provider, model_id],
+            cwd=package.parents[3],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
 def load_matrix_suite_config(
     root: Path | str,
     suite: str,
@@ -164,6 +210,7 @@ def _collect_not_run_reasons(
     player_model: dict[str, str] | None,
     kp_model: dict[str, str] | None,
     credential_env: dict[str, str],
+    model_preflight: ModelPreflight | None,
 ) -> list[str]:
     reasons: list[str] = []
     runner_path = _resolve_path(root, case.get("runner_path"))
@@ -179,6 +226,16 @@ def _collect_not_run_reasons(
         reasons.append("missing_player_model_identity")
     if kp_model is None:
         reasons.append("missing_kp_model_identity")
+    if model_preflight is not None:
+        for role, identity in (("player", player_model), ("kp", kp_model)):
+            if identity is None:
+                continue
+            try:
+                ready = bool(model_preflight(identity["provider"], identity["id"]))
+            except Exception:
+                ready = False
+            if not ready:
+                reasons.append(f"model_preflight_failed:{role}")
     required = case.get("require_credentials") or []
     if not isinstance(required, list):
         raise ValueError("require_credentials must be a list")
@@ -215,12 +272,35 @@ def _initial_state_sha256(root: Path, case: dict[str, Any]) -> str | None:
     return _sha256_file(path)
 
 
+def _prompt_hashes(
+    root: Path, case: dict[str, Any], reasons: list[str]
+) -> dict[str, str]:
+    sources = case.get("prompt_sources")
+    if isinstance(sources, dict):
+        hashes: dict[str, str] = {}
+        for role in ("player", "kp"):
+            source = _resolve_path(root, sources.get(role))
+            if source is None or not source.is_file():
+                reasons.append(f"missing_prompt_source:{role}")
+                continue
+            hashes[role] = _sha256_file(source)
+        return hashes
+
+    # Preserve focused fake-adapter tests. Real live cells must use source paths.
+    legacy = case.get("prompt_hashes")
+    if case.get("runner") != "live_match" and isinstance(legacy, dict) and legacy:
+        return dict(legacy)
+    reasons.append("missing_prompt_sources")
+    return {}
+
+
 def build_matrix_plan(
     *,
     root: Path | str,
     suite: str,
     configuration: dict[str, Any] | None = None,
     credential_env: dict[str, str] | None = None,
+    model_preflight: ModelPreflight | None = None,
 ) -> dict[str, Any]:
     """Deterministically expand persona × seed × case cells with fail-closed gates."""
     root_path = Path(root).resolve()
@@ -232,6 +312,11 @@ def build_matrix_plan(
         item["persona_id"]: item for item in personas_payload["personas"]
     }
     env = dict(credential_env if credential_env is not None else os.environ)
+    effective_preflight = model_preflight
+    if effective_preflight is None:
+        effective_preflight = lambda provider, model: _pi_model_preflight(
+            root_path, provider, model
+        )
     cells: list[dict[str, Any]] = []
 
     for persona_id in suite_config["persona_ids"]:
@@ -265,11 +350,13 @@ def build_matrix_plan(
                     player_model=player_model,
                     kp_model=kp_model,
                     credential_env=env,
+                    model_preflight=(
+                        effective_preflight
+                        if case.get("runner") == "live_match"
+                        else model_preflight
+                    ),
                 )
-                prompt_hashes = case.get("prompt_hashes") or {}
-                if not isinstance(prompt_hashes, dict) or not prompt_hashes:
-                    reasons.append("missing_prompt_hashes")
-                    prompt_hashes = {}
+                prompt_hashes = _prompt_hashes(root_path, case, reasons)
                 cell = {
                     "cell_id": _cell_id(str(persona_id), int(seed), str(case_id)),
                     "persona_id": persona_id,
@@ -279,10 +366,21 @@ def build_matrix_plan(
                     "runner_path": case.get("runner_path"),
                     "scenario_fixture": case.get("scenario_fixture"),
                     "initial_state_fixture": case.get("initial_state_fixture"),
+                    "max_turns": case.get("max_turns", 3),
                     "player_model": declared_player,
                     "kp_model": declared_kp,
+                    "judge_model": (
+                        case.get("judge_model")
+                        if isinstance(case.get("judge_model"), dict)
+                        else {}
+                    ),
                     "persona_profile_sha256": profile_hash,
                     "prompt_hashes": dict(prompt_hashes),
+                    "prompt_sources": (
+                        dict(case.get("prompt_sources"))
+                        if isinstance(case.get("prompt_sources"), dict)
+                        else {}
+                    ),
                     "runner_hashes": _runner_hashes(root_path, case),
                     "initial_state_sha256": _initial_state_sha256(root_path, case),
                     "judge": case.get("judge") if isinstance(case.get("judge"), dict) else {},
@@ -490,6 +588,10 @@ def execute_matrix_plan(
             "case_id": cell.get("case_id"),
             "player_model": cell.get("player_model"),
             "kp_model": cell.get("kp_model"),
+            "judge_model": cell.get("judge_model"),
+            "max_turns": cell.get("max_turns", 3),
+            "scenario": scenario,
+            "initial_state": initial_state,
             "player_request": player_request,
             "kp_request": kp_request,
             "prompt_hashes": cell.get("prompt_hashes"),

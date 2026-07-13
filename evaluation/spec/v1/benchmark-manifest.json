@@ -15,45 +15,32 @@
     "eval_spec": "eval-spec-v1",
     "suites": {
       "nightly": {
-        "description": "Persona × seed × case planning for distributional AI-player lanes. Evidence-grade execution remains fail-closed until runners, credentials, and fixtures are attested.",
+        "description": "Bounded proof matrix for attested Luna player and GLM Keeper live cells.",
         "persona_ids": [
-          "careful_investigator",
-          "reckless_investigator",
-          "skeptical_rules_lawyer",
-          "genre_savvy_player",
-          "social_first_player",
-          "combat_first_player",
-          "speedrunner",
-          "stuck_player",
-          "adversarial_boundary_tester",
-          "memory_challenger",
-          "colloquial_ambiguous_player",
-          "meta_question_player"
+          "careful_investigator"
         ],
-        "seeds": [101, 102, 103],
+        "seeds": [3, 7, 11],
         "cases": [
           {
-            "case_id": "nightly-live-match-attested",
+            "case_id": "nightly",
             "runner": "live_match",
-            "runner_path": "plugins/coc-keeper/scripts/coc_live_match.py",
+            "runner_path": "plugins/coc-keeper/scripts/coc_eval_live_cell.py",
             "scenario_fixture": "evaluation/spec/v1/fixtures/matrix/nightly-scenario.json",
             "initial_state_fixture": "evaluation/spec/v1/fixtures/matrix/nightly-initial-state.json",
-            "player_model": {"provider": "external", "id": "UNATTESTED_PLAYER"},
-            "kp_model": {"provider": "external", "id": "UNATTESTED_KP"},
-            "prompt_hashes": {
-              "player": "0000000000000000000000000000000000000000000000000000000000000000",
-              "kp": "0000000000000000000000000000000000000000000000000000000000000000"
+            "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+            "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+            "judge_model": {"provider": "coding-relay", "id": "gpt-5.6-sol"},
+            "prompt_sources": {
+              "player": "runtime/adapters/player/run_player_turn.mjs",
+              "kp": "runtime/adapters/narrator/run_narration.mjs"
             },
-            "require_credentials": [
-              "COC_EVAL_PLAYER_API_KEY",
-              "COC_EVAL_KP_API_KEY"
-            ],
+            "max_turns": 3,
             "judge": {"enabled": true, "rubric_id": "agency-and-fun"}
           }
         ]
       },
       "release": {
-        "description": "Release matrix planning with stricter attestation. Cells remain NOT_RUN without credentials and fixtures.",
+        "description": "Complete persona and seed matrix using the same attested neutral live case.",
         "persona_ids": [
           "careful_investigator",
           "reckless_investigator",
@@ -71,22 +58,19 @@
         "seeds": [201, 202, 203, 204],
         "cases": [
           {
-            "case_id": "release-interactive-playtest-attested",
-            "runner": "interactive_playtest",
-            "runner_path": "plugins/coc-keeper/scripts/coc_interactive_playtest.py",
-            "scenario_fixture": "evaluation/spec/v1/fixtures/matrix/release-scenario.json",
-            "initial_state_fixture": "evaluation/spec/v1/fixtures/matrix/release-initial-state.json",
-            "player_model": {"provider": "external", "id": "UNATTESTED_PLAYER"},
-            "kp_model": {"provider": "external", "id": "UNATTESTED_KP"},
-            "prompt_hashes": {
-              "player": "1111111111111111111111111111111111111111111111111111111111111111",
-              "kp": "1111111111111111111111111111111111111111111111111111111111111111"
+            "case_id": "release",
+            "runner": "live_match",
+            "runner_path": "plugins/coc-keeper/scripts/coc_eval_live_cell.py",
+            "scenario_fixture": "evaluation/spec/v1/fixtures/matrix/nightly-scenario.json",
+            "initial_state_fixture": "evaluation/spec/v1/fixtures/matrix/nightly-initial-state.json",
+            "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+            "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+            "judge_model": {"provider": "coding-relay", "id": "gpt-5.6-sol"},
+            "prompt_sources": {
+              "player": "runtime/adapters/player/run_player_turn.mjs",
+              "kp": "runtime/adapters/narrator/run_narration.mjs"
             },
-            "require_credentials": [
-              "COC_EVAL_PLAYER_API_KEY",
-              "COC_EVAL_KP_API_KEY",
-              "COC_EVAL_EXTERNAL_ATTESTATION"
-            ],
+            "max_turns": 3,
             "judge": {"enabled": true, "rubric_id": "zh-prose"}
           }
         ]

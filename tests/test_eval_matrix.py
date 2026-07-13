@@ -11,6 +11,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_matrix.py"
+LIVE_CELL_PATH = (
+    REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_live_cell.py"
+)
 CLI_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval.py"
 MANIFEST_PATH = REPO / "evaluation" / "spec" / "v1" / "benchmark-manifest.json"
 
@@ -21,6 +24,18 @@ def _load():
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules["coc_eval_matrix_test"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_live_cell():
+    assert LIVE_CELL_PATH.is_file(), f"missing live-cell runner: {LIVE_CELL_PATH}"
+    spec = importlib.util.spec_from_file_location(
+        "coc_eval_live_cell_test", LIVE_CELL_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["coc_eval_live_cell_test"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -141,6 +156,142 @@ def test_build_matrix_plan_expands_personas_seeds_cases_deterministically():
         assert cell["status"] in {"READY", "NOT_RUN"}
         if cell["status"] == "NOT_RUN":
             assert cell["not_run_reasons"]
+
+
+def test_checked_in_matrix_case_is_ready_from_pi_credentials_not_env_keys():
+    matrix = _load()
+    plan = matrix.build_matrix_plan(
+        root=REPO,
+        suite="nightly",
+        model_preflight=lambda provider, model: True,
+        credential_env={},
+    )
+    assert plan["ready_count"] == plan["cell_count"]
+    cell = plan["cells"][0]
+    assert cell["player_model"] == {
+        "provider": "coding-relay",
+        "id": "gpt-5.6-luna",
+    }
+    assert cell["kp_model"] == {"provider": "zhipu-coding", "id": "glm-5.2"}
+    assert set(cell["prompt_hashes"]) == {"player", "kp"}
+    assert all(len(value) == 64 for value in cell["prompt_hashes"].values())
+
+
+def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeypatch):
+    runner = _load_live_cell()
+    observed = {}
+
+    def fake_canonical_match(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        run_dir = Path(kwargs["run_dir"])
+        run_dir.mkdir(parents=True)
+        (run_dir / "battle-report.md").write_text("# fixture\n", encoding="utf-8")
+        return {
+            "run_dir": str(run_dir),
+            "turns": [{"turn_number": 1, "narration": "门轴轻响。"}],
+            "player_turns": [{"player_text": "我检查门锁。"}],
+            "evidence": {"eligible": True},
+            "metadata": {"runner_kind": "external_model_bridge"},
+        }
+
+    monkeypatch.setattr(runner.live_match, "run_live_match", fake_canonical_match)
+    neutral_scenario = {
+        "scene_id": "neutral-entry",
+        "dramatic_question": "What changed?",
+    }
+    neutral_initial_state = {
+        "campaign_id": "eval-neutral",
+        "investigator_id": "inv1",
+        "character": {"schema_version": 1, "id": "inv1"},
+        "public_state": {"active_scene_id": "neutral-entry"},
+    }
+    cell_input = {
+        "cell_id": "careful__seed-3__nightly",
+        "seed": 3,
+        "max_turns": 1,
+        "scenario": neutral_scenario,
+        "initial_state": neutral_initial_state,
+        "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+    cell_dir = tmp_path / "cell"
+    result = runner.run_live_cell(cell_input, cell_dir, env={})
+
+    assert result["status"] == "PASS"
+    assert result["evidence_eligible"] is True
+    assert set(result["artifact_hashes"]) == {
+        "battle-report.md",
+        "evidence.json",
+        "transcript.jsonl",
+        "player-view.jsonl",
+        "keeper-view.jsonl",
+        "runner-invocations.jsonl",
+    }
+    assert all(len(value) == 64 for value in result["artifact_hashes"].values())
+    assert observed["args"][1:] == ("eval-neutral", "inv1")
+    assert observed["kwargs"]["max_turns"] == 1
+    assert observed["kwargs"]["rng_seed"] == 3
+    assert observed["kwargs"]["live"] is True
+    assert observed["kwargs"]["player_runner"] == (
+        REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
+    )
+    assert observed["kwargs"]["narrator_runner"] == (
+        REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
+    )
+    for name in (
+        "run-manifest.json",
+        "transcript.jsonl",
+        "player-view.jsonl",
+        "keeper-view.jsonl",
+        "runner-invocations.jsonl",
+        "battle-report.md",
+    ):
+        assert (cell_dir / name).is_file(), name
+
+
+def test_live_cell_runner_uses_canonical_nested_report_path(tmp_path, monkeypatch):
+    runner = _load_live_cell()
+
+    def fake_canonical_match(*args, **kwargs):
+        run_dir = Path(kwargs["run_dir"])
+        report = run_dir / "artifacts" / "battle-report.md"
+        report.parent.mkdir(parents=True)
+        report.write_text("# nested fixture\n", encoding="utf-8")
+        return {
+            "run_dir": str(run_dir),
+            "battle_report_path": str(report),
+            "turns": [],
+            "player_turns": [],
+            "evidence": {"eligible": True},
+            "metadata": {"runner_kind": "external_model_bridge"},
+        }
+
+    monkeypatch.setattr(runner.live_match, "run_live_match", fake_canonical_match)
+    cell_input = {
+        "cell_id": "careful__seed-3__nightly",
+        "seed": 3,
+        "max_turns": 1,
+        "scenario": {
+            "scene_id": "neutral-entry",
+            "dramatic_question": "What changed?",
+        },
+        "initial_state": {
+            "campaign_id": "eval-neutral",
+            "investigator_id": "inv1",
+            "character": {"schema_version": 1, "id": "inv1"},
+            "public_state": {"active_scene_id": "neutral-entry"},
+        },
+        "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+    }
+
+    result = runner.run_live_cell(cell_input, tmp_path / "cell", env={})
+
+    assert result["status"] == "PASS"
+    assert (tmp_path / "cell" / "battle-report.md").read_text(
+        encoding="utf-8"
+    ) == "# nested fixture\n"
 
 
 def test_missing_prerequisites_mark_cell_not_run_with_reasons(tmp_path: Path):
