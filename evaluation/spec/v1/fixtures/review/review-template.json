@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "eval_spec": "eval-spec-v1",
+  "evidence_kind": "human_review_requested",
+  "blind_requests": [],
+  "reviews": [],
+  "required_reviewer_count": 2
+}

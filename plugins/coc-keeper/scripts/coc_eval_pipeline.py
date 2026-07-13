@@ -18,9 +18,18 @@ from typing import Any, Callable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
+import coc_eval_calibration as calibration
 import coc_eval_longrun as longrun
 import coc_eval_matrix as matrix
 import coc_completion_audit as completion_audit
+
+CHAPTER_TRANSITION_CASE = Path("evaluation/spec/v1/cases/chapter-transition.json")
+HOLDOUT_MANIFEST_RELATIVE = Path("evaluation/spec/v1/holdout-manifest.json")
+RELEASE_EXTERNAL_LANE_ORDER = (
+    "chapter_transition",
+    "holdout",
+    "human_calibration",
+)
 
 
 EVAL_SPEC = "eval-spec-v1"
@@ -1013,6 +1022,139 @@ def verify_lane_artifacts(
         "eval_spec": EVAL_SPEC,
         "status": "FAIL" if findings else "PASS",
         "findings": findings,
+    }
+
+
+def _load_chapter_requirements(root: Path) -> dict[str, Any]:
+    payload = _read_json(root / CHAPTER_TRANSITION_CASE)
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != 1
+        or payload.get("eval_spec") != EVAL_SPEC
+    ):
+        raise ValueError("chapter-transition case contract mismatch")
+    lanes = payload.get("lanes")
+    if not isinstance(lanes, list) or not lanes:
+        raise ValueError("chapter-transition lanes missing")
+    lane = lanes[0]
+    if not isinstance(lane, dict) or not isinstance(lane.get("requirements"), dict):
+        raise ValueError("chapter-transition requirements missing")
+    return dict(lane["requirements"])
+
+
+def _missing_lane(lane_id: str, reason: str) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "lane_id": lane_id,
+        "status": "NOT_RUN",
+        "not_run_reasons": [reason],
+    }
+
+
+def run_release_external_gates(
+    *,
+    root: Path | str,
+    output: Path | str,
+    chapter_run: Path | str | None,
+    holdout_bundle: Path | str | None,
+    calibration_reviews: Path | str | None,
+    judge_requests: list[dict[str, Any]] | None = None,
+    holdout_manifest: Path | str | None = None,
+) -> dict[str, Any]:
+    """Aggregate release chapter/holdout/human gates without fabricating evidence."""
+    repo = Path(root).resolve()
+    out = Path(output).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    artifacts_dir = out / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    blind_requests = calibration.sanitize_blind_requests(judge_requests)
+    review_bundle = calibration.build_human_review_bundle(
+        blind_requests=blind_requests
+    )
+    bundle_path = _write_json_atomic(
+        artifacts_dir / "human-review-bundle.json", review_bundle
+    )
+
+    missing: list[str] = []
+    lanes: dict[str, dict[str, Any]] = {}
+
+    if chapter_run is None:
+        missing.append("chapter_run")
+        lanes["chapter_transition"] = _missing_lane(
+            "chapter_transition", "chapter_run_missing"
+        )
+    else:
+        requirements = _load_chapter_requirements(repo)
+        chapter_result = longrun.validate_chapter_transition(
+            chapter_run, requirements
+        )
+        lanes["chapter_transition"] = dict(chapter_result)
+        lanes["chapter_transition"]["lane_id"] = "chapter_transition"
+
+    if holdout_bundle is None:
+        missing.append("holdout_bundle")
+        lanes["holdout"] = _missing_lane("holdout", "holdout_bundle_missing")
+    else:
+        manifest_path = (
+            Path(holdout_manifest)
+            if holdout_manifest is not None
+            else repo / HOLDOUT_MANIFEST_RELATIVE
+        )
+        holdout_result = calibration.validate_holdout_bundle(
+            manifest_path, holdout_bundle
+        )
+        lanes["holdout"] = dict(holdout_result)
+        lanes["holdout"]["lane_id"] = "holdout"
+
+    if calibration_reviews is None:
+        missing.append("human_calibration")
+        lanes["human_calibration"] = _missing_lane(
+            "human_calibration", "calibration_reviews_missing"
+        )
+    else:
+        calibration_result = calibration.evaluate_calibration_evidence(
+            calibration_reviews
+        )
+        lanes["human_calibration"] = dict(calibration_result)
+        lanes["human_calibration"]["lane_id"] = "human_calibration"
+
+    status = aggregate_lane_status(lanes)
+    if status == "PASS" and missing:
+        status = "NOT_RUN"
+    elif status not in {"FAIL", "INELIGIBLE"} and missing:
+        status = "NOT_RUN"
+
+    not_run_reasons: list[str] = []
+    for key in ("chapter_run", "holdout_bundle", "human_calibration"):
+        if key in missing:
+            not_run_reasons.append(f"missing:{key}")
+    for lane_id in RELEASE_EXTERNAL_LANE_ORDER:
+        lane = lanes[lane_id]
+        for reason in _reason_list(
+            lane.get("not_run_reasons"), label=f"{lane_id}.not_run_reasons"
+        ):
+            namespaced = f"{lane_id}:{reason}"
+            if namespaced not in not_run_reasons:
+                not_run_reasons.append(namespaced)
+
+    artifact_hashes = {
+        bundle_path.relative_to(out).as_posix(): _sha256_file(bundle_path)
+    }
+    return {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "suite": "release",
+        "status": status,
+        "missing": missing,
+        "not_run_reasons": not_run_reasons,
+        "lanes": lanes,
+        "lane_statuses": {
+            lane_id: lanes[lane_id]["status"] for lane_id in RELEASE_EXTERNAL_LANE_ORDER
+        },
+        "human_review_bundle_path": bundle_path.relative_to(out).as_posix(),
+        "artifact_hashes": artifact_hashes,
     }
 
 

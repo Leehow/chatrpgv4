@@ -484,6 +484,9 @@ def run_suite(
     baseline: Path | None = None,
     matrix_limit: int | None = None,
     timeout: float = 120.0,
+    chapter_run: Path | None = None,
+    holdout_bundle: Path | None = None,
+    calibration_reviews: Path | None = None,
 ) -> dict[str, Any]:
     root = root.resolve()
     manifest = contract.load_benchmark_manifest(root)
@@ -513,6 +516,38 @@ def run_suite(
                 "reason": "suite requires capabilities not implemented by this benchmark version",
             }
         )
+        _write_json(manifest_path, run_manifest)
+        return run_manifest
+
+    if suite == "release":
+        external = pipeline.run_release_external_gates(
+            root=root,
+            output=out,
+            chapter_run=chapter_run,
+            holdout_bundle=holdout_bundle,
+            calibration_reviews=calibration_reviews,
+            judge_requests=[],
+        )
+        run_manifest.update(
+            {
+                "completed_at": _utc_now(),
+                "status": external["status"],
+                "missing_capabilities": [],
+                "missing": list(external.get("missing") or []),
+                "not_run_reasons": list(external.get("not_run_reasons") or []),
+                "lanes": external.get("lanes") or {},
+                "lane_statuses": external.get("lane_statuses") or {},
+                "human_review_bundle_path": external.get("human_review_bundle_path"),
+                "artifact_hashes": dict(external.get("artifact_hashes") or {}),
+                "reason": (
+                    "release external evidence incomplete"
+                    if external["status"] == "NOT_RUN"
+                    else None
+                ),
+            }
+        )
+        if run_manifest["reason"] is None:
+            run_manifest.pop("reason", None)
         _write_json(manifest_path, run_manifest)
         return run_manifest
 
@@ -637,6 +672,21 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--matrix-limit", type=_positive_int)
     run.add_argument("--timeout", type=_positive_float, default=120.0)
     run.add_argument(
+        "--chapter-run",
+        type=Path,
+        help="release only: directory containing chapter-transition evidence",
+    )
+    run.add_argument(
+        "--holdout-bundle",
+        type=Path,
+        help="release only: directory containing separately supplied holdout artifacts",
+    )
+    run.add_argument(
+        "--calibration-reviews",
+        type=Path,
+        help="release only: path to genuine human calibration reviews JSON",
+    )
+    run.add_argument(
         "--host-id",
         default=os.environ.get("COC_EVAL_HOST_ID", "local"),
         choices=("codex", "zcode", "cursor", "ci", "local"),
@@ -736,6 +786,9 @@ def main(argv: list[str] | None = None) -> int:
                 baseline=args.baseline,
                 matrix_limit=args.matrix_limit,
                 timeout=args.timeout,
+                chapter_run=getattr(args, "chapter_run", None),
+                holdout_bundle=getattr(args, "holdout_bundle", None),
+                calibration_reviews=getattr(args, "calibration_reviews", None),
             )
         elif args.command == "report":
             payload = contract.compile_report_contract(

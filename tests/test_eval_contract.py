@@ -139,15 +139,16 @@ def test_benchmark_manifest_exposes_only_named_suites():
         contract.resolve_suite(manifest, "whatever-this-agent-invented")
 
 
-def test_release_suite_promotes_nightly_software_but_keeps_task_six_gates():
+def test_release_suite_promotes_task_six_software_but_keeps_external_evidence_gates():
     contract = contract_module()
     manifest = contract.load_benchmark_manifest(REPO)
     release = contract.resolve_suite(manifest, "release")
 
     implemented = set(manifest["implemented_capabilities"])
     assert {"ai_player_matrix", "semantic_judge", "long_memory"} <= implemented
-    assert {"chapter_transition", "human_calibration"} <= (
-        set(release["required_capabilities"]) - implemented
+    assert {"chapter_transition", "human_calibration"} <= implemented
+    assert {"chapter_transition", "human_calibration"} <= set(
+        release["required_capabilities"]
     )
 
 
@@ -386,7 +387,7 @@ def test_cli_rejects_agent_invented_suite(capsys):
     assert "unknown evaluation suite" in capsys.readouterr().err
 
 
-def test_release_suite_is_not_run_until_required_capabilities_exist(
+def test_release_suite_is_not_run_until_external_evidence_exists(
     tmp_path, capsys
 ):
     cli = cli_module()
@@ -407,11 +408,17 @@ def test_release_suite_is_not_run_until_required_capabilities_exist(
 
     assert code == 2
     assert payload["status"] == "NOT_RUN"
-    assert set(payload["missing_capabilities"]) == {
-        "chapter_transition",
+    assert payload.get("missing_capabilities") in (None, [])
+    assert set(payload["missing"]) == {
+        "chapter_run",
+        "holdout_bundle",
         "human_calibration",
     }
-    assert "lanes" not in payload
+    bundle_path = tmp_path / "out" / "artifacts" / "human-review-bundle.json"
+    assert bundle_path.is_file()
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    assert bundle["reviews"] == []
+    assert bundle["evidence_kind"] == "human_review_requested"
 
 
 def test_verify_cli_reports_ineligible_without_false_pass(tmp_path, capsys):

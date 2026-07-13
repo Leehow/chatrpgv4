@@ -11,7 +11,9 @@
     "baseline_identity_compare",
     "ai_player_matrix",
     "semantic_judge",
-    "long_memory"
+    "long_memory",
+    "chapter_transition",
+    "human_calibration"
   ],
   "matrix": {
     "schema_version": 1,

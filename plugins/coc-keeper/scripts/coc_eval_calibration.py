@@ -671,6 +671,88 @@ def validate_holdout_bundle(
 
 
 
+REQUIRED_REVIEWER_COUNT = 2
+FORBIDDEN_BLIND_REQUEST_KEYS = frozenset(
+    {
+        "baseline",
+        "candidate",
+        "baseline_label",
+        "candidate_label",
+        "side",
+        "mapping",
+        "label_mapping",
+        "keeper_secret",
+        "secrets",
+        "expected_route",
+        "expected_outcome",
+    }
+)
+
+
+def sanitize_blind_requests(requests: Any) -> list[dict[str, Any]]:
+    """Return blind judge requests stripped of baseline/candidate labels and secrets."""
+    if requests is None:
+        return []
+    if not isinstance(requests, list):
+        raise ValueError("judge_requests must be a list")
+    cleaned: list[dict[str, Any]] = []
+    for index, item in enumerate(requests):
+        if not isinstance(item, dict):
+            raise ValueError(f"judge_requests[{index}] must be an object")
+        leaked = sorted(FORBIDDEN_BLIND_REQUEST_KEYS.intersection(item))
+        if leaked:
+            raise ValueError(
+                f"judge_requests[{index}] contains forbidden keys: {leaked}"
+            )
+        payload = {
+            key: value
+            for key, value in item.items()
+            if key not in FORBIDDEN_BLIND_REQUEST_KEYS
+        }
+        cleaned.append(payload)
+    return cleaned
+
+
+def build_human_review_bundle(
+    *,
+    blind_requests: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a ready-to-fill human review bundle with empty reviews."""
+    return {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "evidence_kind": "human_review_requested",
+        "blind_requests": list(blind_requests or []),
+        "reviews": [],
+        "required_reviewer_count": REQUIRED_REVIEWER_COUNT,
+    }
+
+
+def evaluate_calibration_evidence(reviews: Any) -> dict[str, Any]:
+    """Validate genuine reviews and compute agreement without synthesizing fields."""
+    validation = validate_calibration_reviews(reviews)
+    if validation["status"] != "PASS":
+        return {
+            "schema_version": 1,
+            "eval_spec": EVAL_SPEC,
+            "status": validation["status"],
+            "evidence_kind": "fixture_or_supplied_reviews",
+            "validation": validation,
+            "agreement": None,
+            "findings": list(validation.get("findings") or []),
+        }
+    agreement = compute_agreement(reviews)
+    return {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "status": agreement["status"],
+        "evidence_kind": "fixture_or_supplied_reviews",
+        "validation": validation,
+        "agreement": agreement,
+        "findings": list(agreement.get("findings") or []),
+    }
+
+
 def run_calibrate_cli(
     *,
     reviews: Path | str,
