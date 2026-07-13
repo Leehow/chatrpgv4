@@ -3,17 +3,41 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import sys
+import uuid
 from pathlib import Path
+
+import pytest
 
 
 REPO = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_longrun.py"
+CONTINUITY_RUNNER_PATH = (
+    REPO
+    / "plugins"
+    / "coc-keeper"
+    / "scripts"
+    / "coc_eval_continuity_runner.py"
+)
+CONTINUITY_EVIDENCE_PATH = (
+    REPO
+    / "plugins"
+    / "coc-keeper"
+    / "scripts"
+    / "coc_eval_continuity_evidence.py"
+)
 LONG_MEMORY_PATH = REPO / "evaluation" / "spec" / "v1" / "cases" / "long-memory.json"
 CHAPTER_TRANSITION_PATH = (
     REPO / "evaluation" / "spec" / "v1" / "cases" / "chapter-transition.json"
 )
 REGISTRY_PATH = REPO / "evaluation" / "spec" / "v1" / "case-registry.json"
+TRUSTED_RUNNERS_PATH = (
+    REPO / "plugins" / "coc-keeper" / "references" / "trusted-playtest-runners.json"
+)
+LIVE_CELL_PATH = (
+    REPO / "plugins" / "coc-keeper" / "scripts" / "coc_eval_live_cell.py"
+)
 
 RECALL_ANCHORS = (
     "inventory",
@@ -38,6 +62,24 @@ def _load():
     sys.modules["coc_eval_longrun_test"] = module
     spec.loader.exec_module(module)
     return module
+
+
+def test_longrun_is_compatibility_facade_over_split_continuity_modules():
+    runner_source = CONTINUITY_RUNNER_PATH.read_text(encoding="utf-8")
+    evidence_source = CONTINUITY_EVIDENCE_PATH.read_text(encoding="utf-8")
+    facade_source = MODULE_PATH.read_text(encoding="utf-8")
+
+    assert "def run_continuity_lane(" in runner_source
+    assert "def validate_continuity_run(" not in runner_source
+    assert "def validate_continuity_run(" in evidence_source
+    assert "def _checkpoint_manifest_file_hashes(" in evidence_source
+    assert "def _invocation_ledger_contract_ok(" in evidence_source
+    assert "def _continuity_recall_receipt_ok(" in evidence_source
+    assert "def _continuity_secret_audit_ok(" in evidence_source
+    assert "_load_live_cell" not in evidence_source
+    assert "coc_eval_continuity_runner.py" in facade_source
+    assert "coc_eval_continuity_evidence.py" in facade_source
+    assert "def validate_chapter_transition(" in facade_source
 
 
 def _sha256_text(text: str) -> str:
@@ -68,6 +110,31 @@ def _artifact(run_dir: Path, path: Path) -> dict[str, str]:
     return {
         "artifact": path.relative_to(run_dir).as_posix(),
         "sha256": _sha256_file(path),
+    }
+
+
+def _trusted_runner(role: str) -> dict:
+    registry = json.loads(TRUSTED_RUNNERS_PATH.read_text(encoding="utf-8"))
+    return dict(registry["runners"][role])
+
+
+def _runner_attestation() -> dict:
+    player = _trusted_runner("player")
+    narrator = _trusted_runner("narrator")
+    return {
+        "segment": {
+            "kind": "python_function",
+            "identity": "coc-eval-live-segment@1",
+            "path": "plugins/coc-keeper/scripts/coc_eval_live_cell.py",
+            "sha256": _sha256_file(LIVE_CELL_PATH),
+        },
+        "player": {
+            key: player[key] for key in ("kind", "identity", "path", "sha256")
+        },
+        "narrator": {
+            key: narrator[key]
+            for key in ("kind", "identity", "path", "sha256")
+        },
     }
 
 
@@ -179,45 +246,28 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
                 }
             )
         campaign_root = ".coc/campaigns/eval-neutral"
-        roots = [
-            {
-                "path": f"{campaign_root}/{name}",
-                "role": role,
-                "present": present,
-            }
-            for role, values in (
-                (
-                    "mutable_campaign_state",
-                    (("save", True), ("memory", False), ("logs", True)),
-                ),
-                (
-                    "campaign_input",
-                    (("source", False), ("scenario", True), ("index", False)),
-                ),
+        file_records: dict[str, dict] = {}
+
+        def add_present(path: str, role: str, marker: str | None = None) -> None:
+            file_hash, size = source_file_receipts.get(
+                path,
+                (_sha256_text(marker or path), len((marker or path).encode("utf-8"))),
             )
-            for name, present in values
-        ]
-        files = [
-            {
-                "path": f"{campaign_root}/campaign.json",
-                "role": "campaign_config",
+            file_records[path] = {
+                "path": path,
+                "role": role,
                 "present": True,
-                "sha256": _sha256_text("campaign"),
-                "size": len("campaign"),
-            },
-            {
-                "path": f"{campaign_root}/party.json",
-                "role": "campaign_config",
-                "present": False,
-            },
-            {
-                "path": ".coc/runtime.json",
-                "role": "runtime_config",
-                "present": True,
-                "sha256": _sha256_text("runtime"),
-                "size": len("runtime"),
-            },
-        ]
+                "sha256": file_hash,
+                "size": size,
+            }
+
+        add_present(f"{campaign_root}/campaign.json", "campaign_config", "campaign")
+        file_records[f"{campaign_root}/party.json"] = {
+            "path": f"{campaign_root}/party.json",
+            "role": "campaign_config",
+            "present": False,
+        }
+        add_present(".coc/runtime.json", "runtime_config", "runtime")
         for filename in (
             "creation.json",
             "character.json",
@@ -226,42 +276,86 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
             "inventory-history.jsonl",
         ):
             source_path = f".coc/investigators/inv1/{filename}"
-            present = filename in {
-                "creation.json",
-                "character.json",
-                "history.jsonl",
-                "inventory-history.jsonl",
-            }
-            record = {
-                "path": source_path,
-                "role": "investigator_state",
-                "present": present,
-            }
-            if present:
-                file_hash, size = source_file_receipts.get(
-                    source_path, (_sha256_text(filename), len(filename))
-                )
-                record.update({"sha256": file_hash, "size": size})
-            files.append(record)
-        for source_path, (file_hash, size) in source_file_receipts.items():
+            add_present(source_path, "investigator_state", filename)
+        for filename in (
+            "world-state.json",
+            "pacing-state.json",
+            "flags.json",
+            "investigator-state/inv1.json",
+            "npc-state.json",
+            "threat-state.json",
+            "subsystem-state.json",
+        ):
+            add_present(
+                f"{campaign_root}/save/{filename}",
+                "mutable_campaign_state",
+                filename,
+            )
+        for filename in (
+            "events.jsonl",
+            "rolls.jsonl",
+            "subsystem-results.jsonl",
+        ):
+            add_present(
+                f"{campaign_root}/logs/{filename}",
+                "mutable_campaign_state",
+                filename,
+            )
+        for filename in (
+            "story-graph.json",
+            "clue-graph.json",
+            "npc-agendas.json",
+            "threat-fronts.json",
+            "pacing-map.json",
+            "improvisation-boundaries.json",
+            "module-meta.json",
+        ):
+            add_present(
+                f"{campaign_root}/scenario/{filename}",
+                "campaign_input",
+                filename,
+            )
+        for source_path in source_file_receipts:
             if source_path.startswith(f"{campaign_root}/"):
-                files.append(
+                add_present(source_path, "mutable_campaign_state")
+        files = sorted(file_records.values(), key=lambda item: item["path"])
+        roots = []
+        for role, values in (
+            (
+                "mutable_campaign_state",
+                (("save", True), ("memory", True), ("logs", True)),
+            ),
+            (
+                "campaign_input",
+                (("source", False), ("scenario", True), ("index", False)),
+            ),
+        ):
+            for name, present in values:
+                path = f"{campaign_root}/{name}"
+                entries = sorted(
+                    item["path"].removeprefix(f"{path}/")
+                    for item in files
+                    if item["present"] is True
+                    and item["path"].startswith(f"{path}/")
+                )
+                roots.append(
                     {
-                        "path": source_path,
-                        "role": "mutable_campaign_state",
-                        "present": True,
-                        "sha256": file_hash,
-                        "size": size,
+                        "path": path,
+                        "role": role,
+                        "present": present,
+                        "entries": entries,
+                        "entry_count": len(entries),
+                        "entry_list_sha256": _sha256_json(entries),
                     }
                 )
         checkpoint_manifest = {
-            "schema_version": 1,
+            "schema_version": 2,
             "eval_spec": "eval-spec-v1",
             "kind": "continuity-consumed-inputs",
             "campaign_id": "eval-neutral",
             "investigator_id": "inv1",
             "roots": sorted(roots, key=lambda item: item["path"]),
-            "files": sorted(files, key=lambda item: item["path"]),
+            "files": files,
             "excluded_path_classes": ["lock"],
         }
         checkpoint_snapshot = _sha256_json(checkpoint_manifest)
@@ -276,15 +370,16 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
         ledger_hashes = []
         for index, accepted_turns in enumerate(ranges, 1):
             segment_dir = run_dir / "segments" / f"segment-{index}"
-            invocation_id = f"runner-invocation-{index}"
+            invocation_id = uuid.uuid4().hex
+            turn_bindings = [
+                {"turn_number": turn, "decision_id": f"decision-{turn}"}
+                for turn in accepted_turns
+            ]
             ledger = segment_dir / "runner-invocations.jsonl"
             ledger.parent.mkdir(parents=True, exist_ok=True)
-            player_runner = (
-                REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
-            )
-            narrator_runner = (
-                REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
-            )
+            trusted = {
+                role: _trusted_runner(role) for role in ("player", "narrator")
+            }
             secret_receipt = {
                 "schema_version": 1,
                 "status": "passed",
@@ -312,21 +407,24 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
                 "coverage_digest": "8956d77bceba9eabb4de317a9e05461d2a171f7a9a599138639db15175159e3c",
             }
             rows = []
-            for attempt, turn in enumerate(accepted_turns, 1):
-                for role, runner, model in (
-                    ("player", player_runner, evidence["attestation"]["player_model"]),
-                    ("narrator", narrator_runner, evidence["attestation"]["kp_model"]),
+            for segment_turn, binding in enumerate(turn_bindings, 1):
+                for role, model in (
+                    ("player", evidence["attestation"]["player_model"]),
+                    ("narrator", evidence["attestation"]["kp_model"]),
                 ):
+                    runner = trusted[role]
                     row = {
                         "schema_version": 1,
                         "segment_invocation_id": invocation_id,
+                        "segment_turn": segment_turn,
+                        "decision_id": binding["decision_id"],
                         "role": role,
-                        "attempt": attempt,
-                        "transcript_turn": turn,
-                        "runner_kind": "external_model_bridge",
-                        "runner_identity": f"fixture-{role}-adapter",
-                        "runner_path": str(runner),
-                        "runner_sha256": _sha256_file(runner),
+                        "attempt": segment_turn,
+                        "transcript_turn": binding["turn_number"],
+                        "runner_kind": runner["kind"],
+                        "runner_identity": runner["identity"],
+                        "runner_path": str(REPO / runner["path"]),
+                        "runner_sha256": runner["sha256"],
                         "model_identity": model,
                         "outcome": "external_success",
                         "response_mode": "tool",
@@ -357,8 +455,9 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
                 {
                     "schema_version": 1,
                     "eval_spec": "eval-spec-v1",
-                    "source": "live_match.result.metadata",
-                    "metadata": {"run_id": invocation_id},
+                    "source": "coc_eval_live_cell.run_live_segment",
+                    "runner_invocation_id": invocation_id,
+                    "live_match_metadata": {"run_id": f"segment-{index}"},
                 },
             )
             metadata_descriptor = _artifact(run_dir, metadata_path)
@@ -370,16 +469,21 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
                 "schema_version": 1,
                 "eval_spec": "eval-spec-v1",
                 "evidence_class": "external",
+                "runner": "coc_live_match",
                 "logical_session_id": evidence["session_id"],
                 "runner_invocation_id": invocation_id,
                 "runner_invocation_source": {
-                    "kind": "live_match_metadata",
+                    "kind": "runner_issued_uuid",
                     "artifact": local_metadata_descriptor,
-                    "json_pointer": "/metadata/run_id",
+                    "json_pointer": "/runner_invocation_id",
                 },
                 "accepted_turns": accepted_turns,
+                "turn_bindings": turn_bindings,
                 "snapshot_sha256": checkpoint_snapshot,
-                "attestation": evidence["attestation"],
+                "attestation": {
+                    **evidence["attestation"],
+                    "runner": "coc_live_match",
+                },
                 "artifacts": {
                     "invocation_ledger": local_ledger_descriptor,
                     "checkpoint_resume": local_checkpoint_descriptor,
@@ -394,6 +498,7 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
                     "logical_session_id": evidence["session_id"],
                     "runner_invocation_id": invocation_id,
                     "accepted_turns": accepted_turns,
+                    "turn_bindings": turn_bindings,
                     "receipt": _artifact(run_dir, receipt),
                     "invocation_ledger": ledger_descriptor,
                     "checkpoint_manifest": checkpoint_descriptor,
@@ -449,6 +554,104 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
     }
     _write_json(run_dir / "continuity-evidence.json", evidence)
     return evidence
+
+
+def _rehash_segment_ledger(run_dir: Path, evidence: dict, index: int) -> None:
+    segment = evidence["segments"][index - 1]
+    ledger = run_dir / segment["invocation_ledger"]["artifact"]
+    ledger_hash = _sha256_file(ledger)
+    segment["invocation_ledger"]["sha256"] = ledger_hash
+    receipt_path = run_dir / segment["receipt"]["artifact"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["artifacts"]["invocation_ledger"]["sha256"] = ledger_hash
+    _write_json(receipt_path, receipt)
+    segment["receipt"]["sha256"] = _sha256_file(receipt_path)
+    audit_path = run_dir / evidence["secret_audit"]["references"][0]["artifact"]
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit["findings"][index - 1]["invocation_ledger_sha256"] = ledger_hash
+    _write_json(audit_path, audit)
+    audit_hash = _sha256_file(audit_path)
+    for reference in evidence["secret_audit"]["references"]:
+        reference["sha256"] = audit_hash
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+
+def _rewrite_segment_invocation_id(
+    run_dir: Path, evidence: dict, index: int, invocation_id: str
+) -> None:
+    segment = evidence["segments"][index - 1]
+    segment["runner_invocation_id"] = invocation_id
+    ledger = run_dir / segment["invocation_ledger"]["artifact"]
+    rows = [
+        json.loads(line)
+        for line in ledger.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    for row in rows:
+        row["segment_invocation_id"] = invocation_id
+    ledger.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    metadata_path = run_dir / segment["runner_metadata"]["artifact"]
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["runner_invocation_id"] = invocation_id
+    _write_json(metadata_path, metadata)
+    metadata_hash = _sha256_file(metadata_path)
+    segment["runner_metadata"]["sha256"] = metadata_hash
+    receipt_path = run_dir / segment["receipt"]["artifact"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["runner_invocation_id"] = invocation_id
+    receipt["runner_invocation_source"]["artifact"]["sha256"] = metadata_hash
+    receipt["artifacts"]["run_metadata"]["sha256"] = metadata_hash
+    _write_json(receipt_path, receipt)
+    _rehash_segment_ledger(run_dir, evidence, index)
+
+
+def _rewrite_checkpoint_roots(manifest: dict) -> None:
+    present_paths = {
+        item["path"]
+        for item in manifest["files"]
+        if item.get("present") is True
+    }
+    for root in manifest["roots"]:
+        entries = sorted(
+            path.removeprefix(f'{root["path"]}/')
+            for path in present_paths
+            if path.startswith(f'{root["path"]}/')
+        )
+        root["entries"] = entries
+        root["entry_count"] = len(entries)
+        root["entry_list_sha256"] = _sha256_json(entries)
+
+
+def _rewrite_all_checkpoints(
+    run_dir: Path, evidence: dict, mutate, *, refresh_roots: bool = True
+) -> None:
+    snapshot_hashes = []
+    for segment in evidence["segments"]:
+        checkpoint = run_dir / segment["checkpoint_manifest"]["artifact"]
+        manifest = json.loads(checkpoint.read_text(encoding="utf-8"))
+        mutate(manifest)
+        if refresh_roots:
+            _rewrite_checkpoint_roots(manifest)
+        _write_json(checkpoint, manifest)
+        checkpoint_file_hash = _sha256_file(checkpoint)
+        snapshot_hash = _sha256_json(manifest)
+        snapshot_hashes.append(snapshot_hash)
+        segment["checkpoint_manifest"]["sha256"] = checkpoint_file_hash
+        segment["checkpoint_snapshot_sha256"] = snapshot_hash
+        receipt_path = run_dir / segment["receipt"]["artifact"]
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["snapshot_sha256"] = snapshot_hash
+        receipt["artifacts"]["checkpoint_resume"][
+            "sha256"
+        ] = checkpoint_file_hash
+        _write_json(receipt_path, receipt)
+        segment["receipt"]["sha256"] = _sha256_file(receipt_path)
+    evidence["restart"]["pre_checkpoint_sha256"] = snapshot_hashes[0]
+    evidence["restart"]["post_checkpoint_sha256"] = snapshot_hashes[1]
+    _write_json(run_dir / "continuity-evidence.json", evidence)
 
 
 def _requirements_for(lane_id: str) -> dict:
@@ -527,7 +730,8 @@ def _complete_continuity_evidence(
         evidence["attestation"] = {
             "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
             "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
-            "runner": "live_match",
+            "runner": "coc_live_match.segmented",
+            "runners": _runner_attestation(),
             "attested": True,
         }
     return evidence
@@ -764,10 +968,12 @@ def test_validate_continuity_external_rejects_duplicate_invocation_ids(tmp_path:
     evidence = _write_continuity_run(
         run_dir, _complete_continuity_evidence(evidence_class="external")
     )
-    evidence["segments"][1]["runner_invocation_id"] = evidence["segments"][0][
-        "runner_invocation_id"
-    ]
-    _write_json(run_dir / "continuity-evidence.json", evidence)
+    _rewrite_segment_invocation_id(
+        run_dir,
+        evidence,
+        2,
+        evidence["segments"][0]["runner_invocation_id"],
+    )
 
     result = mod.validate_continuity_run(
         run_dir, _requirements_for("continuity-25")
@@ -776,6 +982,138 @@ def test_validate_continuity_external_rejects_duplicate_invocation_ids(tmp_path:
     assert result["status"] == "FAIL"
     assert any(
         item["code"] == "external_runner_invocation_id_duplicate"
+        for item in result["findings"]
+    )
+
+
+@pytest.mark.parametrize(
+    "caller_selected_id", ["segment-output-name", "0" * 32]
+)
+def test_validate_continuity_rejects_rehashed_caller_selected_invocation_id(
+    tmp_path: Path, caller_selected_id: str
+):
+    mod = _load()
+    run_dir = tmp_path / "caller-selected-id"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    _rewrite_segment_invocation_id(
+        run_dir, evidence, 1, caller_selected_id
+    )
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "external_runner_invocation_id_invalid"
+        for item in result["findings"]
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["runner", "player_path", "narrator_hash", "segment_identity"],
+)
+def test_validate_continuity_requires_exact_top_runner_identity(
+    tmp_path: Path, mutation: str
+):
+    mod = _load()
+    run_dir = tmp_path / "top-runner"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    if mutation == "runner":
+        evidence["attestation"]["runner"] = "arbitrary-nonempty-runner"
+    elif mutation == "player_path":
+        evidence["attestation"]["runners"]["player"][
+            "path"
+        ] = "runtime/adapters/player/arbitrary.mjs"
+    elif mutation == "narrator_hash":
+        evidence["attestation"]["runners"]["narrator"]["sha256"] = "0" * 64
+    else:
+        evidence["attestation"]["runners"]["segment"][
+            "identity"
+        ] = "arbitrary-segment@1"
+    for segment in evidence["segments"]:
+        receipt_path = run_dir / segment["receipt"]["artifact"]
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["attestation"] = evidence["attestation"]
+        _write_json(receipt_path, receipt)
+        segment["receipt"]["sha256"] = _sha256_file(receipt_path)
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "external_runner_identity_mismatch"
+        for item in result["findings"]
+    )
+
+
+def test_validate_continuity_requires_exact_segment_receipt_runner_identity(
+    tmp_path: Path,
+):
+    mod = _load()
+    run_dir = tmp_path / "receipt-runner"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    segment = evidence["segments"][0]
+    receipt_path = run_dir / segment["receipt"]["artifact"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["runner"] = "arbitrary-nonempty-runner"
+    _write_json(receipt_path, receipt)
+    segment["receipt"]["sha256"] = _sha256_file(receipt_path)
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "segment_receipt_runner_identity_mismatch"
+        for item in result["findings"]
+    )
+
+
+def test_validate_continuity_requires_registry_ledger_runner_identity(
+    tmp_path: Path,
+):
+    mod = _load()
+    run_dir = tmp_path / "ledger-runner"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    segment = evidence["segments"][0]
+    ledger = run_dir / segment["invocation_ledger"]["artifact"]
+    rows = [
+        json.loads(line)
+        for line in ledger.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    next(row for row in rows if row["role"] == "player")[
+        "runner_identity"
+    ] = "arbitrary-nonempty-runner"
+    ledger.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    _rehash_segment_ledger(run_dir, evidence, 1)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "invocation_ledger_contract_invalid"
+        and "runner_identity:player" in item.get("reasons", [])
         for item in result["findings"]
     )
 
@@ -894,6 +1232,305 @@ def test_validate_continuity_rejects_rehashed_incomplete_invocation_ledger(
     assert result["status"] == "FAIL"
     assert any(
         item["code"] == "invocation_ledger_contract_invalid"
+        for item in result["findings"]
+    )
+
+
+@pytest.mark.parametrize("mutation", ["missing", "duplicate", "extra"])
+def test_validate_continuity_requires_exact_role_turn_ledger_coverage(
+    tmp_path: Path, mutation: str
+):
+    mod = _load()
+    run_dir = tmp_path / mutation
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    segment = evidence["segments"][0]
+    ledger = run_dir / segment["invocation_ledger"]["artifact"]
+    rows = [
+        json.loads(line)
+        for line in ledger.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    target = next(
+        row
+        for row in rows
+        if row["role"] == "player" and row["transcript_turn"] == 2
+    )
+    if mutation == "missing":
+        rows.remove(target)
+    elif mutation == "duplicate":
+        rows.append(dict(target))
+    else:
+        extra = dict(target)
+        extra.update(
+            {
+                "attempt": 999,
+                "segment_turn": 999,
+                "transcript_turn": 999,
+                "decision_id": "decision-extra",
+            }
+        )
+        rows.append(extra)
+    ledger.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    _rehash_segment_ledger(run_dir, evidence, 1)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "invocation_ledger_turn_coverage_invalid"
+        for item in result["findings"]
+    )
+
+
+@pytest.mark.parametrize("invalid_turn", [True, 1.0])
+def test_validate_continuity_rejects_bool_or_float_ledger_turn_binding(
+    tmp_path: Path, invalid_turn
+):
+    mod = _load()
+    run_dir = tmp_path / repr(invalid_turn)
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    segment = evidence["segments"][0]
+    ledger = run_dir / segment["invocation_ledger"]["artifact"]
+    rows = [
+        json.loads(line)
+        for line in ledger.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    target = next(
+        row
+        for row in rows
+        if row["role"] == "player" and row["transcript_turn"] == 1
+    )
+    target["transcript_turn"] = invalid_turn
+    target["segment_turn"] = invalid_turn
+    ledger.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    _rehash_segment_ledger(run_dir, evidence, 1)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "invocation_ledger_turn_coverage_invalid"
+        for item in result["findings"]
+    )
+    assert any(
+        item["code"] == "invocation_ledger_contract_invalid"
+        and "turn_field_type:player" in item.get("reasons", [])
+        for item in result["findings"]
+    )
+
+
+def test_validate_continuity_receipt_binds_decision_for_every_accepted_turn(
+    tmp_path: Path,
+):
+    mod = _load()
+    run_dir = tmp_path / "reduced-turn-bindings"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    segment = evidence["segments"][0]
+    receipt_path = run_dir / segment["receipt"]["artifact"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["turn_bindings"].pop()
+    _write_json(receipt_path, receipt)
+    segment["receipt"]["sha256"] = _sha256_file(receipt_path)
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "segment_receipt_turn_bindings_mismatch"
+        for item in result["findings"]
+    )
+
+
+def test_validate_continuity_requires_lane_wide_unique_decision_ids(
+    tmp_path: Path,
+):
+    mod = _load()
+    run_dir = tmp_path / "duplicate-cross-segment-decision"
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    segment = evidence["segments"][1]
+    duplicated = evidence["segments"][0]["turn_bindings"][0]["decision_id"]
+    segment["turn_bindings"][0]["decision_id"] = duplicated
+    ledger = run_dir / segment["invocation_ledger"]["artifact"]
+    rows = [
+        json.loads(line)
+        for line in ledger.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    for row in rows:
+        if row["segment_turn"] == 1:
+            row["decision_id"] = duplicated
+    ledger.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    receipt_path = run_dir / segment["receipt"]["artifact"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["turn_bindings"] = segment["turn_bindings"]
+    _write_json(receipt_path, receipt)
+    _rehash_segment_ledger(run_dir, evidence, 2)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "external_segment_decision_id_duplicate"
+        for item in result["findings"]
+    )
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "save/pacing-state.json",
+        "save/threat-state.json",
+        "save/subsystem-state.json",
+        "scenario/module-meta.json",
+    ],
+)
+def test_validate_continuity_rejects_rehashed_required_checkpoint_omission(
+    tmp_path: Path, relative: str
+):
+    mod = _load()
+    run_dir = tmp_path / relative.replace("/", "-")
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    omitted = f".coc/campaigns/eval-neutral/{relative}"
+
+    def omit(manifest):
+        manifest["files"] = [
+            item for item in manifest["files"] if item["path"] != omitted
+        ]
+
+    _rewrite_all_checkpoints(run_dir, evidence, omit)
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "checkpoint_manifest_required_file_missing"
+        and item.get("path") == omitted
+        for item in result["findings"]
+    )
+
+
+@pytest.mark.parametrize("root_name", ["source", "scenario", "index"])
+def test_validate_continuity_rejects_present_empty_campaign_input_root(
+    tmp_path: Path, root_name: str
+):
+    mod = _load()
+    run_dir = tmp_path / root_name
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    root_path = f".coc/campaigns/eval-neutral/{root_name}"
+
+    def empty_root(manifest):
+        manifest["files"] = [
+            item
+            for item in manifest["files"]
+            if not item["path"].startswith(f"{root_path}/")
+        ]
+        next(item for item in manifest["roots"] if item["path"] == root_path)[
+            "present"
+        ] = True
+
+    _rewrite_all_checkpoints(run_dir, evidence, empty_root)
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "checkpoint_manifest_root_inventory_invalid"
+        and item.get("root") == root_path
+        for item in result["findings"]
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "wrong_count",
+        "wrong_digest",
+        "missing_entry",
+        "extra_entry",
+        "duplicate_entry",
+        "unsorted_entries",
+    ],
+)
+def test_validate_continuity_rejects_rehashed_root_inventory_inconsistency(
+    tmp_path: Path, mutation: str
+):
+    mod = _load()
+    run_dir = tmp_path / mutation
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    root_path = ".coc/campaigns/eval-neutral/scenario"
+
+    def corrupt(manifest):
+        root = next(
+            item for item in manifest["roots"] if item["path"] == root_path
+        )
+        if mutation == "wrong_count":
+            root["entry_count"] += 1
+        elif mutation == "wrong_digest":
+            root["entry_list_sha256"] = "0" * 64
+        elif mutation == "missing_entry":
+            root["entries"].pop()
+            root["entry_count"] = len(root["entries"])
+            root["entry_list_sha256"] = _sha256_json(root["entries"])
+        elif mutation == "extra_entry":
+            root["entries"].append("invented.json")
+            root["entries"].sort()
+            root["entry_count"] = len(root["entries"])
+            root["entry_list_sha256"] = _sha256_json(root["entries"])
+        elif mutation == "duplicate_entry":
+            root["entries"].append(root["entries"][0])
+            root["entries"].sort()
+            root["entry_count"] = len(root["entries"])
+            root["entry_list_sha256"] = _sha256_json(root["entries"])
+        else:
+            root["entries"].reverse()
+            root["entry_list_sha256"] = _sha256_json(root["entries"])
+
+    _rewrite_all_checkpoints(
+        run_dir, evidence, corrupt, refresh_roots=False
+    )
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "checkpoint_manifest_root_inventory_invalid"
+        and item.get("root") == root_path
         for item in result["findings"]
     )
 
@@ -1124,6 +1761,7 @@ def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
     tmp_path: Path, monkeypatch
 ):
     longrun = _load()
+    issued_invocation_ids = []
 
     def external_segment(
         *, start_turn, turn_count, workspace, output, model_roles
@@ -1134,13 +1772,18 @@ def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
                 encoding="utf-8"
             )
         )["session_id"]
-        invocation_id = f"external-run-{start_turn}"
+        invocation_id = uuid.uuid4().hex
+        issued_invocation_ids.append(invocation_id)
         live_cell = longrun._load_live_cell()
         checkpoint_manifest = live_cell._continuity_snapshot_manifest(
             workspace, "eval-neutral", "inv1"
         )
         checkpoint_hash = _sha256_json(checkpoint_manifest)
         accepted_turns = list(range(start_turn, start_turn + turn_count))
+        turn_bindings = [
+            {"turn_number": turn, "decision_id": f"decision-{turn}"}
+            for turn in accepted_turns
+        ]
         ledger = output / "runner-invocations.jsonl"
         player_runner = (
             REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
@@ -1152,19 +1795,22 @@ def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
             [], [], []
         )
         rows = []
-        for attempt, turn in enumerate(accepted_turns, 1):
+        for segment_turn, binding in enumerate(turn_bindings, 1):
             for role, runner, model in (
                 ("player", player_runner, model_roles["player"]),
                 ("narrator", narrator_runner, model_roles["kp"]),
             ):
+                trusted = _trusted_runner(role)
                 row = {
                     "schema_version": 1,
                     "segment_invocation_id": invocation_id,
+                    "segment_turn": segment_turn,
+                    "decision_id": binding["decision_id"],
                     "role": role,
-                    "attempt": attempt,
-                    "transcript_turn": turn,
+                    "attempt": segment_turn,
+                    "transcript_turn": binding["turn_number"],
                     "runner_kind": "external_model_bridge",
-                    "runner_identity": f"fixture-{role}-adapter",
+                    "runner_identity": trusted["identity"],
                     "runner_path": str(runner),
                     "runner_sha256": _sha256_file(runner),
                     "model_identity": model,
@@ -1189,11 +1835,12 @@ def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
         }
         metadata = _write_json(
             output / "continuity-run-metadata.json",
-            {
-                "schema_version": 1,
-                "eval_spec": "eval-spec-v1",
-                "source": "live_match.result.metadata",
-                "metadata": {"run_id": invocation_id},
+                {
+                    "schema_version": 1,
+                    "eval_spec": "eval-spec-v1",
+                    "source": "coc_eval_live_cell.run_live_segment",
+                    "runner_invocation_id": invocation_id,
+                    "live_match_metadata": {"run_id": output.name},
             },
         )
         local_metadata = {
@@ -1204,20 +1851,23 @@ def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
             "player_model": model_roles["player"],
             "kp_model": model_roles["kp"],
             "runner": "coc_live_match",
+            "runners": _runner_attestation(),
             "attested": True,
         }
         receipt = {
             "schema_version": 1,
             "eval_spec": "eval-spec-v1",
             "evidence_class": "external",
+            "runner": "coc_live_match",
             "logical_session_id": session_id,
             "runner_invocation_id": invocation_id,
             "runner_invocation_source": {
-                "kind": "live_match_metadata",
+                "kind": "runner_issued_uuid",
                 "artifact": local_metadata,
-                "json_pointer": "/metadata/run_id",
+                "json_pointer": "/runner_invocation_id",
             },
             "accepted_turns": accepted_turns,
+            "turn_bindings": turn_bindings,
             "snapshot_sha256": checkpoint_hash,
             "attestation": attestation,
             "artifacts": {
@@ -1248,10 +1898,9 @@ def test_continuity_runner_rebases_real_segment_receipts_and_passes_validation(
 
     assert result["status"] == "PASS"
     assert result["validation"]["gameplay_evidence"] is True
-    assert [item["runner_invocation_id"] for item in result["segments"]] == [
-        "external-run-1",
-        "external-run-14",
-    ]
+    assert [
+        item["runner_invocation_id"] for item in result["segments"]
+    ] == issued_invocation_ids
     assert result["segments"][0]["receipt"]["artifact"] == (
         "segments/segment-1/continuity-segment.json"
     )

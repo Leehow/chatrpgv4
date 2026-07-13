@@ -4,9 +4,12 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import stat
 import sys
+import uuid
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -85,19 +88,26 @@ def _write_json(path: Path, payload: object) -> Path:
 
 
 def _write_attested_live_artifacts(
-    runner, run_dir: Path, *, include_runners: bool = True
+    runner,
+    run_dir: Path,
+    *,
+    include_runners: bool = True,
+    turns: tuple[int, ...] = (1,),
 ) -> dict:
     player_model = {"provider": "coding-relay", "id": "gpt-5.6-luna"}
     kp_model = {"provider": "zhipu-coding", "id": "glm-5.2"}
     player_path = REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
     narrator_path = REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
     audit = runner.live_match.secret_audit.audit_secret_claims([], [], [])
-    rows = [
-        {
+    rows = []
+    for attempt, turn in enumerate(turns, 1):
+        rows.extend(
+            [
+                {
             "schema_version": 1,
             "role": "player",
-            "attempt": 1,
-            "transcript_turn": 1,
+            "attempt": attempt,
+            "transcript_turn": turn,
             "runner_kind": "external_model_bridge",
             "runner_identity": "coc-runtime-player-adapter@0.79.9",
             "runner_path": str(player_path),
@@ -106,12 +116,12 @@ def _write_attested_live_artifacts(
             "outcome": "external_success",
             "response_mode": "tool",
             "fallback_kind": None,
-        },
-        {
+                },
+                {
             "schema_version": 1,
             "role": "narrator",
-            "attempt": 1,
-            "transcript_turn": 1,
+            "attempt": attempt,
+            "transcript_turn": turn,
             "runner_kind": "external_model_bridge",
             "runner_identity": "coc-runtime-narrator-adapter@0.79.9",
             "runner_path": str(narrator_path),
@@ -121,8 +131,9 @@ def _write_attested_live_artifacts(
             "response_mode": "tool",
             "fallback_kind": None,
             "secret_audit": audit,
-        },
-    ]
+                },
+            ]
+        )
     ledger = run_dir / "runner-invocations.jsonl"
     _write(
         ledger,
@@ -1022,9 +1033,14 @@ def test_live_segment_returns_exact_canonical_turns_and_attestation(
         run_dir.mkdir(parents=True)
         return {
             "run_dir": str(run_dir),
-            "turns": [{"turn_number": turn} for turn in (1, 2)],
+            "turns": [
+                {"turn_number": turn, "decision_id": f"decision-{turn}"}
+                for turn in (1, 2)
+            ],
             "player_turns": [{"player_text": "fixture"}] * 2,
-            "evidence": _write_attested_live_artifacts(runner, run_dir),
+            "evidence": _write_attested_live_artifacts(
+                runner, run_dir, turns=(1, 2)
+            ),
             "metadata": {
                 "run_id": "segment-1",
                 "runner_kind": "external_model_bridge",
@@ -1048,18 +1064,59 @@ def test_live_segment_returns_exact_canonical_turns_and_attestation(
 
     assert result["accepted_turns"] == [1, 2]
     assert len(result["snapshot_sha256"]) == 64
-    assert result["attestation"] == {
-        "player_model": model_roles["player"],
-        "kp_model": model_roles["kp"],
-        "runner": "coc_live_match",
-        "attested": True,
+    assert result["attestation"]["player_model"] == model_roles["player"]
+    assert result["attestation"]["kp_model"] == model_roles["kp"]
+    assert result["attestation"]["attested"] is True
+    assert result["attestation"]["runners"]["segment"] == {
+        "kind": "python_function",
+        "identity": "coc-eval-live-segment@1",
+        "path": "plugins/coc-keeper/scripts/coc_eval_live_cell.py",
+        "sha256": _sha256(LIVE_CELL_PATH),
     }
-    assert result["runner_invocation_id"] == "segment-1"
-    assert result["runner_invocation_source"]["kind"] == "live_match_metadata"
-    assert result["runner_invocation_source"]["json_pointer"] == "/metadata/run_id"
+    assert result["attestation"]["runners"]["player"]["identity"] == (
+        "coc-runtime-player-adapter@0.79.9"
+    )
+    assert result["attestation"]["runners"]["narrator"]["identity"] == (
+        "coc-runtime-narrator-adapter@0.79.9"
+    )
+    assert re.fullmatch(r"[0-9a-f]{32}", result["runner_invocation_id"])
+    issued_uuid = uuid.UUID(hex=result["runner_invocation_id"])
+    assert issued_uuid.version == 4
+    assert issued_uuid.variant == uuid.RFC_4122
+    assert result["runner_invocation_id"] != "segment-1"
+    assert result["runner_invocation_source"]["kind"] == "runner_issued_uuid"
+    assert result["runner_invocation_source"]["json_pointer"] == (
+        "/runner_invocation_id"
+    )
     metadata_descriptor = result["runner_invocation_source"]["artifact"]
     metadata_artifact = tmp_path / "segment-1" / metadata_descriptor["artifact"]
     assert metadata_descriptor["sha256"] == _sha256(metadata_artifact)
+    metadata_receipt = json.loads(metadata_artifact.read_text(encoding="utf-8"))
+    assert metadata_receipt["source"] == "coc_eval_live_cell.run_live_segment"
+    assert metadata_receipt["runner_invocation_id"] == result[
+        "runner_invocation_id"
+    ]
+    assert metadata_receipt["live_match_metadata"]["run_id"] == "segment-1"
+    ledger_rows = [
+        json.loads(line)
+        for line in (
+            tmp_path / "segment-1" / "runner-invocations.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert Counter((row["role"], row["transcript_turn"]) for row in ledger_rows) == Counter(
+        (role, turn) for turn in (1, 2) for role in ("player", "narrator")
+    )
+    assert all(
+        row["segment_invocation_id"] == result["runner_invocation_id"]
+        and row["segment_turn"] == row["transcript_turn"]
+        and row["decision_id"] == f'decision-{row["transcript_turn"]}'
+        for row in ledger_rows
+    )
+    assert result["turn_bindings"] == [
+        {"turn_number": turn, "decision_id": f"decision-{turn}"}
+        for turn in (1, 2)
+    ]
     assert result["evidence_class"] == "external"
     assert result["artifacts"]["invocation_ledger"]["sha256"] == _sha256(
         tmp_path / "segment-1" / "runner-invocations.jsonl"
@@ -1074,11 +1131,69 @@ def test_live_segment_returns_exact_canonical_turns_and_attestation(
             encoding="utf-8"
         )
     )
+    assert entry_manifest["schema_version"] == 2
     assert entry_manifest["kind"] == "continuity-consumed-inputs"
     assert {item["role"] for item in entry_manifest["roots"]} >= {
         "mutable_campaign_state",
         "campaign_input",
     }
+    present_files = {
+        item["path"]
+        for item in entry_manifest["files"]
+        if item["present"] is True
+    }
+    for root in entry_manifest["roots"]:
+        expected_entries = sorted(
+            path.removeprefix(f'{root["path"]}/')
+            for path in present_files
+            if path.startswith(f'{root["path"]}/')
+        )
+        assert root["entries"] == expected_entries
+        assert root["entry_count"] == len(expected_entries)
+        assert root["entry_list_sha256"] == hashlib.sha256(
+            json.dumps(
+                expected_entries,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+    campaign_root = ".coc/campaigns/eval-neutral"
+    assert {
+        f"{campaign_root}/campaign.json",
+        f"{campaign_root}/save/world-state.json",
+        f"{campaign_root}/save/pacing-state.json",
+        f"{campaign_root}/save/flags.json",
+        f"{campaign_root}/save/investigator-state/inv1.json",
+        f"{campaign_root}/save/threat-state.json",
+        f"{campaign_root}/save/subsystem-state.json",
+        f"{campaign_root}/logs/events.jsonl",
+        f"{campaign_root}/logs/rolls.jsonl",
+        f"{campaign_root}/logs/subsystem-results.jsonl",
+        *{
+            f"{campaign_root}/scenario/{name}"
+            for name in (
+                "story-graph.json",
+                "clue-graph.json",
+                "npc-agendas.json",
+                "threat-fronts.json",
+                "pacing-map.json",
+                "improvisation-boundaries.json",
+                "module-meta.json",
+            )
+        },
+        ".coc/runtime.json",
+        *{
+            f".coc/investigators/inv1/{name}"
+            for name in (
+                "creation.json",
+                "character.json",
+                "history.jsonl",
+                "development.jsonl",
+                "inventory-history.jsonl",
+            )
+        },
+    }.issubset(present_files)
     assert any(
         item["path"] == ".coc/runtime.json" and item["present"] is True
         for item in entry_manifest["files"]
@@ -1093,7 +1208,7 @@ def test_live_segment_returns_exact_canonical_turns_and_attestation(
         run_dir.mkdir(parents=True)
         return {
             "run_dir": str(run_dir),
-            "turns": [{"turn_number": 1}],
+            "turns": [{"turn_number": 1, "decision_id": "decision-second-run"}],
             "evidence": _write_attested_live_artifacts(runner, run_dir),
             "metadata": {"runner_kind": "external_model_bridge"},
         }
@@ -1109,11 +1224,8 @@ def test_live_segment_returns_exact_canonical_turns_and_attestation(
         model_roles=model_roles,
         env={},
     )
-    assert missing_id["runner_invocation_id"] is None
-    assert missing_id["attestation"]["attested"] is False
-    assert "runner_invocation_id_missing:metadata.run_id" in missing_id[
-        "attestation_findings"
-    ]
+    assert re.fullmatch(r"[0-9a-f]{32}", missing_id["runner_invocation_id"])
+    assert missing_id["runner_invocation_id"] != result["runner_invocation_id"]
 
 
 def test_live_segment_rejects_shifted_canonical_turn_ids(tmp_path, monkeypatch):
