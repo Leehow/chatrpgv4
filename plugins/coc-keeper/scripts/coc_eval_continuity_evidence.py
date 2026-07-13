@@ -927,7 +927,7 @@ def _continuity_external_segments_ok(
     run_dir: Path,
     evidence: dict[str, Any],
     findings: list[dict[str, Any]],
-) -> tuple[set[str], list[dict[str, str]]]:
+) -> tuple[dict[int, str], list[dict[str, str]]]:
     segments = evidence.get("segments")
     if not isinstance(segments, list) or len(segments) != 2:
         findings.append(
@@ -937,7 +937,7 @@ def _continuity_external_segments_ok(
                 message="external continuity evidence requires exactly two segment receipts",
             )
         )
-        return set(), [{}, {}]
+        return {}, [{}, {}]
     session_id = evidence.get("session_id")
     restart = evidence.get("restart") if isinstance(evidence.get("restart"), dict) else {}
     restart_at = restart.get("at_turn")
@@ -955,7 +955,7 @@ def _continuity_external_segments_ok(
     )
     top_attestation = evidence.get("attestation")
     invocation_ids: list[str] = []
-    ledger_hashes: set[str] = set()
+    ledger_hashes: dict[int, str] = {}
     checkpoint_files: list[dict[str, str]] = [{}, {}]
     observed_turns: list[int] = []
     observed_decision_ids: list[str] = []
@@ -1086,7 +1086,7 @@ def _continuity_external_segments_ok(
         if isinstance(ledger_descriptor, dict) and _is_sha256(
             ledger_descriptor.get("sha256")
         ):
-            ledger_hashes.add(ledger_descriptor["sha256"])
+            ledger_hashes[index] = ledger_descriptor["sha256"]
         if ledger_path is not None and not ledger_path.read_text(
             encoding="utf-8"
         ).strip():
@@ -1121,6 +1121,19 @@ def _continuity_external_segments_ok(
                     )
                 )
         if receipt is not None:
+            if (
+                type(receipt.get("schema_version")) is not int
+                or receipt.get("schema_version") != 1
+                or receipt.get("eval_spec") != EVAL_SPEC
+            ):
+                findings.append(
+                    _finding(
+                        code="segment_receipt_version_mismatch",
+                        severity="contradictory_evidence",
+                        message=f"external segment {index} receipt must use schema version 1 and eval-spec-v1",
+                        segment_id=index,
+                    )
+                )
             source = receipt.get("runner_invocation_source")
             if (
                 receipt.get("evidence_class") != "external"
@@ -1310,17 +1323,199 @@ def _continuity_external_segments_ok(
     return ledger_hashes, checkpoint_files
 
 
+def _external_secret_audit_contract_ok(
+    run_dir: Path,
+    audit: dict[str, Any],
+    ledger_hashes: dict[int, str],
+    findings: list[dict[str, Any]],
+) -> None:
+    reasons: list[str] = []
+    expected_segments = {1, 2}
+    expected_ledger_hashes = set(ledger_hashes.values())
+    if (
+        set(ledger_hashes) != expected_segments
+        or len(expected_ledger_hashes) != 2
+    ):
+        reasons.append(
+            "segment ledger bindings must contain distinct hashes for segments 1 and 2"
+        )
+
+    if audit.get("status") != "PASS":
+        reasons.append("top-level secret audit status must be PASS")
+    references = audit.get("references")
+    reference_ids: list[str] = []
+    artifact_path: Path | None = None
+    if not isinstance(references, list) or len(references) != 2:
+        reasons.append("exactly two top-level secret audit references are required")
+    else:
+        reference_descriptors: set[tuple[str, str]] = set()
+        for reference in references:
+            if not isinstance(reference, dict) or set(reference) != {
+                "artifact",
+                "sha256",
+                "finding_id",
+            }:
+                reasons.append(
+                    "each top-level reference must use the exact artifact binding schema"
+                )
+                continue
+            finding_id = reference.get("finding_id")
+            if not isinstance(finding_id, str) or not finding_id:
+                reasons.append("each top-level reference must name a finding")
+                continue
+            reference_ids.append(finding_id)
+            artifact = reference.get("artifact")
+            artifact_hash = reference.get("sha256")
+            if not isinstance(artifact, str) or not _is_sha256(artifact_hash):
+                reasons.append(
+                    "each top-level reference must have an artifact path and sha256"
+                )
+                continue
+            reference_descriptors.add((artifact, artifact_hash))
+        if len(reference_ids) != 2 or len(set(reference_ids)) != 2:
+            reasons.append("top-level references must name two unique findings")
+        if len(reference_descriptors) != 1:
+            reasons.append("both top-level references must bind the same aggregate artifact")
+        elif references and isinstance(references[0], dict):
+            artifact_path = _bound_artifact_path(
+                run_dir,
+                references[0],
+                "secret_audit_artifact",
+                findings,
+            )
+            if artifact_path is None:
+                reasons.append("aggregate secret audit artifact must be hash-bound and present")
+
+    payload: dict[str, Any] | None = None
+    if artifact_path is not None:
+        try:
+            payload = _object(_read_json(artifact_path), "secret audit artifact")
+        except ValueError as exc:
+            findings.append(
+                _finding(
+                    code="secret_audit_artifact_invalid",
+                    severity="contradictory_evidence",
+                    message=str(exc),
+                )
+            )
+            reasons.append("aggregate secret audit artifact must be readable JSON")
+
+    if payload is not None:
+        if set(payload) != {
+            "schema_version",
+            "eval_spec",
+            "status",
+            "evidence_class",
+            "structured",
+            "findings",
+        }:
+            reasons.append("aggregate secret audit artifact must use the exact schema")
+        if (
+            type(payload.get("schema_version")) is not int
+            or payload.get("schema_version") != 1
+        ):
+            reasons.append("aggregate secret audit schema_version must be 1")
+        if payload.get("eval_spec") != EVAL_SPEC:
+            reasons.append("aggregate secret audit eval_spec must be eval-spec-v1")
+        if payload.get("status") != "PASS":
+            reasons.append("aggregate secret audit status must be PASS")
+        if payload.get("evidence_class") != "external":
+            reasons.append("aggregate secret audit evidence_class must be external")
+        if payload.get("structured") is not True:
+            reasons.append("aggregate secret audit must be explicitly structured")
+
+        artifact_findings = payload.get("findings")
+        finding_ids: list[str] = []
+        segment_ids: list[int] = []
+        finding_ledger_hashes: list[str] = []
+        segment_ledger_bindings: dict[int, str] = {}
+        if not isinstance(artifact_findings, list) or len(artifact_findings) != 2:
+            reasons.append("aggregate secret audit must contain exactly two findings")
+        else:
+            for finding in artifact_findings:
+                if not isinstance(finding, dict) or set(finding) != {
+                    "finding_id",
+                    "status",
+                    "segment_id",
+                    "invocation_ledger_sha256",
+                    "structured",
+                    "prose_scanned",
+                }:
+                    reasons.append(
+                        "each aggregate finding must use the exact structured schema"
+                    )
+                    continue
+                finding_id = finding.get("finding_id")
+                segment_id = finding.get("segment_id")
+                ledger_hash = finding.get("invocation_ledger_sha256")
+                if not isinstance(finding_id, str) or not finding_id:
+                    reasons.append("each aggregate finding must have a non-empty finding_id")
+                else:
+                    finding_ids.append(finding_id)
+                if (
+                    not isinstance(segment_id, int)
+                    or isinstance(segment_id, bool)
+                    or segment_id not in expected_segments
+                ):
+                    reasons.append("aggregate finding segment_id must be 1 or 2")
+                else:
+                    segment_ids.append(segment_id)
+                    if isinstance(ledger_hash, str):
+                        segment_ledger_bindings[segment_id] = ledger_hash
+                if not _is_sha256(ledger_hash):
+                    reasons.append("aggregate finding ledger hash must be sha256")
+                else:
+                    finding_ledger_hashes.append(ledger_hash)
+                if (
+                    finding.get("status") != "PASS"
+                    or finding.get("structured") is not True
+                    or finding.get("prose_scanned") is not False
+                ):
+                    reasons.append(
+                        "each aggregate finding must be a structured PASS without prose scanning"
+                    )
+
+            if len(finding_ids) != 2 or len(set(finding_ids)) != 2:
+                reasons.append("aggregate finding IDs must be unique")
+            if Counter(segment_ids) != Counter({1: 1, 2: 1}):
+                reasons.append("aggregate findings must cover each segment exactly once")
+            if Counter(finding_ledger_hashes) != Counter(expected_ledger_hashes):
+                reasons.append(
+                    "aggregate findings must bind exactly both segment ledger hashes"
+                )
+            if segment_ledger_bindings != ledger_hashes:
+                reasons.append(
+                    "aggregate finding segment-to-ledger bindings must match segment receipts"
+                )
+            if Counter(reference_ids) != Counter(finding_ids):
+                reasons.append("each aggregate finding must have exactly one top-level reference")
+
+    if reasons:
+        findings.append(
+            _finding(
+                code="continuity_secret_audit_contract_invalid",
+                severity="contradictory_evidence",
+                message="external continuity secret audit must exactly bind both segments",
+                reasons=sorted(set(reasons)),
+            )
+        )
+
+
 def _continuity_secret_audit_ok(
     run_dir: Path,
     evidence: dict[str, Any],
     evidence_class: str | None,
-    ledger_hashes: set[str],
+    ledger_hashes: dict[int, str],
     findings: list[dict[str, Any]],
 ) -> None:
     _secret_audit_ok(evidence, findings)
     audit = evidence.get("secret_audit")
     if not isinstance(audit, dict):
         return
+    if evidence_class == "external":
+        _external_secret_audit_contract_ok(
+            run_dir, audit, ledger_hashes, findings
+        )
     references = audit.get("references")
     if not isinstance(references, list):
         return
@@ -1383,7 +1578,7 @@ def _continuity_secret_audit_ok(
             )
         if evidence_class == "external" and finding.get(
             "invocation_ledger_sha256"
-        ) not in ledger_hashes:
+        ) not in set(ledger_hashes.values()):
             findings.append(
                 _finding(
                     code="secret_audit_ledger_unbound",
@@ -1841,7 +2036,7 @@ def validate_continuity_run(
                 )
             )
 
-    ledger_hashes: set[str] = set()
+    ledger_hashes: dict[int, str] = {}
     checkpoint_files: list[dict[str, str]] | None = None
     if evidence_class == "external":
         ledger_hashes, checkpoint_files = _continuity_external_segments_ok(

@@ -779,6 +779,7 @@ def run_continuity_lane(
         "eval_spec": EVAL_SPEC,
         "status": "PASS" if secret_audit_passed else "FAIL",
         "evidence_class": evidence_class,
+        "structured": True,
         "findings": audit_findings,
     }
     audit_path = _write_json_atomic(

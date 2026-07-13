@@ -526,6 +526,8 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
         finding = {
             "finding_id": f"secret-audit-segment-{index}",
             "status": "PASS",
+            "segment_id": index,
+            "structured": True,
             "prose_scanned": False,
         }
         if ledger_hash is not None:
@@ -538,6 +540,8 @@ def _write_continuity_run(run_dir: Path, evidence: dict) -> dict:
             "schema_version": 1,
             "eval_spec": "eval-spec-v1",
             "status": "PASS",
+            "evidence_class": evidence["evidence_class"],
+            "structured": True,
             "findings": audit_findings,
         },
     )
@@ -572,6 +576,16 @@ def _rehash_segment_ledger(run_dir: Path, evidence: dict, index: int) -> None:
     _write_json(audit_path, audit)
     audit_hash = _sha256_file(audit_path)
     for reference in evidence["secret_audit"]["references"]:
+        reference["sha256"] = audit_hash
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+
+def _rehash_secret_audit(run_dir: Path, evidence: dict) -> None:
+    references = evidence["secret_audit"]["references"]
+    descriptor = references[0]
+    audit_path = run_dir / descriptor["artifact"]
+    audit_hash = _sha256_file(audit_path)
+    for reference in references:
         reference["sha256"] = audit_hash
     _write_json(run_dir / "continuity-evidence.json", evidence)
 
@@ -1158,6 +1172,139 @@ def test_validate_continuity_rejects_tampered_bound_artifacts(tmp_path: Path):
         assert any(
             item["code"] == expected_code for item in result["findings"]
         ), (case, result["findings"])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_segment",
+        "status_fail",
+        "extra",
+        "duplicate",
+        "segment_ledger_swap",
+        "duplicate_segment",
+        "ledger_hash_set",
+    ],
+)
+def test_validate_continuity_rejects_rehashed_secret_audit_contract_mutation(
+    tmp_path: Path, mutation: str
+):
+    mod = _load()
+    run_dir = tmp_path / mutation
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    references = evidence["secret_audit"]["references"]
+    audit_path = run_dir / references[0]["artifact"]
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    if mutation == "missing_segment":
+        audit["findings"].pop()
+        references.pop()
+    elif mutation == "status_fail":
+        audit["status"] = "FAIL"
+        evidence["secret_audit"]["status"] = "FAIL"
+    elif mutation == "extra":
+        extra = {
+            **audit["findings"][0],
+            "finding_id": "secret-audit-segment-extra",
+            "segment_id": 3,
+        }
+        audit["findings"].append(extra)
+        references.append(
+            {**references[0], "finding_id": extra["finding_id"]}
+        )
+    elif mutation == "duplicate":
+        audit["findings"].append(dict(audit["findings"][0]))
+        references.append(dict(references[0]))
+    elif mutation == "segment_ledger_swap":
+        audit["findings"][0]["segment_id"] = 2
+        audit["findings"][1]["segment_id"] = 1
+    elif mutation == "duplicate_segment":
+        audit["findings"][1]["segment_id"] = 1
+    else:
+        audit["findings"][1]["invocation_ledger_sha256"] = "f" * 64
+    _write_json(audit_path, audit)
+    _rehash_secret_audit(run_dir, evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "continuity_secret_audit_contract_invalid"
+        for item in result["findings"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", 2),
+        ("schema_version", True),
+        ("eval_spec", "eval-spec-v0"),
+        ("evidence_class", "fixture"),
+        ("structured", False),
+    ],
+)
+def test_validate_continuity_rejects_rehashed_secret_audit_version_metadata(
+    tmp_path: Path, field: str, value
+):
+    mod = _load()
+    run_dir = tmp_path / field
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    audit_path = run_dir / evidence["secret_audit"]["references"][0]["artifact"]
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit[field] = value
+    _write_json(audit_path, audit)
+    _rehash_secret_audit(run_dir, evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "continuity_secret_audit_contract_invalid"
+        for item in result["findings"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", 2),
+        ("schema_version", True),
+        ("eval_spec", "eval-spec-v0"),
+    ],
+)
+def test_validate_continuity_rejects_rehashed_segment_receipt_version(
+    tmp_path: Path, field: str, value
+):
+    mod = _load()
+    run_dir = tmp_path / field
+    evidence = _write_continuity_run(
+        run_dir, _complete_continuity_evidence(evidence_class="external")
+    )
+    segment = evidence["segments"][0]
+    receipt_path = run_dir / segment["receipt"]["artifact"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt[field] = value
+    _write_json(receipt_path, receipt)
+    segment["receipt"]["sha256"] = _sha256_file(receipt_path)
+    _write_json(run_dir / "continuity-evidence.json", evidence)
+
+    result = mod.validate_continuity_run(
+        run_dir, _requirements_for("continuity-25")
+    )
+
+    assert result["status"] == "FAIL"
+    assert any(
+        item["code"] == "segment_receipt_version_mismatch"
+        for item in result["findings"]
+    )
 
 
 def test_validate_continuity_rejects_rehashed_incomplete_checkpoint_manifest(
