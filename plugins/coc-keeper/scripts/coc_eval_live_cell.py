@@ -64,6 +64,16 @@ _INITIAL_KEYS = frozenset(
         "active_scene",
     }
 )
+_RUNNER_OWNED_DIRECTORIES = ("workspace", "playtest")
+_RUNNER_OWNED_ARTIFACTS = (
+    "run-manifest.json",
+    "transcript.jsonl",
+    "player-view.jsonl",
+    "keeper-view.jsonl",
+    "runner-invocations.jsonl",
+    "battle-report.md",
+    "evidence.json",
+)
 
 
 def _object(value: Any, label: str) -> dict[str, Any]:
@@ -142,6 +152,28 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"malformed structured artifact {path.name}:{number}")
         rows.append(row)
     return rows
+
+
+def _preflight_runner_owned_outputs(destination: Path) -> None:
+    """Reject reused-cell links or wrong node types before any runner write."""
+    for name in _RUNNER_OWNED_DIRECTORIES:
+        root = destination / name
+        if root.is_symlink() or (root.exists() and not root.is_dir()):
+            raise ValueError(f"unsafe runner-owned directory: {name}")
+        if not root.exists():
+            continue
+        for current, directory_names, file_names in os.walk(root, followlinks=False):
+            current_path = Path(current)
+            for child_name in (*directory_names, *file_names):
+                child = current_path / child_name
+                if child.is_symlink():
+                    relative = child.relative_to(destination)
+                    raise ValueError(f"unsafe runner-owned path: {relative}")
+
+    for name in _RUNNER_OWNED_ARTIFACTS:
+        target = destination / name
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise ValueError(f"unsafe runner-owned artifact: {name}")
 
 
 def write_canonical_character(destination: Path, character: dict[str, Any]) -> None:
@@ -550,6 +582,7 @@ def run_live_cell(
 
     destination = Path(cell_dir).resolve()
     destination.mkdir(parents=True, exist_ok=True)
+    _preflight_runner_owned_outputs(destination)
     workspace, campaign_id, investigator_id = materialize_workspace(
         _object(cell.get("scenario"), "scenario"),
         _object(cell.get("initial_state"), "initial_state"),

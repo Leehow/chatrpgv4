@@ -153,6 +153,42 @@ def _canonical_prompt_contract() -> dict:
     }
 
 
+def _canonical_live_cell_input() -> dict:
+    return {
+        "cell_id": "careful__seed-3__nightly",
+        "seed": 3,
+        "max_turns": 1,
+        "scenario": {"scene_id": "neutral-entry"},
+        "initial_state": {
+            "campaign_id": "eval-neutral",
+            "investigator_id": "inv1",
+            "character": {"schema_version": 1, "id": "inv1"},
+            "public_state": {"active_scene_id": "neutral-entry"},
+        },
+        "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+        "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
+        "player_request": {
+            "persona_id": "careful_investigator",
+            "persona_prompt_directives": [
+                "Prefer observation before irreversible action."
+            ],
+        },
+        **_canonical_prompt_contract(),
+    }
+
+
+def _fake_attested_match(runner, run_dir: Path) -> dict:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "battle-report.md").write_text("# fixture\n", encoding="utf-8")
+    return {
+        "run_dir": str(run_dir),
+        "turns": [{"turn_number": 1, "narration": "门轴轻响。"}],
+        "player_turns": [{"player_text": "我检查门锁。"}],
+        "evidence": _write_attested_live_artifacts(runner, run_dir),
+        "metadata": {"runner_kind": "external_model_bridge"},
+    }
+
+
 def _fake_runner_script(path: Path) -> Path:
     script = """#!/usr/bin/env python3
 import json, sys
@@ -644,6 +680,91 @@ def test_live_cell_rejects_missing_or_outside_prompt_source(
     )
     with pytest.raises(ValueError, match=message):
         runner.run_live_cell(cell_input, tmp_path / "cell", env={})
+
+
+@pytest.mark.parametrize("owned_child", ["workspace", "playtest"])
+def test_live_cell_rejects_symlinked_runner_owned_directory(
+    tmp_path, monkeypatch, owned_child
+):
+    runner = _load_live_cell()
+    cell_dir = tmp_path / "cell"
+    cell_dir.mkdir()
+    outside = tmp_path / f"outside-{owned_child}"
+    outside.mkdir()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("outside must remain unchanged\n", encoding="utf-8")
+    (cell_dir / owned_child).symlink_to(outside, target_is_directory=True)
+    before = {path.name: path.read_bytes() for path in outside.iterdir()}
+
+    monkeypatch.setattr(
+        runner.live_match,
+        "run_live_match",
+        lambda *args, **kwargs: _fake_attested_match(
+            runner, Path(kwargs["run_dir"])
+        ),
+    )
+    with pytest.raises(
+        ValueError, match=f"unsafe runner-owned directory: {owned_child}"
+    ):
+        runner.run_live_cell(_canonical_live_cell_input(), cell_dir, env={})
+
+    after = {path.name: path.read_bytes() for path in outside.iterdir()}
+    assert after == before
+    if owned_child == "playtest":
+        assert not (cell_dir / "workspace").exists()
+
+
+@pytest.mark.parametrize("attack", ["symlink", "directory"])
+def test_live_cell_rejects_unsafe_fixed_artifact_target(
+    tmp_path, monkeypatch, attack
+):
+    runner = _load_live_cell()
+    cell_dir = tmp_path / "cell"
+    cell_dir.mkdir()
+    if attack == "symlink":
+        outside = tmp_path / "outside-evidence.json"
+        outside.write_text("outside must remain unchanged\n", encoding="utf-8")
+        (cell_dir / "evidence.json").symlink_to(outside)
+        target = "evidence.json"
+    else:
+        outside = None
+        (cell_dir / "transcript.jsonl").mkdir()
+        target = "transcript.jsonl"
+
+    monkeypatch.setattr(
+        runner.live_match,
+        "run_live_match",
+        lambda *args, **kwargs: _fake_attested_match(
+            runner, Path(kwargs["run_dir"])
+        ),
+    )
+
+    with pytest.raises(ValueError, match=f"unsafe runner-owned artifact: {target}"):
+        runner.run_live_cell(_canonical_live_cell_input(), cell_dir, env={})
+
+    if outside is not None:
+        assert outside.read_text(encoding="utf-8") == (
+            "outside must remain unchanged\n"
+        )
+
+
+def test_live_cell_allows_reuse_of_regular_runner_owned_paths(tmp_path, monkeypatch):
+    runner = _load_live_cell()
+    cell_dir = tmp_path / "cell"
+    monkeypatch.setattr(
+        runner.live_match,
+        "run_live_match",
+        lambda *args, **kwargs: _fake_attested_match(
+            runner, Path(kwargs["run_dir"])
+        ),
+    )
+
+    first = runner.run_live_cell(_canonical_live_cell_input(), cell_dir, env={})
+    second = runner.run_live_cell(_canonical_live_cell_input(), cell_dir, env={})
+
+    assert first["status"] == second["status"] == "PASS"
+    assert (cell_dir / "workspace").is_dir()
+    assert (cell_dir / "playtest").is_dir()
 
 
 def test_missing_prerequisites_mark_cell_not_run_with_reasons(tmp_path: Path):
