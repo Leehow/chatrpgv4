@@ -673,3 +673,103 @@ def test_player_server_does_not_reuse_prior_turn_provider_error(tmp_path):
         "model_identity": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
     }
     assert {request["model"] for request in requests} == {"gpt-5.6-luna"}
+
+
+def test_player_current_turn_retry_success_clears_transient_provider_error(tmp_path):
+    requests = []
+
+    class RetryThenSuccessHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            requests.append(json.loads(self.rfile.read(length)))
+            if len(requests) == 1:
+                body = b'{"error":{"message":"transient test 500"}}'
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+            else:
+                chunks = [
+                    {
+                        "id": "chatcmpl-retry-success",
+                        "object": "chat.completion.chunk",
+                        "model": "gpt-5.6-luna",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {
+                                "role": "assistant",
+                                "content": "I follow the fresh footprints.",
+                            },
+                            "finish_reason": None,
+                        }],
+                    },
+                    {
+                        "id": "chatcmpl-retry-success",
+                        "object": "chat.completion.chunk",
+                        "model": "gpt-5.6-luna",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop",
+                        }],
+                    },
+                ]
+                body = (
+                    "".join(
+                        f"data: {json.dumps(chunk)}\n\n" for chunk in chunks
+                    )
+                    + "data: [DONE]\n\n"
+                ).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format, *_args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), RetryThenSuccessHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        agent_dir = tmp_path / "agent"
+        _write_test_models(
+            agent_dir,
+            base_url=f"http://127.0.0.1:{server.server_port}/v1",
+        )
+        (agent_dir / "settings.json").write_text(
+            json.dumps({
+                "retry": {"enabled": True, "maxRetries": 1, "baseDelayMs": 1},
+            }),
+            encoding="utf-8",
+        )
+        env = dict(os.environ)
+        env["PI_CODING_AGENT_DIR"] = str(agent_dir)
+        env.pop("COC_PLAYER_MODEL_PROVIDER", None)
+        env.pop("COC_PLAYER_MODEL_ID", None)
+        completed = subprocess.run(
+            ["node", str(RUNNER_PATH)],
+            input=json.dumps(_sample_request(), ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+            env=env,
+            cwd=PLAYER_DIR,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert completed.returncode == 0, completed.stdout
+    assert json.loads(completed.stdout) == {
+        "ok": True,
+        "player_text": "I follow the fresh footprints.",
+        "player_notes": (
+            "player_missing_tool_use: model returned prose without coc_player_action"
+        ),
+        "response_mode": "prose_fallback",
+        "model_identity": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
+    }
+    assert len(requests) == 2
+    assert {request["model"] for request in requests} == {"gpt-5.6-luna"}

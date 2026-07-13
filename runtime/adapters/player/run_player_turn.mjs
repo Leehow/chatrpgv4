@@ -511,13 +511,12 @@ export async function runPlayerTurn(request, serverState = null) {
       if (event && event.type === "message_end" && event.message) {
         const msg = event.message;
         if (msg.role === "assistant") {
-          if (
+          capture.assistantError =
             msg.stopReason === "error" &&
             typeof msg.errorMessage === "string" &&
             msg.errorMessage.trim()
-          ) {
-            capture.assistantError = msg.errorMessage.trim();
-          }
+              ? msg.errorMessage.trim()
+              : null;
           if (Array.isArray(msg.content)) {
             const texts = msg.content
               .filter((c) => c && c.type === "text" && typeof c.text === "string")
