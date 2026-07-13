@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 NARRATOR_DIR = REPO / "runtime" / "adapters" / "narrator"
 ADAPTER_PATH = NARRATOR_DIR / "adapter.py"
+RUNNER_PATH = NARRATOR_DIR / "run_narration.mjs"
 
 
 def _load_adapter():
@@ -219,6 +221,74 @@ def test_run_narration_mjs_is_real_bridge_not_placeholder():
     assert "placeholder" not in source.lower()
     pkg = json.loads((NARRATOR_DIR / "package.json").read_text(encoding="utf-8"))
     assert pkg["dependencies"]["@earendil-works/pi-coding-agent"] == "0.79.9"
+
+
+def test_narrator_runner_pins_glm_without_mutating_global_default():
+    source = (NARRATOR_DIR / "run_narration.mjs").read_text(encoding="utf-8")
+    assert "COC_NARRATOR_MODEL_PROVIDER" in source
+    assert "COC_NARRATOR_MODEL_ID" in source
+    assert "createAgentSession({" in source and "modelRegistry" in source
+    assert "setModel(" not in source
+
+
+def test_narrator_resolves_only_the_exact_configured_glm(tmp_path):
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    (agent_dir / "models.json").write_text(
+        json.dumps({
+            "providers": {
+                "zhipu-coding": {
+                    "name": "Test Zhipu",
+                    "baseUrl": "http://127.0.0.1:1/v1",
+                    "api": "openai-completions",
+                    "apiKey": "test-key",
+                    "models": [{
+                        "id": "glm-5.2",
+                        "name": "GLM-5.2",
+                        "contextWindow": 128000,
+                        "maxTokens": 4096,
+                    }],
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+    script = """
+const [moduleUrl, agentDir] = process.argv.slice(1);
+const { resolveRequestedModel } = await import(moduleUrl);
+const { model, modelRegistry } = resolveRequestedModel({
+  agentDir, provider: "zhipu-coding", modelId: "glm-5.2",
+});
+process.stdout.write(JSON.stringify({
+  provider: model.provider,
+  id: model.id,
+  name: model.name,
+  registry_has_exact: modelRegistry.find("zhipu-coding", "glm-5.2") === model,
+}));
+"""
+
+    completed = subprocess.run(
+        [
+            "node",
+            "--input-type=module",
+            "--eval",
+            script,
+            RUNNER_PATH.as_uri(),
+            str(agent_dir),
+        ],
+        text=True,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {
+        "provider": "zhipu-coding",
+        "id": "glm-5.2",
+        "name": "GLM-5.2",
+        "registry_has_exact": True,
+    }
 
 
 def test_run_narration_mjs_surfaces_grounded_envelope_fields():

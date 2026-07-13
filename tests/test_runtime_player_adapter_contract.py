@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import stat
+import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -11,6 +15,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 PLAYER_DIR = REPO / "runtime" / "adapters" / "player"
 ADAPTER_PATH = PLAYER_DIR / "adapter.py"
+RUNNER_PATH = PLAYER_DIR / "run_player_turn.mjs"
 
 
 def _load_adapter():
@@ -72,6 +77,73 @@ sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\\n")
 """
     path.write_text(script, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _write_test_models(
+    agent_dir: Path,
+    *,
+    base_url: str,
+    api_key: str = "test-key",
+    provider: str = "coding-relay",
+    model_id: str = "gpt-5.6",
+) -> None:
+    agent_dir.mkdir()
+    (agent_dir / "models.json").write_text(
+        json.dumps({
+            "providers": {
+                provider: {
+                    "name": f"Test {provider}",
+                    "baseUrl": base_url,
+                    "api": "openai-completions",
+                    "apiKey": api_key,
+                    "models": [{
+                        "id": model_id,
+                        "name": f"Template {model_id}",
+                        "contextWindow": 128000,
+                        "maxTokens": 4096,
+                    }],
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+
+
+def _resolve_player_model(agent_dir: Path, provider: str, model_id: str):
+    script = """
+const [_serverFlag, moduleUrl, agentDir, provider, modelId] = process.argv.slice(1);
+const { resolveRequestedModel } = await import(moduleUrl);
+const { model, modelRegistry } = resolveRequestedModel({ agentDir, provider, modelId });
+const auth = await modelRegistry.getApiKeyAndHeaders(model);
+process.stdout.write(JSON.stringify({
+  identity: { provider: model.provider, id: model.id, name: model.name },
+  request: { api: model.api, baseUrl: model.baseUrl },
+  auth_ok: auth.ok,
+  registry_has_exact: modelRegistry.find(provider, modelId) !== undefined,
+  configured_provider_models: modelRegistry.getAvailable()
+    .filter((candidate) => candidate.provider === provider)
+    .map((candidate) => candidate.id),
+}));
+"""
+    return subprocess.run(
+        [
+            "node",
+            "--input-type=module",
+            "--eval",
+            script,
+            "--",
+            "--server",
+            RUNNER_PATH.as_uri(),
+            str(agent_dir),
+            provider,
+            model_id,
+        ],
+        text=True,
+        input="",
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
 
 
 def test_parse_runner_response_requires_ok_and_player_text():
@@ -385,3 +457,114 @@ def test_run_player_turn_mjs_is_real_bridge_not_placeholder():
     assert "pending_choice_response" in source
     pkg = json.loads((PLAYER_DIR / "package.json").read_text(encoding="utf-8"))
     assert pkg["dependencies"]["@earendil-works/pi-coding-agent"] == "0.79.9"
+
+
+def test_player_runner_pins_luna_without_mutating_global_default():
+    source = (PLAYER_DIR / "run_player_turn.mjs").read_text(encoding="utf-8")
+    assert "COC_PLAYER_MODEL_PROVIDER" in source
+    assert "COC_PLAYER_MODEL_ID" in source
+    assert "createAgentSession({" in source and "modelRegistry" in source
+    assert "setModel(" not in source
+
+
+def test_player_resolves_missing_luna_from_authenticated_relay_template(tmp_path):
+    agent_dir = tmp_path / "agent"
+    _write_test_models(agent_dir, base_url="http://127.0.0.1:1/v1")
+
+    completed = _resolve_player_model(agent_dir, "coding-relay", "gpt-5.6-luna")
+
+    assert completed.returncode == 0, completed.stderr
+    resolved = json.loads(completed.stdout)
+    assert resolved["identity"] == {
+        "provider": "coding-relay",
+        "id": "gpt-5.6-luna",
+        "name": "gpt-5.6-luna",
+    }
+    assert resolved["request"] == {
+        "api": "openai-completions",
+        "baseUrl": "http://127.0.0.1:1/v1",
+    }
+    assert resolved["auth_ok"] is True
+    assert resolved["registry_has_exact"] is False
+    assert resolved["configured_provider_models"] == ["gpt-5.6"]
+
+
+def test_player_dynamic_relay_resolution_still_fails_closed_without_template_auth(
+    tmp_path, monkeypatch
+):
+    authenticated_dir = tmp_path / "authenticated"
+    _write_test_models(authenticated_dir, base_url="http://127.0.0.1:1/v1")
+    unknown = _resolve_player_model(
+        authenticated_dir, "unknown-provider", "gpt-5.6-luna"
+    )
+    assert unknown.returncode != 0
+    assert "requested model unavailable: unknown-provider/gpt-5.6-luna" in unknown.stderr
+
+    unauthenticated_dir = tmp_path / "unauthenticated"
+    missing_key = "COC_TEST_INTENTIONALLY_MISSING_RELAY_KEY"
+    monkeypatch.delenv(missing_key, raising=False)
+    _write_test_models(
+        unauthenticated_dir,
+        base_url="http://127.0.0.1:1/v1",
+        api_key=f"${missing_key}",
+    )
+    unauthenticated = _resolve_player_model(
+        unauthenticated_dir, "coding-relay", "gpt-5.6-luna"
+    )
+    assert unauthenticated.returncode != 0
+    assert "requested model unavailable: coding-relay/gpt-5.6-luna" in (
+        unauthenticated.stderr
+    )
+
+
+def test_player_luna_request_surfaces_endpoint_404_without_model_fallback(tmp_path):
+    requests = []
+
+    class NotFoundHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            requests.append(json.loads(self.rfile.read(length)))
+            body = b'{"error":{"message":"test luna endpoint missing"}}'
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format, *_args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), NotFoundHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        agent_dir = tmp_path / "agent"
+        _write_test_models(
+            agent_dir,
+            base_url=f"http://127.0.0.1:{server.server_port}/v1",
+        )
+        env = dict(os.environ)
+        env["PI_CODING_AGENT_DIR"] = str(agent_dir)
+        env.pop("COC_PLAYER_MODEL_PROVIDER", None)
+        env.pop("COC_PLAYER_MODEL_ID", None)
+        completed = subprocess.run(
+            ["node", str(RUNNER_PATH)],
+            input=json.dumps(_sample_request(), ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+            env=env,
+            cwd=PLAYER_DIR,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert completed.returncode != 0
+    response = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert response["ok"] is False
+    assert "404" in response["error"]
+    assert requests
+    assert {request["model"] for request in requests} == {"gpt-5.6-luna"}

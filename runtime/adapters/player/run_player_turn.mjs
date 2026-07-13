@@ -20,9 +20,11 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import path from "node:path";
 import {
+  AuthStorage,
   createAgentSession,
   createExtensionRuntime,
   DefaultResourceLoader,
+  ModelRegistry,
   SessionManager,
   defineTool,
   getAgentDir,
@@ -53,6 +55,31 @@ const INTENT_CLASSES = [
 
 const PROSE_DEGRADE_NOTE =
   "player_missing_tool_use: model returned prose without coc_player_action";
+
+export function resolveRequestedModel({ agentDir, provider, modelId }) {
+  const authStorage = AuthStorage.create(path.join(agentDir, "auth.json"));
+  const modelRegistry = ModelRegistry.create(
+    authStorage,
+    path.join(agentDir, "models.json"),
+  );
+  let model = modelRegistry.find(provider, modelId);
+  if (!model && provider === "coding-relay") {
+    const template = modelRegistry
+      .getAll()
+      .find(
+        (candidate) =>
+          candidate.provider === provider &&
+          modelRegistry.hasConfiguredAuth(candidate),
+      );
+    if (template) {
+      model = { ...template, id: modelId, name: modelId };
+    }
+  }
+  if (!model || !modelRegistry.hasConfiguredAuth(model)) {
+    throw new Error(`requested model unavailable: ${provider}/${modelId}`);
+  }
+  return { model, modelRegistry };
+}
 
 const SYSTEM_PROMPT =
   "You are a Call of Cthulhu INVESTIGATOR player at a virtual table. " +
@@ -256,6 +283,23 @@ function extractAssistantProse(messages) {
   return "";
 }
 
+function extractAssistantError(messages) {
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (
+      msg &&
+      msg.role === "assistant" &&
+      msg.stopReason === "error" &&
+      typeof msg.errorMessage === "string" &&
+      msg.errorMessage.trim()
+    ) {
+      return msg.errorMessage.trim();
+    }
+  }
+  return undefined;
+}
+
 function selectedModelIdentity(session) {
   const model = session && session.model;
   if (
@@ -454,8 +498,16 @@ export async function runPlayerTurn(request, serverState = null) {
   });
   if (!session) {
     await loader.reload();
+    const provider = process.env.COC_PLAYER_MODEL_PROVIDER || "coding-relay";
+    const modelId = process.env.COC_PLAYER_MODEL_ID || "gpt-5.6-luna";
+    const { model, modelRegistry } = resolveRequestedModel({
+      agentDir,
+      provider,
+      modelId,
+    });
     const created = await createAgentSession({
       cwd, agentDir, tools: ["coc_player_action"], customTools: [tool],
+      model, modelRegistry,
       resourceLoader: loader, sessionManager: SessionManager.inMemory(cwd),
     });
     session = created.session;
@@ -467,6 +519,7 @@ export async function runPlayerTurn(request, serverState = null) {
   }
 
   let modelIdentity;
+  let modelError;
 
   try {
     session.subscribe((event) => {
@@ -489,6 +542,7 @@ export async function runPlayerTurn(request, serverState = null) {
     if (!capture.assistantProse) {
       capture.assistantProse = extractAssistantProse(session.messages);
     }
+    modelError = extractAssistantError(session.messages);
     modelIdentity = selectedModelIdentity(session);
   } finally {
     if (ownsSession && !serverState) session.dispose();
@@ -502,6 +556,10 @@ export async function runPlayerTurn(request, serverState = null) {
       ok: false,
       error: capture.error || "coc_player_action invoked but produced no result",
     };
+  }
+
+  if (modelError) {
+    return { ok: false, error: modelError };
   }
 
   if (pendingChoice && pendingChoice.responder === "player") {

@@ -19,9 +19,11 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import path from "node:path";
 import {
+  AuthStorage,
   createAgentSession,
   createExtensionRuntime,
   DefaultResourceLoader,
+  ModelRegistry,
   SessionManager,
   defineTool,
   getAgentDir,
@@ -37,6 +39,31 @@ const { Type } = require("typebox");
 
 const PROSE_DEGRADE_NOTE =
   "narrator_missing_tool_use: model returned prose without coc_keeper_narration";
+
+export function resolveRequestedModel({ agentDir, provider, modelId }) {
+  const authStorage = AuthStorage.create(path.join(agentDir, "auth.json"));
+  const modelRegistry = ModelRegistry.create(
+    authStorage,
+    path.join(agentDir, "models.json"),
+  );
+  let model = modelRegistry.find(provider, modelId);
+  if (!model && provider === "coding-relay") {
+    const template = modelRegistry
+      .getAll()
+      .find(
+        (candidate) =>
+          candidate.provider === provider &&
+          modelRegistry.hasConfiguredAuth(candidate),
+      );
+    if (template) {
+      model = { ...template, id: modelId, name: modelId };
+    }
+  }
+  if (!model || !modelRegistry.hasConfiguredAuth(model)) {
+    throw new Error(`requested model unavailable: ${provider}/${modelId}`);
+  }
+  return { model, modelRegistry };
+}
 
 const SYSTEM_PROMPT =
   "你是跑团桌上的 KP 叙述者（Call of Cthulhu Keeper narrator）。" +
@@ -585,8 +612,16 @@ export async function runNarration(request, serverState = null) {
   let ownsSession = false;
   if (!session) {
     await loader.reload();
+    const provider = process.env.COC_NARRATOR_MODEL_PROVIDER || "zhipu-coding";
+    const modelId = process.env.COC_NARRATOR_MODEL_ID || "glm-5.2";
+    const { model, modelRegistry } = resolveRequestedModel({
+      agentDir,
+      provider,
+      modelId,
+    });
     const created = await createAgentSession({
       cwd, agentDir, tools: ["coc_keeper_narration"], customTools: [tool],
+      model, modelRegistry,
       resourceLoader: loader, sessionManager: SessionManager.inMemory(cwd),
     });
     session = created.session;
